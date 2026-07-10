@@ -845,7 +845,8 @@ impl PgFinancialStore {
                     command.purchase_request_id,
                     command.trace.clone(),
                     command.occurred_at,
-                )?;
+                )?
+                .with_org(org);
 
                 if let Some(equipment_id) = row.equipment_id {
                     let ledger_command = AppendCostLedgerEntryCommand {
@@ -1231,6 +1232,16 @@ async fn append_cost_ledger_entry_tx(
     purchase_request_id: Option<PurchaseRequestId>,
     org_uuid: uuid::Uuid,
 ) -> Result<(CostLedgerEntrySummary, AuditEvent), PgFinancialError> {
+    // Freeze-window gate: EVERY accounting ledger write (manual admin entry and
+    // purchase execution both funnel through here) must land outside a locked
+    // accounting period. Fails closed with a 409-mapping conflict.
+    mnt_platform_db::assert_period_open(
+        tx,
+        mnt_platform_db::PeriodLockDomain::Accounting,
+        command.occurred_at.date(),
+    )
+    .await
+    .map_err(PgFinancialError::Domain)?;
     let locked = equipment_economics_tx(tx, command.equipment_id).await?;
     ensure_branch(locked.branch_id, command.branch_id)?;
     if let Some(work_order_id) = command.work_order_id {
@@ -1302,7 +1313,8 @@ async fn append_cost_ledger_entry_tx(
         command.trace,
         command.occurred_at,
     )?
-    .with_snapshots(Some(before), Some(after));
+    .with_snapshots(Some(before), Some(after))
+    .with_org(OrgId::from_uuid(org_uuid));
     let entry = cost_ledger_entry_by_id_tx(tx, entry_id).await?;
     Ok((entry, event))
 }
@@ -2049,6 +2061,7 @@ async fn insert_expense_ledger_tx(
         TraceContext::generate(),
         input.occurred_at,
     )
+    .map(|event| event.with_org(OrgId::from_uuid(input.org_uuid)))
     .map_err(PgFinancialError::from)
 }
 
@@ -2669,11 +2682,7 @@ async fn check_self_approval_tx(
 
     // Allowed exception: 대표 or SUPER_ADMIN self-approving.
     // Write a governance finding so this is audited and visible on the
-    // integrity dashboard. The finding is idempotent (ON CONFLICT DO UPDATE).
-    let finding_id = uuid::Uuid::new_v4();
-    let detector_id = "anomaly.self_approval";
-    let entity_type = "financial_purchase_request";
-    let entity_id = purchase_request_id.as_uuid().to_string();
+    // integrity dashboard, via the shared upsert owned by the integrity crate.
     let exemption_reason = if is_super_admin {
         "super_admin_exempt"
     } else {
@@ -2686,33 +2695,20 @@ async fn check_self_approval_tx(
         "approver": actor_uuid.to_string(),
         "exemption_reason": exemption_reason,
     });
-    let now = OffsetDateTime::now_utc();
-
-    sqlx::query(
-        r#"
-        INSERT INTO governance_findings
-            (id, org_id, detector_id, entity_type, entity_id,
-             subject_user_id, score, severity, evidence, status, detected_at, created_at, updated_at)
-        VALUES
-            ($1, $2, $3, $4, $5, $6, 1.0, 'HIGH', $7, 'OPEN', $8, $8, $8)
-        ON CONFLICT (org_id, detector_id, entity_type, entity_id) DO UPDATE
-            SET score = EXCLUDED.score,
-                severity = EXCLUDED.severity,
-                evidence = EXCLUDED.evidence,
-                status = 'OPEN',
-                detected_at = EXCLUDED.detected_at,
-                updated_at = EXCLUDED.updated_at
-        "#,
+    let entity_id = purchase_request_id.as_uuid().to_string();
+    mnt_platform_db::upsert_open_finding_tx(
+        tx,
+        OrgId::from_uuid(org_uuid),
+        mnt_platform_db::OpenFinding {
+            detector_id: "anomaly.self_approval",
+            entity_type: "financial_purchase_request",
+            entity_id: &entity_id,
+            subject_user_id: Some(actor_uuid),
+            score: 1.0,
+            severity: "HIGH",
+            evidence,
+        },
     )
-    .bind(finding_id)
-    .bind(org_uuid)
-    .bind(detector_id)
-    .bind(entity_type)
-    .bind(entity_id)
-    .bind(actor_uuid)
-    .bind(sqlx::types::Json(&evidence))
-    .bind(now)
-    .execute(tx.as_mut())
     .await?;
 
     Ok(())

@@ -33,7 +33,7 @@ import kotlinx.serialization.Contextual
  *
  * @param messageId
  * @param threadId
- * @param acked
+ * @param acked Whether the caller's ack is present after the toggle.
  * @param ackCount
  */
 @Serializable
@@ -46,6 +46,7 @@ data class MessengerAckSummary (
     @Contextual @SerialName(value = "thread_id")
     val threadId: java.util.UUID,
 
+    /* Whether the caller's ack is present after the toggle. */
     @SerialName(value = "acked")
     val acked: kotlin.Boolean,
 

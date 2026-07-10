@@ -510,6 +510,30 @@
       "groupScopeStory": "Group admin sees consolidated assets and selected subsidiaries; KNL operator can operate affiliate-owned equipment by policy"
     },
     {
+      "rawPath": "/overview",
+      "canonicalPath": "/overview",
+      "epRows": [
+        "EP-002",
+        "EP-013"
+      ],
+      "personas": [
+        "employee",
+        "manager",
+        "executive",
+        "group-admin"
+      ],
+      "roleStoryEvidence": "role-aware unified action inbox (UI-M3 replaces /work-hub); OverviewPage.test.tsx + TodayPanel.test.tsx assert actionable queues and no reported text wall; G007 action inbox evidence",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
+      "ownerLane": "G005 workflow builder, approvals, Work Hub, planned work, notification, and action lifecycle lane",
+      "dataClass": "workflow definition, workflow run, work order, approval decision, evidence attachment, notification, audit metadata",
+      "sourceObject": "workflow definition/run, approval item, work order, planned task, action inbox item, or evidence object, messenger thread, mail notification, or collaboration badge",
+      "lifecycleStates": "draft, simulated, published, submitted, pending approval, approved, rejected, terminal removed, badge updated",
+      "e2eSpec": "Required browser story: workflow build/simulate/publish then submit/approve/reject with comment/evidence and queue updates",
+      "denialScopeTest": "Unauthorized workflow publish/approval denied; missing payment line/source object rejected; passkey step-up enforced",
+      "screenshotTraceEvidence": "Pending G003/G005 workflow trace and screenshots; prior evidence is not enough for final maturity claim",
+      "groupScopeStory": "Group admin must view consolidated action queues and scope into each subsidiary where workflow policy grants access"
+    },
+    {
       "rawPath": "/work-hub",
       "canonicalPath": "/work-hub",
       "epRows": [
@@ -522,16 +546,16 @@
         "executive",
         "group-admin"
       ],
-      "roleStoryEvidence": "role-aware day/week action inbox; WorkHubPage.test.tsx asserts actionable queues and no reported text wall; G007 action inbox evidence",
-      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row",
-      "ownerLane": "G005 workflow builder, approvals, Work Hub, planned work, notification, and action lifecycle lane",
-      "dataClass": "workflow definition, workflow run, work order, approval decision, evidence attachment, notification, audit metadata",
-      "sourceObject": "workflow definition/run, approval item, work order, planned task, action inbox item, or evidence object, messenger thread, mail notification, or collaboration badge",
-      "lifecycleStates": "draft, simulated, published, submitted, pending approval, approved, rejected, terminal removed, badge updated",
-      "e2eSpec": "Required browser story: workflow build/simulate/publish then submit/approve/reject with comment/evidence and queue updates",
-      "denialScopeTest": "Unauthorized workflow publish/approval denied; missing payment line/source object rejected; passkey step-up enforced",
-      "screenshotTraceEvidence": "Pending G003/G005 workflow trace and screenshots; prior evidence is not enough for final maturity claim",
-      "groupScopeStory": "Group admin must view consolidated action queues and scope into each subsidiary where workflow policy grants access"
+      "roleStoryEvidence": "legacy bookmark-compat redirect only (UI-M3); AppRouter.tsx sends /work-hub straight to /overview, no page renders here",
+      "accessibilityEvidence": "Navigate-only route, no DOM to violate; a11y evidence lives on the /overview row this redirect targets",
+      "ownerLane": "unowned infrastructure redirect (no content lane); the G005 action inbox it once served now lives at /overview",
+      "dataClass": "no data class; pure client-side redirect to /overview carries no domain payload",
+      "sourceObject": "none; route renders <Navigate to=\"/overview\" replace /> with no source object fetch",
+      "lifecycleStates": "n/a; a redirect has no lifecycle states of its own",
+      "e2eSpec": "Required browser story: post-login landing and stale /work-hub bookmarks both resolve to /overview (통합 개요) heading in a real browser (admin-16-auth-08-recovery.spec.ts, admin-21-nav-fabric.spec.ts)",
+      "denialScopeTest": "n/a; redirect carries no authz decision, /overview enforces access after landing",
+      "screenshotTraceEvidence": "n/a; a pure redirect has no visual surface of its own to trace; see the /overview row for live-closure evidence",
+      "groupScopeStory": "Redirects unconditionally; group scope is enforced by /overview after the bounce"
     },
     {
       "rawPath": "/approvals",
@@ -1358,6 +1382,102 @@
       "denialScopeTest": "Employee data cannot map to machinery/site schemas; PII/payroll/location fields require domain permissions and masking",
       "screenshotTraceEvidence": "Pending G003/G008 import/catalog screenshot and trace; raw-cell preservation proof required for data claims",
       "groupScopeStory": "Group data admin can standardize schemas across subsidiaries while apply permissions remain domain/org scoped"
+    },
+    {
+      "rawPath": "/console-dev/window",
+      "canonicalPath": "/console-dev/window",
+      "epRows": [
+        "EP-001",
+        "EP-002"
+      ],
+      "personas": [
+        "sales-admin",
+        "data-steward",
+        "asset-manager"
+      ],
+      "roleStoryEvidence": "Dev-only capture harness for the P0.2 window/pin engine (charter §3 P0.2): NOT a product surface — it mounts the standalone primitive so the fidelity rig can screenshot the four states in isolation before the engine is wired into a screen (P0.1 shell owns integration)",
+      "accessibilityEvidence": "Engine controls are real <button>s (pin/minimize/close) with Korean aria-labels from ko.console.window and are keyboard-operable; the drag/dblclick gestures have button equivalents so no interaction is pointer-only; per-screen axe coverage arrives when a screen hosts the engine",
+      "ownerLane": "feat/console-cc-p0-window P0.2 lane — engine + hooks under web/src/console/window/** behind the check-console-purity zero-visual-inheritance guard",
+      "dataClass": "none — the harness renders demo cards with no backend reads; the only real backend touch is the per-user layout blob (opaque frontend JSON) via GET/PUT /api/v1/me/workspace, owner-scoped by RLS",
+      "sourceObject": "none — the harness cards are demo fixtures, not resolved objects; the engine is object-agnostic and hosts whatever body a screen renders into it in later slices",
+      "lifecycleStates": "The four window states the harness exercises: grid (default zone), pin-split (space-reserving dock), popout-float (free overlay), tray-minimize (docked chip) — captured to e2e/.artifacts/fidelity/window-<state>.png",
+      "e2eSpec": "Required browser story: e2e/specs/admin-29-console-window.spec.ts pins a card, waits for the debounced PUT /api/v1/me/workspace, reloads, and asserts the pin is restored from the server layout (not localStorage)",
+      "denialScopeTest": "Behind ProtectedRoute like /console; the workspace endpoint is owner-only (RLS on me_workspace_layouts, verified as mnt_rt in backend/crates/identity/adapter-postgres/tests/me_workspace_layouts_rls.rs) so no user can read or write another user's layout",
+      "screenshotTraceEvidence": "e2e/fidelity/window-states.mjs captures the four states to e2e/.artifacts/fidelity/window-<state>.png with a window-states.manifest.json, at a fixed 1440x900 light-theme reduced-motion viewport",
+      "groupScopeStory": "none — the dev harness has no org/group scope surface; it renders demo cards only and the persisted layout is per-user, not per-scope"
+    },
+    {
+      "rawPath": "/console/*",
+      "canonicalPath": "/console",
+      "epRows": [
+        "EP-001",
+        "EP-002"
+      ],
+      "personas": [
+        "employee",
+        "manager",
+        "executive",
+        "group-admin",
+        "platform-admin"
+      ],
+      "roleStoryEvidence": "Catch-all under /console so prototype-style state.screen navigation lives in one route (charter D1); same ConsoleApp/ProtectedRoute gate as /console, scaffold-only in P0.0",
+      "accessibilityEvidence": "P0.0 scaffold renders no interactive chrome yet; axe/keyboard coverage is asserted per screen from P0.1 onward via e2e/fixtures/ux.ts assertNoAxeViolations",
+      "ownerLane": "feat/console-cc P0.0 scaffold lane — verbatim tokens (web/src/console/tokens.css) + zero-visual-inheritance guard (web/scripts/check-console-purity.mjs)",
+      "dataClass": "none in P0.0 — the scaffold renders an empty themed viewport and makes no backend reads; per-screen data classes are declared as each screen slice binds its real API",
+      "sourceObject": "none in P0.0 — no object is resolved yet; the state.screen-driven navigation and object substrate arrive with the P0.1 shell and later screen slices",
+      "lifecycleStates": "P0.0 scaffold has a single state (empty themed viewport); window/pin engine states (grid/pin-split/popout/tray) arrive in P0.2",
+      "e2eSpec": "Required browser story: fidelity dual-capture rig (e2e/fidelity/capture.mjs) renders the dc.html reference + built /console at 1440px, captures both screenshots, and records consoleBg values in the manifest for manual/visual-verdict comparison; per-screen persona browser stories arrive with each screen slice",
+      "denialScopeTest": "ProtectedRoute + hasGrantedConsoleAccess gate /console/* like all authenticated routes; PBAC deny-by-omission scope tests arrive with the P0.1 nav filter and per-screen slices",
+      "screenshotTraceEvidence": "Fidelity rig manifest (e2e/.artifacts/fidelity/manifest.json) captures the reference/build screenshot pair and records sampled console backgrounds from the reference .console selector and built [data-console-root] selector for visual-verdict comparison",
+      "groupScopeStory": "Scope switcher (그룹 전체 = union of authorized 법인) arrives in P0.1; P0.0 only establishes the authenticated viewport shell with no cross-org surface yet"
+    },
+    {
+      "rawPath": "/console-dev/module",
+      "canonicalPath": "/console-dev/module",
+      "epRows": [
+        "EP-001",
+        "EP-002"
+      ],
+      "personas": [
+        "employee",
+        "manager",
+        "executive",
+        "platform-admin"
+      ],
+      "roleStoryEvidence": "Dev harness (not a product route) for the P0.4 config-driven generic module template; renders one ModuleScreen against a live typed-client read (work orders default, ?config=support switches configs) proving the same component drives two domains; ModuleScreen.test.tsx + ModuleDemo.test.tsx + moduleConfigs.test.ts",
+      "accessibilityEvidence": "List/board region is keyboard-operable (J/K/Enter, role=grid, tabIndex), detail panel has a labelled close control; inline var(--*) token styling only (check-console-purity) and ko.ts strings (check-ui-strings); axe per screen arrives when the template is hosted in the P0.1 shell",
+      "ownerLane": "feat/console-cc P0.4 generic module template lane — web/src/console/module/ (config.ts + ModuleScreen.tsx + moduleConfigs.ts) driven by one ModuleConfig object, PolicyGated affordances",
+      "dataClass": "branch/RLS-scoped work-order and support-ticket operational rows read through the shared typed client; no new data class — reuses the existing work-order and support endpoints",
+      "sourceObject": "work-order object (WO-) and support-ticket object rendered through the generic module template; row detail resolves the object's own kv/link/action set from the config",
+      "lifecycleStates": "loading, error-with-retry, empty, populated list, kanban lanes (work orders), detail-open, and policy-denied (action affordance omitted) states are all rendered by ModuleScreen",
+      "e2eSpec": "Required browser story: dev harness renders the generic module template against a live backend read, the operator navigates rows with J/K/Enter, opens a detail panel, and a policy-gated primary action is omitted for a persona without the grant; product-route persona stories arrive when the template is hosted by a real screen slice (P1+)",
+      "denialScopeTest": "ProtectedRoute gates /console-dev/module like all authenticated routes; every rendered affordance routes through the PolicyGated primitive (deny-by-omission), and the detail action omission is asserted in ModuleScreen.test.tsx",
+      "screenshotTraceEvidence": "MOD_SCREENS is a post-snapshot surface with no dc.html region (charter D2 RATIFIED 2026-07-09), so axis-1 is satisfied build-side: `capture.mjs --screen=module` navigates /console-dev/module to each state (list, detail-open, lanes) and commits baseline PNGs under e2e/fidelity/baseline/module/; the §4.7 grammar checklist (cited item-by-item in the PR body) + ModuleDemo/ModuleScreen component-test assertions complete the axis. The reference (prototype) side runs retroactively when a later dc.html sync delivers the surface",
+      "groupScopeStory": "The dev harness reads within the caller's branch/RLS scope; the 그룹 전체 union scope selector is owned by the P0.1 shell and layers on when the template is hosted by a product screen"
+    },
+    {
+      "rawPath": "/console-dev/lifecycle",
+      "canonicalPath": "/console-dev/lifecycle",
+      "epRows": [
+        "EP-001",
+        "EP-002"
+      ],
+      "personas": [
+        "manager",
+        "executive",
+        "group-admin",
+        "platform-admin"
+      ],
+      "roleStoryEvidence": "Dev-only P0.5 capture harness for the standalone lifecycle card (charter §3 P0.5). Shell-less like /console under ProtectedRoute; ?state= renders deterministic fixtures for the component-state captures, ?live=1 mounts the real LifecycleCard bound to a document object for real-backend driving. Not a product surface.",
+      "accessibilityEvidence": "Native controls only (button/input[type=text|date|checkbox]); the stepper is an ordered list with an aria-label; axe coverage is asserted per screen when a lifecycle-bearing screen hosts the card (P3, e2e/fixtures/ux.ts assertNoAxeViolations)",
+      "ownerLane": "feat/console-cc-p0-lifecycle P0.5 lane — LifecycleCard under web/src/console/lifecycle/** behind check-console-purity; every affordance routed through web/src/console/policy PolicyGated",
+      "dataClass": "object lifecycle state, append-only transition log, legal-hold/retention flags — read/written via the real BE-LC REST surface (#211), org-wide LifecycleManage authority, every mutation audited server-side",
+      "sourceObject": "object_lifecycles / object_lifecycle_transitions rows for a document object, resolved by GET /api/v1/lifecycles/{objectType}/{objectId}",
+      "lifecycleStates": "draft, submitted, approved, active, revised, archived, disposed (seeded document FSM, migration 0107); card states captured: stepper mid-flow, version history, dispose gate blocked, as-of read-only lens",
+      "e2eSpec": "Required browser story: the fidelity component-state rig (e2e/fidelity/lifecycle-states.mjs) captures the four lifecycle-card states (stepper mid-flow, version history, dispose gate blocked, as-of read-only lens) at /console-dev/lifecycle at 1440px with animations disabled; the REAL BE-LC endpoints are driven end-to-end in web/src/console/lifecycle/LifecycleCard.test.tsx (msw: GET lifecycle on mount renders the stepper, POST .../transition with the typed {toState,reason} body reflects the server's updated state, POST .../hold sends {legalHold,retentionUntil}). No prototype dual-capture — the generic lifecycle engine is POST-SNAPSHOT (prototype-anatomy 03-systems §7), absent from the Jul-4 dc.html; the real-backend persona browser story arrives when a lifecycle-bearing screen hosts the card (P3).",
+      "denialScopeTest": "ProtectedRoute gates the route; org-wide LifecycleManage gates every transition/hold server-side, and the console PolicyGate omits the transition + hold affordances entirely (deny-by-omission) for a persona without lifecycle authority — asserted in LifecycleCard.test.tsx (RECEPTIONIST) and LifecycleCardView.test.tsx (denying decider)",
+      "screenshotTraceEvidence": "Component-state manifest (e2e/.artifacts/fidelity/lifecycle-states.manifest.json) records the four per-state PNGs; the dispose gate mirrors the server's fail-closed legal-hold/retention rule",
+      "groupScopeStory": "Lifecycle authority is org-wide LifecycleManage; the card carries no cross-org surface of its own — group scope is resolved by the hosting screen's scope switcher (P1+)"
     }
   ],
   "epEvidence": [

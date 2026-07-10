@@ -8,6 +8,7 @@ use http::{Request, StatusCode, header};
 use mnt_kernel_core::{AuditAction, AuditEvent, OrgId, TraceContext, UserId};
 use mnt_platform_auth::{AccessTokenInput, JwtIssuer, JwtSettings, JwtVerifier};
 use mnt_platform_db::{DbError, with_audit};
+use mnt_platform_test_support::runtime_role_pool;
 use mnt_support_adapter_postgres::{MAX_BODY_CHARS, PgSupportStore};
 use mnt_support_rest::{SupportRestState, router};
 use p256::ecdsa::SigningKey;
@@ -15,23 +16,28 @@ use p256::elliptic_curve::rand_core::OsRng;
 use p256::pkcs8::{EncodePrivateKey, EncodePublicKey, LineEnding};
 use serde_json::Value;
 use sqlx::PgPool;
-use sqlx::postgres::PgPoolOptions;
 use time::{Duration, OffsetDateTime};
 use tower::ServiceExt;
 
 const TEST_ISSUER: &str = "mnt-platform-auth";
 const TEST_AUDIENCE: &str = "mnt-api";
 
-fn build(pool: PgPool) -> Router {
-    build_with_public_intake_org(pool, OrgId::knl())
+async fn build(owner_pool: &PgPool) -> Router {
+    build_with_public_intake_org(owner_pool, OrgId::knl()).await
 }
 
-fn build_with_public_intake_org(pool: PgPool, public_intake_org: OrgId) -> Router {
+async fn build_with_public_intake_org(owner_pool: &PgPool, public_intake_org: OrgId) -> Router {
     // No JWT verifier and no push notifier: the intake endpoint is
-    // unauthenticated, and notifications degrade gracefully.
+    // unauthenticated, and notifications degrade gracefully. Exercise the app
+    // with the production-like runtime role so FORCE RLS (not a BYPASSRLS test
+    // owner) governs tenant writes/reads at the REST surface.
     router(
-        SupportRestState::new(PgSupportStore::new(pool), None, None)
-            .with_storefront_org(public_intake_org),
+        SupportRestState::new(
+            PgSupportStore::new(runtime_role_pool(owner_pool).await),
+            None,
+            None,
+        )
+        .with_storefront_org(public_intake_org),
     )
 }
 
@@ -58,7 +64,7 @@ fn intake_request(ip: &str) -> Request<Body> {
 async fn intake_writes_under_configured_public_org(pool: PgPool) {
     let public_org = OrgId::new();
     seed_org(&pool, public_org).await;
-    let app = build_with_public_intake_org(pool.clone(), public_org);
+    let app = build_with_public_intake_org(&pool, public_org).await;
 
     let response = app
         .clone()
@@ -194,7 +200,7 @@ async fn intake_written_to_configured_org_is_visible_only_to_same_org_staff(pool
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn intake_succeeds_then_rate_limits_past_cap(pool: PgPool) {
     mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
-        let app = build(pool.clone());
+        let app = build(&pool).await;
         let ip = "203.0.113.42";
         // Per-IP cap is 5; the 6th request in the window must be 429.
         let cap = 5;
@@ -225,7 +231,7 @@ async fn intake_succeeds_then_rate_limits_past_cap(pool: PgPool) {
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn intake_rejects_missing_fields_generically(pool: PgPool) {
     mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
-        let app = build(pool);
+        let app = build(&pool).await;
         let body = serde_json::json!({
             "category": "OTHER",
             "priority": "LOW",
@@ -251,7 +257,7 @@ async fn intake_rejects_missing_fields_generically(pool: PgPool) {
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn intake_rejects_over_length_fields_generically(pool: PgPool) {
     mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
-        let app = build(pool);
+        let app = build(&pool).await;
         // One scalar past the store-side body bound: must be rejected at the edge
         // with a generic 400, before any persistence.
         let body = serde_json::json!({
@@ -334,21 +340,6 @@ async fn seed_staff_user(pool: &PgPool, org: OrgId, display_name: &str) -> UserI
     .await
     .unwrap();
     user
-}
-
-async fn runtime_role_pool(owner_pool: &PgPool) -> PgPool {
-    let options = owner_pool.connect_options().as_ref().clone();
-    PgPoolOptions::new()
-        .max_connections(4)
-        .after_connect(|conn, _meta| {
-            Box::pin(async move {
-                sqlx::query("SET ROLE mnt_rt").execute(conn).await?;
-                Ok(())
-            })
-        })
-        .connect_with(options)
-        .await
-        .unwrap()
 }
 
 fn jwt_settings() -> JwtSettings {

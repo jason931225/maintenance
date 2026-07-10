@@ -234,7 +234,7 @@ describe("AppShell navigation fabric", () => {
     const messenger = within(nav).getByRole("link", { name: /메신저/ });
     const mail = within(nav).getByRole("link", { name: /메일함/ });
     const support = within(nav).getByRole("link", { name: /고객지원/ });
-    const approvals = within(nav).getByRole("link", { name: /전자결제/ });
+    const approvals = within(nav).getByRole("link", { name: /전자결재시스템/ });
 
     expect(await within(messenger).findByText("5")).toBeVisible();
     expect(await within(mail).findByText("5")).toBeVisible();

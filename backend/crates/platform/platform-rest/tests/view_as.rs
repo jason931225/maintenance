@@ -332,6 +332,30 @@ async fn set_org_status(owner_pool: &PgPool, org_id: Uuid, status: &str) {
     tx.commit().await.unwrap();
 }
 
+/// Give a tenant a non-zero per-org policy revision (owner pool, RLS off), so a
+/// minted token's sourced `authz_policy_version` is provably non-zero rather than
+/// the absent-row baseline. Mirrors the `policy_versions` shape (0065).
+async fn set_policy_version(owner_pool: &PgPool, org_id: Uuid, version: i64) {
+    let mut tx = owner_pool.begin().await.unwrap();
+    sqlx::query("SET LOCAL row_security = off")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query(
+        r#"
+        INSERT INTO policy_versions (org_id, version, updated_at)
+        VALUES ($1, $2, now())
+        ON CONFLICT (org_id) DO UPDATE SET version = EXCLUDED.version, updated_at = now()
+        "#,
+    )
+    .bind(org_id)
+    .bind(version)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+}
+
 /// Count audit rows for one action AND one actor (owner pool, RLS off).
 async fn audit_count(owner_pool: &PgPool, action: &str, actor: UserId) -> i64 {
     let mut tx = owner_pool.begin().await.unwrap();
@@ -758,4 +782,71 @@ async fn tenant_context_exit_audits_and_rejects_tenant_token(owner_pool: PgPool)
         StatusCode::FORBIDDEN,
         "a tenant token cannot EXIT tenant context"
     );
+}
+
+// ===========================================================================
+// Cedar/PBAC freshness hardening: BOTH platform mints (read-only view-as and
+// writable tenant-context) now stamp REAL subject freshness for the token's own
+// (target org, operator) instead of a hardcoded 0, sourced under mnt_rt RLS
+// through the real HTTP handlers. The target org's policy_version is real; the
+// operator has no `users` row in the target tenant, so subject/session are the
+// absent-row 0 baseline (the true DB-current value the guard also reads).
+// ===========================================================================
+#[sqlx::test(migrations = "../db/migrations")]
+async fn start_mints_carry_real_policy_freshness(owner_pool: PgPool) {
+    let harness = Harness::new(&owner_pool).await;
+    let operator = seed_platform_admin(&owner_pool).await;
+    let target = seed_tenant(&owner_pool, "acme", 1).await;
+    // Target tenant has a real custom-policy revision (version 7).
+    set_policy_version(&owner_pool, target, 7).await;
+    // A second target with NO policy_versions row proves the absent baseline.
+    let fresh_target = seed_tenant(&owner_pool, "globex", 1).await;
+    let platform = harness.platform_service();
+    let platform_token = harness.token(operator, OrgId::platform(), true, "SUPER_ADMIN");
+
+    // (1) read-only view-as START carries the real policy_version.
+    let (status, body) = start_view_as(&platform, &platform_token, target, "ADMIN").await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+    let claims = harness
+        .verifier()
+        .verify_access_token(body["access_token"].as_str().unwrap())
+        .unwrap();
+    assert_eq!(
+        claims.authz_policy_version, 7,
+        "view-as token must carry the target org's real policy_version, not 0"
+    );
+    assert_eq!(
+        claims.authz_subject_version, 0,
+        "operator has no subject row in the target tenant → absent 0 baseline"
+    );
+    assert_eq!(claims.session_generation, 0);
+
+    // (2) writable tenant-context START carries the same real policy_version.
+    let (status, body) = start_tenant_context(&platform, &platform_token, target).await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+    let claims = harness
+        .verifier()
+        .verify_access_token(body["access_token"].as_str().unwrap())
+        .unwrap();
+    assert_eq!(
+        claims.authz_policy_version, 7,
+        "tenant-context token must carry the target org's real policy_version, not 0"
+    );
+    assert_eq!(claims.authz_subject_version, 0);
+    assert_eq!(claims.session_generation, 0);
+
+    // (3) a target with no policy revision still yields the safe 0 baseline — the
+    // fix sources the TRUE DB-current value, it does not invent a non-zero.
+    let (status, body) = start_tenant_context(&platform, &platform_token, fresh_target).await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+    let claims = harness
+        .verifier()
+        .verify_access_token(body["access_token"].as_str().unwrap())
+        .unwrap();
+    assert_eq!(
+        claims.authz_policy_version, 0,
+        "an org with no policy_versions row reads the absent 0 baseline"
+    );
+    assert_eq!(claims.authz_subject_version, 0);
+    assert_eq!(claims.session_generation, 0);
 }

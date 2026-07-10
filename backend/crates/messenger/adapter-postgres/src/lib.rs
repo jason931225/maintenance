@@ -1,11 +1,12 @@
 //! Postgres messenger adapter.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use mnt_kernel_core::{
-    BranchId, BranchScope, ErrorKind, EvidenceId, KernelError, MessageId, ThreadId, UserId,
-    WorkOrderId,
+    BranchId, BranchScope, ErrorKind, EvidenceId, KernelError, MessageId, ThreadId, TraceContext,
+    UserId, WorkOrderId,
 };
 use mnt_messenger_application::{
     AckSummary, CreateThreadCommand, EnsureWorkOrderThreadCommand, JoinThreadCommand,
@@ -15,7 +16,12 @@ use mnt_messenger_application::{
     SearchMessagesQuery, SendMessageCommand, SetThreadMuteCommand, ThreadMuteSummary,
     ThreadPresenceQuery, ThreadSummary, ToggleAckCommand, messenger_audit_event,
 };
-use mnt_messenger_domain::{MessageBody, ThreadKind, ThreadVisibility, presence_status_for_age};
+use mnt_messenger_domain::{
+    MessageBody, ThreadKind, ThreadVisibility, extract_mention_user_ids, extract_object_code_refs,
+    presence_status_for_age,
+};
+use mnt_notifications_application::{EmitNotificationCommand, NotificationSink};
+use mnt_notifications_domain::NotificationLink;
 use mnt_platform_db::{DbError, with_audit, with_org_conn};
 use mnt_platform_request_context::current_org;
 use mnt_workorder_application::{
@@ -58,6 +64,7 @@ impl From<sqlx::Error> for PgMessengerError {
 pub struct PgMessengerStore {
     pool: PgPool,
     notifier: Option<Arc<dyn MessageNotifier>>,
+    notification_sink: Option<Arc<dyn NotificationSink>>,
 }
 
 impl std::fmt::Debug for PgMessengerStore {
@@ -65,6 +72,7 @@ impl std::fmt::Debug for PgMessengerStore {
         f.debug_struct("PgMessengerStore")
             .field("pool", &self.pool)
             .field("has_notifier", &self.notifier.is_some())
+            .field("has_notification_sink", &self.notification_sink.is_some())
             .finish()
     }
 }
@@ -75,12 +83,21 @@ impl PgMessengerStore {
         Self {
             pool,
             notifier: None,
+            notification_sink: None,
         }
     }
 
     #[must_use]
     pub fn with_notifier(mut self, notifier: Arc<dyn MessageNotifier>) -> Self {
         self.notifier = Some(notifier);
+        self
+    }
+
+    /// Wire the notification-center write port so an `@`-mention creates a
+    /// recipient notification row (post-commit, best-effort).
+    #[must_use]
+    pub fn with_notification_sink(mut self, sink: Arc<dyn NotificationSink>) -> Self {
+        self.notification_sink = Some(sink);
         self
     }
 
@@ -294,6 +311,14 @@ impl PgMessengerStore {
                     .execute(tx.as_mut())
                     .await?;
 
+                // Parse-on-write: persist `#`-object-code refs so the object's
+                // inbound "referenced by" chain / graph traversal has a real
+                // edge. Only tokens whose prefix is a known object_types code
+                // prefix are stored (drops `#hashtag` noise); the target is
+                // resolved under policy at read time. `#`-refs never notify
+                // (DESIGN §4.7-7). Written in-tx so refs commit with the message.
+                persist_message_refs(tx, org_uuid, message_id, body.as_str()).await?;
+
                 // Presence read model: sending a message is a real activity
                 // signal (not a heartbeat), so bump the sender's last_activity.
                 upsert_presence_tx(tx, org_uuid, actor, command.occurred_at).await?;
@@ -312,6 +337,57 @@ impl PgMessengerStore {
                 })
                 .await;
         }
+
+        // DESIGN §4.7-7: an `@`-mention notifies its target; `#`/`!` links do
+        // not. Resolve the body's `@<uuid>` tokens to real thread members (minus
+        // the sender) and emit one notification-center row per recipient — ids /
+        // refs only, no message body (no PII on the wire). Best-effort: the
+        // message is already committed, so a failed emit is logged, not fatal.
+        // The stable dedup key makes a retried emit a no-op.
+        if let Some(sink) = &self.notification_sink {
+            let recipients = match resolve_mention_recipients(
+                &self.pool,
+                summary.thread_id,
+                command.actor,
+                summary.body.as_str(),
+            )
+            .await
+            {
+                Ok(recipients) => recipients,
+                Err(err) => {
+                    tracing::warn!(
+                        message_id = %summary.id,
+                        error = %err,
+                        "messenger mention resolution failed; skipping notifications this send"
+                    );
+                    Vec::new()
+                }
+            };
+            for recipient in recipients {
+                let emit = EmitNotificationCommand {
+                    actor: Some(command.actor),
+                    recipient,
+                    category: "메신저".to_owned(),
+                    text: "메신저에서 회원님을 멘션했습니다".to_owned(),
+                    link: NotificationLink::Object {
+                        kind: "messenger_thread".to_owned(),
+                        id: summary.thread_id.to_string(),
+                    },
+                    dedup_key: Some(format!("msg-mention:{}:{}", summary.id, recipient)),
+                    trace: TraceContext::generate(),
+                    occurred_at: time::OffsetDateTime::now_utc(),
+                };
+                if let Err(err) = sink.emit(emit).await {
+                    tracing::warn!(
+                        message_id = %summary.id,
+                        %recipient,
+                        error = %err,
+                        "messenger mention notification emit failed"
+                    );
+                }
+            }
+        }
+
         Ok(summary)
     }
 
@@ -1153,6 +1229,447 @@ async fn insert_thread_tx(
     Ok(())
 }
 
+/// Resolve which `@`-mentioned users are real, reachable recipients for a
+/// posted message: parsed `@<uuid>` tokens, kept only if they are members of
+/// this thread, with the sender removed (no self-notify). Order follows the
+/// body's first-seen order. Deny-by-omission — a mention of a non-member (or a
+/// nonexistent user) yields nothing, so it neither links nor notifies.
+async fn resolve_mention_recipients(
+    pool: &PgPool,
+    thread_id: ThreadId,
+    actor: UserId,
+    body: &str,
+) -> Result<Vec<UserId>, PgMessengerError> {
+    let mentioned = extract_mention_user_ids(body);
+    if mentioned.is_empty() {
+        return Ok(Vec::new());
+    }
+    let candidate_uuids: Vec<uuid::Uuid> = mentioned
+        .iter()
+        .filter(|id| **id != actor)
+        .map(|id| *id.as_uuid())
+        .collect();
+    if candidate_uuids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let org = current_org().map_err(KernelError::from)?;
+    let member_uuids: std::collections::HashSet<uuid::Uuid> =
+        with_org_conn::<_, _, PgMessengerError>(pool, org, move |tx| {
+            Box::pin(async move {
+                // A member who muted this thread is dropped here, so a mute
+                // suppresses the mention-notification fan-out (the message is
+                // still recorded; only the notification is withheld).
+                let rows = sqlx::query(
+                    r#"
+                    SELECT tm.user_id
+                    FROM messenger_thread_members tm
+                    WHERE tm.thread_id = $1
+                      AND tm.user_id = ANY($2)
+                      AND NOT EXISTS (
+                          SELECT 1 FROM messenger_thread_mutes mu
+                          WHERE mu.thread_id = tm.thread_id
+                            AND mu.user_id = tm.user_id
+                      )
+                    "#,
+                )
+                .bind(*thread_id.as_uuid())
+                .bind(&candidate_uuids)
+                .fetch_all(tx.as_mut())
+                .await?;
+                rows.into_iter()
+                    .map(|row| Ok(row.try_get::<uuid::Uuid, _>("user_id")?))
+                    .collect::<Result<std::collections::HashSet<uuid::Uuid>, PgMessengerError>>()
+            })
+        })
+        .await?;
+    Ok(mentioned
+        .into_iter()
+        // `member_uuids` is a subset of `candidate_uuids`, which already
+        // excluded `actor` above — so membership alone enforces no self-notify.
+        .filter(|id| member_uuids.contains(id.as_uuid()))
+        .collect())
+}
+
+/// Persist the `#`-object-code references written in a message body. Runs
+/// inside the send transaction. Each parsed code (already capped at
+/// `MAX_OBJECT_CODE_REFS` by the parser) is kept only if its prefix matches a
+/// seeded `object_types.code_prefix` (so the ref always names a known kind and
+/// `#hashtag` noise is dropped) -- checked with ONE batched lookup rather than
+/// one SELECT per token. `ON CONFLICT DO NOTHING` makes a re-sent identical
+/// body idempotent alongside the parse's own dedup.
+async fn persist_message_refs(
+    tx: &mut Transaction<'_, Postgres>,
+    org_uuid: uuid::Uuid,
+    message_id: MessageId,
+    body: &str,
+) -> Result<(), PgMessengerError> {
+    let codes = extract_object_code_refs(body);
+    if codes.is_empty() {
+        return Ok(());
+    }
+    // is_code_shaped guarantees every code has a '-'; the prefix is up to and
+    // including it. Duplicate prefixes in the batch are harmless for ANY($1).
+    let prefixes: Vec<&str> = codes
+        .iter()
+        .filter_map(|code| code.find('-').map(|dash| &code[..=dash]))
+        .collect();
+    let known: HashMap<String, String> =
+        sqlx::query("SELECT code_prefix, kind FROM object_types WHERE code_prefix = ANY($1)")
+            .bind(&prefixes)
+            .fetch_all(tx.as_mut())
+            .await?
+            .iter()
+            .map(|row| {
+                Ok::<_, PgMessengerError>((
+                    row.try_get::<String, _>("code_prefix")?,
+                    row.try_get::<String, _>("kind")?,
+                ))
+            })
+            .collect::<Result<_, _>>()?;
+
+    for code in codes {
+        let Some(dash) = code.find('-') else { continue };
+        let Some(kind) = known.get(&code[..=dash]) else {
+            continue;
+        };
+        sqlx::query(
+            r#"
+            INSERT INTO message_refs (org_id, message_id, ref_kind, ref_code)
+            VALUES ($1, $2, $3, $4)
+            ON CONFLICT (org_id, message_id, ref_code) DO NOTHING
+            "#,
+        )
+        .bind(org_uuid)
+        .bind(*message_id.as_uuid())
+        .bind(kind)
+        .bind(&code)
+        .execute(tx.as_mut())
+        .await?;
+    }
+    Ok(())
+}
+
+async fn fetch_branch_member_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    branch_id: BranchId,
+    user_id: UserId,
+) -> Result<Option<MemberSummary>, PgMessengerError> {
+    let row = sqlx::query(
+        r#"
+        SELECT u.id, u.display_name, u.team
+        FROM users u
+        JOIN user_branches ub
+          ON ub.user_id = u.id
+         AND ub.branch_id = $1
+        WHERE u.is_active = true
+          AND u.id = $2
+        "#,
+    )
+    .bind(*branch_id.as_uuid())
+    .bind(*user_id.as_uuid())
+    .fetch_optional(tx.as_mut())
+    .await?;
+    row.map(|row| {
+        Ok(MemberSummary {
+            id: UserId::from_uuid(row.try_get("id")?),
+            display_name: row.try_get("display_name")?,
+            team: row.try_get("team")?,
+        })
+    })
+    .transpose()
+}
+
+async fn require_thread_access(
+    pool: &PgPool,
+    thread_id: ThreadId,
+    actor: UserId,
+    branch_scope: &BranchScope,
+) -> Result<ThreadAccess, PgMessengerError> {
+    let org = current_org().map_err(KernelError::from)?;
+    let row = with_org_conn::<_, _, PgMessengerError>(pool, org, move |tx| {
+        Box::pin(async move {
+            Ok(sqlx::query(
+                r#"
+        SELECT t.branch_id,
+               EXISTS (
+                   SELECT 1
+                   FROM messenger_thread_members tm
+                   WHERE tm.thread_id = t.id
+                     AND tm.user_id = $2
+               ) AS is_member
+        FROM messenger_threads t
+        WHERE t.id = $1
+        "#,
+            )
+            .bind(*thread_id.as_uuid())
+            .bind(*actor.as_uuid())
+            .fetch_optional(tx.as_mut())
+            .await?)
+        })
+    })
+    .await?
+    .ok_or_else(|| KernelError::not_found("messenger thread was not found"))?;
+
+    let branch_id = BranchId::from_uuid(row.try_get("branch_id")?);
+    ensure_branch_scope(branch_scope, branch_id)?;
+    let is_member: bool = row
+        .try_get::<Option<bool>, _>("is_member")?
+        .unwrap_or(false);
+    if !is_member {
+        return Err(KernelError::forbidden("actor is not a messenger thread member").into());
+    }
+    Ok(ThreadAccess { branch_id })
+}
+
+async fn ensure_work_order_branch_pool(
+    pool: &PgPool,
+    work_order_id: WorkOrderId,
+    branch_id: BranchId,
+) -> Result<(), PgMessengerError> {
+    let org = current_org().map_err(KernelError::from)?;
+    let actual: uuid::Uuid = with_org_conn::<_, _, PgMessengerError>(pool, org, move |tx| {
+        Box::pin(async move {
+            Ok(
+                sqlx::query_scalar("SELECT branch_id FROM work_orders WHERE id = $1")
+                    .bind(*work_order_id.as_uuid())
+                    .fetch_optional(tx.as_mut())
+                    .await?,
+            )
+        })
+    })
+    .await?
+    .ok_or_else(|| KernelError::not_found("work order was not found"))?;
+    if actual == *branch_id.as_uuid() {
+        Ok(())
+    } else {
+        Err(KernelError::forbidden("work order belongs to a different branch").into())
+    }
+}
+
+async fn ensure_work_order_branch_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    work_order_id: WorkOrderId,
+    branch_id: BranchId,
+) -> Result<(), PgMessengerError> {
+    let actual: uuid::Uuid = sqlx::query_scalar("SELECT branch_id FROM work_orders WHERE id = $1")
+        .bind(*work_order_id.as_uuid())
+        .fetch_optional(tx.as_mut())
+        .await?
+        .ok_or_else(|| KernelError::not_found("work order was not found"))?;
+    if actual == *branch_id.as_uuid() {
+        Ok(())
+    } else {
+        Err(KernelError::forbidden("work order belongs to a different branch").into())
+    }
+}
+
+async fn work_order_request_no(
+    pool: &PgPool,
+    work_order_id: WorkOrderId,
+) -> Result<String, PgMessengerError> {
+    let org = current_org().map_err(KernelError::from)?;
+    with_org_conn::<_, _, PgMessengerError>(pool, org, move |tx| {
+        Box::pin(async move {
+            sqlx::query_scalar("SELECT request_no FROM work_orders WHERE id = $1")
+                .bind(*work_order_id.as_uuid())
+                .fetch_optional(tx.as_mut())
+                .await?
+                .ok_or_else(|| KernelError::not_found("work order was not found").into())
+        })
+    })
+    .await
+}
+
+async fn fetch_work_order_thread_pool(
+    pool: &PgPool,
+    work_order_id: WorkOrderId,
+    actor: UserId,
+) -> Result<Option<ThreadSummary>, PgMessengerError> {
+    let mut builder = thread_summary_builder(actor);
+    builder.push(" WHERE t.work_order_id = ");
+    builder.push_bind(*work_order_id.as_uuid());
+    builder.push(" GROUP BY t.id, t.visibility, lm.id, lm.sent_at");
+    let org = current_org().map_err(KernelError::from)?;
+    let row = with_org_conn::<_, _, PgMessengerError>(pool, org, move |tx| {
+        Box::pin(async move { Ok(builder.build().fetch_optional(tx.as_mut()).await?) })
+    })
+    .await?;
+    row.as_ref().map(thread_summary_from_row).transpose()
+}
+
+async fn fetch_thread_summary_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    thread_id: ThreadId,
+    actor: UserId,
+) -> Result<ThreadSummary, PgMessengerError> {
+    let mut builder = thread_summary_builder(actor);
+    builder.push(" WHERE t.id = ");
+    builder.push_bind(*thread_id.as_uuid());
+    builder.push(" GROUP BY t.id, t.visibility, lm.id, lm.sent_at");
+    let row = builder.build().fetch_one(tx.as_mut()).await?;
+    thread_summary_from_row(&row)
+}
+
+/// Thread summary SELECT with `member_count`, last-message, `visibility`, and
+/// the caller's `muted` flag (via a bound `actor` EXISTS). `unread_count` is 0
+/// here — the caller's real unread lives on the `list_threads` path; this
+/// builder backs create/join/work-order fetch and channel discovery, where a
+/// zero-unread summary is correct or immaterial.
+fn thread_summary_builder(actor: UserId) -> QueryBuilder<Postgres> {
+    let mut builder = QueryBuilder::<Postgres>::new(
+        r#"
+        SELECT t.id, t.kind, t.visibility, t.branch_id, t.work_order_id, t.title,
+               t.created_at, t.updated_at,
+               lm.id AS last_message_id,
+               lm.sent_at AS last_message_at,
+               COUNT(tm_all.user_id)::BIGINT AS member_count,
+               0::BIGINT AS unread_count,
+               EXISTS (
+                   SELECT 1 FROM messenger_thread_mutes mu
+                   WHERE mu.thread_id = t.id AND mu.user_id =
+        "#,
+    );
+    builder.push_bind(*actor.as_uuid());
+    builder.push(
+        r#") AS muted
+        FROM messenger_threads t
+        LEFT JOIN LATERAL (
+            SELECT id, sent_at
+            FROM messenger_messages
+            WHERE thread_id = t.id
+            ORDER BY sent_at DESC, id DESC
+            LIMIT 1
+        ) lm ON true
+        LEFT JOIN messenger_thread_members tm_all ON tm_all.thread_id = t.id
+        "#,
+    );
+    builder
+}
+
+fn thread_summary_from_row(row: &sqlx::postgres::PgRow) -> Result<ThreadSummary, PgMessengerError> {
+    let kind: String = row.try_get("kind")?;
+    let visibility: String = row.try_get("visibility")?;
+    Ok(ThreadSummary {
+        id: ThreadId::from_uuid(row.try_get("id")?),
+        kind: ThreadKind::from_db_str(&kind)?,
+        visibility: ThreadVisibility::from_db_str(&visibility)?,
+        muted: row.try_get("muted")?,
+        branch_id: BranchId::from_uuid(row.try_get("branch_id")?),
+        title: row.try_get("title")?,
+        work_order_id: row
+            .try_get::<Option<uuid::Uuid>, _>("work_order_id")?
+            .map(WorkOrderId::from_uuid),
+        last_message_id: row
+            .try_get::<Option<uuid::Uuid>, _>("last_message_id")?
+            .map(MessageId::from_uuid),
+        last_message_at: row.try_get("last_message_at")?,
+        member_count: row.try_get("member_count")?,
+        unread_count: row.try_get("unread_count")?,
+        created_at: row.try_get("created_at")?,
+        updated_at: row.try_get("updated_at")?,
+    })
+}
+
+/// Builds the message read-model SELECT. `actor` is bound for the per-caller
+/// `acked_by_me` flag; ack count, reply-quote preview, read progress, and
+/// attachments stay isolated from read/ack fan-out so one row is one `MessageSummary`.
+fn message_select_builder(actor: UserId) -> QueryBuilder<Postgres> {
+    let mut builder = QueryBuilder::<Postgres>::new(
+        r#"
+        SELECT m.id, m.thread_id, m.branch_id, m.sender_id, m.body,
+               m.quoted_message_id,
+               quoted.body AS quoted_body,
+               quoted_sender.display_name AS quoted_sender_name,
+               m.sent_at, m.created_at, sender.display_name AS sender_name,
+               COALESCE(att.attachment_evidence_ids, ARRAY[]::uuid[]) AS attachment_evidence_ids,
+               COUNT(DISTINCT tm_read_target.user_id)::BIGINT AS read_target_count,
+               COUNT(DISTINCT tm_read_target.user_id) FILTER (
+                   WHERE read_receipt_message.id IS NOT NULL
+                     AND (read_receipt_message.sent_at, read_receipt_message.id) >= (m.sent_at, m.id)
+               )::BIGINT AS read_count,
+               (SELECT COUNT(*) FROM messenger_message_acks ack
+                WHERE ack.message_id = m.id)::BIGINT AS ack_count,
+               EXISTS (
+                   SELECT 1 FROM messenger_message_acks ack
+                   WHERE ack.message_id = m.id AND ack.user_id =
+        "#,
+    );
+    builder.push_bind(*actor.as_uuid());
+    builder.push(
+        r#") AS acked_by_me
+        FROM messenger_messages m
+        LEFT JOIN LATERAL (
+            SELECT array_agg(a.evidence_id ORDER BY a.sort_order) AS attachment_evidence_ids
+            FROM messenger_message_attachments a
+            WHERE a.message_id = m.id
+        ) att ON true
+        LEFT JOIN messenger_thread_members tm_read_target
+          ON tm_read_target.thread_id = m.thread_id
+         AND tm_read_target.user_id <> m.sender_id
+        LEFT JOIN messenger_read_receipts rr_read_target
+          ON rr_read_target.thread_id = m.thread_id
+         AND rr_read_target.user_id = tm_read_target.user_id
+        LEFT JOIN messenger_messages read_receipt_message
+          ON read_receipt_message.id = rr_read_target.last_read_message_id
+        -- Reply-quote preview: same-org self-join to the quoted message + its
+        -- sender name; NULL when nothing is quoted or the quote was deleted.
+        LEFT JOIN messenger_messages quoted ON quoted.id = m.quoted_message_id
+        LEFT JOIN users quoted_sender ON quoted_sender.id = quoted.sender_id
+        -- Same-org JOIN: `users` is RLS-scoped to app.current_org just like
+        -- messenger_messages, so this can only resolve a sender in the caller's
+        -- tenant. A cross-tenant or hard-deleted sender simply yields NULL.
+        LEFT JOIN users sender ON sender.id = m.sender_id
+        "#,
+    );
+    builder
+}
+
+const MESSAGE_GROUP_BY: &str = " GROUP BY m.id, sender.display_name, quoted.body, quoted_sender.display_name, att.attachment_evidence_ids";
+
+async fn fetch_message_summary_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    message_id: MessageId,
+    actor: UserId,
+) -> Result<MessageSummary, PgMessengerError> {
+    let mut builder = message_select_builder(actor);
+    builder.push(" WHERE m.id = ");
+    builder.push_bind(*message_id.as_uuid());
+    builder.push(MESSAGE_GROUP_BY);
+    let row = builder.build().fetch_one(tx.as_mut()).await?;
+    message_summary_from_row(&row)
+}
+
+fn message_summary_from_row(
+    row: &sqlx::postgres::PgRow,
+) -> Result<MessageSummary, PgMessengerError> {
+    let attachment_ids: Vec<uuid::Uuid> = row.try_get("attachment_evidence_ids")?;
+    Ok(MessageSummary {
+        id: MessageId::from_uuid(row.try_get("id")?),
+        thread_id: ThreadId::from_uuid(row.try_get("thread_id")?),
+        branch_id: BranchId::from_uuid(row.try_get("branch_id")?),
+        sender_id: UserId::from_uuid(row.try_get("sender_id")?),
+        sender_name: row.try_get("sender_name")?,
+        body: row.try_get("body")?,
+        attachment_evidence_ids: attachment_ids
+            .into_iter()
+            .map(EvidenceId::from_uuid)
+            .collect(),
+        read_count: row.try_get("read_count")?,
+        read_target_count: row.try_get("read_target_count")?,
+        ack_count: row.try_get("ack_count")?,
+        acked_by_me: row
+            .try_get::<Option<bool>, _>("acked_by_me")?
+            .unwrap_or(false),
+        quoted_message_id: row
+            .try_get::<Option<uuid::Uuid>, _>("quoted_message_id")?
+            .map(MessageId::from_uuid),
+        quoted_body: row.try_get("quoted_body")?,
+        quoted_sender_name: row.try_get("quoted_sender_name")?,
+        sent_at: row.try_get("sent_at")?,
+        created_at: row.try_get("created_at")?,
+    })
+}
+
 /// Bump a user's presence activity timestamp inside an already-audited
 /// transaction. Only ever moves the timestamp forward, so an out-of-order
 /// action (a late-arriving read) never rewinds a fresher signal.
@@ -1319,363 +1836,6 @@ async fn fetch_read_receipt_tx(
         read_at: row.try_get("read_at")?,
         updated_at: row.try_get("updated_at")?,
     })
-}
-
-/// Thread-membership guard: resolve a thread's branch (org-scoped), enforce the
-/// caller's branch scope, and require the actor to be a member. A thread outside
-/// scope or in another tenant is `not_found`; a non-member is `forbidden`.
-async fn require_thread_access(
-    pool: &PgPool,
-    thread_id: ThreadId,
-    actor: UserId,
-    branch_scope: &BranchScope,
-) -> Result<ThreadAccess, PgMessengerError> {
-    let org = current_org().map_err(KernelError::from)?;
-    let row = with_org_conn::<_, _, PgMessengerError>(pool, org, move |tx| {
-        Box::pin(async move {
-            Ok(sqlx::query(
-                r#"
-        SELECT t.branch_id,
-               EXISTS (
-                   SELECT 1
-                   FROM messenger_thread_members tm
-                   WHERE tm.thread_id = t.id
-                     AND tm.user_id = $2
-               ) AS is_member
-        FROM messenger_threads t
-        WHERE t.id = $1
-        "#,
-            )
-            .bind(*thread_id.as_uuid())
-            .bind(*actor.as_uuid())
-            .fetch_optional(tx.as_mut())
-            .await?)
-        })
-    })
-    .await?
-    .ok_or_else(|| KernelError::not_found("messenger thread was not found"))?;
-
-    let branch_id = BranchId::from_uuid(row.try_get("branch_id")?);
-    ensure_branch_scope(branch_scope, branch_id)?;
-    let is_member: bool = row
-        .try_get::<Option<bool>, _>("is_member")?
-        .unwrap_or(false);
-    if !is_member {
-        return Err(KernelError::forbidden("actor is not a messenger thread member").into());
-    }
-    Ok(ThreadAccess { branch_id })
-}
-
-async fn ensure_work_order_branch_pool(
-    pool: &PgPool,
-    work_order_id: WorkOrderId,
-    branch_id: BranchId,
-) -> Result<(), PgMessengerError> {
-    let org = current_org().map_err(KernelError::from)?;
-    let actual: uuid::Uuid = with_org_conn::<_, _, PgMessengerError>(pool, org, move |tx| {
-        Box::pin(async move {
-            Ok(
-                sqlx::query_scalar("SELECT branch_id FROM work_orders WHERE id = $1")
-                    .bind(*work_order_id.as_uuid())
-                    .fetch_optional(tx.as_mut())
-                    .await?,
-            )
-        })
-    })
-    .await?
-    .ok_or_else(|| KernelError::not_found("work order was not found"))?;
-    if actual == *branch_id.as_uuid() {
-        Ok(())
-    } else {
-        Err(KernelError::forbidden("work order belongs to a different branch").into())
-    }
-}
-
-async fn ensure_work_order_branch_tx(
-    tx: &mut Transaction<'_, Postgres>,
-    work_order_id: WorkOrderId,
-    branch_id: BranchId,
-) -> Result<(), PgMessengerError> {
-    let actual: uuid::Uuid = sqlx::query_scalar("SELECT branch_id FROM work_orders WHERE id = $1")
-        .bind(*work_order_id.as_uuid())
-        .fetch_optional(tx.as_mut())
-        .await?
-        .ok_or_else(|| KernelError::not_found("work order was not found"))?;
-    if actual == *branch_id.as_uuid() {
-        Ok(())
-    } else {
-        Err(KernelError::forbidden("work order belongs to a different branch").into())
-    }
-}
-
-async fn work_order_request_no(
-    pool: &PgPool,
-    work_order_id: WorkOrderId,
-) -> Result<String, PgMessengerError> {
-    let org = current_org().map_err(KernelError::from)?;
-    with_org_conn::<_, _, PgMessengerError>(pool, org, move |tx| {
-        Box::pin(async move {
-            sqlx::query_scalar("SELECT request_no FROM work_orders WHERE id = $1")
-                .bind(*work_order_id.as_uuid())
-                .fetch_optional(tx.as_mut())
-                .await?
-                .ok_or_else(|| KernelError::not_found("work order was not found").into())
-        })
-    })
-    .await
-}
-
-async fn fetch_work_order_thread_pool(
-    pool: &PgPool,
-    work_order_id: WorkOrderId,
-    actor: UserId,
-) -> Result<Option<ThreadSummary>, PgMessengerError> {
-    let mut builder = thread_summary_builder(actor);
-    builder.push(" WHERE t.work_order_id = ");
-    builder.push_bind(*work_order_id.as_uuid());
-    builder.push(THREAD_SUMMARY_GROUP_BY);
-    let org = current_org().map_err(KernelError::from)?;
-    let row = with_org_conn::<_, _, PgMessengerError>(pool, org, move |tx| {
-        Box::pin(async move { Ok(builder.build().fetch_optional(tx.as_mut()).await?) })
-    })
-    .await?;
-    row.as_ref().map(thread_summary_from_row).transpose()
-}
-
-async fn fetch_thread_summary_tx(
-    tx: &mut Transaction<'_, Postgres>,
-    thread_id: ThreadId,
-    actor: UserId,
-) -> Result<ThreadSummary, PgMessengerError> {
-    let mut builder = thread_summary_builder(actor);
-    builder.push(" WHERE t.id = ");
-    builder.push_bind(*thread_id.as_uuid());
-    builder.push(THREAD_SUMMARY_GROUP_BY);
-    let row = builder.build().fetch_one(tx.as_mut()).await?;
-    thread_summary_from_row(&row)
-}
-
-const THREAD_SUMMARY_GROUP_BY: &str = " GROUP BY t.id, t.visibility, lm.id, lm.sent_at";
-
-/// Reusable thread-summary projection. `member_count` is an aggregate over the
-/// joined membership rows; `unread_count` and `muted` are per-`actor` correlated
-/// scalars, so callers only need to append a `WHERE` and `THREAD_SUMMARY_GROUP_BY`.
-fn thread_summary_builder(actor: UserId) -> QueryBuilder<Postgres> {
-    let mut builder = QueryBuilder::<Postgres>::new(
-        r#"
-        SELECT t.id, t.kind, t.visibility, t.branch_id, t.work_order_id, t.title,
-               t.created_at, t.updated_at,
-               lm.id AS last_message_id,
-               lm.sent_at AS last_message_at,
-               COUNT(DISTINCT tm_all.user_id)::BIGINT AS member_count,
-               COALESCE((
-                   SELECT COUNT(*)
-                   FROM messenger_messages um
-                   WHERE um.thread_id = t.id
-                     AND um.sender_id <> "#,
-    );
-    builder.push_bind(*actor.as_uuid());
-    builder.push(
-        r#"
-                     AND NOT EXISTS (
-                         SELECT 1
-                         FROM messenger_read_receipts rr
-                         JOIN messenger_messages rrm ON rrm.id = rr.last_read_message_id
-                         WHERE rr.thread_id = t.id
-                           AND rr.user_id = "#,
-    );
-    builder.push_bind(*actor.as_uuid());
-    builder.push(
-        r#"
-                           AND (rrm.sent_at, rrm.id) >= (um.sent_at, um.id)
-                     )
-               ), 0)::BIGINT AS unread_count,
-               EXISTS (
-                   SELECT 1 FROM messenger_thread_mutes mt
-                   WHERE mt.thread_id = t.id AND mt.user_id = "#,
-    );
-    builder.push_bind(*actor.as_uuid());
-    builder.push(
-        r#"
-               ) AS muted
-        FROM messenger_threads t
-        LEFT JOIN LATERAL (
-            SELECT id, sent_at
-            FROM messenger_messages
-            WHERE thread_id = t.id
-            ORDER BY sent_at DESC, id DESC
-            LIMIT 1
-        ) lm ON true
-        LEFT JOIN messenger_thread_members tm_all ON tm_all.thread_id = t.id
-        "#,
-    );
-    builder
-}
-
-fn thread_summary_from_row(row: &sqlx::postgres::PgRow) -> Result<ThreadSummary, PgMessengerError> {
-    let kind: String = row.try_get("kind")?;
-    let visibility: String = row.try_get("visibility")?;
-    Ok(ThreadSummary {
-        id: ThreadId::from_uuid(row.try_get("id")?),
-        kind: ThreadKind::from_db_str(&kind)?,
-        visibility: ThreadVisibility::from_db_str(&visibility)?,
-        branch_id: BranchId::from_uuid(row.try_get("branch_id")?),
-        title: row.try_get("title")?,
-        work_order_id: row
-            .try_get::<Option<uuid::Uuid>, _>("work_order_id")?
-            .map(WorkOrderId::from_uuid),
-        muted: row.try_get::<Option<bool>, _>("muted")?.unwrap_or(false),
-        last_message_id: row
-            .try_get::<Option<uuid::Uuid>, _>("last_message_id")?
-            .map(MessageId::from_uuid),
-        last_message_at: row.try_get("last_message_at")?,
-        member_count: row.try_get("member_count")?,
-        unread_count: row.try_get("unread_count")?,
-        created_at: row.try_get("created_at")?,
-        updated_at: row.try_get("updated_at")?,
-    })
-}
-
-/// Group-by tail for `message_select_builder`. `m.id` is the messages PK, so
-/// every `m.*` column is functionally dependent; only the joined sender name
-/// needs to be listed. Ack counts and quoted-message columns are correlated
-/// scalars in the projection, so they add nothing here.
-const MESSAGE_GROUP_BY: &str = " GROUP BY m.id, sender.display_name";
-
-fn message_select_builder(actor: UserId) -> QueryBuilder<Postgres> {
-    let mut builder = QueryBuilder::<Postgres>::new(
-        r#"
-        SELECT m.id, m.thread_id, m.branch_id, m.sender_id, m.body,
-               m.quoted_message_id,
-               m.sent_at, m.created_at, sender.display_name AS sender_name,
-               COALESCE(
-                   array_agg(a.evidence_id ORDER BY a.sort_order)
-                       FILTER (WHERE a.evidence_id IS NOT NULL),
-                   ARRAY[]::uuid[]
-               ) AS attachment_evidence_ids,
-               COUNT(DISTINCT tm_read_target.user_id)::BIGINT AS read_target_count,
-               COUNT(DISTINCT tm_read_target.user_id) FILTER (
-                   WHERE read_receipt_message.id IS NOT NULL
-                     AND (read_receipt_message.sent_at, read_receipt_message.id) >= (m.sent_at, m.id)
-               )::BIGINT AS read_count,
-               (
-                   SELECT COUNT(*)::BIGINT
-                   FROM messenger_message_acks ma
-                   WHERE ma.message_id = m.id
-               ) AS ack_count,
-               EXISTS (
-                   SELECT 1
-                   FROM messenger_message_acks ma_self
-                   WHERE ma_self.message_id = m.id
-                     AND ma_self.user_id = "#,
-    );
-    builder.push_bind(*actor.as_uuid());
-    builder.push(
-        r#"
-               ) AS acked_by_me,
-               (
-                   SELECT qm.body
-                   FROM messenger_messages qm
-                   WHERE qm.id = m.quoted_message_id
-               ) AS quoted_body,
-               (
-                   SELECT qs.display_name
-                   FROM messenger_messages qm2
-                   LEFT JOIN users qs ON qs.id = qm2.sender_id
-                   WHERE qm2.id = m.quoted_message_id
-               ) AS quoted_sender_name
-        FROM messenger_messages m
-        LEFT JOIN messenger_message_attachments a ON a.message_id = m.id
-        LEFT JOIN messenger_thread_members tm_read_target
-          ON tm_read_target.thread_id = m.thread_id
-         AND tm_read_target.user_id <> m.sender_id
-        LEFT JOIN messenger_read_receipts rr_read_target
-          ON rr_read_target.thread_id = m.thread_id
-         AND rr_read_target.user_id = tm_read_target.user_id
-        LEFT JOIN messenger_messages read_receipt_message
-          ON read_receipt_message.id = rr_read_target.last_read_message_id
-        -- Same-org JOIN: `users` is RLS-scoped to app.current_org just like
-        -- messenger_messages, so this can only resolve a sender in the caller's
-        -- tenant. A cross-tenant or hard-deleted sender simply yields NULL.
-        LEFT JOIN users sender ON sender.id = m.sender_id
-        "#,
-    );
-    builder
-}
-
-async fn fetch_message_summary_tx(
-    tx: &mut Transaction<'_, Postgres>,
-    message_id: MessageId,
-    actor: UserId,
-) -> Result<MessageSummary, PgMessengerError> {
-    let mut builder = message_select_builder(actor);
-    builder.push(" WHERE m.id = ");
-    builder.push_bind(*message_id.as_uuid());
-    builder.push(MESSAGE_GROUP_BY);
-    let row = builder.build().fetch_one(tx.as_mut()).await?;
-    message_summary_from_row(&row)
-}
-
-fn message_summary_from_row(
-    row: &sqlx::postgres::PgRow,
-) -> Result<MessageSummary, PgMessengerError> {
-    let attachment_ids: Vec<uuid::Uuid> = row.try_get("attachment_evidence_ids")?;
-    Ok(MessageSummary {
-        id: MessageId::from_uuid(row.try_get("id")?),
-        thread_id: ThreadId::from_uuid(row.try_get("thread_id")?),
-        branch_id: BranchId::from_uuid(row.try_get("branch_id")?),
-        sender_id: UserId::from_uuid(row.try_get("sender_id")?),
-        sender_name: row.try_get("sender_name")?,
-        body: row.try_get("body")?,
-        attachment_evidence_ids: attachment_ids
-            .into_iter()
-            .map(EvidenceId::from_uuid)
-            .collect(),
-        read_count: row.try_get("read_count")?,
-        read_target_count: row.try_get("read_target_count")?,
-        ack_count: row.try_get("ack_count")?,
-        acked_by_me: row
-            .try_get::<Option<bool>, _>("acked_by_me")?
-            .unwrap_or(false),
-        quoted_message_id: row
-            .try_get::<Option<uuid::Uuid>, _>("quoted_message_id")?
-            .map(MessageId::from_uuid),
-        quoted_body: row.try_get("quoted_body")?,
-        quoted_sender_name: row.try_get("quoted_sender_name")?,
-        sent_at: row.try_get("sent_at")?,
-        created_at: row.try_get("created_at")?,
-    })
-}
-
-/// Fetch one active branch member's summary (org-scoped, single row).
-async fn fetch_branch_member_tx(
-    tx: &mut Transaction<'_, Postgres>,
-    branch_id: BranchId,
-    user_id: UserId,
-) -> Result<Option<MemberSummary>, PgMessengerError> {
-    let row = sqlx::query(
-        r#"
-        SELECT u.id, u.display_name, u.team
-        FROM users u
-        JOIN user_branches ub
-          ON ub.user_id = u.id
-         AND ub.branch_id = $1
-        WHERE u.id = $2
-          AND u.is_active = true
-        "#,
-    )
-    .bind(*branch_id.as_uuid())
-    .bind(*user_id.as_uuid())
-    .fetch_optional(tx.as_mut())
-    .await?;
-    match row {
-        Some(row) => Ok(Some(MemberSummary {
-            id: UserId::from_uuid(row.try_get("id")?),
-            display_name: row.try_get("display_name")?,
-            team: row.try_get("team")?,
-        })),
-        None => Ok(None),
-    }
 }
 
 fn push_scope_filter(

@@ -370,7 +370,7 @@ export function PublicLayout() {
                 String(COPYRIGHT_YEAR),
               )}
             </p>
-            <p className="m-0">
+            <p className="m-0" data-testid="storefront-footer-version">
               {ko.storefront.footer.version.replace("{version}", WEB_VERSION)}
             </p>
           </div>

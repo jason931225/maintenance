@@ -38,6 +38,8 @@ use mnt_governance_adapter_postgres::PgGovernanceStore;
 use mnt_governance_rest::GovernanceRestState;
 use mnt_identity_adapter_postgres::PgOrgStore;
 use mnt_identity_rest::IdentityRestState;
+use mnt_inbox_adapter_postgres::PgInboxStore;
+use mnt_inbox_rest::InboxRestState;
 use mnt_inspection_adapter_postgres::PgInspectionStore;
 use mnt_inspection_rest::InspectionRestState;
 use mnt_integrity::{IntegrityRestState, PgIntegrityStore};
@@ -47,16 +49,21 @@ use mnt_kernel_core::{
 };
 use mnt_messenger_adapter_postgres::PgMessengerStore;
 use mnt_messenger_rest::MessengerRestState;
+use mnt_notifications_adapter_postgres::PgNotificationStore;
+use mnt_notifications_rest::NotificationRestState;
 use mnt_ontology_adapter_postgres::PgOntologyStore;
 use mnt_ontology_adapter_postgres::instances::PgInstanceStore;
 use mnt_ontology_rest::OntologyRestState;
+use mnt_platform_audit_chain::{
+    ChainReport, InMemoryEd25519Signer, SealConfig, SealSigner, verify_org_chain,
+};
 use mnt_platform_auth::{
     AccessClaims, AndroidAssetLinksConfig, AppleAppSiteAssociationConfig, JwtIssuer, JwtSettings,
     JwtVerifier, PasskeyService, WELL_KNOWN_AASA_PATH, WELL_KNOWN_ASSETLINKS_PATH,
     WebauthnSettings, android_assetlinks_json, apple_app_site_association_json,
 };
 use mnt_platform_auth_rest::{AuthRestConfig, AuthRestState};
-use mnt_platform_authz::{Action, Feature, Principal, Role, authorize};
+use mnt_platform_authz::{Action, Feature, Principal, Role, authorize, authorize_org_wide};
 use mnt_platform_authz_rest::{CedarPolicyRestState, PgCedarPolicyStore};
 use mnt_platform_db::{DbError, with_audit};
 use mnt_platform_email::{
@@ -73,7 +80,8 @@ use mnt_platform_push::{
     SolapiConfig,
 };
 use mnt_platform_realtime::{
-    PgRealtimeHub, PostgresBridgeHandle, PostgresMessageNotifier, RealtimeRestState,
+    PgRealtimeHub, PostgresBridgeHandle, PostgresMessageNotifier, PostgresNotificationNotifier,
+    RealtimeRestState,
 };
 use mnt_platform_rest::PlatformRestState;
 use mnt_platform_storage::{
@@ -88,6 +96,8 @@ use mnt_sales_adapter_postgres::PgSalesStore;
 use mnt_sales_rest::SalesRestState;
 use mnt_support_adapter_postgres::PgSupportStore;
 use mnt_support_rest::SupportRestState;
+use mnt_todos_adapter_postgres::PgTodoStore;
+use mnt_todos_rest::TodoRestState;
 use mnt_workorder_adapter_postgres::PgWorkOrderStore;
 use mnt_workorder_rest::{MobileRestState, WorkOrderRestState};
 use opentelemetry::global;
@@ -107,11 +117,17 @@ use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
 use url::Url;
 
+pub mod action_inbox;
+pub mod cedar_parity;
 mod collaboration;
 mod console_telemetry;
 mod hr;
+pub mod lifecycle;
 mod mail_sync;
+pub mod objects;
+pub mod office;
 mod workflow_drain;
+pub mod workflow_schedules;
 mod workflow_studio;
 
 const DEFAULT_HTTP_ADDR: &str = "0.0.0.0:8080";
@@ -359,6 +375,23 @@ pub struct AppConfig {
     /// (`MNT_MAIL_MASTER_KEY`) and object storage are both configured — it is a
     /// no-op otherwise, so a misconfiguration never crashes the app.
     pub mail_enabled: bool,
+    /// Mox webapi base URL for outbound webmail transport
+    /// (`MNT_MAIL_MOX_BASE_URL`). `None` keeps the default SMTP/lettre path.
+    pub mail_mox_base_url: Option<String>,
+    /// Shared secret for the inbound Mox delivery webhook
+    /// (`MNT_MAIL_MOX_WEBHOOK_SECRET`). `None` leaves the webhook mounted but
+    /// unavailable with 503 rather than accepting unauthenticated deliveries.
+    pub mail_mox_webhook_secret: Option<String>,
+    /// Whether the L20 tamper-evident audit-chain seal worker runs
+    /// (`MNT_AUDIT_CHAIN_SEAL_ENABLED`, default false). Post-merge review F3:
+    /// the PR-1 in-crate `InMemoryEd25519Signer` generates a FRESH keypair on
+    /// every worker restart and writes real seals under `key_ref =
+    /// test:ed25519:<hex>` — dev/test-grade, not yet the OCI Vault signer
+    /// (PR-3) that makes the chain's evidentiary guarantee real. Default OFF in
+    /// production so it does not write throwaway-keyed seals every tick until
+    /// the real signer lands; the attestation REST endpoint (PR-2) reads
+    /// whatever the worker has sealed regardless of this flag.
+    pub audit_chain_seal_enabled: bool,
     /// The tenant that owns the PUBLIC storefront/CX channel
     /// (`STOREFRONT_ORG_ID`). `None` keeps the legacy KNL default for public
     /// sales/support intake routes. Set it to the storefront tenant's real
@@ -366,6 +399,11 @@ pub struct AppConfig {
     /// random uuid, so public inquiry/intake writes land in the SAME org the
     /// staff inbox reads under (#19.21/#398) instead of the `0x…a1` sentinel.
     pub storefront_org: Option<OrgId>,
+    /// In-console office editor (ONLYOFFICE DocumentServer) integration. `None`
+    /// unless all of `MNT_OFFICE_JWT_SECRET` / `MNT_OFFICE_CALLBACK_BASE_URL` /
+    /// `MNT_OFFICE_DOCSERVER_URL` are set; the office routes still mount but
+    /// return `503 office_not_configured`.
+    pub office: Option<office::OfficeConfig>,
 }
 
 /// Native app-link association config for the `/.well-known/*` endpoints.
@@ -539,6 +577,14 @@ impl AppConfig {
                 .map_err(|err| AppError::Config(format!("invalid MNT_MAIL_ENABLED: {err}")))?,
             None => false,
         };
+        let mail_mox_base_url = non_empty(vars.get("MNT_MAIL_MOX_BASE_URL"));
+        let mail_mox_webhook_secret = non_empty(vars.get("MNT_MAIL_MOX_WEBHOOK_SECRET"));
+        let audit_chain_seal_enabled = match vars.get("MNT_AUDIT_CHAIN_SEAL_ENABLED") {
+            Some(raw) => raw.parse::<bool>().map_err(|err| {
+                AppError::Config(format!("invalid MNT_AUDIT_CHAIN_SEAL_ENABLED: {err}"))
+            })?,
+            None => false,
+        };
         let storefront_org = match non_empty(vars.get("STOREFRONT_ORG_ID")) {
             Some(raw) => Some(
                 OrgId::from_str(&raw)
@@ -546,6 +592,9 @@ impl AppConfig {
             ),
             None => None,
         };
+        let office = office::office_config_from_vars(|key| non_empty(vars.get(key)))
+            .map_err(AppError::Config)?;
+
         Ok(Self {
             role,
             service_name,
@@ -570,7 +619,11 @@ impl AppConfig {
             trusted_proxy_count,
             app_links,
             mail_enabled,
+            mail_mox_base_url,
+            mail_mox_webhook_secret,
+            audit_chain_seal_enabled,
             storefront_org,
+            office,
         })
     }
 }
@@ -982,6 +1035,11 @@ pub struct AppState {
     /// (no KEK / no storage / `MNT_MAIL_ENABLED` unset). Held so its lifetime is
     /// tied to the running `AppState` and it stops on shutdown.
     mail_sync_handle: Option<Arc<mail_sync::MailSyncHandle>>,
+    /// Shared dev/test verifier used by the read-only audit-chain attestation
+    /// endpoint. `InMemoryEd25519Signer::verify` reconstructs the public key
+    /// from each seal's stored `key_ref`, so this throwaway signer is not a
+    /// trust root; it just avoids generating a fresh keypair on every poll.
+    audit_attestation_signer: Arc<dyn SealSigner>,
 }
 
 impl AppState {
@@ -1028,6 +1086,10 @@ impl AppState {
             },
             DatabaseDependency::NotConfigured => None,
         };
+        let audit_attestation_signer: Arc<dyn SealSigner> =
+            Arc::new(InMemoryEd25519Signer::generate().map_err(|err| {
+                AppError::Internal(format!("audit-chain attestation signer init failed: {err}"))
+            })?);
         let realtime_hub = realtime_hub_from_database(&database);
 
         Ok(Self {
@@ -1047,6 +1109,7 @@ impl AppState {
             realtime_bridge: None,
             mail_cipher: None,
             mail_sync_handle: None,
+            audit_attestation_signer,
         })
     }
 
@@ -1178,7 +1241,16 @@ impl AppState {
         // per tenant for each sync pass. GRACEFUL — only runs when the master KEK,
         // object storage, and `MNT_MAIL_ENABLED` are all present; otherwise a
         // no-op so the app boots normally and mail endpoints still mount.
-        if let DatabaseDependency::Postgres(pool) = &state.database {
+        //
+        // WORKER-ROLE ONLY: this background ticker belongs on the worker, never on
+        // the horizontally-scaled API pods — every API replica running its own
+        // ticker would sync the same mailboxes concurrently. Even on the worker it
+        // is HA-safe because the due-account claim leases each row with FOR UPDATE
+        // SKIP LOCKED (migration 0116), so >1 worker replica still claim disjoint
+        // batches.
+        if let DatabaseDependency::Postgres(pool) = &state.database
+            && config.role == AppRole::Worker
+        {
             state.mail_sync_handle = mail_sync::spawn(
                 pool.clone(),
                 state.mail_cipher.clone(),
@@ -1256,7 +1328,9 @@ struct AuditQuery {
     limit: Option<i64>,
     offset: Option<i64>,
     target_type: Option<String>,
+    target_id: Option<String>,
     actor: Option<uuid::Uuid>,
+    trace_id: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -1264,7 +1338,9 @@ struct NormalizedAuditQuery {
     limit: i64,
     offset: i64,
     target_type: Option<String>,
+    target_id: Option<String>,
     actor: Option<uuid::Uuid>,
+    trace_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, sqlx::FromRow)]
@@ -1543,8 +1619,14 @@ pub fn build_router(state: AppState) -> Router {
                 .realtime_hub
                 .clone()
                 .unwrap_or_else(|| Arc::new(PgRealtimeHub::new(pool.clone(), Default::default())));
+            let notification_store = PgNotificationStore::new(pool.clone())
+                .with_notifier(Arc::new(PostgresNotificationNotifier::new(pool.clone())));
             let messenger_store = PgMessengerStore::new(pool.clone())
-                .with_notifier(Arc::new(PostgresMessageNotifier::new(pool.clone())));
+                .with_notifier(Arc::new(PostgresMessageNotifier::new(pool.clone())))
+                // `@`-mentions create notification-center rows via the #198 sink
+                // (fan-out enabled) so a mentioned member sees them in their inbox.
+                .with_notification_sink(Arc::new(notification_store.clone()));
+            let todo_store = PgTodoStore::new(pool.clone());
             let registry_store = PgRegistryStore::new(pool.clone());
             let financial_store = PgFinancialStore::new(pool.clone());
             let inspection_store = PgInspectionStore::new(pool.clone());
@@ -1566,10 +1648,13 @@ pub fn build_router(state: AppState) -> Router {
             // `router()` self-applies the per-request org middleware (so the
             // behavior is testable per crate), arming `app.current_org` for every
             // route. `/api/audit` is an app-level route, so it gets the same
-            // middleware applied directly here.
+            // middleware applied directly here. L20 audit-chain PR-2: the
+            // read-only attestation endpoint joins the SAME router (no new
+            // `.merge()`), the established pattern for app-level audit REST.
             let audit_router = mnt_platform_request_context::with_request_context(
                 Router::new()
                     .route(AUDIT_ROUTE_PATH, get(audit_log))
+                    .route("/api/v1/audit/attestation", get(audit_attestation))
                     .with_state(state.clone()),
                 state.jwt_verifier.clone(),
                 pool.clone(),
@@ -1643,6 +1728,35 @@ pub fn build_router(state: AppState) -> Router {
                     )
                     .with_passkey_step_up(state.policy_step_up.clone()),
                 ))
+                .merge(action_inbox::router(action_inbox::ActionInboxState::new(
+                    pool.clone(),
+                    state.jwt_verifier.clone(),
+                )))
+                .merge(objects::router(objects::ObjectState::new(
+                    pool.clone(),
+                    state.jwt_verifier.clone(),
+                )))
+                .merge(lifecycle::router(lifecycle::LifecycleState::new(
+                    pool.clone(),
+                    state.jwt_verifier.clone(),
+                )))
+                .merge(office::router({
+                    // Reuse the already-configured SeaweedFS handle (evidence /
+                    // sales media) as the office blob store — no new object-store
+                    // client. `None` blobs ⇒ office endpoints 503, like mail.
+                    let office_blobs = match (&state.config.office, &state.sales_media_storage) {
+                        (Some(cfg), Some((store, bucket))) => {
+                            office::OfficeState::seaweed_blobs(cfg, store.clone(), bucket.clone())
+                        }
+                        _ => None,
+                    };
+                    office::OfficeState::new(
+                        pool.clone(),
+                        state.jwt_verifier.clone(),
+                        state.config.office.clone(),
+                        office_blobs,
+                    )
+                }))
                 .merge(mnt_sales_rest::router({
                     let mut sales_state =
                         SalesRestState::new(sales_store, state.jwt_verifier.clone())
@@ -1704,6 +1818,31 @@ pub fn build_router(state: AppState) -> Router {
                         .unwrap_or_default(),
                     state.jwt_verifier.clone(),
                 )))
+                .merge(mnt_notifications_rest::router(NotificationRestState::new(
+                    notification_store,
+                    state.jwt_verifier.clone(),
+                )))
+                .merge(mnt_inbox_rest::router(
+                    InboxRestState::new(
+                        PgInboxStore::new(pool.clone()),
+                        state.jwt_verifier.clone(),
+                    )
+                    .with_passkey_step_up(state.policy_step_up.clone()),
+                ))
+                // Leave-request queue + §61 statutory push. The push delivers a
+                // receipt-gated notice through the SAME inbox vault (a fresh
+                // `PgInboxStore` over the shared pool as the `InboxDocSink`).
+                .merge(mnt_leave_rest::router(mnt_leave_rest::LeaveRestState::new(
+                    mnt_leave_adapter_postgres::PgLeaveStore::new(
+                        pool.clone(),
+                        std::sync::Arc::new(PgInboxStore::new(pool.clone())),
+                    ),
+                    state.jwt_verifier.clone(),
+                )))
+                .merge(mnt_todos_rest::router(TodoRestState::new(
+                    todo_store,
+                    state.jwt_verifier.clone(),
+                )))
                 // Webmail (`/api/v1/mail/*`). The router ALWAYS mounts so the
                 // OpenAPI paths exist and the app boots without the master key;
                 // when `state.mail_cipher` is `None`, read paths degrade cleanly
@@ -1711,13 +1850,19 @@ pub fn build_router(state: AppState) -> Router {
                 // The inbound-attachment object store (presigned GET) is wired
                 // from the same storage config the evidence pipeline uses; `None`
                 // when storage is unconfigured (download then 503s).
+                // mox integration (slice 1): when `MNT_MAIL_MOX_BASE_URL` is set,
+                // the outbound transport rides our own mox server's webapi instead
+                // of the lettre SMTP client; `MNT_MAIL_MOX_WEBHOOK_SECRET` arms the
+                // inbound delivery webhook (absent → webhook 503s, never hardcoded).
                 .merge(mnt_comms_rest::router(
                     CommsRestState::new(
                         PgMailStore::new(pool.clone()),
                         state.mail_cipher.clone(),
                         state.jwt_verifier.clone(),
                     )
-                    .with_attachments(mail_attachment_store(&state)),
+                    .with_attachments(mail_attachment_store(&state))
+                    .with_mox_transport(state.config.mail_mox_base_url.clone())
+                    .with_mox_webhook_secret(state.config.mail_mox_webhook_secret.clone()),
                 ))
                 // Ontology / governance / Policy-Studio engine surfaces.
                 // `ontology` self-applies four-eyes/governance gate chains; its
@@ -1986,6 +2131,68 @@ async fn audit_log(
     }))
 }
 
+/// L20 audit-chain PR-2: read-only attestation for the caller's tenant.
+/// Recomputes and compares the org's sealed hash chain (`verify_org_chain`,
+/// charter §5.3) and returns the verdict — never mutates. Unlike `/api/audit`,
+/// which can safely branch-filter rows for a branch-scoped ADMIN, this endpoint
+/// verifies the whole tenant chain. Require org-wide `AuditLogRead` so the
+/// attestation surface cannot widen branch-scoped audit visibility. For
+/// `AuditLogRead` today, built-in org-wide authority is SUPER_ADMIN; a
+/// branch-scoped or branch-omitted ADMIN token must not pass this gate.
+///
+/// Cost note: `verify_org_chain` re-derives every seal's batch from its full
+/// `audit_events` range — a FULL-CHAIN re-verify, not an incremental one, so
+/// wall time scales with the org's total sealed audit history. Bounded today
+/// by (a) org-wide built-in callers (SUPER_ADMIN for `AuditLogRead`), so
+/// callers are trusted and infrequent, (b) the app-wide request timeout, and
+/// (c) mnt_rt's 30s `statement_timeout` (migration 0112) capping any single DB
+/// pass. A head-N-seals or cached-verdict endpoint variant for orgs with a long
+/// history is a PR-3 item (charter F1 anchor), not built here.
+async fn audit_attestation(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+) -> Result<Json<ChainReport>, ApiError> {
+    let pool = match &state.database {
+        DatabaseDependency::Postgres(pool) => pool,
+        DatabaseDependency::NotConfigured => {
+            return Err(ApiError::service_unavailable(
+                "database is not configured for audit access",
+            ));
+        }
+    };
+    let verifier = state.jwt_verifier.as_ref().ok_or_else(|| {
+        ApiError::service_unavailable("JWT verification is not configured for audit access")
+    })?;
+    let token = bearer_token(&headers)?;
+    let claims = verifier
+        .verify_access_token(token)
+        .map_err(|_| ApiError::unauthorized("invalid bearer token"))?;
+    let principal = principal_from_claims(claims)?;
+    authorize_audit_attestation(&principal)?;
+
+    // Shared throwaway signer is correct here: `verify` reconstructs the
+    // public key from each seal's OWN stored `key_ref`; this object is not the
+    // trust root, just the implementation that performs verification. PR-3's
+    // `OciVaultSigner` will verify the same way (key material keyed off the
+    // stored `key_ref`).
+    let signer = state.audit_attestation_signer.clone();
+
+    let report = verify_org_chain(
+        pool,
+        principal.org_id,
+        &signer,
+        time::OffsetDateTime::now_utc(),
+        &SealConfig::default(),
+    )
+    .await
+    .map_err(|err| {
+        tracing::error!(error = %err, "audit-chain attestation verify failed");
+        ApiError::internal("attestation verification failed")
+    })?;
+
+    Ok(Json(report))
+}
+
 fn bearer_token(headers: &HeaderMap) -> Result<&str, ApiError> {
     let header_value = headers
         .get(header::AUTHORIZATION)
@@ -2052,6 +2259,17 @@ fn authorize_audit_read(principal: &Principal) -> Result<(), ApiError> {
     .map_err(ApiError::from_kernel)
 }
 
+fn authorize_audit_attestation(principal: &Principal) -> Result<(), ApiError> {
+    // Whole-tenant attestation is intentionally stricter than branch-filtered
+    // `/api/audit`: built-in ADMIN is operational/branch authority, not an
+    // org-wide evidentiary attestation authority. `authorize_org_wide` first
+    // requires all-branch scope, then applies the feature matrix; for
+    // `AuditLogRead` that means built-in SUPER_ADMIN today, while still
+    // preserving the custom-grant path for future policy-managed org-wide
+    // AuditLogRead.
+    authorize_org_wide(principal, Action::new(Feature::AuditLogRead)).map_err(ApiError::from_kernel)
+}
+
 fn normalize_audit_query(query: AuditQuery) -> Result<NormalizedAuditQuery, ApiError> {
     let limit = query.limit.unwrap_or(DEFAULT_AUDIT_LIMIT);
     if !(1..=MAX_AUDIT_LIMIT).contains(&limit) {
@@ -2067,12 +2285,22 @@ fn normalize_audit_query(query: AuditQuery) -> Result<NormalizedAuditQuery, ApiE
         .target_type
         .map(|target_type| target_type.trim().to_owned())
         .filter(|target_type| !target_type.is_empty());
+    let target_id = query
+        .target_id
+        .map(|target_id| target_id.trim().to_owned())
+        .filter(|target_id| !target_id.is_empty());
+    let trace_id = query
+        .trace_id
+        .map(|trace_id| trace_id.trim().to_owned())
+        .filter(|trace_id| !trace_id.is_empty());
 
     Ok(NormalizedAuditQuery {
         limit,
         offset,
         target_type,
+        target_id,
         actor: query.actor,
+        trace_id,
     })
 }
 
@@ -2084,8 +2312,12 @@ fn audit_read_event(principal: &Principal) -> Result<AuditEvent, ApiError> {
         "query",
         current_trace_context(),
         time::OffsetDateTime::now_utc(),
-    );
-    let event = event.with_org(principal.org_id);
+    )
+    // Arm `app.current_org` for the FORCE-RLS read: `with_audit` binds the GUC
+    // from `event.org_id`, so without this the `audit_events` SELECT runs with
+    // an unset GUC and RLS fails closed (zero rows) as the `mnt_rt` role. Also
+    // stamps the `audit.read` row with the caller's org instead of NULL.
+    .with_org(principal.org_id);
     Ok(match audit_event_branch(&principal.branch_scope) {
         Some(branch_id) => event.with_branch(branch_id),
         None => event,
@@ -2140,8 +2372,16 @@ async fn fetch_audit_records(
     if let Some(target_type) = query.target_type {
         builder.push(" AND target_type = ").push_bind(target_type);
     }
+    if let Some(target_id) = query.target_id {
+        builder.push(" AND target_id = ").push_bind(target_id);
+    }
     if let Some(actor) = query.actor {
         builder.push(" AND actor = ").push_bind(actor);
+    }
+    // `trace_id` is CHAR(32); cast to text so the bound String compares as
+    // text=text (matching the SELECT projection) rather than bpchar padding.
+    if let Some(trace_id) = query.trace_id {
+        builder.push(" AND trace_id::text = ").push_bind(trace_id);
     }
     builder
         .push(" ORDER BY occurred_at DESC, id DESC LIMIT ")
@@ -2532,6 +2772,40 @@ async fn run_dispatch_worker(config: AppConfig, state: AppState) -> Result<(), A
     // `app.current_org` per tenant each tick. Lands dark: no tenant is enrolled in
     // a shipped migration/seed, so it finds no work in production.
     let workflow_drain_handle = workflow_drain::spawn(pool.clone());
+    // L20 tamper-evident audit-chain seal worker (charter §5.1). Seals batches of
+    // audit_events into the append-only audit_chain_seals hash chain on the same
+    // `mnt_rt` pool, re-arming `app.current_org` per tenant each tick. Dev/test
+    // uses an in-process Ed25519 signer; production swaps in an OCI Vault signer
+    // (PR-3) so the DB owner never holds the private key. The attestation REST
+    // endpoint (PR-2, `/api/v1/audit/attestation`) reads whatever is sealed
+    // regardless of this gate. F3 (post-merge review): default OFF in
+    // production — until the real signer lands, an always-on worker writes real
+    // seals every tick under a fresh `key_ref = test:ed25519:<hex>` keypair
+    // generated on every restart, which is not yet the evidentiary guarantee the
+    // chain is meant to provide. `MNT_AUDIT_CHAIN_SEAL_ENABLED=true` opts a
+    // deployment in (dev/staging) ahead of PR-3.
+    let audit_chain_handle = if config.audit_chain_seal_enabled {
+        match mnt_platform_audit_chain::InMemoryEd25519Signer::generate() {
+            Ok(signer) => Some(mnt_platform_audit_chain::spawn(
+                pool.clone(),
+                Arc::new(signer),
+            )),
+            Err(err) => {
+                tracing::error!(error = %err, "audit-chain signer init failed; seal worker not started");
+                None
+            }
+        }
+    } else {
+        tracing::info!(
+            "MNT_AUDIT_CHAIN_SEAL_ENABLED is not set; the audit-chain seal worker is OFF"
+        );
+        None
+    };
+    // Workflow cron-schedule poller (BE-AUTO slice 1). Same worker-role,
+    // per-tenant re-armed loop shape as the drainer. Dark-safe: no shipped
+    // migration/seed creates a schedule row, so it finds no work until a tenant
+    // authors one through the audited studio REST surface.
+    let workflow_schedule_handle = workflow_schedules::spawn(pool.clone());
     let alimtalk_policy = if config.solapi.is_some() {
         AlimtalkEscalationPolicy::enabled()
     } else {
@@ -2596,6 +2870,10 @@ async fn run_dispatch_worker(config: AppConfig, state: AppState) -> Result<(), A
     .map_err(|err| AppError::Worker(err.to_string()));
 
     workflow_drain_handle.shutdown();
+    if let Some(handle) = audit_chain_handle {
+        handle.shutdown();
+    }
+    workflow_schedule_handle.shutdown();
     health_server.abort();
     result
 }
@@ -2766,6 +3044,7 @@ impl From<DbError> for AppError {
         match value {
             DbError::Sqlx(err) => Self::Database(err),
             DbError::Serialize(err) => Self::Internal(err.to_string()),
+            DbError::CodeIssuance(err) => Self::Internal(err),
         }
     }
 }
@@ -2899,6 +3178,49 @@ mod wide_event_middleware_tests {
                 && !text.contains("account-999")
                 && !text.contains("token=secret"),
             "unmatched wide-event metrics must not leak raw paths or query strings; got:\n{text}"
+        );
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod audit_attestation_auth_tests {
+    use std::collections::BTreeSet;
+
+    use mnt_kernel_core::{BranchId, BranchScope, OrgId, UserId};
+    use mnt_platform_authz::{Principal, Role};
+
+    use super::authorize_audit_attestation;
+
+    fn principal(role: Role, branch_scope: BranchScope) -> Principal {
+        Principal::new(
+            UserId::new(),
+            OrgId::knl(),
+            BTreeSet::from([role]),
+            branch_scope,
+        )
+    }
+
+    #[test]
+    fn audit_attestation_builtin_gate_allows_only_super_admin_for_audit_read() {
+        assert!(
+            authorize_audit_attestation(&principal(Role::Admin, BranchScope::All)).is_err(),
+            "built-in ADMIN is not org-wide attestation authority even with all-branch scope"
+        );
+        assert!(
+            authorize_audit_attestation(&principal(
+                Role::Admin,
+                BranchScope::single(BranchId::new())
+            ))
+            .is_err(),
+            "branch-scoped ADMIN must not access a whole-tenant attestation"
+        );
+        assert!(
+            authorize_audit_attestation(&principal(Role::SuperAdmin, BranchScope::All)).is_ok()
+        );
+        assert!(
+            authorize_audit_attestation(&principal(Role::Executive, BranchScope::All)).is_err(),
+            "EXECUTIVE has org-wide scope semantics, but not AuditLogRead matrix permission"
         );
     }
 }

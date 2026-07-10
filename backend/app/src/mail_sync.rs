@@ -43,6 +43,21 @@ const DEFAULT_TICK_SECS: u64 = 120;
 /// Max concurrent account sync passes per tick (bounds connections/CPU).
 const MAX_CONCURRENT_SYNCS: usize = 4;
 
+/// The claim lease the DB stamps on a due account (migration 0116, mirrored by
+/// the adapter's `SYNC_CLAIM_LEASE_SECS`). After it elapses another worker may
+/// reclaim the account — so a single pass MUST finish before then.
+const SYNC_CLAIM_LEASE_SECS: u64 = 600;
+
+/// Hard ceiling on ONE account's sync pass. Set SAFELY below the claim lease so a
+/// hung/slow pass is aborted before the lease can expire and a second worker
+/// reclaim the account (which would run an overlapping sync). The ~120s margin
+/// covers the fenced lease-clear write + clock skew between worker replicas.
+const SYNC_ACCOUNT_TIMEOUT: Duration = Duration::from_secs(480);
+
+// Compile-time guard on the safety margin: the per-pass timeout must stay below
+// the lease, or a slow pass could outlive its claim and be double-synced.
+const _: () = assert!(SYNC_ACCOUNT_TIMEOUT.as_secs() < SYNC_CLAIM_LEASE_SECS);
+
 /// Presigned-GET lifetime for inbound attachments served to the UI.
 const ATTACHMENT_GET_TTL: Duration = Duration::from_secs(300);
 
@@ -166,16 +181,35 @@ pub fn spawn(
     Some(MailSyncHandle { shutdown_tx })
 }
 
-/// One scheduler tick: enumerate the due accounts (cross-tenant, id-only), then
-/// dispatch a bounded set of per-(org, account) sync passes.
+/// One scheduler tick. Acquires the currently-FREE concurrency permits FIRST,
+/// then claims EXACTLY that many due accounts (cross-tenant, id-only) — never
+/// more. Claiming ahead of capacity used to stamp a 600s lease on accounts that
+/// then sat queued behind the semaphore before their pass even started, since
+/// `SYNC_ACCOUNT_TIMEOUT` only starts counting once the pass runs; a long queue
+/// wait could burn most of the lease before syncing began, letting another
+/// worker reclaim an account that was in fact still (about to be) worked. By
+/// claiming only as many accounts as we can start immediately, every claimed
+/// pass begins right away and the lease comfortably covers the ≤480s timeout.
+/// (This trades tick throughput — at most `MAX_CONCURRENT_SYNCS` claims per
+/// tick instead of up to 100 — for correctness; raise `MAX_CONCURRENT_SYNCS` if
+/// more throughput is needed.)
 async fn run_tick(
     store: &PgMailStore,
     attachments: &S3MailAttachmentStore,
     cipher: &Arc<EnvelopeCredentialCipher>,
     semaphore: &Arc<Semaphore>,
 ) {
+    let mut permits = Vec::new();
+    while let Ok(permit) = Arc::clone(semaphore).try_acquire_owned() {
+        permits.push(permit);
+    }
+    if permits.is_empty() {
+        // Fully busy with a prior tick's (long-running) passes; try next tick.
+        return;
+    }
+
     let now = Timestamp::now_utc();
-    let due = match store.list_due_accounts(now).await {
+    let due = match store.list_due_accounts(now, permits.len() as i32).await {
         Ok(due) => due,
         Err(err) => {
             tracing::warn!(
@@ -191,10 +225,10 @@ async fn run_tick(
     tracing::debug!(due = due.len(), "mail sync tick: dispatching due accounts");
 
     let mut handles = Vec::new();
-    for account in due {
-        let Ok(permit) = Arc::clone(semaphore).acquire_owned().await else {
-            break;
-        };
+    // due.len() <= permits.len() (the claim LIMIT was permits.len()), so every
+    // claimed account gets an already-held permit and starts immediately; any
+    // surplus permits are simply dropped (released) when this loop ends.
+    for (account, permit) in due.into_iter().zip(permits) {
         let store = store.clone();
         let attachments = attachments.clone();
         let cipher = Arc::clone(cipher);
@@ -221,22 +255,54 @@ async fn sync_one_account(
     account: mnt_comms_application::DueAccount,
 ) {
     let org = account.org_id;
+    let token = account.claim_token;
     let result = scope_org(org, async move {
         // Re-read the full sealed account under the armed org (the enumeration
-        // gave us only ids). If it vanished/paused since enumeration, skip.
+        // gave us only ids). If it vanished/changed since enumeration, skip — but
+        // RELEASE the claim we just took (fenced by our token) so the account is
+        // not stranded leased until the timeout, stalling throughput. No sync
+        // attempt was actually made, so `release_claim` — NOT
+        // `record_sync_result` — clears the lease without stamping the lifecycle
+        // (last_sync_at/sync_status/error), which would otherwise misreport an
+        // unsynced account as a successful pass.
         let Some(stored) = store.get_account().await? else {
+            let _ = store.release_claim(org, account.account_id, token).await;
             return Ok::<_, MailServiceError>(None);
         };
         if stored.id != account.account_id {
             // The tenant's single mailbox changed identity since enumeration;
             // skip this stale dispatch rather than syncing the wrong account.
+            let _ = store.release_claim(org, account.account_id, token).await;
             return Ok(None);
         }
+        // Keep a handle to release the claim if the pass is aborted by the timeout
+        // below (the pass owns `store`, so we clone before moving it in).
+        let release_store = store.clone();
         // Owned values satisfy the SyncService bounds directly; the cipher is
         // shared via the Arc blanket `CredentialCipher` impl.
         let service = SyncService::new(store, AsyncImapClient::new(), attachments, cipher);
-        let outcome = service.sync_account(&stored).await?;
-        Ok(Some(outcome))
+        // BOUND the pass below the claim lease: a hung/slow sync is aborted before
+        // another worker could reclaim the account at lease expiry (overlapping
+        // sync). On timeout the pass's own lifecycle stamp never ran, so release
+        // the lease here (fenced) and surface a timeout error.
+        match tokio::time::timeout(SYNC_ACCOUNT_TIMEOUT, service.sync_account(&stored, token)).await
+        {
+            Ok(inner) => inner.map(Some),
+            Err(_elapsed) => {
+                let _ = release_store
+                    .record_sync_result(
+                        org,
+                        account.account_id,
+                        token,
+                        "UNREACHABLE",
+                        Some("sync_timeout"),
+                    )
+                    .await;
+                Err(MailServiceError::Transport {
+                    code: "sync_timeout",
+                })
+            }
+        }
     })
     .await;
 

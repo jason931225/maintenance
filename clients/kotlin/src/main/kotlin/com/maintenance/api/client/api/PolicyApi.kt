@@ -27,15 +27,20 @@ import java.io.IOException
 import okhttp3.Call
 import okhttp3.HttpUrl
 
-import com.maintenance.api.client.model.BulkAuthorizeBody
-import com.maintenance.api.client.model.BulkDecisionResponse
-import com.maintenance.api.client.model.DecisionLogRow
+import com.maintenance.api.client.model.CreatePolicyRoleRequest
 import com.maintenance.api.client.model.ErrorBody
-import com.maintenance.api.client.model.PolicyAuthorizeRequest
-import com.maintenance.api.client.model.PolicyCreateDraftRequest
-import com.maintenance.api.client.model.PolicyReviewRequest
-import com.maintenance.api.client.model.PolicySimulateRequest
-import com.maintenance.api.client.model.PolicyUpdateDraftRequest
+import com.maintenance.api.client.model.PolicyAssignmentPreviewResponse
+import com.maintenance.api.client.model.PolicyAuditEventResponse
+import com.maintenance.api.client.model.PolicyFeatureResponse
+import com.maintenance.api.client.model.PolicyRoleAssignmentResponse
+import com.maintenance.api.client.model.PolicyRoleCatalogResponse
+import com.maintenance.api.client.model.PolicyRoleResponse
+import com.maintenance.api.client.model.PolicyRoleStatusPreviewRequest
+import com.maintenance.api.client.model.PolicyRoleStatusPreviewResponse
+import com.maintenance.api.client.model.PolicyRoleTemplateResponse
+import com.maintenance.api.client.model.ReplacePolicyRoleAssignmentsRequest
+import com.maintenance.api.client.model.UpdatePolicyRoleRequest
+import com.maintenance.api.client.model.UpdatePolicyRoleStatusRequest
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -66,11 +71,11 @@ open class PolicyApi(basePath: kotlin.String = defaultBasePath, client: Call.Fac
     }
 
     /**
-     * POST /api/v1/policy/authorize/bulk
-     *
-     *
-     * @param bulkAuthorizeBody
-     * @return BulkDecisionResponse
+     * POST /api/v1/policy/roles
+     * Create a tenant custom role definition
+     * Creates an audited, tenant-scoped custom role definition. Custom roles never replace built-in users.roles, but ACTIVE assignments can add runtime-effective ordinary feature grants on the next request. Elevated policy-management and scope-widening features are rejected.
+     * @param createPolicyRoleRequest
+     * @return PolicyRoleResponse
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      * @throws UnsupportedOperationException If the API returns an informational or redirection response
@@ -79,11 +84,11 @@ open class PolicyApi(basePath: kotlin.String = defaultBasePath, client: Call.Fac
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun authorizeBulk(bulkAuthorizeBody: BulkAuthorizeBody) : BulkDecisionResponse = withContext(Dispatchers.IO) {
-        val localVarResponse = authorizeBulkWithHttpInfo(bulkAuthorizeBody = bulkAuthorizeBody)
+    suspend fun createPolicyRole(createPolicyRoleRequest: CreatePolicyRoleRequest) : PolicyRoleResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = createPolicyRoleWithHttpInfo(createPolicyRoleRequest = createPolicyRoleRequest)
 
         return@withContext when (localVarResponse.responseType) {
-            ResponseType.Success -> (localVarResponse as Success<*>).data as BulkDecisionResponse
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PolicyRoleResponse
             ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
             ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
             ResponseType.ClientError -> {
@@ -98,32 +103,32 @@ open class PolicyApi(basePath: kotlin.String = defaultBasePath, client: Call.Fac
     }
 
     /**
-     * POST /api/v1/policy/authorize/bulk
-     *
-     *
-     * @param bulkAuthorizeBody
-     * @return ApiResponse<BulkDecisionResponse?>
+     * POST /api/v1/policy/roles
+     * Create a tenant custom role definition
+     * Creates an audited, tenant-scoped custom role definition. Custom roles never replace built-in users.roles, but ACTIVE assignments can add runtime-effective ordinary feature grants on the next request. Elevated policy-management and scope-widening features are rejected.
+     * @param createPolicyRoleRequest
+     * @return ApiResponse<PolicyRoleResponse?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun authorizeBulkWithHttpInfo(bulkAuthorizeBody: BulkAuthorizeBody) : ApiResponse<BulkDecisionResponse?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = authorizeBulkRequestConfig(bulkAuthorizeBody = bulkAuthorizeBody)
+    suspend fun createPolicyRoleWithHttpInfo(createPolicyRoleRequest: CreatePolicyRoleRequest) : ApiResponse<PolicyRoleResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = createPolicyRoleRequestConfig(createPolicyRoleRequest = createPolicyRoleRequest)
 
-        return@withContext request<BulkAuthorizeBody, BulkDecisionResponse>(
+        return@withContext request<CreatePolicyRoleRequest, PolicyRoleResponse>(
             localVariableConfig
         )
     }
 
     /**
-     * To obtain the request config of the operation authorizeBulk
+     * To obtain the request config of the operation createPolicyRole
      *
-     * @param bulkAuthorizeBody
+     * @param createPolicyRoleRequest
      * @return RequestConfig
      */
-    fun authorizeBulkRequestConfig(bulkAuthorizeBody: BulkAuthorizeBody) : RequestConfig<BulkAuthorizeBody> {
-        val localVariableBody = bulkAuthorizeBody
+    fun createPolicyRoleRequestConfig(createPolicyRoleRequest: CreatePolicyRoleRequest) : RequestConfig<CreatePolicyRoleRequest> {
+        val localVariableBody = createPolicyRoleRequest
         val localVariableQuery: MultiValueMap = mutableMapOf()
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
         localVariableHeaders["Content-Type"] = "application/json"
@@ -131,81 +136,7 @@ open class PolicyApi(basePath: kotlin.String = defaultBasePath, client: Call.Fac
 
         return RequestConfig(
             method = RequestMethod.POST,
-            path = "/api/v1/policy/authorize/bulk",
-            query = localVariableQuery,
-            headers = localVariableHeaders,
-            requiresAuthentication = false,
-            body = localVariableBody
-        )
-    }
-
-    /**
-     * POST /api/v1/policy/authorize
-     * Live Cedar authorization decision
-     * The live point decision (the same fail-closed evaluator the guardrail gate calls), optionally scoped to one object type or property&#39;s attached policies.
-     * @param policyAuthorizeRequest
-     * @return kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>
-     * @throws IllegalStateException If the request is not correctly configured
-     * @throws IOException Rethrows the OkHttp execute method exception
-     * @throws UnsupportedOperationException If the API returns an informational or redirection response
-     * @throws ClientException If the API returns a client error response
-     * @throws ServerException If the API returns a server error response
-     */
-    @Suppress("UNCHECKED_CAST")
-    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun authorizePolicyDecision(policyAuthorizeRequest: PolicyAuthorizeRequest) : kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement> = withContext(Dispatchers.IO) {
-        val localVarResponse = authorizePolicyDecisionWithHttpInfo(policyAuthorizeRequest = policyAuthorizeRequest)
-
-        return@withContext when (localVarResponse.responseType) {
-            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>
-            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
-            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
-            ResponseType.ClientError -> {
-                val localVarError = localVarResponse as ClientError<*>
-                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
-            }
-            ResponseType.ServerError -> {
-                val localVarError = localVarResponse as ServerError<*>
-                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
-            }
-        }
-    }
-
-    /**
-     * POST /api/v1/policy/authorize
-     * Live Cedar authorization decision
-     * The live point decision (the same fail-closed evaluator the guardrail gate calls), optionally scoped to one object type or property&#39;s attached policies.
-     * @param policyAuthorizeRequest
-     * @return ApiResponse<kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>?>
-     * @throws IllegalStateException If the request is not correctly configured
-     * @throws IOException Rethrows the OkHttp execute method exception
-     */
-    @Suppress("UNCHECKED_CAST")
-    @Throws(IllegalStateException::class, IOException::class)
-    suspend fun authorizePolicyDecisionWithHttpInfo(policyAuthorizeRequest: PolicyAuthorizeRequest) : ApiResponse<kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = authorizePolicyDecisionRequestConfig(policyAuthorizeRequest = policyAuthorizeRequest)
-
-        return@withContext request<PolicyAuthorizeRequest, kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>>(
-            localVariableConfig
-        )
-    }
-
-    /**
-     * To obtain the request config of the operation authorizePolicyDecision
-     *
-     * @param policyAuthorizeRequest
-     * @return RequestConfig
-     */
-    fun authorizePolicyDecisionRequestConfig(policyAuthorizeRequest: PolicyAuthorizeRequest) : RequestConfig<PolicyAuthorizeRequest> {
-        val localVariableBody = policyAuthorizeRequest
-        val localVariableQuery: MultiValueMap = mutableMapOf()
-        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
-        localVariableHeaders["Content-Type"] = "application/json"
-        localVariableHeaders["Accept"] = "application/json"
-
-        return RequestConfig(
-            method = RequestMethod.POST,
-            path = "/api/v1/policy/authorize",
+            path = "/api/v1/policy/roles",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -214,11 +145,11 @@ open class PolicyApi(basePath: kotlin.String = defaultBasePath, client: Call.Fac
     }
 
     /**
-     * POST /api/v1/policy/drafts
-     * Create a no-code policy draft
-     * Creates a no-code policy draft; the blocks are normalized and compiled to Cedar text. A draft can never create a live or shadow enforcement row.
-     * @param policyCreateDraftRequest
-     * @return kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>
+     * GET /api/v1/policy/assignments
+     * List custom-role assignments for one user
+     * Returns custom-role assignments for a visible user. ACTIVE assignments are audited and can add runtime-effective ordinary feature grants on the next request; DRAFT/RETIRED roles remain inert.
+     * @param userId
+     * @return kotlin.collections.List<PolicyRoleAssignmentResponse>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      * @throws UnsupportedOperationException If the API returns an informational or redirection response
@@ -227,11 +158,11 @@ open class PolicyApi(basePath: kotlin.String = defaultBasePath, client: Call.Fac
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun createPolicyDraft(policyCreateDraftRequest: PolicyCreateDraftRequest) : kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement> = withContext(Dispatchers.IO) {
-        val localVarResponse = createPolicyDraftWithHttpInfo(policyCreateDraftRequest = policyCreateDraftRequest)
+    suspend fun listPolicyAssignments(userId: java.util.UUID) : kotlin.collections.List<PolicyRoleAssignmentResponse> = withContext(Dispatchers.IO) {
+        val localVarResponse = listPolicyAssignmentsWithHttpInfo(userId = userId)
 
         return@withContext when (localVarResponse.responseType) {
-            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>
+            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.List<PolicyRoleAssignmentResponse>
             ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
             ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
             ResponseType.ClientError -> {
@@ -246,113 +177,42 @@ open class PolicyApi(basePath: kotlin.String = defaultBasePath, client: Call.Fac
     }
 
     /**
-     * POST /api/v1/policy/drafts
-     * Create a no-code policy draft
-     * Creates a no-code policy draft; the blocks are normalized and compiled to Cedar text. A draft can never create a live or shadow enforcement row.
-     * @param policyCreateDraftRequest
-     * @return ApiResponse<kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>?>
+     * GET /api/v1/policy/assignments
+     * List custom-role assignments for one user
+     * Returns custom-role assignments for a visible user. ACTIVE assignments are audited and can add runtime-effective ordinary feature grants on the next request; DRAFT/RETIRED roles remain inert.
+     * @param userId
+     * @return ApiResponse<kotlin.collections.List<PolicyRoleAssignmentResponse>?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun createPolicyDraftWithHttpInfo(policyCreateDraftRequest: PolicyCreateDraftRequest) : ApiResponse<kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = createPolicyDraftRequestConfig(policyCreateDraftRequest = policyCreateDraftRequest)
+    suspend fun listPolicyAssignmentsWithHttpInfo(userId: java.util.UUID) : ApiResponse<kotlin.collections.List<PolicyRoleAssignmentResponse>?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listPolicyAssignmentsRequestConfig(userId = userId)
 
-        return@withContext request<PolicyCreateDraftRequest, kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>>(
+        return@withContext request<Unit, kotlin.collections.List<PolicyRoleAssignmentResponse>>(
             localVariableConfig
         )
     }
 
     /**
-     * To obtain the request config of the operation createPolicyDraft
+     * To obtain the request config of the operation listPolicyAssignments
      *
-     * @param policyCreateDraftRequest
+     * @param userId
      * @return RequestConfig
      */
-    fun createPolicyDraftRequestConfig(policyCreateDraftRequest: PolicyCreateDraftRequest) : RequestConfig<PolicyCreateDraftRequest> {
-        val localVariableBody = policyCreateDraftRequest
-        val localVariableQuery: MultiValueMap = mutableMapOf()
-        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
-        localVariableHeaders["Content-Type"] = "application/json"
-        localVariableHeaders["Accept"] = "application/json"
-
-        return RequestConfig(
-            method = RequestMethod.POST,
-            path = "/api/v1/policy/drafts",
-            query = localVariableQuery,
-            headers = localVariableHeaders,
-            requiresAuthentication = true,
-            body = localVariableBody
-        )
-    }
-
-    /**
-     * GET /api/v1/policy/drafts/{draft_id}
-     * Get a policy draft
-     *
-     * @param draftId
-     * @return kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>
-     * @throws IllegalStateException If the request is not correctly configured
-     * @throws IOException Rethrows the OkHttp execute method exception
-     * @throws UnsupportedOperationException If the API returns an informational or redirection response
-     * @throws ClientException If the API returns a client error response
-     * @throws ServerException If the API returns a server error response
-     */
-    @Suppress("UNCHECKED_CAST")
-    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun getPolicyDraft(draftId: java.util.UUID) : kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement> = withContext(Dispatchers.IO) {
-        val localVarResponse = getPolicyDraftWithHttpInfo(draftId = draftId)
-
-        return@withContext when (localVarResponse.responseType) {
-            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>
-            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
-            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
-            ResponseType.ClientError -> {
-                val localVarError = localVarResponse as ClientError<*>
-                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
-            }
-            ResponseType.ServerError -> {
-                val localVarError = localVarResponse as ServerError<*>
-                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
-            }
-        }
-    }
-
-    /**
-     * GET /api/v1/policy/drafts/{draft_id}
-     * Get a policy draft
-     *
-     * @param draftId
-     * @return ApiResponse<kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>?>
-     * @throws IllegalStateException If the request is not correctly configured
-     * @throws IOException Rethrows the OkHttp execute method exception
-     */
-    @Suppress("UNCHECKED_CAST")
-    @Throws(IllegalStateException::class, IOException::class)
-    suspend fun getPolicyDraftWithHttpInfo(draftId: java.util.UUID) : ApiResponse<kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = getPolicyDraftRequestConfig(draftId = draftId)
-
-        return@withContext request<Unit, kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>>(
-            localVariableConfig
-        )
-    }
-
-    /**
-     * To obtain the request config of the operation getPolicyDraft
-     *
-     * @param draftId
-     * @return RequestConfig
-     */
-    fun getPolicyDraftRequestConfig(draftId: java.util.UUID) : RequestConfig<Unit> {
+    fun listPolicyAssignmentsRequestConfig(userId: java.util.UUID) : RequestConfig<Unit> {
         val localVariableBody = null
-        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                put("user_id", listOf(userId.toString()))
+            }
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
         localVariableHeaders["Accept"] = "application/json"
 
         return RequestConfig(
             method = RequestMethod.GET,
-            path = "/api/v1/policy/drafts/{draft_id}".replace("{"+"draft_id"+"}", encodeURIComponent(draftId.toString())),
+            path = "/api/v1/policy/assignments",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -361,11 +221,11 @@ open class PolicyApi(basePath: kotlin.String = defaultBasePath, client: Call.Fac
     }
 
     /**
-     * GET /api/v1/policy/catalog
-     * List Cedar policy catalog entries
-     * Lists the tenant&#39;s Cedar policy catalog entries (enforced / shadow / draft / …), optionally filtered by status.
-     * @param status  (optional)
-     * @return kotlin.collections.List<kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>>
+     * GET /api/v1/policy/audit-events
+     * List Policy Studio audit evidence
+     * Returns append-only policy audit events for the current tenant. This is a read-only evidence timeline for RoleManage holders and includes only policy role and planned-assignment events, not unrelated tenant audit rows.
+     * @param limit  (optional, default to 20L)
+     * @return kotlin.collections.List<PolicyAuditEventResponse>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      * @throws UnsupportedOperationException If the API returns an informational or redirection response
@@ -374,11 +234,11 @@ open class PolicyApi(basePath: kotlin.String = defaultBasePath, client: Call.Fac
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun listPolicyCatalog(status: kotlin.String? = null) : kotlin.collections.List<kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>> = withContext(Dispatchers.IO) {
-        val localVarResponse = listPolicyCatalogWithHttpInfo(status = status)
+    suspend fun listPolicyAuditEvents(limit: kotlin.Long? = 20L) : kotlin.collections.List<PolicyAuditEventResponse> = withContext(Dispatchers.IO) {
+        val localVarResponse = listPolicyAuditEventsWithHttpInfo(limit = limit)
 
         return@withContext when (localVarResponse.responseType) {
-            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.List<kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>>
+            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.List<PolicyAuditEventResponse>
             ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
             ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
             ResponseType.ClientError -> {
@@ -393,36 +253,36 @@ open class PolicyApi(basePath: kotlin.String = defaultBasePath, client: Call.Fac
     }
 
     /**
-     * GET /api/v1/policy/catalog
-     * List Cedar policy catalog entries
-     * Lists the tenant&#39;s Cedar policy catalog entries (enforced / shadow / draft / …), optionally filtered by status.
-     * @param status  (optional)
-     * @return ApiResponse<kotlin.collections.List<kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>>?>
+     * GET /api/v1/policy/audit-events
+     * List Policy Studio audit evidence
+     * Returns append-only policy audit events for the current tenant. This is a read-only evidence timeline for RoleManage holders and includes only policy role and planned-assignment events, not unrelated tenant audit rows.
+     * @param limit  (optional, default to 20L)
+     * @return ApiResponse<kotlin.collections.List<PolicyAuditEventResponse>?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun listPolicyCatalogWithHttpInfo(status: kotlin.String?) : ApiResponse<kotlin.collections.List<kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>>?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = listPolicyCatalogRequestConfig(status = status)
+    suspend fun listPolicyAuditEventsWithHttpInfo(limit: kotlin.Long?) : ApiResponse<kotlin.collections.List<PolicyAuditEventResponse>?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listPolicyAuditEventsRequestConfig(limit = limit)
 
-        return@withContext request<Unit, kotlin.collections.List<kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>>>(
+        return@withContext request<Unit, kotlin.collections.List<PolicyAuditEventResponse>>(
             localVariableConfig
         )
     }
 
     /**
-     * To obtain the request config of the operation listPolicyCatalog
+     * To obtain the request config of the operation listPolicyAuditEvents
      *
-     * @param status  (optional)
+     * @param limit  (optional, default to 20L)
      * @return RequestConfig
      */
-    fun listPolicyCatalogRequestConfig(status: kotlin.String?) : RequestConfig<Unit> {
+    fun listPolicyAuditEventsRequestConfig(limit: kotlin.Long?) : RequestConfig<Unit> {
         val localVariableBody = null
         val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
             .apply {
-                if (status != null) {
-                    put("status", listOf(status.toString()))
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
                 }
             }
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
@@ -430,7 +290,7 @@ open class PolicyApi(basePath: kotlin.String = defaultBasePath, client: Call.Fac
 
         return RequestConfig(
             method = RequestMethod.GET,
-            path = "/api/v1/policy/catalog",
+            path = "/api/v1/policy/audit-events",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -439,11 +299,10 @@ open class PolicyApi(basePath: kotlin.String = defaultBasePath, client: Call.Fac
     }
 
     /**
-     * GET /api/v1/policy/decisions
+     * GET /api/v1/policy/features
+     * List canonical policy feature catalog for Policy Studio
      *
-     *
-     * @param since  (optional)
-     * @return kotlin.collections.List<DecisionLogRow>
+     * @return kotlin.collections.List<PolicyFeatureResponse>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      * @throws UnsupportedOperationException If the API returns an informational or redirection response
@@ -452,11 +311,11 @@ open class PolicyApi(basePath: kotlin.String = defaultBasePath, client: Call.Fac
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun listPolicyDecisions(since: java.time.OffsetDateTime? = null) : kotlin.collections.List<DecisionLogRow> = withContext(Dispatchers.IO) {
-        val localVarResponse = listPolicyDecisionsWithHttpInfo(since = since)
+    suspend fun listPolicyFeatures() : kotlin.collections.List<PolicyFeatureResponse> = withContext(Dispatchers.IO) {
+        val localVarResponse = listPolicyFeaturesWithHttpInfo()
 
         return@withContext when (localVarResponse.responseType) {
-            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.List<DecisionLogRow>
+            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.List<PolicyFeatureResponse>
             ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
             ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
             ResponseType.ClientError -> {
@@ -471,106 +330,29 @@ open class PolicyApi(basePath: kotlin.String = defaultBasePath, client: Call.Fac
     }
 
     /**
-     * GET /api/v1/policy/decisions
+     * GET /api/v1/policy/features
+     * List canonical policy feature catalog for Policy Studio
      *
-     *
-     * @param since  (optional)
-     * @return ApiResponse<kotlin.collections.List<DecisionLogRow>?>
+     * @return ApiResponse<kotlin.collections.List<PolicyFeatureResponse>?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun listPolicyDecisionsWithHttpInfo(since: java.time.OffsetDateTime?) : ApiResponse<kotlin.collections.List<DecisionLogRow>?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = listPolicyDecisionsRequestConfig(since = since)
+    suspend fun listPolicyFeaturesWithHttpInfo() : ApiResponse<kotlin.collections.List<PolicyFeatureResponse>?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listPolicyFeaturesRequestConfig()
 
-        return@withContext request<Unit, kotlin.collections.List<DecisionLogRow>>(
+        return@withContext request<Unit, kotlin.collections.List<PolicyFeatureResponse>>(
             localVariableConfig
         )
     }
 
     /**
-     * To obtain the request config of the operation listPolicyDecisions
-     *
-     * @param since  (optional)
-     * @return RequestConfig
-     */
-    fun listPolicyDecisionsRequestConfig(since: java.time.OffsetDateTime?) : RequestConfig<Unit> {
-        val localVariableBody = null
-        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
-            .apply {
-                if (since != null) {
-                    put("since", listOf(parseDateToQueryString<java.time.OffsetDateTime>(since)))
-                }
-            }
-        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
-        localVariableHeaders["Accept"] = "application/json"
-
-        return RequestConfig(
-            method = RequestMethod.GET,
-            path = "/api/v1/policy/decisions",
-            query = localVariableQuery,
-            headers = localVariableHeaders,
-            requiresAuthentication = false,
-            body = localVariableBody
-        )
-    }
-
-    /**
-     * GET /api/v1/policy/drafts
-     * List no-code policy drafts
-     * Lists the tenant&#39;s no-code Cedar policy drafts and their review status.
-     * @return kotlin.collections.List<kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>>
-     * @throws IllegalStateException If the request is not correctly configured
-     * @throws IOException Rethrows the OkHttp execute method exception
-     * @throws UnsupportedOperationException If the API returns an informational or redirection response
-     * @throws ClientException If the API returns a client error response
-     * @throws ServerException If the API returns a server error response
-     */
-    @Suppress("UNCHECKED_CAST")
-    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun listPolicyDrafts() : kotlin.collections.List<kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>> = withContext(Dispatchers.IO) {
-        val localVarResponse = listPolicyDraftsWithHttpInfo()
-
-        return@withContext when (localVarResponse.responseType) {
-            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.List<kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>>
-            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
-            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
-            ResponseType.ClientError -> {
-                val localVarError = localVarResponse as ClientError<*>
-                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
-            }
-            ResponseType.ServerError -> {
-                val localVarError = localVarResponse as ServerError<*>
-                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
-            }
-        }
-    }
-
-    /**
-     * GET /api/v1/policy/drafts
-     * List no-code policy drafts
-     * Lists the tenant&#39;s no-code Cedar policy drafts and their review status.
-     * @return ApiResponse<kotlin.collections.List<kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>>?>
-     * @throws IllegalStateException If the request is not correctly configured
-     * @throws IOException Rethrows the OkHttp execute method exception
-     */
-    @Suppress("UNCHECKED_CAST")
-    @Throws(IllegalStateException::class, IOException::class)
-    suspend fun listPolicyDraftsWithHttpInfo() : ApiResponse<kotlin.collections.List<kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>>?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = listPolicyDraftsRequestConfig()
-
-        return@withContext request<Unit, kotlin.collections.List<kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>>>(
-            localVariableConfig
-        )
-    }
-
-    /**
-     * To obtain the request config of the operation listPolicyDrafts
+     * To obtain the request config of the operation listPolicyFeatures
      *
      * @return RequestConfig
      */
-    fun listPolicyDraftsRequestConfig() : RequestConfig<Unit> {
+    fun listPolicyFeaturesRequestConfig() : RequestConfig<Unit> {
         val localVariableBody = null
         val localVariableQuery: MultiValueMap = mutableMapOf()
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
@@ -578,7 +360,7 @@ open class PolicyApi(basePath: kotlin.String = defaultBasePath, client: Call.Fac
 
         return RequestConfig(
             method = RequestMethod.GET,
-            path = "/api/v1/policy/drafts",
+            path = "/api/v1/policy/features",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -587,12 +369,10 @@ open class PolicyApi(basePath: kotlin.String = defaultBasePath, client: Call.Fac
     }
 
     /**
-     * POST /api/v1/policy/drafts/{draft_id}/review
-     * Four-eyes review a policy draft
-     * Records a four-eyes review decision (reviewer must differ from the author) moving the draft to approved_for_promotion or rejected.
-     * @param draftId
-     * @param policyReviewRequest
-     * @return kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>
+     * GET /api/v1/policy/role-templates
+     * List safe starter templates for tenant custom roles
+     * Returns built-in starter templates that can be copied into a tenant custom role definition. Templates never grant elevated policy-management features. Templates do not affect runtime authorization until copied into an ACTIVE assigned custom role; unsupported/elevated grants remain inert.
+     * @return kotlin.collections.List<PolicyRoleTemplateResponse>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      * @throws UnsupportedOperationException If the API returns an informational or redirection response
@@ -601,11 +381,11 @@ open class PolicyApi(basePath: kotlin.String = defaultBasePath, client: Call.Fac
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun reviewPolicyDraft(draftId: java.util.UUID, policyReviewRequest: PolicyReviewRequest) : kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement> = withContext(Dispatchers.IO) {
-        val localVarResponse = reviewPolicyDraftWithHttpInfo(draftId = draftId, policyReviewRequest = policyReviewRequest)
+    suspend fun listPolicyRoleTemplates() : kotlin.collections.List<PolicyRoleTemplateResponse> = withContext(Dispatchers.IO) {
+        val localVarResponse = listPolicyRoleTemplatesWithHttpInfo()
 
         return@withContext when (localVarResponse.responseType) {
-            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>
+            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.List<PolicyRoleTemplateResponse>
             ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
             ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
             ResponseType.ClientError -> {
@@ -620,189 +400,37 @@ open class PolicyApi(basePath: kotlin.String = defaultBasePath, client: Call.Fac
     }
 
     /**
-     * POST /api/v1/policy/drafts/{draft_id}/review
-     * Four-eyes review a policy draft
-     * Records a four-eyes review decision (reviewer must differ from the author) moving the draft to approved_for_promotion or rejected.
-     * @param draftId
-     * @param policyReviewRequest
-     * @return ApiResponse<kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>?>
+     * GET /api/v1/policy/role-templates
+     * List safe starter templates for tenant custom roles
+     * Returns built-in starter templates that can be copied into a tenant custom role definition. Templates never grant elevated policy-management features. Templates do not affect runtime authorization until copied into an ACTIVE assigned custom role; unsupported/elevated grants remain inert.
+     * @return ApiResponse<kotlin.collections.List<PolicyRoleTemplateResponse>?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun reviewPolicyDraftWithHttpInfo(draftId: java.util.UUID, policyReviewRequest: PolicyReviewRequest) : ApiResponse<kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = reviewPolicyDraftRequestConfig(draftId = draftId, policyReviewRequest = policyReviewRequest)
+    suspend fun listPolicyRoleTemplatesWithHttpInfo() : ApiResponse<kotlin.collections.List<PolicyRoleTemplateResponse>?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listPolicyRoleTemplatesRequestConfig()
 
-        return@withContext request<PolicyReviewRequest, kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>>(
+        return@withContext request<Unit, kotlin.collections.List<PolicyRoleTemplateResponse>>(
             localVariableConfig
         )
     }
 
     /**
-     * To obtain the request config of the operation reviewPolicyDraft
+     * To obtain the request config of the operation listPolicyRoleTemplates
      *
-     * @param draftId
-     * @param policyReviewRequest
      * @return RequestConfig
      */
-    fun reviewPolicyDraftRequestConfig(draftId: java.util.UUID, policyReviewRequest: PolicyReviewRequest) : RequestConfig<PolicyReviewRequest> {
-        val localVariableBody = policyReviewRequest
-        val localVariableQuery: MultiValueMap = mutableMapOf()
-        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
-        localVariableHeaders["Content-Type"] = "application/json"
-        localVariableHeaders["Accept"] = "application/json"
-
-        return RequestConfig(
-            method = RequestMethod.POST,
-            path = "/api/v1/policy/drafts/{draft_id}/review".replace("{"+"draft_id"+"}", encodeURIComponent(draftId.toString())),
-            query = localVariableQuery,
-            headers = localVariableHeaders,
-            requiresAuthentication = true,
-            body = localVariableBody
-        )
-    }
-
-    /**
-     * POST /api/v1/policy/simulate
-     * Simulate a Cedar policy decision
-     * Evaluates a point decision (with an optional what-if draft overlay) and returns Allow/Deny plus matched policies and diagnostics. Deny-by-omission is the default.
-     * @param policySimulateRequest
-     * @return kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>
-     * @throws IllegalStateException If the request is not correctly configured
-     * @throws IOException Rethrows the OkHttp execute method exception
-     * @throws UnsupportedOperationException If the API returns an informational or redirection response
-     * @throws ClientException If the API returns a client error response
-     * @throws ServerException If the API returns a server error response
-     */
-    @Suppress("UNCHECKED_CAST")
-    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun simulatePolicyDecision(policySimulateRequest: PolicySimulateRequest) : kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement> = withContext(Dispatchers.IO) {
-        val localVarResponse = simulatePolicyDecisionWithHttpInfo(policySimulateRequest = policySimulateRequest)
-
-        return@withContext when (localVarResponse.responseType) {
-            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>
-            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
-            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
-            ResponseType.ClientError -> {
-                val localVarError = localVarResponse as ClientError<*>
-                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
-            }
-            ResponseType.ServerError -> {
-                val localVarError = localVarResponse as ServerError<*>
-                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
-            }
-        }
-    }
-
-    /**
-     * POST /api/v1/policy/simulate
-     * Simulate a Cedar policy decision
-     * Evaluates a point decision (with an optional what-if draft overlay) and returns Allow/Deny plus matched policies and diagnostics. Deny-by-omission is the default.
-     * @param policySimulateRequest
-     * @return ApiResponse<kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>?>
-     * @throws IllegalStateException If the request is not correctly configured
-     * @throws IOException Rethrows the OkHttp execute method exception
-     */
-    @Suppress("UNCHECKED_CAST")
-    @Throws(IllegalStateException::class, IOException::class)
-    suspend fun simulatePolicyDecisionWithHttpInfo(policySimulateRequest: PolicySimulateRequest) : ApiResponse<kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = simulatePolicyDecisionRequestConfig(policySimulateRequest = policySimulateRequest)
-
-        return@withContext request<PolicySimulateRequest, kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>>(
-            localVariableConfig
-        )
-    }
-
-    /**
-     * To obtain the request config of the operation simulatePolicyDecision
-     *
-     * @param policySimulateRequest
-     * @return RequestConfig
-     */
-    fun simulatePolicyDecisionRequestConfig(policySimulateRequest: PolicySimulateRequest) : RequestConfig<PolicySimulateRequest> {
-        val localVariableBody = policySimulateRequest
-        val localVariableQuery: MultiValueMap = mutableMapOf()
-        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
-        localVariableHeaders["Content-Type"] = "application/json"
-        localVariableHeaders["Accept"] = "application/json"
-
-        return RequestConfig(
-            method = RequestMethod.POST,
-            path = "/api/v1/policy/simulate",
-            query = localVariableQuery,
-            headers = localVariableHeaders,
-            requiresAuthentication = true,
-            body = localVariableBody
-        )
-    }
-
-    /**
-     * POST /api/v1/policy/drafts/{draft_id}/submit
-     * Submit a policy draft for review
-     * Moves a validated draft to review_pending (validation must be valid).
-     * @param draftId
-     * @return kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>
-     * @throws IllegalStateException If the request is not correctly configured
-     * @throws IOException Rethrows the OkHttp execute method exception
-     * @throws UnsupportedOperationException If the API returns an informational or redirection response
-     * @throws ClientException If the API returns a client error response
-     * @throws ServerException If the API returns a server error response
-     */
-    @Suppress("UNCHECKED_CAST")
-    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun submitPolicyDraft(draftId: java.util.UUID) : kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement> = withContext(Dispatchers.IO) {
-        val localVarResponse = submitPolicyDraftWithHttpInfo(draftId = draftId)
-
-        return@withContext when (localVarResponse.responseType) {
-            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>
-            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
-            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
-            ResponseType.ClientError -> {
-                val localVarError = localVarResponse as ClientError<*>
-                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
-            }
-            ResponseType.ServerError -> {
-                val localVarError = localVarResponse as ServerError<*>
-                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
-            }
-        }
-    }
-
-    /**
-     * POST /api/v1/policy/drafts/{draft_id}/submit
-     * Submit a policy draft for review
-     * Moves a validated draft to review_pending (validation must be valid).
-     * @param draftId
-     * @return ApiResponse<kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>?>
-     * @throws IllegalStateException If the request is not correctly configured
-     * @throws IOException Rethrows the OkHttp execute method exception
-     */
-    @Suppress("UNCHECKED_CAST")
-    @Throws(IllegalStateException::class, IOException::class)
-    suspend fun submitPolicyDraftWithHttpInfo(draftId: java.util.UUID) : ApiResponse<kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = submitPolicyDraftRequestConfig(draftId = draftId)
-
-        return@withContext request<Unit, kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>>(
-            localVariableConfig
-        )
-    }
-
-    /**
-     * To obtain the request config of the operation submitPolicyDraft
-     *
-     * @param draftId
-     * @return RequestConfig
-     */
-    fun submitPolicyDraftRequestConfig(draftId: java.util.UUID) : RequestConfig<Unit> {
+    fun listPolicyRoleTemplatesRequestConfig() : RequestConfig<Unit> {
         val localVariableBody = null
         val localVariableQuery: MultiValueMap = mutableMapOf()
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
         localVariableHeaders["Accept"] = "application/json"
 
         return RequestConfig(
-            method = RequestMethod.POST,
-            path = "/api/v1/policy/drafts/{draft_id}/submit".replace("{"+"draft_id"+"}", encodeURIComponent(draftId.toString())),
+            method = RequestMethod.GET,
+            path = "/api/v1/policy/role-templates",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -811,12 +439,10 @@ open class PolicyApi(basePath: kotlin.String = defaultBasePath, client: Call.Fac
     }
 
     /**
-     * PUT /api/v1/policy/drafts/{draft_id}
-     * Update a policy draft
-     * Edits a per-user draft (re-normalized and re-compiled to Cedar text). Cannot promote a draft to shadow/enforced.
-     * @param draftId
-     * @param policyUpdateDraftRequest
-     * @return kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>
+     * GET /api/v1/policy/roles
+     * List built-in role templates and tenant custom roles
+     *
+     * @return PolicyRoleCatalogResponse
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      * @throws UnsupportedOperationException If the API returns an informational or redirection response
@@ -825,11 +451,11 @@ open class PolicyApi(basePath: kotlin.String = defaultBasePath, client: Call.Fac
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun updatePolicyDraft(draftId: java.util.UUID, policyUpdateDraftRequest: PolicyUpdateDraftRequest) : kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement> = withContext(Dispatchers.IO) {
-        val localVarResponse = updatePolicyDraftWithHttpInfo(draftId = draftId, policyUpdateDraftRequest = policyUpdateDraftRequest)
+    suspend fun listPolicyRoles() : PolicyRoleCatalogResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = listPolicyRolesWithHttpInfo()
 
         return@withContext when (localVarResponse.responseType) {
-            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PolicyRoleCatalogResponse
             ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
             ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
             ResponseType.ClientError -> {
@@ -844,34 +470,260 @@ open class PolicyApi(basePath: kotlin.String = defaultBasePath, client: Call.Fac
     }
 
     /**
-     * PUT /api/v1/policy/drafts/{draft_id}
-     * Update a policy draft
-     * Edits a per-user draft (re-normalized and re-compiled to Cedar text). Cannot promote a draft to shadow/enforced.
-     * @param draftId
-     * @param policyUpdateDraftRequest
-     * @return ApiResponse<kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>?>
+     * GET /api/v1/policy/roles
+     * List built-in role templates and tenant custom roles
+     *
+     * @return ApiResponse<PolicyRoleCatalogResponse?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun updatePolicyDraftWithHttpInfo(draftId: java.util.UUID, policyUpdateDraftRequest: PolicyUpdateDraftRequest) : ApiResponse<kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = updatePolicyDraftRequestConfig(draftId = draftId, policyUpdateDraftRequest = policyUpdateDraftRequest)
+    suspend fun listPolicyRolesWithHttpInfo() : ApiResponse<PolicyRoleCatalogResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listPolicyRolesRequestConfig()
 
-        return@withContext request<PolicyUpdateDraftRequest, kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>>(
+        return@withContext request<Unit, PolicyRoleCatalogResponse>(
             localVariableConfig
         )
     }
 
     /**
-     * To obtain the request config of the operation updatePolicyDraft
+     * To obtain the request config of the operation listPolicyRoles
      *
-     * @param draftId
-     * @param policyUpdateDraftRequest
      * @return RequestConfig
      */
-    fun updatePolicyDraftRequestConfig(draftId: java.util.UUID, policyUpdateDraftRequest: PolicyUpdateDraftRequest) : RequestConfig<PolicyUpdateDraftRequest> {
-        val localVariableBody = policyUpdateDraftRequest
+    fun listPolicyRolesRequestConfig() : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/policy/roles",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/policy/users/{id}/assignment-preview
+     * Preview requested custom-role assignment impact for one user
+     * Computes requested-vs-current planned custom-role assignment deltas and feature grants for a visible user. This is an impact-preview surface only: it does not write assignments and does not publish runtime authorization.
+     * @param id
+     * @param replacePolicyRoleAssignmentsRequest
+     * @return PolicyAssignmentPreviewResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun previewPolicyAssignments(id: java.util.UUID, replacePolicyRoleAssignmentsRequest: ReplacePolicyRoleAssignmentsRequest) : PolicyAssignmentPreviewResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = previewPolicyAssignmentsWithHttpInfo(id = id, replacePolicyRoleAssignmentsRequest = replacePolicyRoleAssignmentsRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PolicyAssignmentPreviewResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/policy/users/{id}/assignment-preview
+     * Preview requested custom-role assignment impact for one user
+     * Computes requested-vs-current planned custom-role assignment deltas and feature grants for a visible user. This is an impact-preview surface only: it does not write assignments and does not publish runtime authorization.
+     * @param id
+     * @param replacePolicyRoleAssignmentsRequest
+     * @return ApiResponse<PolicyAssignmentPreviewResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun previewPolicyAssignmentsWithHttpInfo(id: java.util.UUID, replacePolicyRoleAssignmentsRequest: ReplacePolicyRoleAssignmentsRequest) : ApiResponse<PolicyAssignmentPreviewResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = previewPolicyAssignmentsRequestConfig(id = id, replacePolicyRoleAssignmentsRequest = replacePolicyRoleAssignmentsRequest)
+
+        return@withContext request<ReplacePolicyRoleAssignmentsRequest, PolicyAssignmentPreviewResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation previewPolicyAssignments
+     *
+     * @param id
+     * @param replacePolicyRoleAssignmentsRequest
+     * @return RequestConfig
+     */
+    fun previewPolicyAssignmentsRequestConfig(id: java.util.UUID, replacePolicyRoleAssignmentsRequest: ReplacePolicyRoleAssignmentsRequest) : RequestConfig<ReplacePolicyRoleAssignmentsRequest> {
+        val localVariableBody = replacePolicyRoleAssignmentsRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/policy/users/{id}/assignment-preview".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/policy/roles/{id}/status-preview
+     * Preview custom-role lifecycle status impact
+     * Returns a read-only before/after impact summary for publishing, rolling back, or retiring a custom role. This endpoint never mutates policy, does not require a passkey assertion, and reminds callers that the subsequent status update is a sensitive passkey step-up action. Allowed transitions are DRAFT→ACTIVE, ACTIVE→DRAFT, and ACTIVE→RETIRED; RETIRED is terminal.
+     * @param id
+     * @param policyRoleStatusPreviewRequest
+     * @return PolicyRoleStatusPreviewResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun previewPolicyRoleStatus(id: java.util.UUID, policyRoleStatusPreviewRequest: PolicyRoleStatusPreviewRequest) : PolicyRoleStatusPreviewResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = previewPolicyRoleStatusWithHttpInfo(id = id, policyRoleStatusPreviewRequest = policyRoleStatusPreviewRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PolicyRoleStatusPreviewResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/policy/roles/{id}/status-preview
+     * Preview custom-role lifecycle status impact
+     * Returns a read-only before/after impact summary for publishing, rolling back, or retiring a custom role. This endpoint never mutates policy, does not require a passkey assertion, and reminds callers that the subsequent status update is a sensitive passkey step-up action. Allowed transitions are DRAFT→ACTIVE, ACTIVE→DRAFT, and ACTIVE→RETIRED; RETIRED is terminal.
+     * @param id
+     * @param policyRoleStatusPreviewRequest
+     * @return ApiResponse<PolicyRoleStatusPreviewResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun previewPolicyRoleStatusWithHttpInfo(id: java.util.UUID, policyRoleStatusPreviewRequest: PolicyRoleStatusPreviewRequest) : ApiResponse<PolicyRoleStatusPreviewResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = previewPolicyRoleStatusRequestConfig(id = id, policyRoleStatusPreviewRequest = policyRoleStatusPreviewRequest)
+
+        return@withContext request<PolicyRoleStatusPreviewRequest, PolicyRoleStatusPreviewResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation previewPolicyRoleStatus
+     *
+     * @param id
+     * @param policyRoleStatusPreviewRequest
+     * @return RequestConfig
+     */
+    fun previewPolicyRoleStatusRequestConfig(id: java.util.UUID, policyRoleStatusPreviewRequest: PolicyRoleStatusPreviewRequest) : RequestConfig<PolicyRoleStatusPreviewRequest> {
+        val localVariableBody = policyRoleStatusPreviewRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/policy/roles/{id}/status-preview".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * PUT /api/v1/policy/users/{id}/assignments
+     * Replace one user&#39;s custom-role assignments
+     * Replaces custom-role assignments for a visible user and bumps the tenant policy version. This is a sensitive policy action requiring a fresh passkey step-up. ACTIVE assigned roles publish supported ordinary feature grants into runtime authorization on the next request; unsupported conditions/elevated grants remain inert.
+     * @param id
+     * @param replacePolicyRoleAssignmentsRequest
+     * @return kotlin.collections.List<PolicyRoleAssignmentResponse>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun replacePolicyAssignments(id: java.util.UUID, replacePolicyRoleAssignmentsRequest: ReplacePolicyRoleAssignmentsRequest) : kotlin.collections.List<PolicyRoleAssignmentResponse> = withContext(Dispatchers.IO) {
+        val localVarResponse = replacePolicyAssignmentsWithHttpInfo(id = id, replacePolicyRoleAssignmentsRequest = replacePolicyRoleAssignmentsRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.List<PolicyRoleAssignmentResponse>
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * PUT /api/v1/policy/users/{id}/assignments
+     * Replace one user&#39;s custom-role assignments
+     * Replaces custom-role assignments for a visible user and bumps the tenant policy version. This is a sensitive policy action requiring a fresh passkey step-up. ACTIVE assigned roles publish supported ordinary feature grants into runtime authorization on the next request; unsupported conditions/elevated grants remain inert.
+     * @param id
+     * @param replacePolicyRoleAssignmentsRequest
+     * @return ApiResponse<kotlin.collections.List<PolicyRoleAssignmentResponse>?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun replacePolicyAssignmentsWithHttpInfo(id: java.util.UUID, replacePolicyRoleAssignmentsRequest: ReplacePolicyRoleAssignmentsRequest) : ApiResponse<kotlin.collections.List<PolicyRoleAssignmentResponse>?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = replacePolicyAssignmentsRequestConfig(id = id, replacePolicyRoleAssignmentsRequest = replacePolicyRoleAssignmentsRequest)
+
+        return@withContext request<ReplacePolicyRoleAssignmentsRequest, kotlin.collections.List<PolicyRoleAssignmentResponse>>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation replacePolicyAssignments
+     *
+     * @param id
+     * @param replacePolicyRoleAssignmentsRequest
+     * @return RequestConfig
+     */
+    fun replacePolicyAssignmentsRequestConfig(id: java.util.UUID, replacePolicyRoleAssignmentsRequest: ReplacePolicyRoleAssignmentsRequest) : RequestConfig<ReplacePolicyRoleAssignmentsRequest> {
+        val localVariableBody = replacePolicyRoleAssignmentsRequest
         val localVariableQuery: MultiValueMap = mutableMapOf()
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
         localVariableHeaders["Content-Type"] = "application/json"
@@ -879,7 +731,7 @@ open class PolicyApi(basePath: kotlin.String = defaultBasePath, client: Call.Fac
 
         return RequestConfig(
             method = RequestMethod.PUT,
-            path = "/api/v1/policy/drafts/{draft_id}".replace("{"+"draft_id"+"}", encodeURIComponent(draftId.toString())),
+            path = "/api/v1/policy/users/{id}/assignments".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -888,11 +740,12 @@ open class PolicyApi(basePath: kotlin.String = defaultBasePath, client: Call.Fac
     }
 
     /**
-     * POST /api/v1/policy/drafts/{draft_id}/validate
-     * Strict-validate a policy draft
-     * Strict-validates the draft&#39;s generated Cedar against the authoring schema and returns any errors. Does not activate anything.
-     * @param draftId
-     * @return kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>
+     * PATCH /api/v1/policy/roles/{id}
+     * Update a tenant custom role definition
+     * Updates mutable custom-role metadata, permissions, and ABAC/PBAC conditions. The role key and lifecycle status are not changed by this route. This is a sensitive policy-definition action: callers must have RoleManage, pass delegated-scope guardrails, and supply a fresh passkey step-up assertion. ACTIVE assigned custom-role changes become runtime-effective ordinary feature grants on the next request; unsupported ABAC/PBAC conditions and elevated/scope-widening features remain inert.
+     * @param id
+     * @param updatePolicyRoleRequest
+     * @return PolicyRoleResponse
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      * @throws UnsupportedOperationException If the API returns an informational or redirection response
@@ -901,11 +754,11 @@ open class PolicyApi(basePath: kotlin.String = defaultBasePath, client: Call.Fac
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun validatePolicyDraft(draftId: java.util.UUID) : kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement> = withContext(Dispatchers.IO) {
-        val localVarResponse = validatePolicyDraftWithHttpInfo(draftId = draftId)
+    suspend fun updatePolicyRole(id: java.util.UUID, updatePolicyRoleRequest: UpdatePolicyRoleRequest) : PolicyRoleResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = updatePolicyRoleWithHttpInfo(id = id, updatePolicyRoleRequest = updatePolicyRoleRequest)
 
         return@withContext when (localVarResponse.responseType) {
-            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PolicyRoleResponse
             ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
             ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
             ResponseType.ClientError -> {
@@ -920,39 +773,119 @@ open class PolicyApi(basePath: kotlin.String = defaultBasePath, client: Call.Fac
     }
 
     /**
-     * POST /api/v1/policy/drafts/{draft_id}/validate
-     * Strict-validate a policy draft
-     * Strict-validates the draft&#39;s generated Cedar against the authoring schema and returns any errors. Does not activate anything.
-     * @param draftId
-     * @return ApiResponse<kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>?>
+     * PATCH /api/v1/policy/roles/{id}
+     * Update a tenant custom role definition
+     * Updates mutable custom-role metadata, permissions, and ABAC/PBAC conditions. The role key and lifecycle status are not changed by this route. This is a sensitive policy-definition action: callers must have RoleManage, pass delegated-scope guardrails, and supply a fresh passkey step-up assertion. ACTIVE assigned custom-role changes become runtime-effective ordinary feature grants on the next request; unsupported ABAC/PBAC conditions and elevated/scope-widening features remain inert.
+     * @param id
+     * @param updatePolicyRoleRequest
+     * @return ApiResponse<PolicyRoleResponse?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun validatePolicyDraftWithHttpInfo(draftId: java.util.UUID) : ApiResponse<kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = validatePolicyDraftRequestConfig(draftId = draftId)
+    suspend fun updatePolicyRoleWithHttpInfo(id: java.util.UUID, updatePolicyRoleRequest: UpdatePolicyRoleRequest) : ApiResponse<PolicyRoleResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = updatePolicyRoleRequestConfig(id = id, updatePolicyRoleRequest = updatePolicyRoleRequest)
 
-        return@withContext request<Unit, kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>>(
+        return@withContext request<UpdatePolicyRoleRequest, PolicyRoleResponse>(
             localVariableConfig
         )
     }
 
     /**
-     * To obtain the request config of the operation validatePolicyDraft
+     * To obtain the request config of the operation updatePolicyRole
      *
-     * @param draftId
+     * @param id
+     * @param updatePolicyRoleRequest
      * @return RequestConfig
      */
-    fun validatePolicyDraftRequestConfig(draftId: java.util.UUID) : RequestConfig<Unit> {
-        val localVariableBody = null
+    fun updatePolicyRoleRequestConfig(id: java.util.UUID, updatePolicyRoleRequest: UpdatePolicyRoleRequest) : RequestConfig<UpdatePolicyRoleRequest> {
+        val localVariableBody = updatePolicyRoleRequest
         val localVariableQuery: MultiValueMap = mutableMapOf()
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
         localVariableHeaders["Accept"] = "application/json"
 
         return RequestConfig(
-            method = RequestMethod.POST,
-            path = "/api/v1/policy/drafts/{draft_id}/validate".replace("{"+"draft_id"+"}", encodeURIComponent(draftId.toString())),
+            method = RequestMethod.PATCH,
+            path = "/api/v1/policy/roles/{id}".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * PATCH /api/v1/policy/roles/{id}/status
+     * Publish, roll back, or retire a tenant custom role
+     * Changes a custom role lifecycle state. This is a sensitive policy action: callers must have RoleManage and supply a fresh passkey step-up assertion proving the actor, not just the bearer token, performed the change.
+     * @param id
+     * @param updatePolicyRoleStatusRequest
+     * @return PolicyRoleResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun updatePolicyRoleStatus(id: java.util.UUID, updatePolicyRoleStatusRequest: UpdatePolicyRoleStatusRequest) : PolicyRoleResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = updatePolicyRoleStatusWithHttpInfo(id = id, updatePolicyRoleStatusRequest = updatePolicyRoleStatusRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PolicyRoleResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * PATCH /api/v1/policy/roles/{id}/status
+     * Publish, roll back, or retire a tenant custom role
+     * Changes a custom role lifecycle state. This is a sensitive policy action: callers must have RoleManage and supply a fresh passkey step-up assertion proving the actor, not just the bearer token, performed the change.
+     * @param id
+     * @param updatePolicyRoleStatusRequest
+     * @return ApiResponse<PolicyRoleResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun updatePolicyRoleStatusWithHttpInfo(id: java.util.UUID, updatePolicyRoleStatusRequest: UpdatePolicyRoleStatusRequest) : ApiResponse<PolicyRoleResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = updatePolicyRoleStatusRequestConfig(id = id, updatePolicyRoleStatusRequest = updatePolicyRoleStatusRequest)
+
+        return@withContext request<UpdatePolicyRoleStatusRequest, PolicyRoleResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation updatePolicyRoleStatus
+     *
+     * @param id
+     * @param updatePolicyRoleStatusRequest
+     * @return RequestConfig
+     */
+    fun updatePolicyRoleStatusRequestConfig(id: java.util.UUID, updatePolicyRoleStatusRequest: UpdatePolicyRoleStatusRequest) : RequestConfig<UpdatePolicyRoleStatusRequest> {
+        val localVariableBody = updatePolicyRoleStatusRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.PATCH,
+            path = "/api/v1/policy/roles/{id}/status".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

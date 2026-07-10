@@ -80,7 +80,9 @@ async fn postgres_notify_from_instance_a_wakes_instance_b_and_rereads_message_bo
             .expect("instance B should receive the LISTEN/NOTIFY wake")
             .expect("instance B connection should still be open");
 
-        let RealtimeEvent::MessagePosted { message } = delivered;
+        let RealtimeEvent::MessagePosted { message } = delivered else {
+            panic!("expected a messenger MessagePosted event");
+        };
         assert_eq!(message.id, sent.id);
         assert_eq!(message.thread_id, thread.id);
         assert_eq!(message.branch_id, branch_id);
@@ -164,7 +166,9 @@ async fn reconnect_replays_messages_after_the_last_read_cursor(pool: PgPool) {
             .expect("resume replay should arrive")
             .expect("connection should stay open");
 
-        let RealtimeEvent::MessagePosted { message } = delivered;
+        let RealtimeEvent::MessagePosted { message } = delivered else {
+            panic!("expected a messenger MessagePosted event");
+        };
         assert_eq!(message.id, second.id);
         assert_eq!(message.body, "replayed after reconnect");
     })
@@ -446,7 +450,9 @@ async fn recv_message_id(
         .await
         .expect("replay event should arrive")
         .expect("connection should stay open");
-    let RealtimeEvent::MessagePosted { message } = delivered;
+    let RealtimeEvent::MessagePosted { message } = delivered else {
+        panic!("expected a messenger MessagePosted event");
+    };
     message.id
 }
 

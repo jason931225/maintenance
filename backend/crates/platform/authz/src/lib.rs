@@ -117,6 +117,10 @@ pub enum Feature {
     AssigneeManage,
     TargetManage,
     CompletionReview,
+    /// Delegate finalization for generalized approval documents. Author
+    /// finalization is owner-checked by the workflow runtime; delegate mode uses
+    /// this policy gate and records the inert Cedar shadow.
+    ApprovalFinalize,
     DailyPlanRequest,
     DailyPlanReview,
     /// Org-wide read of the work-order + daily-plan queues regardless of branch
@@ -222,10 +226,18 @@ pub enum Feature {
     /// Read the audit-of-access stream for CEO/top-clearance audit reads.
     /// Deliberately Cedar-only like [`Self::AuditStreamRead`].
     AuditStreamAccessLogRead,
+    /// Lock/unlock payroll & accounting freeze windows (월마감/마감). Locking a
+    /// period makes every date-stamping write inside it fail closed, so this is
+    /// the close authority: ADMIN + EXECUTIVE + SUPER_ADMIN.
+    PeriodLockManage,
+    /// Drive the generic object-lifecycle engine (state transitions, legal
+    /// hold, retention). ADMIN + SUPER_ADMIN — the records-management tier,
+    /// mirroring how payroll admin endpoints gate.
+    LifecycleManage,
 }
 
 impl Feature {
-    pub const ALL: [Self; 57] = [
+    pub const ALL: [Self; 60] = [
         Self::Login,
         Self::WorkOrderCreate,
         Self::WorkOrderEditIntake,
@@ -237,6 +249,7 @@ impl Feature {
         Self::AssigneeManage,
         Self::TargetManage,
         Self::CompletionReview,
+        Self::ApprovalFinalize,
         Self::DailyPlanRequest,
         Self::DailyPlanReview,
         Self::OrgWideQueueTriage,
@@ -283,6 +296,8 @@ impl Feature {
         Self::ExitSettlementManage,
         Self::AuditStreamRead,
         Self::AuditStreamAccessLogRead,
+        Self::PeriodLockManage,
+        Self::LifecycleManage,
     ];
 
     #[must_use]
@@ -299,6 +314,7 @@ impl Feature {
             Self::AssigneeManage => "assignee_manage",
             Self::TargetManage => "target_manage",
             Self::CompletionReview => "completion_review",
+            Self::ApprovalFinalize => "approval_finalize",
             Self::DailyPlanRequest => "daily_plan_request",
             Self::DailyPlanReview => "daily_plan_review",
             Self::OrgWideQueueTriage => "org_wide_queue_triage",
@@ -345,6 +361,8 @@ impl Feature {
             Self::ExitSettlementManage => "exit_settlement_manage",
             Self::AuditStreamRead => "audit_stream_read",
             Self::AuditStreamAccessLogRead => "audit_stream_access_log_read",
+            Self::PeriodLockManage => "period_lock_manage",
+            Self::LifecycleManage => "lifecycle_manage",
         }
     }
 
@@ -368,6 +386,7 @@ impl Feature {
             Self::AssigneeManage => [D, D, D, A, D, A],
             Self::TargetManage => [D, D, R, A, D, A],
             Self::CompletionReview => [D, D, D, A, D, A],
+            Self::ApprovalFinalize => [D, D, D, A, A, A],
             Self::DailyPlanRequest => [D, D, A, A, D, A],
             Self::DailyPlanReview => [D, D, D, A, D, A],
             // Org-wide queue read: EXECUTIVE + SUPER_ADMIN only, matching the
@@ -436,6 +455,11 @@ impl Feature {
             // B26b covert audit stream: no legacy/static-role fallback. Cedar
             // clearance facts are the only allow path; omission denies.
             Self::AuditStreamRead | Self::AuditStreamAccessLogRead => [D, D, D, D, D, D],
+            // Freezing a payroll/accounting period is close authority: the
+            // branch close tier (ADMIN) plus org-wide leadership (EXECUTIVE),
+            // and SUPER_ADMIN.
+            Self::PeriodLockManage => [D, D, D, A, A, A],
+            Self::LifecycleManage => [D, D, D, A, D, A],
         }
     }
 }
@@ -456,6 +480,7 @@ impl FromStr for Feature {
             "assignee_manage" => Ok(Self::AssigneeManage),
             "target_manage" => Ok(Self::TargetManage),
             "completion_review" => Ok(Self::CompletionReview),
+            "approval_finalize" => Ok(Self::ApprovalFinalize),
             "daily_plan_request" => Ok(Self::DailyPlanRequest),
             "daily_plan_review" => Ok(Self::DailyPlanReview),
             "org_wide_queue_triage" => Ok(Self::OrgWideQueueTriage),
@@ -502,6 +527,8 @@ impl FromStr for Feature {
             "exit_settlement_manage" => Ok(Self::ExitSettlementManage),
             "audit_stream_read" => Ok(Self::AuditStreamRead),
             "audit_stream_access_log_read" => Ok(Self::AuditStreamAccessLogRead),
+            "period_lock_manage" => Ok(Self::PeriodLockManage),
+            "lifecycle_manage" => Ok(Self::LifecycleManage),
             _ => Err(KernelError::validation(format!(
                 "unknown feature key: {raw}"
             ))),

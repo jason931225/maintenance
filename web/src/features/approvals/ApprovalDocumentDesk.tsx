@@ -69,7 +69,7 @@ const documentTemplates = [
     key: "minutes",
     content: copy.templates.minutes,
     Icon: CheckSquare,
-    href: "/work-hub",
+    href: "/overview",
     tone: "info",
   },
   {

@@ -143,6 +143,7 @@ names only, not incidental workflow prose or runner setup text.
 
 - `mnt-gate-audit-coverage`
 - `mnt-gate-dev-auth-absence`
+- `mnt-gate-iac-tier`
 - `mnt-gate-layer-boundary`
 - `mnt-gate-migration-safety`
 - `mnt-gate-pii-no-logs`
@@ -180,6 +181,7 @@ names only, not incidental workflow prose or runner setup text.
 - `gen:api:portable`
 - `gen:api:swift`
 - `test:contract`
+- `test:text-gate`
 
 ### Web console package scripts run by CI
 
@@ -406,6 +408,21 @@ configuration/template/script that produces the checked-in client, then commit t
 regenerated output. Hand-editing `clients/kotlin/src/main/...` to relax JSON
 parsing is only acceptable as a throwaway diagnosis step; the shipped source of
 truth must be schema or generator-driven so the drift gates can reproduce it.
+
+Generated-client source-control policy for cleanup issue #108:
+- `backend/openapi/openapi.yaml` is the reviewed source of truth for generated
+  clients. Keep generated TypeScript, Kotlin, and Swift client output committed
+  and versioned atomically with OpenAPI changes so web/mobile consumers have
+  reproducible source and CI can fail on drift.
+- Regenerate clients with `npm run gen:api:portable` and `npm run gen:api:swift`;
+  do not hand-edit `clients/ts/src/schema.d.ts`, `clients/kotlin/**`, or
+  `clients/swift/Sources/MaintenanceAPIClient/Generated/**`.
+- Code review and audit de-emphasize generated hunks and instead review
+  `backend/openapi/openapi.yaml`, generator scripts/configuration, and the drift
+  gate output for intent.
+- This policy can change only after a replacement release path proves consumer
+  builds, package publishing, and drift checks without committed generated
+  clients.
 
 Kotlin generated clients must parse JSON fail-closed by default: unknown response
 keys, non-standard lenient JSON, and malformed payloads are contract drift and

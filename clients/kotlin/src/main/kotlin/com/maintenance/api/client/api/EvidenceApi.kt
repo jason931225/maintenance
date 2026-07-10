@@ -27,16 +27,13 @@ import java.io.IOException
 import okhttp3.Call
 import okhttp3.HttpUrl
 
-import com.maintenance.api.client.model.AdmissibilityStatus
-import com.maintenance.api.client.model.CustodyStage
-import com.maintenance.api.client.model.EvidenceClassification
-import com.maintenance.api.client.model.EvidenceHoldRequest
-import com.maintenance.api.client.model.EvidenceObjectDetail
-import com.maintenance.api.client.model.EvidenceObjectPage
-import com.maintenance.api.client.model.EvidenceSourceType
-import com.maintenance.api.client.model.EvidenceVerifyReport
-import com.maintenance.api.client.model.LegalHoldRecordView
-import com.maintenance.api.client.model.LegalHoldState
+import com.maintenance.api.client.model.ErrorBody
+import com.maintenance.api.client.model.EvidenceConfirmResponse
+import com.maintenance.api.client.model.EvidencePresignRequest
+import com.maintenance.api.client.model.EvidencePresignResponse
+import com.maintenance.api.client.model.EvidenceStagingPresignRequest
+import com.maintenance.api.client.model.EvidenceStagingPresignResponse
+import com.maintenance.api.client.model.EvidenceStatusResponse
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -67,11 +64,11 @@ open class EvidenceApi(basePath: kotlin.String = defaultBasePath, client: Call.F
     }
 
     /**
-     * GET /api/v1/evidence/objects/{id}
+     * POST /api/v1/evidence/{evidenceId}/confirm
+     * Confirm direct evidence upload completion and trigger replica verification
      *
-     *
-     * @param id
-     * @return EvidenceObjectDetail
+     * @param evidenceId
+     * @return EvidenceConfirmResponse
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      * @throws UnsupportedOperationException If the API returns an informational or redirection response
@@ -80,11 +77,11 @@ open class EvidenceApi(basePath: kotlin.String = defaultBasePath, client: Call.F
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun getEvidenceObject(id: java.util.UUID) : EvidenceObjectDetail = withContext(Dispatchers.IO) {
-        val localVarResponse = getEvidenceObjectWithHttpInfo(id = id)
+    suspend fun confirmEvidenceUpload(evidenceId: java.util.UUID) : EvidenceConfirmResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = confirmEvidenceUploadWithHttpInfo(evidenceId = evidenceId)
 
         return@withContext when (localVarResponse.responseType) {
-            ResponseType.Success -> (localVarResponse as Success<*>).data as EvidenceObjectDetail
+            ResponseType.Success -> (localVarResponse as Success<*>).data as EvidenceConfirmResponse
             ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
             ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
             ResponseType.ClientError -> {
@@ -99,31 +96,104 @@ open class EvidenceApi(basePath: kotlin.String = defaultBasePath, client: Call.F
     }
 
     /**
-     * GET /api/v1/evidence/objects/{id}
+     * POST /api/v1/evidence/{evidenceId}/confirm
+     * Confirm direct evidence upload completion and trigger replica verification
      *
-     *
-     * @param id
-     * @return ApiResponse<EvidenceObjectDetail?>
+     * @param evidenceId
+     * @return ApiResponse<EvidenceConfirmResponse?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun getEvidenceObjectWithHttpInfo(id: java.util.UUID) : ApiResponse<EvidenceObjectDetail?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = getEvidenceObjectRequestConfig(id = id)
+    suspend fun confirmEvidenceUploadWithHttpInfo(evidenceId: java.util.UUID) : ApiResponse<EvidenceConfirmResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = confirmEvidenceUploadRequestConfig(evidenceId = evidenceId)
 
-        return@withContext request<Unit, EvidenceObjectDetail>(
+        return@withContext request<Unit, EvidenceConfirmResponse>(
             localVariableConfig
         )
     }
 
     /**
-     * To obtain the request config of the operation getEvidenceObject
+     * To obtain the request config of the operation confirmEvidenceUpload
      *
-     * @param id
+     * @param evidenceId
      * @return RequestConfig
      */
-    fun getEvidenceObjectRequestConfig(id: java.util.UUID) : RequestConfig<Unit> {
+    fun confirmEvidenceUploadRequestConfig(evidenceId: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/evidence/{evidenceId}/confirm".replace("{"+"evidenceId"+"}", encodeURIComponent(evidenceId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/evidence/{evidenceId}/status
+     * Poll the server-side processing status of an evidence row
+     *
+     * @param evidenceId
+     * @return EvidenceStatusResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun getEvidenceProcessingStatus(evidenceId: java.util.UUID) : EvidenceStatusResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = getEvidenceProcessingStatusWithHttpInfo(evidenceId = evidenceId)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as EvidenceStatusResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/evidence/{evidenceId}/status
+     * Poll the server-side processing status of an evidence row
+     *
+     * @param evidenceId
+     * @return ApiResponse<EvidenceStatusResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun getEvidenceProcessingStatusWithHttpInfo(evidenceId: java.util.UUID) : ApiResponse<EvidenceStatusResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getEvidenceProcessingStatusRequestConfig(evidenceId = evidenceId)
+
+        return@withContext request<Unit, EvidenceStatusResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getEvidenceProcessingStatus
+     *
+     * @param evidenceId
+     * @return RequestConfig
+     */
+    fun getEvidenceProcessingStatusRequestConfig(evidenceId: java.util.UUID) : RequestConfig<Unit> {
         val localVariableBody = null
         val localVariableQuery: MultiValueMap = mutableMapOf()
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
@@ -131,21 +201,20 @@ open class EvidenceApi(basePath: kotlin.String = defaultBasePath, client: Call.F
 
         return RequestConfig(
             method = RequestMethod.GET,
-            path = "/api/v1/evidence/objects/{id}".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            path = "/api/v1/evidence/{evidenceId}/status".replace("{"+"evidenceId"+"}", encodeURIComponent(evidenceId.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
-            requiresAuthentication = false,
+            requiresAuthentication = true,
             body = localVariableBody
         )
     }
 
     /**
-     * POST /api/v1/evidence/objects/{id}/hold
-     * Apply or release a legal hold (release is four-eyes gated).
+     * POST /api/v1/evidence/staging-presign
+     * Issue a presigned STAGING upload ticket for mechanic evidence and begin server-side media processing (transcode/optimize before storage)
      *
-     * @param id
-     * @param evidenceHoldRequest
-     * @return LegalHoldRecordView
+     * @param evidenceStagingPresignRequest
+     * @return EvidenceStagingPresignResponse
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      * @throws UnsupportedOperationException If the API returns an informational or redirection response
@@ -154,11 +223,11 @@ open class EvidenceApi(basePath: kotlin.String = defaultBasePath, client: Call.F
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun holdEvidenceObject(id: java.util.UUID, evidenceHoldRequest: EvidenceHoldRequest) : LegalHoldRecordView = withContext(Dispatchers.IO) {
-        val localVarResponse = holdEvidenceObjectWithHttpInfo(id = id, evidenceHoldRequest = evidenceHoldRequest)
+    suspend fun presignEvidenceStagingUpload(evidenceStagingPresignRequest: EvidenceStagingPresignRequest) : EvidenceStagingPresignResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = presignEvidenceStagingUploadWithHttpInfo(evidenceStagingPresignRequest = evidenceStagingPresignRequest)
 
         return@withContext when (localVarResponse.responseType) {
-            ResponseType.Success -> (localVarResponse as Success<*>).data as LegalHoldRecordView
+            ResponseType.Success -> (localVarResponse as Success<*>).data as EvidenceStagingPresignResponse
             ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
             ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
             ResponseType.ClientError -> {
@@ -173,34 +242,32 @@ open class EvidenceApi(basePath: kotlin.String = defaultBasePath, client: Call.F
     }
 
     /**
-     * POST /api/v1/evidence/objects/{id}/hold
-     * Apply or release a legal hold (release is four-eyes gated).
+     * POST /api/v1/evidence/staging-presign
+     * Issue a presigned STAGING upload ticket for mechanic evidence and begin server-side media processing (transcode/optimize before storage)
      *
-     * @param id
-     * @param evidenceHoldRequest
-     * @return ApiResponse<LegalHoldRecordView?>
+     * @param evidenceStagingPresignRequest
+     * @return ApiResponse<EvidenceStagingPresignResponse?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun holdEvidenceObjectWithHttpInfo(id: java.util.UUID, evidenceHoldRequest: EvidenceHoldRequest) : ApiResponse<LegalHoldRecordView?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = holdEvidenceObjectRequestConfig(id = id, evidenceHoldRequest = evidenceHoldRequest)
+    suspend fun presignEvidenceStagingUploadWithHttpInfo(evidenceStagingPresignRequest: EvidenceStagingPresignRequest) : ApiResponse<EvidenceStagingPresignResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = presignEvidenceStagingUploadRequestConfig(evidenceStagingPresignRequest = evidenceStagingPresignRequest)
 
-        return@withContext request<EvidenceHoldRequest, LegalHoldRecordView>(
+        return@withContext request<EvidenceStagingPresignRequest, EvidenceStagingPresignResponse>(
             localVariableConfig
         )
     }
 
     /**
-     * To obtain the request config of the operation holdEvidenceObject
+     * To obtain the request config of the operation presignEvidenceStagingUpload
      *
-     * @param id
-     * @param evidenceHoldRequest
+     * @param evidenceStagingPresignRequest
      * @return RequestConfig
      */
-    fun holdEvidenceObjectRequestConfig(id: java.util.UUID, evidenceHoldRequest: EvidenceHoldRequest) : RequestConfig<EvidenceHoldRequest> {
-        val localVariableBody = evidenceHoldRequest
+    fun presignEvidenceStagingUploadRequestConfig(evidenceStagingPresignRequest: EvidenceStagingPresignRequest) : RequestConfig<EvidenceStagingPresignRequest> {
+        val localVariableBody = evidenceStagingPresignRequest
         val localVariableQuery: MultiValueMap = mutableMapOf()
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
         localVariableHeaders["Content-Type"] = "application/json"
@@ -208,28 +275,20 @@ open class EvidenceApi(basePath: kotlin.String = defaultBasePath, client: Call.F
 
         return RequestConfig(
             method = RequestMethod.POST,
-            path = "/api/v1/evidence/objects/{id}/hold".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            path = "/api/v1/evidence/staging-presign",
             query = localVariableQuery,
             headers = localVariableHeaders,
-            requiresAuthentication = false,
+            requiresAuthentication = true,
             body = localVariableBody
         )
     }
 
     /**
-     * GET /api/v1/evidence/objects
-     * List EV objects (RLS-scoped) with filters.
+     * POST /api/v1/evidence/presign
+     * Issue a presigned upload ticket for work-order evidence
      *
-     * @param q  (optional)
-     * @param sourceType  (optional)
-     * @param sourceId  (optional)
-     * @param admissibilityStatus  (optional)
-     * @param legalHoldState  (optional)
-     * @param custodyStage  (optional)
-     * @param classification  (optional)
-     * @param limit  (optional)
-     * @param offset  (optional)
-     * @return EvidenceObjectPage
+     * @param evidencePresignRequest
+     * @return EvidencePresignResponse
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      * @throws UnsupportedOperationException If the API returns an informational or redirection response
@@ -238,11 +297,11 @@ open class EvidenceApi(basePath: kotlin.String = defaultBasePath, client: Call.F
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun listEvidenceObjects(q: kotlin.String? = null, sourceType: EvidenceSourceType? = null, sourceId: kotlin.String? = null, admissibilityStatus: AdmissibilityStatus? = null, legalHoldState: LegalHoldState? = null, custodyStage: CustodyStage? = null, classification: EvidenceClassification? = null, limit: kotlin.Long? = null, offset: kotlin.Long? = null) : EvidenceObjectPage = withContext(Dispatchers.IO) {
-        val localVarResponse = listEvidenceObjectsWithHttpInfo(q = q, sourceType = sourceType, sourceId = sourceId, admissibilityStatus = admissibilityStatus, legalHoldState = legalHoldState, custodyStage = custodyStage, classification = classification, limit = limit, offset = offset)
+    suspend fun presignEvidenceUpload(evidencePresignRequest: EvidencePresignRequest) : EvidencePresignResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = presignEvidenceUploadWithHttpInfo(evidencePresignRequest = evidencePresignRequest)
 
         return@withContext when (localVarResponse.responseType) {
-            ResponseType.Success -> (localVarResponse as Success<*>).data as EvidenceObjectPage
+            ResponseType.Success -> (localVarResponse as Success<*>).data as EvidencePresignResponse
             ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
             ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
             ResponseType.ClientError -> {
@@ -257,160 +316,43 @@ open class EvidenceApi(basePath: kotlin.String = defaultBasePath, client: Call.F
     }
 
     /**
-     * GET /api/v1/evidence/objects
-     * List EV objects (RLS-scoped) with filters.
+     * POST /api/v1/evidence/presign
+     * Issue a presigned upload ticket for work-order evidence
      *
-     * @param q  (optional)
-     * @param sourceType  (optional)
-     * @param sourceId  (optional)
-     * @param admissibilityStatus  (optional)
-     * @param legalHoldState  (optional)
-     * @param custodyStage  (optional)
-     * @param classification  (optional)
-     * @param limit  (optional)
-     * @param offset  (optional)
-     * @return ApiResponse<EvidenceObjectPage?>
+     * @param evidencePresignRequest
+     * @return ApiResponse<EvidencePresignResponse?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun listEvidenceObjectsWithHttpInfo(q: kotlin.String?, sourceType: EvidenceSourceType?, sourceId: kotlin.String?, admissibilityStatus: AdmissibilityStatus?, legalHoldState: LegalHoldState?, custodyStage: CustodyStage?, classification: EvidenceClassification?, limit: kotlin.Long?, offset: kotlin.Long?) : ApiResponse<EvidenceObjectPage?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = listEvidenceObjectsRequestConfig(q = q, sourceType = sourceType, sourceId = sourceId, admissibilityStatus = admissibilityStatus, legalHoldState = legalHoldState, custodyStage = custodyStage, classification = classification, limit = limit, offset = offset)
+    suspend fun presignEvidenceUploadWithHttpInfo(evidencePresignRequest: EvidencePresignRequest) : ApiResponse<EvidencePresignResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = presignEvidenceUploadRequestConfig(evidencePresignRequest = evidencePresignRequest)
 
-        return@withContext request<Unit, EvidenceObjectPage>(
+        return@withContext request<EvidencePresignRequest, EvidencePresignResponse>(
             localVariableConfig
         )
     }
 
     /**
-     * To obtain the request config of the operation listEvidenceObjects
+     * To obtain the request config of the operation presignEvidenceUpload
      *
-     * @param q  (optional)
-     * @param sourceType  (optional)
-     * @param sourceId  (optional)
-     * @param admissibilityStatus  (optional)
-     * @param legalHoldState  (optional)
-     * @param custodyStage  (optional)
-     * @param classification  (optional)
-     * @param limit  (optional)
-     * @param offset  (optional)
+     * @param evidencePresignRequest
      * @return RequestConfig
      */
-    fun listEvidenceObjectsRequestConfig(q: kotlin.String?, sourceType: EvidenceSourceType?, sourceId: kotlin.String?, admissibilityStatus: AdmissibilityStatus?, legalHoldState: LegalHoldState?, custodyStage: CustodyStage?, classification: EvidenceClassification?, limit: kotlin.Long?, offset: kotlin.Long?) : RequestConfig<Unit> {
-        val localVariableBody = null
-        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
-            .apply {
-                if (q != null) {
-                    put("q", listOf(q.toString()))
-                }
-                if (sourceType != null) {
-                    put("source_type", listOf(sourceType.toString()))
-                }
-                if (sourceId != null) {
-                    put("source_id", listOf(sourceId.toString()))
-                }
-                if (admissibilityStatus != null) {
-                    put("admissibility_status", listOf(admissibilityStatus.toString()))
-                }
-                if (legalHoldState != null) {
-                    put("legal_hold_state", listOf(legalHoldState.toString()))
-                }
-                if (custodyStage != null) {
-                    put("custody_stage", listOf(custodyStage.toString()))
-                }
-                if (classification != null) {
-                    put("classification", listOf(classification.toString()))
-                }
-                if (limit != null) {
-                    put("limit", listOf(limit.toString()))
-                }
-                if (offset != null) {
-                    put("offset", listOf(offset.toString()))
-                }
-            }
-        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
-        localVariableHeaders["Accept"] = "application/json"
-
-        return RequestConfig(
-            method = RequestMethod.GET,
-            path = "/api/v1/evidence/objects",
-            query = localVariableQuery,
-            headers = localVariableHeaders,
-            requiresAuthentication = false,
-            body = localVariableBody
-        )
-    }
-
-    /**
-     * POST /api/v1/evidence/objects/{id}/verify
-     * Recompute WORM fixity for every copy; audited.
-     *
-     * @param id
-     * @return EvidenceVerifyReport
-     * @throws IllegalStateException If the request is not correctly configured
-     * @throws IOException Rethrows the OkHttp execute method exception
-     * @throws UnsupportedOperationException If the API returns an informational or redirection response
-     * @throws ClientException If the API returns a client error response
-     * @throws ServerException If the API returns a server error response
-     */
-    @Suppress("UNCHECKED_CAST")
-    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun verifyEvidenceObject(id: java.util.UUID) : EvidenceVerifyReport = withContext(Dispatchers.IO) {
-        val localVarResponse = verifyEvidenceObjectWithHttpInfo(id = id)
-
-        return@withContext when (localVarResponse.responseType) {
-            ResponseType.Success -> (localVarResponse as Success<*>).data as EvidenceVerifyReport
-            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
-            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
-            ResponseType.ClientError -> {
-                val localVarError = localVarResponse as ClientError<*>
-                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
-            }
-            ResponseType.ServerError -> {
-                val localVarError = localVarResponse as ServerError<*>
-                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
-            }
-        }
-    }
-
-    /**
-     * POST /api/v1/evidence/objects/{id}/verify
-     * Recompute WORM fixity for every copy; audited.
-     *
-     * @param id
-     * @return ApiResponse<EvidenceVerifyReport?>
-     * @throws IllegalStateException If the request is not correctly configured
-     * @throws IOException Rethrows the OkHttp execute method exception
-     */
-    @Suppress("UNCHECKED_CAST")
-    @Throws(IllegalStateException::class, IOException::class)
-    suspend fun verifyEvidenceObjectWithHttpInfo(id: java.util.UUID) : ApiResponse<EvidenceVerifyReport?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = verifyEvidenceObjectRequestConfig(id = id)
-
-        return@withContext request<Unit, EvidenceVerifyReport>(
-            localVariableConfig
-        )
-    }
-
-    /**
-     * To obtain the request config of the operation verifyEvidenceObject
-     *
-     * @param id
-     * @return RequestConfig
-     */
-    fun verifyEvidenceObjectRequestConfig(id: java.util.UUID) : RequestConfig<Unit> {
-        val localVariableBody = null
+    fun presignEvidenceUploadRequestConfig(evidencePresignRequest: EvidencePresignRequest) : RequestConfig<EvidencePresignRequest> {
+        val localVariableBody = evidencePresignRequest
         val localVariableQuery: MultiValueMap = mutableMapOf()
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
         localVariableHeaders["Accept"] = "application/json"
 
         return RequestConfig(
             method = RequestMethod.POST,
-            path = "/api/v1/evidence/objects/{id}/verify".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            path = "/api/v1/evidence/presign",
             query = localVariableQuery,
             headers = localVariableHeaders,
-            requiresAuthentication = false,
+            requiresAuthentication = true,
             body = localVariableBody
         )
     }

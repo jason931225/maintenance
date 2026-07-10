@@ -55,9 +55,9 @@ dependencies = [
 
 [[package]]
 name = "anyhow"
-version = "1.0.102"
+version = "1.0.103"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7f202df86484c868dbad7eaa557ef785d5c66295e41b460ef922eca0723b842c"
+checksum = "2a4385e2e34eb35d6b3efe798b9eb88096925d87726c0798709bf56d9ed84af3"
 
 [[package]]
 name = "apalis"
@@ -692,6 +692,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "chrono-tz"
+version = "0.10.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a6139a8597ed92cf816dfb33f5dd6cf0bb93a6adc938f11039f371bc5bcd26c3"
+dependencies = [
+ "chrono",
+ "phf 0.12.1",
+]
+
+[[package]]
 name = "cipher"
 version = "0.4.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -829,6 +839,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "790eea4361631c5e7d22598ecd5723ff611904e3344ce8720784c93e3d83d40b"
 
 [[package]]
+name = "croner"
+version = "3.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4aa42bcd3d846ebf66e15bd528d1087f75d1c6c1c66ebff626178a106353c576"
+dependencies = [
+ "chrono",
+ "derive_builder",
+ "strum",
+]
+
+[[package]]
 name = "crossbeam-channel"
 version = "0.5.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -839,9 +860,9 @@ dependencies = [
 
 [[package]]
 name = "crossbeam-epoch"
-version = "0.9.18"
+version = "0.9.20"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5b82ac4a3c2ca9c3460964f020e1402edd5753411d7737aa39c3714ad1b5420e"
+checksum = "2d6914041f254d6e9176c01941b21115dcfb7089e55135a35411081bd106ef3f"
 dependencies = [
  "crossbeam-utils",
 ]
@@ -937,12 +958,36 @@ dependencies = [
 
 [[package]]
 name = "darling"
+version = "0.20.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fc7f46116c46ff9ab3eb1597a45688b6715c6e628b5c133e288e709a29bcb4ee"
+dependencies = [
+ "darling_core 0.20.11",
+ "darling_macro 0.20.11",
+]
+
+[[package]]
+name = "darling"
 version = "0.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "25ae13da2f202d56bd7f91c25fba009e7717a1e4a1cc98a76d844b65ae912e9d"
 dependencies = [
- "darling_core",
- "darling_macro",
+ "darling_core 0.23.0",
+ "darling_macro 0.23.0",
+]
+
+[[package]]
+name = "darling_core"
+version = "0.20.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0d00b9596d185e565c2207a0b01f8bd1a135483d02d9b7b0a54b11da8d53412e"
+dependencies = [
+ "fnv",
+ "ident_case",
+ "proc-macro2",
+ "quote",
+ "strsim",
+ "syn",
 ]
 
 [[package]]
@@ -960,11 +1005,22 @@ dependencies = [
 
 [[package]]
 name = "darling_macro"
+version = "0.20.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fc34b93ccb385b40dc71c6fceac4b2ad23662c7eeb248cf10d529b7e055b6ead"
+dependencies = [
+ "darling_core 0.20.11",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "darling_macro"
 version = "0.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ac3984ec7bd6cfa798e62b4a642426a5be0e68f9401cfc2a01e3fa9ea2fcdb8d"
 dependencies = [
- "darling_core",
+ "darling_core 0.23.0",
  "quote",
  "syn",
 ]
@@ -1014,6 +1070,37 @@ checksum = "7cd812cc2bc1d69d4764bd80df88b4317eaef9e773c75226407d9bc0876b211c"
 dependencies = [
  "powerfmt",
  "serde_core",
+]
+
+[[package]]
+name = "derive_builder"
+version = "0.20.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "507dfb09ea8b7fa618fcf76e953f4f5e192547945816d5358edffe39f6f94947"
+dependencies = [
+ "derive_builder_macro",
+]
+
+[[package]]
+name = "derive_builder_core"
+version = "0.20.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2d5bcf7b024d6835cfb3d473887cd966994907effbe9227e8c8219824d06c4e8"
+dependencies = [
+ "darling 0.20.11",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "derive_builder_macro"
+version = "0.20.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ab63b0e2bf4d5928aff72e83a7dace85d7bba5fe12dcc3c5a572d78caffd3f3c"
+dependencies = [
+ "derive_builder_core",
+ "syn",
 ]
 
 [[package]]
@@ -2648,8 +2735,13 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "calamine",
+ "chrono",
+ "chrono-tz",
+ "croner",
+ "futures",
  "hex",
  "http",
+ "jsonwebtoken",
  "metrics",
  "metrics-exporter-prometheus",
  "mnt-comms-adapter-imap",
@@ -2674,15 +2766,22 @@ dependencies = [
  "mnt-governance-rest",
  "mnt-identity-adapter-postgres",
  "mnt-identity-rest",
+ "mnt-inbox-adapter-postgres",
+ "mnt-inbox-rest",
  "mnt-inspection-adapter-postgres",
  "mnt-inspection-rest",
  "mnt-integrity",
  "mnt-kernel-core",
+ "mnt-leave-adapter-postgres",
+ "mnt-leave-rest",
  "mnt-messenger-adapter-postgres",
  "mnt-messenger-rest",
+ "mnt-notifications-adapter-postgres",
+ "mnt-notifications-rest",
  "mnt-ontology-adapter-postgres",
  "mnt-ontology-rest",
  "mnt-payroll-domain",
+ "mnt-platform-audit-chain",
  "mnt-platform-auth",
  "mnt-platform-auth-rest",
  "mnt-platform-authz",
@@ -2703,7 +2802,13 @@ dependencies = [
  "mnt-sales-adapter-postgres",
  "mnt-sales-rest",
  "mnt-support-adapter-postgres",
+ "mnt-support-application",
+ "mnt-support-domain",
  "mnt-support-rest",
+ "mnt-todos-adapter-postgres",
+ "mnt-todos-rest",
+ "mnt-workflow-domain",
+ "mnt-workflow-runtime",
  "mnt-workflow-runtime-adapter-postgres",
  "mnt-workorder-adapter-postgres",
  "mnt-workorder-rest",
@@ -2711,6 +2816,7 @@ dependencies = [
  "opentelemetry-otlp",
  "opentelemetry_sdk",
  "p256",
+ "reqwest",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -2789,6 +2895,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "mnt-comms-adapter-mox"
+version = "0.1.0"
+dependencies = [
+ "mnt-comms-application",
+ "mnt-comms-domain",
+ "mnt-kernel-core",
+ "reqwest",
+ "secrecy",
+ "serde",
+ "serde_json",
+ "time",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "mnt-comms-adapter-postgres"
 version = "0.1.0"
 dependencies = [
@@ -2805,6 +2927,7 @@ dependencies = [
  "thiserror 2.0.18",
  "time",
  "tokio",
+ "tracing",
  "uuid",
 ]
 
@@ -2876,6 +2999,7 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "mnt-comms-adapter-imap",
+ "mnt-comms-adapter-mox",
  "mnt-comms-adapter-postgres",
  "mnt-comms-adapter-smtp",
  "mnt-comms-application",
@@ -2887,11 +3011,13 @@ dependencies = [
  "mnt-platform-db",
  "mnt-platform-request-context",
  "mnt-platform-storage",
+ "mnt-platform-test-support",
  "p256",
  "secrecy",
  "serde",
  "serde_json",
  "sqlx 0.9.0",
+ "subtle",
  "thiserror 2.0.18",
  "time",
  "tower",
@@ -3182,6 +3308,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "mnt-gate-iac-tier"
+version = "0.1.0"
+
+[[package]]
 name = "mnt-gate-layer-boundary"
 version = "0.1.0"
 dependencies = [
@@ -3298,7 +3428,6 @@ dependencies = [
  "mnt-kernel-core",
  "serde",
  "serde_json",
- "time",
  "uuid",
 ]
 
@@ -3327,11 +3456,78 @@ dependencies = [
  "mnt-platform-authz",
  "mnt-platform-db",
  "mnt-platform-request-context",
+ "mnt-platform-test-support",
  "p256",
  "serde",
  "serde_json",
  "sqlx 0.9.0",
  "thiserror 2.0.18",
+ "time",
+ "tokio",
+ "tower",
+ "tracing",
+ "url",
+ "uuid",
+ "webauthn-authenticator-rs",
+]
+
+[[package]]
+name = "mnt-inbox-adapter-postgres"
+version = "0.1.0"
+dependencies = [
+ "mnt-inbox-application",
+ "mnt-inbox-domain",
+ "mnt-kernel-core",
+ "mnt-platform-db",
+ "mnt-platform-request-context",
+ "serde_json",
+ "sqlx 0.9.0",
+ "thiserror 2.0.18",
+ "time",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-inbox-application"
+version = "0.1.0"
+dependencies = [
+ "mnt-inbox-domain",
+ "mnt-kernel-core",
+ "serde",
+ "serde_json",
+ "time",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-inbox-domain"
+version = "0.1.0"
+dependencies = [
+ "mnt-kernel-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "mnt-inbox-rest"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "http",
+ "mnt-inbox-adapter-postgres",
+ "mnt-inbox-application",
+ "mnt-inbox-domain",
+ "mnt-kernel-core",
+ "mnt-platform-auth",
+ "mnt-platform-authz",
+ "mnt-platform-db",
+ "mnt-platform-request-context",
+ "mnt-platform-test-support",
+ "p256",
+ "serde",
+ "serde_json",
+ "sqlx 0.9.0",
  "time",
  "tokio",
  "tower",
@@ -3467,12 +3663,75 @@ dependencies = [
 ]
 
 [[package]]
+name = "mnt-leave-adapter-postgres"
+version = "0.1.0"
+dependencies = [
+ "mnt-inbox-adapter-postgres",
+ "mnt-inbox-application",
+ "mnt-inbox-domain",
+ "mnt-kernel-core",
+ "mnt-leave-application",
+ "mnt-leave-domain",
+ "mnt-platform-db",
+ "mnt-platform-request-context",
+ "mnt-platform-test-support",
+ "serde_json",
+ "sqlx 0.9.0",
+ "thiserror 2.0.18",
+ "time",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-leave-application"
+version = "0.1.0"
+dependencies = [
+ "mnt-kernel-core",
+ "mnt-leave-domain",
+ "serde",
+ "serde_json",
+ "time",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-leave-domain"
+version = "0.1.0"
+dependencies = [
+ "mnt-kernel-core",
+ "serde",
+ "time",
+]
+
+[[package]]
+name = "mnt-leave-rest"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "mnt-kernel-core",
+ "mnt-leave-adapter-postgres",
+ "mnt-leave-application",
+ "mnt-leave-domain",
+ "mnt-platform-auth",
+ "mnt-platform-authz",
+ "mnt-platform-request-context",
+ "serde",
+ "time",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "mnt-messenger-adapter-postgres"
 version = "0.1.0"
 dependencies = [
  "mnt-kernel-core",
  "mnt-messenger-application",
  "mnt-messenger-domain",
+ "mnt-notifications-adapter-postgres",
+ "mnt-notifications-application",
+ "mnt-notifications-domain",
  "mnt-platform-db",
  "mnt-platform-request-context",
  "mnt-workorder-application",
@@ -3481,6 +3740,7 @@ dependencies = [
  "thiserror 2.0.18",
  "time",
  "tokio",
+ "tracing",
  "uuid",
 ]
 
@@ -3517,6 +3777,69 @@ dependencies = [
  "mnt-platform-authz",
  "mnt-platform-db",
  "mnt-platform-request-context",
+ "mnt-platform-test-support",
+ "p256",
+ "serde",
+ "serde_json",
+ "sqlx 0.9.0",
+ "time",
+ "tower",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-notifications-adapter-postgres"
+version = "0.1.0"
+dependencies = [
+ "mnt-kernel-core",
+ "mnt-notifications-application",
+ "mnt-notifications-domain",
+ "mnt-platform-db",
+ "mnt-platform-request-context",
+ "serde_json",
+ "sqlx 0.9.0",
+ "thiserror 2.0.18",
+ "time",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-notifications-application"
+version = "0.1.0"
+dependencies = [
+ "mnt-kernel-core",
+ "mnt-notifications-domain",
+ "serde",
+ "time",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-notifications-domain"
+version = "0.1.0"
+dependencies = [
+ "mnt-kernel-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "mnt-notifications-rest"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "http",
+ "mnt-kernel-core",
+ "mnt-notifications-adapter-postgres",
+ "mnt-notifications-application",
+ "mnt-notifications-domain",
+ "mnt-platform-auth",
+ "mnt-platform-authz",
+ "mnt-platform-db",
+ "mnt-platform-request-context",
+ "mnt-platform-test-support",
  "p256",
  "serde",
  "serde_json",
@@ -3600,6 +3923,27 @@ version = "0.1.0"
 dependencies = [
  "mnt-kernel-core",
  "time",
+]
+
+[[package]]
+name = "mnt-platform-audit-chain"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "hex",
+ "mnt-kernel-core",
+ "mnt-platform-db",
+ "mnt-platform-request-context",
+ "ring",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "sqlx 0.9.0",
+ "thiserror 2.0.18",
+ "time",
+ "tokio",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -3794,6 +4138,8 @@ dependencies = [
  "mnt-messenger-adapter-postgres",
  "mnt-messenger-application",
  "mnt-messenger-domain",
+ "mnt-notifications-application",
+ "mnt-notifications-domain",
  "mnt-platform-auth",
  "mnt-platform-db",
  "mnt-platform-request-context",
@@ -3870,6 +4216,15 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-platform-test-support"
+version = "0.1.0"
+dependencies = [
+ "mnt-kernel-core",
+ "sqlx 0.9.0",
  "uuid",
 ]
 
@@ -3966,6 +4321,7 @@ dependencies = [
  "mnt-platform-authz",
  "mnt-platform-db",
  "mnt-platform-request-context",
+ "mnt-platform-test-support",
  "mnt-registry-adapter-postgres",
  "mnt-registry-application",
  "mnt-registry-domain",
@@ -3988,6 +4344,7 @@ dependencies = [
  "mnt-platform-db",
  "mnt-platform-excel",
  "mnt-platform-request-context",
+ "mnt-platform-test-support",
  "mnt-reporting-application",
  "mnt-reporting-domain",
  "mnt-workorder-domain",
@@ -4147,6 +4504,7 @@ dependencies = [
  "mnt-platform-db",
  "mnt-platform-push",
  "mnt-platform-request-context",
+ "mnt-platform-test-support",
  "mnt-support-adapter-postgres",
  "mnt-support-application",
  "mnt-support-domain",
@@ -4160,6 +4518,60 @@ dependencies = [
  "tower",
  "tracing",
  "uuid",
+]
+
+[[package]]
+name = "mnt-todos-adapter-postgres"
+version = "0.1.0"
+dependencies = [
+ "mnt-kernel-core",
+ "mnt-platform-db",
+ "mnt-platform-request-context",
+ "mnt-todos-application",
+ "mnt-todos-domain",
+ "serde_json",
+ "sqlx 0.9.0",
+ "thiserror 2.0.18",
+ "time",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-todos-application"
+version = "0.1.0"
+dependencies = [
+ "mnt-kernel-core",
+ "mnt-todos-domain",
+ "serde",
+ "time",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-todos-domain"
+version = "0.1.0"
+dependencies = [
+ "mnt-kernel-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "mnt-todos-rest"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "mnt-kernel-core",
+ "mnt-platform-auth",
+ "mnt-platform-authz",
+ "mnt-platform-request-context",
+ "mnt-todos-adapter-postgres",
+ "mnt-todos-application",
+ "mnt-todos-domain",
+ "serde",
+ "time",
+ "tracing",
 ]
 
 [[package]]
@@ -4191,12 +4603,18 @@ name = "mnt-workflow-runtime-adapter-postgres"
 version = "0.1.0"
 dependencies = [
  "mnt-kernel-core",
+ "mnt-notifications-adapter-postgres",
+ "mnt-notifications-application",
+ "mnt-notifications-domain",
  "mnt-platform-db",
+ "mnt-platform-request-context",
  "mnt-workflow-domain",
  "serde_json",
  "sqlx 0.9.0",
  "thiserror 2.0.18",
  "time",
+ "tokio",
+ "tracing",
  "uuid",
 ]
 
@@ -4257,6 +4675,7 @@ dependencies = [
  "mnt-platform-jobs",
  "mnt-platform-request-context",
  "mnt-platform-storage",
+ "mnt-platform-test-support",
  "mnt-workflow-domain",
  "mnt-workflow-runtime",
  "mnt-workflow-runtime-adapter-postgres",
@@ -4726,7 +5145,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1fd6780a80ae0c52cc120a26a1a42c1ae51b247a253e4e06113d23d2c2edd078"
 dependencies = [
  "phf_macros",
- "phf_shared",
+ "phf_shared 0.11.3",
+]
+
+[[package]]
+name = "phf"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "913273894cec178f401a31ec4b656318d95473527be05c0752cc41cdc32be8b7"
+dependencies = [
+ "phf_shared 0.12.1",
 ]
 
 [[package]]
@@ -4735,7 +5163,7 @@ version = "0.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3c80231409c20246a13fddb31776fb942c38553c51e871f8cbd687a4cfb5843d"
 dependencies = [
- "phf_shared",
+ "phf_shared 0.11.3",
  "rand 0.8.6",
 ]
 
@@ -4746,7 +5174,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f84ac04429c13a7ff43785d75ad27569f2951ce0ffd30a3321230db2fc727216"
 dependencies = [
  "phf_generator",
- "phf_shared",
+ "phf_shared 0.11.3",
  "proc-macro2",
  "quote",
  "syn",
@@ -4757,6 +5185,15 @@ name = "phf_shared"
 version = "0.11.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "67eabc2ef2a60eb7faa00097bd1ffdb5bd28e62bf39990626a582201b7a754e5"
+dependencies = [
+ "siphasher",
+]
+
+[[package]]
+name = "phf_shared"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "06005508882fb681fd97892ecff4b7fd0fee13ef1aa569f8695dae7ab9099981"
 dependencies = [
  "siphasher",
 ]
@@ -5221,6 +5658,8 @@ dependencies = [
  "log",
  "percent-encoding",
  "pin-project-lite",
+ "serde",
+ "serde_urlencoded",
  "sync_wrapper",
  "tokio",
  "tower",
@@ -5568,7 +6007,7 @@ version = "3.21.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "84d57bc0c8b9a17920c178daa6bb924850d54a9c97ab45194bb8c17ad66bb660"
 dependencies = [
- "darling",
+ "darling 0.23.0",
  "proc-macro2",
  "quote",
  "syn",
@@ -6175,7 +6614,7 @@ checksum = "bf776ba3fa74f83bf4b63c3dcbbf82173db2632ed8452cb2d891d33f459de70f"
 dependencies = [
  "new_debug_unreachable",
  "parking_lot",
- "phf_shared",
+ "phf_shared 0.11.3",
  "precomputed-hash",
 ]
 
@@ -6195,6 +6634,27 @@ name = "strsim"
 version = "0.11.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7da8b5736845d9f2fcb837ea5d9e2628564b3b043a70948a3f0b778838c5fb4f"
+
+[[package]]
+name = "strum"
+version = "0.27.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "af23d6f6c1a224baef9d3f61e287d2761385a5b88fdab4eb4c6f11aeb54c4bcf"
+dependencies = [
+ "strum_macros",
+]
+
+[[package]]
+name = "strum_macros"
+version = "0.27.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7695ce3845ea4b33927c055a39dc438a45b059f7c1b3d91d38d10355fb8cbca7"
+dependencies = [
+ "heck",
+ "proc-macro2",
+ "quote",
+ "syn",
+]
 
 [[package]]
 name = "subtle"
@@ -6749,7 +7209,7 @@ dependencies = [
  "md-5 0.10.6",
  "num-traits",
  "paste",
- "phf",
+ "phf 0.11.3",
  "quick-xml",
  "rand 0.8.6",
  "rgb",

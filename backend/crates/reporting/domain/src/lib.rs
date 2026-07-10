@@ -419,6 +419,97 @@ fn rate_bps(numerator: u32, denominator: u32) -> Option<u32> {
     numerator.saturating_mul(10_000).checked_div(denominator)
 }
 
+/// Column headers for the KPI Excel export, in render order. Kept next to
+/// [`kpi_export_rows`] so the two never drift.
+pub const KPI_EXPORT_HEADERS: &[&str] = &[
+    "구분",
+    "대상",
+    "접수 보고 건수",
+    "완료 건수",
+    "가중 완료 점수",
+    "평균 응답(초)",
+    "평균 완료(초)",
+    "납기 준수율",
+    "재방문율",
+    "지연율",
+    "정기검사 예정",
+    "정기검사 완료",
+    "정기검사 완료율",
+    "P1 출동",
+    "P1 수락",
+    "P1 수락률",
+    "지연 사유",
+];
+
+/// Shape a [`KpiReport`] into workbook rows (one per rollup), each aligned 1:1
+/// with [`KPI_EXPORT_HEADERS`]. Pure and deterministic: `report.rollups` is
+/// already ordered by scope, and this only formats already-computed fields — no
+/// I/O and no name resolution (`scope_display_name` is filled by the adapter
+/// before this runs).
+#[must_use]
+pub fn kpi_export_rows(report: &KpiReport) -> Vec<Vec<String>> {
+    report.rollups.iter().map(kpi_rollup_row).collect()
+}
+
+fn kpi_rollup_row(rollup: &KpiRollup) -> Vec<String> {
+    vec![
+        kpi_scope_kind_label(&rollup.scope).to_owned(),
+        kpi_scope_name(rollup),
+        rollup.approved_report_count.to_string(),
+        rollup.completed_count.to_string(),
+        rollup.weighted_completed_points.to_string(),
+        opt_seconds(rollup.average_response_seconds),
+        opt_seconds(rollup.average_completion_seconds),
+        bps_percent(rollup.target_due_compliance_bps),
+        bps_percent(Some(rollup.revisit_rate_bps)),
+        bps_percent(Some(rollup.delay_rate_bps)),
+        rollup.inspection_schedule_due_count.to_string(),
+        rollup.inspection_schedule_completed_count.to_string(),
+        bps_percent(rollup.inspection_plan_completion_bps),
+        rollup.p1_dispatch_count.to_string(),
+        rollup.p1_accepted_count.to_string(),
+        bps_percent(rollup.p1_acceptance_bps),
+        delay_reasons_text(&rollup.delay_reason_distribution),
+    ]
+}
+
+fn kpi_scope_kind_label(scope: &KpiRollupScope) -> &'static str {
+    match scope {
+        KpiRollupScope::Company => "전사",
+        KpiRollupScope::Region(_) => "지역",
+        KpiRollupScope::Branch(_) => "지점",
+        KpiRollupScope::Technician(_) => "담당자",
+    }
+}
+
+fn kpi_scope_name(rollup: &KpiRollup) -> String {
+    match rollup.scope {
+        KpiRollupScope::Company => "전체".to_owned(),
+        _ => rollup.scope_display_name.clone().unwrap_or_default(),
+    }
+}
+
+/// Render basis points as a fixed two-decimal percentage (`5_000` -> `50.00%`);
+/// `None` renders as an empty cell (metric not applicable / no denominator).
+fn bps_percent(bps: Option<u32>) -> String {
+    match bps {
+        Some(value) => format!("{}.{:02}%", value / 100, value % 100),
+        None => String::new(),
+    }
+}
+
+fn opt_seconds(seconds: Option<i64>) -> String {
+    seconds.map(|value| value.to_string()).unwrap_or_default()
+}
+
+fn delay_reasons_text(distribution: &BTreeMap<String, u32>) -> String {
+    distribution
+        .iter()
+        .map(|(reason, count)| format!("{reason}: {count}"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExportSourceNote {
     pub source_domain: String,
@@ -660,5 +751,99 @@ mod tests {
         assert_eq!(company.weighted_completed_points, 6);
         assert_eq!(company.revisit_rate_bps, 2_500);
         assert_eq!(company.target_due_compliance_bps, Some(10_000));
+    }
+}
+
+#[cfg(test)]
+mod kpi_export_shaping_tests {
+    use super::*;
+    use time::OffsetDateTime;
+
+    fn empty_period() -> Period {
+        Period {
+            start: OffsetDateTime::UNIX_EPOCH,
+            end: OffsetDateTime::UNIX_EPOCH,
+        }
+    }
+
+    fn sample_rollup(scope: KpiRollupScope) -> KpiRollup {
+        KpiRollup {
+            scope,
+            scope_display_name: Some("서울지점".to_owned()),
+            approved_report_count: 4,
+            completed_count: 3,
+            weighted_completed_points: 6,
+            inspection_schedule_due_count: 3,
+            inspection_schedule_completed_count: 2,
+            inspection_plan_completion_bps: Some(6_666),
+            p1_dispatch_count: 4,
+            p1_accepted_count: 3,
+            p1_acceptance_bps: Some(7_500),
+            average_response_seconds: Some(7_200),
+            average_completion_seconds: None,
+            target_due_compliance_bps: Some(5_000),
+            revisit_rate_bps: 2_500,
+            delay_rate_bps: 0,
+            delay_reason_distribution: BTreeMap::from([("MECHANIC_OVERLOADED".to_owned(), 1)]),
+            work_order_ids: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn every_row_matches_the_header_width() {
+        let report = KpiReport {
+            period: empty_period(),
+            requested_scope: KpiScope::Company,
+            rollups: vec![
+                sample_rollup(KpiRollupScope::Company),
+                sample_rollup(KpiRollupScope::Branch(BranchId::from_uuid(
+                    uuid::Uuid::nil(),
+                ))),
+            ],
+            unavailable_metrics: Vec::new(),
+        };
+        let rows = kpi_export_rows(&report);
+        assert_eq!(rows.len(), 2);
+        for row in &rows {
+            assert_eq!(row.len(), KPI_EXPORT_HEADERS.len());
+        }
+    }
+
+    #[test]
+    fn formats_scope_percentages_seconds_and_delay_reasons() {
+        let report = KpiReport {
+            period: empty_period(),
+            requested_scope: KpiScope::Company,
+            rollups: vec![sample_rollup(KpiRollupScope::Branch(BranchId::from_uuid(
+                uuid::Uuid::nil(),
+            )))],
+            unavailable_metrics: Vec::new(),
+        };
+        let row = &kpi_export_rows(&report)[0];
+
+        assert_eq!(row[0], "지점");
+        assert_eq!(row[1], "서울지점");
+        assert_eq!(row[5], "7200"); // average response seconds
+        assert_eq!(row[6], ""); // average completion seconds is None
+        assert_eq!(row[7], "50.00%"); // target-due compliance (5_000 bps)
+        assert_eq!(row[9], "0.00%"); // delay rate (0 bps)
+        assert_eq!(row[12], "66.66%"); // inspection completion (6_666 bps)
+        assert_eq!(row[15], "75.00%"); // P1 acceptance (7_500 bps)
+        assert_eq!(row[16], "MECHANIC_OVERLOADED: 1");
+    }
+
+    #[test]
+    fn company_scope_has_no_id_but_still_labels_the_row() {
+        let mut rollup = sample_rollup(KpiRollupScope::Company);
+        rollup.scope_display_name = None;
+        let report = KpiReport {
+            period: empty_period(),
+            requested_scope: KpiScope::Company,
+            rollups: vec![rollup],
+            unavailable_metrics: Vec::new(),
+        };
+        let row = &kpi_export_rows(&report)[0];
+        assert_eq!(row[0], "전사");
+        assert_eq!(row[1], "전체");
     }
 }

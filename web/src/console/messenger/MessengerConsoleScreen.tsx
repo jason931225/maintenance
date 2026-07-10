@@ -719,7 +719,7 @@ function MessageBubble({
         {row.message.read_target_count > 0 ? (
           <StatusChip tone="neutral">{T.readProgress(row.message.read_count, row.message.read_target_count)}</StatusChip>
         ) : null}
-        {(row.message.ack_count ?? 0) > 0 ? <StatusChip tone="ok">{T.ack.count(row.message.ack_count ?? 0)}</StatusChip> : null}
+        {row.message.ack_count > 0 ? <StatusChip tone="ok">{T.ack.count(row.message.ack_count)}</StatusChip> : null}
         {todoId ? <StatusChip tone="info">{T.todo.done}</StatusChip> : null}
         <PolicyGated action={MESSENGER_ACTIONS.ack} resource={{ kind: "messenger_message", id: row.message.id }}>
           <button
@@ -802,12 +802,10 @@ function mergeMessages(existing: ConsoleMessengerMessage[], incoming: ConsoleMes
 
 function normalizeMessage(message: ConsoleMessengerMessage): ConsoleMessengerMessage {
   return {
-    ack_count: 0,
-    acked_by_me: false,
-    quoted_message_id: null,
-    quoted_body: null,
-    quoted_sender_name: null,
     ...message,
+    quoted_message_id: message.quoted_message_id ?? null,
+    quoted_body: message.quoted_body ?? null,
+    quoted_sender_name: message.quoted_sender_name ?? null,
   };
 }
 

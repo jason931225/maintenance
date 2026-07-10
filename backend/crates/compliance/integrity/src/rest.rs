@@ -304,6 +304,14 @@ impl RestError {
                     message: "internal server error".into(),
                 }
             }
+            DbError::CodeIssuance(err) => {
+                tracing::error!(error = %err, "object-code issuance error in integrity handler");
+                Self {
+                    status: StatusCode::INTERNAL_SERVER_ERROR,
+                    kind: ErrorKind::Internal,
+                    message: "internal server error".into(),
+                }
+            }
         }
     }
 

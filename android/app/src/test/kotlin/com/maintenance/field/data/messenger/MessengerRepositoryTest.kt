@@ -3,6 +3,7 @@ package com.maintenance.field.data.messenger
 import com.maintenance.api.client.model.MessengerMessageSummary
 import com.maintenance.api.client.model.MessengerThreadKind
 import com.maintenance.api.client.model.MessengerThreadSummary
+import com.maintenance.api.client.model.MessengerThreadVisibility
 import java.io.IOException
 import java.time.OffsetDateTime
 import java.util.UUID
@@ -91,6 +92,8 @@ class MessengerRepositoryTest {
     private fun generatedThread(): MessengerThreadSummary = MessengerThreadSummary(
         id = threadId,
         kind = MessengerThreadKind.TEAM,
+        visibility = MessengerThreadVisibility.CHANNEL,
+        muted = false,
         branchId = branchId,
         title = "팀 채널",
         workOrderId = null,
@@ -114,6 +117,11 @@ class MessengerRepositoryTest {
             readTargetCount = 2,
             attachmentEvidenceIds = emptyList(),
             sentAt = OffsetDateTime.parse("2026-06-12T09:${minute.toString().padStart(2, '0')}:00Z"),
+            ackCount = 0,
+            ackedByMe = false,
+            quotedMessageId = null,
+            quotedBody = null,
+            quotedSenderName = null,
             createdAt = OffsetDateTime.parse("2026-06-12T09:${minute.toString().padStart(2, '0')}:00Z"),
         )
 }

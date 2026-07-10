@@ -340,7 +340,7 @@ describe("WorkflowStudioPage", () => {
     expect(screen.getByText("승인센터")).toBeInTheDocument();
     expect(screen.getByText("request_approval")).toBeInTheDocument();
     expect(
-      screen.getByRole("heading", { name: "초안 작성" }),
+      screen.getByRole("heading", { name: "노코드 블록" }),
     ).toBeInTheDocument();
     expect(screen.getAllByText("초안 생성").length).toBeGreaterThan(0);
     expect(screen.queryByText("Workflow + Approval")).not.toBeInTheDocument();
@@ -718,7 +718,9 @@ describe("WorkflowStudioPage", () => {
     expect(
       await screen.findByText("워크플로 초안을 저장했습니다."),
     ).toBeInTheDocument();
-    expect(screen.getByLabelText("이름")).toHaveValue("작업 완료 승인");
+    // After save the canvas reloads from the persisted definition (loadCanvasDefinition),
+    // so the name field reflects the updated display name.
+    expect(screen.getByLabelText("이름")).toHaveValue("작업 완료 승인 수정");
     expect(
       screen.queryByRole("button", { name: "편집 취소" }),
     ).not.toBeInTheDocument();

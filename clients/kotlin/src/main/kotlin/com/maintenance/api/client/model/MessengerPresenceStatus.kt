@@ -29,7 +29,7 @@ import kotlinx.serialization.Serializable
 
 
 /**
- *
+ * Activity-derived presence — online within the freshness window of the member's last action, else away, else offline (or never seen).
  *
  * Values: ONLINE,AWAY,OFFLINE
  */

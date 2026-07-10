@@ -565,6 +565,7 @@ impl BootstrapCredentialStore {
             TraceContext::generate(),
             now,
         )
+        .with_org(OrgId::from_uuid(org_uuid))
         .with_snapshots(
             None,
             Some(serde_json::json!({
@@ -593,6 +594,7 @@ impl BootstrapCredentialStore {
     pub async fn consume_open_credentials_tx(
         &self,
         tx: &mut Transaction<'_, Postgres>,
+        org: OrgId,
         user_id: Uuid,
         now: OffsetDateTime,
     ) -> Result<(), ProvisioningError> {
@@ -622,6 +624,12 @@ impl BootstrapCredentialStore {
                 TraceContext::generate(),
                 now,
             )
+            // Stamp the caller's org so this consume event is visible to a
+            // tenant-scoped `/api/audit` read (RLS `USING (org_id = GUC)`). The
+            // caller's tx already armed `app.current_org` to this org, so the
+            // insert passes; a NULL org_id would pass WITH CHECK too but stay
+            // invisible to the tenant.
+            .with_org(org)
             .with_snapshots(None, Some(serde_json::json!({ "user_id": user_id })));
             insert_audit_event(tx, &audit).await?;
         }

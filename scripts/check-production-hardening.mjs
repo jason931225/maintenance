@@ -890,6 +890,34 @@ export function evaluateGlobalHardeningChecks(readText) {
     requireTextIncludes(result, readText, file, needle, `monitoring portable contract: ${needle}`);
   }
 
+  // Dark mox mail stack: internal-only StatefulSet, wired to the app over the
+  // in-cluster webhook, network-fenced, observable, and never exposing a public
+  // mail/admin surface.
+  for (const needle of ["kind: StatefulSet", "name: mnt-mox", "r.xmox.nl/mox@sha256", "WebAPIHTTP", "MetricsHTTP", "volumeClaimTemplates"]) {
+    requireTextIncludes(result, readText, "deploy/apps/maintenance/base/mox.yaml", needle, `mox dark stack: ${needle}`);
+  }
+  for (const needle of ["MNT_MAIL_MOX_BASE_URL", "http://mnt-mox.maintenance.svc:1080"]) {
+    requireTextIncludes(result, readText, "deploy/apps/maintenance/base/configmap.yaml", needle, `mox app wiring: ${needle}`);
+  }
+  for (const needle of ["allow-app-egress-mox", "allow-mox-ingress-internal", "default-deny-egress-mox", "allow-mox-egress-app-webhook"]) {
+    requireTextIncludes(result, readText, "deploy/apps/maintenance/base/networkpolicy.yaml", needle, `mox network policy: ${needle}`);
+  }
+  for (const needle of ["name: mnt-mox", "port: metrics", "MntMoxDown", "MntMoxWebhookFailures", "MntMoxQueueBacklog", "MntMoxPvcSaturation"]) {
+    const file = needle === "port: metrics" || needle === "name: mnt-mox"
+      ? "deploy/apps/maintenance/components/monitoring/servicemonitor.yaml"
+      : "deploy/apps/maintenance/components/monitoring/prometheusrule.yaml";
+    requireTextIncludes(result, readText, file, needle, `mox observability: ${needle}`);
+  }
+  const moxManifest = readText("deploy/apps/maintenance/base/mox.yaml");
+  for (const forbidden of ["NodePort", "LoadBalancer", "port: 25", "AdminHTTP", "Submission:", "Submissions:"]) {
+    requirement(
+      result,
+      !moxManifest.includes(forbidden),
+      `mox dark stack excludes ${forbidden}`,
+      `mox dark stack must not expose public mail/admin surface: found ${forbidden}`,
+    );
+  }
+
   return result;
 }
 
@@ -1123,7 +1151,7 @@ export function evaluateOciGuestContextChecks(readText) {
 
   const imageReleasePath = ".github/workflows/image-release.yml";
   const imageRelease = requirePresentText(result, readText, imageReleasePath, "oci-guest image-release workflow");
-  requireRegexInText(result, imageReleasePath, imageRelease, /platforms:\s*linux\/arm64/, "oci-guest image platform: current arm64 target explicit");
+  requireRegexInText(result, imageReleasePath, imageRelease, /(?:target|platforms):\s*linux\/arm64/, "oci-guest image platform: current arm64 target explicit");
   requireRegexInText(result, imageReleasePath, imageRelease, /A1 cluster|Ampere A1|Oracle Ampere/i, "oci-guest image platform: arm64 rationale scoped to OCI/A1");
 
   const drPath = "ops/dr/DR-POLICY.md";

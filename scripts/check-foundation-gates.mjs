@@ -1,36 +1,29 @@
 #!/usr/bin/env node
-import { readFileSync, existsSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const failures = [];
-const passes = [];
+import { createTextGate } from "./lib/text-gate.mjs";
 
-function read(path) {
-  const abs = resolve(root, path);
-  if (!existsSync(abs)) {
-    failures.push(`${path}: missing`);
-    return "";
-  }
-  return readFileSync(abs, "utf8");
-}
+const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const textGate = createTextGate({
+  root,
+  includeFailure: ({ path, needle, label }) => `${label}: ${path} must include ${JSON.stringify(needle)}`,
+  notIncludeFailure: ({ path, needle, label }) => `${label}: ${path} must not include ${JSON.stringify(needle)}`,
+});
+const { checks: passes, read, requireIncludes, requireNotIncludes } = textGate;
+
+// The drift-inventory checks below collect (rather than throw) so every drift is
+// reported at once; they surface through this failures[] gate at the end. The
+// shared text-gate helpers throw on the first failure — both paths exit non-zero.
+const failures = [];
 
 function requireFile(path, label = path) {
   if (existsSync(resolve(root, path))) {
     passes.push(`${label}: present`);
-  } else {
-    failures.push(`${label}: missing (${path})`);
+    return;
   }
-}
-
-function requireIncludes(path, needle, label) {
-  const text = read(path);
-  if (text.includes(needle)) {
-    passes.push(label);
-  } else {
-    failures.push(`${label}: ${path} must include ${JSON.stringify(needle)}`);
-  }
+  throw new Error(`${label}: missing (${path})`);
 }
 
 function requireIncludesAtLeast(path, needle, minimumCount, label) {
@@ -38,27 +31,18 @@ function requireIncludesAtLeast(path, needle, minimumCount, label) {
   const count = text.split(needle).length - 1;
   if (count >= minimumCount) {
     passes.push(`${label}: ${count} occurrences`);
-  } else {
-    failures.push(`${label}: ${path} must include ${JSON.stringify(needle)} at least ${minimumCount} times (found ${count})`);
+    return;
   }
-}
-
-function requireNotIncludes(path, needle, label) {
-  const text = read(path);
-  if (!text.includes(needle)) {
-    passes.push(label);
-  } else {
-    failures.push(`${label}: ${path} must not include ${JSON.stringify(needle)}`);
-  }
+  throw new Error(`${label}: ${path} must include ${JSON.stringify(needle)} at least ${minimumCount} times (found ${count})`);
 }
 
 function requireAny(path, needles, label) {
   const text = read(path);
   if (needles.some((needle) => text.includes(needle))) {
     passes.push(label);
-  } else {
-    failures.push(`${label}: ${path} must include one of ${needles.map((needle) => JSON.stringify(needle)).join(", ")}`);
+    return;
   }
+  throw new Error(`${label}: ${path} must include one of ${needles.map((needle) => JSON.stringify(needle)).join(", ")}`);
 }
 
 function uniqueSorted(values) {
@@ -203,15 +187,6 @@ function requireCiGateDocsDriftInventory() {
   );
 }
 
-function requireScript(name) {
-  const pkg = JSON.parse(read("package.json"));
-  if (pkg.scripts?.[name]) {
-    passes.push(`package script ${name}: ${pkg.scripts[name]}`);
-  } else {
-    failures.push(`package script ${name}: missing`);
-  }
-}
-
 // Canonical backlog and foundation-gate docs.
 requireFile("docs/specs/backlog-clearance-ledger.md", "G001 backlog ledger");
 requireIncludes("docs/specs/backlog-clearance-ledger.md", "## Lane taxonomy", "G001 lane ownership matrix");
@@ -230,10 +205,21 @@ for (const staleGoal of ["G011", "G012", "G013", "G014", "G015", "G016", "G017",
   requireNotIncludes("docs/specs/foundation-gates.md", staleGoal, `foundation gate has no stale ${staleGoal} plan reference`);
 }
 
-// Policy/audit/passkey baseline.
+// Policy/audit/passkey baseline. Explicit required gates plus any additional
+// mnt-gate binary CI runs, so a newly wired gate cannot ship without its crate.
+for (const gate of [
+  "layer-boundary",
+  "audit-coverage",
+  "migration-safety",
+  "tenant-isolation",
+  "pii-no-logs",
+  "rls-arming",
+]) {
+  requireFile(`backend/ci/gates/${gate}/Cargo.toml`, `backend ${gate} gate`);
+}
 for (const gatePackage of extractCiBackendGatePackages(read(".github/workflows/ci.yml"))) {
   const gate = gatePackage.replace(/^mnt-gate-/, "");
-  requireFile(`backend/ci/gates/${gate}/Cargo.toml`, `backend ${gate} gate`);
+  requireFile(`backend/ci/gates/${gate}/Cargo.toml`, `backend ${gate} gate (CI-run)`);
 }
 requireIncludes("backend/openapi/openapi.yaml", "Sensitive actions require a fresh passkey step-up assertion", "object action passkey step-up contract");
 requireIncludes("backend/openapi/openapi.yaml", "tenant RLS, feature authorization, and branch scope", "approval feed authz/RLS contract");
@@ -242,8 +228,10 @@ requireIncludes("backend/openapi/openapi.yaml", "status update is a sensitive pa
 requireIncludes("backend/openapi/openapi.yaml", "Append-only Policy Studio audit evidence", "policy audit evidence contract");
 
 // CI/CD/security/release baseline.
-requireScript("check:foundation-gates");
+requireIncludes("package.json", "\"check:foundation-gates\": \"node scripts/check-foundation-gates.mjs\"", "package script check:foundation-gates");
+requireIncludes("package.json", "\"test:text-gate\": \"node --test scripts/lib/text-gate.test.mjs\"", "package script test:text-gate");
 requireIncludes(".github/workflows/ci.yml", "npm run check:foundation-gates", "CI runs foundation gate contract");
+requireIncludes(".github/workflows/ci.yml", "npm run test:text-gate", "CI runs shared text-gate tests");
 requireIncludes(".github/workflows/ci.yml", "docs/specs/**", "CI watches docs/specs gate inputs");
 requireIncludesAtLeast(".github/workflows/ci.yml", '"docs/CI-GATES.md"', 2, "CI watches CI gate documentation for push and pull_request");
 requireCiGateDocsDriftInventory();
@@ -270,8 +258,12 @@ for (const securityNeedle of [
   requireIncludes(".github/workflows/security.yml", securityNeedle, `security workflow: ${securityNeedle}`);
 }
 for (const releaseNeedle of [
+  "docs/specs/**",
   "Wait for CI success",
-  "Trivy scan (fail on HIGH/CRITICAL)",
+  "Trivy scan both arches (fail on HIGH/CRITICAL)",
+  "target: linux/amd64",
+  "target: linux/arm64",
+  "docker buildx imagetools create",
   "cosign sign --yes",
   "attest-build-provenance",
   "auto-bump",

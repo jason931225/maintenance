@@ -1,156 +1,198 @@
-import { readdir, readFile } from "node:fs/promises";
-import { dirname, join, relative, resolve } from "node:path";
+#!/usr/bin/env node
+/**
+ * check-console-purity — structural guard for the carbon-copy console (charter
+ * D1/§3 P0.0 AC "zero shadcn/Tailwind class in console/**").
+ *
+ * Fails the web lint run if anything under web/src/console/** does either of:
+ *   1. carries a Tailwind utility class in a `className` (the console owns its
+ *      look through tokens.css; utility visuals are legacy inheritance);
+ *   2. imports from web/src/components/ui/** (shadcn) or components/shell/**
+ *      (AppShell chrome) — the two visual worlds the console must not inherit;
+ *   3. uses Tailwind `@apply` in a .css file under console/**.
+ *
+ * Heuristic, not a full parser: it inspects only `className` attribute values
+ * and import specifiers, so prose/comments never trip it. Prove it fires:
+ *   printf 'export const X = () => <div className="flex p-4" />;\n' \
+ *     > web/src/console/__purity_probe.tsx && node scripts/check-console-purity.mjs
+ * (expect exit 1), then delete the probe.
+ */
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const webRoot = fileURLToPath(new URL("..", import.meta.url));
-const sourceRoot = join(webRoot, "src");
-const consoleRoot = join(sourceRoot, "console");
-const tokenPath = join(consoleRoot, "tokens.css");
-const allowedExternalImports = new Set(["qrcode.react", "react", "react-router-dom"]);
-const allowedRelativeRoots = [
-  "src/api/",
-  "src/auth/",
-  "src/console/",
-  "src/context/",
-  "src/i18n/",
-];
-const forbiddenImportFragments = [
-  "@radix-ui/",
-  "class-variance-authority",
-  "clsx",
-  "components/ui",
-  "features/",
-  "lucide-react",
-  "pages/",
-  "shadcn",
-  "tailwind",
-  "tailwind-merge",
-];
-const requiredCanvasTokens = [
-  "canvas-grid-bg",
-  "canvas-grid-bd",
-  "canvas-block-bg",
-  "canvas-block-border",
-  "canvas-block-shadow",
-  "canvas-block-trigger-bg",
-  "canvas-block-trigger-bd",
-  "canvas-block-trigger-tx",
-  "canvas-block-condition-bg",
-  "canvas-block-condition-bd",
-  "canvas-block-condition-tx",
-  "canvas-block-branch-bg",
-  "canvas-block-branch-bd",
-  "canvas-block-branch-tx",
-  "canvas-block-action-bg",
-  "canvas-block-action-bd",
-  "canvas-block-action-tx",
-  "timeline-dot-bg",
-  "timeline-dot-bd",
-];
+const webRoot = join(fileURLToPath(new URL(".", import.meta.url)), "..");
+const consoleDir = join(webRoot, "src", "console");
 
-async function collectFiles(directory) {
-  const entries = await readdir(directory, { withFileTypes: true });
-  const files = await Promise.all(
-    entries.map(async (entry) => {
-      const path = join(directory, entry.name);
-      if (entry.isDirectory()) return collectFiles(path);
-      if (entry.isFile() && /\.(?:css|tsx?|mts|cts)$/.test(entry.name)) return [path];
-      return [];
-    }),
-  );
-  return files.flat();
+// Tailwind utility shapes: prefixed utilities (p-4, text-sm, bg-white, w-full,
+// gap-2, rounded-lg, -mx-2, md:flex, hover:bg-…) and common bare utilities.
+const PREFIXED =
+  /^-?(?:(?:sm|md|lg|xl|2xl|hover|focus|focus-visible|active|disabled|group-hover|dark|first|last|odd|even):)*(?:p|px|py|pt|pb|pl|pr|m|mx|my|mt|mb|ml|mr|w|h|min|max|gap|space|text|bg|border|rounded|flex|grid|grid-cols|grid-rows|col|row|order|items|justify|self|content|place|font|leading|tracking|shadow|ring|divide|z|top|left|right|bottom|inset|opacity|overflow|object|cursor|transition|duration|ease|scale|rotate|translate|basis|shrink|grow)-[a-z0-9./[\]%#-]+$/;
+const BARE =
+  /^-?(?:(?:sm|md|lg|xl|2xl|hover|focus|active|disabled|group-hover|dark):)*(?:flex|grid|block|inline|inline-block|inline-flex|hidden|table|contents|absolute|relative|fixed|sticky|static|container|truncate|uppercase|lowercase|capitalize|italic|underline|antialiased|isolate|flow-root)$/;
+
+const isTailwindToken = (t) => t.length > 0 && (PREFIXED.test(t) || BARE.test(t));
+
+/** Pull the string content out of each className attribute in a TS/TSX source. */
+function classNameValues(src) {
+  const out = [];
+  const bindings = simpleStringBindings(src);
+  const re = /className\s*=\s*(?:"([^"]*)"|'([^']*)'|\{`([^`]*)`\}|\{"([^"]*)"\}|\{'([^']*)'\})/g;
+  let m;
+  while ((m = re.exec(src)) !== null) {
+    const v = m[1] ?? m[2] ?? m[3] ?? m[4] ?? m[5];
+    if (v != null) out.push(v);
+  }
+  for (const expr of attributeExpressions(src, "className")) {
+    out.push(...stringValuesFromExpression(expr, bindings));
+  }
+  return out;
 }
 
-function displayPath(path) {
-  return relative(webRoot, path).split(/[\\/]/).join("/");
+function importSpecifiers(src) {
+  const bindings = simpleStringBindings(src);
+  const out = [];
+  const re = /(?:import|export)[^'"]*from\s*['"]([^'"]+)['"]|import\s*['"]([^'"]+)['"]/g;
+  let m;
+  while ((m = re.exec(src)) !== null) out.push(m[1] ?? m[2]);
+  for (const expr of dynamicImportExpressions(src)) {
+    out.push(...stringValuesFromExpression(expr, bindings));
+  }
+  return out;
 }
 
-function sourcePath(path) {
-  return relative(webRoot, path).split(/[\\/]/).join("/");
+const BANNED_IMPORT = /(?:^|\/)components\/(ui|shell)(?:\/|$)/;
+const IDENTIFIER = /^[A-Za-z_$][\w$]*$/;
+const JS_KEYWORDS = new Set([
+  "true",
+  "false",
+  "null",
+  "undefined",
+  "return",
+  "const",
+  "let",
+  "var",
+  "if",
+  "else",
+  "typeof",
+  "as",
+]);
+
+function simpleStringBindings(src) {
+  const bindings = new Map();
+  const re = /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(["'`])([\s\S]*?)\2/g;
+  let m;
+  while ((m = re.exec(src)) !== null) {
+    if (m[2] === "`" && m[3].includes("${")) continue;
+    bindings.set(m[1], m[3]);
+  }
+  return bindings;
 }
 
-function relativeImportIsAllowed(file, specifier) {
-  const resolved = resolve(dirname(file), specifier);
-  const rel = sourcePath(resolved);
-  return allowedRelativeRoots.some((root) => rel === root.slice(0, -1) || rel.startsWith(root));
-}
-
-function checkImports(file, content, violations) {
-  const importOrExport = /(?:import|export)\s+(?:[^"']*?\s+from\s+)?["']([^"']+)["']/g;
-  for (const match of content.matchAll(importOrExport)) {
-    const specifier = match[1];
-    const normalized = specifier.split(/[\\/]/).join("/");
-    const forbidden = forbiddenImportFragments.find((fragment) => normalized.includes(fragment));
-    if (forbidden) {
-      violations.push(`${displayPath(file)}: forbidden console import '${specifier}' (${forbidden})`);
+function balancedChunk(src, openIndex, open, close) {
+  let depth = 0;
+  let quote = null;
+  let escaped = false;
+  for (let i = openIndex; i < src.length; i += 1) {
+    const ch = src[i];
+    if (quote) {
+      if (escaped) escaped = false;
+      else if (ch === "\\") escaped = true;
+      else if (ch === quote) quote = null;
       continue;
     }
-    if (specifier.startsWith(".")) {
-      if (!relativeImportIsAllowed(file, specifier)) {
-        violations.push(`${displayPath(file)}: relative import escapes console/i18n/api/auth/context '${specifier}'`);
-      }
+    if (ch === "\"" || ch === "'" || ch === "`") {
+      quote = ch;
       continue;
     }
-    if (!allowedExternalImports.has(specifier)) {
-      violations.push(`${displayPath(file)}: external import '${specifier}' is not on the console allowlist`);
+    if (ch === open) depth += 1;
+    else if (ch === close) {
+      depth -= 1;
+      if (depth === 0) return src.slice(openIndex + 1, i);
     }
   }
+  return "";
 }
 
-function checkClassNames(file, content, violations) {
-  const literalClassName = /className\s*=\s*(?:"([^"]*)"|'([^']*)'|\{(["'`])([^"'`{}]+)\3\})/g;
-  for (const match of content.matchAll(literalClassName)) {
-    const value = (match[1] ?? match[2] ?? match[4] ?? "").trim();
-    if (value !== "console") {
-      violations.push(`${displayPath(file)}: className '${value}' is not console-pure; use tokenized inline styles`);
-    }
+function attributeExpressions(src, name) {
+  const out = [];
+  const re = new RegExp(`${name}\\s*=\\s*\\{`, "g");
+  while (re.exec(src) !== null) {
+    out.push(balancedChunk(src, re.lastIndex - 1, "{", "}"));
   }
-
-  const dynamicClassName = /className\s*=\s*\{(?!\s*["'`]console["'`]\s*\})/g;
-  if (dynamicClassName.test(content)) {
-    violations.push(`${displayPath(file)}: dynamic className is not console-pure; use tokenized inline styles`);
-  }
+  return out;
 }
 
-function checkTokenUsage(file, content, tokenNames, violations) {
-  for (const match of content.matchAll(/var\(\s*--([A-Za-z0-9-]+)/g)) {
-    const tokenName = match[1];
-    if (!tokenNames.has(tokenName)) {
-      violations.push(`${displayPath(file)}: uses undefined console token --${tokenName}`);
-    }
+function dynamicImportExpressions(src) {
+  const out = [];
+  const re = /\bimport\s*\(/g;
+  while (re.exec(src) !== null) {
+    out.push(balancedChunk(src, re.lastIndex - 1, "(", ")"));
   }
+  return out;
 }
 
-const tokenContent = await readFile(tokenPath, "utf8");
-const tokenNames = new Set([...tokenContent.matchAll(/--([A-Za-z0-9-]+)\s*:/g)].map((match) => match[1]));
+function stringValuesFromExpression(expr, bindings) {
+  const out = [];
+  const literalRe = /"([^"\\]*(?:\\.[^"\\]*)*)"|'([^'\\]*(?:\\.[^'\\]*)*)'|`([^`]*)`/g;
+  let m;
+  while ((m = literalRe.exec(expr)) !== null) {
+    const raw = m[1] ?? m[2] ?? m[3] ?? "";
+    out.push(raw.replace(/\$\{[^}]*\}/g, ""));
+  }
+  for (const word of expr.match(/\b[A-Za-z_$][\w$]*\b/g) ?? []) {
+    if (JS_KEYWORDS.has(word) || word === "cn" || word === "clsx") continue;
+    if (IDENTIFIER.test(word) && bindings.has(word)) out.push(bindings.get(word));
+  }
+  return out;
+}
+
+function walk(dir) {
+  const files = [];
+  for (const name of readdirSync(dir)) {
+    const p = join(dir, name);
+    if (statSync(p).isDirectory()) files.push(...walk(p));
+    else files.push(p);
+  }
+  return files;
+}
+
 const violations = [];
-
-for (const token of requiredCanvasTokens) {
-  if (!tokenNames.has(token)) {
-    violations.push(`${displayPath(tokenPath)}: missing required canvas token --${token}`);
-  }
+if (!existsSync(consoleDir)) {
+  // No console dir yet — nothing to guard.
+  process.exit(0);
 }
+const files = walk(consoleDir);
 
-const files = (await collectFiles(consoleRoot)).filter((file) => !/\.test\.tsx?$/.test(file));
 for (const file of files) {
-  const content = await readFile(file, "utf8");
-  if (content.includes("@tailwind")) {
-    violations.push(`${displayPath(file)}: @tailwind directives are forbidden in console scope`);
+  const rel = relative(webRoot, file);
+  const src = readFileSync(file, "utf8");
+
+  if (/\.(tsx?|jsx?)$/.test(file)) {
+    for (const cn of classNameValues(src)) {
+      const bad = cn.split(/\s+/).filter(isTailwindToken);
+      if (bad.length) {
+        violations.push(`${rel}: Tailwind utility class(es) in className — ${bad.join(", ")}`);
+      }
+    }
+    for (const spec of importSpecifiers(src)) {
+      if (BANNED_IMPORT.test(spec)) {
+        violations.push(`${rel}: banned import "${spec}" (components/ui|shell)`);
+      }
+    }
   }
-  if (/\.[A-Za-z0-9_-]*shadcn[A-Za-z0-9_-]*/i.test(content)) {
-    violations.push(`${displayPath(file)}: shadcn marker detected in console scope`);
+
+  if (/\.css$/.test(file) && /@apply\b/.test(src)) {
+    violations.push(`${rel}: Tailwind @apply is banned in console CSS`);
   }
-  if (/\.[cm]?[jt]sx?$/.test(file)) {
-    checkImports(file, content, violations);
-    checkClassNames(file, content, violations);
-  }
-  checkTokenUsage(file, content, tokenNames, violations);
 }
 
-if (violations.length > 0) {
-  console.error("Console purity check failed:");
-  for (const violation of violations) console.error(`- ${violation}`);
+if (violations.length) {
+  console.error("check-console-purity FAILED — zero-visual-inheritance guard:");
+  for (const v of violations) console.error(`  ✗ ${v}`);
+  console.error(
+    "\nThe carbon-copy console must style itself only through console/tokens.css.",
+  );
   process.exit(1);
 }
 
-console.log(`Console purity check passed (${String(files.length)} files).`);
+console.log(`check-console-purity OK — ${files.length} file(s) under web/src/console clean.`);

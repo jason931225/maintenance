@@ -1,5 +1,201 @@
 # Changelog
 
+## [0.1.56](https://github.com/jason931225/maintenance/compare/v0.1.55...v0.1.56) (2026-07-10)
+
+
+### Bug Fixes
+
+* **web:** de-flake EmployeesPage vitest teardown race ([#430](https://github.com/jason931225/maintenance/issues/430)) ([312de63](https://github.com/jason931225/maintenance/commit/312de63e6a7fc85725be473b3923d24dd7895c65))
+
+## [0.1.55](https://github.com/jason931225/maintenance/compare/v0.1.54...v0.1.55) (2026-07-10)
+
+
+### Bug Fixes
+
+* **web:** route first-login onboarding by visible console object ([#428](https://github.com/jason931225/maintenance/issues/428)) ([26833de](https://github.com/jason931225/maintenance/commit/26833de9be0308cefaf543605414a613f636231b))
+
+## [0.1.54](https://github.com/jason931225/maintenance/compare/v0.1.53...v0.1.54) (2026-07-09)
+
+
+### Features
+
+* **deploy:** add dark production mox stack ([#426](https://github.com/jason931225/maintenance/issues/426)) ([3fd28dc](https://github.com/jason931225/maintenance/commit/3fd28dc5dbb5daf7c7cf6325fbacf2e25c651fc9))
+* **messenger:** Slack-parity — channels/DM, presence, ack, reply-quote, per-thread mute ([#261](https://github.com/jason931225/maintenance/issues/261)) ([804268c](https://github.com/jason931225/maintenance/commit/804268cc854e43f4680ba77ac218c42f87f7b1e8))
+
+
+### Bug Fixes
+
+* **web:** align electronic approval terminology ([#423](https://github.com/jason931225/maintenance/issues/423)) ([9a65619](https://github.com/jason931225/maintenance/commit/9a6561957538f99769de9c251cc68cf3a55d74e4))
+* **web:** patch c-ares in runtime image ([#427](https://github.com/jason931225/maintenance/issues/427)) ([c57785b](https://github.com/jason931225/maintenance/commit/c57785b2746f5e7ceb8b646bbe7ecd9f5e32794f))
+* **web:** stabilize route-menu CI tests ([#424](https://github.com/jason931225/maintenance/issues/424)) ([a1a281c](https://github.com/jason931225/maintenance/commit/a1a281c2090cc8de81bf7a6ad4229c972351980e))
+
+## [0.1.53](https://github.com/jason931225/maintenance/compare/v0.1.52...v0.1.53) (2026-07-09)
+
+
+### Features
+
+* **cedar:** enrollment wave 2 — engine decide + resolve shadow, parity report ([#257](https://github.com/jason931225/maintenance/issues/257)) ([8c43215](https://github.com/jason931225/maintenance/commit/8c4321574f7a423be60ec0bb906ba5024b47681c))
+* **console-cc:** P0.4 — config-driven generic module template ([#279](https://github.com/jason931225/maintenance/issues/279)) ([b1d2d3a](https://github.com/jason931225/maintenance/commit/b1d2d3ac34c612ec5f446c4a31ae108dad6f77e7))
+* **console-cc:** P0.5 — lifecycle card on the real lifecycle engine ([#280](https://github.com/jason931225/maintenance/issues/280)) ([25047ec](https://github.com/jason931225/maintenance/commit/25047ec9ec205bfb1cdc5d5d1c869e1edb35bf3e))
+* **console-cc:** P0.6 — 3-layer object card on the object substrate ([#357](https://github.com/jason931225/maintenance/issues/357)) ([684ac15](https://github.com/jason931225/maintenance/commit/684ac15506440a50684450267b023dcb38effdd7))
+* **console-cc:** PolicyGated primitive + RUM/CWV budgets ([#269](https://github.com/jason931225/maintenance/issues/269)) ([b3891a7](https://github.com/jason931225/maintenance/commit/b3891a70462a3591d8c19ff7a7127bf1bd6a6693))
+* **inbox:** InboxDoc domain — statutory notice vault + passkey receipt confirmation (carbon-copy P1) ([#256](https://github.com/jason931225/maintenance/issues/256)) ([e9b3025](https://github.com/jason931225/maintenance/commit/e9b3025dca16e92ce25d2d45fa912c1b0041766b))
+* **leave:** leave-request domain + §61 statutory push (carbon-copy P1) ([#266](https://github.com/jason931225/maintenance/issues/266)) ([52bdd04](https://github.com/jason931225/maintenance/commit/52bdd04f59da9ba613722690d5ddfd4498146f5b))
+* **mail:** mox integration slice 1 — dev-stack server, transport adapter, delivery webhooks ([#262](https://github.com/jason931225/maintenance/issues/262)) ([08d7898](https://github.com/jason931225/maintenance/commit/08d78981ebc76835ae554b2a0a223c624c2745d3))
+* **objects:** BE-OBJ slice 3 — type registry, SR- series, edge-type registry (ontology depth) ([#258](https://github.com/jason931225/maintenance/issues/258)) ([bd32528](https://github.com/jason931225/maintenance/commit/bd3252893c2cd77d19b2d26e5d8e22191f557b4c))
+* **office:** document sessions slice 0 — version domain, JWT embed config, callback pipeline, dev DocumentServer ([#260](https://github.com/jason931225/maintenance/issues/260)) ([25a04b8](https://github.com/jason931225/maintenance/commit/25a04b898594e14d7a83eebe40fe6c4ca31de3c9))
+* **workflow:** BE-AUTO slice 2 — object-bound dynamics, branch nodes, four-eyes publish ([#265](https://github.com/jason931225/maintenance/issues/265)) ([979914b](https://github.com/jason931225/maintenance/commit/979914b2cba7ed438579b90bc885b645d2e2ba09))
+
+
+### Bug Fixes
+
+* **db:** renumber merged migration versions ([#420](https://github.com/jason931225/maintenance/issues/420)) ([27e03e7](https://github.com/jason931225/maintenance/commit/27e03e71bbc9628b768bc459e534727131d978fa))
+* **db:** restore unique migration versions after workflow merge ([#422](https://github.com/jason931225/maintenance/issues/422)) ([3bb7a69](https://github.com/jason931225/maintenance/commit/3bb7a69466cae138a5610597b3dbf4a201c33bf9))
+* **objects:** link-endpoint visibility gate (B3) + bounded link scans ([#227](https://github.com/jason931225/maintenance/issues/227)) + person.view audit parity (B1) ([#268](https://github.com/jason931225/maintenance/issues/268)) ([33c0e8d](https://github.com/jason931225/maintenance/commit/33c0e8db84b0eb57fbf2ef11440cfabd3df7a4c5))
+
+## [0.1.52](https://github.com/jason931225/maintenance/compare/v0.1.51...v0.1.52) (2026-07-09)
+
+
+### Features
+
+* **api:** submittable-definitions catalog + global scoped search (carbon-copy P1) ([#254](https://github.com/jason931225/maintenance/issues/254)) ([ab53a5d](https://github.com/jason931225/maintenance/commit/ab53a5d483ec57c5f6b959ba8c2eabb3338a0465))
+* **api:** unified action-inbox read model + self punch (carbon-copy P1) ([#255](https://github.com/jason931225/maintenance/issues/255)) ([bdd2750](https://github.com/jason931225/maintenance/commit/bdd2750c9be984828275e8aa0e8390126536168f))
+* **ci:** mnt-gate-iac-tier — block cloud-primitive leak into app manifests ([#244](https://github.com/jason931225/maintenance/issues/244)) ([8281c45](https://github.com/jason931225/maintenance/commit/8281c45b3c008cedc31ec59d998108bf46d145eb))
+* **console-cc:** P0.2 — carbon-copy window/pin engine ([#248](https://github.com/jason931225/maintenance/issues/248)) ([d8252e3](https://github.com/jason931225/maintenance/commit/d8252e32d6f87c4f1a2612b67d70f863ea57782e))
+* **console-cc:** token grammar — @ mentions, # channels, bare-code object links (founder directive) ([#259](https://github.com/jason931225/maintenance/issues/259)) ([41b1686](https://github.com/jason931225/maintenance/commit/41b1686800d721174f0cbe8561c589665dfbef3d))
+* **secrets:** stage OpenBao + External-Secrets for portable secrets (dark, ADR-0022 lane 1) ([#267](https://github.com/jason931225/maintenance/issues/267)) ([0d1e374](https://github.com/jason931225/maintenance/commit/0d1e374b4b1ca7f469e9dd6b89cbaa566a1bda1d))
+
+
+### Bug Fixes
+
+* **audit:** arm org on /api/audit read + stamp org on provisioning/refresh audit rows ([#253](https://github.com/jason931225/maintenance/issues/253)) ([e54a476](https://github.com/jason931225/maintenance/commit/e54a476ca53dc5d20c32438b8d4a8fe426bb9022))
+* **comms:** forward-fix mail-sync lease fencing (codex-approved, [#245](https://github.com/jason931225/maintenance/issues/245) merged the pre-fix version) ([#263](https://github.com/jason931225/maintenance/issues/263)) ([be72e22](https://github.com/jason931225/maintenance/commit/be72e224e2b286d91d66d61ad2efd7762f6d1ad5))
+* **comms:** make inbound mail-sync HA-safe (worker-gated + SKIP LOCKED lease) ([#245](https://github.com/jason931225/maintenance/issues/245)) ([323085e](https://github.com/jason931225/maintenance/commit/323085e9a601e09966c3f3c70c10c01146bbe716))
+* **console:** address P0 scaffold review blockers ([#243](https://github.com/jason931225/maintenance/issues/243)) ([f623ccb](https://github.com/jason931225/maintenance/commit/f623ccb523dc66a8f9306734ca67cc11d67bb46a))
+* **db:** renumber 0117_search_trgm_indexes to 0118 (version collision with 0117_comms_email_account_claim_token_fencing) ([f801153](https://github.com/jason931225/maintenance/commit/f801153e8eeeb96588c233302a057a11c354c382))
+
+## [0.1.51](https://github.com/jason931225/maintenance/compare/v0.1.50...v0.1.51) (2026-07-09)
+
+
+### Bug Fixes
+
+* **identity:** address S0 review coverage ([#238](https://github.com/jason931225/maintenance/issues/238)) ([2920178](https://github.com/jason931225/maintenance/commit/2920178c2e2a3b0d2ba5fd20191be4b32640e69a))
+* **objects:** gate account object-resolve on UserManage ([#239](https://github.com/jason931225/maintenance/issues/239)) ([f7401cd](https://github.com/jason931225/maintenance/commit/f7401cd78b609a192fcf2b5c81e788928669287d))
+
+## [0.1.50](https://github.com/jason931225/maintenance/compare/v0.1.49...v0.1.50) (2026-07-09)
+
+
+### Features
+
+* **console-cc:** P0.0 — console scaffold, verbatim tokens, fidelity-capture rig ([#237](https://github.com/jason931225/maintenance/issues/237)) ([a445334](https://github.com/jason931225/maintenance/commit/a4453342a3b642bc8ae66030699addbf8be46c11))
+* **identity:** Identity Console S0 — me/authz projection + identity object kinds ([#234](https://github.com/jason931225/maintenance/issues/234)) ([e66fe1e](https://github.com/jason931225/maintenance/commit/e66fe1ef09cc7979be2d5ea4f0e74c5d0993017a))
+
+
+### Bug Fixes
+
+* **auth:** deterministic clock for rate-limiter tests (kills CI flake) ([#232](https://github.com/jason931225/maintenance/issues/232)) ([1768d28](https://github.com/jason931225/maintenance/commit/1768d2835c6538913112cbb5b4a8f23ed77b0e13))
+* **comms:** route notifications rail through the shared typed client ([#231](https://github.com/jason931225/maintenance/issues/231)) ([b281e80](https://github.com/jason931225/maintenance/commit/b281e80ae57fed2a37ad8854344e585321089a9c))
+
+## [0.1.49](https://github.com/jason931225/maintenance/compare/v0.1.48...v0.1.49) (2026-07-09)
+
+
+### Features
+
+* **objects:** BE-OBJ slice 2 — code issuance, message refs, graph traversal, route-authority cleanup ([#227](https://github.com/jason931225/maintenance/issues/227)) ([64ceb3f](https://github.com/jason931225/maintenance/commit/64ceb3fc09aec16edde53a8084b2f78524119899))
+
+
+### Bug Fixes
+
+* **audit-chain:** tighten attestation review fixes ([#228](https://github.com/jason931225/maintenance/issues/228)) ([639e454](https://github.com/jason931225/maintenance/commit/639e45423338b7a9a5c2e98ae266925fac03e729))
+
+## [0.1.48](https://github.com/jason931225/maintenance/compare/v0.1.47...v0.1.48) (2026-07-09)
+
+
+### Features
+
+* **audit-chain:** attestation endpoint + gap-hardening (PR-2: F2-F5) ([#226](https://github.com/jason931225/maintenance/issues/226)) ([76b7244](https://github.com/jason931225/maintenance/commit/76b7244419087dd710cb68e7415492461b3d8886))
+* **console:** UI-M3 — overview unified action inbox + todos domain ([#209](https://github.com/jason931225/maintenance/issues/209)) ([17cca43](https://github.com/jason931225/maintenance/commit/17cca4366b50cf1dfdfde4b07e5ce3da62f19b89))
+* **platform:** BE-LC slice 1 — period locks, generic versioning, lifecycle engine MVP ([#211](https://github.com/jason931225/maintenance/issues/211)) ([3a6a6ec](https://github.com/jason931225/maintenance/commit/3a6a6eca9a0047c55aa4b66f8586e4db9fbb4b48))
+* **reporting:** audited KPI Excel export (GET /api/v1/exports/kpi) ([#223](https://github.com/jason931225/maintenance/issues/223)) ([7f9bad8](https://github.com/jason931225/maintenance/commit/7f9bad8aa42bf3accbd324585466c80e408caddf))
+* **workflow:** BE-WF-HARDEN — run read surface + shared governance-finding helper ([#224](https://github.com/jason931225/maintenance/issues/224)) ([8101a21](https://github.com/jason931225/maintenance/commit/8101a217c544069370b52306d0e890cd723e547e))
+
+
+### Bug Fixes
+
+* **console:** repair chrome E2E after UI-M2b comms rail (dev-up smoke) ([#215](https://github.com/jason931225/maintenance/issues/215)) ([785299a](https://github.com/jason931225/maintenance/commit/785299a537be3cfd28336bedc9b8ff39a3bf2e73))
+* **e2e:** heal main — workflow studio, rail promotion, exec approve (post-merge-train) ([#225](https://github.com/jason931225/maintenance/issues/225)) ([e4be53a](https://github.com/jason931225/maintenance/commit/e4be53a48eecb4fc0a9c8ff83cdfcfb84101e4f1))
+* **objects:** resolve enforces domain feature guards for work_order/equipment ([#222](https://github.com/jason931225/maintenance/issues/222)) ([cd2943b](https://github.com/jason931225/maintenance/commit/cd2943bbd8f2b190f65b4e3997204c6eb841e174))
+* **workflow:** harden automation trigger follow-ups ([#221](https://github.com/jason931225/maintenance/issues/221)) ([920935e](https://github.com/jason931225/maintenance/commit/920935e9d19c759d61ba9839dfcb4fa35af16d78))
+
+## [0.1.47](https://github.com/jason931225/maintenance/compare/v0.1.46...v0.1.47) (2026-07-09)
+
+
+### Features
+
+* **workflow:** BE-AUTO slice 1 — event trigger bindings + cron schedules ([#208](https://github.com/jason931225/maintenance/issues/208)) ([7873118](https://github.com/jason931225/maintenance/commit/78731188b05cb7563aa37790d2cb2412c2a7724e))
+
+## [0.1.46](https://github.com/jason931225/maintenance/compare/v0.1.45...v0.1.46) (2026-07-09)
+
+
+### Features
+
+* **audit-chain:** L20 tamper-evident audit chain — seal worker + verify (PR-1, dark) ([#204](https://github.com/jason931225/maintenance/issues/204)) ([ab63633](https://github.com/jason931225/maintenance/commit/ab63633b69eafc42ac40b744f77e60536ff0fdf3))
+* **notifications:** unread-count endpoint for comms rail badge (UI-M2b backend) ([#212](https://github.com/jason931225/maintenance/issues/212)) ([09910af](https://github.com/jason931225/maintenance/commit/09910af60f586917a85c6feb99379da8ddd6e7a5))
+* **objects:** BE-OBJ slice 1 — audit per-object filters, object_links edge store, object resolve endpoint ([#206](https://github.com/jason931225/maintenance/issues/206)) ([0008f2f](https://github.com/jason931225/maintenance/commit/0008f2f15eaaf9064003cf8ba0e681d29032989d))
+
+
+### Bug Fixes
+
+* **workflow:** SoD guard — initiator cannot approve own engine run ([#205](https://github.com/jason931225/maintenance/issues/205)) ([7e45cd0](https://github.com/jason931225/maintenance/commit/7e45cd0215f90029bf8a328e554b72c9a0581ebd))
+
+## [0.1.45](https://github.com/jason931225/maintenance/compare/v0.1.44...v0.1.45) (2026-07-09)
+
+
+### Features
+
+* add no-code Workflow Studio canvas MVP ([#147](https://github.com/jason931225/maintenance/issues/147)) ([cb1fe6e](https://github.com/jason931225/maintenance/commit/cb1fe6ea06597ba7991216b8876641f26d640bb1))
+* **console:** UI-M2a integration — live pin bodies, drag tokens, palette→pin, mention delivery ([#202](https://github.com/jason931225/maintenance/issues/202)) ([53b3261](https://github.com/jason931225/maintenance/commit/53b326179fa4e207ea01daca61b688b8f5cfeb67))
+
+
+### Bug Fixes
+
+* **authz:** non-normal token mints carry real subject-freshness (Cedar promotion prerequisite) ([#203](https://github.com/jason931225/maintenance/issues/203)) ([e02dd0b](https://github.com/jason931225/maintenance/commit/e02dd0baeed2282d785a36e19805772a12f68c63))
+* **e2e:** version-independent storefront visual guard (visibility:hidden) ([#199](https://github.com/jason931225/maintenance/issues/199)) ([a36c0b2](https://github.com/jason931225/maintenance/commit/a36c0b2f1b0bc0125cb133e04bb78c929ca9f4ff))
+* **hr:** unlinked accounts read empty self-attendance instead of 403 ([#201](https://github.com/jason931225/maintenance/issues/201)) ([cf67220](https://github.com/jason931225/maintenance/commit/cf67220f46f6bcea5ff36d0fc3363205470badeb))
+* **workflow:** Engine-Gen follow-ups — start_policy authoring rule + ?q= submission filter ([#192](https://github.com/jason931225/maintenance/issues/192)) ([e9837ad](https://github.com/jason931225/maintenance/commit/e9837adfb62cc0e2fba9f74c0dae715cb5eb2db6))
+
+## [0.1.44](https://github.com/jason931225/maintenance/compare/v0.1.43...v0.1.44) (2026-07-09)
+
+
+### Features
+
+* **console:** UI-M1b — ConsoleShell window engine + server-side workspace persistence ([#196](https://github.com/jason931225/maintenance/issues/196)) ([4ad7aa3](https://github.com/jason931225/maintenance/commit/4ad7aa3684f0d28f8d07f7fd7e23459cdc1c5f5c))
+* **console:** UI-M2a core — object registry + @/#/! token grammar (standalone modules) ([#194](https://github.com/jason931225/maintenance/issues/194)) ([aff9dc9](https://github.com/jason931225/maintenance/commit/aff9dc92837d542152fe06f77addb17167b1d717))
+* **notifications:** notification center backend — outbox drain, REST, realtime fan-out ([#198](https://github.com/jason931225/maintenance/issues/198)) ([8db3d17](https://github.com/jason931225/maintenance/commit/8db3d1770f9754c94977416512c2cbc6fac9a387))
+
+## [0.1.43](https://github.com/jason931225/maintenance/compare/v0.1.42...v0.1.43) (2026-07-08)
+
+
+### Features
+
+* **cedar:** PBAC activation — role_manage shadow lane (dark, shadow-only) ([#182](https://github.com/jason931225/maintenance/issues/182)) ([950ada8](https://github.com/jason931225/maintenance/commit/950ada8778940bb090469c6baf4d5fa201483ffb))
+* **console:** UI-M0 — Oyatie design-system foundation (tokens, icons, primitives, list grammar) ([#184](https://github.com/jason931225/maintenance/issues/184)) ([6970700](https://github.com/jason931225/maintenance/commit/6970700c576bdc4c8c300ac46190d4d62da944ee))
+* **console:** UI-M1a — Oyatie shared chrome re-skin (sidebar/topbar/toast) + storefront visual guard ([#186](https://github.com/jason931225/maintenance/issues/186)) ([027c26e](https://github.com/jason931225/maintenance/commit/027c26ed36e9e7ef3a0a866c49236cad87e4adca))
+* **relay:** add non-OCI Talos iMessage prep ([#188](https://github.com/jason931225/maintenance/issues/188)) ([76d71ce](https://github.com/jason931225/maintenance/commit/76d71cec13e354c99b5b51a4ff110e32d4e93e2a))
+* **workflow:** Engine-Gen — generalized electronic-approval platform (instance REST, 8 templates, finalization/compensation) ([#187](https://github.com/jason931225/maintenance/issues/187)) ([fc67eb2](https://github.com/jason931225/maintenance/commit/fc67eb2b1266dcd87fa6fd14a3b3d1889428ff3f))
+
+
+### Bug Fixes
+
+* **image:** include embedded docs specs in backend build ([#190](https://github.com/jason931225/maintenance/issues/190)) ([d574432](https://github.com/jason931225/maintenance/commit/d574432e7d9b45dcd5fff4dc3a82e4f3da7f3768))
+
+## [0.1.42](https://github.com/jason931225/maintenance/compare/v0.1.41...v0.1.42) (2026-07-04)
+
+
+### Features
+
+* **workflow-m2:** workflow runtime engine (dark, codex-approved) ([#179](https://github.com/jason931225/maintenance/issues/179)) ([7a8a5cb](https://github.com/jason931225/maintenance/commit/7a8a5cb4ab974f7a553b0b784d9c92bcb284401e))
+
 ## [0.1.41](https://github.com/jason931225/maintenance/compare/v0.1.40...v0.1.41) (2026-07-04)
 
 

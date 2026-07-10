@@ -1,6 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
-import { http, HttpResponse, ws } from "msw";
+import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
+import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
@@ -10,6 +11,25 @@ import type { AuthContextValue, AuthSession } from "./context/auth";
 import { createConsoleApiClient } from "./api/client";
 import type { AbsenceExitDashboardResponse } from "./api/types";
 import { dashboardStrings } from "./console/dashboard";
+import { createConsoleMessengerWsHandlers } from "./test/messengerWs";
+import { ROUTE_LOAD_OPTIONS, waitForRouteReady } from "./test/routeReady";
+
+vi.mock("./features/dispatch/leafletIcon", () => ({
+  ensureLeafletIcon: vi.fn(),
+}));
+
+vi.mock("react-leaflet", () => ({
+  MapContainer: ({ children }: { children: ReactNode }) => (
+    <div data-testid="leaflet-map">{children}</div>
+  ),
+  Marker: ({ children }: { children?: ReactNode }) => (
+    <div data-testid="leaflet-marker">{children}</div>
+  ),
+  Popup: ({ children }: { children?: ReactNode }) => (
+    <div data-testid="leaflet-popup">{children}</div>
+  ),
+  TileLayer: () => <div data-testid="tile-layer" />,
+}));
 
 // ── Empty backend ───────────────────────────────────────────────────────────
 // The production database is empty (0 work orders, 0 equipment, 0 branches).
@@ -18,8 +38,6 @@ import { dashboardStrings } from "./console/dashboard";
 
 const BRANCH_ID = "00000000-0000-4000-8000-000000000001";
 const USER_ID = "00000000-0000-4000-8000-000000000002";
-
-const messengerWs = ws.link("ws://localhost:3000/api/v1/ws*");
 
 // An otherwise-valid KPI report with no rollups and no data — the cold-start
 // shape the aggregation endpoint returns before any work orders exist.
@@ -120,7 +138,7 @@ const me = {
 };
 
 const server = setupServer(
-  messengerWs.addEventListener("connection", () => {}),
+  ...createConsoleMessengerWsHandlers(),
   // Paginated list endpoints → empty page envelope.
   http.get("*/api/approval-items", () =>
     HttpResponse.json({
@@ -153,10 +171,26 @@ const server = setupServer(
   ),
   http.get("*/api/v1/kpi", () => HttpResponse.json(emptyKpiReport)),
   http.get("*/api/v1/ops/summary", () => HttpResponse.json(emptyOpsSummary)),
+  // Console workspace layout (UI-M1b): ConsoleShell loads it on mount for
+  // /overview and /attendance. Empty backend => empty layout object.
+  http.get("*/api/v1/me/workspace", () => HttpResponse.json({ layout: {} })),
+  http.put("*/api/v1/me/workspace", () => HttpResponse.json({ layout: {} })),
   http.get("*/api/messenger/threads", () =>
     HttpResponse.json({ items: [] }),
   ),
+  // UI-M3 Overview sources: engine approval inbox, my dispatch offers, todos.
+  http.get("*/api/v1/workflow-tasks", () => HttpResponse.json({ items: [] })),
+  http.get("*/api/v1/me/dispatch-offers", () =>
+    HttpResponse.json({ items: [] }),
+  ),
+  http.get("*/api/v1/me/todos", () => HttpResponse.json({ items: [] })),
   http.get("*/api/v1/mail/folders", () => HttpResponse.json([])),
+  http.get("*/api/v1/me/notifications", () =>
+    HttpResponse.json({ items: [], next_cursor: null }),
+  ),
+  http.get("*/api/v1/me/notifications/unread-count", () =>
+    HttpResponse.json({ unread: 0 }),
+  ),
   http.get("*/api/daily-work-plans", () =>
     HttpResponse.json({ items: [] }),
   ),
@@ -173,6 +207,14 @@ const server = setupServer(
   http.get("*/api/v1/hr/attendance-summary", () =>
     HttpResponse.json({ items: [], limit: 1000, offset: 0, total: 0 }),
   ),
+  // AttendancePage is mounted by ConsoleShell for persistence, but inactive
+  // screens must not fetch. The counter below locks the /overview no-hidden-fetch
+  // regression (its Today panel makes exactly ONE punch-status read) while
+  // still serving /attendance when it becomes active.
+  http.get("*/api/v1/hr/attendance-records/me", () => {
+    attendanceRecordReads += 1;
+    return HttpResponse.json({ items: [] });
+  }),
   http.get("*/api/v1/hr/readiness-summary", () =>
     HttpResponse.json(emptyHrReadinessSummary),
   ),
@@ -207,6 +249,8 @@ const server = setupServer(
   ),
 );
 
+let attendanceRecordReads = 0;
+
 // Track in-flight HTTP requests so a test can wait for late on-mount fetches
 // (e.g. the dispatch-map aggregation the equipment screen issues) to fully
 // resolve before it ends. WebSocket connections intentionally remain open and
@@ -227,10 +271,18 @@ async function waitForNetworkIdle() {
   });
 }
 
+async function waitForLateMountEffects() {
+  await new Promise((resolve) => {
+    setTimeout(resolve, 25);
+  });
+  await waitForNetworkIdle();
+}
+
 beforeAll(() => {
   server.listen({ onUnhandledRequest: "error" });
 });
 afterEach(() => {
+  attendanceRecordReads = 0;
   server.resetHandlers();
 });
 afterAll(() => {
@@ -274,9 +326,9 @@ function renderAt(path: string) {
 // Each entry: route, the page's heading (proves it mounted, shell intact), and
 // the empty-state copy that must appear with an empty backend.
 const pages: { path: string; heading: string; empty: string }[] = [
-  { path: "/work-hub", heading: "업무 허브", empty: "현재 처리할 업무·승인·지원 티켓이 없습니다." },
+  { path: "/overview", heading: "통합 개요", empty: "현재 처리할 항목이 없습니다." },
   { path: "/dispatch", heading: "배차 보드", empty: "표시할 접수건이 없습니다." },
-  { path: "/approvals", heading: "전자결제 대기", empty: "승인 대기 건이 없습니다." },
+  { path: "/approvals", heading: "전자결재시스템 대기", empty: "전자결재시스템 대기 건이 없습니다." },
   // The /kpi empty copy routes through the console dashboard strings accessor
   // so this assertion tracks the serial ko.console.dashboard wire-up.
   { path: "/kpi", heading: "임원 KPI 대시보드", empty: dashboardStrings().emptyReason },
@@ -301,16 +353,12 @@ describe("every page renders cleanly against an empty backend", () => {
 
       // PageHeader owns the page's single <h1>; the sidebar nav and feature
       // panels reuse the same label as a link / <h2>, so pin level: 1.
-      expect(
-        await screen.findByRole(
-          "heading",
-          { name: page.heading, level: 1 },
-          { timeout: 5000 },
-        ),
-      ).toBeVisible();
+      expect(await waitForRouteReady(page.heading)).toBeVisible();
       // Empty copy can surface in more than one sub-panel (e.g. the dispatch
       // board and the work-order list) — assert at least one is shown.
-      expect((await screen.findAllByText(page.empty))[0]).toBeVisible();
+      expect(
+        (await screen.findAllByText(page.empty, undefined, ROUTE_LOAD_OPTIONS))[0],
+      ).toBeVisible();
 
       // The per-route error boundary fallback must never appear.
       expect(
@@ -325,11 +373,28 @@ describe("every page renders cleanly against an empty backend", () => {
     });
   }
 
+  it("reads punch status exactly once while Overview is active (no hidden attendance-screen fetch)", async () => {
+    renderAt("/overview");
+    expect(await waitForRouteReady("통합 개요")).toBeVisible();
+    await waitForNetworkIdle();
+    // The Today panel's punch-status chip issues ONE read; the mounted-but-
+    // inactive attendance screen must not add its own.
+    expect(attendanceRecordReads).toBe(1);
+    await waitForLateMountEffects();
+    expect(attendanceRecordReads).toBe(1);
+  });
+
+  it("fetches attendance records once the attendance screen is active", async () => {
+    renderAt("/attendance");
+    expect(await waitForRouteReady("내 근태 기록")).toBeVisible();
+    await waitFor(() => {
+      expect(attendanceRecordReads).toBe(1);
+    });
+  });
+
   it("renders /payroll with zero readiness counts and no crash", async () => {
     renderAt("/payroll");
-    expect(
-      await screen.findByRole("heading", { name: "급여 준비", level: 1 }),
-    ).toBeVisible();
+    expect(await waitForRouteReady("급여 준비")).toBeVisible();
     expect(await screen.findByText("급여 산출 준비도")).toBeVisible();
     expect(await screen.findByText("법적 검토 게이트 차단")).toBeVisible();
     await waitForNetworkIdle();
@@ -337,28 +402,26 @@ describe("every page renders cleanly against an empty backend", () => {
 
   it("renders /equipment (no data assumed) without crashing", async () => {
     renderAt("/equipment");
-    expect(
-      await screen.findByRole("heading", { name: "장비 조회", level: 1 }),
-    ).toBeVisible();
+    expect(await waitForRouteReady("장비 조회")).toBeVisible();
     // Empty response → empty-state message rendered.
     expect(
-      await screen.findByText("조건에 맞는 장비가 없습니다."),
+      await screen.findByText(
+        "조건에 맞는 장비가 없습니다.",
+        undefined,
+        ROUTE_LOAD_OPTIONS,
+      ),
     ).toBeVisible();
     await waitForNetworkIdle();
   });
 
   it("renders /intake against an empty backend", async () => {
     renderAt("/intake");
-    expect(
-      await screen.findByRole("heading", { name: "접수 입력", level: 1 }),
-    ).toBeVisible();
+    expect(await waitForRouteReady("접수 입력")).toBeVisible();
   });
 
   it("renders /dispatch-map empty-state (no geocoded sites) without a blank map", async () => {
     renderAt("/dispatch-map");
-    expect(
-      await screen.findByRole("heading", { name: "배차 지도", level: 1 }),
-    ).toBeVisible();
+    expect(await waitForRouteReady("배차 지도")).toBeVisible();
     // Zero geocoded sites must surface the empty-state message + a link to site
     // management, never a blank map or a fabricated pin.
     expect(
@@ -372,16 +435,12 @@ describe("every page renders cleanly against an empty backend", () => {
 
   it("renders /settings/location against an empty backend", async () => {
     renderAt("/settings/location");
-    expect(
-      await screen.findByRole("heading", { name: "GPS 위치 동의", level: 1 }),
-    ).toBeVisible();
+    expect(await waitForRouteReady("GPS 위치 동의")).toBeVisible();
   });
 
   it("renders /settings/profile against an empty backend", async () => {
     renderAt("/settings/profile");
-    expect(
-      await screen.findByRole("heading", { name: "내 프로필", level: 1 }),
-    ).toBeVisible();
+    expect(await waitForRouteReady("내 프로필")).toBeVisible();
   });
 
   it("renders /wallboard (kiosk) against an empty backend", async () => {

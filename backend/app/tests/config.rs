@@ -208,3 +208,23 @@ fn invalid_email_stub_mode_is_rejected() {
     assert!(message.contains("e2e"), "{message}");
     assert!(message.contains("test"), "{message}");
 }
+
+#[test]
+fn mox_settings_are_resolved_from_app_config_pairs() {
+    let config = AppConfig::from_pairs([
+        ("MNT_APP_ROLE", AppRole::Api.to_string()),
+        ("MNT_HTTP_ADDR", "127.0.0.1:0".to_owned()),
+        ("MNT_MAIL_MOX_BASE_URL", "https://mox.internal".to_owned()),
+        ("MNT_MAIL_MOX_WEBHOOK_SECRET", "delivery-secret".to_owned()),
+    ])
+    .unwrap();
+
+    assert_eq!(
+        config.mail_mox_base_url.as_deref(),
+        Some("https://mox.internal")
+    );
+    assert_eq!(
+        config.mail_mox_webhook_secret.as_deref(),
+        Some("delivery-secret")
+    );
+}

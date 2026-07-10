@@ -36,3 +36,6 @@ pub use validation::{
 
 /// Canonical timestamp type for the whole system (UTC, RFC 3339 on the wire).
 pub type Timestamp = time::OffsetDateTime;
+
+/// Canonical calendar-date type (no time-of-day, no zone), e.g. a leave span.
+pub type Date = time::Date;

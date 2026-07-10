@@ -311,7 +311,7 @@ describe("LoginPage sign-in", () => {
     ).toBeVisible();
   });
 
-  it("redirects an already signed-in user without next to the work hub", async () => {
+  it("redirects an already signed-in user without next to the overview", async () => {
     server.use(
       http.get("*/api/v1/work-orders", () =>
         HttpResponse.json({ items: [], limit: 8, offset: 0, total: 0 }),
@@ -355,7 +355,7 @@ describe("LoginPage sign-in", () => {
     );
 
     expect(
-      await screen.findByRole("heading", { name: "업무 허브", level: 1 }),
+      await screen.findByRole("heading", { name: "통합 개요", level: 1 }),
     ).toBeVisible();
     expect(
       screen.queryByRole("heading", { name: "로그인", level: 2 }),

@@ -388,7 +388,12 @@ open class ApiClient(val baseUrl: String, val client: Call.Factory = defaultClie
             }.build()
 
         // take content-type/accept from spec or set to default (application/json) if not defined
-        if (requestConfig.body != null && requestConfig.headers[CONTENT_TYPE].isNullOrEmpty()) {
+        val inferredContentType = if (requestConfig.body is Map<*, *> && requestConfig.body.values.all { it is PartConfig<*> }) {
+            FORM_DATA_MEDIA_TYPE
+        } else {
+            null
+        }
+        if (requestConfig.body != null && requestConfig.headers[CONTENT_TYPE].isNullOrEmpty() && inferredContentType == null) {
             requestConfig.headers[CONTENT_TYPE] = JSON_MEDIA_TYPE
         }
         if (requestConfig.headers[ACCEPT].isNullOrEmpty()) {
@@ -404,7 +409,7 @@ open class ApiClient(val baseUrl: String, val client: Call.Factory = defaultClie
             // TODO: support multiple contentType options here.
             (headers[CONTENT_TYPE] as String).substringBefore(";").lowercase(Locale.US)
         } else {
-            null
+            inferredContentType
         }
 
         val request = when (requestConfig.method) {

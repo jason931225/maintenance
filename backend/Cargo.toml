@@ -24,6 +24,10 @@ members = [
   "crates/workorder/*",
   "crates/workflow/*",
   "crates/messenger/*",
+  "crates/notifications/*",
+  "crates/inbox/*",
+  "crates/leave/*",
+  "crates/todos/*",
   "crates/comms/*",
   "crates/payroll/*",
   "crates/policy/*",
@@ -80,6 +84,16 @@ calamine = { version = "0.35.0", features = ["dates"] }
 # advisory). Pure-Rust, no extra runtime binary. Version verified live against
 # crates.io 2026-06-23: infer 0.19.0.
 infer = { version = "0.19.0", default-features = false, features = ["std"] }
+# Cron parsing/evaluation for workflow_schedules (BE-AUTO). Versions verified
+# live against crates.io 2026-07-08: croner 3.0.1, chrono 0.4.45,
+# chrono-tz 0.10.4 (croner evaluates over chrono types; chrono-tz supplies the
+# IANA timezone the schedule's cron pattern is interpreted in — 매일 아침 9시
+# must mean 09:00 KST, not UTC). chrono was already in the lockfile
+# transitively; `time` stays the workspace-wide datetime type and chrono is
+# confined to the cron boundary.
+croner = "3.0.1"
+chrono = { version = "0.4.45", default-features = false, features = ["std"] }
+chrono-tz = "0.10.4"
 # Versions verified live against crates.io 2026-06-12:
 # axum 0.8.9, tower-http 0.7.0, tower 0.5.3, http 1.4.2,
 # tracing 0.1.44, tracing-subscriber 0.3.23,
@@ -124,6 +138,7 @@ chacha20poly1305 = "0.10.1"
 secrecy = "0.10.3"
 zeroize = "1.9.0"
 base64 = "0.22.1"
+subtle = "2.6.1"
 # SSRF guard for outbound webmail connections (B-mail-2). Versions verified live
 # against the crates.io index 2026-06-23: hickory-resolver 0.26.1 (latest
 # stable), ipnet 2.12.0 (latest stable). The resolver gives us a resolve-once,
@@ -208,12 +223,29 @@ mnt-messenger-domain = { path = "crates/messenger/domain" }
 mnt-messenger-application = { path = "crates/messenger/application" }
 mnt-messenger-adapter-postgres = { path = "crates/messenger/adapter-postgres" }
 mnt-messenger-rest = { path = "crates/messenger/rest" }
+mnt-notifications-domain = { path = "crates/notifications/domain" }
+mnt-notifications-application = { path = "crates/notifications/application" }
+mnt-notifications-adapter-postgres = { path = "crates/notifications/adapter-postgres" }
+mnt-notifications-rest = { path = "crates/notifications/rest" }
+mnt-inbox-domain = { path = "crates/inbox/domain" }
+mnt-inbox-application = { path = "crates/inbox/application" }
+mnt-inbox-adapter-postgres = { path = "crates/inbox/adapter-postgres" }
+mnt-inbox-rest = { path = "crates/inbox/rest" }
+mnt-leave-domain = { path = "crates/leave/domain" }
+mnt-leave-application = { path = "crates/leave/application" }
+mnt-leave-adapter-postgres = { path = "crates/leave/adapter-postgres" }
+mnt-leave-rest = { path = "crates/leave/rest" }
+mnt-todos-domain = { path = "crates/todos/domain" }
+mnt-todos-application = { path = "crates/todos/application" }
+mnt-todos-adapter-postgres = { path = "crates/todos/adapter-postgres" }
+mnt-todos-rest = { path = "crates/todos/rest" }
 mnt-comms-domain = { path = "crates/comms/domain" }
 mnt-comms-credential-cipher = { path = "crates/comms/credential-cipher" }
 mnt-comms-application = { path = "crates/comms/application" }
 mnt-comms-adapter-postgres = { path = "crates/comms/adapter-postgres" }
 mnt-comms-adapter-smtp = { path = "crates/comms/adapter-smtp" }
 mnt-comms-adapter-imap = { path = "crates/comms/adapter-imap" }
+mnt-comms-adapter-mox = { path = "crates/comms/adapter-mox" }
 mnt-comms-mailbox = { path = "crates/comms/mailbox" }
 mnt-comms-rest = { path = "crates/comms/rest" }
 mnt-payroll-domain = { path = "crates/payroll/domain" }
@@ -246,6 +278,7 @@ mnt-platform-storage = { path = "crates/platform/storage" }
 mnt-platform-jobs = { path = "crates/platform/jobs" }
 mnt-platform-push = { path = "crates/platform/push" }
 mnt-platform-email = { path = "crates/platform/email" }
+mnt-platform-test-support = { path = "crates/platform/test-support" }
 
 [workspace.lints.rust]
 unsafe_code = "forbid"

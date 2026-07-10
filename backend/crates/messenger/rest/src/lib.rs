@@ -13,8 +13,8 @@ use mnt_kernel_core::{
 use mnt_messenger_adapter_postgres::{PgMessengerError, PgMessengerStore};
 use mnt_messenger_application::{
     CreateThreadCommand, JoinThreadCommand, ListChannelsQuery, ListMembersQuery, ListThreadsQuery,
-    MarkThreadReadCommand, MessagePageQuery, SearchMessagesQuery, SendMessageCommand,
-    SetThreadMuteCommand, ThreadPresenceQuery, ToggleAckCommand,
+    MarkThreadReadCommand, MemberProfileQuery, MessagePageQuery, SearchMessagesQuery,
+    SendMessageCommand, SetThreadMuteCommand, ThreadPresenceQuery, ToggleAckCommand,
 };
 use mnt_messenger_domain::{ThreadKind, ThreadVisibility};
 use mnt_platform_auth::JwtVerifier;
@@ -23,6 +23,7 @@ use serde::{Deserialize, Serialize};
 
 pub const MESSENGER_ROUTE_PATHS: &[&str] = &[
     "/api/messenger/members",
+    "/api/messenger/members/{userId}",
     "/api/messenger/channels",
     "/api/messenger/threads",
     "/api/messenger/threads/{threadId}/messages",
@@ -55,6 +56,7 @@ pub fn router(state: MessengerRestState) -> Router {
     let pool = state.store.pool().clone();
     let router = Router::new()
         .route("/api/messenger/members", get(list_members))
+        .route("/api/messenger/members/{user_id}", get(get_member))
         .route("/api/messenger/channels", get(list_channels))
         .route(
             "/api/messenger/threads",
@@ -155,6 +157,11 @@ async fn create_thread(
     Json(body): Json<CreateThreadRequest>,
 ) -> Result<Response, RestError> {
     let principal = principal_from_headers(&state, &headers).await?;
+    // Safer default: an API-created team thread is direct (fixed member set)
+    // unless the caller EXPLICITLY passes visibility=channel. Left to the
+    // domain default, a named `team` thread silently became a joinable
+    // channel, exposing full history to anyone who joins even though the
+    // caller supplied a curated `member_ids` list expecting a fixed set.
     let visibility = body.visibility.or(Some(ThreadVisibility::Direct));
     let summary = state
         .store
@@ -210,6 +217,28 @@ async fn list_members(
         .await
         .map_err(RestError::from_store)?;
     Ok(Json(Items { items }).into_response())
+}
+
+async fn get_member(
+    State(state): State<MessengerRestState>,
+    headers: HeaderMap,
+    Path(user_id): Path<UserId>,
+    Query(query): Query<MembersQuery>,
+) -> Result<Response, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    let member = state
+        .store
+        .member_profile(MemberProfileQuery {
+            actor: principal.user_id,
+            branch_scope: principal.branch_scope,
+            branch_id: query.branch_id,
+            user_id,
+            trace: TraceContext::generate(),
+            occurred_at: time::OffsetDateTime::now_utc(),
+        })
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(Json(member).into_response())
 }
 
 async fn send_message(

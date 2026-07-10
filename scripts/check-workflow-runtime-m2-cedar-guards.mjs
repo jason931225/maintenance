@@ -267,7 +267,11 @@ function listRustFiles(relDir) {
 const guardFiles = listRustFiles(CRATES_DIR).filter((p) => {
   const src = read(p);
   return (
-    src.includes("observe_cedar_pbac_decision") &&
+    // A guard adapter CALLS the observation fn; a crate root that merely
+    // `pub use`-re-exports the name (no call site) is not an adapter and must
+    // not be swept in here (false positive seen when #182 added the
+    // re-export to backend/crates/platform/authz/src/lib.rs).
+    /observe_cedar_pbac_decision\s*\(/.test(src) &&
     /node[_ ]?(transition|run)|waiting[_ ]?task|task[_ ]?completion|workflow[_ ]?runtime/i.test(src) &&
     !p.includes("/tests/") &&
     p !== CEDAR_PBAC

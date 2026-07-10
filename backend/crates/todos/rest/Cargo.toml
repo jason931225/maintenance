@@ -1,0 +1,24 @@
+[package]
+name = "mnt-todos-rest"
+version = "0.1.0"
+description = "Person-scoped REST API for personal todos."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+axum = { workspace = true }
+mnt-kernel-core = { workspace = true }
+mnt-todos-adapter-postgres = { workspace = true }
+mnt-todos-application = { workspace = true }
+mnt-todos-domain = { workspace = true }
+mnt-platform-auth = { path = "../../platform/auth" }
+mnt-platform-authz = { path = "../../platform/authz" }
+mnt-platform-request-context = { workspace = true }
+serde = { workspace = true }
+time = { workspace = true }
+tracing = { workspace = true }
+
+[lints]
+workspace = true

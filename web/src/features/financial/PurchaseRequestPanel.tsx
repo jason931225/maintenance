@@ -1308,7 +1308,11 @@ function PurchaseDetail({
         {request.rejection_memo ? <Row label={ko.financial.purchase.rejectionMemo} value={request.rejection_memo} /> : null}
       </dl>
 
-      <section aria-label={PURCHASE_TEXT.detailLinesAria} className="overflow-x-auto rounded-md border border-line bg-white">
+      <section
+        aria-label={PURCHASE_TEXT.detailLinesAria}
+        className="overflow-x-auto rounded-md border border-line bg-white"
+        tabIndex={0}
+      >
         <table className="min-w-[640px] w-full text-sm">
           <thead className="bg-muted-panel text-xs text-steel">
             <tr>
@@ -1892,4 +1896,3 @@ function SelectField<T extends string>({
     </div>
   );
 }
-

@@ -148,7 +148,7 @@ async fn consume_open_code_as_runtime(rt_pool: &PgPool, org: OrgId, user_id: Uui
         .await
         .unwrap();
     BootstrapCredentialStore
-        .consume_open_credentials_tx(&mut tx, user_id, OffsetDateTime::now_utc())
+        .consume_open_credentials_tx(&mut tx, org, user_id, OffsetDateTime::now_utc())
         .await
         .expect("consume must succeed as mnt_rt");
     tx.commit().await.unwrap();
@@ -274,6 +274,57 @@ async fn handoff_redeems_then_enroll_consumes_it_single_use(owner_pool: PgPool) 
     assert!(
         matches!(replay, Err(ProvisioningError::InvalidBootstrapCredential)),
         "a consumed handoff must be rejected on replay, got {replay:?}"
+    );
+}
+
+// ===========================================================================
+// (2b) CONSUME IS TENANT-VISIBLE: the `auth.otp.consume` audit row must carry
+// the caller's org so a tenant-scoped `/api/audit` read sees it.
+//
+// Regression for the task #26 deferred site: the consume event was built without
+// `.with_org`, landing the row with NULL org_id. The FORCE-RLS WITH CHECK permits
+// NULL so the write succeeded, but RLS `USING (org_id = app.current_org)` then
+// hid it from every tenant read. RED (pre-fix): the KNL-armed read returns 0.
+// ===========================================================================
+#[sqlx::test(migrations = "../db/migrations")]
+async fn consume_audit_row_is_tenant_scoped_and_visible_as_runtime_role(owner_pool: PgPool) {
+    let rt_pool = runtime_role_pool(&owner_pool).await;
+    let knl = OrgId::knl();
+    let user_id = seed_org_and_user(&owner_pool, *knl.as_uuid(), "KNL").await;
+
+    // Issue an open code, then consume it (the single-use burn) as `mnt_rt`.
+    BootstrapCredentialStore
+        .issue_self_enroll_handoff(
+            &rt_pool,
+            user_id,
+            knl,
+            OffsetDateTime::now_utc(),
+            HANDOFF_TTL,
+        )
+        .await
+        .expect("self-handoff issuance must succeed as mnt_rt");
+    consume_open_code_as_runtime(&rt_pool, knl, user_id).await;
+
+    // As `mnt_rt`, armed to KNL: the consume event must be visible AND stamped
+    // with KNL. A NULL-org row would be invisible here (RLS USING excludes it).
+    let mut tx = rt_pool.begin().await.unwrap();
+    sqlx::query("SELECT set_config('app.current_org', $1, true)")
+        .bind(knl.as_uuid().to_string())
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let org_id: Option<Uuid> = sqlx::query_scalar(
+        "SELECT org_id FROM audit_events WHERE action = 'auth.otp.consume' AND actor = $1",
+    )
+    .bind(user_id)
+    .fetch_one(&mut *tx)
+    .await
+    .expect("KNL-armed read must see the consume audit row");
+    tx.commit().await.unwrap();
+    assert_eq!(
+        org_id,
+        Some(*knl.as_uuid()),
+        "the consume audit row must carry the caller's org, not NULL"
     );
 }
 

@@ -42,11 +42,33 @@ const OnboardingPage = lazy(() =>
 const PendingPage = lazy(() =>
   import("./pages/PendingPage").then((m) => ({ default: m.PendingPage })),
 );
-const WorkHubPage = lazy(() =>
-  import("./pages/WorkHubPage").then((m) => ({ default: m.WorkHubPage })),
+// ConsoleShell hosts the mounted-persistent /overview and /attendance screens
+// (UI-M1b). It imports those pages directly, so they are no longer lazy here.
+const ConsoleShell = lazy(() =>
+  import("./components/shell/ConsoleShell").then((m) => ({ default: m.ConsoleShell })),
 );
-const AttendancePage = lazy(() =>
-  import("./pages/AttendancePage").then((m) => ({ default: m.AttendancePage })),
+// Carbon-copy console (charter D1). Owns its whole viewport at /console with its
+// own verbatim tokens and NO AppShell chrome — code-split so the legacy shell
+// never pays for it. Scaffold-only in P0.0 (empty themed viewport).
+const ConsoleApp = lazy(() =>
+  import("./console/ConsoleApp").then((m) => ({ default: m.ConsoleApp })),
+);
+// Dev-only capture harness for the carbon-copy window/pin engine (P0.2). Behind
+// the auth guard like /console; carries no product nav, exists so the fidelity
+// rig can screenshot the four window states in isolation before the engine is
+// integrated into the shell in a later slice.
+const WindowEngineHarness = lazy(() =>
+  import("./console/window/harness").then((m) => ({ default: m.WindowEngineHarness })),
+);
+// Standalone dev harness for the P0.4 generic module template (charter §3 P0.4).
+// Not a product surface — it renders one ModuleScreen against a live read to
+// prove the template end to end until the P0.1 shell hosts modules for real.
+const ModuleHarness = lazy(() =>
+  import("./console/module/ModuleHarness").then((m) => ({ default: m.ModuleHarness })),
+);
+// Dev-only lifecycle-card capture harness (P0.5). Standalone, shell-less.
+const LifecycleHarness = lazy(() =>
+  import("./console/lifecycle/harness").then((m) => ({ default: m.LifecycleHarness })),
 );
 const DispatchPage = lazy(() =>
   import("./pages/DispatchPage").then((m) => ({ default: m.DispatchPage })),
@@ -287,7 +309,7 @@ export function AppRouter() {
 
         {/* Shell-less landing for a just-signed-up user with no role grant yet
             (empty roles or `["MEMBER"]`). ProtectedRoute redirects such a session
-            here instead of onto /work-hub (which the backend 403s). Rendered
+            here instead of onto /overview (which the backend 403s). Rendered
             outside the shell — the MEMBER has no nav surface beyond Profile, which
             the page links to. */}
         <Route
@@ -303,7 +325,7 @@ export function AppRouter() {
 
         {/* Vendor platform-admin console — its own shell + nav, gated by the
             `platform` JWT claim. A tenant session hitting /platform is bounced
-            to /work-hub by RequirePlatformRoute; a platform session hitting a
+            to /overview by RequirePlatformRoute; a platform session hitting a
             tenant route is bounced to /platform by ProtectedRoute. */}
         <Route element={<RequirePlatformRoute />}>
           <Route path="/platform" element={<PlatformShell />}>
@@ -324,16 +346,89 @@ export function AppRouter() {
         </Route>
 
         {/* App shell layout. No index (`/`) route: `/` is the public KNL
-            storefront home (#6); authenticated entry lands on /work-hub via the
+            storefront home (#6); authenticated entry lands on /overview via the
             login redirect, and the shell catch-all below bounces unknown
             authenticated paths there. */}
+        {/* ConsoleShell (UI-M1b) — the window-engine shell owns only /overview
+            and /attendance. Keep the pathless shell parent constrained by the
+            two explicit child paths below; an unconstrained pathless layout here
+            would match every protected URL before AppShell can claim it. */}
+        <Route
+          element={
+            <RouteErrorBoundary>
+              <Suspense fallback={<PageSpinner />}>
+                <ConsoleShell />
+              </Suspense>
+            </RouteErrorBoundary>
+          }
+        >
+          <Route path="/overview" element={null} />
+          <Route path="/attendance" element={null} />
+        </Route>
+
+        {/* Carbon-copy console (charter D1). A catch-all under /console so the
+            prototype-style state.screen navigation lives inside one route,
+            outside AppShell — the console owns its whole viewport with its own
+            tokens. Behind ProtectedRoute like every other authenticated route;
+            its own RouteErrorBoundary contains a crash rather than falling
+            through to the blank top-level fallback (it renders shell-less). */}
+        <Route
+          path="/console/*"
+          element={
+            <RouteErrorBoundary>
+              <Suspense fallback={<PageSpinner />}>
+                <ConsoleApp />
+              </Suspense>
+            </RouteErrorBoundary>
+          }
+        />
+        {/* Dev-only window-engine capture harness (P0.2). Shell-less like
+            /console; own error boundary so a crash is contained. */}
+        <Route
+          path="/console-dev/window"
+          element={
+            <RouteErrorBoundary>
+              <Suspense fallback={<PageSpinner />}>
+                <WindowEngineHarness />
+              </Suspense>
+            </RouteErrorBoundary>
+          }
+        />
+
+        {/* P0.4 generic module template dev harness. Standalone, behind
+            ProtectedRoute; renders one ModuleScreen against a live typed-client
+            read (?config=support switches the proof config). Its own error
+            boundary contains a crash (it renders shell-less). Route-audit entry
+            classified as a dev harness (not a product route). */}
+        <Route
+          path="/console-dev/module"
+          element={
+            <RouteErrorBoundary>
+              <Suspense fallback={<PageSpinner />}>
+                <ModuleHarness />
+              </Suspense>
+            </RouteErrorBoundary>
+          }
+        />
+
+        {/* Dev-only lifecycle-card capture harness (P0.5). Shell-less like
+            /console; own error boundary so a crash is contained. */}
+        <Route
+          path="/console-dev/lifecycle"
+          element={
+            <RouteErrorBoundary>
+              <Suspense fallback={<PageSpinner />}>
+                <LifecycleHarness />
+              </Suspense>
+            </RouteErrorBoundary>
+          }
+        />
+
+        {/* UI-M3: /overview replaces /work-hub. Old links and bookmarks keep
+            working via this redirect. */}
+        <Route path="/work-hub" element={<Navigate to="/overview" replace />} />
+
         <Route element={<AppShell />}>
-          <Route element={<RequireNavItemRoute itemKey="work-hub" />}>
-            <Route path="/work-hub" element={<WorkHubPage />} />
-          </Route>
-          <Route element={<RequireNavItemRoute itemKey="my-attendance" />}>
-            <Route path="/attendance" element={<AttendancePage />} />
-          </Route>
           <Route element={<RequireNavItemRoute itemKey="dispatch" />}>
             <Route path="/dispatch" element={<DispatchPage />} />
             {/* Work-order detail (read gate is WorkOrderReadAll). Write controls
@@ -458,7 +553,7 @@ export function AppRouter() {
             <Route path="/settings/sites" element={<SitesPage />} />
             <Route path="/settings/security" element={<AdminSettingsPage />} />
           </Route>
-          <Route path="*" element={<Navigate to="/work-hub" replace />} />
+          <Route path="*" element={<Navigate to="/overview" replace />} />
         </Route>
       </Route>
     </Routes>

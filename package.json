@@ -28,6 +28,7 @@
     "check:k8s": "npm run check:k8s:render && npm run check:k8s:networkpolicy",
     "check:dispatch-map": "node scripts/check-dispatch-map.mjs",
     "check:foundation-gates": "node scripts/check-foundation-gates.mjs",
+    "test:text-gate": "node --test scripts/lib/text-gate.test.mjs",
     "check:api-drift:portable": "npm run gen:api:portable && git diff --exit-code -- clients/ts clients/kotlin",
     "check:api-drift:swift": "npm run gen:api:swift && git diff --exit-code -- clients/swift",
     "test:contract": "tsx scripts/contract-roundtrip.ts",
@@ -71,7 +72,6 @@
     "kic:local-cert-login-fixture": "node scripts/korean-connectivity/local-certificate-agent.mjs"
   },
   "dependencies": {
-    "openapi-fetch": "0.17.0",
     "pg": "8.21.0"
   },
   "devDependencies": {

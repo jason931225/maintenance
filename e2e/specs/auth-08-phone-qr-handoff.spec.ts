@@ -67,14 +67,14 @@ test("AUTH-08 phone QR enrollment completes the waiting desktop and clears pendi
     await expect(phonePage.locator("#otp-code")).toHaveValue(/\S+/);
     await phonePage.getByRole("button", { name: /^코드로 로그인$/ }).click();
     await enrollPasskey(phonePage);
-    await expect(phonePage).toHaveURL(/\/work-hub/, { timeout: 15_000 });
+    await expect(phonePage).toHaveURL(/\/overview/, { timeout: 15_000 });
     await expect
       .poll(() => residentCredentialCount(phoneAuth), { timeout: 15_000 })
       .toBe(1);
 
     // Desktop: the waiting QR screen must observe completion and leave onboarding
     // on its own. This is the failed path from the bug report; no refresh allowed.
-    await expect(page).toHaveURL(/\/work-hub/, { timeout: 20_000 });
+    await expect(page).toHaveURL(/\/overview/, { timeout: 20_000 });
 
     // The visible user-management status must no longer say "설정 대기".
     await page.goto("/settings/users");

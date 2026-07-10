@@ -6,10 +6,18 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
+default-run = "mnt-app"
 
 [[bin]]
 name = "mnt-app"
 path = "src/main.rs"
+
+# Cedar/PBAC parity evidence: read-only aggregation of recorded shadow parity
+# observations (`authz.cedar_pbac_parity` audit rows) into per-site agree/disagree
+# totals + concrete divergent cases. Promotion gate reads this; no REST surface.
+[[bin]]
+name = "mnt-cedar-parity-report"
+path = "src/bin/mnt_cedar_parity_report.rs"
 
 [lib]
 name = "mnt_app"
@@ -25,8 +33,14 @@ dev-auth = ["mnt-platform-auth-rest/dev-auth"]
 [dependencies]
 axum = { workspace = true }
 calamine = { workspace = true }
+chrono = { workspace = true }
+chrono-tz = { workspace = true }
+croner = { workspace = true }
+futures = { workspace = true }
 http = { workspace = true }
 hex = { workspace = true }
+jsonwebtoken = { workspace = true }
+reqwest = { workspace = true }
 mnt-comms-adapter-imap = { workspace = true }
 mnt-comms-adapter-postgres = { workspace = true }
 mnt-comms-application = { workspace = true }
@@ -43,13 +57,24 @@ mnt-identity-rest = { workspace = true }
 mnt-inspection-adapter-postgres = { workspace = true }
 mnt-inspection-rest = { workspace = true }
 mnt-support-adapter-postgres = { workspace = true }
+mnt-support-application = { workspace = true }
+mnt-support-domain = { workspace = true }
 mnt-support-rest = { workspace = true }
 mnt-sales-adapter-postgres = { workspace = true }
 mnt-sales-rest = { workspace = true }
 mnt-kernel-core = { workspace = true }
 mnt-messenger-adapter-postgres = { workspace = true }
 mnt-messenger-rest = { workspace = true }
+mnt-notifications-adapter-postgres = { workspace = true }
+mnt-notifications-rest = { workspace = true }
+mnt-inbox-adapter-postgres = { workspace = true }
+mnt-inbox-rest = { workspace = true }
+mnt-leave-adapter-postgres = { workspace = true }
+mnt-leave-rest = { workspace = true }
+mnt-todos-adapter-postgres = { workspace = true }
+mnt-todos-rest = { workspace = true }
 mnt-payroll-domain = { workspace = true }
+mnt-platform-audit-chain = { path = "../crates/platform/audit-chain" }
 mnt-platform-auth = { path = "../crates/platform/auth" }
 mnt-platform-auth-rest = { workspace = true }
 mnt-platform-authz = { path = "../crates/platform/authz" }
@@ -77,6 +102,8 @@ mnt-dispatch-adapter-postgres = { workspace = true }
 mnt-dispatch-domain = { workspace = true }
 mnt-dispatch-rest = { workspace = true }
 mnt-dispatch-worker = { workspace = true }
+mnt-workflow-domain = { workspace = true }
+mnt-workflow-runtime = { workspace = true }
 mnt-workflow-runtime-adapter-postgres = { workspace = true }
 mnt-workorder-adapter-postgres = { workspace = true }
 mnt-workorder-rest = { workspace = true }

@@ -24,6 +24,7 @@ use mnt_platform_auth::{
 };
 use mnt_platform_db::{DbError, with_audit};
 use mnt_platform_request_context::scope_org;
+use mnt_platform_test_support::runtime_role_pool;
 use p256::ecdsa::SigningKey;
 use p256::elliptic_curve::rand_core::OsRng;
 use p256::pkcs8::{EncodePrivateKey, EncodePublicKey, LineEnding};
@@ -45,7 +46,10 @@ struct Harness {
 }
 
 impl Harness {
-    fn new(pool: PgPool) -> Self {
+    /// `pool` is the `#[sqlx::test]` owner pool: still fine for the caller's
+    /// own seeding, but the router itself is built on a non-owner `mnt_rt`
+    /// pool so requests actually go through RLS instead of BYPASSRLS.
+    async fn new(pool: PgPool) -> Self {
         let signing_key = SigningKey::random(&mut OsRng);
         let private_pem = signing_key
             .to_pkcs8_pem(LineEnding::LF)
@@ -58,7 +62,7 @@ impl Harness {
         Self {
             private_pem,
             public_pem,
-            pool,
+            pool: runtime_role_pool(&pool).await,
         }
     }
 
@@ -79,9 +83,19 @@ impl Harness {
     }
 
     fn token(&self, user_id: UserId, roles: &[&str], branches: Vec<BranchId>) -> String {
+        self.token_for_org(OrgId::knl(), user_id, roles, branches)
+    }
+
+    fn token_for_org(
+        &self,
+        org_id: OrgId,
+        user_id: UserId,
+        roles: &[&str],
+        branches: Vec<BranchId>,
+    ) -> String {
         let issuer = self.issuer();
         issuer
-            .issue_access_token(self.access_token_input(user_id, roles, branches))
+            .issue_access_token(self.access_token_input_for_org(org_id, user_id, roles, branches))
             .unwrap()
     }
 
@@ -121,9 +135,19 @@ impl Harness {
         roles: &[&str],
         branches: Vec<BranchId>,
     ) -> AccessTokenInput {
+        self.access_token_input_for_org(OrgId::knl(), user_id, roles, branches)
+    }
+
+    fn access_token_input_for_org(
+        &self,
+        org_id: OrgId,
+        user_id: UserId,
+        roles: &[&str],
+        branches: Vec<BranchId>,
+    ) -> AccessTokenInput {
         AccessTokenInput {
             subject: user_id,
-            org_id: OrgId::knl(),
+            org_id,
             roles: roles.iter().map(|r| (*r).to_owned()).collect(),
             branches,
             platform: false,
@@ -205,7 +229,7 @@ async fn fresh_step_up_assertion(pool: &PgPool, user_id: UserId, display_name: &
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn admin_creates_region_branch_and_user_then_lists_and_reads(pool: PgPool) {
-    let harness = Harness::new(pool.clone());
+    let harness = Harness::new(pool.clone()).await;
     let admin_branch = seed_branch(&pool).await;
     let admin = seed_user(&pool, "Branch Admin", &["ADMIN"], Some(admin_branch)).await;
     let token = harness.token(admin, &["ADMIN"], vec![admin_branch]);
@@ -267,6 +291,30 @@ async fn admin_creates_region_branch_and_user_then_lists_and_reads(pool: PgPool)
         .collect();
     assert!(names.contains(&"강남지점"), "{names:?}");
 
+    // Get-one for an org-unit pin panel (UI-M2a): found → 200 + summary;
+    // an id not in the org → 404 (exercises axum routing + error mapping).
+    let (status, one) = send(
+        &harness,
+        "GET",
+        &format!("/api/v1/branches/{branch_id}"),
+        &token,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{one:?}");
+    assert_eq!(one["id"], branch_id);
+    assert_eq!(one["name"], "강남지점");
+
+    let (status, _missing) = send(
+        &harness,
+        "GET",
+        "/api/v1/branches/00000000-0000-4000-8000-000000000000",
+        &token,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::NOT_FOUND);
+
     // List users in scope returns the admin and the new mechanic.
     let (status, users) = send(&harness, "GET", "/api/v1/users", &token, None).await;
     assert_eq!(status, StatusCode::OK);
@@ -302,7 +350,7 @@ async fn admin_creates_region_branch_and_user_then_lists_and_reads(pool: PgPool)
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn non_super_admin_cannot_create_elevated_user(pool: PgPool) {
-    let harness = Harness::new(pool.clone());
+    let harness = Harness::new(pool.clone()).await;
     let admin_branch = seed_branch(&pool).await;
     let admin = seed_user(&pool, "Branch Admin", &["ADMIN"], Some(admin_branch)).await;
     let token = harness.token(admin, &["ADMIN"], vec![admin_branch]);
@@ -325,7 +373,7 @@ async fn non_super_admin_cannot_create_elevated_user(pool: PgPool) {
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn admin_can_grant_admin_to_existing_executive_in_scope(pool: PgPool) {
-    let harness = Harness::new(pool.clone());
+    let harness = Harness::new(pool.clone()).await;
     let admin_branch = seed_branch(&pool).await;
     let admin = seed_user(&pool, "Branch Admin", &["ADMIN"], Some(admin_branch)).await;
     let executive = seed_user(&pool, "임원", &["EXECUTIVE"], Some(admin_branch)).await;
@@ -369,7 +417,7 @@ async fn admin_can_grant_admin_to_existing_executive_in_scope(pool: PgPool) {
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn admin_cannot_grant_new_executive_role_on_update(pool: PgPool) {
-    let harness = Harness::new(pool.clone());
+    let harness = Harness::new(pool.clone()).await;
     let admin_branch = seed_branch(&pool).await;
     let admin = seed_user(&pool, "Branch Admin", &["ADMIN"], Some(admin_branch)).await;
     let mechanic = seed_user(&pool, "정비사", &["MECHANIC"], Some(admin_branch)).await;
@@ -390,7 +438,7 @@ async fn admin_cannot_grant_new_executive_role_on_update(pool: PgPool) {
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn admin_cannot_remove_existing_executive_role_on_update(pool: PgPool) {
-    let harness = Harness::new(pool.clone());
+    let harness = Harness::new(pool.clone()).await;
     let admin_branch = seed_branch(&pool).await;
     let admin = seed_user(&pool, "Branch Admin", &["ADMIN"], Some(admin_branch)).await;
     let executive = seed_user(
@@ -417,7 +465,7 @@ async fn admin_cannot_remove_existing_executive_role_on_update(pool: PgPool) {
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn super_admin_creates_executive_user(pool: PgPool) {
-    let harness = Harness::new(pool.clone());
+    let harness = Harness::new(pool.clone()).await;
     // SUPER_ADMIN resolves to BranchScope::All; no branch membership needed.
     let super_admin = seed_user(&pool, "Cold Start Admin", &["SUPER_ADMIN"], None).await;
     let token = harness.token(super_admin, &["SUPER_ADMIN"], vec![]);
@@ -440,7 +488,7 @@ async fn super_admin_creates_executive_user(pool: PgPool) {
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn any_authenticated_user_edits_own_profile(pool: PgPool) {
-    let harness = Harness::new(pool.clone());
+    let harness = Harness::new(pool.clone()).await;
     // The seeded cold-start admin fixes its own display name via /users/me.
     let me = seed_user(&pool, "Cold Start Admin", &["SUPER_ADMIN"], None).await;
     let token = harness.token(me, &["SUPER_ADMIN"], vec![]);
@@ -464,7 +512,7 @@ async fn any_authenticated_user_edits_own_profile(pool: PgPool) {
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn console_rollout_opt_in_persists_per_user_and_is_audited(pool: PgPool) {
-    let harness = Harness::new(pool.clone());
+    let harness = Harness::new(pool.clone()).await;
     let branch = seed_branch(&pool).await;
     let admin = seed_user(&pool, "Console Admin", &["SUPER_ADMIN"], Some(branch)).await;
     let mechanic = seed_user(&pool, "Console Pilot", &["MECHANIC"], Some(branch)).await;
@@ -584,7 +632,7 @@ async fn console_rollout_opt_in_persists_per_user_and_is_audited(pool: PgPool) {
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn mechanic_cannot_manage_users(pool: PgPool) {
-    let harness = Harness::new(pool.clone());
+    let harness = Harness::new(pool.clone()).await;
     let branch = seed_branch(&pool).await;
     let mechanic = seed_user(&pool, "정비공", &["MECHANIC"], Some(branch)).await;
     let token = harness.token(mechanic, &["MECHANIC"], vec![branch]);
@@ -612,7 +660,7 @@ async fn mechanic_cannot_manage_users(pool: PgPool) {
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn create_user_writes_audit_event(pool: PgPool) {
-    let harness = Harness::new(pool.clone());
+    let harness = Harness::new(pool.clone()).await;
     let branch = seed_branch(&pool).await;
     let admin = seed_user(&pool, "Branch Admin", &["ADMIN"], Some(branch)).await;
     let token = harness.token(admin, &["ADMIN"], vec![branch]);
@@ -646,7 +694,7 @@ async fn create_user_writes_audit_event(pool: PgPool) {
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn user_role_or_branch_update_requires_policy_preview_receipt(pool: PgPool) {
-    let harness = Harness::new(pool.clone());
+    let harness = Harness::new(pool.clone()).await;
     let current_branch = seed_branch(&pool).await;
     let next_branch = seed_branch(&pool).await;
     let super_admin = seed_user(&pool, "Policy Account Owner", &["SUPER_ADMIN"], None).await;
@@ -685,7 +733,7 @@ async fn user_role_or_branch_update_requires_policy_preview_receipt(pool: PgPool
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn user_role_and_branch_update_consumes_policy_preview_receipt_and_audits(pool: PgPool) {
-    let harness = Harness::new(pool.clone());
+    let harness = Harness::new(pool.clone()).await;
     let current_branch = seed_branch(&pool).await;
     let next_branch = seed_branch(&pool).await;
     let super_admin = seed_user(&pool, "Account Mutation Owner", &["SUPER_ADMIN"], None).await;
@@ -783,7 +831,7 @@ async fn user_role_and_branch_update_consumes_policy_preview_receipt_and_audits(
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn deactivate_and_activate_are_reversible_archived_lifecycle(pool: PgPool) {
-    let harness = Harness::new(pool.clone());
+    let harness = Harness::new(pool.clone()).await;
     let branch = seed_branch(&pool).await;
     let super_admin = seed_user(&pool, "Lifecycle Owner", &["SUPER_ADMIN"], None).await;
     let target = seed_user(&pool, "Lifecycle Target", &["MECHANIC"], Some(branch)).await;
@@ -841,7 +889,7 @@ async fn deactivate_and_activate_are_reversible_archived_lifecycle(pool: PgPool)
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn policy_assignment_preview_requires_role_manage_and_target_branch_scope(pool: PgPool) {
-    let harness = Harness::new(pool.clone());
+    let harness = Harness::new(pool.clone()).await;
     let allowed_branch = seed_branch(&pool).await;
     let blocked_branch = seed_branch(&pool).await;
     let super_admin = seed_user(&pool, "Policy Owner", &["SUPER_ADMIN"], None).await;
@@ -889,7 +937,7 @@ async fn policy_assignment_preview_requires_role_manage_and_target_branch_scope(
 async fn policy_assignment_preview_validates_custom_roles_and_never_mutates_assignments(
     pool: PgPool,
 ) {
-    let harness = Harness::new(pool.clone());
+    let harness = Harness::new(pool.clone()).await;
     let branch = seed_branch(&pool).await;
     let super_admin = seed_user(&pool, "Policy Owner", &["SUPER_ADMIN"], None).await;
     let target =
@@ -1217,7 +1265,7 @@ async fn policy_assignment_preview_validates_custom_roles_and_never_mutates_assi
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn policy_role_create_persists_abac_pbac_conditions_and_catalog_returns_them(pool: PgPool) {
-    let harness = Harness::new(pool.clone());
+    let harness = Harness::new(pool.clone()).await;
     let super_admin = seed_user(&pool, "Policy Owner", &["SUPER_ADMIN"], None).await;
     let token = harness.token(super_admin, &["SUPER_ADMIN"], vec![]);
 
@@ -1302,7 +1350,7 @@ async fn policy_role_create_persists_abac_pbac_conditions_and_catalog_returns_th
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn policy_role_create_rejects_scope_widening_custom_features(pool: PgPool) {
-    let harness = Harness::new(pool.clone());
+    let harness = Harness::new(pool.clone()).await;
     let super_admin = seed_user(&pool, "Policy Owner", &["SUPER_ADMIN"], None).await;
     let token = harness.token(super_admin, &["SUPER_ADMIN"], vec![]);
 
@@ -1333,7 +1381,7 @@ async fn policy_role_create_rejects_scope_widening_custom_features(pool: PgPool)
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn policy_role_catalog_exposes_policy_version_and_assignment_writes_bump_it(pool: PgPool) {
-    let harness = Harness::new(pool.clone());
+    let harness = Harness::new(pool.clone()).await;
     let super_admin = seed_user(&pool, "Policy Owner", &["SUPER_ADMIN"], None).await;
     let target = seed_user(&pool, "Policy Target", &["ADMIN"], None).await;
     let token = harness.token(super_admin, &["SUPER_ADMIN"], vec![]);
@@ -1525,7 +1573,7 @@ async fn policy_role_catalog_exposes_policy_version_and_assignment_writes_bump_i
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn policy_role_create_rejects_unknown_condition_attribute(pool: PgPool) {
-    let harness = Harness::new(pool.clone());
+    let harness = Harness::new(pool.clone()).await;
     let super_admin = seed_user(&pool, "Policy Owner", &["SUPER_ADMIN"], None).await;
     let token = harness.token(super_admin, &["SUPER_ADMIN"], vec![]);
 
@@ -1563,7 +1611,7 @@ async fn policy_role_create_rejects_unknown_condition_attribute(pool: PgPool) {
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn branch_scoped_policy_managers_are_limited_to_branch_condition_scope(pool: PgPool) {
-    let harness = Harness::new(pool.clone());
+    let harness = Harness::new(pool.clone()).await;
     let allowed_branch = seed_branch(&pool).await;
     let blocked_branch = seed_branch(&pool).await;
     let super_admin = seed_user(&pool, "Delegated Policy Owner", &["SUPER_ADMIN"], None).await;
@@ -1764,7 +1812,7 @@ async fn branch_scoped_policy_managers_are_limited_to_branch_condition_scope(poo
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn branch_scoped_policy_managers_cannot_remove_out_of_scope_assignments(pool: PgPool) {
-    let harness = Harness::new(pool.clone());
+    let harness = Harness::new(pool.clone()).await;
     let allowed_branch = seed_branch(&pool).await;
     let blocked_branch = seed_branch(&pool).await;
     let super_admin = seed_user(&pool, "Scoped Removal Owner", &["SUPER_ADMIN"], None).await;
@@ -1850,7 +1898,7 @@ async fn branch_scoped_policy_managers_cannot_remove_out_of_scope_assignments(po
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn assignment_save_rejects_stale_preview_when_current_assignments_changed(pool: PgPool) {
-    let harness = Harness::new(pool.clone());
+    let harness = Harness::new(pool.clone()).await;
     let allowed_branch = seed_branch(&pool).await;
     let blocked_branch = seed_branch(&pool).await;
     let super_admin = seed_user(&pool, "Stale Preview Owner", &["SUPER_ADMIN"], None).await;
@@ -1934,7 +1982,7 @@ async fn assignment_save_rejects_stale_preview_when_current_assignments_changed(
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn assignment_save_rejects_stale_preview_when_target_branches_changed(pool: PgPool) {
-    let harness = Harness::new(pool.clone());
+    let harness = Harness::new(pool.clone()).await;
     let allowed_branch = seed_branch(&pool).await;
     let blocked_branch = seed_branch(&pool).await;
     let super_admin = seed_user(&pool, "Stale Target Owner", &["SUPER_ADMIN"], None).await;
@@ -2010,7 +2058,7 @@ async fn assignment_save_rejects_stale_preview_when_target_branches_changed(pool
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn assignment_save_rejects_stale_preview_when_role_definition_changed(pool: PgPool) {
-    let harness = Harness::new(pool.clone());
+    let harness = Harness::new(pool.clone()).await;
     let allowed_branch = seed_branch(&pool).await;
     let blocked_branch = seed_branch(&pool).await;
     let super_admin = seed_user(&pool, "Stale Role Owner", &["SUPER_ADMIN"], None).await;
@@ -2115,7 +2163,7 @@ async fn assignment_save_rejects_stale_preview_when_role_definition_changed(pool
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn policy_role_update_requires_passkey_step_up_and_writes_snapshot(pool: PgPool) {
-    let harness = Harness::new(pool.clone());
+    let harness = Harness::new(pool.clone()).await;
     let super_admin = seed_user(&pool, "Policy Owner", &["SUPER_ADMIN"], None).await;
     let token = harness.token(super_admin, &["SUPER_ADMIN"], vec![]);
     let role_id = seed_policy_role(
@@ -2232,7 +2280,7 @@ async fn policy_role_update_requires_passkey_step_up_and_writes_snapshot(pool: P
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn policy_role_status_update_requires_passkey_step_up_and_preserves_draft(pool: PgPool) {
-    let harness = Harness::new(pool.clone());
+    let harness = Harness::new(pool.clone()).await;
     let super_admin = seed_user(&pool, "Policy Owner", &["SUPER_ADMIN"], None).await;
     let token = harness.token(super_admin, &["SUPER_ADMIN"], vec![]);
     let role_id = seed_policy_role(
@@ -2278,7 +2326,7 @@ async fn policy_role_status_update_requires_passkey_step_up_and_preserves_draft(
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn policy_role_status_transitions_are_fail_closed_and_audited(pool: PgPool) {
-    let harness = Harness::new(pool.clone());
+    let harness = Harness::new(pool.clone()).await;
     let super_admin = seed_user(&pool, "Policy Owner", &["SUPER_ADMIN"], None).await;
     let token = harness.token(super_admin, &["SUPER_ADMIN"], vec![]);
     let target = seed_user(&pool, "정비 관리자", &["ADMIN"], None).await;
@@ -2420,7 +2468,7 @@ async fn policy_role_status_transitions_are_fail_closed_and_audited(pool: PgPool
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn list_passkeys_returns_only_the_callers_own_credentials(pool: PgPool) {
-    let harness = Harness::new(pool.clone());
+    let harness = Harness::new(pool.clone()).await;
     let branch = seed_branch(&pool).await;
     let me = seed_user(&pool, "정비공", &["MECHANIC"], Some(branch)).await;
     let other = seed_user(&pool, "다른정비공", &["MECHANIC"], Some(branch)).await;
@@ -2455,7 +2503,7 @@ async fn list_passkeys_returns_only_the_callers_own_credentials(pool: PgPool) {
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn delete_passkey_enforces_ownership_idor(pool: PgPool) {
-    let harness = Harness::new(pool.clone());
+    let harness = Harness::new(pool.clone()).await;
     let branch = seed_branch(&pool).await;
     let me = seed_user(&pool, "정비공", &["MECHANIC"], Some(branch)).await;
     let other = seed_user(&pool, "다른정비공", &["MECHANIC"], Some(branch)).await;
@@ -2485,7 +2533,7 @@ async fn delete_passkey_enforces_ownership_idor(pool: PgPool) {
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn delete_passkey_refuses_last_remaining_credential(pool: PgPool) {
-    let harness = Harness::new(pool.clone());
+    let harness = Harness::new(pool.clone()).await;
     let branch = seed_branch(&pool).await;
     let me = seed_user(&pool, "정비공", &["MECHANIC"], Some(branch)).await;
     let token = harness.token(me, &["MECHANIC"], vec![branch]);
@@ -2507,7 +2555,7 @@ async fn delete_passkey_refuses_last_remaining_credential(pool: PgPool) {
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn delete_passkey_succeeds_and_writes_audit_when_others_remain(pool: PgPool) {
-    let harness = Harness::new(pool.clone());
+    let harness = Harness::new(pool.clone()).await;
     let branch = seed_branch(&pool).await;
     let me = seed_user(&pool, "정비공", &["MECHANIC"], Some(branch)).await;
     let token = harness.token(me, &["MECHANIC"], vec![branch]);
@@ -2550,6 +2598,137 @@ fn json_string_set(value: &Value) -> BTreeSet<String> {
         .iter()
         .map(|entry| entry.as_str().unwrap().to_owned())
         .collect()
+}
+
+/// GET /api/v1/me/authz (charter G-a): the caller's NON-AUTHORITATIVE
+/// authorization projection — org/branch scope, roles-as-attributes, and the
+/// legacy-matrix capability grants (deny-by-omission). Runs on the real `mnt_rt`
+/// router pool (RLS armed), and proves a branch-scoped MEMBER gets a strictly
+/// narrower grant set than ADMIN — the structural replacement for the frontend
+/// hardcoding role lists.
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn me_authz_projects_roles_scope_and_capabilities(pool: PgPool) {
+    let harness = Harness::new(pool.clone()).await;
+    let branch = seed_branch(&pool).await;
+    let admin = seed_user(&pool, "Branch Admin", &["ADMIN"], Some(branch)).await;
+    let token = harness.token(admin, &["ADMIN"], vec![branch]);
+
+    let (status, body) = send(&harness, "GET", "/api/v1/me/authz", &token, None).await;
+    assert_eq!(status, StatusCode::OK, "authz projection: {body}");
+
+    // NON-AUTHORITATIVE marker — the server (authorize) stays the sole enforcer.
+    assert_eq!(body["authority"], "advisory_ui_only");
+    assert_eq!(body["source"], "legacy_matrix");
+    assert_eq!(body["user_id"], admin.as_uuid().to_string());
+    assert_eq!(body["org_id"], OrgId::knl().as_uuid().to_string());
+
+    // Roles carried as principal attributes.
+    let roles = body["roles"].as_array().unwrap();
+    assert!(
+        roles.iter().any(|r| r == "ADMIN"),
+        "roles carry ADMIN: {body}"
+    );
+
+    // Branch scope bounded to the admin's single branch (not All).
+    assert_eq!(body["branch_scope"]["kind"], "branches");
+    let scoped = body["branch_scope"]["branches"].as_array().unwrap();
+    assert_eq!(scoped.len(), 1);
+    assert_eq!(scoped[0], branch.as_uuid().to_string());
+
+    // Capabilities = legacy-matrix grants, deny-by-omission: ADMIN holds
+    // work_order_read_all; no capability is ever emitted at "deny".
+    let caps = body["capabilities"].as_array().unwrap();
+    let wo_cap = caps
+        .iter()
+        .find(|c| c["feature"] == "work_order_read_all")
+        .unwrap_or_else(|| panic!("ADMIN capability grant present: {body}"));
+    assert!(
+        caps.iter().all(|c| c["permission"] != "deny"),
+        "deny is omitted, never emitted: {body}"
+    );
+    // A role-derived capability holds over the caller's FULL branch scope
+    // (roles are never branch-narrowed by `authorize` beyond principal scope).
+    assert_eq!(wo_cap["branch_scope"]["kind"], "branches");
+    assert_eq!(
+        wo_cap["branch_scope"]["branches"].as_array().unwrap(),
+        &[json!(branch.as_uuid().to_string())],
+        "role-granted capability scope == principal's full branch scope: {body}"
+    );
+
+    // A branch-scoped MEMBER projects a strictly narrower grant set: no
+    // work_order_read_all (deny-by-omission).
+    let member = seed_user(&pool, "Branch Member", &["MEMBER"], Some(branch)).await;
+    let member_token = harness.token(member, &["MEMBER"], vec![branch]);
+    let (mstatus, mbody) = send(&harness, "GET", "/api/v1/me/authz", &member_token, None).await;
+    assert_eq!(mstatus, StatusCode::OK, "member authz projection: {mbody}");
+    let mcaps = mbody["capabilities"].as_array().unwrap();
+    assert!(
+        !mcaps.iter().any(|c| c["feature"] == "work_order_read_all"),
+        "MEMBER must not project work_order_read_all: {mbody}"
+    );
+}
+
+/// Regression for the affordance-then-403 class: a custom-role grant scoped to
+/// ONE of the caller's two branches must project a capability narrowed to that
+/// branch, never widened to the caller's full multi-branch scope. Before this
+/// fix, `me_authz_projection` took `max()` over grant permission levels only,
+/// ignoring `EffectiveFeatureGrant::branch_scope` — so a branch-A-only grant
+/// made the UI believe the action was available on branch B too, where the
+/// real `authorize()` call would 403.
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn me_authz_narrows_capability_to_the_grants_own_branch_scope(pool: PgPool) {
+    let harness = Harness::new(pool.clone()).await;
+    let branch_a = seed_branch(&pool).await;
+    let branch_b = seed_branch(&pool).await;
+    // MEMBER holds no built-in work_order_read_all at all (see the base test
+    // above), so any projected grant for it must come from the custom role.
+    let member = seed_user(&pool, "Multi-branch Member", &["MEMBER"], Some(branch_a)).await;
+    seed_user_branch(&pool, member, branch_b).await;
+    let token = harness.token(member, &["MEMBER"], vec![branch_a, branch_b]);
+
+    let role = seed_policy_role(
+        &pool,
+        member,
+        "branch_a_wo_reader",
+        "지점A 작업지시 조회자",
+        "ACTIVE",
+        false,
+        &[("work_order_read_all", "allow")],
+    )
+    .await;
+    let branch_a_str = branch_a.to_string();
+    seed_policy_role_condition(
+        &pool,
+        role,
+        "branch_scope",
+        "branch",
+        "equals",
+        &[branch_a_str.as_str()],
+    )
+    .await;
+    seed_policy_assignment(&pool, member, role, member).await;
+
+    let (status, body) = send(&harness, "GET", "/api/v1/me/authz", &token, None).await;
+    assert_eq!(status, StatusCode::OK, "{body}");
+
+    // Sanity: the principal's own scope IS both branches.
+    let principal_branches = body["branch_scope"]["branches"].as_array().unwrap();
+    assert_eq!(principal_branches.len(), 2, "{body}");
+
+    let caps = body["capabilities"].as_array().unwrap();
+    let wo_cap = caps
+        .iter()
+        .find(|c| c["feature"] == "work_order_read_all")
+        .unwrap_or_else(|| panic!("branch-narrowed grant must still project a capability: {body}"));
+    assert_eq!(wo_cap["permission"], "allow");
+    // MUST be narrowed to branch_a only — never the full {branch_a, branch_b}.
+    assert_eq!(wo_cap["branch_scope"]["kind"], "branches");
+    assert_eq!(
+        wo_cap["branch_scope"]["branches"].as_array().unwrap(),
+        &[json!(branch_a.as_uuid().to_string())],
+        "grant-derived capability must stay scoped to the grant's own branch, \
+         not widen to the caller's full scope: {body}"
+    );
 }
 
 async fn send(
@@ -2606,6 +2785,35 @@ async fn send_put(harness: &Harness, uri: &str, token: &str, body: Value) -> (St
 
 // Seed helpers route inserts through `with_audit` because this file lives on a
 // `rest/` handler surface scanned by the audit-coverage gate.
+async fn seed_org(pool: &PgPool, org_id: OrgId, slug: &str) {
+    let slug = slug.to_owned();
+    let event = AuditEvent::new(
+        None,
+        AuditAction::new("test.seed_org").unwrap(),
+        "organization",
+        org_id.to_string(),
+        TraceContext::generate(),
+        OffsetDateTime::now_utc(),
+    )
+    .with_org(org_id);
+    with_audit(pool, event, |tx| {
+        Box::pin(async move {
+            sqlx::query(
+                "INSERT INTO organizations (id, slug, name) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING",
+            )
+            .bind(*org_id.as_uuid())
+            .bind(slug.clone())
+            .bind(format!("Test Org {slug}"))
+            .execute(tx.as_mut())
+            .await
+            .map_err(DbError::Sqlx)?;
+            Ok::<(), DbError>(())
+        })
+    })
+    .await
+    .unwrap();
+}
+
 async fn seed_branch(pool: &PgPool) -> BranchId {
     let region_id = uuid::Uuid::new_v4();
     let branch_id = BranchId::new();
@@ -2662,6 +2870,17 @@ async fn seed_user_with_team(
     branch_id: Option<BranchId>,
     team: Option<&str>,
 ) -> UserId {
+    seed_user_in_org_with_team(pool, OrgId::knl(), name, roles, branch_id, team).await
+}
+
+async fn seed_user_in_org_with_team(
+    pool: &PgPool,
+    org_id: OrgId,
+    name: &str,
+    roles: &[&str],
+    branch_id: Option<BranchId>,
+    team: Option<&str>,
+) -> UserId {
     let user_id = UserId::new();
     let name = name.to_owned();
     let roles: Vec<String> = roles.iter().map(|r| (*r).to_owned()).collect();
@@ -2673,7 +2892,8 @@ async fn seed_user_with_team(
         user_id.to_string(),
         TraceContext::generate(),
         OffsetDateTime::now_utc(),
-    );
+    )
+    .with_org(org_id);
     with_audit(pool, event, |tx| {
         Box::pin(async move {
             sqlx::query(
@@ -2683,7 +2903,7 @@ async fn seed_user_with_team(
             .bind(name)
             .bind(roles)
             .bind(team)
-            .bind(*OrgId::knl().as_uuid())
+            .bind(*org_id.as_uuid())
             .execute(tx.as_mut())
             .await
             .map_err(DbError::Sqlx)?;
@@ -2693,7 +2913,7 @@ async fn seed_user_with_team(
                 )
                 .bind(*user_id.as_uuid())
                 .bind(*branch_id.as_uuid())
-                .bind(*OrgId::knl().as_uuid())
+                .bind(*org_id.as_uuid())
                 .execute(tx.as_mut())
                 .await
                 .map_err(DbError::Sqlx)?;
@@ -2704,6 +2924,36 @@ async fn seed_user_with_team(
     .await
     .unwrap();
     user_id
+}
+
+/// Add an EXTRA branch membership to an already-seeded user (a multi-branch
+/// principal), for tests that need branch-narrowed custom-grant projection.
+async fn seed_user_branch(pool: &PgPool, user_id: UserId, branch_id: BranchId) {
+    let event = AuditEvent::new(
+        None,
+        AuditAction::new("test.seed_user_branch").unwrap(),
+        "user",
+        user_id.to_string(),
+        TraceContext::generate(),
+        OffsetDateTime::now_utc(),
+    )
+    .with_org(OrgId::knl());
+    with_audit(pool, event, |tx| {
+        Box::pin(async move {
+            sqlx::query(
+                "INSERT INTO user_branches (user_id, branch_id, org_id) VALUES ($1, $2, $3)",
+            )
+            .bind(*user_id.as_uuid())
+            .bind(*branch_id.as_uuid())
+            .bind(*OrgId::knl().as_uuid())
+            .execute(tx.as_mut())
+            .await
+            .map_err(DbError::Sqlx)?;
+            Ok::<(), DbError>(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 async fn seed_policy_role(
@@ -3087,4 +3337,107 @@ async fn seed_passkey(pool: &PgPool, user_id: UserId) -> uuid::Uuid {
     .await
     .unwrap();
     id
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn workspace_put_enforces_object_shape_and_size_bound(pool: PgPool) {
+    let harness = Harness::new(pool.clone()).await;
+    let me = seed_user(&pool, "Workspace User", &["SUPER_ADMIN"], None).await;
+    let token = harness.token(me, &["SUPER_ADMIN"], vec![]);
+
+    // A JSON object round-trips verbatim (the opaque frontend-owned layout).
+    let (status, body) = send(
+        &harness,
+        "PUT",
+        "/api/v1/me/workspace",
+        &token,
+        Some(json!({ "layout": { "v": 1, "panels": [] } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+    assert_eq!(body["layout"]["v"], 1);
+
+    // A non-object layout (array / string) is a 422, not a DB-CHECK 500.
+    for bad in [json!({ "layout": [1, 2, 3] }), json!({ "layout": "nope" })] {
+        let (status, body) = send(&harness, "PUT", "/api/v1/me/workspace", &token, Some(bad)).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body:?}");
+    }
+
+    // An oversized layout (> 64KiB) is a clean 422 via the boundary guard.
+    let blob = "x".repeat(70 * 1024);
+    let (status, body) = send(
+        &harness,
+        "PUT",
+        "/api/v1/me/workspace",
+        &token,
+        Some(json!({ "layout": { "blob": blob } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body:?}");
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn workspace_me_endpoint_scopes_layout_to_current_principal(pool: PgPool) {
+    let harness = Harness::new(pool.clone()).await;
+    let user_a = seed_user(&pool, "Workspace User A", &["MECHANIC"], None).await;
+    let user_b = seed_user(&pool, "Workspace User B", &["MECHANIC"], None).await;
+    let token_a = harness.token(user_a, &["MECHANIC"], vec![]);
+    let token_b = harness.token(user_b, &["MECHANIC"], vec![]);
+
+    let (status, body) = send(
+        &harness,
+        "PUT",
+        "/api/v1/me/workspace",
+        &token_a,
+        Some(json!({ "layout": { "owner": "A" } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+
+    let (status, body) = send(&harness, "GET", "/api/v1/me/workspace", &token_a, None).await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+    assert_eq!(body["layout"], json!({ "owner": "A" }));
+
+    let (status, body) = send(&harness, "GET", "/api/v1/me/workspace", &token_b, None).await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+    assert_eq!(
+        body["layout"],
+        json!({}),
+        "same-org users must not receive each other's /me workspace row"
+    );
+
+    let (status, body) = send(
+        &harness,
+        "PUT",
+        "/api/v1/me/workspace",
+        &token_b,
+        Some(json!({ "layout": { "owner": "B" } })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+
+    let (status, body) = send(&harness, "GET", "/api/v1/me/workspace", &token_a, None).await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+    assert_eq!(body["layout"], json!({ "owner": "A" }));
+
+    let (status, body) = send(&harness, "GET", "/api/v1/me/workspace", &token_b, None).await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+    assert_eq!(body["layout"], json!({ "owner": "B" }));
+
+    let org_c = OrgId::from_uuid(uuid::Uuid::from_u128(0xc0ffee));
+    seed_org(&pool, org_c, "workspace-c").await;
+    // `users.id` is globally unique in the current schema, so a realistic
+    // cross-tenant duplicate user row cannot be inserted. The leak-prone case
+    // this endpoint must still reject is the same verified subject id presented
+    // under a different tenant claim: without the org-armed RLS lookup, the
+    // adapter's `WHERE user_id = $1` read would return user A's KNL layout here.
+    let token_c = harness.token_for_org(org_c, user_a, &["MECHANIC"], vec![]);
+
+    let (status, body) = send(&harness, "GET", "/api/v1/me/workspace", &token_c, None).await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+    assert_eq!(
+        body["layout"],
+        json!({}),
+        "a different org's principal must not receive another tenant's /me workspace row"
+    );
 }

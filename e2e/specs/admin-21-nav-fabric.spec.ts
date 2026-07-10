@@ -4,9 +4,9 @@ test("ADMIN-21 command palette, breadcrumb, and equipment object link work in br
   page,
 }) => {
   await loginAsLanding(page, "ADMIN");
-  await expect(page).toHaveURL(/\/work-hub/, { timeout: 15_000 });
+  await expect(page).toHaveURL(/\/overview/, { timeout: 15_000 });
   await expect(
-    page.getByRole("heading", { name: "업무 허브", level: 1 }),
+    page.getByRole("heading", { name: "통합 개요", level: 1 }),
   ).toBeVisible({ timeout: 10_000 });
 
   await page.keyboard.press("Control+K");
@@ -23,7 +23,7 @@ test("ADMIN-21 command palette, breadcrumb, and equipment object link work in br
 
   const breadcrumbs = page.getByRole("navigation", { name: "이동 경로" });
   await expect(
-    breadcrumbs.getByRole("link", { name: "업무 허브" }),
+    breadcrumbs.getByRole("link", { name: "통합 개요" }),
   ).toBeVisible({ timeout: 5_000 });
   await expect(breadcrumbs.getByText("장비 조회")).toBeVisible();
 

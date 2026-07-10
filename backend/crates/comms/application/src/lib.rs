@@ -746,6 +746,28 @@ pub fn send_audit_event(
     ))
 }
 
+/// Build the anomaly audit event for a mox delivery whose recipient address
+/// resolved [`AddressLookup::Ambiguous`] (ACTIVE accounts in more than one
+/// org). `org_id` is deliberately left unset: no single tenant owns this event
+/// — it is a platform-tier row (`audit_events` RLS `WITH CHECK (org_id IS
+/// NULL)` passes unconditionally, mirroring the retention-job carve-out). The
+/// snapshot records the bare recipient address only — never message content.
+pub fn address_ambiguous_audit_event(
+    address: &str,
+    trace: TraceContext,
+    occurred_at: Timestamp,
+) -> Result<AuditEvent, KernelError> {
+    Ok(AuditEvent::new(
+        None,
+        AuditAction::new("email.webhook.address_ambiguous")?,
+        "email_address",
+        address.to_owned(),
+        trace,
+        occurred_at,
+    )
+    .with_snapshots(None, Some(serde_json::json!({ "address": address }))))
+}
+
 /// Build the read/unread audit event for a thread-level mailbox action. The
 /// snapshots record only counters/state — never subject, body, or addresses.
 pub fn thread_read_state_audit_event(
@@ -1514,6 +1536,36 @@ pub struct SyncOutcome {
 pub struct DueAccount {
     pub org_id: OrgId,
     pub account_id: EmailAccountId,
+    /// Per-claim fencing token minted by the atomic claim. The worker releases
+    /// the lease only with this exact token (compare-and-clear in
+    /// `record_sync_result`), so a stale worker whose lease was reclaimed by a
+    /// second worker (a NEW token) can never clear the second worker's fresh
+    /// claim and start an overlapping sync.
+    pub claim_token: uuid::Uuid,
+}
+
+/// An account resolved from a recipient address for the mox delivery webhook.
+/// This is an id-only tenant selector, NOT a scheduler claim: it intentionally
+/// carries no sync `claim_token`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AddressAccount {
+    pub org_id: OrgId,
+    pub account_id: EmailAccountId,
+}
+
+/// The outcome of resolving a recipient address to its owning tenant (the mox
+/// delivery webhook's cross-tenant, id-only lookup). `email_accounts` is unique
+/// only per `(org_id, email_address)`, so the SAME address can exist under two
+/// different orgs — `Ambiguous` is that tenant-boundary anomaly and the caller
+/// MUST refuse delivery to every match rather than guess one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AddressLookup {
+    /// No ACTIVE account anywhere has this address.
+    NotFound,
+    /// Exactly one ACTIVE account, in exactly one org, has this address.
+    Found(AddressAccount),
+    /// ACTIVE accounts in more than one org have this address.
+    Ambiguous,
 }
 
 // ---------------------------------------------------------------------------
@@ -1556,14 +1608,33 @@ pub trait MailReadStore: Send + Sync {
         upsert: InboundUpsert,
     ) -> MailFuture<'a, Result<bool, MailServiceError>>;
 
-    /// Stamp the account's sync lifecycle (last_sync_at / sync_status / error).
-    /// Arms the account's org.
+    /// Stamp the account's sync lifecycle (last_sync_at / sync_status / error)
+    /// AND release the scheduler's claim lease — but only if `claim_token` still
+    /// matches the row's live token (a fenced compare-and-clear). A worker whose
+    /// lease was already reclaimed by another worker (a newer token) clears
+    /// nothing, so it cannot wipe the reclaimer's fresh lease. Arms the account's
+    /// org.
     fn record_sync_result<'a>(
         &'a self,
         org: OrgId,
         account: EmailAccountId,
+        claim_token: uuid::Uuid,
         status: &'a str,
         error: Option<&'a str>,
+    ) -> MailFuture<'a, Result<(), MailServiceError>>;
+
+    /// Release the scheduler's claim lease WITHOUT touching the sync lifecycle —
+    /// no `last_sync_at`/`sync_status`/`last_sync_error`/auth-failure-count
+    /// write. Used by the early-exit paths (the account vanished, was paused, or
+    /// changed identity since enumeration) where no sync attempt was actually
+    /// made, so nothing should be recorded as a completed pass. Fenced by
+    /// `claim_token` exactly like `record_sync_result`: only the worker still
+    /// holding the matching token clears the lease. Arms the account's org.
+    fn release_claim<'a>(
+        &'a self,
+        org: OrgId,
+        account: EmailAccountId,
+        claim_token: uuid::Uuid,
     ) -> MailFuture<'a, Result<(), MailServiceError>>;
 
     /// Owner-conn enumeration of accounts DUE for a sync pass (last_sync_at older
@@ -1571,10 +1642,29 @@ pub trait MailReadStore: Send + Sync {
     /// NOT armed to any single org — it is the scheduler tick that drives the
     /// per-tenant arming, so it must see across tenants. The adapter runs it on a
     /// dedicated owner connection that bypasses RLS for this id-only read.
+    /// `limit` MUST be the number of sync passes the caller can start
+    /// immediately (e.g. the concurrency permits already acquired) — claiming
+    /// more than that stamps a 600s lease on accounts that then sit queued
+    /// before their pass even begins, eating into the lease before the sync
+    /// timeout clock (which only starts once the pass runs) has a chance to
+    /// bound it.
     fn list_due_accounts(
         &self,
         now: Timestamp,
+        limit: i32,
     ) -> MailFuture<'_, Result<Vec<DueAccount>, MailServiceError>>;
+
+    /// Resolve the account whose `email_address` matches `address`. Like
+    /// [`list_due_accounts`] this is an id-only lookup on an owner connection
+    /// that must see ACROSS tenants — the mox delivery webhook has no request
+    /// principal, so the recipient address is the only tenant selector. A
+    /// [`AddressLookup::Found`] result arms the resolved org for the actual
+    /// ingest; [`AddressLookup::Ambiguous`] (the address exists under more than
+    /// one org) MUST deliver to none of them. Reads NO message content.
+    fn find_account_by_address<'a>(
+        &'a self,
+        address: &'a str,
+    ) -> MailFuture<'a, Result<AddressLookup, MailServiceError>>;
 
     // --- READ API (backs the REST GET endpoints; all org-armed) -------------
 
@@ -1665,17 +1755,35 @@ impl<R: MailReadStore + ?Sized> MailReadStore for &R {
         &'a self,
         org: OrgId,
         account: EmailAccountId,
+        claim_token: uuid::Uuid,
         status: &'a str,
         error: Option<&'a str>,
     ) -> MailFuture<'a, Result<(), MailServiceError>> {
-        (**self).record_sync_result(org, account, status, error)
+        (**self).record_sync_result(org, account, claim_token, status, error)
+    }
+
+    fn release_claim<'a>(
+        &'a self,
+        org: OrgId,
+        account: EmailAccountId,
+        claim_token: uuid::Uuid,
+    ) -> MailFuture<'a, Result<(), MailServiceError>> {
+        (**self).release_claim(org, account, claim_token)
     }
 
     fn list_due_accounts(
         &self,
         now: Timestamp,
+        limit: i32,
     ) -> MailFuture<'_, Result<Vec<DueAccount>, MailServiceError>> {
-        (**self).list_due_accounts(now)
+        (**self).list_due_accounts(now, limit)
+    }
+
+    fn find_account_by_address<'a>(
+        &'a self,
+        address: &'a str,
+    ) -> MailFuture<'a, Result<AddressLookup, MailServiceError>> {
+        (**self).find_account_by_address(address)
     }
 
     fn list_folders<'a>(
@@ -1877,16 +1985,20 @@ where
 
     /// Run ONE sync pass for `account` (already re-read under the armed org). On
     /// any error the account's sync_status is stamped and the error returned; on
-    /// success the lifecycle is stamped `OK`. The org is threaded through to every
-    /// store call so the adapter arms RLS to exactly this tenant.
+    /// success the lifecycle is stamped `OK`. Either way the scheduler's claim
+    /// lease is released via the fenced compare-and-clear keyed on `claim_token`
+    /// (the token the atomic claim minted for this pass), so a stale worker whose
+    /// lease was already reclaimed clears nothing. The org is threaded through to
+    /// every store call so the adapter arms RLS to exactly this tenant.
     pub async fn sync_account(
         &self,
         account: &StoredAccount,
+        claim_token: uuid::Uuid,
     ) -> Result<SyncOutcome, MailServiceError> {
         match self.sync_account_inner(account).await {
             Ok(outcome) => {
                 self.store
-                    .record_sync_result(account.org_id, account.id, "OK", None)
+                    .record_sync_result(account.org_id, account.id, claim_token, "OK", None)
                     .await?;
                 Ok(outcome)
             }
@@ -1899,6 +2011,7 @@ where
                     .record_sync_result(
                         account.org_id,
                         account.id,
+                        claim_token,
                         status,
                         Some(err.transport_code()),
                     )
@@ -2469,8 +2582,18 @@ mod tests {
             &'a self,
             _org: OrgId,
             _account: EmailAccountId,
+            _claim_token: uuid::Uuid,
             _status: &'a str,
             _error: Option<&'a str>,
+        ) -> MailFuture<'a, Result<(), MailServiceError>> {
+            Box::pin(async { Ok(()) })
+        }
+
+        fn release_claim<'a>(
+            &'a self,
+            _org: OrgId,
+            _account: EmailAccountId,
+            _claim_token: uuid::Uuid,
         ) -> MailFuture<'a, Result<(), MailServiceError>> {
             Box::pin(async { Ok(()) })
         }
@@ -2478,8 +2601,16 @@ mod tests {
         fn list_due_accounts(
             &self,
             _now: Timestamp,
+            _limit: i32,
         ) -> MailFuture<'_, Result<Vec<DueAccount>, MailServiceError>> {
             Box::pin(async { Ok(vec![]) })
+        }
+
+        fn find_account_by_address<'a>(
+            &'a self,
+            _address: &'a str,
+        ) -> MailFuture<'a, Result<AddressLookup, MailServiceError>> {
+            Box::pin(async { Ok(AddressLookup::NotFound) })
         }
 
         fn list_folders<'a>(
@@ -2593,12 +2724,18 @@ mod tests {
         let account = sample_stored();
 
         // First pass inserts both NEW.
-        let first = service.sync_account(&account).await.unwrap();
+        let first = service
+            .sync_account(&account, uuid::Uuid::new_v4())
+            .await
+            .unwrap();
         assert_eq!(first.messages_upserted, 2);
         assert_eq!(first.messages_skipped_duplicate, 0);
 
         // The cursor advanced to UID 2, so a second pass fetches NOTHING new.
-        let second = service.sync_account(&account).await.unwrap();
+        let second = service
+            .sync_account(&account, uuid::Uuid::new_v4())
+            .await
+            .unwrap();
         assert_eq!(
             second.messages_upserted, 0,
             "re-syncing the same UID range must insert no duplicate"
@@ -2626,7 +2763,10 @@ mod tests {
         *store.cursor.lock().unwrap() = 5;
         let service = SyncService::new(&store, imap, NoopAttachments, FakeCipher);
         let account = sample_stored();
-        let outcome = service.sync_account(&account).await.unwrap();
+        let outcome = service
+            .sync_account(&account, uuid::Uuid::new_v4())
+            .await
+            .unwrap();
         assert_eq!(
             outcome.messages_upserted, 0,
             "with a matching UIDVALIDITY, only UID > last_seen is fetched"

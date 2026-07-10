@@ -6,7 +6,9 @@ import { Card } from "../../components/ui/card";
 import { LoadMoreButton } from "../../components/shell/LoadMoreButton";
 import { ko } from "../../i18n/ko";
 import { formatKoreanDateTime } from "../../lib/datetime";
-import { formatListCount, priorityClass, priorityLabel } from "../../lib/utils";
+import { setDraggedObject } from "../../lib/objectDrag";
+import { workOrderCode } from "../../lib/objectRegistry";
+import { formatListCount, priorityClass, priorityLabel, safeLabel } from "../../lib/utils";
 import { SlaBadge } from "./SlaBadge";
 
 interface WorkOrderListProps {
@@ -53,6 +55,19 @@ export function WorkOrderList({
           {workOrders.map((workOrder) => (
             <article
               key={workOrder.id}
+              // Drag source for the token-grammar composer (UI-M2a): dropping a
+              // row into a composer inserts a resolving !WO- chip. Inner links
+              // keep their own click; a drag from a link is a browser link-drag
+              // (no object MIME) — dragging the row body carries the object.
+              draggable
+              onDragStart={(event) => {
+                setDraggedObject(event.dataTransfer, {
+                  kind: "workOrder",
+                  code: workOrderCode(workOrder.request_no),
+                  id: workOrder.id,
+                  label: `${safeLabel(workOrder.customer.name)} · ${safeLabel(workOrder.equipment.model, workOrder.equipment.equipment_no)}`,
+                });
+              }}
               className="grid gap-3 rounded-md border border-line p-3 md:grid-cols-[minmax(8rem,1fr)_minmax(10rem,1.2fr)_auto]"
             >
               <div>

@@ -65,6 +65,10 @@ data:
   # 503 until MNT_MAIL_MASTER_KEY is present in mnt-secrets. The worker mirrors
   # IMAP only when this flag, the KEK, and object storage are all configured.
   MNT_MAIL_ENABLED: "true"
+  # Dark/internal-first mox webapi endpoint. The webapi is ClusterIP-only and
+  # reachable only from mnt-app/mnt-worker by NetworkPolicy. Inbound mox delivery
+  # webhooks use MNT_MAIL_MOX_WEBHOOK_SECRET from mnt-secrets.
+  MNT_MAIL_MOX_BASE_URL: "http://mnt-mox.maintenance.svc:1080"
   # OTLP trace export (opt-in). Leave unset to keep tracing as JSON-to-stdout
   # only. Uncommenting enables gRPC OTLP export to an in-cluster collector — the
   # OTel collector MUST be deployed first, otherwise every request will attempt

@@ -28,7 +28,9 @@ use mnt_platform_authz::{
     Action, Feature, Principal, Role, authorize, resolve_branch_scope_in_org,
     resolve_effective_feature_grants_in_org,
 };
-use mnt_platform_db::{DbError, with_audit, with_audits, with_org_conn};
+use mnt_platform_db::{
+    DbError, read_subject_authz_freshness, with_audit, with_audits, with_org_conn,
+};
 use mnt_platform_email::{DisabledEmailSender, EmailSender};
 use mnt_platform_group::GroupMemberOrg;
 use mnt_platform_provisioning::{BootstrapCredentialStore, ProvisioningError};
@@ -932,7 +934,7 @@ async fn finish_registration(
         .map_err(|err| RestError::internal(err.to_string()))?;
     services
         .bootstrap_credentials
-        .consume_open_credentials_tx(&mut tx, user_id, now)
+        .consume_open_credentials_tx(&mut tx, org_id, user_id, now)
         .await
         .map_err(|err| RestError::internal(err.to_string()))?;
     tx.commit()
@@ -1028,6 +1030,7 @@ async fn finish_login(
     let tokens = issue_token_pair(&state.pool, services, &user).await?;
     record_auth_audit(
         &state.pool,
+        outcome.org_id,
         outcome.user_id,
         "auth.login",
         serde_json::json!({
@@ -1171,6 +1174,7 @@ async fn redeem_otp(
     let tokens = issue_token_pair(&state.pool, services, &user).await?;
     record_auth_audit(
         &state.pool,
+        redemption.org_id,
         redemption.user_id,
         "auth.otp.signin",
         serde_json::json!({
@@ -1797,6 +1801,7 @@ async fn poll_device_login(
     let tokens = issue_token_pair(&state.pool, services, &user).await?;
     record_auth_audit(
         &state.pool,
+        org_id,
         user_id,
         "auth.device_login.consume",
         serde_json::json!({
@@ -1891,6 +1896,7 @@ async fn approve_device_login(
 
     record_auth_audit(
         &state.pool,
+        outcome.org_id,
         outcome.user_id,
         "auth.device_login.approve",
         serde_json::json!({
@@ -1970,6 +1976,7 @@ async fn approve_device_login_session(
 
     record_auth_audit(
         &state.pool,
+        org_id,
         user_id,
         "auth.device_login.approve_session",
         serde_json::json!({
@@ -2234,6 +2241,19 @@ async fn start_group_admin_tenant_context(
     let (group_id, target) =
         resolve_group_admin_target_org(&state.pool, actor, OrgId::from_uuid(body.org_id)).await?;
 
+    // Source REAL subject freshness for the token's OWN (target subsidiary org,
+    // actor) so a promoted Cedar guard — which re-reads exactly that (org, user)
+    // at guard time — does not falsely deny this delegated token as stale/missing.
+    // The read arms the target org's RLS GUC internally; the actor typically has
+    // no `users` row in the subsidiary, so subject/session read as the absent 0
+    // baseline while the subsidiary's `policy_version` is real.
+    let freshness = read_subject_authz_freshness(&state.pool, target.org_id, actor)
+        .await
+        .map_err(|err| {
+            tracing::error!(error = %err, "failed to read subject freshness for group-admin tenant-context");
+            RestError::internal("internal server error")
+        })?;
+
     let now = OffsetDateTime::now_utc();
     let expires_at = now + GROUP_ADMIN_TENANT_CONTEXT_TTL;
     let access_token = services
@@ -2249,12 +2269,12 @@ async fn start_group_admin_tenant_context(
                 read_only: false,
                 display_name: None,
                 feature_grants: Vec::new(),
-                // Deferred (SLICE-2): the short-lived group-admin tenant-context
-                // token does not source freshness yet. Safe 0 baseline; not
-                // consulted by any decision on the still-unreachable Cedar path.
-                authz_subject_version: 0,
-                authz_policy_version: 0,
-                session_generation: 0,
+                // Real subject freshness for (target subsidiary, actor): a promoted
+                // Cedar guard re-reads the same (org, user), so a fresh token is not
+                // falsely denied as stale/missing.
+                authz_subject_version: freshness.subject_version,
+                authz_policy_version: freshness.policy_version,
+                session_generation: freshness.session_generation,
                 issued_at: now,
             },
             group_id,
@@ -2463,6 +2483,7 @@ async fn dev_auth_session(
     );
     record_auth_audit(
         &state.pool,
+        org_id,
         *user.user_id.as_uuid(),
         "dev_auth.session.mint",
         serde_json::json!({
@@ -2970,6 +2991,7 @@ fn bearer_token(headers: &HeaderMap) -> Result<&str, RestError> {
 
 async fn record_auth_audit(
     pool: &PgPool,
+    org_id: OrgId,
     user_id: Uuid,
     action: &str,
     after: serde_json::Value,
@@ -2982,6 +3004,7 @@ async fn record_auth_audit(
         TraceContext::generate(),
         OffsetDateTime::now_utc(),
     )
+    .with_org(org_id)
     .with_snapshots(None, Some(after));
 
     with_audit::<_, (), RestError>(pool, event, |_tx| Box::pin(async move { Ok(()) })).await
@@ -3598,8 +3621,9 @@ fn with_refresh_cookie(mut response: Response, cookie: Option<HeaderValue>) -> R
 #[cfg(test)]
 mod tests {
     use super::{
-        authorizable_target_branches, build_enroll_url, client_ip, has_group_admin_role_hint,
-        load_group_admin_groups, resolve_group_admin_target_org,
+        RATE_LIMIT_PER_IP, RATE_LIMIT_WINDOW, RateLimitEndpoint, authorizable_target_branches,
+        build_enroll_url, client_ip, has_group_admin_role_hint, load_group_admin_groups,
+        rate_limit, resolve_group_admin_target_org,
     };
     use axum::http::HeaderMap;
     use axum::http::StatusCode;
@@ -3607,6 +3631,7 @@ mod tests {
     use sqlx::PgPool;
     use sqlx::postgres::PgPoolOptions;
     use std::collections::BTreeSet;
+    use time::OffsetDateTime;
     use url::{Url, form_urlencoded};
     use uuid::Uuid;
 
@@ -3713,6 +3738,34 @@ mod tests {
     fn client_ip_none_without_header() {
         assert_eq!(client_ip(&HeaderMap::new(), 1), None);
         assert_eq!(client_ip(&headers_with_xff("  ,  "), 1), None);
+    }
+
+    /// `rate_limit` takes `now` as an explicit parameter (matching the
+    /// audit-chain `seal_org_once` precedent), so its window/cap/reset
+    /// behavior can be driven with a synthetic clock instead of racing real
+    /// wall-clock minute boundaries across a burst of DB round-trips — the
+    /// root cause of the flaky HTTP-level `otp_redeem_rate_limit_*` test.
+    #[sqlx::test(migrations = "../db/migrations")]
+    async fn rate_limit_trips_at_cap_and_resets_after_window(pool: PgPool) {
+        let headers = headers_with_xff("203.0.113.50");
+        let window1 = OffsetDateTime::from_unix_timestamp(1_700_000_000).unwrap();
+
+        for attempt in 0..RATE_LIMIT_PER_IP {
+            rate_limit(&pool, &headers, 1, RateLimitEndpoint::OtpRedeem, window1)
+                .await
+                .unwrap_or_else(|_| panic!("attempt {attempt} within the cap must not trip 429"));
+        }
+
+        let tripped = rate_limit(&pool, &headers, 1, RateLimitEndpoint::OtpRedeem, window1)
+            .await
+            .expect_err("the request past the cap in the same window must trip 429");
+        assert_eq!(tripped.status, StatusCode::TOO_MANY_REQUESTS);
+
+        // Advancing past the fixed window resets the bucket.
+        let window2 = window1 + RATE_LIMIT_WINDOW;
+        rate_limit(&pool, &headers, 1, RateLimitEndpoint::OtpRedeem, window2)
+            .await
+            .expect("a new window must reset the per-IP bucket");
     }
 
     const ORG_A: Uuid = Uuid::from_u128(0xA013_A013_A013_A013_A013_A013_A013_A013);

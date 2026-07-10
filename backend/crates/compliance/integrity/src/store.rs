@@ -4,11 +4,9 @@
 //! Triage writes via `with_audit` (audited mutation path).
 
 use mnt_kernel_core::{AuditAction, AuditEvent, ErrorKind, KernelError, OrgId, UserId};
-use mnt_platform_db::{DbError, with_audit, with_org_conn};
+use mnt_platform_db::{DbError, OpenFinding, upsert_open_finding_tx, with_audit, with_org_conn};
 use mnt_platform_request_context::current_org;
 use sqlx::{PgPool, Row};
-use time::OffsetDateTime;
-use uuid::Uuid;
 
 use crate::domain::{
     FindingSeverity, FindingStatus, GovernanceFinding, PriceOutlierOutput, TriageFindingCommand,
@@ -175,37 +173,32 @@ impl PgIntegrityStore {
         }
         let org = current_org().map_err(KernelError::from)?;
         let org_uuid = *org.as_uuid();
-        let now = OffsetDateTime::now_utc();
-        let finding_id = Uuid::new_v4();
 
         with_org_conn::<_, _, PgIntegrityError>(&self.pool, org, move |tx| {
             Box::pin(async move {
-                sqlx::query(
-                    r#"
-                    INSERT INTO governance_findings
-                        (id, org_id, detector_id, entity_type, entity_id,
-                         score, severity, evidence, status, detected_at, created_at, updated_at)
-                    VALUES
-                        ($1, $2, $3, $4, $5, $6, $7, $8, 'OPEN', $9, $9, $9)
-                    ON CONFLICT (org_id, detector_id, entity_type, entity_id) DO UPDATE
-                        SET score       = EXCLUDED.score,
-                            severity    = EXCLUDED.severity,
-                            evidence    = EXCLUDED.evidence,
-                            status      = 'OPEN',
-                            detected_at = EXCLUDED.detected_at,
-                            updated_at  = EXCLUDED.updated_at
-                    "#,
+                let PriceOutlierOutput {
+                    detector_id,
+                    entity_type,
+                    entity_id,
+                    score,
+                    severity,
+                    evidence,
+                    ..
+                } = output;
+                upsert_open_finding_tx(
+                    tx,
+                    OrgId::from_uuid(org_uuid),
+                    OpenFinding {
+                        detector_id,
+                        entity_type,
+                        entity_id: &entity_id,
+                        // Price-outlier findings are about a purchase, not a user.
+                        subject_user_id: None,
+                        score,
+                        severity: severity.as_db_str(),
+                        evidence,
+                    },
                 )
-                .bind(finding_id)
-                .bind(org_uuid)
-                .bind(output.detector_id)
-                .bind(output.entity_type)
-                .bind(&output.entity_id)
-                .bind(output.score)
-                .bind(output.severity.as_db_str())
-                .bind(sqlx::types::Json(&output.evidence))
-                .bind(now)
-                .execute(tx.as_mut())
                 .await?;
                 Ok(())
             })

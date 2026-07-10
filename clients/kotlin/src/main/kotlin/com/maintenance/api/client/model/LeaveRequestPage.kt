@@ -23,7 +23,7 @@
 
 package com.maintenance.api.client.model
 
-import com.maintenance.api.client.model.LeaveRequest
+import com.maintenance.api.client.model.LeaveRequestView
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerialName
@@ -33,21 +33,13 @@ import kotlinx.serialization.Contextual
  *
  *
  * @param items
- * @param limit
- * @param offset
  */
 @Serializable
 
 data class LeaveRequestPage (
 
     @SerialName(value = "items")
-    val items: kotlin.collections.List<LeaveRequest>,
-
-    @SerialName(value = "limit")
-    val limit: kotlin.Int,
-
-    @SerialName(value = "offset")
-    val offset: kotlin.Int
+    val items: kotlin.collections.List<LeaveRequestView>
 
 ) {
 

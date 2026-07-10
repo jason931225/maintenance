@@ -33,7 +33,7 @@ function flattenOrgOptions(groups: readonly GroupAdminGroup[]): GroupScopeOrgOpt
 
 function destinationAfterSelectingOrg(pathname: string, search: string): string {
   if (pathname === "/settings/group" || pathname.startsWith("/platform")) {
-    return "/work-hub";
+    return "/overview";
   }
   return `${pathname}${search}`;
 }
@@ -142,7 +142,7 @@ export function GroupScopeSwitcher() {
     <div className="flex min-w-0 items-center gap-2">
       <label
         htmlFor="group-scope-switcher"
-        className="sr-only whitespace-nowrap text-xs font-semibold text-steel xl:not-sr-only"
+        className="sr-only whitespace-nowrap text-xs font-semibold text-console-steel xl:not-sr-only"
       >
         {ko.shell.scopeSwitcher.label}
       </label>
@@ -155,8 +155,8 @@ export function GroupScopeSwitcher() {
           void handleChange(event.currentTarget.value);
         }}
         className={cn(
-          "w-36 rounded-md border border-line bg-white px-2 py-1.5 text-sm font-medium text-ink shadow-sm focus-visible:outline-2 focus-visible:outline-brand-teal disabled:cursor-wait disabled:opacity-60 sm:w-44 lg:w-52",
-          error ? "border-red-300 text-red-700" : undefined,
+          "w-36 rounded-md border border-console-border bg-console-surface px-2 py-1.5 text-sm font-medium text-console-ink shadow-console focus-visible:outline-2 focus-visible:outline-console-teal disabled:cursor-wait disabled:opacity-60 sm:w-44 lg:w-52",
+          error ? "border-console-danger-bd text-console-danger-tx" : undefined,
         )}
       >
         <option value="group:all">{ko.shell.scopeSwitcher.groupAll}</option>

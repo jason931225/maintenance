@@ -25,9 +25,9 @@
   ],
   "dependencyRoutes": [
     {
-      "path": "/work-hub",
+      "path": "/overview",
       "expectedDependency": "messenger",
-      "requiredStory": "Work Hub depends on G007 collaboration unread threads, mail status, notification badges, and object-linked communications while preserving G005 approval lifecycle."
+      "requiredStory": "UI-M3 replaces /work-hub: /overview is wrapped by the always-mounted comms rail, so it depends on G007 collaboration unread threads, mail status, notification badges, and object-linked communications while preserving G005 approval lifecycle."
     },
     {
       "path": "/approvals",
@@ -220,7 +220,7 @@
         "scrollIntoView",
         "focus({ preventScroll: true })",
         "read-receipt",
-        "connectMessengerRealtime",
+        "realtimeHub.subscribe",
         "handleComposerKeyDown",
         "event.key !== \"Enter\"",
         "MentionText",
@@ -245,14 +245,23 @@
     },
     {
       "file": "web/src/features/messenger/realtime.ts",
-      "contract": "Messenger realtime client must build authenticated ws/wss URLs with resume cursor and close/disconnect handling.",
+      "contract": "Messenger realtime client must build authenticated ws/wss URLs with the resume cursor; the socket lifecycle now lives in the shared comms realtime hub.",
       "requiredSnippets": [
         "buildMessengerWebSocketUrl",
         "/api/v1/ws",
-        "last_message_id",
-        "protocols = accessToken ? [\"bearer\", accessToken]",
-        "onDisconnect",
-        "close"
+        "last_message_id"
+      ]
+    },
+    {
+      "file": "web/src/features/comms/realtimeHub.ts",
+      "contract": "Shared realtime hub holds ONE authenticated /api/v1/ws socket (bearer subprotocol), fans message_posted and notification_created to all subscribers, and reconnects from the resume cursor on close.",
+      "requiredSnippets": [
+        "[\"bearer\", params.accessToken]",
+        "message_posted",
+        "notification_created",
+        "lastMessageId",
+        "addEventListener(\"close\"",
+        "subscribe"
       ]
     },
     {
@@ -275,16 +284,21 @@
       ]
     },
     {
-      "file": "web/src/pages/WorkHubPage.tsx",
-      "contract": "Work Hub must include collaboration notifications by pulling actionable messenger threads, approvals, support, and mail status into the object/action inbox without stale closed items.",
+      "file": "web/src/features/comms/store.ts",
+      "contract": "UI-M2b comms rail replaces Work Hub's inline conversation rows: the always-mounted rail (present on /overview and every console screen) fetches messenger threads and sums their unread count centrally instead of per-page.",
       "requiredSnippets": [
         "/api/messenger/threads",
-        "/api/approval-items",
-        "messengerUnreadCount",
-        "isActionableConversationThread",
-        "buildConversationItems",
+        "sumThreadUnread"
+      ]
+    },
+    {
+      "file": "web/src/features/comms/CommsRail.tsx",
+      "contract": "The comms rail's messenger and mail sections render actionable threads with live unread badges, superseding Work Hub's stale-closed-item filtering with a rail that never goes stale (real store subscription).",
+      "requiredSnippets": [
+        "messengerUnread",
         "threads.length",
-        "key: \"mail\""
+        "MessengerSection",
+        "section=\"mail\""
       ]
     },
     {
@@ -309,11 +323,11 @@
     },
     {
       "file": "web/src/components/RequireMailUseRoute.tsx",
-      "contract": "Mail route access must deny users without MailUse and return them to Work Hub instead of showing mailbox data.",
+      "contract": "Mail route access must deny users without MailUse and return them to the /overview action inbox (UI-M3 replaces /work-hub) instead of showing mailbox data.",
       "requiredSnippets": [
         "FEATURES.MAIL_USE",
         "feature_grants",
-        "Navigate to=\"/work-hub\""
+        "Navigate to=\"/overview\""
       ]
     }
   ],
@@ -418,16 +432,40 @@
       ]
     },
     {
-      "file": "clients/kotlin/src/main/kotlin/com/maintenance/api/client/api/DefaultApi.kt",
-      "contract": "Generated Kotlin client must include mail, collaboration, messenger, approval, and passkey endpoints used by mobile code.",
+      "file": "clients/kotlin/src/main/kotlin/com/maintenance/api/client/api/CollaborationApi.kt",
+      "contract": "Generated Kotlin collaboration client must include calendar and poll endpoints used by mobile collaboration code.",
       "requiredSnippets": [
         "GET /api/v1/collaboration/calendar/events",
-        "GET /api/v1/collaboration/polls",
-        "POST /api/v1/mail/send",
-        "POST /api/v1/mail/reply",
+        "GET /api/v1/collaboration/polls"
+      ]
+    },
+    {
+      "file": "clients/kotlin/src/main/kotlin/com/maintenance/api/client/api/MailApi.kt",
+      "contract": "Generated Kotlin mail client must include thread, send, and reply endpoints used by mobile mail code.",
+      "requiredSnippets": [
         "GET /api/v1/mail/threads",
-        "PUT /api/messenger/threads/{threadId}/read-receipt",
-        "GET /api/approval-items",
+        "POST /api/v1/mail/send",
+        "POST /api/v1/mail/reply"
+      ]
+    },
+    {
+      "file": "clients/kotlin/src/main/kotlin/com/maintenance/api/client/api/MessengerApi.kt",
+      "contract": "Generated Kotlin messenger client must include read-receipt endpoints used by mobile messenger code.",
+      "requiredSnippets": [
+        "PUT /api/messenger/threads/{threadId}/read-receipt"
+      ]
+    },
+    {
+      "file": "clients/kotlin/src/main/kotlin/com/maintenance/api/client/api/ApprovalItemsApi.kt",
+      "contract": "Generated Kotlin approval-items client must include the federated approval queue used by mobile operations code.",
+      "requiredSnippets": [
+        "GET /api/approval-items"
+      ]
+    },
+    {
+      "file": "clients/kotlin/src/main/kotlin/com/maintenance/api/client/api/AuthApi.kt",
+      "contract": "Generated Kotlin auth client must include device-login polling used by mobile passkey and QR handoff flows.",
+      "requiredSnippets": [
         "POST /api/v1/auth/device-login/poll"
       ]
     }
@@ -462,7 +500,7 @@
     "web/src/features/messenger/realtime.test.ts",
     "web/src/pages/MailPage.test.tsx",
     "web/src/lib/mailHtml.test.ts",
-    "web/src/pages/WorkHubPage.test.tsx",
+    "web/src/features/comms/CommsRail.test.tsx",
     "web/src/components/shell/nav.test.ts"
   ],
   "requiredBackendTests": [

@@ -18,7 +18,11 @@ test("ADMIN-26 Workflow Studio creates audited drafts and enforces passkey step-
     page.getByText("이 화면을 표시하지 못했습니다."),
   ).not.toBeVisible();
 
-  await page.getByRole("button", { name: "정비 완료 승인" }).last().click();
+  const maintenanceTemplate = page.getByRole("button", {
+    name: /^정비 완료 승인$/,
+  });
+  await maintenanceTemplate.scrollIntoViewIfNeeded();
+  await maintenanceTemplate.click();
   await page.getByLabel("워크플로 키").fill(workflowKey);
   await page.getByLabel("이름").fill(displayName);
   const createResponse = page.waitForResponse(

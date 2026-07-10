@@ -587,6 +587,21 @@ async fn kpi_endpoint_is_jwt_authorized_and_branch_scoped(pool: PgPool) {
     .await;
     assert_eq!(denied.status, StatusCode::FORBIDDEN, "{:?}", denied.json);
 
+    // The KPI Excel export exposes the same KpiRead-gated data, so a role without
+    // KpiRead (mechanic) must be denied there too, not only on the JSON endpoint.
+    let export_denied = get_json(
+        service.clone(),
+        "/api/v1/exports/kpi?period=2026-06-01..2026-07-01&scope=company",
+        &mechanic_token,
+    )
+    .await;
+    assert_eq!(
+        export_denied.status,
+        StatusCode::FORBIDDEN,
+        "{:?}",
+        export_denied.json
+    );
+
     let report = get_json(
         service,
         "/api/v1/kpi?period=2026-06-01..2026-07-01&scope=company",

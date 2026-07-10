@@ -27,10 +27,12 @@ creating the secrets that must not live in git.
 | Barman Cloud Plugin | 0.13.0 | WAL/base backups → OCI Object Storage |
 | cert-manager | 1.20.2 | Let's Encrypt TLS |
 | Traefik | chart 40.3.0 | ingress (hostPort 80/443, no LB cost) |
+| mox | 0.0.15 (digest-pinned) | dark/internal corporate mail webapi + IMAP |
 
 Workloads (`deploy/apps/maintenance`): `mnt-app` (API, blue/green Rollout ×2),
 `mnt-web` (SPA, blue/green Rollout ×2), `mnt-worker` (jobs, rolling Deployment),
-`mnt-db` (CNPG Postgres 18, single instance).
+`mnt-mox` (PVC-backed StatefulSet, ClusterIP-only webapi/IMAP/metrics), `mnt-db`
+(CNPG Postgres 18, single instance).
 
 ## Release & rollback model
 
@@ -55,6 +57,11 @@ Workloads (`deploy/apps/maintenance`): `mnt-app` (API, blue/green Rollout ×2),
 - **Manual instant rollback:** `kubectl argo rollouts undo mnt-app -n maintenance`
   (the previous ReplicaSet is kept warm for `scaleDownDelaySeconds`). Or revert
   the image tag in git — Argo re-syncs.
+- **Dark mox rollback:** `mnt-mox` is a single PVC-backed StatefulSet, not a
+  public ingress. Roll back by reverting the manifest/config commit, removing
+  `MNT_MAIL_MOX_BASE_URL` from `mnt-config` if app traffic must stop using mox,
+  and scaling `statefulset/mnt-mox` to 0 only after a `/mox-data` backup/export.
+  Do not delete the PVC unless a restore target has already been verified.
 - **Self-healing:** Argo CD `selfHeal: true` reverts drift; Talos restarts failed
   components; Kubernetes reschedules crashed pods.
 
@@ -154,7 +161,13 @@ embedded migrations, then exits.
       use `--digest-bump-only` only as an explicit desired-state bump and hand off
       to a cluster-access operator for fresh verification before any completion
       claim.
+- [ ] mox dark-stack secrets are present in OCI Vault and projected to
+      `mnt-secrets` before the first sync: `MNT_MAIL_MOX_WEBHOOK_SECRET` and the
+      operator-held bootstrap/account credentials documented in `SECRETS.md`.
 - [ ] OCI buckets `mnt-db-backups` and `mnt-evidence` created in ap-chuncheon-1.
+- [ ] `mnt-mox` has a bound `mox-data-mnt-mox-0` PVC (default local-path unless
+      the operator intentionally selects another storage class) and a recorded
+      backup/restore plan for `/mox-data`; CNPG/Barman does not cover it.
 - [ ] Cold-start admin sign-in secured — **see the security note below**.
 - [ ] Issue a staging cert first (`letsencrypt-staging`) to avoid the LE rate
       limit, then switch the Ingress annotation to `letsencrypt-prod`.
@@ -162,6 +175,11 @@ embedded migrations, then exits.
       check the `mnt-db-backups` bucket; run a restore drill (see `ops/dr/`).
 - [ ] Confirm blue/green: push a no-op image bump, watch
       `kubectl argo rollouts get rollout mnt-app -n maintenance --watch`.
+- [ ] Confirm dark mox without opening public mail ports: run
+      `scripts/check-networkpolicy-enforcement.sh`, then port-forward
+      `svc/mnt-mox` and `svc/mnt-app` and run `scripts/mox-e2e.mjs` with the
+      OCI Vault secrets. Public MX/submission/IMAPS/webapi/admin exposure is a
+      separate operator/founder gate.
 
 ## Security note — cold-start admin
 

@@ -103,7 +103,7 @@ async fn redeem_verifies_without_consuming_then_registration_consumes(pool: PgPo
     // Registration consumes it atomically (here exercised directly).
     let mut tx = pool.begin().await.unwrap();
     store
-        .consume_open_credentials_tx(&mut tx, user_id, now)
+        .consume_open_credentials_tx(&mut tx, OrgId::knl(), user_id, now)
         .await
         .unwrap();
     tx.commit().await.unwrap();
@@ -265,7 +265,7 @@ async fn cold_start_otp_seeded_at_boot_signs_in_then_dies_on_passkey_registratio
     // Passkey registration consumes it; afterwards it is dead.
     let mut tx = pool.begin().await.unwrap();
     store
-        .consume_open_credentials_tx(&mut tx, admin_id, now)
+        .consume_open_credentials_tx(&mut tx, OrgId::knl(), admin_id, now)
         .await
         .unwrap();
     tx.commit().await.unwrap();
@@ -333,7 +333,7 @@ async fn seed_cold_start_credential_is_gated_and_idempotent(pool: PgPool) {
     // still skips because the admin now has a passkey.
     let mut tx = pool.begin().await.unwrap();
     store
-        .consume_open_credentials_tx(&mut tx, admin_id, now)
+        .consume_open_credentials_tx(&mut tx, OrgId::knl(), admin_id, now)
         .await
         .unwrap();
     tx.commit().await.unwrap();

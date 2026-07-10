@@ -29,7 +29,7 @@ import kotlinx.serialization.Serializable
 
 
 /**
- *
+ * channel = a named, branch-scoped room any active branch member may join; direct = a fixed member set (DMs, work-order threads, groups).
  *
  * Values: CHANNEL,DIRECT
  */

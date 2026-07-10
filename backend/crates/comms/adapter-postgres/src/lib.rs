@@ -17,13 +17,14 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 use mnt_comms_application::{
-    AccountUpsert, AttachmentRef, AttachmentView, DueAccount, EmailAccountId, EmailMessageId,
-    FolderCursor, FolderView, ImapFolder, InboundUpsert, MailReadStore, MailServiceError,
-    MailStore, MessageView, OutboundRecord, SealedCredential, StoredAccount, StoredAttachment,
-    ThreadDetail, ThreadQuery, ThreadView, thread_grouping_key,
+    AccountUpsert, AddressAccount, AddressLookup, AttachmentRef, AttachmentView, DueAccount,
+    EmailAccountId, EmailMessageId, FolderCursor, FolderView, ImapFolder, InboundUpsert,
+    MailFuture, MailNotifier, MailReadStore, MailServiceError, MailStore, MessageView,
+    OutboundRecord, SealedCredential, StoredAccount, StoredAttachment, ThreadDetail, ThreadQuery,
+    ThreadView, address_ambiguous_audit_event, thread_grouping_key,
 };
 use mnt_comms_domain::{MailSecurity, MessageAddress, normalize_subject};
-use mnt_kernel_core::{AuditEvent, ErrorKind, KernelError, OrgId, Timestamp, UserId};
+use mnt_kernel_core::{AuditEvent, ErrorKind, KernelError, OrgId, Timestamp, TraceContext, UserId};
 use mnt_platform_db::{DbError, with_audit, with_org_conn};
 use mnt_platform_request_context::current_org;
 use sqlx::{PgPool, Postgres, Row, Transaction};
@@ -423,8 +424,15 @@ impl PgMailStore {
                 let thread_id =
                     resolve_inbound_thread_tx(tx, org_uuid, account_uuid, &upsert).await?;
 
-                // 4. Insert the IN message.
-                insert_inbound_message_tx(tx, org_uuid, account_uuid, thread_id, &upsert).await?;
+                // 4. Insert the IN message. If a concurrent webhook redelivery won
+                // the same IMAP-identity race, the insert is an idempotent no-op
+                // and the handler reports `ingested=false` instead of surfacing
+                // a unique-constraint service error.
+                if !insert_inbound_message_tx(tx, org_uuid, account_uuid, thread_id, &upsert)
+                    .await?
+                {
+                    return Ok(false);
+                }
 
                 // 5. Insert its attachment rows.
                 for att in &upsert.stored_attachments {
@@ -451,6 +459,7 @@ impl PgMailStore {
         &self,
         org: OrgId,
         account: EmailAccountId,
+        claim_token: uuid::Uuid,
         status: &str,
         error: Option<&str>,
     ) -> Result<(), PgMailError> {
@@ -465,18 +474,56 @@ impl PgMailStore {
                     SET last_sync_at = now(),
                         sync_status = $2,
                         last_sync_error = $3,
+                        -- Release the scheduler's claim lease so the account is
+                        -- eligible again on its next cadence. FENCED: only the
+                        -- worker still holding this claim's token clears it, so a
+                        -- stale worker whose lease was reclaimed (a newer token)
+                        -- matches no row and wipes NOTHING — it cannot stomp the
+                        -- reclaimer's fresh lease and cause an overlapping sync.
+                        claimed_until = NULL,
+                        claim_token = NULL,
                         consecutive_auth_failures = CASE
                             WHEN $2 = 'AUTH_FAILED' THEN consecutive_auth_failures + 1
                             WHEN $2 = 'OK' THEN 0
                             ELSE consecutive_auth_failures
                         END,
                         updated_at = now()
-                    WHERE id = $1
+                    WHERE id = $1 AND claim_token = $4
                     "#,
                 )
                 .bind(account_uuid)
                 .bind(&status)
                 .bind(error.as_deref())
+                .bind(claim_token)
+                .execute(tx.as_mut())
+                .await?;
+                Ok(())
+            })
+        })
+        .await
+    }
+
+    /// Release the claim lease with NO lifecycle write — a fenced compare-and-
+    /// clear that touches only `claimed_until`/`claim_token`, never
+    /// `last_sync_at`/`sync_status`/`last_sync_error`/auth-failure counters.
+    async fn release_claim_inner(
+        &self,
+        org: OrgId,
+        account: EmailAccountId,
+        claim_token: uuid::Uuid,
+    ) -> Result<(), PgMailError> {
+        let account_uuid = *account.as_uuid();
+        with_org_conn::<_, (), PgMailError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                sqlx::query(
+                    r#"
+                    UPDATE email_accounts
+                    SET claimed_until = NULL, claim_token = NULL
+                    WHERE id = $1 AND claim_token = $2
+                    "#,
+                )
+                .bind(account_uuid)
+                .bind(claim_token)
                 .execute(tx.as_mut())
                 .await?;
                 Ok(())
@@ -488,24 +535,89 @@ impl PgMailStore {
     async fn list_due_accounts_inner(
         &self,
         now: Timestamp,
+        limit: i32,
     ) -> Result<Vec<DueAccount>, PgMailError> {
-        // Cross-tenant id-only enumeration via the SECURITY DEFINER function. Runs
-        // on the raw pool (NO org armed) — the function REVOKEs PUBLIC and only
-        // mnt_rt may EXECUTE it; it returns ONLY (org_id, account_id) pairs.
-        let rows = sqlx::query("SELECT org_id, account_id FROM comms_due_email_accounts($1, $2)")
-            .bind(now)
-            .bind(SYNC_DISPATCH_LIMIT)
-            // rls-arming: ok comms_due_email_accounts is a SECURITY DEFINER function (REVOKE PUBLIC, GRANT mnt_rt) that returns id-only (org_id, account_id) pairs across tenants for the scheduler; it cannot be org-armed (it predates knowing the orgs) and exposes no tenant data
-            .fetch_all(&self.pool)
-            .await?;
+        // Cross-tenant id-only CLAIM via the SECURITY DEFINER function. Runs on the
+        // raw pool (NO org armed) — the function REVOKEs PUBLIC and only mnt_rt may
+        // EXECUTE it; it atomically locks the due, unclaimed rows with FOR UPDATE
+        // SKIP LOCKED, stamps a `claimed_until` lease + a fresh `claim_token` on
+        // each, and returns ONLY the (org_id, account_id, claim_token) triples.
+        // Concurrent workers therefore claim DISJOINT batches; a crashed worker's
+        // lease is reclaimable once it expires, and the token fences the release so
+        // a reclaimed worker cannot clear the reclaimer's fresh lease.
+        //
+        // `limit` is the caller's available start-immediately capacity (see the
+        // trait doc); SYNC_DISPATCH_LIMIT is only a defense-in-depth ceiling in
+        // case a caller ever passes something absurd.
+        let rows = sqlx::query(
+            "SELECT org_id, account_id, claim_token FROM comms_due_email_accounts($1, $2, $3)",
+        )
+        .bind(now)
+        .bind(limit.clamp(0, SYNC_DISPATCH_LIMIT))
+        .bind(SYNC_CLAIM_LEASE_SECS)
+        // rls-arming: ok comms_due_email_accounts is a SECURITY DEFINER function (REVOKE PUBLIC, GRANT mnt_rt) that returns id-only (org_id, account_id, claim_token) triples across tenants for the scheduler; it cannot be org-armed (it predates knowing the orgs) and exposes no tenant data — it only stamps its own claim lease + fencing token
+        .fetch_all(&self.pool)
+        .await?;
         rows.into_iter()
             .map(|row| {
                 Ok(DueAccount {
                     org_id: OrgId::from_uuid(row.try_get("org_id")?),
                     account_id: EmailAccountId::from_uuid(row.try_get("account_id")?),
+                    claim_token: row.try_get("claim_token")?,
                 })
             })
             .collect()
+    }
+
+    async fn find_account_by_address_inner(
+        &self,
+        address: &str,
+    ) -> Result<AddressLookup, PgMailError> {
+        // Cross-tenant id-only lookup via 0122_comms_account_by_address.sql. Runs
+        // on the raw pool (NO org armed) — the function REVOKEs PUBLIC and only
+        // mnt_rt may EXECUTE it; it returns ONLY the (org_id, account_id) pairs of
+        // every ACTIVE account matching this recipient address. `email_accounts`
+        // is unique only per (org_id, email_address), so >1 row means the SAME
+        // address exists under DIFFERENT orgs — a tenant-boundary anomaly, not a
+        // pick-one situation. The webhook arms the single resolved org for the
+        // audited inbound upsert; an ambiguous address is refused for ALL of them.
+        let rows: Vec<sqlx::postgres::PgRow> =
+            sqlx::query("SELECT org_id, account_id FROM comms_account_by_address($1)")
+                .bind(address)
+                // rls-arming: ok comms_account_by_address is a SECURITY DEFINER function (REVOKE PUBLIC, GRANT mnt_rt) returning id-only (org_id, account_id) for the mox delivery webhook, which has no principal to arm an org with; it exposes no tenant data
+                .fetch_all(&self.pool)
+                .await?;
+        match rows.len() {
+            0 => Ok(AddressLookup::NotFound),
+            1 => {
+                let row = &rows[0];
+                Ok(AddressLookup::Found(AddressAccount {
+                    org_id: OrgId::from_uuid(row.try_get("org_id")?),
+                    account_id: EmailAccountId::from_uuid(row.try_get("account_id")?),
+                }))
+            }
+            _ => {
+                tracing::error!(
+                    match_count = rows.len(),
+                    "mox webhook: recipient address matched ACTIVE accounts in more than one org; quarantining delivery (no message content logged)"
+                );
+                let audit = address_ambiguous_audit_event(
+                    address,
+                    TraceContext::generate(),
+                    Timestamp::now_utc(),
+                )
+                .map_err(PgMailError::Domain)?;
+                // No `org` to arm (that is exactly the anomaly) — insert the
+                // platform-tier audit row on the raw pool. `with_audit` leaves
+                // `app.current_org` unset when `event.org_id` is `None`; the
+                // `audit_events` RLS `WITH CHECK (org_id IS NULL)` clause admits it.
+                with_audit::<_, (), PgMailError>(&self.pool, audit, |_tx| {
+                    Box::pin(async move { Ok(()) })
+                })
+                .await?;
+                Ok(AddressLookup::Ambiguous)
+            }
+        }
     }
 
     async fn list_folders_inner(
@@ -799,11 +911,25 @@ impl MailReadStore for PgMailStore {
         &'a self,
         org: OrgId,
         account: EmailAccountId,
+        claim_token: uuid::Uuid,
         status: &'a str,
         error: Option<&'a str>,
     ) -> mnt_comms_application::MailFuture<'a, Result<(), MailServiceError>> {
         Box::pin(async move {
-            self.record_sync_result_inner(org, account, status, error)
+            self.record_sync_result_inner(org, account, claim_token, status, error)
+                .await
+                .map_err(Into::into)
+        })
+    }
+
+    fn release_claim<'a>(
+        &'a self,
+        org: OrgId,
+        account: EmailAccountId,
+        claim_token: uuid::Uuid,
+    ) -> mnt_comms_application::MailFuture<'a, Result<(), MailServiceError>> {
+        Box::pin(async move {
+            self.release_claim_inner(org, account, claim_token)
                 .await
                 .map_err(Into::into)
         })
@@ -812,8 +938,24 @@ impl MailReadStore for PgMailStore {
     fn list_due_accounts(
         &self,
         now: Timestamp,
+        limit: i32,
     ) -> mnt_comms_application::MailFuture<'_, Result<Vec<DueAccount>, MailServiceError>> {
-        Box::pin(async move { self.list_due_accounts_inner(now).await.map_err(Into::into) })
+        Box::pin(async move {
+            self.list_due_accounts_inner(now, limit)
+                .await
+                .map_err(Into::into)
+        })
+    }
+
+    fn find_account_by_address<'a>(
+        &'a self,
+        address: &'a str,
+    ) -> mnt_comms_application::MailFuture<'a, Result<AddressLookup, MailServiceError>> {
+        Box::pin(async move {
+            self.find_account_by_address_inner(address)
+                .await
+                .map_err(Into::into)
+        })
     }
 
     fn list_folders<'a>(
@@ -893,8 +1035,19 @@ impl MailReadStore for PgMailStore {
     }
 }
 
-/// Per-tick cap on how many due accounts the scheduler enumerates + dispatches.
+/// Absolute defense-in-depth ceiling on one claim call, regardless of the
+/// caller-supplied `limit`. The caller (the worker's tick) is expected to pass
+/// its actual start-immediately capacity (bounded by `MAX_CONCURRENT_SYNCS`,
+/// currently 4) — this constant only guards against a caller bug passing an
+/// unbounded value.
 const SYNC_DISPATCH_LIMIT: i32 = 100;
+/// Lease (seconds) stamped on a claimed account. The worker bounds each pass
+/// (`mail_sync::SYNC_ACCOUNT_TIMEOUT`, 480s) SAFELY below this so a slow pass is
+/// aborted before the lease can be reclaimed — no overlapping syncs. Short enough
+/// that a crashed worker's claim is reclaimable promptly. `record_sync_result`
+/// fenced-clears the lease on completion; this is the crash-recovery ceiling, not
+/// the steady-state hold. Keep in sync with `mail_sync::SYNC_CLAIM_LEASE_SECS`.
+const SYNC_CLAIM_LEASE_SECS: i32 = 600;
 /// Max threads returned in one thread-list page.
 const MAX_THREAD_PAGE: i64 = 100;
 
@@ -1022,7 +1175,7 @@ async fn insert_inbound_message_tx(
     account_uuid: uuid::Uuid,
     thread_id: uuid::Uuid,
     upsert: &InboundUpsert,
-) -> Result<(), PgMailError> {
+) -> Result<bool, PgMailError> {
     let m = &upsert.message;
     let snippet: String = m
         .body_text
@@ -1038,7 +1191,7 @@ async fn insert_inbound_message_tx(
     let references = m.references.clone();
     let has_attachments = !upsert.stored_attachments.is_empty();
 
-    sqlx::query(
+    let inserted: Option<uuid::Uuid> = sqlx::query_scalar(
         r#"
         INSERT INTO email_messages (
             id, org_id, account_id, folder_id, thread_id,
@@ -1053,6 +1206,10 @@ async fn insert_inbound_message_tx(
             $15, $16, $17, $18,
             $19, $20, $21, $22, $23, $24
         )
+        ON CONFLICT (org_id, account_id, folder_id, imap_uid_validity, imap_uid)
+            WHERE imap_uid IS NOT NULL
+            DO NOTHING
+        RETURNING id
         "#,
     )
     .bind(*upsert.id.as_uuid())
@@ -1079,9 +1236,9 @@ async fn insert_inbound_message_tx(
     .bind(m.draft)
     .bind(has_attachments)
     .bind(m.received_at)
-    .execute(tx.as_mut())
+    .fetch_optional(tx.as_mut())
     .await?;
-    Ok(())
+    Ok(inserted.is_some())
 }
 
 async fn insert_attachment_tx(
@@ -1638,4 +1795,42 @@ fn account_from_row(row: sqlx::postgres::PgRow) -> Result<StoredAccount, PgMailE
         imap_password,
         status: row.try_get("status")?,
     })
+}
+
+/// The LISTEN/NOTIFY channel a webmail message-posted signal rides on. Mirrors
+/// the messenger realtime channel: the payload carries only the account id (no
+/// message content), and a background listener fans it out to the tenant's UI.
+pub const MAIL_POSTED_CHANNEL: &str = "mail_posted";
+
+/// A realtime [`MailNotifier`] over PostgreSQL `pg_notify`. Emitted when the mox
+/// delivery webhook ingests a NEW inbound message so the tenant's mailbox UI can
+/// refresh. Best-effort: a notify failure never fails the enclosing ingest.
+#[derive(Debug, Clone)]
+pub struct PgMailNotifier {
+    pool: PgPool,
+}
+
+impl PgMailNotifier {
+    #[must_use]
+    pub fn new(pool: PgPool) -> Self {
+        Self { pool }
+    }
+}
+
+impl MailNotifier for PgMailNotifier {
+    fn notify_posted(&self, account_id: EmailAccountId) -> MailFuture<'_, ()> {
+        Box::pin(async move {
+            // pg_notify carries only the account id — no tenant-table row is read
+            // or written, so no org arming is needed here.
+            if let Err(err) = sqlx::query("SELECT pg_notify($1, $2)")
+                .bind(MAIL_POSTED_CHANNEL)
+                .bind(account_id.to_string())
+                // rls-arming: ok pg_notify carries an id only; it is not a tenant-table read/write
+                .execute(&self.pool)
+                .await
+            {
+                tracing::warn!(error = %err, "mail posted notify failed (best-effort)");
+            }
+        })
+    }
 }

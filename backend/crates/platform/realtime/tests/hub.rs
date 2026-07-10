@@ -71,6 +71,75 @@ async fn bounded_mpsc_disconnects_lagging_connection_with_resume_cursor_policy()
     );
 }
 
+#[tokio::test]
+async fn notification_fans_out_only_to_its_recipient() {
+    use mnt_notifications_application::NotificationSummary;
+    use mnt_notifications_domain::NotificationLink;
+
+    let hub = std::sync::Arc::new(PgRealtimeHub::for_tests(RealtimeHubConfig {
+        connection_buffer: 8,
+    }));
+    let recipient = UserId::new();
+    let other = UserId::new();
+
+    let mut recipient_conn = hub
+        .connect(
+            RealtimePrincipal {
+                user_id: recipient,
+                branch_scope: BranchScope::All,
+                org_id: OrgId::knl(),
+            },
+            None,
+        )
+        .await
+        .unwrap();
+    let mut other_conn = hub
+        .connect(
+            RealtimePrincipal {
+                user_id: other,
+                branch_scope: BranchScope::All,
+                org_id: OrgId::knl(),
+            },
+            None,
+        )
+        .await
+        .unwrap();
+
+    let summary = NotificationSummary {
+        id: mnt_kernel_core::NotificationId::new(),
+        recipient_user_id: recipient,
+        category: "결재".to_owned(),
+        text: "결재 문서가 도착했습니다".to_owned(),
+        link: NotificationLink::Screen {
+            screen: "approvals".to_owned(),
+        },
+        unread: true,
+        created_at: OffsetDateTime::now_utc(),
+        read_at: None,
+    };
+    hub.dispatch_notification_for_test(recipient, summary.clone())
+        .await;
+
+    match recipient_conn.recv().await.unwrap() {
+        RealtimeEvent::NotificationCreated { notification } => {
+            assert_eq!(notification.id, summary.id);
+            assert_eq!(notification.recipient_user_id, recipient);
+        }
+        other => panic!("recipient should receive its notification, got {other:?}"),
+    }
+
+    // The other user's connection must not receive it. Drop the hub's sender by
+    // removing that connection, then confirm the stream is empty/closed.
+    hub.shutdown().await;
+    assert!(
+        !matches!(
+            other_conn.recv().await,
+            Some(RealtimeEvent::NotificationCreated { .. })
+        ),
+        "a notification must never reach a non-recipient connection"
+    );
+}
+
 fn message_event(branch_id: BranchId, sender_id: UserId, body: &str) -> RealtimeEvent {
     RealtimeEvent::MessagePosted {
         message: MessageSummary {

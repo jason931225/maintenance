@@ -98,10 +98,10 @@ if (matrix) {
   requireArrayOfStrings(matrix.requiredWebTests, matrixPath, "requiredWebTests");
   requireArrayOfStrings(matrix.requiredBackendTests, matrixPath, "requiredBackendTests");
   assert(Array.isArray(matrix.backendContracts) && matrix.backendContracts.length >= 9, "G005 backend contract inventory", `${matrixPath}: backendContracts must include workflow/approval/evidence contracts`);
-  assert(Array.isArray(matrix.frontendContracts) && matrix.frontendContracts.length >= 8, "G005 frontend contract inventory", `${matrixPath}: frontendContracts must include workflow/work hub/approval/work-order surfaces`);
+  assert(Array.isArray(matrix.frontendContracts) && matrix.frontendContracts.length >= 8, "G005 frontend contract inventory", `${matrixPath}: frontendContracts must include workflow/overview/approval/work-order surfaces`);
   assert(Array.isArray(matrix.safetyAssertions) && matrix.safetyAssertions.length >= 10, "G005 safety assertions", `${matrixPath}: safetyAssertions must capture workflow, approval, evidence, badge, and scope guardrails`);
 
-  const requiredRouteGroups = new Set(["work-hub", "approvals", "workflow-builder", "work-order-detail", "intake", "planned-work"]);
+  const requiredRouteGroups = new Set(["overview", "approvals", "workflow-builder", "work-order-detail", "intake", "planned-work"]);
   const matrixRoutes = new Map();
   for (const row of matrix.routePaths ?? []) {
     assert(typeof row.path === "string" && row.path.startsWith("/"), `G005 route ${row.path ?? "<missing>"}: path`, `${matrixPath}: route row missing path`);
@@ -114,7 +114,9 @@ if (matrix) {
   }
 
   if (routeAudit?.routeCoverage) {
-    const auditByPath = new Map(routeAudit.routeCoverage.map((row) => [row.canonicalPath, row]));
+    const auditByCanonicalPath = new Map(routeAudit.routeCoverage.map((row) => [row.canonicalPath, row]));
+    const auditByRawPath = new Map(routeAudit.routeCoverage.map((row) => [row.rawPath ?? row.canonicalPath, row]));
+    const auditForMatrixPath = (path) => auditByRawPath.get(path) ?? auditByCanonicalPath.get(path);
     const ownedG005Rows = routeAudit.routeCoverage.filter((row) => String(row.ownerLane ?? "").startsWith("G005"));
     assert(ownedG005Rows.length >= 6, "enterprise route audit has G005-owned rows", `${auditPath}: expected G005-owned route rows`);
     for (const auditRow of ownedG005Rows) {
@@ -122,7 +124,7 @@ if (matrix) {
     }
     const weakNeedles = ["fallback", "unclassified", "demo", "placeholder", "coming soon", "black background", "text wall"];
     for (const [path, matrixRow] of matrixRoutes) {
-      const auditRow = auditByPath.get(path);
+      const auditRow = auditForMatrixPath(path);
       assert(Boolean(auditRow), `G005 matrix route ${path}: exists in route audit`, `${auditPath}: missing routeCoverage for ${path}`);
       if (!auditRow) continue;
       assert(String(auditRow.ownerLane ?? "").includes("G005"), `G005 matrix route ${path}: ownerLane contains G005`, `${auditPath}: ${path} ownerLane must include G005`);
@@ -139,7 +141,7 @@ if (matrix) {
     }
 
     for (const depRoute of matrix.dependencyRoutes ?? []) {
-      const auditRow = auditByPath.get(depRoute.path);
+      const auditRow = auditForMatrixPath(depRoute.path);
       assert(Boolean(auditRow), `G005 dependency route ${depRoute.path}: exists in route audit`, `${auditPath}: missing dependency routeCoverage for ${depRoute.path}`);
       if (!auditRow) continue;
       const combined = `${auditRow.ownerLane} ${auditRow.sourceObject} ${auditRow.e2eSpec} ${auditRow.groupScopeStory}`;
@@ -179,7 +181,7 @@ if (matrix) {
   const bannedCopyNeedles = ["Workflow + Approval", "업무 객체 중심 실행 흐름", "별도 데모", "coming soon", "Coming soon", "Lorem ipsum", "black background"];
   const sourceFilesWithUserVisibleWorkflow = [
     "web/src/pages/WorkflowStudioPage.tsx",
-    "web/src/pages/WorkHubPage.tsx",
+    "web/src/pages/OverviewPage.tsx",
     "web/src/pages/ApprovalsPage.tsx",
     "web/src/features/approvals/ApprovalQueue.tsx",
     "web/src/pages/DailyPlanPage.tsx",

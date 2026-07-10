@@ -67,6 +67,16 @@ pub const CONSOLE_ROLLOUT_PATH: &str = "/api/v1/console/rollout";
 pub const CONSOLE_ROLLOUT_OPT_IN_PATH: &str = "/api/v1/console/rollout/opt-in";
 pub const CONSOLE_ROLLOUT_ORG_FLAG_PATH: &str = "/api/v1/console/rollout/org-flag";
 pub const CONSOLE_LEGACY_KILL_SWITCH_PATH: &str = "/api/v1/console/kill-switch";
+/// Per-(org,user) Oyatie Console workspace layout (UI-M1b). GET returns the
+/// caller's saved layout (empty `{}` default), PUT upserts it. Opaque jsonb.
+pub const ME_WORKSPACE_PATH: &str = "/api/v1/me/workspace";
+/// Caller's authorization projection (Identity Console UI-M13 / charter G-a):
+/// org, branch scope, roles-as-principal-attributes, and the legacy-matrix
+/// capability grants the console needs for deny-by-omission rendering. NON-
+/// AUTHORITATIVE (`authority = "advisory_ui_only"`) — the server stays the sole
+/// enforcer; this is a rendering hint that converges with the Cedar promotion
+/// (same shape, `source` flips from `legacy_matrix` to `cedar`).
+pub const ME_AUTHZ_PATH: &str = "/api/v1/me/authz";
 pub const USER_PATH_TEMPLATE: &str = "/api/v1/users/{id}";
 pub const USER_DEACTIVATE_PATH_TEMPLATE: &str = "/api/v1/users/{id}/deactivate";
 pub const USER_ACTIVATE_PATH_TEMPLATE: &str = "/api/v1/users/{id}/activate";
@@ -140,6 +150,8 @@ pub const IDENTITY_ROUTE_PATHS: &[&str] = &[
     CONSOLE_ROLLOUT_OPT_IN_PATH,
     CONSOLE_ROLLOUT_ORG_FLAG_PATH,
     CONSOLE_LEGACY_KILL_SWITCH_PATH,
+    ME_WORKSPACE_PATH,
+    ME_AUTHZ_PATH,
     USER_PATH_TEMPLATE,
     USER_DEACTIVATE_PATH_TEMPLATE,
     USER_ACTIVATE_PATH_TEMPLATE,
@@ -209,6 +221,8 @@ pub fn router(state: IdentityRestState) -> Router {
             CONSOLE_LEGACY_KILL_SWITCH_PATH,
             post(update_console_legacy_kill_switch),
         )
+        .route(ME_WORKSPACE_PATH, get(get_workspace).put(put_workspace))
+        .route(ME_AUTHZ_PATH, get(get_me_authz))
         .route(USERS_PATH, get(list_users).post(create_user))
         .route(USER_PATH_TEMPLATE, get(get_user).patch(update_user))
         .route(USER_DEACTIVATE_PATH_TEMPLATE, post(deactivate_user))
@@ -221,7 +235,9 @@ pub fn router(state: IdentityRestState) -> Router {
         .route(BRANCHES_PATH, get(list_branches).post(create_branch))
         .route(
             BRANCH_PATH_TEMPLATE,
-            patch(update_branch).delete(deactivate_branch),
+            get(get_branch)
+                .patch(update_branch)
+                .delete(deactivate_branch),
         )
         .route(PASSKEYS_PATH, get(list_passkeys))
         .route(PASSKEY_PATH_TEMPLATE, delete(delete_passkey))
@@ -1121,6 +1137,11 @@ async fn preview_policy_assignments(
 ) -> Result<impl IntoResponse, RestError> {
     let principal = principal_from_headers(&state, &headers).await?;
     let user_id = UserId::from_uuid(id);
+    // Fine-grained, deny-by-omission authorization: an account-scope change
+    // (system roles / branch memberships) is the UserManage tier (ADMIN), while
+    // a custom policy-role change is the stricter RoleManage tier (SUPER_ADMIN).
+    // No unconditional top-level RoleManage gate — that would 403 a legitimate
+    // ADMIN doing an account-scope-only preview.
     let account_scope_preview = body.system_roles.is_some() || body.branch_ids.is_some();
     let explicit_custom_role_preview = body.role_ids.is_some();
     if account_scope_preview {
@@ -3352,6 +3373,213 @@ async fn update_me(
 }
 
 // ---------------------------------------------------------------------------
+// Authorization projection: GET /api/v1/me/authz (charter G-a)
+// ---------------------------------------------------------------------------
+
+/// The caller's authorization projection. NON-AUTHORITATIVE: `authority` is
+/// always `advisory_ui_only` (mirroring `web/src/auth/policyProjection.ts`) —
+/// the backend matrix (`authorize`) remains the sole enforcer; this only lets
+/// the console render by grant instead of by hardcoded role lists (the class of
+/// drift behind the ADMIN /overview 403 bug). `source = legacy_matrix` today;
+/// the Cedar enforce-flip later flips it to `cedar` with this shape unchanged.
+#[derive(Debug, Serialize)]
+struct MeAuthzResponse {
+    authority: &'static str,
+    source: &'static str,
+    user_id: Uuid,
+    org_id: Uuid,
+    /// Roles as principal attributes (canonical role keys).
+    roles: Vec<String>,
+    branch_scope: BranchScope,
+    /// Capability grants the caller holds — deny-by-omission: a feature the
+    /// caller cannot use at all is OMITTED, so `capabilities` is exactly the
+    /// grant set the frontend checks against.
+    capabilities: Vec<MeAuthzCapability>,
+}
+
+#[derive(Debug, Serialize)]
+struct MeAuthzCapability {
+    /// `Feature::as_str` snake_case key (matches `/api/v1/policy/features`).
+    feature: String,
+    /// `deny` is never emitted (omitted instead); one of `request_only`,
+    /// `limited`, `allow`.
+    permission: String,
+    /// The branch subset this `permission` level actually holds over — NOT
+    /// necessarily the caller's full `branch_scope`. A branch-narrowed custom
+    /// grant (`EffectiveFeatureGrant::branch_scope`, already intersected with
+    /// the caller's live scope by `resolve_effective_feature_grants_in_org`)
+    /// only elevates the capability within its own branches; collapsing to a
+    /// single scalar permission without this would over-promise the grant to
+    /// every branch the caller can act in, an affordance the real `authorize`
+    /// call would then 403 outside this scope — the exact class of drift this
+    /// endpoint exists to fix. The UI must intersect this with its target
+    /// branch before offering the affordance.
+    branch_scope: BranchScope,
+}
+
+fn permission_rank(level: PermissionLevel) -> u8 {
+    match level {
+        PermissionLevel::Deny => 0,
+        PermissionLevel::RequestOnly => 1,
+        PermissionLevel::Limited => 2,
+        PermissionLevel::Allow => 3,
+    }
+}
+
+fn branch_scope_union(a: &BranchScope, b: &BranchScope) -> BranchScope {
+    match (a, b) {
+        (BranchScope::All, _) | (_, BranchScope::All) => BranchScope::All,
+        (BranchScope::Branches(x), BranchScope::Branches(y)) => {
+            BranchScope::Branches(x.union(y).copied().collect())
+        }
+    }
+}
+
+/// The caller's effective permission for one feature, paired with the branch
+/// subset it holds over — exactly the `OR` the enforcer (`authorize`)
+/// evaluates, projected to a single (level, scope) pair. Built-in roles hold
+/// uniformly across the caller's full `branch_scope` (`authorize` never
+/// branch-narrows a role permission beyond the principal's own scope). A
+/// custom grant only elevates the capability within `grant.branch_scope`
+/// (already the live-scope-intersected effective set) — a lower-ranked grant
+/// never widens the current best scope, and an equal-ranked grant unions in
+/// (there can be more than one branch-narrowed grant for the same feature).
+fn feature_capability(
+    principal: &Principal,
+    feature: Feature,
+) -> Option<(PermissionLevel, BranchScope)> {
+    let role_level = principal
+        .roles
+        .iter()
+        .map(|role| permission_for(*role, feature))
+        .max_by_key(|level| permission_rank(*level))
+        .unwrap_or(PermissionLevel::Deny);
+    let mut best = role_level;
+    let mut best_scope = principal.branch_scope.clone();
+
+    for grant in principal
+        .effective_feature_grants
+        .iter()
+        .filter(|grant| grant.feature == feature)
+    {
+        match permission_rank(grant.permission).cmp(&permission_rank(best)) {
+            std::cmp::Ordering::Greater => {
+                best = grant.permission;
+                best_scope = grant.branch_scope.clone();
+            }
+            std::cmp::Ordering::Equal => {
+                best_scope = branch_scope_union(&best_scope, &grant.branch_scope);
+            }
+            std::cmp::Ordering::Less => {}
+        }
+    }
+
+    (best != PermissionLevel::Deny).then_some((best, best_scope))
+}
+
+fn me_authz_projection(principal: &Principal) -> MeAuthzResponse {
+    let capabilities = Feature::ALL
+        .into_iter()
+        .filter_map(|feature| {
+            let (level, scope) = feature_capability(principal, feature)?;
+            Some(MeAuthzCapability {
+                feature: feature.as_str().to_owned(),
+                permission: level.as_str().to_owned(),
+                branch_scope: scope,
+            })
+        })
+        .collect();
+    MeAuthzResponse {
+        authority: "advisory_ui_only",
+        source: "legacy_matrix",
+        user_id: *principal.user_id.as_uuid(),
+        org_id: *principal.org_id.as_uuid(),
+        roles: principal
+            .roles
+            .iter()
+            .map(|role| role.as_str().to_owned())
+            .collect(),
+        branch_scope: principal.branch_scope.clone(),
+        capabilities,
+    }
+}
+
+async fn get_me_authz(
+    State(state): State<IdentityRestState>,
+    headers: HeaderMap,
+) -> Result<impl IntoResponse, RestError> {
+    // The resolved Principal already carries the live branch scope + runtime
+    // custom-role grants (armed under this request's org), so the projection is
+    // pure — no DB read beyond principal resolution.
+    let principal = principal_from_headers(&state, &headers).await?;
+    Ok(Json(me_authz_projection(&principal)))
+}
+
+// ---------------------------------------------------------------------------
+// Console workspace layout handlers (any authenticated user; principal's row only)
+// ---------------------------------------------------------------------------
+
+/// Response for `GET /api/v1/me/workspace`. `layout` is an opaque, frontend-owned
+/// JSON object (the console window/panel arrangement); the empty default is `{}`.
+#[derive(Debug, Serialize)]
+struct WorkspaceResponse {
+    layout: serde_json::Value,
+}
+
+/// Body for `PUT /api/v1/me/workspace`. The `layout` is stored verbatim; the DB
+/// enforces it is a JSON object within the size cap.
+#[derive(Debug, Deserialize)]
+struct WorkspaceUpsertRequest {
+    layout: serde_json::Value,
+}
+
+async fn get_workspace(
+    State(state): State<IdentityRestState>,
+    headers: HeaderMap,
+) -> Result<impl IntoResponse, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    let layout = state
+        .store
+        .get_workspace_layout(principal.user_id)
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(Json(WorkspaceResponse { layout }))
+}
+
+async fn put_workspace(
+    State(state): State<IdentityRestState>,
+    headers: HeaderMap,
+    Json(body): Json<WorkspaceUpsertRequest>,
+) -> Result<impl IntoResponse, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    // Reject non-object payloads at the boundary with a clear 422 rather than
+    // letting the DB CHECK surface as a generic 500. (The DB CHECK remains the
+    // final backstop for size and shape.)
+    if !body.layout.is_object() {
+        return Err(RestError::validation("layout must be a JSON object"));
+    }
+    // Size cap at the boundary is the REAL enforcement: the DB CHECK uses
+    // pg_column_size(), which measures the TOAST-COMPRESSED jsonb size and so
+    // rejects far fewer payloads than a raw byte count. Guarding the serialized
+    // length here returns a clean 422 (never a DB-CHECK 500); the CHECK
+    // (pg_column_size <= 64KiB, migration 0098) is only a defense-in-depth backstop.
+    if serde_json::to_vec(&body.layout).map_or(usize::MAX, |bytes| bytes.len()) > 64 * 1024 {
+        return Err(RestError::validation("layout exceeds the maximum size"));
+    }
+    let layout = state
+        .store
+        .put_workspace_layout(
+            principal.user_id,
+            body.layout,
+            TraceContext::generate(),
+            OffsetDateTime::now_utc(),
+        )
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(Json(WorkspaceResponse { layout }))
+}
+
+// ---------------------------------------------------------------------------
 // Region handlers
 // ---------------------------------------------------------------------------
 
@@ -3455,6 +3683,28 @@ async fn list_branches(
         .await
         .map_err(RestError::from_store)?;
     Ok(Json(branches))
+}
+
+// Get-one for an org-unit (branch) pin panel (UI-M2a). Same non-sensitive read
+// gate as the list; org-RLS scopes it to the caller's org. No audit — this is
+// org-structure metadata, not PII. It filters the branch list rather than
+// adding a get-one store method because branch counts are small.
+async fn get_branch(
+    State(state): State<IdentityRestState>,
+    headers: HeaderMap,
+    Path(id): Path<uuid::Uuid>,
+) -> Result<impl IntoResponse, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    authorize_org_manage(&principal, Feature::Login)?;
+    let branch = state
+        .store
+        .list_branches()
+        .await
+        .map_err(RestError::from_store)?
+        .into_iter()
+        .find(|b| b.id.as_uuid() == &id)
+        .ok_or_else(|| RestError::from_kernel(KernelError::not_found("branch was not found")))?;
+    Ok(Json(branch))
 }
 
 async fn create_branch(

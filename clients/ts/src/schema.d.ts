@@ -478,6 +478,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/audit/attestation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * L20 tamper-evident audit-chain attestation for the caller's tenant
+         * @description Read-only recompute-and-compare verdict for the org's cryptographically-sealed audit-event hash chain: walks every stored seal, re-derives batch_hash/seal_hash from the underlying audit_events, checks chain continuity and coverage (no committed row sits in a gap the sealed ranges do not cover), and verifies the signature. `ok` reflects tamper integrity only; `unsealed_tail` is a separate freshness signal (rows committed but not yet sealed by the background worker) and never forces `ok=false` on a healthy live chain. Unlike GET /api/audit, which can branch-filter rows for branch-scoped admins, this whole-tenant attestation requires org-wide AuditLogRead authority; built-in access for this feature is SUPER_ADMIN, not ADMIN. Never mutates.
+         */
+        get: operations["getAuditChainAttestation"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/work-orders": {
         parameters: {
             query?: never;
@@ -1193,6 +1213,46 @@ export interface paths {
          * @description Admin-gated (EquipmentManage). Only supplied fields are written; nullable fields explicitly set to null are cleared.
          */
         patch: operations["updateEquipment"];
+        trace?: never;
+    };
+    "/api/v1/equipment/{id}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the append-only version history of one equipment master row
+         * @description Generalized non-destructive versioning (BE-LC). Every equipment update captures the post-update content as a new version (the pre-update content backfills version 1 on first capture). Read tier mirrors the equipment detail read.
+         */
+        get: operations["listEquipmentVersions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/equipment/{id}/versions/{version}/rollback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Roll one equipment master row back to a prior version
+         * @description Admin-gated (EquipmentManage), audited. Re-applies the target version's stored content through the normal update path and appends a NEW version (status ROLLBACK, sourceVersion = target); version history is never mutated.
+         */
+        post: operations["rollbackEquipmentVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/api/v1/equipment/{id}/timeline-graph": {
@@ -2350,6 +2410,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/messenger/members/{userId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Fetch one branch member's summary for a person pin panel
+         * @description Returns a single active branch member's summary using the same non-admin branch directory as the member list, so any employee can open a coworker's person card. Viewing another person records a person.view audit event (열람 — 기록 남음); a self-view records none. A target outside the caller's branch returns 404 with no audit trail (deny-by-omission).
+         */
+        get: operations["getMessengerMember"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/messenger/threads": {
         parameters: {
             query?: never;
@@ -2397,6 +2477,106 @@ export interface paths {
         /** Mark the authenticated member's thread read cursor */
         put: operations["markMessengerThreadRead"];
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/messenger/channels": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Discover joinable channels in the caller's branch scope
+         * @description Lists channel-visibility threads within a branch the caller is scoped to, whether or not the caller is already a member, so a member can find a room to join. Deny-by-omission: direct threads and out-of-scope channels are never returned.
+         */
+        get: operations["listMessengerChannels"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/messenger/threads/{threadId}/join": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Join a channel thread the caller can see in scope
+         * @description Adds the caller as a member of a channel-visibility thread. Idempotent (re-joining is a no-op). A direct thread is not joinable and returns 403; a thread outside the caller's branch scope returns 404 (deny-by-omission).
+         */
+        post: operations["joinMessengerChannel"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/messenger/threads/{threadId}/mute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Set the caller's personal mute for a thread
+         * @description Direct-save personal setting. A muted thread still records every message; it only suppresses the caller's mention notifications and is excluded from their unread badge total. The caller must be a thread member.
+         */
+        put: operations["setMessengerThreadMute"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/messenger/threads/{threadId}/presence": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Activity-derived presence for members of a thread
+         * @description Returns online/away/offline per thread member, derived from the age of each member's last real action (message/read/ack) — not a live socket, so "online" means "acted within the freshness window". The caller must be a thread member; a non-member gets 403 and sees no presence.
+         */
+        get: operations["getMessengerThreadPresence"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/messenger/messages/{messageId}/ack": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Toggle the caller's ack on a message
+         * @description Toggle the caller's ack: if present it is removed, else added. This is not idempotent and is not safe to blindly retry; clients should reconcile from the returned MessengerAckSummary acked and ack_count values. The caller must be a member of the message's thread; a non-member gets 403.
+         */
+        post: operations["toggleMessengerMessageAck"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2970,6 +3150,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/exports/kpi": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Export the KPI rollup workbook
+         * @description Exports the same branch-scoped KPI rollups served by GET /api/v1/kpi as a downloadable Excel workbook.
+         */
+        get: operations["getKpiExport"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/reporting/work-diary": {
         parameters: {
             query?: never;
@@ -3221,6 +3421,335 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/me/notifications": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the authenticated user's notifications, newest first */
+        get: operations["listMyNotifications"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/notifications/unread-count": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Count the authenticated user's unread notifications */
+        get: operations["getMyUnreadNotificationCount"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/notifications/read-all": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark all of the authenticated user's unread notifications read */
+        post: operations["markAllMyNotificationsRead"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/notifications/{id}/read": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Mark one of the authenticated user's notifications read */
+        post: operations["markMyNotificationRead"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/leave/requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the branch-scoped leave-request approval queue (연차 결재함)
+         * @description Pending-first, then newest. Requires `employee_directory_read`. The queue is confined to the caller's branches (resolved from the JWT); an out-of-scope request is invisible (deny-by-omission).
+         */
+        get: operations["listLeaveRequests"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/leave/requests/{id}/decide": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve, return, or reject a pending leave request
+         * @description Requires `employee_directory_manage` in the request's branch. An APPROVE writes the leave ledger (used += days, remaining -= days) in the same audited transaction. Separation of duties — a request cannot be decided by its own requester (403). `return`/`reject` require a comment. A non-pending request is 409; an out-of-branch / unknown request is 404.
+         */
+        post: operations["decideLeaveRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/leave/balances": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Per-employee annual-leave balance roster (직원별 연차 현황)
+         * @description Reads the existing employee leave ledger (grant/used/left) — the same source of truth as the balances aggregate; not a second store. Requires `employee_directory_read`. Org-scoped.
+         */
+        get: operations["listLeaveBalances"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/leave/promotions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Serve a §61 연차 사용 촉진 (round 1 or 2)
+         * @description Requires `employee_directory_manage` in the target `branch_id` (which is validated against the actor's scope). Delivers a receipt-gated 연차촉진 notice into the target's 개인 수신함 and records the push. The engine AP- run binds once the 연차촉진 submittable definition exists; until then the push carries `ap_submission: pending_engine_definition`. Idempotent per (target, round).
+         */
+        post: operations["pushLeavePromotion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/leave/refusal-notices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Serve a 노무수령거부 notice (after a round-2 promotion)
+         * @description Requires `employee_directory_manage` in the target `branch_id`. Delivers a receipt-gated 노무수령거부 notice into the target's 개인 수신함 and records the push. Same engine-binding semantics as promotions. Idempotent per target.
+         */
+        post: operations["pushLeaveRefusalNotice"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/inbox-docs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the authenticated user's statutory-notice vault (개인 수신함)
+         * @description Metadata only — a locked legal notice's body never appears in the list. The recipient is bound from the JWT; a non-recipient sees nothing.
+         */
+        get: operations["listMyInboxDocs"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/inbox-docs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read one of the authenticated user's inbox documents
+         * @description Reading a LOCKED legal notice returns its metadata with `payload` omitted and does NOT auto-confirm receipt. A payslip (and an already-confirmed legal notice) returns its `payload`.
+         */
+        get: operations["getMyInboxDoc"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/inbox-docs/{id}/confirm-receipt": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Confirm receipt of a legal notice (the legal receipt evidence)
+         * @description Requires a FRESH passkey step-up: confirmation IS the legally significant act of receipt (열람 = 법적 수령), audited with receipt semantics. Idempotent — a second confirm returns the existing stamp. Only a legal notice can be confirmed; a payslip is a frictionless self-view (422). Another user's / unknown document is 404.
+         */
+        post: operations["confirmMyInboxDocReceipt"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/todos": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the authenticated user's todos, open first then newest first */
+        get: operations["listMyTodos"];
+        put?: never;
+        /**
+         * Create a todo owned by the authenticated user
+         * @description The owner is always the authenticated principal. Scope chips (person/team/site/entity refs) and object links (kind+id pairs) are validated ref lists of at most 20 entries each. Audited as todo.create.
+         */
+        post: operations["createMyTodo"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/todos/{todoId}/done": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Mark one of the authenticated user's todos done or undone
+         * @description Explicit target state so the same endpoint supports done AND undo. A cross-user id is a 404, never another user's row. Audited as todo.done / todo.undone.
+         */
+        post: operations["setMyTodoDone"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/todos/{todoId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete one of the authenticated user's todos
+         * @description A cross-user id is a 404, never another user's row. Audited as todo.delete.
+         */
+        delete: operations["deleteMyTodo"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/dispatch-offers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the authenticated mechanic's pending P1 dispatch offers
+         * @description BROADCASTING dispatches that fanned out to the caller as a TECHNICIAN, still inside the accept window, with no response from the caller yet. Person-scoped by construction (deny-by-omission): a caller only ever sees offers addressed to them. Respond via /api/v1/p1-dispatches/{dispatchId}/responses.
+         */
+        get: operations["listMyDispatchOffers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/action-inbox": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Unified action inbox for the authenticated principal
+         * @description One server-side fan-in of the caller's actionable items across every source that owns a person-scoped list: workflow/approval tasks awaiting the caller (the ?assignee=me path), pending P1 dispatch offers, support tickets assigned to the caller, and work orders assigned to the caller. Each source is queried through the exact predicate its own list endpoint uses, so the aggregate never widens visibility (deny-by-omission). Items are bucketed by urgency (now/today/wait) with a derived due tone. Fields the overview prototype carries but no backend source can supply are omitted (entity, amount, detail, files, stats, mailId); site/who/submitted are present only for the sources that carry them. Attendance exceptions are not aggregated (no exception object exists yet).
+         */
+        get: operations["listMyActionInbox"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/users/me": {
         parameters: {
             query?: never;
@@ -3304,6 +3833,50 @@ export interface paths {
          * @description Super-admin endpoint that overrides all individual new-console opt-ins and records an audit event.
          */
         post: operations["updateConsoleLegacyKillSwitch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/workspace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the authenticated user's console workspace layout
+         * @description Returns the caller's saved Oyatie Console window/panel layout. The `layout` is an opaque, frontend-owned JSON object; a user with no saved layout gets the empty default `{}`.
+         */
+        get: operations["getCurrentUserWorkspace"];
+        /**
+         * Upsert the authenticated user's console workspace layout
+         * @description Stores the caller's Oyatie Console layout verbatim. The `layout` must be a JSON object and is bounded in size by the server.
+         */
+        put: operations["putCurrentUserWorkspace"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/me/authz": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get the authenticated caller's authorization projection
+         * @description The caller's authorization projection: org, branch scope, roles-as-principal-attributes, and the legacy-matrix capability grants the console needs for deny-by-omission rendering. NON-AUTHORITATIVE (`authority = "advisory_ui_only"`) — the server remains the sole enforcer; this is a rendering hint that lets the frontend gate on grants instead of hardcoded role lists. `source = "legacy_matrix"` today; the Cedar enforce-flip later flips `source` to `"cedar"` with this shape unchanged. Capabilities are deny-by-omission: a feature the caller cannot use is omitted (never emitted at `deny`).
+         */
+        get: operations["getCurrentUserAuthz"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -3426,7 +3999,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * Fetch one branch's summary for an org-unit pin panel
+         * @description Returns a single branch summary using the same non-sensitive read gate as the branch list; org-RLS scopes it to the caller's org. No audit — org-structure metadata, not PII. A branch outside the caller's org returns 404.
+         */
+        get: operations["getBranch"];
         put?: never;
         post?: never;
         /**
@@ -3595,8 +4172,8 @@ export interface paths {
         put?: never;
         post?: never;
         /**
-         * Delete a sales listing (#6)
-         * @description Admin-gated (SalesManage). Removes a listing from the catalog.
+         * Archive a sales listing (#6)
+         * @description Admin-gated (SalesManage). Soft-archives the listing (status -> WITHDRAWN) and removes it from the public catalog; the row and its media are preserved for history/object-graph integrity, never hard-deleted.
          */
         delete: operations["deleteListing"];
         options?: never;
@@ -4224,6 +4801,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workflow-studio/submittable-definitions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List workflow definitions the caller may start (기안 template gallery)
+         * @description All-employee (member-gated, not workflow-manage admin) catalog of ACTIVE workflow definitions the caller could actually START. Deny-by-omission: a definition is listed only when its start authority admits the caller — the identical check the start endpoint (POST /api/v1/workflow-runs) enforces (top-level start_policy, else the entry node's required_policy; absent = self-service all-employee). The catalog never advertises a definition the caller would get a 403 starting. Carries only the metadata definitions actually hold (no invented icon/desc/tone — those are frontend presentation).
+         */
+        get: operations["listSubmittableWorkflowDefinitions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workflow-studio/definitions/{id}": {
         parameters: {
             query?: never;
@@ -4335,50 +4932,10 @@ export interface paths {
         get?: never;
         put?: never;
         /**
-         * Publish a workflow definition version
-         * @description Sensitive no-code workflow publication. Requires RoleManage, tenant RLS, a fresh passkey step-up assertion, required approval/payment line validation, connector/action allowlist validation, append-only workflow_definition_versions, workflow_definition_events, and audit log.
+         * Publish a workflow definition version (direct for new, staged for active)
+         * @description Sensitive no-code workflow publication. Requires RoleManage, tenant RLS, a fresh passkey step-up assertion, required approval/payment line validation, connector/action allowlist validation, append-only workflow_definition_versions, workflow_definition_events, and audit log. A definition that has never been activated is published directly; publishing a revision to an ALREADY-ACTIVE definition instead STAGES a pending revision (the active version keeps serving) that a second, distinct actor must approve via the revisions/{rev}/approve endpoint. The response's pending_version signals a staged (not-yet-applied) revision.
          */
         post: operations["publishWorkflowDefinition"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workflow-studio/definitions/{id}/revisions/{rev}/approve": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Approve a pending workflow definition revision
-         * @description Sensitive four-eyes approval for a pending no-code workflow revision. Requires RoleManage, tenant RLS, a fresh passkey step-up assertion, and rejects self-approval by the original staging actor.
-         */
-        post: operations["approveWorkflowDefinitionRevision"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/workflow-studio/definitions/{id}/revisions/{rev}/withdraw": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Withdraw a pending workflow definition revision
-         * @description Clears a pending no-code workflow revision before approval while preserving append-only history and audit evidence.
-         */
-        post: operations["withdrawWorkflowDefinitionRevision"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4447,6 +5004,360 @@ export interface paths {
         put?: never;
         /** Clone a workflow definition into a new draft */
         post: operations["cloneWorkflowDefinition"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow-studio/definitions/by-object-kind/{kind}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Automation rules acting on an object kind (dynamics↔ontology)
+         * @description The explore screen's "작용 자동화" panel source. Returns definitions whose primary object_type is the kind or whose declared object_kinds chain touches it, plus the trigger bindings scoped to that kind.
+         */
+        get: operations["listWorkflowDefinitionsByObjectKind"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow-studio/definitions/{id}/revisions/{rev}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve a staged pending revision (four-eyes application)
+         * @description Applies the revision staged by a publish on an ACTIVE definition. A SECOND, distinct actor must approve (the publisher who staged it cannot self-approve unless org-lead/SUPER_ADMIN, recorded as a governance finding). The approved DRAFT is appended as a new PUBLISHED version and becomes the active version.
+         */
+        post: operations["approveWorkflowDefinitionRevision"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow-studio/definitions/{id}/revisions/{rev}/withdraw": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Withdraw (discard) a staged pending revision
+         * @description Clears the pending-revision pointer; the active version keeps serving and the DRAFT remains in history. Any workflow manager may withdraw (it applies nothing, so it is not SoD-gated).
+         */
+        post: operations["withdrawWorkflowDefinitionRevision"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow-studio/trigger-bindings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List workflow trigger bindings (domain event → workflow start rules) */
+        get: operations["listWorkflowTriggerBindings"];
+        put?: never;
+        /**
+         * Bind a registered domain event to a workflow definition
+         * @description When the bound event's audited mutation commits, the dispatcher starts one idempotent run of the bound definition per event occurrence. trigger_type must be an event-shaped reserved TriggerType and event_key a registered domain event.
+         */
+        post: operations["createWorkflowTriggerBinding"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow-studio/trigger-bindings/{id}/enable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Enable a workflow trigger binding */
+        post: operations["enableWorkflowTriggerBinding"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow-studio/trigger-bindings/{id}/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Disable a workflow trigger binding */
+        post: operations["disableWorkflowTriggerBinding"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow-studio/schedules": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List workflow cron schedules */
+        get: operations["listWorkflowSchedules"];
+        put?: never;
+        /**
+         * Create a workflow cron schedule
+         * @description cron_expr is evaluated in the schedule's IANA timezone (default Asia/Seoul). The background poller starts one idempotent run per fire and advances next_run_at.
+         */
+        post: operations["createWorkflowSchedule"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow-studio/schedules/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update a workflow cron schedule (label, cron, timezone, enabled)
+         * @description Changing the cron pattern or timezone, or re-enabling, recomputes next_run_at from now. Schedules are durable objects — disable instead of delete (run history stays dereferenceable).
+         */
+        patch: operations["updateWorkflowSchedule"];
+        trace?: never;
+    };
+    "/api/v1/workflow-studio/schedules/preview-next-runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Preview the next fire times for a cron expression */
+        post: operations["previewWorkflowScheduleNextRuns"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow-studio/schedules/{id}/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Run history for a workflow schedule */
+        get: operations["listWorkflowScheduleRuns"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow-tasks/{task_id}/finalize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Finalize an approval document (author or delegate)
+         * @description Completes a finalization waiting task (종결). Author mode requires the initiating author; delegate mode is policy-gated (legacy enforce, inert Cedar shadow) and requires a non-empty reason. Finalization is a pre-terminal WAITING step, not a terminal reopen — the run reaches SUCCEEDED only when no receipt-confirmation step follows; otherwise it stays WAITING and a receipt task opens. Idempotent on idempotency_key.
+         */
+        post: operations["finalizeWorkflowTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow-runs/{run_id}/post-finalization-rejection": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create a compensating post-finalization rejection (사후 반려)
+         * @description Records a compensating document linked to an already-finalized run and notifies the whole approval line. The terminal run is never reopened or mutated; a new POST_FINALIZATION_REJECTION document is created instead. Policy-gated (legacy enforce, inert Cedar shadow). Idempotent on idempotency_key.
+         */
+        post: operations["createWorkflowPostFinalizationRejection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow-runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Org-wide admin run list, incl. dead-letter (workflow-manage)
+         * @description Lists workflow runs across the org, filterable by status (including FAILED/DEAD_LETTERED for dead-letter visibility) and keyset-paginated over (updated_at, id). Requires workflow-manage authority.
+         */
+        get: operations["listWorkflowRunsAdmin"];
+        put?: never;
+        /**
+         * Start a workflow run (idempotent)
+         * @description Starts an ACTIVE definition and advances synchronously until the first WAITING task or terminal node. idempotency_key maps to workflow_runs.idempotency_key — a replay returns the existing run, and the same key with a different definition/object is a 409. Entry-node policy (when declared) is legacy-enforced with an inert Cedar shadow.
+         */
+        post: operations["startWorkflowRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow-runs/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read-only run detail — head, waiting tasks, node-step timeline
+         * @description Visibility mirrors the approval inbox exactly — the run's initiator, a claimer of one of its tasks, or a holder of an authority role a task is routed to — plus workflow-manage admins org-wide. Anyone else gets 404 (deny-by-omission), never a leak of another branch's/org's run.
+         */
+        get: operations["getWorkflowRun"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow-runs/mine": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the runs the caller initiated (submission box)
+         * @description Returns runs where initiated_by is the caller, optionally filtered by status/object_type. Final-approved but not-yet-finalized runs are still WAITING (non-terminal) and remain visible.
+         */
+        get: operations["listMyWorkflowRuns"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow-tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List approval-inbox waiting tasks (group or personal)
+         * @description Group inbox via role_key, personal inbox via assignee=me. Policy-bearing rows are gated legacy-enforce with an inert Cedar shadow and denied rows are OMITTED (deny-by-omission), never returned as a 403. Requires role_key or assignee=me.
+         */
+        get: operations["listWorkflowTasks"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow-tasks/{task_id}/claim": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Claim an OPEN waiting task
+         * @description Transitions an OPEN task to CLAIMED for the caller. A same-user replay is a 200 no-op; a task claimed by another user, or in a terminal/cancelled/expired state, is a 409. Audits workflow_task.claim.
+         */
+        post: operations["claimWorkflowTask"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow-tasks/{task_id}/decide": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Decide a waiting task (approve/reject/return)
+         * @description Completes a non-finalize approval task. approve advances the run to the next node (a human task parks WAITING; no successor closes the run SUCCEEDED). reject and return require a non-empty comment (422 otherwise) and cancel the run — a resubmission is a new run, never a terminal reopen. Idempotent on idempotency_key. Audits workflow_task.decide.
+         */
+        post: operations["decideWorkflowTask"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4535,6 +5446,250 @@ export interface paths {
          * @description Mobile-scoped poll vote route. It validates poll lifecycle and option ownership only after a fresh passkey step-up envelope is verified for this poll vote.
          */
         post: operations["voteMobileCollaborationPoll"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/object-links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the generic links touching one object, in both directions
+         * @description Returns every object_link where the given (kind, id) is the source (outgoing) or the destination (incoming). Tenant-scoped by forced RLS; only links in the caller's org are visible.
+         */
+        get: operations["listObjectLinks"];
+        put?: never;
+        /**
+         * Create a generic, audited link between two objects
+         * @description Creates one directed edge (src -> dst) of a given link_type between two known object kinds. Both kinds must exist in the object-type registry. An identical link is rejected with 409. Audited via with_audit.
+         */
+        post: operations["createObjectLink"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/object-links/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Remove an object link (audited)
+         * @description Hard-deletes the link; the audit event's before-snapshot preserves the removed edge. An unknown id or a link owned by another tenant both return 404 (deny-by-omission).
+         */
+        delete: operations["deleteObjectLink"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/search": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Global object + person search (⌘K palette, compose picker, explore, token dropdowns)
+         * @description Searches the object kinds resolveObject serves that carry a human-searchable name/code (work_order, equipment, support_ticket, org_unit) plus the person directory (messenger member semantics: active + shared branch). Every hit is scoped identically to resolveObject: the WorkOrderReadAll feature gate for work_order/equipment (a caller lacking it gets zero hits of those kinds), and the branch-visibility guard for every branch-scoped kind — a hit the caller could not resolve never appears. Org-isolated under RLS. Deny-by-omission: never a 403 for an out-of-scope kind, just absence.
+         */
+        get: operations["searchObjects"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/objects/{kind}/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Resolve any object to a compact head (code, title, status)
+         * @description Dereferences a (kind, id) pair to an ObjectHead so any object chip/code can be rendered and navigated. Reuses each domain's tenant + branch scoping: an object outside the caller's org/branch scope resolves identically to a missing id (exists=false), the deny-by-omission guarantee. A well-formed but unregistered kind returns 404. Routing is the frontend objectRegistry's responsibility; this endpoint never returns a route/URL.
+         */
+        get: operations["resolveObject"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/objects/{kind}/{id}/graph": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Walk the bounded object-link neighborhood of an object
+         * @description Bounded level-by-level walk over object_links up to `depth` hops (clamped 1-5), org-scoped under RLS. Every returned node passed the SAME per-kind visibility guard as resolveObject; deny-by-omission governs discovery itself here, not just display: a node the caller cannot resolve is OMITTED (never returned as a stub) and the walk never expands through it, so an edge touching an omitted node is omitted too. `truncated` is true when the response was cut short by the node cap before `depth` was exhausted.
+         */
+        get: operations["getObjectGraph"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/object-types": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the object-type registry with caller-visible instance counts
+         * @description Returns every seeded object kind (kind, code_prefix, label, lifecycle status) plus active_count — the number of instances of that kind visible to the caller. The count respects the SAME per-kind visibility as resolveObject: org via forced RLS (no cross-org counting), narrowed by the caller's branch scope and the domain feature gate; a kind the caller cannot read counts 0. Type proposal/transition flows are out of scope for this slice (read surface + status only).
+         */
+        get: operations["listRegistryObjectTypes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/object-types/{kind}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Fetch one object type with its caller-visible instance count
+         * @description Returns a single object type by kind slug (404 if unknown), with the same caller-visible active_count as listObjectTypes.
+         */
+        get: operations["getRegistryObjectType"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/link-types": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the edge-type registry (object-link relationship vocabulary)
+         * @description Returns the seeded, platform-wide set of relationship labels an object_link may use. createObjectLink validates link_type against this registry.
+         */
+        get: operations["listLinkTypes"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/series": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create an SR- series and attach its first instance
+         * @description Creates an org-scoped series with a canonical SR- code and attaches the first instance. The instance must resolve for the caller (deny-by-omission): you cannot found a series on an object you cannot see. Audited.
+         */
+        post: operations["createSeries"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/series/by-instance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Find which series an object belongs to
+         * @description Returns the series a given (kind, id) instance belongs to, or null. Membership is revealed only when the caller can resolve the instance, so series membership is never an existence oracle for out-of-scope objects.
+         */
+        get: operations["getSeriesByInstance"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/series/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read a series and its ordered, caller-visible instances
+         * @description Returns the series head and its instances resolved to ObjectHeads, ordered by attach time. Instances that no longer resolve for the caller are omitted (deny-by-omission). Current/next derivation is left to the client. An unknown id or another tenant's series is 404.
+         */
+        get: operations["getSeries"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/series/{id}/instances": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Attach an instance to an existing series
+         * @description Attaches a (kind, id) instance to the series. The series must exist for the caller and the instance must resolve for the caller (both deny-by-omission -> 404). An object already in a series is rejected with 409 (the not-yet-in-a-series promotion invariant). Audited.
+         */
+        post: operations["attachSeriesInstance"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5023,91 +6178,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/messenger/channels": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** List branch-scoped channel threads the caller can see */
-        get: operations["listMessengerChannels"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/messenger/threads/{threadId}/join": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Join a channel-visibility thread in scope (idempotent) */
-        post: operations["joinMessengerThread"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/messenger/threads/{threadId}/mute": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        /** Mute or unmute a thread for the authenticated member */
-        put: operations["setMessengerThreadMute"];
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/messenger/threads/{threadId}/presence": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Presence of the members of a thread */
-        get: operations["messengerThreadPresence"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/messenger/messages/{messageId}/ack": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /** Toggle the caller's acknowledgement of a message */
-        post: operations["toggleMessengerMessageAck"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/evidence/objects": {
         parameters: {
             query?: never;
@@ -5169,89 +6239,6 @@ export interface paths {
         put?: never;
         /** Apply or release a legal hold (release is four-eyes gated). */
         post: operations["holdEvidenceObject"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/hr/leave-requests": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** Team leave-request queue (branch-scoped) */
-        get: operations["listTeamLeaveRequests"];
-        put?: never;
-        /** File a leave request (owner self-service) */
-        post: operations["createLeaveRequest"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/hr/leave-requests/me": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /** My leave balance and requests */
-        get: operations["myLeaveOverview"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/hr/leave-requests/{id}/decide": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["decideLeaveRequest"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/hr/leave-promotions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get: operations["listLeavePromotions"];
-        put?: never;
-        post: operations["createLeavePromotion"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/hr/leave-promotions/{id}/send": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post: operations["sendLeavePromotion"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5355,6 +6342,187 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/period-locks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List payroll/accounting period locks
+         * @description Close-authority gated (PeriodLockManage, org-wide). Lists lock history newest first; active locks are rows with no unlockedAt.
+         */
+        get: operations["listPeriodLocks"];
+        put?: never;
+        /**
+         * Lock a payroll/accounting period (freeze window)
+         * @description Close-authority gated (PeriodLockManage, org-wide), audited. While the lock is active every date-stamping write in the domain whose business date falls inside [periodStart, periodEnd] fails closed with 409. Overlapping an existing active lock in the same domain is refused.
+         */
+        post: operations["createPeriodLock"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/period-locks/{lockId}/unlock": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Unlock a period lock (one-shot, reason required)
+         * @description Close-authority gated (PeriodLockManage, org-wide), audited. Unlock is one-shot and immutable; re-locking the same window appends a new lock row.
+         */
+        post: operations["unlockPeriodLock"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/lifecycles/{objectType}/{objectId}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read one object's lifecycle state and transition log
+         * @description Lifecycle-authority gated (LifecycleManage, org-wide). Returns the current FSM state, legal hold / retention flags, and the append-only transition history (newest first).
+         */
+        get: operations["getObjectLifecycle"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/lifecycles/{objectType}/{objectId}/transition": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Transition one object's lifecycle state
+         * @description Lifecycle-authority gated (LifecycleManage, org-wide), audited. The transition is validated against the seeded per-object-type rule table (document: draft → submitted → approved → active → revised → archived → disposed); an illegal transition returns 409. The disposed transition additionally fails closed with 409 while the object is under legal hold or its retentionUntil lies in the future. The first legal transition of an unknown object implicitly registers its lifecycle at draft.
+         */
+        post: operations["transitionObjectLifecycle"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/lifecycles/{objectType}/{objectId}/hold": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Set or clear legal hold / retention on one object's lifecycle
+         * @description Lifecycle-authority gated (LifecycleManage, org-wide), audited. Creates the lifecycle row at draft when absent so a hold can be placed before the object ever transitions.
+         */
+        post: operations["setObjectLifecycleHold"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/office/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Issue a signed DocumentServer editor config for a document
+         * @description Returns the ONLYOFFICE editor configuration (with its signed JWT) for the LATEST version of a document. The host owns storage/versions/PBAC; document.key is a per-version hash so the editor never serves a stale cache; permissions map from the caller's authz (slice 0 gates on LifecycleManage). Slice 0 opens an EXISTING document (initial-version creation is a records-module concern).
+         */
+        post: operations["createOfficeSession"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/office/callback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * DocumentServer force-save callback (machine, JWT-verified)
+         * @description The unauthenticated (no user principal) machine callback from DocumentServer. Verified by the ONLYOFFICE JWT plus a host-issued callback token binding it to (org, document). On status 2 (ready to save) or 6 (force-save) the produced document is fetched and stored as an IMMUTABLE new version (idempotent per editing-session key). Always responds with the ONLYOFFICE error-code JSON body (error 0 on success), never an HTTP error status.
+         */
+        post: operations["officeCallback"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/office/documents/{documentRef}/versions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List a document's immutable version history (newest first) */
+        get: operations["listOfficeDocumentVersions"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/office/documents/{documentRef}/versions/{versionNo}/restore": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Non-destructively restore a version (re-publish it as a new version)
+         * @description Rollback is non-destructive — it appends a NEW version that re-publishes the target version's blob, with restoredFrom recording the lineage. Audited (office.document_version.restore). Gated on LifecycleManage.
+         */
+        post: operations["restoreOfficeDocumentVersion"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -5375,6 +6543,127 @@ export interface components {
         };
         ConsoleRouteTelemetryAccepted: {
             accepted: boolean;
+        };
+        /** @description Compact, kind-agnostic head for any object. exists=false means the object is absent OR outside the caller's scope (indistinguishable, by design). Carries no route/URL — objectRegistry (frontend) is the sole kind->URL authority. */
+        ObjectHead: {
+            kind: string;
+            id: string;
+            /** @description Canonical issued code if the kind has one (e.g. work-order request_no); absent otherwise. */
+            code?: string | null;
+            /** @description Human display label if available. */
+            title?: string | null;
+            /** @description Domain status string if available. */
+            status?: string | null;
+            exists: boolean;
+        };
+        /** @description Request to create a directed link between two known objects. */
+        CreateObjectLinkRequest: {
+            /** @description Source object kind slug (must be a known object type). */
+            src_kind: string;
+            /** @description Source object id/reference (≤200 chars). */
+            src_id: string;
+            /** @description Destination object kind slug (must be a known object type). */
+            dst_kind: string;
+            /** @description Destination object id/reference (≤200 chars). */
+            dst_id: string;
+            /** @description Relationship label slug (e.g. authorized_by, relates_to, blocks). */
+            link_type: string;
+        };
+        ObjectLinkResponse: {
+            id: components["schemas"]["Uuid"];
+            src_kind: string;
+            src_id: string;
+            dst_kind: string;
+            dst_id: string;
+            link_type: string;
+            created_by?: components["schemas"]["Uuid"];
+            created_at: components["schemas"]["Timestamp"];
+        };
+        /** @description Links touching one object, split by direction. */
+        ObjectLinksListResponse: {
+            /** @description Links where the queried object is the source. */
+            outgoing: components["schemas"]["ObjectLinkResponse"][];
+            /** @description Links where the queried object is the destination. */
+            incoming: components["schemas"]["ObjectLinkResponse"][];
+        };
+        /** @description The bounded, caller-visible neighborhood of an object, walked over object_links. Unresolvable nodes are omitted entirely (never returned as stubs), and edges touching an omitted node are omitted too. */
+        ObjectGraphResponse: {
+            /** @description Every object the caller can resolve, each passed through the same visibility guard as resolveObject. */
+            nodes: components["schemas"]["ObjectHead"][];
+            /** @description Links between resolved nodes (the induced subgraph over the visible node set). */
+            edges: components["schemas"]["ObjectLinkResponse"][];
+            /** @description True if the node cap was hit before the walk exhausted the requested depth. */
+            truncated: boolean;
+        };
+        /** @description Global search hits, each an ObjectHead scoped identically to resolveObject (a hit the caller could not resolve never appears). Grouped by kind; exists is always true for a hit. */
+        SearchResponse: {
+            results: components["schemas"]["ObjectHead"][];
+        };
+        /** @description An object-type registry row plus the caller-visible active instance count. */
+        ObjectTypeResponse: {
+            kind: string;
+            /** @description Canonical per-kind code prefix (e.g. AP-, CS-); absent for id/name-referenced kinds. */
+            code_prefix?: string | null;
+            description: string;
+            /**
+             * @description Type lifecycle state (draft, active, archived).
+             * @enum {string}
+             */
+            status: "draft" | "active" | "archived";
+            /**
+             * Format: int64
+             * @description Instances of this kind visible to the caller (same per-kind visibility as resolveObject).
+             */
+            active_count: number;
+        };
+        /** @description A registered edge type (object-link relationship label). */
+        LinkTypeResponse: {
+            link_type: string;
+            description: string;
+            /**
+             * @description Edge-type lifecycle state (draft, active, archived).
+             * @enum {string}
+             */
+            status: "draft" | "active" | "archived";
+        };
+        /** @description Create a series and attach its first instance. */
+        CreateSeriesRequest: {
+            /** @description Human label for the series (1-200 chars). */
+            label: string;
+            /** @description First instance object kind slug. */
+            kind: string;
+            /** @description First instance object id/reference (≤200 chars). */
+            id: string;
+        };
+        /** @description Attach an instance (kind, id) to a series. */
+        AttachInstanceRequest: {
+            /** @description Instance object kind slug. */
+            kind: string;
+            /** @description Instance object id/reference (≤200 chars). */
+            id: string;
+        };
+        AttachInstanceAck: {
+            attached: boolean;
+        };
+        SeriesHead: {
+            id: components["schemas"]["Uuid"];
+            /** @description Canonical SR- code. */
+            code: string;
+            label: string;
+            created_at: components["schemas"]["Timestamp"];
+        };
+        /** @description A series head plus its instances resolved to ObjectHeads, ordered by attach time. Instances not resolvable for the caller are omitted (deny-by-omission). */
+        SeriesDetailResponse: {
+            id: components["schemas"]["Uuid"];
+            /** @description Canonical SR- code. */
+            code: string;
+            label: string;
+            created_at: components["schemas"]["Timestamp"];
+            instances: components["schemas"]["ObjectHead"][];
+        };
+        /** @description The series an instance belongs to, or null. */
+        SeriesByInstanceResponse: {
+            series: components["schemas"]["SeriesHead"] | null;
         };
         /** @enum {string} */
         CollaborationScopeType: "TENANT" | "ORG" | "DEPARTMENT" | "TEAM" | "PERSONAL";
@@ -5788,6 +7077,24 @@ export interface components {
             /** Format: int32 */
             open_support_tickets: number;
         };
+        AuditChainAttestation: {
+            /** Format: uuid */
+            org_id: string;
+            /** @description No tamper detected. Independent of unsealed_tail. */
+            ok: boolean;
+            /**
+             * Format: int64
+             * @description The first offending seal's seq, when the failure localizes to one seal.
+             */
+            first_bad_seq?: number | null;
+            /**
+             * @description Tamper classification. `ok` means every seal recomputes, chains, verifies, and covers its range with no gap.
+             * @enum {string}
+             */
+            kind: "ok" | "seal_hash_mismatch" | "batch_hash_mismatch" | "broken_continuity" | "bad_signature" | "missing_seq" | "coverage_gap" | "corrupt_seal";
+            /** @description Freshness signal — committed rows older than the seal watermark exist beyond the head seal's cursor (the worker fell behind or is stopped). Never forces ok=false on a healthy live chain. */
+            unsealed_tail: boolean;
+        };
         UnavailableMetric: {
             metric: components["schemas"]["KpiMetric"];
             source_domain: string;
@@ -6129,6 +7436,20 @@ export interface components {
         WorkflowDefinitionListResponse: {
             items: components["schemas"]["WorkflowDefinitionResponse"][];
         };
+        SubmittableDefinitionListResponse: {
+            items: components["schemas"]["SubmittableDefinitionResponse"][];
+        };
+        /** @description An ACTIVE workflow definition the caller may start from the 기안 template gallery. Carries only the metadata definitions actually hold; active_version is the version a start binds to. */
+        SubmittableDefinitionResponse: {
+            id: components["schemas"]["Uuid"];
+            workflow_key: string;
+            display_name: string;
+            object_type: string;
+            /** Format: int32 */
+            active_version: number;
+            required_approval_line: boolean;
+            required_payment_line: boolean;
+        };
         WorkflowDefinitionResponse: {
             id: components["schemas"]["Uuid"];
             /** @example work_order.completion_review */
@@ -6156,8 +7477,14 @@ export interface components {
             action_allowlist: components["schemas"]["WorkflowActionAllowlistEntry"][];
             required_approval_line: boolean;
             required_payment_line: boolean;
-            /** Format: int32 */
+            /** @description Ontology object kinds this definition's nodes touch (dynamics↔ontology). */
+            object_kinds: string[];
+            /**
+             * Format: int32
+             * @description A staged revision (version) awaiting four-eyes approval; null when none is pending.
+             */
             pending_version: number | null;
+            /** @description Who staged the pending revision (the actor barred from self-approving it). */
             pending_staged_by: components["schemas"]["Uuid"] | null;
             /** Format: date-time */
             created_at: string;
@@ -6238,6 +7565,200 @@ export interface components {
             required_approval_line?: boolean;
             required_payment_line?: boolean;
         };
+        FinalizeWorkflowTaskRequest: {
+            /**
+             * @description author = the initiating author closes; delegate = a policy-authorized delegate closes and must give a reason.
+             * @enum {string}
+             */
+            mode: "author" | "delegate";
+            /** @description Required and non-empty when mode is delegate. */
+            reason?: string;
+            idempotency_key: string;
+        };
+        FinalizedWorkflowTask: {
+            id: components["schemas"]["Uuid"];
+            run_id: components["schemas"]["Uuid"];
+            status: string;
+            completed_by?: components["schemas"]["Uuid"];
+            decision_payload: {
+                [key: string]: unknown;
+            };
+        };
+        FinalizedWorkflowRun: {
+            id: components["schemas"]["Uuid"];
+            status: string;
+        };
+        FinalizeWorkflowTaskResponse: {
+            task: components["schemas"]["FinalizedWorkflowTask"];
+            run: components["schemas"]["FinalizedWorkflowRun"];
+            archive_ref?: {
+                [key: string]: unknown;
+            };
+        };
+        PostFinalizationRejectionRequest: {
+            reason: string;
+            idempotency_key: string;
+        };
+        PostFinalizationRejectionDocument: {
+            id: components["schemas"]["Uuid"];
+            original_run_id: components["schemas"]["Uuid"];
+            reason: string;
+            created_by: components["schemas"]["Uuid"];
+        };
+        PostFinalizationRejectionResponse: {
+            compensation: components["schemas"]["PostFinalizationRejectionDocument"];
+            run: components["schemas"]["FinalizedWorkflowRun"];
+        };
+        StartWorkflowRunRequest: {
+            definition_id: components["schemas"]["Uuid"];
+            /**
+             * Format: int32
+             * @description Pin a specific version; omitted uses the definition's active version.
+             */
+            definition_version?: number;
+            /** @description Must be provided together with object_id. */
+            object_type?: string;
+            object_id?: components["schemas"]["Uuid"];
+            /** @enum {string} */
+            trigger_type: "MANUAL" | "SCHEDULE" | "OBJECT_EVENT" | "IMPORT_EVENT" | "MAIL_EVENT" | "MESSENGER_EVENT" | "CALENDAR_EVENT" | "POLL_EVENT" | "API";
+            idempotency_key: string;
+            correlation_id?: string;
+            input_payload?: {
+                [key: string]: unknown;
+            };
+            context_payload?: {
+                [key: string]: unknown;
+            };
+        };
+        WorkflowRunSummary: {
+            id: components["schemas"]["Uuid"];
+            status: string;
+            definition_id: components["schemas"]["Uuid"];
+            /** Format: int32 */
+            definition_version: number;
+            object_type?: string;
+            object_id?: components["schemas"]["Uuid"];
+            initiated_by?: components["schemas"]["Uuid"];
+            started_at: components["schemas"]["Timestamp"];
+        };
+        WorkflowTaskSummary: {
+            task_id: components["schemas"]["Uuid"];
+            run_id: components["schemas"]["Uuid"];
+            waiting_key: string;
+            title: string;
+            assignee_role_key?: string;
+            required_policy?: string;
+            object_type?: string;
+            object_id?: components["schemas"]["Uuid"];
+            status: string;
+            claimed_by?: components["schemas"]["Uuid"];
+            due_at?: components["schemas"]["Timestamp"];
+            form_payload: {
+                [key: string]: unknown;
+            };
+        };
+        StartWorkflowRunResponse: {
+            run: components["schemas"]["WorkflowRunSummary"];
+            next_task?: components["schemas"]["WorkflowTaskSummary"];
+        };
+        WorkflowTaskListResponse: {
+            items: components["schemas"]["WorkflowTaskSummary"][];
+        };
+        WorkflowRunListItem: {
+            run_id: components["schemas"]["Uuid"];
+            status: string;
+            definition_id: components["schemas"]["Uuid"];
+            /** Format: int32 */
+            definition_version: number;
+            object_type?: string;
+            object_id?: components["schemas"]["Uuid"];
+            initiated_by?: components["schemas"]["Uuid"];
+            started_at: components["schemas"]["Timestamp"];
+            updated_at: components["schemas"]["Timestamp"];
+        };
+        WorkflowRunListResponse: {
+            items: components["schemas"]["WorkflowRunListItem"][];
+        };
+        AdminWorkflowRunListResponse: {
+            items: components["schemas"]["WorkflowRunListItem"][];
+            next_cursor?: components["schemas"]["Uuid"];
+        };
+        WorkflowRunDetailRun: {
+            id: components["schemas"]["Uuid"];
+            status: string;
+            definition_id: components["schemas"]["Uuid"];
+            /** Format: int32 */
+            definition_version: number;
+            trigger_type: string;
+            object_type?: string;
+            object_id?: components["schemas"]["Uuid"];
+            initiated_by?: components["schemas"]["Uuid"];
+            /** @description Failure reason for FAILED/DEAD_LETTERED runs (dead-letter visibility). */
+            error_payload?: {
+                [key: string]: unknown;
+            };
+            started_at: components["schemas"]["Timestamp"];
+            updated_at: components["schemas"]["Timestamp"];
+            completed_at?: components["schemas"]["Timestamp"];
+            failed_at?: components["schemas"]["Timestamp"];
+        };
+        WorkflowRunTimelineStep: {
+            node_key: string;
+            node_type: string;
+            status: string;
+            /** Format: int32 */
+            attempt: number;
+            started_at?: components["schemas"]["Timestamp"];
+            finished_at?: components["schemas"]["Timestamp"];
+            /** @description The user who decided this node (decision nodes only). */
+            actor?: components["schemas"]["Uuid"];
+            /** @description The decision payload recorded on the node's waiting task, if any. */
+            outcome?: {
+                [key: string]: unknown;
+            };
+            /** @description The node's error payload for a FAILED node step. */
+            error?: {
+                [key: string]: unknown;
+            };
+        };
+        WorkflowRunDetailResponse: {
+            run: components["schemas"]["WorkflowRunDetailRun"];
+            waiting_tasks: components["schemas"]["WorkflowTaskSummary"][];
+            timeline: components["schemas"]["WorkflowRunTimelineStep"][];
+        };
+        ClaimWorkflowTaskRequest: {
+            idempotency_key: string;
+        };
+        ClaimedWorkflowTask: {
+            task_id: components["schemas"]["Uuid"];
+            run_id: components["schemas"]["Uuid"];
+            status: string;
+            claimed_by?: components["schemas"]["Uuid"];
+            claimed_at?: components["schemas"]["Timestamp"];
+        };
+        ClaimWorkflowTaskResponse: {
+            task: components["schemas"]["ClaimedWorkflowTask"];
+        };
+        DecideWorkflowTaskRequest: {
+            /** @enum {string} */
+            decision: "approve" | "reject" | "return";
+            /** @description Required and non-empty when decision is reject or return. */
+            comment?: string;
+            idempotency_key: string;
+        };
+        DecidedWorkflowTask: {
+            task_id: components["schemas"]["Uuid"];
+            run_id: components["schemas"]["Uuid"];
+            status: string;
+            decision_payload: {
+                [key: string]: unknown;
+            };
+        };
+        DecideWorkflowTaskResponse: {
+            task: components["schemas"]["DecidedWorkflowTask"];
+            run: components["schemas"]["FinalizedWorkflowRun"];
+            next_task?: components["schemas"]["WorkflowTaskSummary"];
+        };
         /** @description Partial update for a DRAFT workflow definition. Workflow key and object type are immutable. */
         UpdateWorkflowDefinitionRequest: {
             display_name?: string;
@@ -6271,6 +7792,101 @@ export interface components {
             display_name?: string;
             step_up?: components["schemas"]["PasskeyStepUpAssertion"];
         };
+        TriggerBindingResponse: {
+            id: components["schemas"]["Uuid"];
+            definition_id: components["schemas"]["Uuid"];
+            /** @enum {string} */
+            trigger_type: "OBJECT_EVENT" | "IMPORT_EVENT" | "MAIL_EVENT" | "MESSENGER_EVENT" | "CALENDAR_EVENT" | "POLL_EVENT";
+            event_key: string;
+            /** @description The ontology object kind this rule acts on (dynamics↔ontology); null when unscoped. */
+            subject_kind: string | null;
+            enabled: boolean;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        TriggerBindingListResponse: {
+            items: components["schemas"]["TriggerBindingResponse"][];
+            registered_event_keys: string[];
+        };
+        CreateTriggerBindingRequest: {
+            definition_id: components["schemas"]["Uuid"];
+            /** @enum {string} */
+            trigger_type: "OBJECT_EVENT" | "IMPORT_EVENT" | "MAIL_EVENT" | "MESSENGER_EVENT" | "CALENDAR_EVENT" | "POLL_EVENT";
+            event_key: string;
+            /** @description Optional ontology object kind the rule acts on; must be a registered object_types.kind. */
+            subject_kind?: string;
+            /** @default true */
+            enabled: boolean;
+        };
+        DefinitionsByObjectKindResponse: {
+            kind: string;
+            definitions: components["schemas"]["WorkflowDefinitionResponse"][];
+            bindings: components["schemas"]["TriggerBindingResponse"][];
+        };
+        WorkflowScheduleResponse: {
+            id: components["schemas"]["Uuid"];
+            label: string;
+            cron_expr: string;
+            timezone: string;
+            definition_id: components["schemas"]["Uuid"];
+            enabled: boolean;
+            /** Format: date-time */
+            next_run_at?: string | null;
+            /** Format: date-time */
+            last_run_at?: string | null;
+            /** @enum {string|null} */
+            last_status?: "STARTED" | "SKIPPED" | "FAILED" | null;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        WorkflowScheduleListResponse: {
+            items: components["schemas"]["WorkflowScheduleResponse"][];
+        };
+        CreateWorkflowScheduleRequest: {
+            label: string;
+            cron_expr: string;
+            /** @description IANA timezone the cron pattern is evaluated in (default Asia/Seoul). */
+            timezone?: string;
+            definition_id: components["schemas"]["Uuid"];
+            /** @default true */
+            enabled: boolean;
+        };
+        UpdateWorkflowScheduleRequest: {
+            label?: string;
+            cron_expr?: string;
+            timezone?: string;
+            enabled?: boolean;
+        };
+        PreviewScheduleRequest: {
+            cron_expr: string;
+            /** @description IANA timezone (default Asia/Seoul). */
+            timezone?: string;
+        };
+        PreviewScheduleResponse: {
+            cron_expr: string;
+            timezone: string;
+            /** @description The next fire instants, RFC 3339 in UTC. */
+            fire_times: string[];
+        };
+        ScheduleRunItem: {
+            run_id: components["schemas"]["Uuid"];
+            status: string;
+            definition_id: components["schemas"]["Uuid"];
+            definition_version: number;
+            /** Format: date-time */
+            started_at: string;
+            /** Format: date-time */
+            completed_at?: string | null;
+            /** Format: date-time */
+            failed_at?: string | null;
+        };
+        ScheduleRunListResponse: {
+            items: components["schemas"]["ScheduleRunItem"][];
+        };
         SimulateWorkflowDefinitionRequest: {
             definition?: {
                 [key: string]: unknown;
@@ -6285,11 +7901,17 @@ export interface components {
                 [key: string]: unknown;
             }[];
             action_allowlist?: components["schemas"]["WorkflowActionAllowlistEntry"][];
+            /** @description Sample run context to exercise condition/branch nodes against (defaults to {}). */
+            sample_context?: {
+                [key: string]: unknown;
+            };
         };
         WorkflowSimulationResponse: {
             /** @enum {string} */
             decision: "ready" | "blocked";
             findings: components["schemas"]["WorkflowSimulationFinding"][];
+            /** @description For a wf.exec.v1 definition, the ordered node keys that would execute for the sample context (the branch actually taken), stopping at the first human task or terminal node. Absent for non-executable definitions. */
+            simulated_path?: string[];
         };
         WorkflowSimulationFinding: {
             /** @enum {string} */
@@ -7431,6 +9053,16 @@ export interface components {
         };
         /** @enum {string} */
         MessengerThreadKind: "work_order" | "team" | "dm" | "group";
+        /**
+         * @description channel = a named, branch-scoped room any active branch member may join; direct = a fixed member set (DMs, work-order threads, groups).
+         * @enum {string}
+         */
+        MessengerThreadVisibility: "channel" | "direct";
+        /**
+         * @description Activity-derived presence — online within the freshness window of the member's last action, else away, else offline (or never seen).
+         * @enum {string}
+         */
+        MessengerPresenceStatus: "online" | "away" | "offline";
         MessengerMemberSummary: {
             id: components["schemas"]["Uuid"];
             display_name: string;
@@ -7442,6 +9074,8 @@ export interface components {
         CreateMessengerThreadRequest: {
             branch_id: components["schemas"]["Uuid"];
             kind: components["schemas"]["MessengerThreadKind"];
+            /** @description Optional taxonomy override; when omitted the thread is always direct (fixed member set) — pass visibility=channel explicitly to create a joinable, discoverable team channel. A channel requires a title; DM and work-order threads are always direct. */
+            visibility?: components["schemas"]["MessengerThreadVisibility"] | null;
             title?: string | null;
             /** Format: uuid */
             work_order_id?: string | null;
@@ -7450,6 +9084,11 @@ export interface components {
         SendMessengerMessageRequest: {
             body: string;
             attachment_evidence_ids?: components["schemas"]["Uuid"][];
+            /**
+             * Format: uuid
+             * @description Optional reply-quote target; must be a message in the same thread.
+             */
+            quoted_message_id?: string | null;
         };
         MarkMessengerThreadReadRequest: {
             last_read_message_id: components["schemas"]["Uuid"];
@@ -7458,11 +9097,12 @@ export interface components {
             id: components["schemas"]["Uuid"];
             kind: components["schemas"]["MessengerThreadKind"];
             visibility: components["schemas"]["MessengerThreadVisibility"];
+            /** @description Whether the caller has muted this thread (excluded from the unread badge total; mentions suppressed). */
+            muted: boolean;
             branch_id: components["schemas"]["Uuid"];
             title: string | null;
             /** Format: uuid */
             work_order_id: string | null;
-            muted: boolean;
             /** Format: uuid */
             last_message_id: string | null;
             /** Format: date-time */
@@ -7499,6 +9139,21 @@ export interface components {
              * @description Non-sender thread members expected to read this message.
              */
             read_target_count: number;
+            /**
+             * Format: int64
+             * @description Members who have acked ("확인") this message.
+             */
+            ack_count: number;
+            /** @description Whether the reading caller has acked this message. Always false on a realtime message-posted event. */
+            acked_by_me: boolean;
+            /**
+             * Format: uuid
+             * @description Reply-quote target, when this message quotes an earlier one in the thread.
+             */
+            quoted_message_id: string | null;
+            /** @description Short preview of the quoted message; null when nothing is quoted or the quote was deleted. */
+            quoted_body: string | null;
+            quoted_sender_name: string | null;
             sent_at: components["schemas"]["Timestamp"];
             created_at: components["schemas"]["Timestamp"];
         };
@@ -7516,6 +9171,305 @@ export interface components {
             last_read_message_id: components["schemas"]["Uuid"];
             read_at: components["schemas"]["Timestamp"];
             updated_at: components["schemas"]["Timestamp"];
+        };
+        MessengerAckSummary: {
+            message_id: components["schemas"]["Uuid"];
+            thread_id: components["schemas"]["Uuid"];
+            /** @description Whether the caller's ack is present after the toggle. */
+            acked: boolean;
+            /** Format: int64 */
+            ack_count: number;
+        };
+        SetMessengerThreadMuteRequest: {
+            muted: boolean;
+        };
+        MessengerThreadMuteSummary: {
+            thread_id: components["schemas"]["Uuid"];
+            muted: boolean;
+        };
+        MessengerMemberPresence: {
+            user_id: components["schemas"]["Uuid"];
+            display_name: string | null;
+            /** Format: date-time */
+            last_activity_at: string | null;
+            status: components["schemas"]["MessengerPresenceStatus"];
+        };
+        MessengerMemberPresenceListResponse: {
+            items: components["schemas"]["MessengerMemberPresence"][];
+        };
+        /** @description Deep-link target — an object reference (kind + id) or a bare app screen. */
+        NotificationLink: {
+            /** @enum {string} */
+            type: "object";
+            kind: string;
+            id: string;
+        } | {
+            /** @enum {string} */
+            type: "screen";
+            screen: string;
+        };
+        NotificationSummary: {
+            id: components["schemas"]["Uuid"];
+            recipient_user_id: components["schemas"]["Uuid"];
+            /** @description Extensible category (결재/멘션/문서/공지/근태/급여 and beyond). */
+            category: string;
+            text: string;
+            link: components["schemas"]["NotificationLink"];
+            unread: boolean;
+            created_at: components["schemas"]["Timestamp"];
+            /**
+             * Format: date-time
+             * @description When the notification was first marked read; null while unread.
+             */
+            read_at: string | null;
+        };
+        NotificationPage: {
+            items: components["schemas"]["NotificationSummary"][];
+            /** Format: uuid */
+            next_cursor: string | null;
+        };
+        NotificationReadAllResponse: {
+            /**
+             * Format: int64
+             * @description The number of notifications marked read.
+             */
+            marked: number;
+        };
+        UnreadNotificationCountResponse: {
+            /**
+             * Format: int64
+             * @description The number of the caller's unread notifications.
+             */
+            unread: number;
+        };
+        /** @description A list-row / confirmation view of one inbox document. Never carries the body `payload` — that is only ever on InboxDocDetail, and only once readable. */
+        InboxDocSummary: {
+            id: components["schemas"]["Uuid"];
+            recipient_user_id: components["schemas"]["Uuid"];
+            /** @enum {string} */
+            kind: "payslip" | "legal_notice";
+            /** @description Statutory subtype for a legal notice (근로계약/취업규칙/연차촉진/노무수령거부). */
+            notice_type?: string;
+            title: string;
+            /** @description Statutory basis surfaced in the passkey gate (e.g. 근로기준법 §61). */
+            legal_basis?: string;
+            /** @description Producing-object kind (e.g. workflow_run, payroll_run). */
+            source_kind?: string;
+            /** @description Producing-object id (e.g. the AP- run code). */
+            source_id?: string;
+            /** @description True while a legal notice awaits receipt confirmation — its body is withheld until confirmed. Always false for payslips. */
+            locked: boolean;
+            /**
+             * Format: uuid
+             * @description The recipient who confirmed receipt; null until confirmed.
+             */
+            confirmed_by?: string | null;
+            /**
+             * Format: date-time
+             * @description When receipt was confirmed (the legal receipt timestamp); null until then.
+             */
+            confirmed_at?: string | null;
+            created_at: components["schemas"]["Timestamp"];
+        };
+        /** @description A single inbox document. Extends InboxDocSummary with the body `payload`, present only when readable (a payslip, or an already-confirmed legal notice) and omitted while a legal notice is locked. */
+        InboxDocDetail: components["schemas"]["InboxDocSummary"] & {
+            /** @description Rendered document payload (legal prose paragraphs, or payslip figures). */
+            payload?: {
+                [key: string]: unknown;
+            };
+        };
+        InboxDocPage: {
+            items: components["schemas"]["InboxDocSummary"][];
+            /** Format: uuid */
+            next_cursor: string | null;
+        };
+        /** @description The fresh passkey assertion proving present possession of an authenticator. Its absence yields 428 (precondition required). */
+        InboxDocConfirmReceiptRequest: {
+            step_up: components["schemas"]["PasskeyStepUpAssertion"];
+        };
+        /** @description One leave request in the approval queue (결재함 leave variant). */
+        LeaveRequestView: {
+            id: components["schemas"]["Uuid"];
+            branch_id: components["schemas"]["Uuid"];
+            requester_user_id: components["schemas"]["Uuid"];
+            subject_employee_id: components["schemas"]["Uuid"];
+            /** @enum {string} */
+            leave_type: "annual" | "half_day";
+            /** Format: double */
+            days: number;
+            /** Format: date */
+            start_date: string;
+            /** Format: date */
+            end_date: string;
+            reason: string;
+            /** @enum {string} */
+            status: "pending" | "approved" | "returned" | "rejected";
+            /** Format: uuid */
+            decided_by: string | null;
+            /** Format: date-time */
+            decided_at: string | null;
+            /** @description Mandatory on return/reject; present only when set. */
+            decision_comment?: string;
+            /**
+             * Format: uuid
+             * @description The engine AP- run, when the submittable definition exists.
+             */
+            ap_run_id?: string;
+            created_at: components["schemas"]["Timestamp"];
+        };
+        LeaveRequestPage: {
+            items: components["schemas"]["LeaveRequestView"][];
+        };
+        LeaveDecideRequest: {
+            /** @enum {string} */
+            decision: "approve" | "return" | "reject";
+            /** @description Mandatory for return/reject; optional for approve. */
+            comment?: string;
+        };
+        /** @description One employee's annual-leave balance row (직원별 연차 현황). */
+        LeaveRosterEntry: {
+            employee_id: components["schemas"]["Uuid"];
+            name: string;
+            team: string | null;
+            /** Format: double */
+            grant: number;
+            /** Format: double */
+            used: number;
+            /** Format: double */
+            left: number;
+            /**
+             * @description Bar color / 촉진 bucket — one of ok, promote, low.
+             * @enum {string}
+             */
+            tone: "ok" | "promote" | "low";
+        };
+        LeaveRosterPage: {
+            items: components["schemas"]["LeaveRosterEntry"][];
+        };
+        /** @description A §61 연차 사용 촉진 push to a target employee. */
+        LeavePromotionRequest: {
+            branch_id: components["schemas"]["Uuid"];
+            target_user_id: components["schemas"]["Uuid"];
+            target_employee_id: components["schemas"]["Uuid"];
+            target_name: string;
+            /**
+             * Format: int32
+             * @description §61 round — 1 (사용 촉구) or 2 (시기 지정).
+             */
+            round: number;
+            /**
+             * Format: double
+             * @description Unused annual-leave days motivating the push.
+             */
+            unused_days?: number;
+        };
+        /** @description A 노무수령거부 notice served after a round-2 promotion. */
+        LeaveRefusalRequest: {
+            branch_id: components["schemas"]["Uuid"];
+            target_user_id: components["schemas"]["Uuid"];
+            target_employee_id: components["schemas"]["Uuid"];
+            target_name: string;
+            /** Format: double */
+            unused_days?: number;
+        };
+        /** @description The result of a §61 push — the delivered notice + engine state. */
+        LeaveStatutoryPushView: {
+            id: components["schemas"]["Uuid"];
+            /** @enum {string} */
+            kind: "promotion" | "refusal";
+            /** Format: int32 */
+            round: number;
+            target_user_id: components["schemas"]["Uuid"];
+            inbox_doc_id: components["schemas"]["Uuid"];
+            /**
+             * Format: uuid
+             * @description The engine AP- run, when the submittable definition exists.
+             */
+            ap_run_id?: string;
+            /**
+             * @description submitted when a run was started, else pending_engine_definition.
+             * @enum {string}
+             */
+            ap_submission: "submitted" | "pending_engine_definition";
+        };
+        /** @description One scope chip or object link: a reference to a domain object by kind + id with an optional display-label snapshot. `kind` is an extensible free-form string (frontend object-registry kinds), not an enum. */
+        TodoRef: {
+            kind: string;
+            id: string;
+            label?: string;
+        };
+        TodoSummary: {
+            id: components["schemas"]["Uuid"];
+            owner_user_id: components["schemas"]["Uuid"];
+            text: string;
+            scopes: components["schemas"]["TodoRef"][];
+            links: components["schemas"]["TodoRef"][];
+            done: boolean;
+            created_at: components["schemas"]["Timestamp"];
+            updated_at: components["schemas"]["Timestamp"];
+            /**
+             * Format: date-time
+             * @description When the todo was first marked done; null while open.
+             */
+            done_at: string | null;
+        };
+        TodoPage: {
+            items: components["schemas"]["TodoSummary"][];
+        };
+        CreateTodoRequest: {
+            /** @description 1..=500 characters after trimming. */
+            text: string;
+            /** @description Scope chips (person/team/site/entity refs); at most 20. */
+            scopes?: components["schemas"]["TodoRef"][];
+            /** @description Object links (kind+id pairs); at most 20. */
+            links?: components["schemas"]["TodoRef"][];
+        };
+        SetTodoDoneRequest: {
+            /** @description Explicit target state (true = done, false = undo). */
+            done: boolean;
+        };
+        /** @description One pending P1 offer for the signed-in mechanic: a BROADCASTING dispatch that fanned out to the caller, still inside its accept window, with no response from the caller yet. */
+        MyDispatchOffer: {
+            dispatch_id: components["schemas"]["Uuid"];
+            work_order_id: components["schemas"]["Uuid"];
+            branch_id: components["schemas"]["Uuid"];
+            request_no: string;
+            accept_window_started_at: components["schemas"]["Timestamp"];
+            accept_window_ends_at: components["schemas"]["Timestamp"];
+        };
+        MyDispatchOfferPage: {
+            items: components["schemas"]["MyDispatchOffer"][];
+        };
+        /** @description A bounded cross-object reference for an action-inbox item. */
+        ActionInboxLink: {
+            /** @description Object type label (e.g. work_order, workflow_run). */
+            kind: string;
+            id: string;
+            label?: string;
+        };
+        /** @description One unified actionable item. Field names mirror the overview prototype's items[] shape. Source-partial fields (site/who/due/submitted) are absent when the originating source does not carry them. */
+        ActionInboxItem: {
+            /** @description "{kind}:{uuid}" — source-namespaced so ids never collide. */
+            id: string;
+            /** @enum {string} */
+            kind: "approval" | "dispatch" | "work" | "support";
+            /** @enum {string} */
+            urg: "now" | "today" | "wait";
+            /** @description Source reference (work order request_no, ticket id, or the workflow run/object id). Not a canonical AP-/CS- object code. */
+            ref: string;
+            title: string;
+            site?: string;
+            who?: string;
+            due?: components["schemas"]["Timestamp"];
+            /** @enum {string} */
+            dueTone: "danger" | "warn" | "neutral";
+            submitted?: components["schemas"]["Timestamp"];
+            links: components["schemas"]["ActionInboxLink"][];
+            done: boolean;
+        };
+        ActionInboxResponse: {
+            items: components["schemas"]["ActionInboxItem"][];
+            total: number;
         };
         /** @enum {string} */
         EquipmentStatus: "rented" | "spare" | "disposed" | "replacement" | "sold";
@@ -8449,6 +10403,56 @@ export interface components {
             display_name?: string;
             phone?: string | null;
         };
+        WorkspaceResponse: {
+            /** @description Opaque, frontend-owned console layout object. Stored and returned verbatim; empty default is `{}`. */
+            layout: {
+                [key: string]: unknown;
+            };
+        };
+        WorkspaceUpsertRequest: {
+            /** @description Opaque, frontend-owned console layout object to store verbatim. */
+            layout: {
+                [key: string]: unknown;
+            };
+        };
+        /** @description NON-AUTHORITATIVE authorization projection for the caller. A rendering hint only — the backend matrix is the sole enforcer. */
+        MeAuthzResponse: {
+            /**
+             * @description Always `advisory_ui_only`; never an authorization decision.
+             * @enum {string}
+             */
+            authority: "advisory_ui_only";
+            /**
+             * @description Grant source. `legacy_matrix` today; flips to `cedar` on the enforce-promotion with this shape unchanged.
+             * @enum {string}
+             */
+            source: "legacy_matrix" | "cedar";
+            user_id: components["schemas"]["Uuid"];
+            org_id: components["schemas"]["Uuid"];
+            /** @description Canonical role keys carried as principal attributes. */
+            roles: string[];
+            branch_scope: components["schemas"]["BranchScope"];
+            /** @description Capability grants the caller holds (deny-by-omission — a feature the caller cannot use is omitted, never present at `deny`). */
+            capabilities: components["schemas"]["MeAuthzCapability"][];
+        };
+        MeAuthzCapability: {
+            /** @description Feature key, matching `/api/v1/policy/features`. */
+            feature: string;
+            /**
+             * @description Effective permission level (`deny` is never emitted).
+             * @enum {string}
+             */
+            permission: "request_only" | "limited" | "allow";
+            /** @description The branch subset this `permission` level actually holds over — not necessarily the caller's full `branch_scope`. A branch-narrowed custom grant only elevates the capability within its own branches; the caller must intersect this with the target branch before offering the affordance (otherwise the UI can offer an action the server's `authorize` call would then reject outside this scope). */
+            branch_scope: components["schemas"]["BranchScope"];
+        };
+        /** @description The set of branches a principal may act within. `all` (SUPER_ADMIN / EXECUTIVE rollup) carries no `branches`; `branches` carries the explicit set. */
+        BranchScope: {
+            /** @enum {string} */
+            kind: "all" | "branches";
+            /** @description Present only when `kind = branches`. */
+            branches?: components["schemas"]["Uuid"][];
+        };
         CreateRegionRequest: {
             name: string;
         };
@@ -9067,13 +11071,6 @@ export interface components {
             branch?: string;
             legal_hold?: boolean;
         };
-        /** @enum {string} */
-        MessengerThreadVisibility: "channel" | "direct";
-        /** @enum {string} */
-        MessengerPresenceStatus: "online" | "away" | "offline";
-        SetMessengerThreadMuteRequest: {
-            muted: boolean;
-        };
         MessengerPresence: {
             user_id: components["schemas"]["Uuid"];
             display_name: string | null;
@@ -9083,13 +11080,6 @@ export interface components {
         };
         MessengerPresenceListResponse: {
             items: components["schemas"]["MessengerPresence"][];
-        };
-        MessengerAckSummary: {
-            message_id: components["schemas"]["Uuid"];
-            thread_id: components["schemas"]["Uuid"];
-            acked: boolean;
-            /** Format: int64 */
-            ack_count: number;
         };
         /** @enum {string} */
         EvidenceSourceType: "record_archive" | "inbox_doc" | "mail_attachment" | "ingest_job" | "work_order_evidence_media" | "external_document";
@@ -9362,11 +11352,6 @@ export interface components {
             decided_at?: string | null;
             decision_note?: string | null;
         };
-        LeaveRequestPage: {
-            items: components["schemas"]["LeaveRequest"][];
-            limit: number;
-            offset: number;
-        };
         MyLeaveBalance: {
             /** Format: uuid */
             employee_id: string;
@@ -9547,6 +11532,119 @@ export interface components {
             determining_policies: string[];
             reason: string;
         };
+        EquipmentVersion: {
+            /** Format: int32 */
+            version: number;
+            /** @enum {string} */
+            status: "CAPTURED" | "ROLLBACK";
+            /** Format: int32 */
+            sourceVersion?: number;
+            content: {
+                [key: string]: unknown;
+            };
+            /** Format: uuid */
+            createdBy?: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
+        EquipmentVersionList: {
+            items: components["schemas"]["EquipmentVersion"][];
+        };
+        EquipmentRollbackResult: {
+            /** Format: int32 */
+            version: number;
+        };
+        PeriodLock: {
+            /** Format: uuid */
+            id: string;
+            /** @enum {string} */
+            domain: "payroll" | "accounting";
+            /** Format: date */
+            periodStart: string;
+            /** Format: date */
+            periodEnd: string;
+            reason: string;
+            /** Format: uuid */
+            lockedBy?: string;
+            /** Format: date-time */
+            lockedAt: string;
+            /** Format: uuid */
+            unlockedBy?: string;
+            /** Format: date-time */
+            unlockedAt?: string;
+            unlockReason?: string;
+        };
+        PeriodLockList: {
+            items: components["schemas"]["PeriodLock"][];
+        };
+        CreatePeriodLockRequest: {
+            /** @enum {string} */
+            domain: "payroll" | "accounting";
+            /** Format: date */
+            periodStart: string;
+            /** Format: date */
+            periodEnd: string;
+            reason: string;
+        };
+        UnlockPeriodLockRequest: {
+            reason: string;
+        };
+        ObjectLifecycleTransition: {
+            fromState: string;
+            toState: string;
+            /** Format: uuid */
+            actor?: string;
+            reason: string;
+            /** Format: date-time */
+            occurredAt: string;
+        };
+        ObjectLifecycle: {
+            objectType: string;
+            /** Format: uuid */
+            objectId: string;
+            currentState: string;
+            legalHold: boolean;
+            /** Format: date */
+            retentionUntil?: string;
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+            transitions: components["schemas"]["ObjectLifecycleTransition"][];
+        };
+        TransitionLifecycleRequest: {
+            toState: string;
+            reason: string;
+        };
+        SetLifecycleHoldRequest: {
+            legalHold: boolean;
+            /**
+             * Format: date
+             * @description ISO date; omit or null to clear the retention deadline.
+             */
+            retentionUntil?: string;
+        };
+        /** @description One immutable version of an in-console office document. The storage key is internal and never returned. */
+        DocumentVersion: {
+            /** Format: uuid */
+            id: string;
+            documentRef: string;
+            versionNo: number;
+            contentHash: string;
+            /** @enum {string} */
+            fileType: "docx" | "xlsx" | "pptx";
+            /** Format: int64 */
+            byteSize: number;
+            /** @description The version_no this version non-destructively restored, when it is a rollback. */
+            restoredFrom?: number;
+            /**
+             * Format: uuid
+             * @description Actor who produced the version; omitted for system-initiated (force-save callback) versions.
+             */
+            createdBy?: string;
+            /** Format: date-time */
+            createdAt: string;
+        };
     };
     responses: {
         /** @description Missing or invalid bearer token. */
@@ -9641,6 +11739,8 @@ export interface components {
         };
     };
     parameters: {
+        LifecycleObjectType: string;
+        LifecycleObjectId: string;
         WorkOrderId: string;
         PlanId: string;
         RequestId: string;
@@ -10385,6 +12485,46 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    getAuditChainAttestation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The org's audit-chain integrity verdict. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditChainAttestation"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description verify_org_chain hit a genuine DB/infra error while recomputing the chain (never on a tamper finding, which is a 200 with ok=false). */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description JWT verification is not configured, or the database is not configured. */
             503: {
                 headers: {
                     [name: string]: unknown;
@@ -11784,6 +13924,72 @@ export interface operations {
             };
         };
     };
+    listEquipmentVersions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["EquipmentId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Version history, newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EquipmentVersionList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    rollbackEquipmentVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["parameters"]["EquipmentId"];
+                version: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Rollback landed as a new version. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EquipmentRollbackResult"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     getEquipmentTimelineGraph: {
         parameters: {
             query?: never;
@@ -12700,6 +14906,33 @@ export interface operations {
             403: components["responses"]["Forbidden"];
         };
     };
+    getMessengerMember: {
+        parameters: {
+            query: {
+                branch_id: components["schemas"]["Uuid"];
+            };
+            header?: never;
+            path: {
+                userId: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The branch member's summary. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessengerMemberSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
     listMessengerThreads: {
         parameters: {
             query?: {
@@ -12832,6 +15065,134 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MessengerReadReceiptSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listMessengerChannels: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Joinable channels visible to the caller. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessengerThreadListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    joinMessengerChannel: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                threadId: components["parameters"]["ThreadId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The thread the caller joined. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessengerThreadSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    setMessengerThreadMute: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                threadId: components["parameters"]["ThreadId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetMessengerThreadMuteRequest"];
+            };
+        };
+        responses: {
+            /** @description The thread's post-toggle mute state for the caller. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessengerThreadMuteSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getMessengerThreadPresence: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                threadId: components["parameters"]["ThreadId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Presence of every member of the thread. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessengerMemberPresenceListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    toggleMessengerMessageAck: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                messageId: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The message's post-toggle ack state. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MessengerAckSummary"];
                 };
             };
             401: components["responses"]["Unauthorized"];
@@ -13810,6 +16171,48 @@ export interface operations {
             };
         };
     };
+    getKpiExport: {
+        parameters: {
+            query: {
+                /**
+                 * @description Inclusive start date and exclusive end date in UTC day boundaries.
+                 * @example 2026-06-01..2026-07-01
+                 */
+                period: string;
+                scope?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description KPI rollup workbook. */
+            200: {
+                headers: {
+                    /** @description Attachment filename for the generated workbook. */
+                    "Content-Disposition"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": string;
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     getWorkDiaryDraft: {
         parameters: {
             query: {
@@ -14388,6 +16791,643 @@ export interface operations {
             };
         };
     };
+    listMyNotifications: {
+        parameters: {
+            query?: {
+                /** @description When true, return only unread notifications. */
+                unread?: boolean;
+                /** @description Keyset cursor; return notifications strictly older than this id. */
+                before?: components["schemas"]["Uuid"];
+                /** @description Page size (clamped server-side to 1..=200; default 50). */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of the caller's notifications. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    getMyUnreadNotificationCount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The number of the caller's unread notifications. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UnreadNotificationCountResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    markAllMyNotificationsRead: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The number of notifications marked read. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationReadAllResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    markMyNotificationRead: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The updated notification. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    listLeaveRequests: {
+        parameters: {
+            query?: {
+                /** @description Filter to one status; omitted returns all four. */
+                status?: "pending" | "approved" | "returned" | "rejected";
+                /** @description Page size (clamped server-side to 1..=200; default 100). */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A branch-scoped page of leave requests. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeaveRequestPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    decideLeaveRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeaveDecideRequest"];
+            };
+        };
+        responses: {
+            /** @description The decided leave request. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeaveRequestView"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description The request is not pending and cannot be decided again. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Missing mandatory comment or unknown decision. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    listLeaveBalances: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The leave-balance roster. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeaveRosterPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    pushLeavePromotion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeavePromotionRequest"];
+            };
+        };
+        responses: {
+            /** @description The recorded push, including the delivered notice id. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeaveStatutoryPushView"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description Invalid round (§61 allows 1 or 2). */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    pushLeaveRefusalNotice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeaveRefusalRequest"];
+            };
+        };
+        responses: {
+            /** @description The recorded refusal push, including the delivered notice id. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeaveStatutoryPushView"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    listMyInboxDocs: {
+        parameters: {
+            query?: {
+                /** @description 확인 필요 (`action`) = legal notices awaiting receipt; 급여명세 (`pay`) = payslips; 완료 (`done`) = confirmed; 전체 (`all`, default). */
+                filter?: "action" | "pay" | "done" | "all";
+                /** @description Keyset cursor; return documents strictly older than this id. */
+                before?: components["schemas"]["Uuid"];
+                /** @description Page size (clamped server-side to 1..=200; default 50). */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of the caller's inbox documents. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InboxDocPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description Unknown filter value. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    getMyInboxDoc: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The document (body withheld while locked). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InboxDocDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    confirmMyInboxDocReceipt: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["InboxDocConfirmReceiptRequest"];
+            };
+        };
+        responses: {
+            /** @description The confirmed document, unlocked and stamped. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["InboxDocSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            /** @description The document is a payslip and cannot be receipt-confirmed. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description A fresh passkey step-up is required to confirm receipt. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description JWT verification or passkey step-up is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    listMyTodos: {
+        parameters: {
+            query?: {
+                /** @description When true, also return completed todos (default false). */
+                include_done?: boolean;
+                /** @description Page size (clamped server-side to 1..=200; default 100). */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's todos. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TodoPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    createMyTodo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTodoRequest"];
+            };
+        };
+        responses: {
+            /** @description The created todo. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TodoSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    setMyTodoDone: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                todoId: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetTodoDoneRequest"];
+            };
+        };
+        responses: {
+            /** @description The updated todo. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TodoSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    deleteMyTodo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                todoId: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The todo was deleted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    listMyDispatchOffers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's pending dispatch offers. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MyDispatchOfferPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    listMyActionInbox: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's actionable items, most urgent first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActionInboxResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     getCurrentUser: {
         parameters: {
             query?: never;
@@ -14612,6 +17652,101 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    getCurrentUserWorkspace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's workspace layout. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    putCurrentUserWorkspace: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkspaceUpsertRequest"];
+            };
+        };
+        responses: {
+            /** @description The stored workspace layout. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    getCurrentUserAuthz: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's authorization projection. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MeAuthzResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
             /** @description JWT verification is not configured. */
             503: {
                 headers: {
@@ -14974,6 +18109,31 @@ export interface operations {
             };
         };
     };
+    getBranch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The branch summary. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BranchSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
     deactivateBranch: {
         parameters: {
             query?: never;
@@ -15276,7 +18436,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The listing was deleted. */
+            /** @description The listing was archived (status set to WITHDRAWN). */
             204: {
                 headers: {
                     [name: string]: unknown;
@@ -16302,6 +19462,28 @@ export interface operations {
             422: components["responses"]["ValidationError"];
         };
     };
+    listSubmittableWorkflowDefinitions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Startable ACTIVE definitions for the caller. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SubmittableDefinitionListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
     archiveWorkflowDefinition: {
         parameters: {
             query?: never;
@@ -16510,46 +19692,6 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
-            422: components["responses"]["ValidationError"];
-            /** @description Fresh passkey step-up is required. */
-            428: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ErrorBody"];
-                };
-            };
-        };
-    };
-    approveWorkflowDefinitionRevision: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: components["schemas"]["Uuid"];
-                rev: number;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["WorkflowStepUpRequest"];
-            };
-        };
-        responses: {
-            /** @description Approved workflow definition revision. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WorkflowDefinitionResponse"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
             422: components["responses"]["ValidationError"];
             /** @description Fresh passkey step-up is required. */
@@ -16561,34 +19703,6 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-        };
-    };
-    withdrawWorkflowDefinitionRevision: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: components["schemas"]["Uuid"];
-                rev: number;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Withdrawn workflow definition revision. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["WorkflowDefinitionResponse"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-            409: components["responses"]["Conflict"];
-            422: components["responses"]["ValidationError"];
         };
     };
     pauseWorkflowDefinition: {
@@ -16745,6 +19859,601 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
+        };
+    };
+    listWorkflowDefinitionsByObjectKind: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                kind: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Definitions and trigger bindings touching the object kind. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DefinitionsByObjectKindResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    approveWorkflowDefinitionRevision: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+                /** @description The pending revision (version number) being approved. */
+                rev: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkflowStepUpRequest"];
+            };
+        };
+        responses: {
+            /** @description Revision applied; the new version is active. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowDefinitionResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            /** @description Fresh passkey step-up is required. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    withdrawWorkflowDefinitionRevision: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+                /** @description The pending revision (version number) being withdrawn. */
+                rev: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Pending revision withdrawn. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowDefinitionResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    listWorkflowTriggerBindings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Trigger bindings plus the registered event-key vocabulary. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TriggerBindingListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createWorkflowTriggerBinding: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateTriggerBindingRequest"];
+            };
+        };
+        responses: {
+            /** @description Created trigger binding. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TriggerBindingResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    enableWorkflowTriggerBinding: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Updated trigger binding. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TriggerBindingResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    disableWorkflowTriggerBinding: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Updated trigger binding. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TriggerBindingResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listWorkflowSchedules: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Workflow schedules. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowScheduleListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createWorkflowSchedule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateWorkflowScheduleRequest"];
+            };
+        };
+        responses: {
+            /** @description Created workflow schedule. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowScheduleResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    updateWorkflowSchedule: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateWorkflowScheduleRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated workflow schedule. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowScheduleResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    previewWorkflowScheduleNextRuns: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PreviewScheduleRequest"];
+            };
+        };
+        responses: {
+            /** @description The next fire times (RFC 3339, UTC) for the expression in its timezone. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PreviewScheduleResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    listWorkflowScheduleRuns: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Runs started by this schedule, newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ScheduleRunListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    finalizeWorkflowTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FinalizeWorkflowTaskRequest"];
+            };
+        };
+        responses: {
+            /** @description Finalization recorded (replays return the recorded result). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FinalizeWorkflowTaskResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    createWorkflowPostFinalizationRejection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PostFinalizationRejectionRequest"];
+            };
+        };
+        responses: {
+            /** @description Compensating document created (replays return the recorded result). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PostFinalizationRejectionResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    listWorkflowRunsAdmin: {
+        parameters: {
+            query?: {
+                /** @description Comma-separated run statuses (e.g. FAILED,DEAD_LETTERED). Omitted returns all statuses. */
+                status?: string;
+                /** @description Keyset cursor — the run_id of the last row of the previous page. */
+                before?: components["schemas"]["Uuid"];
+                /** @description Page size, clamped to [1, 200]. Defaults to 50. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of org-wide runs, newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AdminWorkflowRunListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    startWorkflowRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartWorkflowRunRequest"];
+            };
+        };
+        responses: {
+            /** @description Run started (or replayed) with its current first WAITING task, if any. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StartWorkflowRunResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getWorkflowRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The run's head, current waiting task(s), and its full node-step timeline. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowRunDetailResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listMyWorkflowRuns: {
+        parameters: {
+            query?: {
+                /** @description Comma-separated run statuses (e.g. WAITING,SUCCEEDED). Omitted returns all statuses. */
+                status?: string;
+                object_type?: string;
+                /** @description Reserved free-text filter (not yet applied). */
+                q?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The caller's submission box. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowRunListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    listWorkflowTasks: {
+        parameters: {
+            query?: {
+                /** @description Group-inbox filter matched against assignee_role_key. */
+                role_key?: string;
+                /** @description Set to "me" for the personal inbox (the caller's CLAIMED tasks plus claimable OPEN ones). */
+                assignee?: string;
+                /** @description Comma-separated task statuses (e.g. OPEN,CLAIMED). Defaults to OPEN. */
+                status?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The visible waiting tasks. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowTaskListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    claimWorkflowTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ClaimWorkflowTaskRequest"];
+            };
+        };
+        responses: {
+            /** @description Task claimed (replays return the current claim). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ClaimWorkflowTaskResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    decideWorkflowTask: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                task_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DecideWorkflowTaskRequest"];
+            };
+        };
+        responses: {
+            /** @description Decision recorded (replays return the recorded result). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DecideWorkflowTaskResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
         };
     };
     listCollaborationCalendarEvents: {
@@ -16913,6 +20622,356 @@ export interface operations {
             404: components["responses"]["NotFound"];
             422: components["responses"]["ValidationError"];
             428: components["responses"]["PreconditionRequired"];
+        };
+    };
+    listObjectLinks: {
+        parameters: {
+            query: {
+                /** @description Object kind slug (must be a known object type). */
+                kind: string;
+                /** @description Object id/reference (a UUID or issued code, ≤200 chars). */
+                id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Links touching the object, split into outgoing and incoming. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObjectLinksListResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    createObjectLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateObjectLinkRequest"];
+            };
+        };
+        responses: {
+            /** @description The created link. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObjectLinkResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    deleteObjectLink: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The link was removed. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    searchObjects: {
+        parameters: {
+            query: {
+                /** @description Case-insensitive substring to match against names/codes (≤200 chars; empty returns no hits). */
+                q: string;
+                /** @description Max hits per object kind, clamped 1-50 (default 20). */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Caller-visible hits across kinds and the person directory. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SearchResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    resolveObject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Object kind slug (e.g. work_order, equipment, support_ticket, org_unit, person, approval_run). */
+                kind: string;
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The resolved object head (exists=false when not visible/absent). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObjectHead"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getObjectGraph: {
+        parameters: {
+            query?: {
+                /** @description Walk depth in hops, clamped to 1-5 (default 1). */
+                depth?: number;
+            };
+            header?: never;
+            path: {
+                /** @description Root object kind slug. */
+                kind: string;
+                /** @description Root object id. */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The bounded neighborhood of the root object (empty if the root itself does not resolve). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObjectGraphResponse"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    listRegistryObjectTypes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The object-type registry. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObjectTypeResponse"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    getRegistryObjectType: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Object kind slug. */
+                kind: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The object type. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObjectTypeResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    listLinkTypes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The edge-type registry. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LinkTypeResponse"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createSeries: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateSeriesRequest"];
+            };
+        };
+        responses: {
+            /** @description The created series with its first resolved instance. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SeriesDetailResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getSeriesByInstance: {
+        parameters: {
+            query: {
+                /** @description Instance object kind slug. */
+                kind: string;
+                /** @description Instance object id/reference. */
+                id: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The series the instance belongs to (series=null when none / not resolvable). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SeriesByInstanceResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getSeries: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The series with its ordered, resolved instances. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SeriesDetailResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    attachSeriesInstance: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AttachInstanceRequest"];
+            };
+        };
+        responses: {
+            /** @description The instance was attached. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AttachInstanceAck"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
         };
     };
     getPurchaseRequestPreferences: {
@@ -17774,134 +21833,6 @@ export interface operations {
             503: components["responses"]["ServiceUnavailable"];
         };
     };
-    listMessengerChannels: {
-        parameters: {
-            query?: {
-                limit?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description List branch-scoped channel threads the caller can see. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MessengerThreadListResponse"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-        };
-    };
-    joinMessengerThread: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                threadId: components["schemas"]["Uuid"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The joined thread. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MessengerThreadSummary"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-        };
-    };
-    setMessengerThreadMute: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                threadId: components["schemas"]["Uuid"];
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SetMessengerThreadMuteRequest"];
-            };
-        };
-        responses: {
-            /** @description The thread with its updated mute state. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MessengerThreadSummary"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-        };
-    };
-    messengerThreadPresence: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                threadId: components["schemas"]["Uuid"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Per-member presence for the thread. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MessengerPresenceListResponse"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-        };
-    };
-    toggleMessengerMessageAck: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                messageId: components["schemas"]["Uuid"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description The message's acknowledgement summary after toggling. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MessengerAckSummary"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            404: components["responses"]["NotFound"];
-        };
-    };
     listEvidenceObjects: {
         parameters: {
             query?: {
@@ -18032,229 +21963,6 @@ export interface operations {
             };
             /** @description Release requires a distinct-approver four-eyes approval (code four_eyes_required). */
             403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    listTeamLeaveRequests: {
-        parameters: {
-            query?: {
-                status?: "all" | "DRAFT" | "SUBMITTED" | "APPROVED" | "REJECTED";
-                limit?: number;
-                offset?: number;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description page */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LeaveRequestPage"];
-                };
-            };
-            /** @description missing EmployeeDirectoryManage */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    createLeaveRequest: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateLeaveRequest"];
-            };
-        };
-        responses: {
-            /** @description created */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LeaveRequest"];
-                };
-            };
-            /** @description no linked employee */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description validation (bad enum / date range) */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    myLeaveOverview: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description overview */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MyLeaveOverview"];
-                };
-            };
-            /** @description no linked employee */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    decideLeaveRequest: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["DecideLeaveRequest"];
-            };
-        };
-        responses: {
-            /** @description decided */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LeaveRequest"];
-                };
-            };
-            /** @description not authorized OR decider == requester */
-            403: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description not in SUBMITTED state */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    listLeavePromotions: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description rounds */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LeavePromotion"][];
-                };
-            };
-        };
-    };
-    createLeavePromotion: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateLeavePromotion"];
-            };
-        };
-        responses: {
-            /** @description created */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LeavePromotion"];
-                };
-            };
-            /** @description round already exists for year/round */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-        };
-    };
-    sendLeavePromotion: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description sent */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["LeavePromotion"];
-                };
-            };
-            /** @description not DRAFT */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
-            /** @description no target employees */
-            422: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -18476,6 +22184,372 @@ export interface operations {
                     "application/json": components["schemas"]["DecisionLogRow"][];
                 };
             };
+        };
+    };
+    listPeriodLocks: {
+        parameters: {
+            query?: {
+                domain?: "payroll" | "accounting";
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Period locks, newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PeriodLockList"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    createPeriodLock: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreatePeriodLockRequest"];
+            };
+        };
+        responses: {
+            /** @description Period locked. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PeriodLock"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    unlockPeriodLock: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                lockId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UnlockPeriodLockRequest"];
+            };
+        };
+        responses: {
+            /** @description Period unlocked. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PeriodLock"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getObjectLifecycle: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                objectType: components["parameters"]["LifecycleObjectType"];
+                objectId: components["parameters"]["LifecycleObjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Lifecycle record. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObjectLifecycle"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    transitionObjectLifecycle: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                objectType: components["parameters"]["LifecycleObjectType"];
+                objectId: components["parameters"]["LifecycleObjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TransitionLifecycleRequest"];
+            };
+        };
+        responses: {
+            /** @description Transition applied. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObjectLifecycle"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    setObjectLifecycleHold: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                objectType: components["parameters"]["LifecycleObjectType"];
+                objectId: components["parameters"]["LifecycleObjectId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetLifecycleHoldRequest"];
+            };
+        };
+        responses: {
+            /** @description Hold updated. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObjectLifecycle"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    createOfficeSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Trimmed logical document reference; control characters are rejected. */
+                    documentRef: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The editor config to hand to DocumentServer. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        documentServerUrl: string;
+                        /** @description The ONLYOFFICE DocEditor config object, carrying its signed `token`. */
+                        config: {
+                            [key: string]: unknown;
+                        };
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+            /** @description Office editor or document storage is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    officeCallback: {
+        parameters: {
+            query: {
+                /** @description Host-issued callback token binding the request to (org, document). */
+                ct: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description The ONLYOFFICE-signed callback payload (v7.1+ in-body token). */
+                    token?: string;
+                    /** @description ONLYOFFICE document status code (2 = ready to save, 6 = force-save, other values are no-ops). */
+                    status?: number;
+                    /**
+                     * Format: uri
+                     * @description Short-lived DocumentServer URL for the produced document when status is 2 or 6.
+                     */
+                    url?: string;
+                    /** @description The document.key of the editing session that produced this callback. */
+                    key?: string;
+                    /**
+                     * @description ONLYOFFICE file type for the produced document.
+                     * @enum {string}
+                     */
+                    filetype?: "docx" | "xlsx" | "pptx";
+                    /** @description ONLYOFFICE user identifiers participating in the callback, when supplied. */
+                    users?: string[];
+                    /** @description ONLYOFFICE action metadata, when supplied. */
+                    actions?: {
+                        [key: string]: unknown;
+                    }[];
+                    /** @description ONLYOFFICE history payload, when supplied. */
+                    history?: {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+        responses: {
+            /** @description Always 200. `error` is 0 on success/ignore, non-zero on a rejected callback. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        error: number;
+                    };
+                };
+            };
+        };
+    };
+    listOfficeDocumentVersions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                documentRef: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The append-only version list. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: components["schemas"]["DocumentVersion"][];
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    restoreOfficeDocumentVersion: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                documentRef: string;
+                versionNo: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The newly appended (restored) version. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DocumentVersion"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
 }

@@ -126,7 +126,10 @@ const CONFIGURED_ROUTE_SOURCES: &[RouteSource] = &[
         name: "comms REST router",
         surface: "comms",
         source: include_str!("../../crates/comms/rest/src/lib.rs"),
-        ignored_route_refs: &[],
+        // The MOX inbound webhook authenticates with a provider HMAC secret (not a
+        // customer session) and is deliberately absent from the customer OpenAPI +
+        // SDK clients; keep it out of the drift inventory intentionally.
+        ignored_route_refs: &["MAIL_MOX_WEBHOOK_PATH"],
     },
     RouteSource {
         name: "platform REST router",
@@ -302,8 +305,8 @@ fn openapi_yaml_covers_platform_route_operations() {
 #[test]
 fn platform_route_operation_gate_rejects_missing_contract_entry() {
     let broken_yaml = OPENAPI_YAML.replacen(
-        "    delete:\n      operationId: removePlatformOrg",
-        "    x-delete-missing-for-test:\n      operationId: removePlatformOrg",
+        "    delete:\n      operationId: removePlatformOrgFromGroup",
+        "    x-delete-missing-for-test:\n      operationId: removePlatformOrgFromGroup",
         1,
     );
     let missing = missing_platform_route_operations(&broken_yaml);
@@ -311,8 +314,8 @@ fn platform_route_operation_gate_rejects_missing_contract_entry() {
     assert!(
         missing
             .iter()
-            .any(|entry| entry == "DELETE /api/platform/orgs/{id}"),
-        "deliberately removing DELETE /api/platform/orgs/{{id}} from OpenAPI should be reported; missing={missing:?}"
+            .any(|entry| entry == "DELETE /api/platform/groups/{id}/organizations/{org_id}"),
+        "deliberately removing DELETE /api/platform/groups/{{id}}/organizations/{{org_id}} from OpenAPI should be reported; missing={missing:?}"
     );
 }
 

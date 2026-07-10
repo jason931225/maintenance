@@ -63,6 +63,7 @@ time::serde::format_description!(iso_date, Date, "[year]-[month]-[day]");
 /// and so the completion tail can be driven directly in integration tests; the REST
 /// entry (`drive_completion_if_enabled`) stays crate-private.
 pub mod m2_strangler;
+pub mod workflow_triggers;
 
 pub const APPROVAL_ITEMS_PATH: &str = "/api/approval-items";
 pub const WORKORDERS_V1_PATH: &str = "/api/v1/work-orders";
@@ -1081,6 +1082,10 @@ impl RestError {
                 tracing::error!(error = %err, "serialization error");
                 Self::internal("internal server error")
             }
+            DbError::CodeIssuance(err) => {
+                tracing::error!(error = %err, "object-code issuance error");
+                Self::internal("internal server error")
+            }
         }
     }
 
@@ -1628,6 +1633,7 @@ async fn complete_sync_request(
     actor: UserId,
     outcome: PendingSyncOutcome,
 ) -> Result<SyncOperationResult, RestError> {
+    let org = current_org().map_err(|err| RestError::from_kernel(err.into()))?;
     let response_body = serde_json::to_value(&outcome.result)?;
     let event: AuditEvent = AuditEvent::new(
         Some(actor),
@@ -1637,6 +1643,7 @@ async fn complete_sync_request(
         TraceContext::generate(),
         time::OffsetDateTime::now_utc(),
     )
+    .with_org(org)
     .with_snapshots(None, Some(response_body.clone()));
     let result = outcome.result.clone();
 
@@ -2163,6 +2170,9 @@ async fn record_evidence_presign_audit(
     branch_id: BranchId,
     ticket: &EvidenceUploadTicket,
 ) -> Result<(), RestError> {
+    let org = current_org()
+        .map_err(KernelError::from)
+        .map_err(RestError::from_kernel)?;
     let event: AuditEvent = AuditEvent::new(
         Some(principal.user_id),
         AuditAction::new("evidence.presign").map_err(RestError::from_kernel)?,
@@ -2172,6 +2182,7 @@ async fn record_evidence_presign_audit(
         time::OffsetDateTime::now_utc(),
     )
     .with_branch(branch_id)
+    .with_org(org)
     .with_snapshots(
         None,
         Some(serde_json::json!({
@@ -3081,18 +3092,20 @@ async fn approve_work_order(
         .await
         .map_err(RestError::from_store)?;
 
-    // M2 completion strangler (design §Strangler, step 7). Only the executive
-    // approval that reaches FINAL_COMPLETED is a candidate — admin → AdminReview
-    // never touches the runtime. The legacy completion above already committed
-    // (work_orders status + audit) in its own transaction; this is a purely
-    // additive, flag-gated record step. Legacy-first ordering means a runtime
-    // failure never fails a request the tenant already saw succeed — it is logged
-    // and the payroll draft is eventually restaged by the outbox drainer. Flag OFF
-    // (the dark default for every tenant) is a single read-only SELECT that writes
-    // nothing, so the completion path stays byte-identical to legacy.
+    // Domain-event publish (BE-AUTO slice 1). Only the executive approval that
+    // reaches FINAL_COMPLETED is a candidate — admin → AdminReview never touches
+    // the runtime. The legacy completion above already committed (work_orders
+    // status + audit) in its own transaction; this publish is purely additive.
+    // The dispatcher evaluates an ordered binding list: (1) the built-in M2
+    // completion-tail strangler — flag-gated, byte-identical to the previous
+    // inline start (dark default = one read-only SELECT, nothing written) —
+    // then (2) every enabled workflow_trigger_bindings rule for
+    // 'work_order.completed'. Legacy-first ordering means a trigger failure
+    // never fails a request the tenant already saw succeed — it is logged and
+    // the payroll draft is eventually restaged by the outbox drainer.
     if summary.status == WorkOrderStatus::FinalCompleted
         && let Some(runtime) = state.workflow_runtime.as_ref()
-        && let Err(err) = m2_strangler::drive_completion_if_enabled(
+        && let Err(err) = workflow_triggers::publish_work_order_completed(
             runtime,
             &principal,
             summary.branch_id,
@@ -3103,7 +3116,7 @@ async fn approve_work_order(
         tracing::warn!(
             error = %err.message,
             work_order_id = %work_order_id,
-            "m2 strangler: runtime completion record failed (completion already persisted; drainer will restage payroll)"
+            "workflow triggers: work_order.completed publish failed (completion already persisted; drainer will restage payroll)"
         );
     }
 

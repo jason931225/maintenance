@@ -6,19 +6,25 @@
     "width": 1440,
     "height": 900
   },
-  "capturedAt": "2026-07-10T01:38:23.583Z",
+  "capturedAt": "2026-07-09T13:02:24.822Z",
   "captures": [
     {
       "id": "list",
       "png": "e2e/fidelity/baseline/module/list.build.png",
-      "path": "/console?screen=asset",
+      "path": "/console-dev/module?config=support",
       "selector": "[data-fidelity=\"module-list\"]"
     },
     {
       "id": "detail-open",
       "png": "e2e/fidelity/baseline/module/detail-open.build.png",
-      "path": "/console?screen=asset",
+      "path": "/console-dev/module?config=support",
       "selector": "[data-fidelity=\"module-detail\"]"
+    },
+    {
+      "id": "lanes",
+      "png": "e2e/fidelity/baseline/module/lanes.build.png",
+      "path": "/console-dev/module?config=workOrder",
+      "selector": "[data-fidelity=\"module-lanes\"]"
     }
   ]
 }

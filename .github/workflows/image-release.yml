@@ -1,27 +1,37 @@
 name: Image Release
 
 # Builds, scans, signs and publishes the server (mnt-app) and web console
-# (mnt-web) container images to GHCR. Single-arch linux/arm64 only — that is
-# what the Oracle Ampere A1 cluster runs (extend `platforms` to add amd64). The
-# Trivy scan is a BLOCKING gate: the image is pushed by digest, but it is only
-# cosign-signed + attested after the scan passes, so a vulnerable image is never
-# signed. Hard-fail admission verification is not enabled until ops installs the
-# sigstore policy-controller CRDs/controller; an audit-mode ClusterImagePolicy
-# lives under deploy/apps/maintenance/components/admission-audit.
+# (mnt-web) container images to GHCR as MULTI-ARCH manifest lists
+# (linux/amd64 + linux/arm64) so the images run on bare-metal amd64 as well as
+# the Oracle Ampere A1 (arm64) cluster. Native-runner build: each arch builds on
+# its own native runner (no QEMU — a Rust build under emulation is punishingly
+# slow), pushes a single-arch image BY DIGEST, and a merge job stitches the two
+# per-arch digests into one manifest list with `docker buildx imagetools
+# create`. The manifest-LIST digest (the multi-arch index) is the immutable
+# artifact that gets Trivy-scanned, cosign-signed, provenance-attested and
+# pinned into the prod overlay — so `docker pull @sha256:<list>` resolves the
+# right per-node-arch image.
+#
+# The Trivy scan is a BLOCKING gate: the manifest list is tagged, but it is only
+# cosign-signed + attested after BOTH arches pass the scan, so a vulnerable image
+# is never signed. Hard-fail admission verification is not enabled until ops
+# installs the sigstore policy-controller CRDs/controller; an audit-mode
+# ClusterImagePolicy lives under deploy/apps/maintenance/components/admission-audit.
 
 on:
   push:
     branches: [main]
     tags: ["v*"]
     # Build images only when source/build inputs change. Tag pushes still run
-    # regardless of path filters; deploy-only and docs/specs-only pushes should
-    # not wait for a CI run that intentionally never starts. Keep docs/reference
-    # because the backend reporting crate embeds those templates into the image.
+    # regardless of path filters; deploy-only pushes should not wait for a CI
+    # run that intentionally never starts. Keep docs/reference and docs/specs
+    # because backend crates embed those files into the image at compile time.
     paths:
       - "backend/**"
       - "clients/**"
       - "web/**"
       - "docs/reference/**"
+      - "docs/specs/**"
       - "package.json"
       - "package-lock.json"
       - "openapitools.json"
@@ -70,21 +80,27 @@ jobs:
           echo "::error::Timed out waiting for CI to finish for ${SHA}"
           exit 1
 
-  images:
-    name: ${{ matrix.image }} — build / scan / sign / push
+  # One native build per (image, arch). Each leg builds its arch on the matching
+  # native runner (amd64 → ubuntu-24.04, arm64 → ubuntu-24.04-arm) and pushes the
+  # single-arch image BY DIGEST only (no tags yet — the merge job tags the
+  # manifest list). provenance+sbom attestations are attached per arch and are
+  # preserved through the manifest-list merge. Each leg exports its digest as an
+  # artifact for the merge job to fan in.
+  build:
+    name: ${{ matrix.image.name }} (${{ matrix.platform.arch }}) — build / push by digest
     needs: ci-gate
-    runs-on: ubuntu-24.04-arm # free native arm64 for public repos — the A1 cluster is arm64
+    runs-on: ${{ matrix.platform.runner }}
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - image: mnt-app
-            dockerfile: backend/Dockerfile
-          - image: mnt-web
-            dockerfile: web/Dockerfile
+        image:
+          - { name: mnt-app, dockerfile: backend/Dockerfile }
+          - { name: mnt-web, dockerfile: web/Dockerfile }
+        platform:
+          - { arch: amd64, runner: ubuntu-24.04, target: linux/amd64 }
+          - { arch: arm64, runner: ubuntu-24.04-arm, target: linux/arm64 }
     env:
-      REGISTRY: ghcr.io
-      IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/${{ matrix.image }}
+      IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/${{ matrix.image.name }}
 
     steps:
       - name: Checkout
@@ -95,6 +111,77 @@ jobs:
       - name: Set SOURCE_DATE_EPOCH from commit
         run: echo "SOURCE_DATE_EPOCH=$(git log -1 --pretty=%ct)" >> "$GITHUB_ENV"
 
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
+
+      - name: Log in to GHCR
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Labels only here — the by-digest push carries no tags; tags are applied
+      # to the manifest list in the merge job.
+      - name: Derive image labels
+        id: meta
+        uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6.1.0
+        with:
+          images: ${{ env.IMAGE_NAME }}
+          labels: |
+            org.opencontainers.image.title=${{ matrix.image.name }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+
+      - name: Build and push by digest (${{ matrix.platform.target }})
+        id: build
+        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+        with:
+          context: .                       # repo root: backend embeds docs/, web is a workspace
+          file: ${{ matrix.image.dockerfile }}
+          platforms: ${{ matrix.platform.target }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # push-by-digest: publish the single-arch image under its content
+          # digest with no tag; the merge job assembles the tagged manifest list.
+          outputs: type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+          provenance: mode=max             # SLSA provenance attestation, per arch
+          sbom: true                       # in-toto SPDX SBOM attestation, per arch
+          # Per-(image,arch) cache scope so the two arches never clobber each
+          # other's gha cache under a shared default key.
+          cache-from: type=gha,scope=${{ matrix.image.name }}-${{ matrix.platform.arch }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image.name }}-${{ matrix.platform.arch }}
+          build-args: |
+            SOURCE_DATE_EPOCH=${{ env.SOURCE_DATE_EPOCH }}
+
+      # Fan-in to the merge job: one tiny artifact per (image, arch) carrying the
+      # single-arch digest that imagetools will stitch into the manifest list.
+      - name: Stash per-arch digest
+        run: printf '%s' "${{ steps.build.outputs.digest }}" > "digest-${{ matrix.image.name }}-${{ matrix.platform.arch }}.txt"
+      - name: Upload per-arch digest artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: digest-${{ matrix.image.name }}-${{ matrix.platform.arch }}
+          path: digest-${{ matrix.image.name }}-${{ matrix.platform.arch }}.txt
+          retention-days: 1
+          if-no-files-found: error
+
+  # Merge the two per-arch by-digest images into one multi-arch manifest list,
+  # then run the full gate against the LIST digest: Trivy (both arches),
+  # cosign-sign, provenance-attest, and stash the list digest for the bump job.
+  # Everything downstream (release-probe, bump-digests) consumes this list digest.
+  merge:
+    name: ${{ matrix.image.name }} — merge manifest / scan / sign / push
+    needs: build
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image:
+          - { name: mnt-app }
+          - { name: mnt-web }
+    env:
+      IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/${{ matrix.image.name }}
+
+    steps:
       - name: Set up Buildx
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
 
@@ -117,98 +204,119 @@ jobs:
             type=sha,format=long
             type=raw,value=edge,enable=${{ github.ref == 'refs/heads/main' }}
           labels: |
-            org.opencontainers.image.title=${{ matrix.image }}
+            org.opencontainers.image.title=${{ matrix.image.name }}
             org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
 
-      - name: Build and push (by digest, linux/arm64)
-        id: build
-        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
+      - name: Download amd64 digest
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          context: .                       # repo root: backend embeds docs/, web is a workspace
-          file: ${{ matrix.dockerfile }}
-          platforms: linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          provenance: mode=max             # SLSA provenance attestation in the image index
-          sbom: true                       # in-toto SPDX SBOM attestation
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          build-args: |
-            SOURCE_DATE_EPOCH=${{ env.SOURCE_DATE_EPOCH }}
+          name: digest-${{ matrix.image.name }}-amd64
+          path: digests
+      - name: Download arm64 digest
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: digest-${{ matrix.image.name }}-arm64
+          path: digests
 
-      # BLOCKING vulnerability gate. Runs against the pushed digest; failing here
-      # fails the job BEFORE the signing step, so nothing vulnerable is signed.
+      # Stitch the two single-arch digests into one manifest list under every
+      # derived tag, then read the LIST (index) digest back — that is the
+      # immutable multi-arch artifact everything downstream must reference.
+      - name: Create multi-arch manifest list + capture its digest
+        id: manifest
+        run: |
+          AMD_DIGEST="$(cat "digests/digest-${IMAGE}-amd64.txt")"
+          ARM_DIGEST="$(cat "digests/digest-${IMAGE}-arm64.txt")"
+          # Build `-t <tag>` args as an array (no unquoted word-splitting).
+          tag_args=()
+          while IFS= read -r tag; do
+            tag_args+=(-t "$tag")
+          done < <(jq -r '.tags[]' <<< "$DOCKER_METADATA_OUTPUT_JSON")
+          docker buildx imagetools create "${tag_args[@]}" \
+            "${IMAGE_NAME}@${AMD_DIGEST}" "${IMAGE_NAME}@${ARM_DIGEST}"
+          FIRST_TAG="$(jq -cr '.tags[0]' <<< "$DOCKER_METADATA_OUTPUT_JSON")"
+          LIST_DIGEST="$(docker buildx imagetools inspect "$FIRST_TAG" --format '{{.Manifest.Digest}}')"
+          case "$LIST_DIGEST" in
+            sha256:*) ;;
+            *) echo "::error::failed to resolve manifest-list digest (got '$LIST_DIGEST')"; exit 1 ;;
+          esac
+          echo "digest=$LIST_DIGEST" >> "$GITHUB_OUTPUT"
+          echo "Manifest-list digest for ${IMAGE_NAME}: $LIST_DIGEST"
+        env:
+          IMAGE: ${{ matrix.image.name }}
+          IMAGE_NAME: ${{ env.IMAGE_NAME }}
+
+      # BLOCKING vulnerability gate. Runs against the pushed manifest-list digest,
+      # once per arch, BEFORE the signing step — so nothing vulnerable is signed.
       # Trivy installed directly (the composite trivy-action pinned a setup-trivy
-      # tag that no longer resolves); arm64 binary matches the runner.
-      # Pinned direct binary download. The upstream install.sh lives on Trivy's
-      # `main` branch — a moving target that broke the arm64 asset resolution; a
-      # pinned release tarball is reproducible and matches the arm64 runner.
+      # tag that no longer resolves). Pinned release tarball for reproducibility;
+      # 64bit binary matches the amd64 merge runner. --image-src remote scans the
+      # REMOTE registry image (buildx push never loads it into the local daemon);
+      # --platform selects each arch's manifest out of the multi-arch index.
       - name: Install Trivy
         env:
           TRIVY_VERSION: "0.71.1"
         run: |
-          curl -sfL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-ARM64.tar.gz" \
+          curl -sfL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" \
             -o /tmp/trivy.tar.gz
           sudo tar -xzf /tmp/trivy.tar.gz -C /usr/local/bin trivy
           trivy --version
-      # buildx --push uploads to GHCR by digest but never loads the image into
-      # the local Docker daemon, so Trivy must scan the REMOTE registry image.
-      # --image-src remote skips the (empty) local daemons; TRIVY_USERNAME/PASSWORD
-      # authenticate against the private GHCR package; --platform selects the
-      # arm64 manifest out of the multi-attestation image index.
-      - name: Trivy scan (fail on HIGH/CRITICAL)
+      - name: Trivy scan both arches (fail on HIGH/CRITICAL)
         run: |
-          trivy image --image-src remote --platform linux/arm64 \
-            --exit-code 1 --ignore-unfixed \
-            --vuln-type os,library --severity HIGH,CRITICAL \
-            "${IMAGE_NAME}@${DIGEST}"
+          for platform in linux/amd64 linux/arm64; do
+            echo "::group::Trivy ${platform}"
+            trivy image --image-src remote --platform "$platform" \
+              --exit-code 1 --ignore-unfixed \
+              --vuln-type os,library --severity HIGH,CRITICAL \
+              "${IMAGE_NAME}@${DIGEST}"
+            echo "::endgroup::"
+          done
         env:
           IMAGE_NAME: ${{ env.IMAGE_NAME }}
-          DIGEST: ${{ steps.build.outputs.digest }}
+          DIGEST: ${{ steps.manifest.outputs.digest }}
           TRIVY_USERNAME: ${{ github.actor }}
           TRIVY_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4
 
-      # Keyless signature over the immutable digest (OIDC → Fulcio → Rekor).
-      - name: Sign the image (keyless)
+      # Keyless signature over the immutable manifest-list digest (OIDC → Fulcio
+      # → Rekor). Signing the index covers both per-arch manifests.
+      - name: Sign the manifest list (keyless)
         run: cosign sign --yes "${IMAGE_NAME}@${DIGEST}"
         env:
           IMAGE_NAME: ${{ env.IMAGE_NAME }}
-          DIGEST: ${{ steps.build.outputs.digest }}
+          DIGEST: ${{ steps.manifest.outputs.digest }}
 
-      - name: Attest build provenance
+      - name: Attest build provenance (manifest list)
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4
         with:
           subject-name: ${{ env.IMAGE_NAME }}
-          subject-digest: ${{ steps.build.outputs.digest }}
+          subject-digest: ${{ steps.manifest.outputs.digest }}
           push-to-registry: true
 
       - name: Summary
         run: |
           {
-            echo "### ${{ matrix.image }}"
+            echo "### ${{ matrix.image.name }} (linux/amd64 + linux/arm64)"
             echo ""
-            echo "- digest: \`${{ steps.build.outputs.digest }}\`"
+            echo "- manifest-list digest: \`${{ steps.manifest.outputs.digest }}\`"
             echo "- tags:"
             echo '```'
             echo "${{ steps.meta.outputs.tags }}"
             echo '```'
-            echo "- scanned (HIGH/CRITICAL gate), SBOM + provenance attested, cosign-signed."
+            echo "- both arches scanned (HIGH/CRITICAL gate), SBOM + provenance attested, cosign-signed."
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # Carry this leg's signed digest to the bump-digests job. A matrix collapses
+      # Carry the manifest-list digest to the bump-digests job. A matrix collapses
       # to one shared job-outputs map (legs overwrite each other), so a tiny
       # per-image artifact is the robust fan-in for the downstream consumer.
-      - name: Stash digest for the bump job
-        run: printf '%s' "${{ steps.build.outputs.digest }}" > "digest-${{ matrix.image }}.txt"
+      - name: Stash manifest-list digest for the bump job
+        run: printf '%s' "${{ steps.manifest.outputs.digest }}" > "digest-${{ matrix.image.name }}.txt"
       - name: Upload digest artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: digest-${{ matrix.image }}
-          path: digest-${{ matrix.image }}.txt
+          name: digest-${{ matrix.image.name }}
+          path: digest-${{ matrix.image.name }}.txt
           retention-days: 1
           if-no-files-found: error
 
@@ -222,9 +330,11 @@ jobs:
   # 400 that would mean the route exists but rejected the request).
   release-probe:
     name: mnt-app image — dev-auth route absence probe
-    needs: images
-    # Must match the images job's arch: mnt-app is built linux/arm64-only, so an
-    # amd64 runner fails the pull with "no matching manifest for linux/amd64".
+    needs: merge
+    # The mnt-app manifest list now carries both linux/amd64 and linux/arm64, so
+    # `docker pull @<list-digest>` resolves the runner's arch on either. Kept on
+    # arm64 (the production cluster's arch) so the probe exercises the arch that
+    # actually ships to the A1 nodes.
     runs-on: ubuntu-24.04-arm
     services:
       postgres:
@@ -323,15 +433,16 @@ jobs:
         if: always()
         run: docker rm -f mnt-app-probe || true
 
-  # Auto digest-bump: writes the two freshly built+signed digests into the prod
-  # kustomize overlay and commits back to the triggering branch, eliminating the
-  # manual "extract digest -> hand-edit kustomization" toil. The Argo Rollouts
-  # blue/green canary on mnt-app/mnt-web still gates a bad release at deploy time.
-  # Skipped on tag builds (detached HEAD — no branch to push to) and dispatch.
+  # Auto digest-bump: writes the two freshly built+signed manifest-list digests
+  # into the prod kustomize overlay and commits back to the triggering branch,
+  # eliminating the manual "extract digest -> hand-edit kustomization" toil. The
+  # Argo Rollouts blue/green canary on mnt-app/mnt-web still gates a bad release
+  # at deploy time. Skipped on tag builds (detached HEAD — no branch to push to)
+  # and dispatch.
   bump-digests:
     name: Auto-bump prod overlay digests
     runs-on: ubuntu-latest
-    needs: [images, release-probe]
+    needs: [merge, release-probe]
     if: >-
       github.event_name == 'push' &&
       startsWith(github.ref, 'refs/heads/') &&

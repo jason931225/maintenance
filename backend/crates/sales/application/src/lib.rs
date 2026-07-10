@@ -271,6 +271,7 @@ pub fn listing_delete_audit_event(
     actor: UserId,
     listing_id: SalesListingId,
     before: serde_json::Value,
+    after: serde_json::Value,
     trace: TraceContext,
     occurred_at: Timestamp,
 ) -> Result<AuditEvent, KernelError> {
@@ -282,7 +283,7 @@ pub fn listing_delete_audit_event(
         trace,
         occurred_at,
     )
-    .with_snapshots(Some(before), None))
+    .with_snapshots(Some(before), Some(after)))
 }
 
 /// Public inquiry submit: no actor. The `after` snapshot is built PII-LIGHT by

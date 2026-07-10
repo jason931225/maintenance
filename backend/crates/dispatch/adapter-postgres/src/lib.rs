@@ -2,7 +2,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 use mnt_dispatch_application::{
-    ExpireP1DispatchCommand, ForceAssignP1DispatchCommand, IncidentLocationInput,
+    ExpireP1DispatchCommand, ForceAssignP1DispatchCommand, IncidentLocationInput, MyDispatchOffer,
     P1DispatchResponseSummary, P1DispatchSummary, RespondP1DispatchCommand, StartP1DispatchCommand,
     dispatch_audit_event, resolution_after_snapshot, response_after_snapshot, start_after_snapshot,
 };
@@ -11,8 +11,8 @@ use mnt_dispatch_domain::{
     GeoPoint, P1Dispatch, TechnicianLoad, score_candidate,
 };
 use mnt_kernel_core::{
-    AuditAction, AuditEvent, BranchId, ErrorKind, KernelError, P1DispatchAlertId, P1DispatchId,
-    TraceContext, UserId, WorkOrderId,
+    AuditAction, AuditEvent, BranchId, ErrorKind, KernelError, OrgId, P1DispatchAlertId,
+    P1DispatchId, TraceContext, UserId, WorkOrderId,
 };
 use mnt_platform_db::{DbError, insert_audit_event, with_audit, with_audits, with_org_conn};
 use mnt_platform_request_context::current_org;
@@ -471,6 +471,61 @@ impl PgDispatchStore {
         Ok(work_order_head(&self.pool, work_order_id).await?.branch_id)
     }
 
+    /// List the caller's pending P1 offers: BROADCASTING dispatches that
+    /// fanned out to the caller as a TECHNICIAN, still inside the accept
+    /// window, with no response from the caller yet. Read-only and
+    /// person-scoped — `user` is bound from the authenticated principal, so a
+    /// caller can only ever see offers addressed to them (deny-by-omission).
+    pub async fn list_my_pending_offers(
+        &self,
+        user: UserId,
+        now: OffsetDateTime,
+    ) -> Result<Vec<MyDispatchOffer>, PgDispatchError> {
+        let org = current_org().map_err(KernelError::from)?;
+        let user_uuid = *user.as_uuid();
+        let rows = with_org_conn::<_, _, PgDispatchError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                Ok(sqlx::query(
+                    r#"
+                    SELECT d.id AS dispatch_id, d.work_order_id, d.branch_id,
+                           w.request_no, d.accept_window_started_at, d.accept_window_ends_at
+                    FROM p1_dispatches d
+                    JOIN p1_dispatch_targets t
+                      ON t.dispatch_id = d.id
+                     AND t.user_id = $1
+                     AND t.target_role = 'TECHNICIAN'
+                    JOIN work_orders w ON w.id = d.work_order_id
+                    WHERE d.status = 'BROADCASTING'
+                      AND d.accept_window_ends_at > $2
+                      AND NOT EXISTS (
+                          SELECT 1 FROM p1_dispatch_responses r
+                          WHERE r.dispatch_id = d.id AND r.user_id = $1
+                      )
+                    ORDER BY d.accept_window_ends_at ASC
+                    "#,
+                )
+                .bind(user_uuid)
+                .bind(now)
+                .fetch_all(tx.as_mut())
+                .await?)
+            })
+        })
+        .await?;
+
+        rows.iter()
+            .map(|row| {
+                Ok(MyDispatchOffer {
+                    dispatch_id: P1DispatchId::from_uuid(row.try_get("dispatch_id")?),
+                    work_order_id: WorkOrderId::from_uuid(row.try_get("work_order_id")?),
+                    branch_id: BranchId::from_uuid(row.try_get("branch_id")?),
+                    request_no: row.try_get("request_no")?,
+                    accept_window_started_at: row.try_get("accept_window_started_at")?,
+                    accept_window_ends_at: row.try_get("accept_window_ends_at")?,
+                })
+            })
+            .collect()
+    }
+
     /// Reclaim any alert whose SENDING lease has expired (a crashed worker) back
     /// to PENDING so it can be re-claimed (FIX 4).
     async fn reclaim_expired_leases(
@@ -660,6 +715,7 @@ impl PgDispatchStore {
                             occurred_at,
                         )
                         .with_branch(branch_id)
+                        .with_org(org)
                         .with_snapshots(None, Some(serde_json::json!({ "status": "SKIPPED" }))),
                     );
                 }
@@ -886,6 +942,7 @@ impl PgDispatchStore {
                             occurred_at,
                         )
                         .with_branch(branch_id)
+                        .with_org(org)
                         .with_snapshots(None, Some(serde_json::json!({ "status": status }))),
                     ]
                 } else {
@@ -1392,7 +1449,8 @@ async fn auto_assign_tx(
                 .map_err(|_| KernelError::validation("accepted count overflows i64"))?,
             Some(winner.mechanic_id),
         )),
-    );
+    )
+    .with_org(OrgId::from_uuid(org_uuid));
     insert_audit_event(tx, &event).await?;
     Ok(winner)
 }

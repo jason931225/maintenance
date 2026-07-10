@@ -15,9 +15,9 @@ ENV SQLX_OFFLINE=true
 COPY backend/rust-toolchain.toml ./rust-toolchain.toml
 
 # Sources. The build context is the repo ROOT (see ops/compose.yml) so the
-# golden Excel templates the reporting crate embeds via
-# include_bytes!("../../../../../docs/reference/…") resolve to
-# /workspace/docs/reference at compile time. --locked keeps the build
+# golden Excel templates and Cedar/PBAC maps embedded by backend crates via
+# include_bytes!("../../../../../docs/reference/…") / include_str!("...docs/specs/…")
+# resolve under /workspace/docs at compile time. --locked keeps the build
 # reproducible against the committed Cargo.lock.
 COPY backend/Cargo.toml backend/Cargo.lock ./
 COPY backend/.sqlx ./.sqlx
@@ -29,6 +29,7 @@ COPY backend/openapi ./openapi
 # at path deps under vendor/ (RUSTSEC-2026-0194/0195 unblock) — must ship too.
 COPY backend/vendor ./vendor
 COPY docs/reference /workspace/docs/reference
+COPY docs/specs /workspace/docs/specs
 
 RUN cargo build --locked --release -p mnt-app
 

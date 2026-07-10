@@ -36,10 +36,10 @@ import kotlinx.serialization.Contextual
  * @param id
  * @param kind
  * @param visibility
+ * @param muted Whether the caller has muted this thread (excluded from the unread badge total; mentions suppressed).
  * @param branchId
  * @param title
  * @param workOrderId
- * @param muted
  * @param lastMessageId
  * @param lastMessageAt
  * @param memberCount
@@ -60,6 +60,10 @@ data class MessengerThreadSummary (
     @Contextual @SerialName(value = "visibility")
     val visibility: MessengerThreadVisibility,
 
+    /* Whether the caller has muted this thread (excluded from the unread badge total; mentions suppressed). */
+    @SerialName(value = "muted")
+    val muted: kotlin.Boolean,
+
     @Contextual @SerialName(value = "branch_id")
     val branchId: java.util.UUID,
 
@@ -68,9 +72,6 @@ data class MessengerThreadSummary (
 
     @Contextual @SerialName(value = "work_order_id")
     val workOrderId: java.util.UUID?,
-
-    @SerialName(value = "muted")
-    val muted: kotlin.Boolean,
 
     @Contextual @SerialName(value = "last_message_id")
     val lastMessageId: java.util.UUID?,

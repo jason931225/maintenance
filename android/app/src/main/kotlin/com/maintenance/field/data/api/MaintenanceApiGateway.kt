@@ -1,6 +1,18 @@
 package com.maintenance.field.data.api
 
-import com.maintenance.api.client.api.DefaultApi
+import com.maintenance.api.client.api.ApprovalItemsApi
+import com.maintenance.api.client.api.AuthApi
+import com.maintenance.api.client.api.CollaborationApi
+import com.maintenance.api.client.api.DevicesApi
+import com.maintenance.api.client.api.EvidenceApi
+import com.maintenance.api.client.api.LocationConsentApi
+import com.maintenance.api.client.api.LocationPingsApi
+import com.maintenance.api.client.api.MailApi
+import com.maintenance.api.client.api.MessengerApi
+import com.maintenance.api.client.api.SyncApi
+import com.maintenance.api.client.api.WorkOrdersApi
+import okhttp3.OkHttpClient
+import com.maintenance.api.client.model.ApproveWorkOrderRequest
 import com.maintenance.api.client.model.DevicePlatform
 import com.maintenance.api.client.model.ApprovalItemsPage
 import com.maintenance.api.client.model.CalendarEventResponse
@@ -86,48 +98,62 @@ interface MaintenanceApiGateway : SyncGateway, MessengerGateway, MobileOperation
 }
 
 class GeneratedMaintenanceApiGateway(
-    private val api: DefaultApi,
+    basePath: String,
+    httpClient: OkHttpClient,
+    accessTokenProvider: () -> String?,
 ) : MaintenanceApiGateway {
+    private val workOrdersApi = WorkOrdersApi(basePath, httpClient).also { it.accessTokenProvider = accessTokenProvider }
+    private val evidenceApi = EvidenceApi(basePath, httpClient).also { it.accessTokenProvider = accessTokenProvider }
+    private val syncApi = SyncApi(basePath, httpClient).also { it.accessTokenProvider = accessTokenProvider }
+    private val authApi = AuthApi(basePath, httpClient).also { it.accessTokenProvider = accessTokenProvider }
+    private val devicesApi = DevicesApi(basePath, httpClient).also { it.accessTokenProvider = accessTokenProvider }
+    private val approvalItemsApi = ApprovalItemsApi(basePath, httpClient).also { it.accessTokenProvider = accessTokenProvider }
+    private val mailApi = MailApi(basePath, httpClient).also { it.accessTokenProvider = accessTokenProvider }
+    private val collaborationApi = CollaborationApi(basePath, httpClient).also { it.accessTokenProvider = accessTokenProvider }
+    private val messengerApi = MessengerApi(basePath, httpClient).also { it.accessTokenProvider = accessTokenProvider }
+    private val locationConsentApi = LocationConsentApi(basePath, httpClient).also { it.accessTokenProvider = accessTokenProvider }
+    private val locationPingsApi = LocationPingsApi(basePath, httpClient).also { it.accessTokenProvider = accessTokenProvider }
+
     override suspend fun listTodayWorkOrders(): List<TechnicianWorkOrder> =
-        api.listWorkOrders(assignedTo = "me", limit = 100, offset = 0)
+        workOrdersApi.listWorkOrders(assignedTo = "me", limit = 100, offset = 0)
             .items
             .map { it.toTechnicianWorkOrder() }
 
     override suspend fun getWorkOrder(id: UUID): TechnicianWorkOrder =
-        api.getWorkOrderDetail(id).toTechnicianWorkOrder()
+        workOrdersApi.getWorkOrderDetail(id).toTechnicianWorkOrder()
 
     override suspend fun startWorkOrder(id: UUID): WorkOrderSummary =
-        api.startWorkOrder(id)
+        workOrdersApi.startWorkOrder(id)
 
     override suspend fun submitReport(id: UUID, request: SubmitReportRequest): WorkOrderSummary =
-        api.submitWorkOrderReport(id, request)
+        workOrdersApi.submitWorkOrderReport(id, request)
 
     override suspend fun presignEvidence(request: EvidencePresignRequest): EvidencePresignResponse =
-        api.presignEvidenceUpload(request)
+        evidenceApi.presignEvidenceUpload(request)
 
     override suspend fun confirmEvidence(evidenceId: UUID): EvidenceConfirmResponse =
-        api.confirmEvidenceUpload(evidenceId)
+        evidenceApi.confirmEvidenceUpload(evidenceId)
 
     override suspend fun replay(deviceId: String, request: SyncBatchRequest): SyncBatchResponse =
-        api.replayOfflineSyncBatch(deviceId, request)
+        syncApi.replayOfflineSyncBatch(deviceId, request)
 
     // Usernameless (discoverable) login: POST /api/v1/auth/passkey/login/start takes no
     // body; the user is resolved from the asserted credential at finish.
     override suspend fun startPasskeyLogin(): PasskeyLoginStartResponse =
-        api.apiV1AuthPasskeyLoginStartPost()
+        authApi.apiV1AuthPasskeyLoginStartPost()
 
     override suspend fun finishPasskeyLogin(
         ceremonyId: UUID,
         credential: Map<String, JsonElement>,
     ): TokenPairResponse =
-        api.apiV1AuthPasskeyLoginFinishPost(PasskeyLoginFinishRequest(ceremonyId, credential))
+        authApi.apiV1AuthPasskeyLoginFinishPost(PasskeyLoginFinishRequest(ceremonyId, credential))
 
     override suspend fun registerAndroidDevice(
         deviceId: String,
         appVersion: String,
         pushToken: String?,
     ): DeviceRegistrationResponse =
-        api.registerMobileDevice(
+        devicesApi.registerMobileDevice(
             xDeviceId = deviceId,
             deviceRegistrationRequest = DeviceRegistrationRequest(
                 platform = DevicePlatform.ANDROID,
@@ -137,10 +163,10 @@ class GeneratedMaintenanceApiGateway(
         )
 
     override suspend fun listApprovalItems(limit: Long, offset: Long): ApprovalItemsPage =
-        api.listApprovalItems(limit = limit, offset = offset)
+        approvalItemsApi.listApprovalItems(limit = limit, offset = offset)
 
     override suspend fun startMobilePasskeyStepUp(binding: MobilePasskeyStepUpBinding): MobilePasskeyStepUpStartResponse =
-        api.startMobilePasskeyStepUp(
+        authApi.startMobilePasskeyStepUp(
             MobilePasskeyStepUpStartRequest(binding = binding),
         )
 
@@ -149,7 +175,7 @@ class GeneratedMaintenanceApiGateway(
         comment: String,
         stepUp: MobilePasskeyStepUpEnvelope,
     ) {
-        api.approveMobileWorkOrder(
+        workOrdersApi.approveMobileWorkOrder(
             workOrderId = workOrderId,
             mobileApproveWorkOrderRequest = MobileApproveWorkOrderRequest(
                 comment = comment,
@@ -158,7 +184,7 @@ class GeneratedMaintenanceApiGateway(
         )
     }
 
-    override suspend fun listMailFolders(): List<MailFolderView> = api.listMailFolders()
+    override suspend fun listMailFolders(): List<MailFolderView> = mailApi.listMailFolders()
 
     override suspend fun listMailThreads(
         unread: Boolean?,
@@ -166,7 +192,7 @@ class GeneratedMaintenanceApiGateway(
         folderId: UUID?,
         before: Long?,
         limit: Long,
-    ): List<MailThreadView> = api.listMailThreads(
+    ): List<MailThreadView> = mailApi.listMailThreads(
         unread = unread,
         q = query,
         folder = folderId,
@@ -175,7 +201,7 @@ class GeneratedMaintenanceApiGateway(
     )
 
     override suspend fun setMailThreadReadState(threadId: UUID, seen: Boolean) {
-        api.setMailThreadReadState(
+        mailApi.setMailThreadReadState(
             id = threadId,
             mailThreadReadStateRequest = MailThreadReadStateRequest(seen = seen),
         )
@@ -185,21 +211,21 @@ class GeneratedMaintenanceApiGateway(
         from: OffsetDateTime?,
         to: OffsetDateTime?,
         limit: Long,
-    ): List<CalendarEventResponse> = api.listCollaborationCalendarEvents(
+    ): List<CalendarEventResponse> = collaborationApi.listCollaborationCalendarEvents(
         from = from,
         to = to,
         limit = limit,
     ).items
 
     override suspend fun listPolls(status: PollStatus?, limit: Long): List<PollResponse> =
-        api.listCollaborationPolls(status = status, limit = limit).items
+        collaborationApi.listCollaborationPolls(status = status, limit = limit).items
 
     override suspend fun votePoll(
         pollId: UUID,
         selectedOptionIds: List<UUID>,
         stepUp: MobilePasskeyStepUpEnvelope,
     ): PollResponse =
-        api.voteMobileCollaborationPoll(
+        collaborationApi.voteMobileCollaborationPoll(
             id = pollId,
             mobileVotePollRequest = MobileVotePollRequest(
                 selectedOptionIds = selectedOptionIds,
@@ -208,14 +234,14 @@ class GeneratedMaintenanceApiGateway(
         )
 
     override suspend fun listThreads(limit: Long): List<MessengerThread> =
-        api.listMessengerThreads(limit = limit).items.map(MessengerThreadSummary::toMessengerThread)
+        messengerApi.listMessengerThreads(limit = limit).items.map(MessengerThreadSummary::toMessengerThread)
 
     override suspend fun listMessages(
         threadId: UUID,
         beforeMessageId: UUID?,
         limit: Long,
     ): FieldMessengerMessagePage {
-        val page: MessengerMessagePage = api.listMessengerMessages(
+        val page: MessengerMessagePage = messengerApi.listMessengerMessages(
             threadId = threadId,
             beforeMessageId = beforeMessageId,
             limit = limit,
@@ -231,7 +257,7 @@ class GeneratedMaintenanceApiGateway(
         body: String,
         attachmentEvidenceIds: List<UUID>,
     ): MessengerMessage =
-        api.sendMessengerMessage(
+        messengerApi.sendMessengerMessage(
             threadId = threadId,
             sendMessengerMessageRequest = SendMessengerMessageRequest(
                 body = body,
@@ -240,32 +266,32 @@ class GeneratedMaintenanceApiGateway(
         ).toMessengerMessage()
 
     override suspend fun markRead(threadId: UUID, lastReadMessageId: UUID) {
-        api.markMessengerThreadRead(
+        messengerApi.markMessengerThreadRead(
             threadId = threadId,
             markMessengerThreadReadRequest = MarkMessengerThreadReadRequest(lastReadMessageId),
         )
     }
 
     override suspend fun search(query: String, limit: Long): List<MessengerMessage> =
-        api.searchMessengerMessages(q = query, limit = limit)
+        messengerApi.searchMessengerMessages(q = query, limit = limit)
             .items
             .map(MessengerMessageSummary::toMessengerMessage)
     override suspend fun getLocationConsentStatus(): LocationConsentStatus =
-        api.getLocationConsentStatus()
+        locationConsentApi.getLocationConsentStatus()
 
     override suspend fun grantLocationConsent(): LocationConsentStatus =
-        api.grantLocationConsent(LocationConsentTransitionRequest())
+        locationConsentApi.grantLocationConsent(LocationConsentTransitionRequest())
 
     override suspend fun suspendLocationConsent(): LocationConsentStatus =
-        api.suspendLocationConsent(LocationConsentTransitionRequest())
+        locationConsentApi.suspendLocationConsent(LocationConsentTransitionRequest())
 
     override suspend fun resumeLocationConsent(): LocationConsentStatus =
-        api.resumeLocationConsent(LocationConsentTransitionRequest())
+        locationConsentApi.resumeLocationConsent(LocationConsentTransitionRequest())
 
     override suspend fun withdrawLocationConsent(): LocationConsentStatus =
-        api.withdrawLocationConsent(LocationConsentTransitionRequest())
+        locationConsentApi.withdrawLocationConsent(LocationConsentTransitionRequest())
 
     override suspend fun recordLocationPing(request: LocationPingRequest) {
-        api.recordLocationPing(request)
+        locationPingsApi.recordLocationPing(request)
     }
 }

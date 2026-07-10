@@ -435,6 +435,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   function acceptTokens(tokens: AcceptableTokens | undefined) {
     if (!tokens) {
       setSession(undefined);
+      setRestoring(false);
       return;
     }
     setSession(
@@ -443,6 +444,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         tokens.requires_passkey_setup,
       ),
     );
+    setRestoring(false);
   }
 
   function clearPasskeySetup() {

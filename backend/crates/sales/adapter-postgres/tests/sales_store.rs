@@ -3,8 +3,8 @@
 use mnt_kernel_core::{CustomerInquiryId, OrgId, SalesListingId, TraceContext, UserId};
 use mnt_sales_adapter_postgres::PgSalesStore;
 use mnt_sales_application::{
-    CatalogQuery, CreateListingCommand, InquiryInboxQuery, ListingInput, SubmitInquiryCommand,
-    UpdateInquiryStatusCommand, UpdateListingCommand, UpdateListingFields,
+    CatalogQuery, CreateListingCommand, DeleteListingCommand, InquiryInboxQuery, ListingInput,
+    SubmitInquiryCommand, UpdateInquiryStatusCommand, UpdateListingCommand, UpdateListingFields,
 };
 use mnt_sales_domain::{
     InquiryStatus, InquiryTopic, ListingCondition, ListingKind, ListingStatus, ListingType,
@@ -191,6 +191,115 @@ async fn listing_and_inquiry_lifecycle_is_tenant_scoped_and_audited(pool: PgPool
             .unwrap();
         assert_eq!(inbox.total, 1);
         assert_eq!(inbox.items[0].status, InquiryStatus::Contacted);
+    })
+    .await;
+}
+
+// BE-OBJ slice 2, item 3 / audit gap 23: "deleting" a listing must soft-
+// archive it (status -> WITHDRAWN), never hard-DELETE — the row and its media
+// survive so the object graph never dangles and history stays reconstructable.
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn deleting_a_listing_archives_it_instead_of_hard_deleting(pool: PgPool) {
+    mnt_platform_request_context::scope_org(OrgId::knl(), async move {
+        let actor = seed_user(&pool).await;
+        let store = PgSalesStore::new(pool.clone());
+
+        let listing_id = SalesListingId::new();
+        store
+            .create_listing(CreateListingCommand {
+                actor,
+                listing_id,
+                input: ListingInput {
+                    kind: ListingKind::Electric,
+                    condition: ListingCondition::Used,
+                    model_name: "전동 지게차 1.5톤".into(),
+                    capacity_milli: Some(1500),
+                    model_year: Some(2020),
+                    usage_hours: Some(800),
+                    price_won: Some(9_000_000),
+                    badge: None,
+                    usage_label: None,
+                    condition_label: None,
+                    availability: None,
+                    location: None,
+                    description: None,
+                    listing_type: ListingType::Sale,
+                    status: ListingStatus::Published,
+                    sort_weight: 1,
+                    equipment_id: None,
+                },
+                trace: TraceContext::generate(),
+                occurred_at: datetime!(2026-07-09 09:00:00 UTC),
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            store.list_listings(catalog(false)).await.unwrap().total,
+            1,
+            "published listing starts out public"
+        );
+
+        store
+            .delete_listing(DeleteListingCommand {
+                actor,
+                listing_id,
+                trace: TraceContext::generate(),
+                occurred_at: datetime!(2026-07-09 10:00:00 UTC),
+            })
+            .await
+            .unwrap();
+
+        // No longer in the public catalog...
+        assert_eq!(
+            store.list_listings(catalog(false)).await.unwrap().total,
+            0,
+            "archived listing leaves the public catalog"
+        );
+        // ...but the row itself survives (soft archive, not a hard delete): the
+        // admin view (include_non_public) still finds it, status = WITHDRAWN.
+        let archived = store.get_listing(listing_id, true).await.unwrap();
+        assert!(
+            archived.is_some(),
+            "listing must survive delete_listing as a row, not vanish"
+        );
+        assert_eq!(archived.unwrap().status, ListingStatus::Withdrawn);
+
+        // The audit event captures the archival, not a bare removal: before
+        // was PUBLISHED, after is WITHDRAWN (not absent).
+        let (before, after): (serde_json::Value, serde_json::Value) = sqlx::query_as(
+            "SELECT before_snap, after_snap FROM audit_events \
+             WHERE action = 'sales_listing.delete' AND target_id = $1",
+        )
+        .bind(listing_id.to_string())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(before["status"], "PUBLISHED");
+        assert_eq!(after["status"], "WITHDRAWN");
+
+        // Repeat delete on an already-WITHDRAWN listing is a no-op: no second
+        // audit event (a retried/duplicate delete call must not spam audit).
+        store
+            .delete_listing(DeleteListingCommand {
+                actor,
+                listing_id,
+                trace: TraceContext::generate(),
+                occurred_at: datetime!(2026-07-09 11:00:00 UTC),
+            })
+            .await
+            .unwrap();
+        let delete_audit_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM audit_events \
+             WHERE action = 'sales_listing.delete' AND target_id = $1",
+        )
+        .bind(listing_id.to_string())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            delete_audit_count, 1,
+            "deleting an already-archived listing must not write a second audit event"
+        );
     })
     .await;
 }

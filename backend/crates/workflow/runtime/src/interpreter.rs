@@ -21,6 +21,7 @@ use serde_json::{Map, Value, json};
 use uuid::Uuid;
 
 use crate::idempotency::outbox_job_key;
+use crate::predicate::Predicate;
 
 pub const CHECKLIST_ATTESTATION_NODE_TYPE: &str = "guard.checklist_attestation";
 pub const FOUR_EYES_PEER_REVIEW_NODE_TYPE: &str = "guard.four_eyes_peer_review";
@@ -64,6 +65,21 @@ pub enum NodeKind {
         job: String,
         emits_status: Option<String>,
     },
+    /// A branch/condition step: passes through immediately (SUCCEEDED, no side
+    /// effects), but its `predicate` selects which outgoing (`when`) edge the
+    /// [`crate::graph`] walk follows next. Evaluated against the run context.
+    Condition { predicate: Predicate },
+}
+
+/// Business meaning for approval human tasks that affect closeout semantics.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HumanTaskSemantic {
+    /// Ordinary approval-line decision: approve/reject/return.
+    Decision,
+    /// Author or delegated closeout step. This is still pre-terminal WAITING.
+    Finalization,
+    /// Legal receipt confirmation step. This is still pre-terminal WAITING.
+    ReceiptConfirmation,
 }
 
 impl NodeKind {
@@ -414,6 +430,29 @@ impl NodeSpec {
             kind,
         })
     }
+
+    /// Classify approval closeout nodes without changing the FSM. Finalization and
+    /// receipt are human waiting tasks; only the later completion step may advance
+    /// the run to SUCCEEDED.
+    #[must_use]
+    pub fn human_task_semantic(&self) -> Option<HumanTaskSemantic> {
+        let NodeKind::HumanTask {
+            required_policy, ..
+        } = &self.kind
+        else {
+            return None;
+        };
+
+        match (self.node_key.as_str(), required_policy.as_deref()) {
+            ("finalize.author", _) | (_, Some("approval_finalize")) => {
+                Some(HumanTaskSemantic::Finalization)
+            }
+            ("receipt.target", _) | (_, Some("approval_receipt")) => {
+                Some(HumanTaskSemantic::ReceiptConfirmation)
+            }
+            _ => Some(HumanTaskSemantic::Decision),
+        }
+    }
 }
 
 /// The interpreter's decision for one node.
@@ -466,6 +505,15 @@ pub fn interpret_node(
             output: json!({ "node_key": spec.node_key.as_str(), "selected_port": "done" }),
             emissions: Vec::new(),
             selected_port: Some("done".to_owned()),
+            audit_actions: Vec::new(),
+        },
+        // A condition node is a pass-through: it never mutates or parks. The
+        // branch decision (which outgoing edge to follow) is made by the graph
+        // walk from the predicate + run context, not here.
+        NodeKind::Condition { .. } => NodeOutcome::Succeeded {
+            output: json!({ "node_key": spec.node_key.as_str(), "kind": "condition" }),
+            emissions: Vec::new(),
+            selected_port: None,
             audit_actions: Vec::new(),
         },
         NodeKind::HumanTask {
@@ -880,6 +928,54 @@ fn default_egress_policy() -> EgressExternalRecipientPolicy {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn author_finalize_is_a_pre_terminal_waiting_task() {
+        let spec = NodeSpec {
+            node_key: "finalize.author".to_owned(),
+            node_type: "human_task".to_owned(),
+            kind: NodeKind::HumanTask {
+                title: "Author finalize".to_owned(),
+                required_policy: Some("approval_finalize".to_owned()),
+                assignee_role_key: Some("initiator".to_owned()),
+            },
+        };
+
+        assert_eq!(
+            spec.human_task_semantic(),
+            Some(HumanTaskSemantic::Finalization)
+        );
+        let outcome = interpret_node(&spec, Uuid::from_u128(1), Uuid::from_u128(2), &json!({}));
+        assert_eq!(outcome.node_status(), NodeStatus::Waiting);
+        match outcome {
+            NodeOutcome::Waiting { task, .. } => {
+                assert_eq!(task.waiting_key, "finalize.author");
+                assert_eq!(task.required_policy.as_deref(), Some("approval_finalize"));
+                assert_eq!(task.assignee_role_key.as_deref(), Some("initiator"));
+            }
+            other => panic!("expected Waiting, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn receipt_confirm_is_a_pre_terminal_waiting_task() {
+        let spec = NodeSpec {
+            node_key: "receipt.target".to_owned(),
+            node_type: "human_task".to_owned(),
+            kind: NodeKind::HumanTask {
+                title: "Receipt confirm".to_owned(),
+                required_policy: Some("approval_receipt".to_owned()),
+                assignee_role_key: Some("receipt_subject".to_owned()),
+            },
+        };
+
+        assert_eq!(
+            spec.human_task_semantic(),
+            Some(HumanTaskSemantic::ReceiptConfirmation)
+        );
+        let outcome = interpret_node(&spec, Uuid::from_u128(1), Uuid::from_u128(2), &json!({}));
+        assert_eq!(outcome.node_status(), NodeStatus::Waiting);
+    }
 
     #[test]
     fn job_node_emits_one_keyed_job_event() {

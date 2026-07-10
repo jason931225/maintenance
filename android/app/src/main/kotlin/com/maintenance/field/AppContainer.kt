@@ -1,7 +1,6 @@
 package com.maintenance.field
 
 import android.content.Context
-import com.maintenance.api.client.api.DefaultApi
 import com.maintenance.field.auth.CredentialManagerPasskeyClient
 import com.maintenance.field.auth.MobilePasskeyStepUpRepository
 import com.maintenance.field.auth.PasskeyAuthRepository
@@ -30,11 +29,11 @@ class AppContainer(context: Context) {
     val sessionTokenStore = SessionTokenStore(appContext)
     val deviceIdStore = DeviceIdStore(appContext)
     private val passkeyCredentialClient = CredentialManagerPasskeyClient()
-    private val api = DefaultApi(BuildConfig.API_BASE_URL, httpClient).also {
-        it.accessTokenProvider = { sessionTokenStore.accessToken() }
-    }
-
-    val apiGateway = GeneratedMaintenanceApiGateway(api)
+    val apiGateway = GeneratedMaintenanceApiGateway(
+        basePath = BuildConfig.API_BASE_URL,
+        httpClient = httpClient,
+        accessTokenProvider = { sessionTokenStore.accessToken() },
+    )
     val offlineQueue = OfflineQueueRepository(
         store = RoomMutationQueueStore(database.mutations()),
         syncGateway = apiGateway,

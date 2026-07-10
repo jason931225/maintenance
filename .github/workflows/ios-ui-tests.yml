@@ -10,12 +10,28 @@ on:
   push:
     branches:
       - main
+    tags:
+      - "v*"
+    # GitHub does not evaluate `paths` for tag pushes, so v* release tags run
+    # this simulator gate even when the tag itself has no file diff. Branch/PR
+    # paths stay narrow: iOS UI changes, generated Swift client drift, or the
+    # OpenAPI contract that feeds that client.
     paths:
+      - "backend/openapi/**"
+      - "clients/swift/**"
       - "ios/**"
+      - "openapitools.json"
+      - "package.json"
+      - "package-lock.json"
       - ".github/workflows/ios-ui-tests.yml"
   pull_request:
     paths:
+      - "backend/openapi/**"
+      - "clients/swift/**"
       - "ios/**"
+      - "openapitools.json"
+      - "package.json"
+      - "package-lock.json"
       - ".github/workflows/ios-ui-tests.yml"
 
 permissions:

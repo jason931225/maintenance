@@ -1536,10 +1536,18 @@ async fn admin_credential_reset_recovers_in_branch_subordinate(pool: PgPool) {
     assert!(recovered.requires_passkey_setup);
 }
 
-/// The DB-backed per-IP rate limit trips a 429 once the window cap is exceeded,
-/// even with no device id.
+/// The DB-backed per-IP rate limiter's cap/window/reset behavior is covered
+/// deterministically in `auth-rest`'s own unit test
+/// (`rate_limit_trips_at_cap_and_resets_after_window`), which drives `now` as
+/// a synthetic clock instead of racing this HTTP-level test's real
+/// round-trips against the wall clock's minute boundary — that race was the
+/// CI flake (twelve sequential requests could straddle a minute and reset the
+/// bucket before the cap tripped). This is the REAL-clock smoke: a handful of
+/// requests through the actual HTTP path must behave normally, proving
+/// `OffsetDateTime::now_utc()` still wires into `rate_limit` end-to-end, and
+/// that per-IP buckets stay independent.
 #[sqlx::test(migrations = "../crates/platform/db/migrations")]
-async fn otp_redeem_rate_limit_trips_429_per_ip(pool: PgPool) {
+async fn otp_redeem_rate_limit_wires_up_on_real_clock_path(pool: PgPool) {
     let signing_key = SigningKey::random(&mut OsRng);
     let private_key_pem = signing_key.to_pkcs8_pem(LineEnding::LF).unwrap();
     let public_key_pem = signing_key
@@ -1556,10 +1564,9 @@ async fn otp_redeem_rate_limit_trips_429_per_ip(pool: PgPool) {
         .unwrap(),
     );
 
-    // The per-IP cap is 10/min. The 11th request from the same IP is 429,
-    // regardless of OTP validity (wrong OTPs otherwise return 401).
-    let mut saw_429 = false;
-    for i in 0..12 {
+    // Well under the per-IP cap (10/min): every request is a normal generic
+    // rejection, not rate limited.
+    for i in 0..3 {
         let response = post_raw_with_ip(
             service.clone(),
             "/api/v1/auth/otp/redeem",
@@ -1567,20 +1574,12 @@ async fn otp_redeem_rate_limit_trips_429_per_ip(pool: PgPool) {
             json!({ "otp": "badcode1" }),
         )
         .await;
-        if i < 10 {
-            assert_eq!(
-                response.status(),
-                StatusCode::UNAUTHORIZED,
-                "request {i} should be a normal generic rejection, not rate limited"
-            );
-        } else if response.status() == StatusCode::TOO_MANY_REQUESTS {
-            saw_429 = true;
-        }
+        assert_eq!(
+            response.status(),
+            StatusCode::UNAUTHORIZED,
+            "request {i} should be a normal generic rejection, not rate limited"
+        );
     }
-    assert!(
-        saw_429,
-        "the per-IP rate limit must trip a 429 past the cap"
-    );
 
     // A DIFFERENT IP is unaffected by the first IP's bucket.
     let other_ip = post_raw_with_ip(

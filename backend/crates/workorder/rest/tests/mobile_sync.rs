@@ -8,6 +8,7 @@ use mnt_platform_storage::{
     CopyObjectRequest, EvidenceService, ObjectHead, PresignGetRequest, PresignPutRequest,
     PresignedUpload, RetentionInfo, S3ObjectStore, StorageFuture,
 };
+use mnt_platform_test_support::runtime_role_pool;
 use mnt_workorder_adapter_postgres::PgWorkOrderStore;
 use mnt_workorder_rest::{MobileRestState, mobile_router};
 use p256::ecdsa::SigningKey;
@@ -150,15 +151,16 @@ async fn harness(pool: PgPool) -> Harness {
         public_key_pem.as_bytes(),
     )
     .unwrap();
+    let rt_pool = runtime_role_pool(&pool).await;
     let evidence = EvidenceService::new(
-        pool.clone(),
+        rt_pool.clone(),
         StaticObjectStore,
         "primary".to_owned(),
         "replica".to_owned(),
     );
     let service = mobile_router(MobileRestState::new(
-        pool.clone(),
-        PgWorkOrderStore::new(pool.clone()),
+        rt_pool.clone(),
+        PgWorkOrderStore::new(rt_pool),
         Some(verifier),
         Some(evidence),
     ));

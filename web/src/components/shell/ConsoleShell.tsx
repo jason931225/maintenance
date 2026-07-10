@@ -1,0 +1,363 @@
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { Navigate, useLocation } from "react-router-dom";
+
+import {
+  ConsoleScreenContext,
+  ConsoleWorkspaceOwnerContext,
+} from "../../features/workspace/pin-context";
+import { candidateToPin } from "../../features/workspace/adapters";
+import { useWorkspacePersistence } from "../../features/workspace/persistence";
+import {
+  runForWorkspaceOwner,
+  selectScreenPanels,
+  useWorkspaceStore,
+} from "../../features/workspace/store";
+import type { Panel, ScreenKey } from "../../features/workspace/types";
+import { useAuth } from "../../context/auth";
+import { TitleProvider } from "../../context/title";
+import { ko } from "../../i18n/ko";
+import { ViewAsBanner } from "../../features/platform/ViewAsBanner";
+import { AttendancePage } from "../../pages/AttendancePage";
+import { OverviewPage } from "../../pages/OverviewPage";
+import { RouteErrorBoundary } from "../RouteErrorBoundary";
+import { ConsoleToast } from "../console/primitives";
+import { CommandPalette } from "./CommandPalette";
+import {
+  isNavItemVisible,
+  visibleNavItemsForRoles,
+  type NavItemKey,
+} from "./nav";
+import { Sidebar } from "./Sidebar";
+import { Topbar } from "./Topbar";
+import { useConsoleToast } from "./useConsoleToast";
+import { FloatWindow } from "./workspace/FloatWindow";
+import { QuadrantContainer } from "./workspace/QuadrantContainer";
+import { Tray } from "./workspace/Tray";
+import { CommsRail } from "../../features/comms/CommsRail";
+
+// The two screens that live in ConsoleShell (UI-M1b; /overview replaced
+// /work-hub in UI-M3). Every other route stays on
+// AppShell (two-shell coexistence). Both screens are mounted at once and toggled
+// by visibility so panel/layout/fetch state survives navigation between them.
+const SCREEN_FOR_PATH: Record<string, ScreenKey> = {
+  "/attendance": "attendance",
+  "/overview": "overview",
+};
+
+const NAV_ITEM_FOR_SCREEN: Record<ScreenKey, NavItemKey> = {
+  overview: "overview",
+  attendance: "my-attendance",
+};
+
+const EMPTY_PANELS: Panel[] = [];
+
+export function ConsoleShell() {
+  return (
+    <TitleProvider>
+      <ConsoleShellContent />
+    </TitleProvider>
+  );
+}
+
+function ConsoleShellContent() {
+  const location = useLocation();
+  const { api, session } = useAuth();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const { toast, closeToast, undoToast } = useConsoleToast();
+  const workspaceRef = useRef<HTMLElement>(null);
+  const workspaceOwnerKey = session?.user_id
+    ? `${session.org_id ?? "no-org"}:${session.user_id}`
+    : undefined;
+
+  const panels = useWorkspaceStore((s) =>
+    s.ownerKey === workspaceOwnerKey ? s.panels : EMPTY_PANELS,
+  );
+  const minimize = useWorkspaceStore((s) => s.minimize);
+  const restore = useWorkspaceStore((s) => s.restore);
+  const popout = useWorkspaceStore((s) => s.popout);
+  const closePanel = useWorkspaceStore((s) => s.close);
+  const moveFloat = useWorkspaceStore((s) => s.moveFloat);
+  const pin = useWorkspaceStore((s) => s.pin);
+  const restoreDefault = useWorkspaceStore((s) => s.restoreDefault);
+  const mutateWorkspace = useCallback(
+    (mutate: () => void) => runForWorkspaceOwner(workspaceOwnerKey, mutate),
+    [workspaceOwnerKey],
+  );
+
+  const activeScreen = SCREEN_FOR_PATH[location.pathname] ?? "overview";
+
+  const visible: Record<ScreenKey, boolean> = {
+    overview: isNavItemVisible(
+      NAV_ITEM_FOR_SCREEN.overview,
+      session?.roles,
+      session?.group_roles,
+      session?.feature_grants,
+    ),
+    attendance: isNavItemVisible(
+      NAV_ITEM_FOR_SCREEN.attendance,
+      session?.roles,
+      session?.group_roles,
+      session?.feature_grants,
+    ),
+  };
+
+  useWorkspacePersistence(api, true, workspaceOwnerKey);
+
+  // Focus the workspace region after each navigation for keyboard/SR users.
+  useEffect(() => {
+    workspaceRef.current?.focus();
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (!sidebarOpen) return undefined;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setSidebarOpen(false);
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [sidebarOpen]);
+
+  const activePanels = selectScreenPanels(panels, activeScreen);
+  const floats = activePanels.filter((p) => p.mode === "float");
+  const minimized = activePanels.filter((p) => p.mode === "minimized");
+
+  // Return focus to the workspace region after an action removes the focused
+  // control (close / minimize / restore-default): otherwise focus drops to
+  // <body>. Opening (pin / popout / restore) moves focus into the new panel
+  // header (PinPanel).
+  const focusWorkspace = () => {
+    workspaceRef.current?.focus();
+  };
+  const minimizeAndFocus = (id: string) => {
+    if (
+      mutateWorkspace(() => {
+        minimize(id);
+      })
+    ) {
+      focusWorkspace();
+    }
+  };
+  const closeAndFocus = (id: string) => {
+    if (
+      mutateWorkspace(() => {
+        closePanel(id);
+      })
+    ) {
+      focusWorkspace();
+    }
+  };
+
+  // Global keys: Cmd/Ctrl+K palette, Esc cascade (minimize the most-recent
+  // open panel one layer at a time). Bail when an overlay owns Escape.
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setCommandPaletteOpen(true);
+        return;
+      }
+      if (event.key === "Escape") {
+        if (commandPaletteOpen || sidebarOpen || event.defaultPrevented) return;
+        const state = useWorkspaceStore.getState();
+        if (!workspaceOwnerKey || state.ownerKey !== workspaceOwnerKey) return;
+        const open = selectScreenPanels(state.panels, activeScreen).filter(
+          (p) => p.mode === "pinned" || p.mode === "float",
+        );
+        const last = open.at(-1);
+        if (last) {
+          event.preventDefault();
+          minimize(last.id);
+          workspaceRef.current?.focus();
+        }
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [activeScreen, minimize, commandPaletteOpen, sidebarOpen, workspaceOwnerKey]);
+
+  if (!visible[activeScreen]) {
+    const fallback =
+      visibleNavItemsForRoles(
+        session?.roles,
+        session?.group_roles,
+        session?.feature_grants,
+      ).find((item) => item.key !== "profile")?.href ?? "/settings/profile";
+    return <Navigate to={fallback} replace />;
+  }
+
+  return (
+    <div className="console flex h-screen overflow-hidden bg-console-canvas">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:z-50 focus:rounded-md focus:bg-console-surface focus:px-4 focus:py-2 focus:text-sm focus:font-semibold focus:text-console-ink focus:shadow-md focus:outline-2 focus:outline-console-ink"
+      >
+        {ko.shell.skipToContent}
+      </a>
+
+      <Sidebar
+        collapsed={collapsed}
+        mobileOpen={sidebarOpen}
+        onCollapse={() => {
+          setCollapsed((c) => !c);
+        }}
+        onMobileClose={() => {
+          setSidebarOpen(false);
+        }}
+        session={session}
+      />
+
+      <div className="flex flex-1 flex-col overflow-hidden">
+        <ViewAsBanner />
+        <Topbar
+          onOpenMobileSidebar={() => {
+            setSidebarOpen(true);
+          }}
+          onOpenCommandPalette={() => {
+            setCommandPaletteOpen(true);
+          }}
+        />
+        <main
+          id="main-content"
+          className="flex min-h-0 flex-1 flex-col overflow-hidden"
+        >
+          <QuadrantContainer
+            workspaceRef={workspaceRef}
+            panels={activePanels}
+            onMinimize={minimizeAndFocus}
+            onPopout={(id) => {
+              mutateWorkspace(() => {
+                popout(id);
+              });
+            }}
+            onClose={closeAndFocus}
+          >
+            <RouteErrorBoundary resetKey={location.pathname}>
+              <ScreenSlot
+                screen="overview"
+                active={activeScreen === "overview"}
+                mounted={visible.overview}
+                ownerKey={workspaceOwnerKey}
+              >
+                <OverviewPage active={activeScreen === "overview"} />
+              </ScreenSlot>
+              <ScreenSlot
+                screen="attendance"
+                active={activeScreen === "attendance"}
+                mounted={visible.attendance}
+                ownerKey={workspaceOwnerKey}
+              >
+                <AttendancePage active={activeScreen === "attendance"} />
+              </ScreenSlot>
+            </RouteErrorBoundary>
+          </QuadrantContainer>
+          <Tray
+            minimized={minimized}
+            hasAnyPanels={activePanels.length > 0}
+            onRestore={(id) => {
+              mutateWorkspace(() => {
+                restore(id);
+              });
+            }}
+            onRestoreDefault={() => {
+              if (
+                mutateWorkspace(() => {
+                  restoreDefault(activeScreen);
+                })
+              ) {
+                focusWorkspace();
+              }
+            }}
+          />
+        </main>
+      </div>
+
+      <CommsRail />
+
+      {floats.map((panel) => (
+        <FloatWindow
+          key={panel.id}
+          panel={panel}
+          ownerKey={workspaceOwnerKey}
+          workspaceRef={workspaceRef}
+          onSnap={(area) => {
+            mutateWorkspace(() => {
+              pin(activeScreen, panel.object, area);
+            });
+          }}
+          onMove={(rect) => {
+            mutateWorkspace(() => {
+              moveFloat(panel.id, rect);
+            });
+          }}
+          onMinimize={() => {
+            minimizeAndFocus(panel.id);
+          }}
+          onClose={() => {
+            closeAndFocus(panel.id);
+          }}
+        />
+      ))}
+
+      {commandPaletteOpen ? (
+        <CommandPalette
+          onClose={() => {
+            setCommandPaletteOpen(false);
+          }}
+          onPinObject={(candidate) => {
+            const pinned = candidateToPin(candidate);
+            if (pinned) {
+              mutateWorkspace(() => {
+                pin(activeScreen, pinned);
+              });
+            }
+          }}
+        />
+      ) : null}
+      {toast ? (
+        <ConsoleToast
+          message={toast.message}
+          onUndo={toast.onUndo ? undoToast : undefined}
+          onClose={closeToast}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+// Keeps a screen mounted at all times; the inactive screen is display:none and
+// inert (removed from the tab order / a11y tree) but retains React + fetch state.
+function ScreenSlot({
+  screen,
+  active,
+  mounted,
+  ownerKey,
+  children,
+}: {
+  screen: ScreenKey;
+  active: boolean;
+  mounted: boolean;
+  ownerKey: string | undefined;
+  children: ReactNode;
+}) {
+  if (!mounted) return null;
+  return (
+    <div
+      hidden={!active}
+      // React 19 forwards the boolean `inert` attribute.
+      inert={!active}
+      className="h-full px-4 py-6 sm:px-6 lg:px-8"
+    >
+      <ConsoleWorkspaceOwnerContext.Provider value={ownerKey}>
+        <ConsoleScreenContext.Provider value={screen}>
+          {children}
+        </ConsoleScreenContext.Provider>
+      </ConsoleWorkspaceOwnerContext.Provider>
+    </div>
+  );
+}

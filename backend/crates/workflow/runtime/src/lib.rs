@@ -17,21 +17,31 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 pub mod authz_guard;
+pub mod completion;
 pub mod engine;
+pub mod graph;
 pub mod idempotency;
 pub mod interpreter;
+pub mod predicate;
+pub mod trigger;
 
 pub use authz_guard::{
     GuardOutcome, NODE_TRANSITION_DOMAIN, WAITING_COMPLETION_DOMAIN, build_guard_request, guard,
     workflow_coexistence_entry,
 };
+pub use completion::{
+    FinalizeMode, FinalizePolicyOutcome, FinalizePolicyRequest, enforce_finalize_policy,
+};
 pub use engine::{
     AuditContext, NodeStepOutcome, ProcessNodeRequest, StartRunRequest, process_node, start_run,
 };
+pub use graph::{DriveOutcome, ExecGraph, drive_from, simulate_path};
 pub use interpreter::{
     CHECKLIST_ATTESTATION_NODE_TYPE, ChecklistAttestationSpec, ChecklistItemKind,
     ChecklistItemSpec, EGRESS_POLICY_NODE_TYPE, EgressExternalRecipientPolicy, EgressKind,
-    EgressPolicySpec, FOUR_EYES_PEER_REVIEW_NODE_TYPE, FourEyesPeerReviewSpec, NodeKind,
-    NodeOutcome, NodeSpec, OnMissingFact, SEGREGATION_OF_DUTIES_NODE_TYPE, SegregationOfDutiesSpec,
-    SodMode, interpret_node,
+    EgressPolicySpec, FOUR_EYES_PEER_REVIEW_NODE_TYPE, FourEyesPeerReviewSpec, HumanTaskSemantic,
+    NodeKind, NodeOutcome, NodeSpec, OnMissingFact, SEGREGATION_OF_DUTIES_NODE_TYPE,
+    SegregationOfDutiesSpec, SodMode, interpret_node,
 };
+pub use predicate::{CmpOp, Predicate};
+pub use trigger::{TriggeredStart, start_bound_run};
