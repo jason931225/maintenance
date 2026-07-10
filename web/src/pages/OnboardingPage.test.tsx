@@ -227,6 +227,7 @@ function mockSuccessfulPlatformPasskeyHandlers() {
 }
 
 function mockPhoneQrHandoffHandlers(accessToken: string) {
+  const pollBodies: Array<{ poll_token?: string }> = [];
   server.use(
     http.post("*/api/v1/auth/passkey/enroll-handoff", () =>
       HttpResponse.json({
@@ -238,13 +239,14 @@ function mockPhoneQrHandoffHandlers(accessToken: string) {
     ),
     http.post("*/api/v1/auth/device-login/poll", async ({ request }) => {
       const body = (await request.json()) as { poll_token?: string };
-      expect(body.poll_token).toBe("poll-token-1");
+      pollBodies.push(body);
       return HttpResponse.json({
         status: "approved",
         access_token: accessToken,
       });
     }),
   );
+  return pollBodies;
 }
 
 describe("OnboardingPage object-first first login", () => {
@@ -374,7 +376,7 @@ describe("OnboardingPage object-first first login", () => {
       feature_grants: ["completion_review"],
     });
     mockPrivacyConsentHandlers(true);
-    mockPhoneQrHandoffHandlers(qrAccessToken);
+    const phoneQrPollBodies = mockPhoneQrHandoffHandlers(qrAccessToken);
 
     renderStatefulPage(
       "/onboarding",
@@ -400,6 +402,7 @@ describe("OnboardingPage object-first first login", () => {
         access_token: qrAccessToken,
         requires_passkey_setup: false,
       });
+      expect(phoneQrPollBodies).toContainEqual({ poll_token: "poll-token-1" });
       expect(clearPasskeySetup).toHaveBeenCalled();
       expect(screen.getByLabelText("current location")).toHaveTextContent(
         "/approvals",

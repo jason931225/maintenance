@@ -183,6 +183,7 @@ export function OnboardingPage() {
         access_token: accessToken,
         requires_passkey_setup: false,
       });
+      clearPasskeySetup();
       handoffRedirectTokenRef.current = accessToken;
     },
     [acceptTokens, clearPasskeySetup, navigate, session],
@@ -194,9 +195,8 @@ export function OnboardingPage() {
       return;
     }
     handoffRedirectTokenRef.current = undefined;
-    clearPasskeySetup();
     void navigate(onboardingDestination(session), { replace: true });
-  }, [clearPasskeySetup, navigate, session]);
+  }, [navigate, session]);
 
   const busy = pending || consentLoading || consentPending;
   const canAcceptConsent = privacyChecked && termsChecked && !consentPending;
