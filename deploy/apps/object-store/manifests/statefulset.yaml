@@ -75,6 +75,10 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /data
+            # glog writes its log files under /tmp (no -logtostderr), so back
+            # /tmp with tmpfs to keep the container root filesystem read-only.
+            - name: tmp
+              mountPath: /tmp
           resources:
             requests:
               cpu: 250m
@@ -106,7 +110,10 @@ spec:
             allowPrivilegeEscalation: false
             capabilities:
               drop: ["ALL"]
-            readOnlyRootFilesystem: false
+            readOnlyRootFilesystem: true
+      volumes:
+        - name: tmp
+          emptyDir: {}
   volumeClaimTemplates:
     - metadata:
         name: data

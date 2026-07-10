@@ -92,11 +92,17 @@ spec:
             limits: { cpu: 500m, memory: 512Mi }
           securityContext:
             allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
             capabilities: { drop: [ALL] }
           volumeMounts:
             - { name: config, mountPath: /etc/tempo }
             - { name: data, mountPath: /var/tempo }
+            # Tempo keeps traces/WAL under /var/tempo (PVC) but writes scratch
+            # files to /tmp; back it with tmpfs for a read-only root filesystem.
+            - { name: tmp, mountPath: /tmp }
       volumes:
+        - name: tmp
+          emptyDir: {}
         - name: config
           configMap:
             name: tempo-config

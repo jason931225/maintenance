@@ -190,13 +190,19 @@ spec:
             limits: { cpu: 500m, memory: 512Mi }
           securityContext:
             allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
             capabilities: { drop: [ALL] }
           volumeMounts:
             - { name: data, mountPath: /var/lib/grafana }
             - { name: datasources, mountPath: /etc/grafana/provisioning/datasources }
             - { name: dashboard-provider, mountPath: /etc/grafana/provisioning/dashboards }
             - { name: dashboards, mountPath: /var/lib/grafana/dashboards/maintenance }
+            # Grafana writes transient files (rendered PNGs, CSV exports) under
+            # /tmp; back it with tmpfs so the root filesystem can stay read-only.
+            - { name: tmp, mountPath: /tmp }
       volumes:
+        - name: tmp
+          emptyDir: {}
         - name: data
           persistentVolumeClaim:
             claimName: grafana-data

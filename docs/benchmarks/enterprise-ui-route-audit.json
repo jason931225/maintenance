@@ -988,6 +988,95 @@
       "groupScopeStory": "Group admin/executive can compare consolidated group and selected subsidiary views with row-level policy enforcement"
     },
     {
+      "rawPath": "/ontology",
+      "canonicalPath": "/ontology",
+      "epRows": [
+        "EP-014",
+        "EP-015"
+      ],
+      "personas": [
+        "executive",
+        "admin",
+        "super-admin"
+      ],
+      "roleStoryEvidence": "Foundry object-graph read explorer on the KPI-read gate (nav.ts ontology->KPI_ROLES + FEATURES.KPI_READ); OntologyPage.test.tsx + console/ontology/OntologyManagerScreen.test.tsx + console/ontology/model.test.ts + shell/nav.test.ts RBAC visibility",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row; browser E2E axe pass pending Phase C.5 lock",
+      "ownerLane": "G006 assets/equipment/inventory + G008 analytics-intelligence lanes surfacing the ontology object graph, gated by G002 route-audit hard gate",
+      "dataClass": "object type, property, link/relation, object instance, lineage edge, data-quality signal, and audit/source metadata",
+      "sourceObject": "ontology object type, property definition, link type, object instance, or source-object lineage node",
+      "lifecycleStates": "loading, empty, filtered, object selected, relationship expanded, denied, and audited navigation states",
+      "e2eSpec": "Required browser story: KPI-tier user browses object types, expands links, and traces an instance to its source object within group/org scope",
+      "denialScopeTest": "Non-KPI roles are denied the ontology nav item and route; cross-tenant object graph is not readable outside the caller org/group scope",
+      "screenshotTraceEvidence": "Pending G003/G008 ontology explorer screenshots and traces; browser persona trace required before maturity beyond Phase A read gate",
+      "groupScopeStory": "Group admin/executive can traverse consolidated group and subsidiary object graphs only within their granted group scope with row-level policy enforcement"
+    },
+    {
+      "rawPath": "/automate",
+      "canonicalPath": "/automate",
+      "epRows": [
+        "EP-003",
+        "EP-013"
+      ],
+      "personas": [
+        "super-admin"
+      ],
+      "roleStoryEvidence": "Automate hub (workflow + schedule unified) on the RoleManage SUPER_ADMIN gate (nav.ts automate->ROLE_MANAGE_ROLES); AutomatePage.test.tsx + shell/nav.test.ts RBAC visibility asserting SUPER_ADMIN-only exposure",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row; browser E2E axe pass pending Phase C.5 lock",
+      "ownerLane": "G005 workflow-builder/approvals/work-hub lane extending automation, gated by G002 route-audit hard gate and G009 live rollout verification",
+      "dataClass": "automation rule, workflow definition, schedule/trigger, run record, approval authority, and audit/actor metadata",
+      "sourceObject": "automation rule, workflow definition, scheduled trigger, automation run, or approval authority object",
+      "lifecycleStates": "draft, empty, scheduled, running, succeeded, failed, paused, denied, and audited terminal states",
+      "e2eSpec": "Required browser story: SUPER_ADMIN creates a workflow/schedule automation, runs it, and verifies the run record and immutable audit actor match",
+      "denialScopeTest": "All non-SUPER_ADMIN roles are denied the automate nav item and route; automation cannot execute cross-scope actions without policy authority and audit",
+      "screenshotTraceEvidence": "Pending G003/G005 automate hub screenshots and traces; Phase A stub blocks maturity until a browser persona proves create/run/deny/audit lifecycle",
+      "groupScopeStory": "SUPER_ADMIN automation authority is scoped to the granted group/subsidiary bindings; automations may not act outside the caller's policy scope"
+    },
+    {
+      "rawPath": "/forecast",
+      "canonicalPath": "/forecast",
+      "epRows": [
+        "EP-012",
+        "EP-015"
+      ],
+      "personas": [
+        "executive",
+        "admin",
+        "super-admin"
+      ],
+      "roleStoryEvidence": "Forecast (예측) forward-looking operational/financial projection on the KPI-read gate (nav.ts forecast->KPI_ROLES); Phase A PageEmpty stub covered by shell/nav.test.ts RBAC visibility + OperationsIntelligencePage.test.tsx; no dedicated component interaction test yet, browser E2E pending Phase B/C series wiring",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate; PageHeader/PageEmpty shared a11y-tested primitives; dedicated axe pass pending Phase C.5 browser E2E lock",
+      "ownerLane": "G008 analytics/optimization/intelligence lane owning forecast series, gated by G002 route-audit hard gate and G009 live rollout verification",
+      "dataClass": "forecast series, scenario assumption, projected metric, confidence interval, source lineage, and audit/source metadata",
+      "sourceObject": "forecast series, scenario definition, projected KPI, or source-object lineage node feeding the projection",
+      "lifecycleStates": "loading, empty (Phase A stub), filtered, scenario selected, projected, denied, and audited navigation states",
+      "e2eSpec": "Required browser story: KPI-tier user selects a scenario, reads the projected series, and traces a projection to its source objects within group/org scope",
+      "denialScopeTest": "Non-KPI roles are denied the forecast nav item and route; projections cannot expose source data outside the caller org/group scope",
+      "screenshotTraceEvidence": "Pending G003/G008 forecast screenshots and traces; Phase A stub blocks maturity until the series wiring and a browser persona trace land",
+      "groupScopeStory": "Group executive/admin can compare consolidated group and subsidiary projections only within their granted group scope with row-level policy enforcement"
+    },
+    {
+      "rawPath": "/config-console",
+      "canonicalPath": "/config-console",
+      "epRows": [
+        "EP-009",
+        "EP-015"
+      ],
+      "personas": [
+        "admin",
+        "super-admin"
+      ],
+      "roleStoryEvidence": "Config console (dashboard/module/lifecycle authoring) on the admin gate (nav.ts config-console->ADMIN_ROLES); ConfigConsolePage.test.tsx + console/configconsole/DashboardEditor.test.tsx + console/configconsole/doc.test.ts + shell/nav.test.ts RBAC visibility asserting ADMIN/SUPER_ADMIN-only exposure",
+      "accessibilityEvidence": "e2e/fixtures/ux.ts assertNoAxeViolations + web lint UI-string gate + route/component tests listed in this row; browser E2E axe pass pending Phase C.5 lock",
+      "ownerLane": "G004 identity/group/org/policy foundation + G008 analytics config lanes, gated by G002 route-audit hard gate",
+      "dataClass": "dashboard definition, module/config document, lifecycle state, layout metadata, and audit/actor metadata",
+      "sourceObject": "dashboard definition, config module document, lifecycle rule, or layout/editor object",
+      "lifecycleStates": "draft, empty, edited, saved, published, denied, superseded, and audited terminal states",
+      "e2eSpec": "Required browser story: admin authors a dashboard/module config, publishes it, and verifies the change and immutable audit actor match within group/org scope",
+      "denialScopeTest": "Non-admin roles are denied the config-console nav item and route; config authoring cannot mutate resources outside the caller org/group policy scope",
+      "screenshotTraceEvidence": "Pending G003/G004 config console screenshots and traces; browser persona trace required before maturity beyond Phase A authoring gate",
+      "groupScopeStory": "Group admin config authoring is scoped to the granted group/subsidiary bindings; org admin may author org-local config only when delegated"
+    },
+    {
       "rawPath": "/integrity",
       "canonicalPath": "/integrity",
       "epRows": [

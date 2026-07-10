@@ -116,6 +116,9 @@ spec:
             limits: { cpu: 500m, memory: 512Mi }
           securityContext:
             allowPrivilegeEscalation: false
+            # No disk persistence (no file_storage extension); root filesystem
+            # can be fully read-only with only the config ConfigMap mounted.
+            readOnlyRootFilesystem: true
             capabilities: { drop: [ALL] }
           volumeMounts:
             - { name: config, mountPath: /etc/otelcol }

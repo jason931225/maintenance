@@ -61,6 +61,9 @@ spec:
             limits: { cpu: "1", memory: 512Mi }
           securityContext:
             allowPrivilegeEscalation: false
+            # VictoriaMetrics writes only to -storageDataPath (/vmdata, PVC), so
+            # the root filesystem can stay read-only with no extra tmpfs mounts.
+            readOnlyRootFilesystem: true
             capabilities: { drop: [ALL] }
           volumeMounts:
             - { name: data, mountPath: /vmdata }
