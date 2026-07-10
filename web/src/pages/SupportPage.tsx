@@ -23,7 +23,6 @@ import { CreateTicketForm } from "../features/support/CreateTicketForm";
 import {
   defaultSloSettings,
   sloPosture,
-  sloWindowBreaches,
   type SloSettingState,
 } from "../features/support/slo-settings";
 import { SloSettingsCard } from "../features/support/SloSettingsCard";
@@ -100,13 +99,17 @@ export function SupportPage() {
     ROLES.ADMIN,
     ROLES.SUPER_ADMIN,
   ]);
+  // The SLO setting is a governed ontology object, and the ontology read/write
+  // API is RoleManage-gated (SUPER_ADMIN only). Any principal below RoleManage
+  // 403s on the card's mount fetch, so — deny-by-omission — only the RoleManage
+  // tier renders the card at all rather than firing a request it cannot make.
+  const canManageSlo = hasAnyRole(session?.roles, [ROLES.SUPER_ADMIN]);
 
   const [tickets, setTickets] = useState<SupportTicketSummary[]>([]);
   // The SLO policy setting object — the ACTIVE revision drives every derived
   // timer/chip/stat below; edits stage a pendingRev (§3.9.0).
   // wire-pending: Phase C — GET /api/v1/ontology/instances?type=support_slo_setting
-  const [sloSettings, setSloSettings] =
-    useState<SloSettingState>(defaultSloSettings);
+  const [sloSettings] = useState<SloSettingState>(defaultSloSettings);
   const [filters, setFilters] = useState<Filters>(emptyFilters);
   const [drill, setDrill] = useState<Drill | null>(null);
   const [listState, setListState] = useState<ReadState>("loading");
@@ -283,10 +286,6 @@ export function SupportPage() {
     () => buildSupportStats(tickets, nowMs, sloSettings.active),
     [nowMs, tickets, sloSettings.active],
   );
-  const sloBreaches = useMemo(
-    () => sloWindowBreaches(tickets, sloSettings.active, nowMs),
-    [nowMs, tickets, sloSettings.active],
-  );
   // SLO violation = internal alert (never a penalty): open tickets past the
   // ACTIVE target surface as alert rows that escalate per the setting.
   const breachedTickets = useMemo(
@@ -382,16 +381,16 @@ export function SupportPage() {
           ) : (
             <PageEmpty message={ko.common.noBranch} />
           )}
-          <SloSettingsCard
-            state={sloSettings}
-            onChange={setSloSettings}
-            canManage={canAssign}
-            actor={{
-              id: currentUserId ?? "",
-              name: session?.display_name ?? "",
-            }}
-            breaches={sloBreaches}
-          />
+          {canManageSlo ? (
+            <SloSettingsCard
+              api={api}
+              canManage={canManageSlo}
+              actor={{
+                id: currentUserId ?? "",
+                name: session?.display_name ?? "",
+              }}
+            />
+          ) : null}
         </div>
       </div>
     </>

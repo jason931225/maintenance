@@ -1,101 +1,119 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
-import type { ConsoleApiClient } from "../api/client";
-import type {
-  EmployeeDirectoryItem,
-  EmployeeDirectoryPage,
-  LeaveBalancePage,
-} from "../api/types";
+import type { EmployeeDirectoryItem, LeaveRequestView } from "../api/types";
 import { PageHeader } from "../components/shell/PageHeader";
 import { RefreshButton } from "../components/shell/RefreshButton";
 import { PageError } from "../components/states/PageError";
 import { SkeletonTable } from "../components/states/Skeleton";
-import { LeaveConsole, LEAVE_RUNTIME_GATE, type LeaveLedgerRow } from "../console/leave";
-import { PolicyGateProvider } from "../console/policy";
-import { useAuth } from "../context/auth";
+import {
+  LeaveConsole,
+  LEAVE_ACTIONS,
+  type LeaveDecideOutcome,
+  type LeaveLedgerRow,
+  type LeavePromotionOutcome,
+} from "../console/leave";
+import { BulkPolicyGateProvider } from "../console/policy";
+import { useActiveBranchId, useAuth } from "../context/auth";
 import { leaveManagementKo as copy } from "../i18n/hrWorkflows";
 
 type LoadState = "loading" | "idle" | "error";
 
-type LeaveManagementApi = ConsoleApiClient & {
-  GET(
-    path: "/api/v1/employees",
-    options?: {
-      params?: {
-        query?: { limit?: number; offset?: number; company?: string };
-      };
-    },
-  ): Promise<{ data?: EmployeeDirectoryPage }>;
-  GET(
-    path: "/api/v1/hr/leave-balances",
-    options?: { params?: { query?: { limit?: number; offset?: number } } },
-  ): Promise<{ data?: LeaveBalancePage }>;
-};
+// Deny-by-omission action set, resolved at mount via
+// POST /api/v1/policy/authorize/bulk (arch §5c) — see BulkPolicyGateProvider.
+const LEAVE_GATE_ACTIONS: readonly string[] = Object.values(LEAVE_ACTIONS);
 
 export function LeaveManagementPage() {
-  const { api } = useAuth();
-  const leaveApi = api as LeaveManagementApi;
+  const { api, session } = useAuth();
+  const branchId = useActiveBranchId();
   const [state, setState] = useState<LoadState>("loading");
-  const [employees, setEmployees] = useState<EmployeeDirectoryItem[]>([]);
-  const [leaveBalances, setLeaveBalances] = useState<LeaveBalancePage>();
-  const [loadCount, setLoadCount] = useState(0);
+  const [roster, setRoster] = useState<LeaveLedgerRow[]>([]);
+  const [requests, setRequests] = useState<LeaveRequestView[]>([]);
 
   const loadLeaveManagement = useCallback(async () => {
     setState("loading");
-    const [employeesResponse, leaveResponse] = await Promise.all([
-      leaveApi
-        .GET("/api/v1/employees", {
-          params: { query: { limit: 1000, offset: 0 } },
-        })
+    const [employeesResponse, balancesResponse, requestsResponse] = await Promise.all([
+      api
+        .GET("/api/v1/employees", { params: { query: { limit: 1000, offset: 0 } } })
         .catch(() => undefined),
-      leaveApi
-        .GET("/api/v1/hr/leave-balances", {
-          params: { query: { limit: 1000, offset: 0 } },
-        })
-        .catch(() => undefined),
+      api.GET("/api/v1/leave/balances").catch(() => undefined),
+      api.GET("/api/v1/leave/requests", { params: { query: { limit: 200 } } }).catch(() => undefined),
     ]);
 
-    if (!employeesResponse?.data || !leaveResponse?.data) {
+    if (!employeesResponse?.data || !balancesResponse?.data || !requestsResponse?.data) {
       setState("error");
       return;
     }
 
-    setEmployees(employeesResponse.data.items);
-    setLeaveBalances(leaveResponse.data);
-    // Re-key the console so its interactive state reseeds from the fresh ledger.
-    setLoadCount((count) => count + 1);
+    const employeeById = new Map(
+      employeesResponse.data.items.map((employee) => [employee.id, employee]),
+    );
+    setRoster(
+      balancesResponse.data.items.map((entry, index) => {
+        const employee = employeeById.get(entry.employee_id);
+        return {
+          id: entry.employee_id,
+          code: `JL-${codeSuffix(employee?.employee_number, index)}`,
+          name: entry.name,
+          company: text(employee?.company),
+          employeeNumber: text(employee?.employee_number),
+          orgUnit: text(employee?.org_unit ?? entry.team),
+          position: text(employee?.position),
+          hireDate: employee?.hire_date ?? undefined,
+          accrued: entry.grant,
+          used: entry.used,
+          remaining: entry.left,
+          tone: entry.tone,
+          active: isActiveEmployee(employee),
+        };
+      }),
+    );
+    setRequests(requestsResponse.data.items);
     setState("idle");
-  }, [leaveApi]);
+  }, [api]);
 
   useEffect(() => {
     void Promise.resolve().then(loadLeaveManagement);
   }, [loadLeaveManagement]);
 
-  const employeeById = useMemo(
-    () => new Map(employees.map((employee) => [employee.id, employee])),
-    [employees],
+  const decide = useCallback(
+    async (requestId: string, decision: "approve" | "reject", comment?: string): Promise<LeaveDecideOutcome> => {
+      const response = await api.POST("/api/v1/leave/requests/{id}/decide", {
+        params: { path: { id: requestId } },
+        body: { decision, comment },
+      });
+      if (response.error) return { ok: false, error: response.error };
+      // APPROVE writes the leave ledger in the same transaction — refetch both.
+      await loadLeaveManagement();
+      return { ok: true };
+    },
+    [api, loadLeaveManagement],
   );
 
-  const ledger: LeaveLedgerRow[] = useMemo(
-    () =>
-      (leaveBalances?.items ?? []).map((leave, index) => {
-        const employee = employeeById.get(leave.id);
-        return {
-          id: leave.id,
-          code: `JL-${codeSuffix(leave.employee_number, index)}`,
-          name: text(leave.name),
-          company: text(leave.company),
-          employeeNumber: text(leave.employee_number),
-          orgUnit: text(leave.org_unit),
-          position: text(leave.position),
-          hireDate: employee?.hire_date ?? undefined,
-          accrued: parseDays(leave.leave_accrued),
-          used: parseDays(leave.leave_used),
-          remaining: parseDays(leave.leave_remaining),
-          active: isActiveEmployee(employee),
-        };
-      }),
-    [employeeById, leaveBalances],
+  const pushPromotion = useCallback(
+    async (payload: {
+      targetUserId: string;
+      targetEmployeeId: string;
+      targetName: string;
+      round: 1 | 2;
+      unusedDays: number;
+    }): Promise<LeavePromotionOutcome> => {
+      if (branchId === undefined) {
+        return { ok: false, error: { error: { code: "no_branch", message: copy.loadFailed } } };
+      }
+      const response = await api.POST("/api/v1/leave/promotions", {
+        body: {
+          branch_id: branchId,
+          target_user_id: payload.targetUserId,
+          target_employee_id: payload.targetEmployeeId,
+          target_name: payload.targetName,
+          round: payload.round,
+          unused_days: payload.unusedDays,
+        },
+      });
+      if (!response.data) return { ok: false, error: response.error };
+      return { ok: true, push: response.data };
+    },
+    [api, branchId],
   );
 
   return (
@@ -123,9 +141,15 @@ export function LeaveManagementPage() {
           />
         ) : null}
         {state === "idle" ? (
-          <PolicyGateProvider gate={LEAVE_RUNTIME_GATE}>
-            <LeaveConsole key={loadCount} ledger={ledger} />
-          </PolicyGateProvider>
+          <BulkPolicyGateProvider actions={LEAVE_GATE_ACTIONS}>
+            <LeaveConsole
+              ledger={roster}
+              requests={requests}
+              selfUserId={session?.user_id}
+              decide={decide}
+              pushPromotion={pushPromotion}
+            />
+          </BulkPolicyGateProvider>
         ) : null}
       </div>
     </>
@@ -141,12 +165,6 @@ function codeSuffix(employeeNumber: string | null | undefined, index: number): s
 function isActiveEmployee(employee: EmployeeDirectoryItem | undefined): boolean {
   if (!employee) return false;
   return employee.status !== "EXITED" && employee.status !== "TERMINATED";
-}
-
-function parseDays(value: string | number | null | undefined): number {
-  if (typeof value === "number") return Number.isFinite(value) ? value : 0;
-  const parsed = Number.parseFloat((value ?? "0").replaceAll(",", ""));
-  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function text(value: string | number | null | undefined): string {

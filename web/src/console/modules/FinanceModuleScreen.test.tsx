@@ -79,16 +79,19 @@ const liveRowConfig: ModuleScreenConfig = {
 };
 
 describe("FinanceModuleScreen", () => {
-  it("renders the constrained finance shell without fake voucher rows or blocked actions", () => {
+  it("renders the final-shape finance shell (no blocked-domain placeholder) without fake voucher rows when no api/session backs it", () => {
     const { container } = renderFinance();
 
     expect(screen.getByRole("heading", { name: "재무" })).toBeVisible();
     expect(screen.getByRole("navigation", { name: "콘솔 모듈" })).toBeVisible();
-    expect(screen.getAllByText("전표 도메인 대기").length).toBeGreaterThan(0);
+    // The "전표 도메인 대기" blocked-until-backend placeholder is gone for good —
+    // emptyMode is "live" now.
+    expect(screen.queryAllByText("전표 도메인 대기")).toHaveLength(0);
     expect(screen.getByRole("table")).toBeVisible();
-    expect(screen.queryByLabelText("전표 검색")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "전표 생성" })).not.toBeInTheDocument();
-    expect(screen.queryByText("검토 대기")).not.toBeInTheDocument();
+    // No api/session (this bare shell has neither) → the real 전표 기안 CTA still
+    // renders (final shape), it is just inert until a session/api mounts it.
+    expect(screen.getByRole("button", { name: "전표 생성" })).toBeVisible();
+    // No rows without a real backend read — never fabricate display data.
     expect(container).not.toHaveTextContent(/VC-/);
   });
 

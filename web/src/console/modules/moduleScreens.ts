@@ -8,8 +8,14 @@ import type {
   EquipmentTimelineGraph,
   ObjectActionCatalogResponse,
 } from "../../api/types";
+import { createElement } from "react";
+
 import type { ConsoleApiClient } from "../../api/client";
-import { choiceStatus } from "./typeRegistry";
+import { complianceModuleScreen } from "../compliance";
+import { registeredObjectType } from "../ontology/typeRegistrySource";
+import { VoucherComposeForm } from "../finance/VoucherComposeForm";
+import { FINANCE_MODULE_ACTIONS, makeFinanceDataAdapter } from "../finance/financeModel";
+import { choiceStatus, getObjectType } from "./typeRegistry";
 import type {
   ModuleChipTone,
   ModuleDataAdapter,
@@ -22,15 +28,9 @@ import type {
   ModuleTimelineValue,
 } from "./types";
 
-export const FINANCE_MODULE_ACTIONS = {
-  read: "finance_voucher_read",
-  create: "finance_voucher_create",
-  post: "finance_voucher_post",
-  link: "object.link.create",
-  graph: "object.view",
-  audit: "audit_log_read",
-  lifecycle: "finance_voucher_read",
-} as const;
+// Re-exported for existing callers of the finance policy-action map; owned in
+// financeModel.ts to avoid a config↔domain import cycle.
+export { FINANCE_MODULE_ACTIONS };
 
 export const ASSET_MODULE_ACTIONS = {
   read: "work_order_read_all",
@@ -337,6 +337,8 @@ const assetDataAdapter: ModuleDataAdapter = {
   },
 };
 
+const financeDataAdapter = makeFinanceDataAdapter((context) => createElement(VoucherComposeForm, context));
+
 export const financeModuleScreen: ModuleScreenConfig = {
   id: "finance",
   screen: "finance",
@@ -347,14 +349,16 @@ export const financeModuleScreen: ModuleScreenConfig = {
   objectKind: "finance_voucher",
   typeKey: "finance_voucher",
   codePrefix: "VC-",
-  emptyMode: "blocked-until-backend",
-  blockedChipKey: "console.modules.finance.emptyBlockedChip",
+  emptyMode: "live",
+  emptyLiveHintKey: "console.modules.finance.emptyLiveHint",
   policy: FINANCE_MODULE_ACTIONS,
+  dataAdapter: financeDataAdapter,
   data: {
     list: "/api/v1/finance/vouchers",
     detail: "/api/v1/finance/vouchers/{voucherId}",
     create: "/api/v1/finance/vouchers",
     post: "/api/v1/finance/vouchers/{voucherId}/post",
+    reverse: "/api/v1/finance/vouchers/{voucherId}/reverse",
     lifecycle: "/api/v1/lifecycles/finance_voucher/{voucherId}",
     objectResolve: "/api/objects/{kind}/{id}",
     graph: "/api/objects/{kind}/{id}/graph",
@@ -440,6 +444,8 @@ export const financeModuleScreen: ModuleScreenConfig = {
       { key: "voucherDate" },
       // Detail wants "전기 시각" while the registry prop is the column label — override.
       { key: "postedAt", labelKey: "console.modules.finance.detail.postedAt" },
+      { key: "documentFlow" },
+      { key: "balanceCheck" },
       { key: "totalDebitWon" },
       { key: "totalCreditWon" },
       { key: "sourceKind" },
@@ -462,20 +468,16 @@ export const financeModuleScreen: ModuleScreenConfig = {
       { key: "glAccount", labelKey: "console.modules.finance.links.glAccount", policyAction: FINANCE_MODULE_ACTIONS.read, resourceKind: "gl_account" },
       { key: "costLedger", labelKey: "console.modules.finance.links.costLedger", policyAction: "equipment_cost_ledger_read", resourceKind: "cost_ledger" },
     ],
-    actions: [
-      { key: "openSource", labelKey: "console.modules.finance.actions.openSource", policyAction: FINANCE_MODULE_ACTIONS.read },
-      { key: "openGraph", labelKey: "console.modules.finance.actions.openGraph", policyAction: FINANCE_MODULE_ACTIONS.graph },
-      { key: "openLifecycle", labelKey: "console.modules.finance.actions.openLifecycle", policyAction: FINANCE_MODULE_ACTIONS.lifecycle },
-      { key: "postVoucher", labelKey: "console.modules.finance.actions.postVoucher", policyAction: FINANCE_MODULE_ACTIONS.post, blockedUntil: "B21a finance VC-/GL backend" },
-      { key: "createRelation", labelKey: "console.modules.finance.actions.createRelation", policyAction: FINANCE_MODULE_ACTIONS.link },
-    ],
+    // Real per-row actions (post/reverse, eligibility-gated) come from
+    // financeDataAdapter.loadDetail's row.actions — same precedent as
+    // assetModuleScreen. This static template is the no-adapter fallback.
+    actions: [],
   },
   primaryAction: {
     key: "createVoucher",
     labelKey: "console.modules.finance.actions.createVoucher",
     policyAction: FINANCE_MODULE_ACTIONS.create,
     resourceKind: "finance_voucher",
-    blockedUntil: "B21a finance VC-/GL backend",
   },
   rows: [],
 };
@@ -610,13 +612,73 @@ export const assetModuleScreen: ModuleScreenConfig = {
 export const MOD_SCREENS = {
   finance: financeModuleScreen,
   asset: assetModuleScreen,
+  compliance: complianceModuleScreen,
 } as const;
 
 export type ModuleScreenId = keyof typeof MOD_SCREENS;
 
+/**
+ * A registered-but-not-hand-authored kind as a generic module surface: it opens
+ * and renders (frame, stat strip, empty state) with NO config edit. Columns and
+ * detail fields derive from the (generic) ONT_TYPES def; there is no list
+ * endpoint for an arbitrary kind yet, so it stays blocked-until-backend (empty
+ * state per §4-10, never fabricated rows). Read is gated by the generic
+ * `object.view` action (deny-by-omission).
+ * wire-pending: W1-be-ontology GET /api/v1/ontology/instances?type= for
+ * arbitrary registered kinds → real rows + statbar counts.
+ */
+function genericModuleScreen(kind: string): ModuleScreenConfig {
+  const type = getObjectType(kind);
+  const registered = registeredObjectType(kind);
+  const columns = (type?.propSchema ?? []).map((prop) => ({ key: prop.id }));
+  return {
+    id: kind,
+    screen: kind,
+    route: `/modules?screen=${kind}`,
+    navLabelKey: type?.nameKey ?? kind,
+    titleKey: type?.nameKey ?? kind,
+    objectNameKey: type?.nameKey ?? kind,
+    objectKind: kind,
+    typeKey: type?.key,
+    codePrefix: registered?.codePrefix ?? type?.codePrefix ?? "",
+    emptyMode: "blocked-until-backend",
+    blockedChipKey: "console.modules.generic.emptyBlockedChip",
+    policy: { read: "object.view" },
+    data: {},
+    statbar: [
+      {
+        key: "instances",
+        labelKey: "console.modules.generic.stats.instances",
+        tone: "neutral",
+        source: "object-types.active_count",
+        requiresBackend: true,
+      },
+    ],
+    list: {
+      keyboard: ["J", "K", "Enter"],
+      sharedTrack: `${kind}Track`,
+      columns,
+    },
+    detail: {
+      fields: (type?.propSchema ?? []).map((prop) => ({ key: prop.id })),
+      linkChips: [],
+      actions: [],
+    },
+    rows: [],
+  };
+}
+
+/**
+ * The hand-authored surface for a known nav id (finance/asset), else — when the
+ * screen names a kind registered no-code via the Ontology Manager — a generic
+ * surface derived from the registry. Unknown/unregistered → finance default.
+ */
 export function getModuleScreen(screen: string | null | undefined): ModuleScreenConfig {
   if (screen && Object.prototype.hasOwnProperty.call(MOD_SCREENS, screen)) {
     return MOD_SCREENS[screen as ModuleScreenId];
+  }
+  if (screen && registeredObjectType(screen)) {
+    return genericModuleScreen(screen);
   }
   return financeModuleScreen;
 }

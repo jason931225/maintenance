@@ -1,3 +1,4 @@
+import type { components } from "@maintenance/api-client-ts";
 import { ShieldAlert } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -18,11 +19,7 @@ import { PageError } from "../components/states/PageError";
 import { SkeletonTable } from "../components/states/Skeleton";
 import { PageHeader } from "../components/shell/PageHeader";
 import { RefreshButton } from "../components/shell/RefreshButton";
-import {
-  EVIDENCE_ACTIONS,
-  EvidenceRecords,
-  type VerifyEvidence,
-} from "../console/evidence";
+import { EVIDENCE_ACTIONS, EvidenceRecords } from "../console/evidence";
 import { PolicyGateProvider, type PolicyGate } from "../console/policy";
 import { useAuth } from "../context/auth";
 import { ko } from "../i18n/ko";
@@ -34,6 +31,21 @@ type ReadState = "idle" | "loading" | "error";
 
 /** Status filter options, including "all" (no status param). */
 type StatusFilter = "ALL" | FindingStatus;
+
+/** A recorded Cedar decision (GET /api/v1/policy/decisions row). */
+type DecisionLogRow = components["schemas"]["DecisionLogRow"];
+
+/** Neutral tone for the allow/deny chip — never alarmist red. */
+function decisionEffectClass(effect: DecisionLogRow["effect"]): string {
+  return effect === "deny"
+    ? "border-amber-300 bg-amber-50 text-amber-900"
+    : "border-line bg-muted-panel text-steel";
+}
+
+/** Live-ish poll cadence for the decision feed while its tab is open. */
+const DECISIONS_POLL_MS = 15_000;
+/** Feed page cap, mirrors the backend's DECISION_FEED_LIMIT. */
+const DECISIONS_FEED_LIMIT = 200;
 
 /** A 409 conflict from triage (the finding is no longer OPEN). */
 class TriageConflictError extends Error {}
@@ -74,8 +86,8 @@ function severityClass(severity: GovernanceFinding["severity"]): string {
   }
 }
 
-/** Surface tabs: 이상 징후 (findings, default) / 증거 (EV- records). */
-type IntegrityTab = "findings" | "evidence";
+/** Surface tabs: 이상 징후 (findings, default) / 증거 (EV- records) / 정책 판정 (decisions). */
+type IntegrityTab = "findings" | "evidence" | "decisions";
 
 export function IntegrityPage() {
   const { api, session } = useAuth();
@@ -135,6 +147,55 @@ export function IntegrityPage() {
     [users],
   );
 
+  const [decisions, setDecisions] = useState<DecisionLogRow[]>([]);
+  const [decisionsState, setDecisionsState] = useState<ReadState>("loading");
+
+  // Full reload (tab open, manual refresh): replaces the feed entirely.
+  const loadDecisions = useCallback(async () => {
+    setDecisionsState("loading");
+    const res = await api
+      .GET("/api/v1/policy/decisions", { params: { query: {} } })
+      .catch(() => undefined);
+    if (!res?.data) {
+      setDecisionsState("error");
+      return;
+    }
+    setDecisions(res.data);
+    setDecisionsState("idle");
+  }, [api]);
+
+  // Live-ish poll: fetch only decisions after the newest one already held,
+  // and prepend (newest-first) rather than re-fetching + re-rendering the
+  // whole feed. Silent on failure — the manual refresh button covers errors.
+  const pollDecisions = useCallback(async () => {
+    const since = decisions[0]?.decided_at;
+    const res = await api
+      .GET("/api/v1/policy/decisions", {
+        params: { query: since ? { since } : {} },
+      })
+      .catch(() => undefined);
+    if (!res?.data || res.data.length === 0) return;
+    setDecisions((prev) =>
+      [...res.data, ...prev].slice(0, DECISIONS_FEED_LIMIT),
+    );
+  }, [api, decisions]);
+
+  useEffect(() => {
+    void Promise.resolve().then(loadDecisions);
+    // Only on mount — the poll below carries subsequent updates.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (tab !== "decisions") return;
+    const id = window.setInterval(() => {
+      void pollDecisions();
+    }, DECISIONS_POLL_MS);
+    return () => {
+      window.clearInterval(id);
+    };
+  }, [tab, pollDecisions]);
+
   // Evidence PBAC gate (deny-by-omission). Role-derived stand-in: SUPER_ADMIN
   // acts as the 컴플라이언스 전담 persona (custody/hold/disposal controls);
   // EXECUTIVE is read-only — controls are absent, not disabled.
@@ -151,34 +212,6 @@ export function IntegrityPage() {
             action === EVIDENCE_ACTIONS.dispose)),
     };
   }, [session]);
-
-  // 무결성 검증 — REAL wiring: the original copy that wraps a work-order
-  // evidence_media row polls GET /api/v1/evidence/{evidenceId}/status. EV
-  // objects without such a copy report "unavailable" until the EV attestation
-  // REST lands (wire-pending: Phase C → POST
-  // /api/v1/evidence-objects/{id}/admissibility/recompute, t_15b1a1ec §7.8).
-  const verifyEvidence = useCallback<VerifyEvidence>(
-    async (detail) => {
-      const mediaId = detail.copies.find(
-        (copy) => copy.kind === "ORIGINAL",
-      )?.sourceEvidenceMediaId;
-      if (!mediaId) return { state: "unavailable" };
-      const res = await api
-        .GET("/api/v1/evidence/{evidenceId}/status", {
-          params: { path: { evidenceId: mediaId } },
-        })
-        .catch(() => undefined);
-      if (!res?.data) return { state: "failed", reason: null };
-      if (res.data.processing_status === "READY") {
-        return { state: "verified", processedAt: res.data.processed_at ?? null };
-      }
-      if (res.data.processing_status === "PROCESSING") {
-        return { state: "processing" };
-      }
-      return { state: "failed", reason: res.data.processing_error ?? null };
-    },
-    [api],
-  );
 
   async function submitTriage(
     finding: GovernanceFinding,
@@ -208,9 +241,14 @@ export function IntegrityPage() {
         actions={
           <RefreshButton
             onClick={() => {
-              void loadFindings();
+              if (tab === "decisions") void loadDecisions();
+              else if (tab === "findings") void loadFindings();
             }}
-            isLoading={listState === "loading"}
+            isLoading={
+              tab === "decisions"
+                ? decisionsState === "loading"
+                : listState === "loading"
+            }
           />
         }
       />
@@ -247,13 +285,44 @@ export function IntegrityPage() {
         >
           {ko.console.evidence.tabs.records}
         </Button>
+        <Button
+          type="button"
+          variant={tab === "decisions" ? undefined : "secondary"}
+          aria-pressed={tab === "decisions"}
+          onClick={() => {
+            setTab("decisions");
+          }}
+        >
+          {ko.console.evidence.tabs.decisions}
+        </Button>
       </div>
 
       {tab === "evidence" ? (
         <Card className="grid gap-4">
           <PolicyGateProvider gate={evidenceGate}>
-            <EvidenceRecords verify={verifyEvidence} />
+            <EvidenceRecords api={api} currentUserId={session?.user_id} />
           </PolicyGateProvider>
+        </Card>
+      ) : tab === "decisions" ? (
+        <Card className="grid gap-4">
+          {decisionsState === "loading" && decisions.length === 0 ? (
+            <SkeletonTable rows={5} cols={5} />
+          ) : decisionsState === "error" ? (
+            <PageError
+              message={ko.integrity.decisions.loadFailed}
+              onRetry={() => {
+                void loadDecisions();
+              }}
+            />
+          ) : decisions.length === 0 ? (
+            <PageEmpty message={ko.integrity.decisions.empty} />
+          ) : (
+            <ul className="grid gap-3">
+              {decisions.map((decision) => (
+                <DecisionRow key={decision.id} decision={decision} />
+              ))}
+            </ul>
+          )}
         </Card>
       ) : (
       <Card className="grid gap-4">
@@ -319,6 +388,60 @@ export function IntegrityPage() {
         />
       ) : null}
     </>
+  );
+}
+
+/**
+ * One Cedar decision. Deny-drill: expands to the matched policy(ies) + reason
+ * so a denied action can be understood without leaving the feed.
+ */
+function DecisionRow({ decision }: { decision: DecisionLogRow }) {
+  return (
+    <li className="grid gap-2 rounded-md border border-line p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-semibold text-ink">{decision.action}</span>
+            <Badge className={decisionEffectClass(decision.effect)}>
+              {ko.integrity.decisions.effect[decision.effect]}
+            </Badge>
+          </div>
+          <p className="mt-1 text-sm text-steel">
+            {ko.integrity.decisions.table.subject}: {decision.subject_ref}
+            {" · "}
+            {ko.integrity.decisions.table.resource}: {decision.resource_type}
+            {decision.resource_id ? ` (${decision.resource_id})` : ""}
+          </p>
+          <p className="text-sm text-steel">
+            {ko.integrity.decisions.table.decidedAt}:{" "}
+            {formatKoreanDateTime(decision.decided_at)}
+          </p>
+        </div>
+      </div>
+
+      <details className="rounded-md bg-muted-panel p-3 text-sm">
+        <summary className="cursor-pointer font-medium text-steel">
+          {ko.integrity.decisions.drill.policy}
+        </summary>
+        <div className="mt-2 grid gap-1">
+          {decision.determining_policies.length > 0 ? (
+            <ul className="list-inside list-disc text-ink">
+              {decision.determining_policies.map((policyId) => (
+                <li key={policyId}>{policyId}</li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-steel">
+              {ko.integrity.decisions.drill.policyNone}
+            </p>
+          )}
+          <DetailLine
+            label={ko.integrity.decisions.drill.reason}
+            value={decision.reason}
+          />
+        </div>
+      </details>
+    </li>
   );
 }
 

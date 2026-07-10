@@ -27,7 +27,7 @@ import { PageError } from "../components/states/PageError";
 import { SkeletonTable } from "../components/states/Skeleton";
 import { PageHeader } from "../components/shell/PageHeader";
 import { RefreshButton } from "../components/shell/RefreshButton";
-import { PolicyGateProvider, type PolicyGate } from "../console/policy";
+import { BulkPolicyGateProvider } from "../console/policy";
 import {
   POLICY_CANVAS_ACTIONS,
   PolicyCanvasScreen,
@@ -96,16 +96,12 @@ const CONDITION_OPERATORS: PolicyConditionOperator[] = [
   "in",
 ];
 
-// wire-pending: HANDOFF §5c — POST /api/v1/policy/authorize is wired in
-// api/policyCedar.ts (authorizePolicy), but PolicyGate.can is a synchronous
-// render gate; the studio surface is already role_manage-gated server-side,
-// so canvas authoring affordances stay granted here until the async live-gate
-// seam lands.
-const POLICY_CANVAS_AUTHOR_GATE: PolicyGate = {
-  can: (action) =>
-    action === POLICY_CANVAS_ACTIONS.author ||
-    action === POLICY_CANVAS_ACTIONS.approve,
-};
+// Deny-by-omission action set for canvas authoring, resolved at mount via
+// POST /api/v1/policy/authorize/bulk (arch §5c) — see BulkPolicyGateProvider.
+const POLICY_CANVAS_GATE_ACTIONS: readonly string[] = [
+  POLICY_CANVAS_ACTIONS.author,
+  POLICY_CANVAS_ACTIONS.approve,
+];
 
 export function PolicyStudioPage() {
   const { api, session } = useAuth();
@@ -840,14 +836,14 @@ export function PolicyStudioPage() {
       </div>
 
       <section className="mt-4 min-w-0">
-        <PolicyGateProvider gate={POLICY_CANVAS_AUTHOR_GATE}>
+        <BulkPolicyGateProvider actions={POLICY_CANVAS_GATE_ACTIONS}>
           <PolicyCanvasScreen
             api={api}
             orgId={session?.org_id ?? ""}
             strings={ko.console.policycanvas}
             canvasStrings={ko.console.canvas}
           />
-        </PolicyGateProvider>
+        </BulkPolicyGateProvider>
       </section>
     </>
   );

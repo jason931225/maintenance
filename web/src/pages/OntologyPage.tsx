@@ -33,7 +33,7 @@ import {
   type OntInstanceRow,
   type OntObjectTypeDef,
 } from "../console/ontology";
-import { PolicyGateProvider, type PolicyGate } from "../console/policy";
+import { BulkPolicyGateProvider } from "../console/policy";
 import { useAuth } from "../context/auth";
 import { ko } from "../i18n/ko";
 import { cn } from "../lib/utils";
@@ -47,16 +47,12 @@ interface RegistryEntry {
   instances: InstanceStateWire[];
 }
 
-// wire-pending: Phase C — decisions come from /policy/authorize (arch §5c);
-// until then the workspace is gated by this local allow-list (deny-by-omission
-// for every action not named here).
-const ONTOLOGY_GATE_ACTIONS: ReadonlySet<string> = new Set([
+// Deny-by-omission action set for the ontology workspace, resolved at mount via
+// POST /api/v1/policy/authorize/bulk (arch §5c) — see BulkPolicyGateProvider.
+const ONTOLOGY_GATE_ACTIONS: readonly string[] = [
   ...Object.values(ONTOLOGY_MANAGER_ACTIONS),
   ...Object.values(OBJECT_EXPLORER_ACTIONS),
-]);
-const ONTOLOGY_GATE: PolicyGate = {
-  can: (action) => ONTOLOGY_GATE_ACTIONS.has(action),
-};
+];
 
 /**
  * Ontology workspace (파운드리 › 온톨로지), wired to the ontology REST:
@@ -308,22 +304,22 @@ export function OntologyPage() {
           }}
         />
       ) : tab === "graph" ? (
-        <PolicyGateProvider gate={ONTOLOGY_GATE}>
+        <BulkPolicyGateProvider actions={ONTOLOGY_GATE_ACTIONS}>
           <ObjectExplorerScreen
             model={explorerModel}
             onFocusChange={handleGraphFocusChange}
             resolveNodeDescriptor={resolveNodeDescriptor}
           />
-        </PolicyGateProvider>
+        </BulkPolicyGateProvider>
       ) : (
-        <PolicyGateProvider gate={ONTOLOGY_GATE}>
+        <BulkPolicyGateProvider actions={ONTOLOGY_GATE_ACTIONS}>
           <OntologyManagerScreen
             registry={registry}
             onCreateType={handleCreateType}
             onCommitRevision={handleCommitRevision}
             resolveInstanceCard={resolveInstanceCard}
           />
-        </PolicyGateProvider>
+        </BulkPolicyGateProvider>
       )}
     </>
   );

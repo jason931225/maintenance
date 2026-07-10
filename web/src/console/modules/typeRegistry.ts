@@ -6,6 +6,10 @@
 // this constant becomes the fetch result, the shapes already line up.
 import { ko } from "../../i18n/ko";
 import type { ObjectCardDescriptor, ObjectCardProperty } from "../objectcard";
+import {
+  registeredObjectType,
+  type RegistryObjectType,
+} from "../ontology/typeRegistrySource";
 import type {
   ModuleChipTone,
   ModuleColumnVariant,
@@ -51,7 +55,18 @@ export type OntProperty =
   | (OntPropertyBase & { type: "choice"; config: { choices: OntChoice[] } })
   | (OntPropertyBase & { type: "currency"; config: { unit: "KRW" } })
   | (OntPropertyBase & {
-      type: "code" | "text" | "user" | "date" | "datetime" | "link" | "timeline" | "graph" | "ledger";
+      type:
+        | "code"
+        | "text"
+        | "user"
+        | "date"
+        | "datetime"
+        | "link"
+        | "timeline"
+        | "graph"
+        | "ledger"
+        | "stepper"
+        | "balanceCheck";
       config?: undefined;
     });
 
@@ -134,6 +149,8 @@ export const ONT_TYPES: Readonly<Record<string, OntObjectType>> = {
       { id: "gl", nameKey: `${F}.columns.gl`, type: "text" },
       { id: "links", nameKey: `${F}.columns.links`, type: "link" },
       { id: "postedAt", nameKey: `${F}.columns.postedAt`, type: "datetime" },
+      { id: "documentFlow", nameKey: `${F}.detail.documentFlow`, type: "stepper" },
+      { id: "balanceCheck", nameKey: `${F}.detail.balanceCheck`, type: "balanceCheck" },
       { id: "lifecyclePhase", nameKey: `${F}.detail.lifecycle`, type: "text" },
       { id: "lifecycleVersion", nameKey: `${F}.detail.version`, type: "text" },
       { id: "postingStatus", nameKey: `${F}.detail.postingStatus`, type: "text" },
@@ -156,6 +173,7 @@ export const ONT_TYPES: Readonly<Record<string, OntObjectType>> = {
     actions: [
       { key: "createVoucher", nameKey: `${F}.actions.createVoucher`, policyAction: "finance_voucher_create" },
       { key: "postVoucher", nameKey: `${F}.actions.postVoucher`, policyAction: "finance_voucher_post" },
+      { key: "reverseVoucher", nameKey: `${F}.actions.reverseVoucher`, policyAction: "finance_voucher_post" },
     ],
     analytics: [
       { key: "balance", nameKey: `${X}.finance.analytics.balance`, formula: "totalDebitWon - totalCreditWon", resultType: "currency" },
@@ -310,10 +328,59 @@ export const ONT_TYPES: Readonly<Record<string, OntObjectType>> = {
       { key: "sloRemaining", nameKey: `${X}.ticket.analytics.sloRemaining`, formula: "sloDueAt - now", resultType: "duration" },
     ],
   },
+  // CP-/RG-/FW- share one module surface (console/compliance) with an explicit
+  // labelKey on every column/detail field, so this entry only needs to exist
+  // for the typeRegistry drift guard — it is not the label source today.
+  compliance_catalog_item: {
+    key: "compliance_catalog_item",
+    code: "OT-COMPLIANCE",
+    nameKey: "console.modules.compliance.objectName",
+    codePrefix: "CP-",
+    propSchema: [{ id: "code", nameKey: "console.modules.compliance.columns.code", type: "code", required: true }],
+    linkTypes: [],
+    actions: [],
+    analytics: [],
+  },
 };
 
+/**
+ * A registered-but-not-hand-authored type as a generic OntObjectType, so a
+ * no-code type still opens as a card and drives a module surface. The registry
+ * (GET /api/v1/object-types) only carries kind + code prefix + label; the rich
+ * property/link/action schema for a projected type is not served yet, so the
+ * generic type exposes just code + title — never fabricated columns.
+ * wire-pending: W1-be-ontology GET /api/v1/ontology/object-types/{key} schema.
+ */
+export function genericObjectType(registered: RegistryObjectType): OntObjectType {
+  return {
+    key: registered.kind,
+    code: `OT-${registered.kind.toUpperCase()}`,
+    // registry `description` is the backend's human label (real data); resolveText
+    // returns it verbatim when it is not a dotted ko key.
+    nameKey: registered.description || registered.kind,
+    codePrefix: registered.codePrefix ?? "",
+    propSchema: [
+      { id: "code", nameKey: "console.modules.generic.columns.code", type: "code", required: true },
+      { id: "title", nameKey: "console.modules.generic.columns.title", type: "text" },
+    ],
+    linkTypes: [],
+    actions: [],
+    analytics: [],
+  };
+}
+
+/**
+ * The rich hand-authored def if present, else — for a type registered no-code
+ * via the Ontology Manager — a generic def synthesised from the registry. This
+ * is the ONT_TYPES "thin cache over the fetch": the *set* of types is
+ * registry-driven; hand-authored defs remain the detail source until projected
+ * schemas are served.
+ */
 export function getObjectType(key: string | undefined): OntObjectType | undefined {
-  return key ? ONT_TYPES[key] : undefined;
+  if (!key) return undefined;
+  if (Object.prototype.hasOwnProperty.call(ONT_TYPES, key)) return ONT_TYPES[key];
+  const registered = registeredObjectType(key);
+  return registered ? genericObjectType(registered) : undefined;
 }
 
 export function getProperty(type: OntObjectType | undefined, propId: string): OntProperty | undefined {
@@ -352,6 +419,8 @@ export function detailVariantFor(prop: OntProperty | undefined): ModuleDetailFie
     case "timeline":
     case "graph":
     case "ledger":
+    case "stepper":
+    case "balanceCheck":
       return prop.type;
     default:
       return "text";

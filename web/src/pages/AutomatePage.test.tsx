@@ -13,11 +13,13 @@ import {
   vi,
 } from "vitest";
 
+import { clearAuthorizeBulkCache } from "../api/authorizeBulk";
 import { createConsoleApiClient } from "../api/client";
 import { PolicyGateProvider, type PolicyGate } from "../console/policy";
 import { AuthContext } from "../context/auth";
 import type { AuthContextValue, AuthSession } from "../context/auth";
 import { ko } from "../i18n/ko";
+import { allowAllBulkAuthorize } from "../test/policyGateMock";
 import { AutomateHub, AutomatePage } from "./AutomatePage";
 
 const S = ko.console.automate;
@@ -32,7 +34,9 @@ vi.mock("../auth/webauthn", () => ({
   assertPasskeyStepUp: mockAssertPasskeyStepUp,
 }));
 
-const server = setupServer();
+// AutomatePage renders behind BulkPolicyGateProvider (POST .../policy/authorize/bulk);
+// registered as a base handler so it survives resetHandlers() between tests.
+const server = setupServer(allowAllBulkAuthorize());
 
 beforeAll(() => {
   server.listen({ onUnhandledRequest: "bypass" });
@@ -40,6 +44,7 @@ beforeAll(() => {
 
 beforeEach(() => {
   mockAssertPasskeyStepUp.mockResolvedValue(mockStepUpAssertion);
+  clearAuthorizeBulkCache();
 });
 
 afterEach(() => {

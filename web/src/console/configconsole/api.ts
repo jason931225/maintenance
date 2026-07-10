@@ -4,14 +4,30 @@
 // and GET /api/v1/ontology/instances?type=). Widgets aggregate client-side over
 // the returned rows; nothing here fabricates display data (§4-25-⑥).
 import type { ConsoleApiClient } from "../../api/client";
+import { createGovernanceApproval } from "../../api/governance";
 import {
+  getInstanceHistory,
   getObjectType,
   listInstances,
   listObjectTypes,
   type InstanceStateWire,
   type ObjectTypeDetailWire,
+  type RevisionWire,
 } from "../../api/ontology";
-import type { OntChoice, OntInstanceRow, OntObjectTypeDef, OntPropertyDef } from "./types";
+import { executeOntologyAction } from "../../api/ontologyActions";
+import { parseDashboardDoc } from "./doc";
+import type {
+  ConsoleViewRecord,
+  ConsoleViewScope,
+  DashboardDoc,
+  DeployApprovalPending,
+  OntChoice,
+  OntInstanceRow,
+  OntObjectTypeDef,
+  OntPropertyDef,
+} from "./types";
+
+export const CONSOLE_VIEW_KEY = "console_view";
 
 /** PropertyDefWire.config is schemaless JSON — pull `{choices:[{id,name,color?}]}` defensively. */
 function choicesOf(config: unknown): OntChoice[] {
@@ -85,8 +101,84 @@ export async function fetchOntInstances(
 ): Promise<OntInstanceRow[]> {
   const pages = await Promise.all(
     types.map(async (type) =>
-      (await listInstances(api, type.id)).map((state) => instanceRowOf(state, type.key)),
+      (await listInstances(api, type.id)).map((row) => instanceRowOf(row, type.key)),
     ),
   );
   return pages.flat();
+}
+
+/** trend widget: one instance's `field` value across its real revision history. */
+export async function fetchTrendSeries(
+  api: ConsoleApiClient,
+  instanceId: string,
+  field: string,
+): Promise<{ validFrom: string; value: number }[]> {
+  const history: RevisionWire[] = await getInstanceHistory(api, instanceId);
+  return history
+    .slice()
+    .sort((a, b) => a.version - b.version)
+    .flatMap((revision) => {
+      const raw = revision.attributes[field];
+      return typeof raw === "number" ? [{ validFrom: revision.valid_from, value: raw }] : [];
+    });
+}
+
+function consoleViewOf(state: InstanceStateWire): ConsoleViewRecord | null {
+  const a = state.revision.attributes;
+  const screenKey = typeof a.screen_key === "string" ? a.screen_key : "";
+  const scope = a.scope === "team" ? "team" : a.scope === "personal" ? "personal" : null;
+  const config = typeof a.config === "string" ? parseDashboardDoc(a.config) : null;
+  if (screenKey === "" || scope === null || config === null) return null;
+  return { instanceId: state.instance.id, screenKey, config, scope, version: state.revision.version };
+}
+
+/** console_view reads for one screen — GET /ontology/instances?type=console_view, RLS-scoped. */
+export async function fetchConsoleViews(
+  api: ConsoleApiClient,
+  screenKey: string,
+): Promise<{ objectTypeId: string; personal: ConsoleViewRecord | null; team: ConsoleViewRecord | null }> {
+  const detail = await getObjectType(api, CONSOLE_VIEW_KEY);
+  const states = await listInstances(api, detail.object_type.id);
+  const records = states
+    .map(consoleViewOf)
+    .filter((row): row is ConsoleViewRecord => row !== null && row.screenKey === screenKey);
+  return {
+    objectTypeId: detail.object_type.id,
+    personal: records.find((row) => row.scope === "personal") ?? null,
+    team: records.find((row) => row.scope === "team") ?? null,
+  };
+}
+
+/**
+ * Save a screen layout as a governed console_view instance through the single
+ * audited action path. Personal (§3.9.0-①) saves direct; a team save is the
+ * caller's concern to route through 팀 배포 (POST /governance/approvals).
+ */
+export async function saveConsoleView(
+  api: ConsoleApiClient,
+  objectTypeId: string,
+  existing: ConsoleViewRecord | null,
+  screenKey: string,
+  doc: DashboardDoc,
+  scope: ConsoleViewScope,
+): Promise<ConsoleViewRecord> {
+  const result = await executeOntologyAction(api, "create", {
+    object_type_id: objectTypeId,
+    ...(existing ? { instance_id: existing.instanceId } : {}),
+    params: { screen_key: screenKey, config: JSON.stringify(doc), scope },
+  });
+  return { instanceId: result.instance.instanceId, screenKey, config: doc, scope, version: result.instance.version };
+}
+
+/** 팀 배포 — 결재: opens a pending four-eyes approval for the team console_view. */
+export async function deployConsoleView(
+  api: ConsoleApiClient,
+  view: ConsoleViewRecord,
+): Promise<DeployApprovalPending> {
+  const approval = await createGovernanceApproval(api, {
+    request_ref: view.instanceId,
+    kind: "console_view.deploy",
+    payload_summary: { screen_key: view.screenKey, version: view.version },
+  });
+  return { approvalId: approval.id, requestRef: approval.requestRef, createdAt: approval.createdAt };
 }

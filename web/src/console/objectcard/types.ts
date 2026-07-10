@@ -128,6 +128,15 @@ export interface ObjectCardHandlers {
   onLifecycleTransition?: (to: ObjectLifecycleState) => void;
   /** Commit an edit. mode="direct" for draft, "override" (reason + four-eyes) for non-draft (§20). */
   onEdit?: (ctx: { mode: "direct" | "override"; reason?: string }) => void;
+  /**
+   * Resolve a bare/pasted code to its real title (GET /ontology/resolve?code=)
+   * before drawing a relation — deny-by-omission: `null` means unresolved
+   * (unknown or cross-tenant, no leak) and the draw must refuse, never
+   * fabricate a title from the code text.
+   */
+  onResolveCode?: (code: string) => Promise<{ title: string } | null>;
+  /** Open the automation/policy this acting chip names (dynamic-layer navigate). */
+  onActingChipClick?: (chip: ObjectCardActingChip) => void;
 }
 
 // PBAC actions (deny-by-omission via PolicyGated / usePolicyGate — Cedar field·op·value).

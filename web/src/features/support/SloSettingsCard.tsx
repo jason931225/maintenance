@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
-import type { SupportTicketCategory } from "../../api/types";
+import type { ConsoleApiClient } from "../../api/client";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
@@ -13,16 +13,16 @@ import {
 } from "../../console/policy";
 import { toneBadgeClass } from "../../lib/semantic";
 import {
-  SLO_ESCALATION_TARGETS,
-  stageSloEdit,
-  withdrawSloRevision,
-  approveSloRevision,
-  type SloEscalationTarget,
-  type SloRules,
-  type SloSettingState,
+  commitEngineSloRule,
+  ENGINE_SLO_WINDOWS,
+  ENGINE_TICKET_TYPES,
+  fetchEngineSloRules,
+  type EngineSloRule,
+  type EngineSloRules,
+  type EngineSloWindow,
+  type EngineTicketType,
 } from "./slo-settings";
-import { SUPPORT_CATEGORIES, categoryLabel } from "./support-format";
-import { supportSloStrings } from "./supportslo-strings";
+import { supportSloStrings, supportSloStringsFilled } from "./supportslo-strings";
 
 // PBAC actions (deny-by-omission via PolicyGated). wire-pending: Phase C —
 // Cedar authorize() decisions replace the role-derived gate below (same
@@ -34,32 +34,58 @@ const ACT = {
 } as const;
 
 export interface SloSettingsCardProps {
-  state: SloSettingState;
-  onChange: (next: SloSettingState) => void;
+  api: ConsoleApiClient;
   /** ADMIN/SUPER_ADMIN manage the setting; others get a read-only card. */
   canManage: boolean;
   /** Signed-in principal — the four-eyes subject for stage/approve. */
   actor: { id: string; name: string };
-  /** Breach tally per type over that type's window (state-derived). */
-  breaches: Record<SupportTicketCategory, number>;
 }
 
+interface PendingRevision {
+  rules: EngineSloRules;
+  stagedById: string;
+  stagedByName: string;
+}
+
+type ReadState = "loading" | "idle" | "error";
+
 /**
- * The support SLO policy as a configurable setting object (§4-26): per ticket
- * type a response threshold / evaluation window / escalation target, edited
- * no-code with typed fields (§4-19). Editing the ACTIVE setting stages a
- * pendingRev v+1 (§3.9.0) — the active rules keep driving the board until
- * 적용 승인 (four-eyes: stager never sees the approve control) or 철회.
+ * The support SLO policy as a real, governed setting object (§4-26): per
+ * ticket_type (incident/request/change — the engine's seeded taxonomy) a
+ * threshold(min)/window/escalation target, listed and committed through
+ * GET /ontology/instances?type=support_slo_setting and
+ * POST /ontology/actions/create/execute (be2-config-objects). Editing stages
+ * a local pendingRev (§3.9.0) — nothing hits the network until 적용 승인
+ * (four-eyes: the stager never sees the approve control), which commits the
+ * real revision; 철회 discards the local draft, never a network call.
  */
-export function SloSettingsCard({
-  state,
-  onChange,
-  canManage,
-  actor,
-  breaches,
-}: SloSettingsCardProps) {
-  const S = supportSloStrings();
-  const [draft, setDraft] = useState<SloRules | null>(null);
+export function SloSettingsCard({ api, canManage, actor }: SloSettingsCardProps) {
+  const S = supportSloStringsFilled().engine;
+  const [readState, setReadState] = useState<ReadState>("loading");
+  const [objectTypeId, setObjectTypeId] = useState<string | null>(null);
+  const [active, setActive] = useState<EngineSloRules | null>(null);
+  const [pending, setPending] = useState<PendingRevision | null>(null);
+  const [draft, setDraft] = useState<EngineSloRules | null>(null);
+  const [committing, setCommitting] = useState(false);
+  const [commitError, setCommitError] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchEngineSloRules(api)
+      .then(({ objectTypeId: typeId, rules }) => {
+        if (cancelled) return;
+        setObjectTypeId(typeId);
+        setActive(rules);
+        setReadState("idle");
+      })
+      .catch(() => {
+        if (!cancelled) setReadState("error");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [api]);
+
   const gate: PolicyGate = {
     can: (action) =>
       canManage &&
@@ -68,31 +94,71 @@ export function SloSettingsCard({
 
   function saveDraft(): void {
     if (!draft) return;
-    // §3.9.0: the setting is ACTIVE, so an edit stages — never a hot swap.
-    onChange(stageSloEdit(state, draft, actor));
+    // §3.9.0: local stage only — no network call until 적용 승인.
+    setPending({ rules: draft, stagedById: actor.id, stagedByName: actor.name });
     setDraft(null);
   }
 
-  const shown = draft ?? state.pending?.rules ?? state.active;
+  function withdraw(): void {
+    setPending(null);
+  }
+
+  function approve(): void {
+    if (!pending || !objectTypeId || pending.stagedById === actor.id) return;
+    setCommitting(true);
+    setCommitError(false);
+    void (async () => {
+      try {
+        const committed = await Promise.all(
+          ENGINE_TICKET_TYPES.map((ticketType) =>
+            commitEngineSloRule(api, objectTypeId, pending.rules[ticketType]),
+          ),
+        );
+        const next: EngineSloRules = { ...pending.rules };
+        for (const rule of committed) next[rule.ticketType] = rule;
+        setActive(next);
+        setPending(null);
+      } catch {
+        setCommitError(true);
+      } finally {
+        setCommitting(false);
+      }
+    })();
+  }
+
+  if (readState === "loading") {
+    return (
+      <Card>
+        <p className="text-sm text-steel">{S.loading}</p>
+      </Card>
+    );
+  }
+  if (readState === "error" || !active) {
+    return (
+      <Card>
+        <p className="text-sm text-steel">{S.error}</p>
+      </Card>
+    );
+  }
+
+  const shown = draft ?? pending?.rules ?? active;
+  // Next version the pending stage would commit as — the max across the 3
+  // real per-ticket-type revisions + 1 (never a fabricated counter).
+  const nextVersion = Math.max(...ENGINE_TICKET_TYPES.map((t) => active[t].version)) + 1;
 
   return (
     <PolicyGateProvider gate={gate}>
       <Card className="grid gap-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-lg font-semibold text-ink">
-              {S.settings.title}
-            </h2>
-            <Badge className={toneBadgeClass("info")}>
-              {S.settings.scopeChip}
-            </Badge>
-            <Badge>{S.settings.version(state.version)}</Badge>
+            <h2 className="text-lg font-semibold text-ink">{S.title}</h2>
+            <Badge className={toneBadgeClass("info")}>{supportSloStrings().settings.scopeChip}</Badge>
           </div>
           {draft ? (
             <div className="flex items-center gap-2">
               <PolicyGated action={ACT.edit}>
                 <Button type="button" variant="secondary" onClick={saveDraft}>
-                  {S.settings.save}
+                  {supportSloStrings().settings.save}
                 </Button>
               </PolicyGated>
               <Button
@@ -102,7 +168,7 @@ export function SloSettingsCard({
                   setDraft(null);
                 }}
               >
-                {S.settings.cancel}
+                {supportSloStrings().settings.cancel}
               </Button>
             </div>
           ) : (
@@ -111,53 +177,36 @@ export function SloSettingsCard({
                 type="button"
                 variant="secondary"
                 onClick={() => {
-                  setDraft(
-                    structuredClone(state.pending?.rules ?? state.active),
-                  );
+                  setDraft(structuredClone(pending?.rules ?? active));
                 }}
               >
-                {S.settings.edit}
+                {supportSloStrings().settings.edit}
               </Button>
             </PolicyGated>
           )}
         </div>
 
-        {state.pending ? (
+        {pending ? (
           <div
             role="status"
-            aria-label={S.settings.pending(state.pending.version)}
+            aria-label={supportSloStrings().settings.pending(nextVersion)}
             className="flex flex-wrap items-center gap-2 rounded-md border border-tone-warning-border bg-tone-warning-bg p-3"
           >
-            <Badge className={toneBadgeClass("warning")}>
-              {S.settings.pending(state.pending.version)}
-            </Badge>
-            <Badge>{S.settings.stagedBy(state.pending.stagedByName)}</Badge>
-            <Badge className={toneBadgeClass("info")}>
-              {S.settings.keepActive}
-            </Badge>
+            <Badge className={toneBadgeClass("warning")}>{supportSloStrings().settings.pending(nextVersion)}</Badge>
+            <Badge>{supportSloStrings().settings.stagedBy(pending.stagedByName)}</Badge>
+            <Badge className={toneBadgeClass("info")}>{supportSloStrings().settings.keepActive}</Badge>
+            {commitError ? <Badge className={toneBadgeClass("danger")}>{S.error}</Badge> : null}
             {/* Four-eyes: the stager never sees the approve control. */}
-            {state.pending.stagedById !== actor.id ? (
+            {pending.stagedById !== actor.id ? (
               <PolicyGated action={ACT.approveRevision}>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  onClick={() => {
-                    onChange(approveSloRevision(state, actor.id));
-                  }}
-                >
-                  {S.settings.approve}
+                <Button type="button" variant="secondary" disabled={committing} onClick={approve}>
+                  {S.commit}
                 </Button>
               </PolicyGated>
             ) : null}
             <PolicyGated action={ACT.withdrawRevision}>
-              <Button
-                type="button"
-                variant="ghost"
-                onClick={() => {
-                  onChange(withdrawSloRevision(state));
-                }}
-              >
-                {S.settings.withdraw}
+              <Button type="button" variant="ghost" onClick={withdraw}>
+                {supportSloStrings().settings.withdraw}
               </Button>
             </PolicyGated>
           </div>
@@ -167,31 +216,20 @@ export function SloSettingsCard({
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-xs font-semibold text-steel">
-                <th scope="col" className="py-2 pr-3">
-                  {S.settings.category}
-                </th>
-                <th scope="col" className="py-2 pr-3">
-                  {S.settings.threshold}
-                </th>
-                <th scope="col" className="py-2 pr-3">
-                  {S.settings.window}
-                </th>
-                <th scope="col" className="py-2 pr-3">
-                  {S.settings.escalation}
-                </th>
-                <th scope="col" className="py-2">
-                  {S.settings.breachColumn}
-                </th>
+                <th scope="col" className="py-2 pr-3">{supportSloStrings().settings.category}</th>
+                <th scope="col" className="py-2 pr-3">{S.thresholdMinutes}</th>
+                <th scope="col" className="py-2 pr-3">{S.windowLabel}</th>
+                <th scope="col" className="py-2 pr-3">{S.escalationLabel}</th>
+                <th scope="col" className="py-2">{S.revisionColumn}</th>
               </tr>
             </thead>
             <tbody>
-              {SUPPORT_CATEGORIES.map((category) => (
-                <SloRuleRow
-                  key={category}
-                  category={category}
+              {ENGINE_TICKET_TYPES.map((ticketType) => (
+                <EngineSloRuleRow
+                  key={ticketType}
+                  ticketType={ticketType}
                   rules={shown}
                   draft={draft}
-                  breachCount={breaches[category]}
                   onDraftChange={setDraft}
                 />
               ))}
@@ -203,29 +241,24 @@ export function SloSettingsCard({
   );
 }
 
-function SloRuleRow({
-  category,
+function EngineSloRuleRow({
+  ticketType,
   rules,
   draft,
-  breachCount,
   onDraftChange,
 }: {
-  category: SupportTicketCategory;
-  rules: SloRules;
-  draft: SloRules | null;
-  breachCount: number;
-  onDraftChange: (next: SloRules) => void;
+  ticketType: EngineTicketType;
+  rules: EngineSloRules;
+  draft: EngineSloRules | null;
+  onDraftChange: (next: EngineSloRules) => void;
 }) {
-  const S = supportSloStrings();
-  const rule = rules[category];
-  const label = categoryLabel(category);
+  const S = supportSloStringsFilled().engine;
+  const rule = rules[ticketType];
+  const label = S.ticketTypes[ticketType];
 
-  function patch(patchRule: Partial<SloRules[SupportTicketCategory]>): void {
+  function patch(patchRule: Partial<EngineSloRule>): void {
     if (!draft) return;
-    onDraftChange({
-      ...draft,
-      [category]: { ...draft[category], ...patchRule },
-    });
+    onDraftChange({ ...draft, [ticketType]: { ...draft[ticketType], ...patchRule } });
   }
 
   return (
@@ -239,67 +272,52 @@ function SloRuleRow({
             type="number"
             min={1}
             className="w-24"
-            aria-label={S.settings.fieldAria(label, S.settings.threshold)}
-            value={rule.thresholdHours}
+            aria-label={S.fieldAria(label, S.thresholdMinutes)}
+            value={rule.thresholdMinutes}
             onChange={(event) => {
-              patch({
-                thresholdHours: Math.max(1, Number(event.currentTarget.value)),
-              });
+              patch({ thresholdMinutes: Math.max(1, Number(event.currentTarget.value)) });
             }}
           />
         ) : (
-          <span className="text-ink">{rule.thresholdHours}</span>
-        )}
-      </td>
-      <td className="py-2 pr-3">
-        {draft ? (
-          <Input
-            type="number"
-            min={1}
-            className="w-24"
-            aria-label={S.settings.fieldAria(label, S.settings.window)}
-            value={rule.windowDays}
-            onChange={(event) => {
-              patch({
-                windowDays: Math.max(1, Number(event.currentTarget.value)),
-              });
-            }}
-          />
-        ) : (
-          <span className="text-ink">{rule.windowDays}</span>
+          <span className="text-ink">{rule.thresholdMinutes}</span>
         )}
       </td>
       <td className="py-2 pr-3">
         {draft ? (
           <Select
-            aria-label={S.settings.fieldAria(label, S.settings.escalation)}
-            value={rule.escalationTarget}
+            aria-label={S.fieldAria(label, S.windowLabel)}
+            value={rule.window}
             onChange={(event) => {
-              patch({
-                escalationTarget: event.currentTarget
-                  .value as SloEscalationTarget,
-              });
+              patch({ window: event.currentTarget.value as EngineSloWindow });
             }}
           >
-            {SLO_ESCALATION_TARGETS.map((target) => (
-              <option key={target} value={target}>
-                {S.settings.targets[target]}
+            {ENGINE_SLO_WINDOWS.map((window) => (
+              <option key={window} value={window}>
+                {S.windows[window]}
               </option>
             ))}
           </Select>
         ) : (
-          <Badge>{S.settings.targets[rule.escalationTarget]}</Badge>
+          <Badge>{S.windows[rule.window]}</Badge>
+        )}
+      </td>
+      <td className="py-2 pr-3">
+        {draft ? (
+          <Input
+            className="w-40"
+            aria-label={S.fieldAria(label, S.escalationLabel)}
+            value={rule.escalationTarget}
+            onChange={(event) => {
+              patch({ escalationTarget: event.currentTarget.value });
+            }}
+          />
+        ) : (
+          <span className="text-ink">{rule.escalationTarget || S.notSaved}</span>
         )}
       </td>
       <td className="py-2">
-        <Badge
-          className={
-            breachCount > 0
-              ? toneBadgeClass("warning")
-              : toneBadgeClass("neutral")
-          }
-        >
-          {S.settings.breaches(breachCount)}
+        <Badge className={rule.instanceId ? toneBadgeClass("neutral") : toneBadgeClass("warning")}>
+          {rule.instanceId ? S.lastRevision(rule.version) : S.notSaved}
         </Badge>
       </td>
     </tr>

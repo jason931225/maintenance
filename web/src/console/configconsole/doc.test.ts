@@ -2,10 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import {
   computeCounts,
+  computeDist,
   DASHBOARD_SLOT_COUNT,
   defaultDashboardDoc,
   drillRows,
   emptyDashboardDoc,
+  isDuplicateWidget,
   parseDashboardDoc,
   serializeDashboardDoc,
   setSlotWidget,
@@ -76,7 +78,7 @@ describe("dashboard doc model", () => {
 
   it("setSlotWidget updates only the target slot, immutably", () => {
     const doc = emptyDashboardDoc();
-    const widget: WidgetConfig = { kind: "liveCount", objectType: "work_order" };
+    const widget: WidgetConfig = { kind: "count", bind: { objectType: "work_order" } };
     const next = setSlotWidget(doc, "slot-2", widget);
     expect(next).not.toBe(doc);
     expect(doc.slots[1]?.widget).toBeNull();
@@ -94,7 +96,7 @@ describe("dashboard doc model", () => {
       JSON.stringify({
         version: 1,
         screen: "config-console",
-        slots: [{ id: "slot-1", widget: { kind: "hologram", objectType: "work_order" } }],
+        slots: [{ id: "slot-1", widget: { kind: "hologram", bind: { objectType: "work_order" } } }],
       }),
     );
     expect(doc).not.toBeNull();
@@ -182,5 +184,33 @@ describe("drillRows", () => {
       choiceId: "pri-urgent",
     });
     expect(matched.map((row) => row.code)).toEqual(["WO-4101", "WO-4102"]);
+  });
+
+  it("filters by lifecycleState (dist widget drill)", () => {
+    const matched = drillRows(ROWS, { objectType: "equipment", lifecycleState: "locked" });
+    expect(matched.map((row) => row.code)).toEqual(["EQ-120"]);
+  });
+});
+
+describe("computeDist", () => {
+  it("groups instance counts by lifecycle_state, top-4, without fabricating labels", () => {
+    const result = computeDist(ROWS, "equipment");
+    expect(result.total).toBe(4);
+    expect(result.groups).toEqual([
+      { id: "active", label: "active", count: 3 },
+      { id: "locked", label: "locked", count: 1 },
+    ]);
+  });
+});
+
+describe("isDuplicateWidget", () => {
+  it("flags a widget with the same kind+bind already on the doc (add-widget dedup guard)", () => {
+    const doc = setSlotWidget(emptyDashboardDoc(), "slot-1", {
+      kind: "count",
+      bind: { objectType: "work_order" },
+    });
+    expect(isDuplicateWidget(doc, { kind: "count", bind: { objectType: "work_order" } })).toBe(true);
+    expect(isDuplicateWidget(doc, { kind: "count", bind: { objectType: "equipment" } })).toBe(false);
+    expect(isDuplicateWidget(doc, { kind: "dist", bind: { objectType: "work_order" } })).toBe(false);
   });
 });

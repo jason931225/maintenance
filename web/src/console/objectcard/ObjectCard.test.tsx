@@ -1,13 +1,15 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { ko } from "../../i18n/ko";
 import { PolicyGateProvider, type PolicyGate } from "../policy";
 import { ObjectCard } from "./ObjectCard";
 import { createObjectCardStub } from "./stub";
+import { objectCardDynStrings } from "./strings";
 import { OBJECT_CARD_ACTIONS, type ObjectCardHandlers } from "./types";
 
 const T = ko.console.objectcard;
+const DYN = objectCardDynStrings();
 const allowGate: PolicyGate = { can: () => true };
 
 function renderCard(gate: PolicyGate, handlers?: ObjectCardHandlers, descriptor = createObjectCardStub()) {
@@ -104,5 +106,57 @@ describe("ObjectCard relation drawing + actions", () => {
     const removeButtons = screen.getAllByText(T.relations.remove);
     fireEvent.click(removeButtons[0]);
     expect(onRelationRemove).toHaveBeenCalledWith("lnk-1");
+  });
+});
+
+describe("ObjectCard code resolve (run-log/code chip targets)", () => {
+  it("draws the edge with the server-resolved title, not the fabricated code text", async () => {
+    const onRelationAdd = vi.fn();
+    const onResolveCode = vi.fn().mockResolvedValue({ title: "5호기 지게차" });
+    renderCard(allowGate, { onRelationAdd, onResolveCode });
+    const input = screen.getByLabelText(T.relations.codeLabel);
+    fireEvent.change(input, { target: { value: "EQ-118" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onResolveCode).toHaveBeenCalledWith("EQ-118");
+    await waitFor(() => {
+      expect(onRelationAdd).toHaveBeenCalledWith({
+        code: "EQ-118",
+        title: "5호기 지게차",
+        linkType: "relates_to",
+      });
+    });
+  });
+
+  it("refuses to draw an edge for a code that fails to resolve (no fabricated title, deny-by-omission)", async () => {
+    const onRelationAdd = vi.fn();
+    const onResolveCode = vi.fn().mockResolvedValue(null);
+    renderCard(allowGate, { onRelationAdd, onResolveCode });
+    const input = screen.getByLabelText(T.relations.codeLabel);
+    fireEvent.change(input, { target: { value: "EQ-999" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(await screen.findByText(DYN.relations.codeNotFound)).toBeTruthy();
+    expect(onRelationAdd).not.toHaveBeenCalled();
+  });
+});
+
+describe("ObjectCard acting chips (dynamic layer)", () => {
+  it("navigates on click and stays inert without a handler", () => {
+    const onActingChipClick = vi.fn();
+    renderCard(allowGate, { onActingChipClick });
+    const chip = screen.getByRole("button", {
+      name: DYN.acting.navigateAria("wf-wo-review", T.acting.automation),
+    });
+    fireEvent.click(chip);
+    expect(onActingChipClick).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "wf-1", kind: "automation" }),
+    );
+  });
+
+  it("is disabled (no-op) when no navigate handler is wired", () => {
+    renderCard(allowGate);
+    const chip = screen.getByRole("button", {
+      name: DYN.acting.navigateAria("wf-wo-review", T.acting.automation),
+    });
+    expect((chip as HTMLButtonElement).disabled).toBe(true);
   });
 });

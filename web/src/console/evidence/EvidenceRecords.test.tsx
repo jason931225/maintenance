@@ -1,85 +1,206 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 
+import type { ConsoleApiClient } from "../../api/client";
 import { ko } from "../../i18n/ko";
 import { WindowManagerProvider } from "../window";
 import { EvidenceRecords } from "./EvidenceRecords";
-import { createEvidenceStubs } from "./evidenceStubs";
+import { evidenceFixtures } from "./evidenceFixtures";
 
 const T = ko.console.evidence;
-const stubs = createEvidenceStubs();
+const [heldWire, plainWire] = evidenceFixtures();
 
-describe("EvidenceRecords list", () => {
-  it("renders every EV- row as an objDrag source", () => {
-    render(<EvidenceRecords />);
-    for (const row of stubs) {
-      const code = screen.getByText(row.code);
-      expect(code.getAttribute("data-obj-code")).toBe(row.code);
-      expect(code.getAttribute("draggable")).toBe("true");
+interface ApiResult {
+  data?: unknown;
+  error?: unknown;
+  response: { ok: boolean; status: number };
+}
+
+/** Minimal EvidenceObjectView-shaped row for the list endpoint. */
+function listRow(detail: typeof heldWire) {
+  return {
+    id: detail.id,
+    code: detail.code,
+    title: detail.title,
+    classification: detail.classification,
+    source: detail.source ? { source_type: "work_order_evidence_media", source_id: detail.source.code, source_code: detail.source.code } : undefined,
+    current_custody_stage: detail.custodyStage,
+    legal_hold_state: detail.holds.some((h) => h.status === "ACTIVE") ? "ACTIVE" : "CLEAR",
+    admissibility_status: detail.admissibility,
+    admissibility_reasons: [],
+    admissibility_inputs: {},
+    created_by: "creator-1",
+    updated_by: "creator-1",
+    created_at: detail.collectedAt,
+    updated_at: detail.collectedAt,
+    disposed_at: detail.disposed ? detail.collectedAt : null,
+  };
+}
+
+/** Full EvidenceObjectDetail wire shape for GET .../{id}. */
+function detailWire(detail: typeof heldWire) {
+  return {
+    object: listRow(detail),
+    copies: detail.copies.map((c) => ({
+      id: c.id,
+      evidence_object_id: detail.id,
+      copy_kind: c.kind,
+      derivative_kind: c.derivativeKind ?? null,
+      parent_copy_id: c.parentCopyId ?? null,
+      storage: { provider: "s3", object_id: c.id },
+      source_evidence_media_id: c.sourceEvidenceMediaId ?? null,
+      digest_sha256: c.digestSha256,
+      content_type: c.contentType,
+      size_bytes: c.sizeBytes,
+      worm_status: c.wormStatus,
+      verified_at: null,
+      created_by: "creator-1",
+      created_at: detail.collectedAt,
+    })),
+    tsa_proofs: [],
+    custody_history: detail.custody.map((event) => ({
+      id: event.id,
+      evidence_object_id: detail.id,
+      stage: event.action,
+      actor_user_id: event.actor ?? "system",
+      from_custodian: null,
+      to_custodian: null,
+      location_label: null,
+      reason: "",
+      source_ref: null,
+      audit_event_id: null,
+      previous_event_id: null,
+      event_digest_sha256: "digest",
+      occurred_at: event.occurred_at,
+      created_at: event.occurred_at,
+    })),
+    legal_holds: detail.holds.map((h) => ({
+      id: h.id,
+      evidence_object_id: detail.id,
+      status: h.status,
+      case_ref: h.caseRef,
+      basis: "basis",
+      reason: "reason",
+      applied_by: "creator-1",
+      applied_at: h.appliedAt,
+      released_by: null,
+      released_at: h.releasedAt ?? null,
+      release_reason: null,
+      audit_event_id: null,
+    })),
+    exports: [],
+  };
+}
+
+function makeApi() {
+  const GET = vi.fn((path: string): Promise<ApiResult> => {
+    if (path === "/api/v1/evidence/objects") {
+      return Promise.resolve({
+        data: { items: [listRow(heldWire), listRow(plainWire)], limit: 200, offset: 0, total: 2 },
+        response: { ok: true, status: 200 },
+      });
     }
+    if (path === "/api/v1/evidence/objects/{id}") {
+      // The test only opens the held row.
+      return Promise.resolve({ data: detailWire(heldWire), response: { ok: true, status: 200 } });
+    }
+    if (path === "/api/v1/users") {
+      return Promise.resolve({ data: { items: [] }, response: { ok: true, status: 200 } });
+    }
+    return Promise.resolve({ data: undefined, response: { ok: false, status: 404 } });
+  });
+  const POST = vi.fn(() => Promise.resolve({ data: undefined, response: { ok: false, status: 404 } }));
+  const api = { GET, POST } as unknown as ConsoleApiClient;
+  return api;
+}
+
+describe("EvidenceRecords list (real-wired)", () => {
+  it("fetches the real EV- list and renders every row as an objDrag source", async () => {
+    const api = makeApi();
+    render(<EvidenceRecords api={api} />);
+    await waitFor(() => {
+      expect(screen.getByText(heldWire.code)).toBeTruthy();
+    });
+    const code = screen.getByText(heldWire.code);
+    expect(code.getAttribute("data-obj-code")).toBe(heldWire.code);
+    expect(code.getAttribute("draggable")).toBe("true");
   });
 
-  it("shows the compact stat bar with per-status counts", () => {
-    render(<EvidenceRecords />);
+  it("shows the compact stat bar with per-status counts", async () => {
+    const api = makeApi();
+    render(<EvidenceRecords api={api} />);
+    await waitFor(() => {
+      expect(screen.getByText(heldWire.code)).toBeTruthy();
+    });
     const bar = screen.getByRole("group", { name: T.records.statBar });
     expect(within(bar).getByRole("button", { name: new RegExp(T.records.all) })).toBeTruthy();
-    expect(
-      within(bar).getByRole("button", { name: new RegExp(T.admissibility.INADMISSIBLE) }),
-    ).toBeTruthy();
+  });
+
+  it("shows a retry affordance when the list fails to load", async () => {
+    const GET = vi.fn(() => Promise.resolve({ data: undefined, response: { ok: false, status: 500 } }));
+    const api = { GET, POST: vi.fn() } as unknown as ConsoleApiClient;
+    render(<EvidenceRecords api={api} />);
+    await waitFor(() => {
+      expect(screen.getByText(T.records.loadFailed)).toBeTruthy();
+    });
+    expect(screen.getByRole("button", { name: T.records.retry })).toBeTruthy();
   });
 });
 
 describe("EvidenceRecords filtering", () => {
-  it("filters rows by admissibility and toggles back to all", () => {
-    render(<EvidenceRecords />);
-    const bar = screen.getByRole("group", { name: T.records.statBar });
-    const inadmissible = within(bar).getByRole("button", {
-      name: new RegExp(T.admissibility.INADMISSIBLE),
+  it("filters to legal-hold rows and toggles back to all", async () => {
+    const api = makeApi();
+    render(<EvidenceRecords api={api} />);
+    await waitFor(() => {
+      expect(screen.getByText(heldWire.code)).toBeTruthy();
     });
-
-    fireEvent.click(inadmissible);
-    expect(screen.queryByText("EV-2026-00012")).toBeNull();
-    expect(screen.getByText("EV-2026-00009")).toBeTruthy();
-
-    fireEvent.click(inadmissible);
-    expect(screen.getByText("EV-2026-00012")).toBeTruthy();
-  });
-
-  it("filters to legal-hold rows", () => {
-    render(<EvidenceRecords />);
     const bar = screen.getByRole("group", { name: T.records.statBar });
-    fireEvent.click(within(bar).getByRole("button", { name: new RegExp(T.hold.active) }));
-    expect(screen.getByText("EV-2026-00012")).toBeTruthy();
-    expect(screen.queryByText("EV-2026-00013")).toBeNull();
+    const holdButton = within(bar).getByRole("button", { name: new RegExp(T.hold.active) });
+
+    fireEvent.click(holdButton);
+    expect(screen.getByText(heldWire.code)).toBeTruthy();
+    expect(screen.queryByText(plainWire.code)).toBeNull();
+
+    fireEvent.click(holdButton);
+    expect(screen.getByText(plainWire.code)).toBeTruthy();
   });
 });
 
 describe("EvidenceRecords detail opening", () => {
-  it("opens the EvidenceCard as the right pin when the window shell is mounted (§4.7-3)", () => {
-    const [first] = stubs;
+  it("fetches the full detail and opens the EvidenceCard as the right pin (§4.7-3)", async () => {
+    const api = makeApi();
     render(
       <WindowManagerProvider>
-        <EvidenceRecords />
+        <EvidenceRecords api={api} />
       </WindowManagerProvider>,
     );
-    // Both the EV- code button and the 상세 button open the detail.
+    await waitFor(() => {
+      expect(screen.getByText(heldWire.code)).toBeTruthy();
+    });
     fireEvent.click(
-      screen.getAllByRole("button", { name: T.records.open(first.code, first.title) })[0],
+      screen.getAllByRole("button", { name: T.records.open(heldWire.code, heldWire.title) })[0],
     );
-    const detail = screen.getByLabelText(T.detailAria(first.code));
-    expect(within(detail).getByText(T.worm.originalImmutable)).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.getByLabelText(T.detailAria(heldWire.code))).toBeTruthy();
+    });
+    const detail = screen.getByLabelText(T.detailAria(heldWire.code));
+    expect(within(detail).getByText(T.worm.sealed)).toBeTruthy();
   });
 
-  it("opens the EvidenceCard inline when no window shell is mounted", () => {
-    const [first] = stubs;
-    render(<EvidenceRecords />);
+  it("opens the EvidenceCard inline when no window shell is mounted", async () => {
+    const api = makeApi();
+    render(<EvidenceRecords api={api} />);
+    await waitFor(() => {
+      expect(screen.getByText(heldWire.code)).toBeTruthy();
+    });
     fireEvent.click(
-      screen.getAllByRole("button", { name: T.records.open(first.code, first.title) })[1],
+      screen.getAllByRole("button", { name: T.records.open(heldWire.code, heldWire.title) })[1],
     );
-    const detail = screen.getByLabelText(T.detailAria(first.code));
-    expect(within(detail).getByText(T.worm.originalImmutable)).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.getByLabelText(T.detailAria(heldWire.code))).toBeTruthy();
+    });
 
     fireEvent.click(screen.getByRole("button", { name: T.records.close }));
-    expect(screen.queryByLabelText(T.detailAria(first.code))).toBeNull();
+    expect(screen.queryByLabelText(T.detailAria(heldWire.code))).toBeNull();
   });
 });

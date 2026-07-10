@@ -3,6 +3,7 @@ import { useState, type CSSProperties, type KeyboardEvent, type ReactNode } from
 
 import { ko } from "../../i18n/ko";
 import { StatusChip } from "../components";
+import { objectCardDynStrings } from "./strings";
 import { PolicyGated, usePolicyGate } from "../policy";
 import {
   objDrag,
@@ -305,6 +306,17 @@ const textareaStyle: CSSProperties = {
   resize: "vertical",
 };
 
+const actingChipButtonStyle: CSSProperties = {
+  display: "inline-flex",
+  alignItems: "center",
+  minHeight: 44,
+  minWidth: 44,
+  padding: "0 var(--sp-1)",
+  border: "none",
+  background: "transparent",
+  cursor: "pointer",
+};
+
 function Section({
   title,
   count,
@@ -422,32 +434,55 @@ function RelationList({
 function RelationDraw({
   objectId,
   onAdd,
+  onResolveCode,
 }: {
   objectId: string;
   onAdd: (draft: { code: string; title: string; linkType: string }) => void;
+  /** GET /ontology/resolve?code= — real title before drawing (no fabricated titles). */
+  onResolveCode?: (code: string) => Promise<{ title: string } | null>;
 }) {
+  const DYN = objectCardDynStrings();
   const [code, setCode] = useState("");
   const [linkType, setLinkType] = useState("relates_to");
   const [error, setError] = useState<string | null>(null);
+  const [resolving, setResolving] = useState(false);
 
-  function commit(rawCode: string, title?: string): void {
+  async function commit(rawCode: string): Promise<void> {
     const ref = parseObjectRefText(rawCode);
     if (!ref) {
       setError(T.relations.invalidCode);
       return;
     }
     setError(null);
-    onAdd({ code: ref.code, title: title ?? ref.title, linkType: linkType.trim() || "relates_to" });
-    setCode("");
+    if (!onResolveCode) {
+      // No resolve seam wired — fall back to the parsed/dropped title as-is.
+      onAdd({ code: ref.code, title: ref.title, linkType: linkType.trim() || "relates_to" });
+      setCode("");
+      return;
+    }
+    setResolving(true);
+    try {
+      const resolved = await onResolveCode(ref.code);
+      if (!resolved) {
+        setError(DYN.relations.codeNotFound);
+        return;
+      }
+      onAdd({ code: ref.code, title: resolved.title, linkType: linkType.trim() || "relates_to" });
+      setCode("");
+    } catch {
+      setError(DYN.relations.resolveFailed);
+    } finally {
+      setResolving(false);
+    }
   }
 
   // Reuse window/objDrag drop grammar: dropping an object chip draws the edge.
-  const drop = useObjectDrop({ onRef: (ref) => { commit(ref.code, ref.title); } });
+  const drop = useObjectDrop({ onRef: (ref) => { void commit(ref.code); } });
 
   function onKeyDown(event: KeyboardEvent<HTMLInputElement>): void {
     if (event.key !== "Enter") return;
     event.preventDefault();
-    commit(code);
+    void commit(code);
   }
 
   return (
@@ -477,10 +512,11 @@ function RelationDraw({
           <button
             type="button"
             data-window-control="true"
-            onClick={() => { commit(code); }}
+            disabled={resolving}
+            onClick={() => { void commit(code); }}
             style={primaryButtonStyle}
           >
-            {T.relations.add}
+            {resolving ? DYN.relations.resolving : T.relations.add}
           </button>
         </div>
         <div {...drop} style={dropZoneStyle}>
@@ -571,14 +607,32 @@ function ApprovalLine({ approvals }: { approvals: ObjectCardApproval[] }) {
 
 // ── Dynamic layer ─────────────────────────────────────────────────────────
 
-function ActingChips({ acting }: { acting: ObjectCardActingChip[] }) {
+function ActingChips({
+  acting,
+  onNavigate,
+}: {
+  acting: ObjectCardActingChip[];
+  /** Click = navigate to the automation/policy this chip names. */
+  onNavigate?: (chip: ObjectCardActingChip) => void;
+}) {
+  const DYN = objectCardDynStrings();
   if (acting.length === 0) return null;
   return (
     <div aria-label={T.sections.acting} style={chipRowStyle}>
       {acting.map((chip) => (
-        <StatusChip key={chip.id} tone={actingTone[chip.kind]} ariaLabel={T.acting[chip.kind]}>
-          {chip.label}
-        </StatusChip>
+        <button
+          key={chip.id}
+          type="button"
+          data-window-control="true"
+          aria-label={DYN.acting.navigateAria(chip.label, T.acting[chip.kind])}
+          disabled={!onNavigate}
+          onClick={() => { onNavigate?.(chip); }}
+          style={actingChipButtonStyle}
+        >
+          <StatusChip tone={actingTone[chip.kind]} ariaLabel={T.acting[chip.kind]}>
+            {chip.label}
+          </StatusChip>
+        </button>
       ))}
     </div>
   );
@@ -756,6 +810,7 @@ export function ObjectCard({ descriptor, handlers }: ObjectCardProps) {
           <RelationDraw
             objectId={descriptor.id}
             onAdd={(draft) => handlers?.onRelationAdd?.(draft)}
+            onResolveCode={handlers?.onResolveCode}
           />
         </Section>
       </div>
@@ -788,7 +843,7 @@ export function ObjectCard({ descriptor, handlers }: ObjectCardProps) {
         <h3 style={layerHeadingStyle}>{T.layers.dynamic}</h3>
         {descriptor.acting && descriptor.acting.length > 0 ? (
           <Section title={T.sections.acting} labelledById="object-card-acting">
-            <ActingChips acting={descriptor.acting} />
+            <ActingChips acting={descriptor.acting} onNavigate={handlers?.onActingChipClick} />
           </Section>
         ) : null}
         {descriptor.actions.length > 0 ? (

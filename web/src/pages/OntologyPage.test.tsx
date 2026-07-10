@@ -4,13 +4,17 @@ import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { GENESIS_HASH, type CreateObjectTypeDraft } from "../api/ontology";
+import { clearAuthorizeBulkCache } from "../api/authorizeBulk";
 import { createConsoleApiClient } from "../api/client";
 import { WindowManagerProvider } from "../console/window";
 import { AuthContext, type AuthContextValue, type AuthSession } from "../context/auth";
 import { ko } from "../i18n/ko";
+import { allowAllBulkAuthorize } from "../test/policyGateMock";
 import { OntologyPage } from "./OntologyPage";
 
-const server = setupServer();
+// OntologyPage renders behind BulkPolicyGateProvider (POST .../policy/authorize/bulk);
+// registered as a base handler so it survives resetHandlers() between tests.
+const server = setupServer(allowAllBulkAuthorize());
 
 beforeAll(() => {
   server.listen({ onUnhandledRequest: "error" });
@@ -23,6 +27,7 @@ afterAll(() => {
 });
 beforeEach(() => {
   localStorage.clear();
+  clearAuthorizeBulkCache();
 });
 
 // ── Wire fixtures (backend serde shapes; see api/ontology.ts) ───────────────
@@ -230,6 +235,7 @@ function registryHandlers() {
 const session: AuthSession = {
   access_token: "ontology-token",
   user_id: "admin-1",
+  org_id: "11111111-1111-4111-8111-111111111111",
   roles: ["ADMIN"],
   branches: [],
 };
@@ -303,7 +309,10 @@ describe("OntologyPage (REST-wired ontology workspace)", () => {
     await findTypeRow();
 
     const panel = screen.getByRole("article", { name: "작업지시" });
-    fireEvent.change(within(panel).getByLabelText("속성 이름"), {
+    // The editor form (and its add-property control) is gated behind
+    // BulkPolicyGateProvider, whose decision resolves after mount — find
+    // (async) rather than get (sync).
+    fireEvent.change(await within(panel).findByLabelText("속성 이름"), {
       target: { value: "예산 코드" },
     });
     fireEvent.click(within(panel).getByRole("button", { name: "속성 추가" }));
@@ -346,8 +355,10 @@ describe("OntologyPage (REST-wired ontology workspace)", () => {
     const panel = screen.getByRole("article", { name: "작업지시" });
     fireEvent.click(within(panel).getByRole("tab", { name: "인스턴스" }));
     // Instance code is the API id's short handle — no fabricated WO- code.
+    // The instance-open control is gated behind BulkPolicyGateProvider, whose
+    // decision resolves after mount — find (async) rather than get (sync).
     fireEvent.click(
-      within(panel).getByRole("button", { name: "AAAA1111 개체 카드 열기" }),
+      await within(panel).findByRole("button", { name: "AAAA1111 개체 카드 열기" }),
     );
 
     const card = await screen.findByRole("region", { name: "4호기 유압 점검" });
@@ -375,8 +386,10 @@ describe("OntologyPage (REST-wired ontology workspace)", () => {
 
     const panel = screen.getByRole("article", { name: "작업지시" });
     fireEvent.click(within(panel).getByRole("tab", { name: "인스턴스" }));
+    // The instance-open control is gated behind BulkPolicyGateProvider, whose
+    // decision resolves after mount — find (async) rather than get (sync).
     fireEvent.click(
-      within(panel).getByRole("button", { name: "AAAA1111 개체 카드 열기" }),
+      await within(panel).findByRole("button", { name: "AAAA1111 개체 카드 열기" }),
     );
 
     const card = await screen.findByRole("region", { name: "4호기 유압 점검" });

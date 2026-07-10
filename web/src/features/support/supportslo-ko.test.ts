@@ -46,6 +46,21 @@ export const KO_CONSOLE_SUPPORTSLO: SupportSloStrings = {
     },
     fieldAria: (category: string, field: string) => `${category} ${field}`,
   },
+  engine: {
+    title: "SLO 설정 (엔진)",
+    ticketTypes: { incident: "장애", request: "요청", change: "변경" },
+    thresholdMinutes: "임계(분)",
+    windowLabel: "적용 시간",
+    windows: { business_hours: "업무시간", calendar: "24x7" },
+    escalationLabel: "에스컬레이션 대상",
+    revisionColumn: "최근 개정",
+    lastRevision: (version: number) => `개정 v${String(version)}`,
+    notSaved: "저장되지 않음",
+    loading: "SLO 설정을 불러오는 중",
+    error: "SLO 설정을 불러오지 못했습니다",
+    commit: "적용 승인 — 개정 커밋",
+    fieldAria: (ticketType: string, field: string) => `${ticketType} ${field}`,
+  },
 };
 
 (ko.console as unknown as Record<string, unknown>).supportslo ??=

@@ -1,22 +1,19 @@
 import type { DragEvent } from "react";
 
+import { objectCodeRegex, objectRefTokenRegex } from "../ontology/codeGrammar";
+
 // §4-20/§4-23 objDrag: makes any object chip/row/code label a drag source, and
 // any input/task/relation zone a drop target, exchanging a single reference
-// token. The token shape is the compose grammar's object token (bare CODE-NNN,
-// see messengerModel.ts PART_RE / composeModel.ts OBJECT_CODE_RE) wrapped in
-// "[CODE title]" so a drop into a plain text input round-trips through the
-// existing parser (renderMessageParts still extracts the bare code via \b).
+// token. The token shape is the compose grammar's object token (bare CODE-NNN)
+// wrapped in "[CODE title]" so a drop into a plain text input round-trips
+// through the existing parser (renderMessageParts still extracts the bare code
+// via \b). The code grammar is ONE shared dynamic source (console/ontology/
+// codeGrammar.ts) driven by the object-type registry — messengerModel and
+// composeModel consume the same source, so a new type's prefix works here too
+// with no code edit.
 
 /** Typed mime carrying the structured {code,title} payload. */
 export const OBJ_REF_MIME = "application/x-mnt-objref";
-
-// ponytail: object-code prefixes are duplicated in messengerModel.ts and
-// composeModel.ts as private consts; kept aligned here rather than exporting a
-// shared const (which would edit two other lanes' files). Source of truth = the
-// compose grammar — keep these three in sync if the prefix set changes.
-const OBJECT_CODE_SOURCE = "(?:AP|WO|AT|CS|JL|PS|IN|DX|Bid|MT|EV|OT|SR|PAY|EQ|VC|FL|HR|TK|C|R)-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*";
-const OBJECT_CODE_RE = new RegExp(`\\b${OBJECT_CODE_SOURCE}\\b`);
-const OBJ_REF_TOKEN_RE = new RegExp(`\\[(${OBJECT_CODE_SOURCE})\\s+([^\\]]+)\\]`);
 
 export interface ObjectRef {
   code: string;
@@ -54,9 +51,9 @@ export function objDrag(code: string, title: string) {
 /** Parse a token out of raw text — bracketed `[CODE title]` first, else a bare code. */
 export function parseObjectRefText(text: string): ObjectRef | null {
   if (!text) return null;
-  const bracket = OBJ_REF_TOKEN_RE.exec(text);
+  const bracket = objectRefTokenRegex().exec(text);
   if (bracket) return { code: bracket[1], title: bracket[2].trim() };
-  const bare = OBJECT_CODE_RE.exec(text);
+  const bare = objectCodeRegex().exec(text);
   if (bare) return { code: bare[0], title: bare[0] };
   return null;
 }
@@ -67,7 +64,7 @@ export function parseObjectRef(dataTransfer: Pick<DataTransfer, "getData">): Obj
   if (typed) {
     try {
       const parsed = JSON.parse(typed) as Partial<ObjectRef>;
-      if (typeof parsed.code === "string" && OBJECT_CODE_RE.test(parsed.code)) {
+      if (typeof parsed.code === "string" && objectCodeRegex().test(parsed.code)) {
         return {
           code: parsed.code,
           title: typeof parsed.title === "string" ? parsed.title : parsed.code,

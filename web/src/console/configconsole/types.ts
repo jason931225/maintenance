@@ -52,33 +52,49 @@ export interface OntInstanceRow {
   attributes: Readonly<Record<string, string | number | null>>;
 }
 
-// ---- widget configs (discriminated union — the parser degrades unknown kinds to an empty slot) ----
+// ---- widget configs (design-delta 94+96: generic ontology-query bindings) ----
+// Every widget is {kind, bind} over the same real rows/registry the editor
+// already loads — no widget-specific fetch, no fabricated numbers.
 
-/** Live count: one object type, optionally grouped per enum (choice) value. */
-export interface LiveCountWidget {
-  kind: "liveCount";
+/** count: one object type's instance count, optionally grouped per choice value. */
+export interface CountBind {
   objectType: string;
   /** choice-property key; omitted ⇒ single total (§4-19: only typed choice fields group). */
   groupBy?: string;
 }
 
-/** Stat bar: one total per selected object type. */
-export interface StatBarWidget {
-  kind: "statBar";
-  objectTypes: readonly string[];
-}
-
-/** Bar chart: counts per enum value of one choice field. */
-export interface ChartWidget {
-  kind: "chart";
+/** trend: one instance's numeric-property value across its real revision history. */
+export interface TrendBind {
   objectType: string;
+  instanceId: string;
+  /** numeric ont_property_defs key sampled per revision. */
   field: string;
 }
 
-export type WidgetConfig = LiveCountWidget | StatBarWidget | ChartWidget;
+/** dist: instance-state grouping (lifecycle_state) — top-4 chips. */
+export interface DistBind {
+  objectType: string;
+}
+
+export interface CountWidget {
+  kind: "count";
+  bind: CountBind;
+}
+
+export interface TrendWidget {
+  kind: "trend";
+  bind: TrendBind;
+}
+
+export interface DistWidget {
+  kind: "dist";
+  bind: DistBind;
+}
+
+export type WidgetConfig = CountWidget | TrendWidget | DistWidget;
 export type WidgetKind = WidgetConfig["kind"];
 
-export const WIDGET_KINDS: readonly WidgetKind[] = ["liveCount", "statBar", "chart"];
+export const WIDGET_KINDS: readonly WidgetKind[] = ["count", "trend", "dist"];
 
 export interface DashboardSlot {
   id: string;
@@ -110,6 +126,8 @@ export interface DrillFilter {
   objectType: string;
   field?: string;
   choiceId?: string;
+  /** dist widget drill: filter by instance lifecycle_state instead of a choice field. */
+  lifecycleState?: OntInstanceRow["lifecycleState"];
 }
 
 // PBAC actions (deny-by-omission via PolicyGated — unauthorized controls are absent).
@@ -118,3 +136,23 @@ export const CONFIG_CONSOLE_ACTIONS = {
   saveView: "configconsole.view.save",
   deploy: "configconsole.layout.deploy",
 } as const;
+
+// ---- console_view persistence (§19 — governed ontology instance, not local-only state) ----
+
+export type ConsoleViewScope = "personal" | "team";
+
+/** One console_view instance: screen_key/config/scope properties (be2-config-objects). */
+export interface ConsoleViewRecord {
+  instanceId: string;
+  screenKey: string;
+  config: DashboardDoc;
+  scope: ConsoleViewScope;
+  version: number;
+}
+
+/** A 팀 배포 request opened as a governance approval — pending until decided elsewhere. */
+export interface DeployApprovalPending {
+  approvalId: string;
+  requestRef: string;
+  createdAt: string;
+}

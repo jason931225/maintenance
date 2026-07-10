@@ -1,11 +1,9 @@
-// wire-pending: Phase C → GET /api/v1/evidence-objects + GET /api/v1/evidence-objects/{id}
-// (BE-DOCS EV contract, .omc/handoffs/t_15b1a1ec-ev-object-domain-api-contract.md §7.1/§7.3;
-// object substrate per .omc/research/be-ontology-engine-arch.md). This factory
-// stands in for that feed with the same shapes, so wiring = replacing the
-// factory with the fetch — not rewriting the surface. Custody events here use
-// the real /api/audit record shape (console/audit AuditFeed) so the timeline is
-// already stream-compatible; the filtered query
-// GET /api/audit?target_type=evidence_object&target_id={id} is also wire-pending.
+// Test-only fixtures — deliberately NOT exported from index.ts (evidenceStubs
+// was deleted; production now always fetches real EV objects via evidenceApi).
+// Two rows, shaped exactly like evidenceApi's mappers produce from the wire.
+// Korean copy comes from `ko.console.evidence.samples` (no hardcoded UI
+// strings), so this ships under console/** past the check-ui-strings gate.
+// NOT product data.
 import { ko } from "../../i18n/ko";
 import type { AuditRecord } from "../audit";
 import type { EvidenceObjectDetail } from "./types";
@@ -34,7 +32,8 @@ function custodyEvent(
   };
 }
 
-export function createEvidenceStubs(): EvidenceObjectDetail[] {
+/** [heldWithDerivatives, plainNoDerivatives] — matches the old stub fixture shape. */
+export function evidenceFixtures(): [EvidenceObjectDetail, EvidenceObjectDetail] {
   return [
     {
       id: "ev-2026-00012",
@@ -126,44 +125,6 @@ export function createEvidenceStubs(): EvidenceObjectDetail[] {
       custody: [
         custodyEvent("cu-13-2", "evidence_copy.register_original", S.actors.custodian, "2026-07-08T14:05:00+09:00", "EV-2026-00013"),
         custodyEvent("cu-13-1", "evidence_object.register", S.actors.custodian, "2026-07-08T14:03:00+09:00", "EV-2026-00013"),
-      ],
-    },
-    {
-      id: "ev-2026-00009",
-      code: "EV-2026-00009",
-      title: S.photos.title,
-      classification: "CONFIDENTIAL",
-      admissibility: "INADMISSIBLE",
-      custodyStage: "UNDER_REVIEW",
-      custodian: S.actors.compliance,
-      collectedAt: "2026-06-29T08:44:00+09:00",
-      fixity: "MISMATCH",
-      tsa: "FAILED",
-      disposed: false,
-      copies: [
-        {
-          id: "cp-9-orig",
-          kind: "ORIGINAL",
-          digestSha256:
-            "e4d8a03b57cfe1a2d4b6c8e0f1a3c5e7d9b1f3a5c7e9d0b2f4a6c8e0d9f2b6c1",
-          contentType: "image/jpeg",
-          sizeBytes: 6_291_456,
-          wormStatus: "FAILED",
-        },
-      ],
-      holds: [
-        {
-          id: "hold-9-1",
-          caseRef: S.photos.caseRef,
-          status: "RELEASED",
-          appliedAt: "2026-06-30T09:00:00+09:00",
-          releasedAt: "2026-07-04T18:00:00+09:00",
-        },
-      ],
-      custody: [
-        custodyEvent("cu-9-3", "evidence_legal_hold.release", S.actors.compliance, "2026-07-04T18:00:00+09:00", "EV-2026-00009"),
-        custodyEvent("cu-9-2", "evidence_custody.transition", S.actors.compliance, "2026-07-01T11:30:00+09:00", "EV-2026-00009"),
-        custodyEvent("cu-9-1", "evidence_object.register", S.actors.field, "2026-06-29T08:44:00+09:00", "EV-2026-00009"),
       ],
     },
   ];

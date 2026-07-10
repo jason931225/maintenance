@@ -11,8 +11,11 @@ import type { AuthContextValue, AuthSession } from "../context/auth";
 import { ticketCode } from "../features/support/support-format";
 import { KO_CONSOLE_SUPPORTDESK as D } from "../features/support/supportdesk-ko.test";
 import { KO_CONSOLE_SUPPORTSLO as T } from "../features/support/supportslo-ko.test";
+import { supportSloStringsFilled } from "../features/support/supportslo-strings";
 import { ko } from "../i18n/ko";
 import { SupportPage } from "./SupportPage";
+
+const E = supportSloStringsFilled().engine;
 
 const NOW_ISH_BRANCH = "00000000-0000-4000-8000-000000000001";
 
@@ -97,6 +100,27 @@ const server = setupServer(
     postedComments.push(comment);
     return HttpResponse.json(comment);
   }),
+  // SloSettingsCard → real support_slo_setting engine instances (be2-config-objects).
+  http.get("*/api/v1/ontology/object-types/:key", ({ params }) =>
+    HttpResponse.json({
+      object_type: {
+        id: "slo-type",
+        stable_key: params.key,
+        title: "SLO 설정",
+        backing_kind: "instance",
+        schema_version: 1,
+        lifecycle_state: "published",
+      },
+      title_property_key: "ticket_type",
+      backing_table: null,
+      primary_key_property: null,
+      properties: [],
+      links: [],
+      actions: [],
+      analytics: [],
+    }),
+  ),
+  http.get("*/api/v1/ontology/instances", () => HttpResponse.json([])),
 );
 
 beforeAll(() => {
@@ -163,10 +187,29 @@ describe("SupportPage SLO surface", () => {
       screen.getByText(T.alerts.escalateTo(T.settings.targets.ADMIN)),
     ).toBeVisible();
 
-    // Stat tile is SLO-labelled (never SLA), and the settings card is present.
+    // Stat tile is SLO-labelled (never SLA). The breach alerts and chips derive
+    // from the local ACTIVE setting and are available to every /support viewer,
+    // independent of the RoleManage-gated settings card asserted separately below.
     expect(screen.getByText(T.urgentOrBreached)).toBeVisible();
-    expect(screen.getByText(T.settings.title)).toBeVisible();
-    expect(screen.getByText(T.settings.scopeChip)).toBeVisible();
+  });
+
+  it("renders the SLO settings card only for the RoleManage (SUPER_ADMIN) tier", async () => {
+    // The card reads/writes the support_slo_setting ontology object, whose REST
+    // API is RoleManage-gated (SUPER_ADMIN). The card mounts for that tier and
+    // its title (from the English ENGINE_FALLBACK until ko.console.supportslo.
+    // engine is wired) renders.
+    renderSupportPage({ ...adminSession, roles: ["SUPER_ADMIN"] });
+    expect(await screen.findByText(E.title)).toBeVisible();
+  });
+
+  it("hides the SLO settings card below the RoleManage tier so no 403 fetch fires", async () => {
+    // An ADMIN lacks RoleManage; the ontology read would 403. Deny-by-omission:
+    // the card never renders (and never fires the doomed mount fetch).
+    renderSupportPage();
+    // Wait for the page to settle via a role-independent surface, then assert
+    // the card is absent.
+    await screen.findByRole("alert", { name: T.alerts.title });
+    expect(screen.queryByText(E.title)).toBeNull();
   });
 
   it("opens the breached ticket from its alert row as the right pin", async () => {

@@ -3,7 +3,12 @@
 // ko.console.supportslo). All new SLO labels/aria route through this accessor.
 
 import { ko } from "../../i18n/ko";
-import type { SloEscalationTarget, SloPosture } from "./slo-settings";
+import type {
+  EngineSloWindow,
+  EngineTicketType,
+  SloEscalationTarget,
+  SloPosture,
+} from "./slo-settings";
 
 export interface SupportSloStrings {
   /** Command-center heading (replaces the SLA-labelled sentence, §4-26/§4-12). */
@@ -40,6 +45,32 @@ export interface SupportSloStrings {
     targets: Record<SloEscalationTarget, string>;
     fieldAria: (category: string, field: string) => string;
   };
+  /**
+   * SLO settings CARD → real support_slo_setting engine instances (3
+   * ticket_type buckets — coarser than the SupportTicketCategory badges
+   * above; be2-config-objects seed.rs is the authoritative schema). Optional
+   * + merged with an English fallback (below): ko.console.supportslo is
+   * already wired for the fields above, but this lane must not edit ko.ts
+   * directly — the serial wire-up promotes ENGINE_FALLBACK into
+   * ko.console.supportslo.engine once landed.
+   */
+  engine?: EngineSloStrings;
+}
+
+export interface EngineSloStrings {
+  title: string;
+  ticketTypes: Record<EngineTicketType, string>;
+  thresholdMinutes: string;
+  windowLabel: string;
+  windows: Record<EngineSloWindow, string>;
+  escalationLabel: string;
+  revisionColumn: string;
+  lastRevision: (version: number) => string;
+  notSaved: string;
+  loading: string;
+  error: string;
+  commit: string;
+  fieldAria: (ticketType: string, field: string) => string;
 }
 
 // English defaults keep the page mountable standalone pre-wire-up (same
@@ -83,15 +114,42 @@ const FALLBACK: SupportSloStrings = {
   },
 };
 
+/** English default for the new `engine` block, pending ko.ts wire-up. */
+const ENGINE_FALLBACK: EngineSloStrings = {
+  title: "SLO settings (engine)",
+  ticketTypes: { incident: "Incident", request: "Request", change: "Change" },
+  thresholdMinutes: "Response target (min)",
+  windowLabel: "Window",
+  windows: { business_hours: "Business hours", calendar: "24x7" },
+  escalationLabel: "Escalation target",
+  revisionColumn: "Last revision",
+  lastRevision: (version) => `Revision v${String(version)}`,
+  notSaved: "Not saved yet",
+  loading: "Loading SLO settings…",
+  error: "SLO settings unavailable",
+  commit: "Approve — commit revision",
+  fieldAria: (ticketType, field) => `${ticketType} ${field}`,
+};
+
 /**
  * ko.console.supportslo — typed accessor. wire-pending: i18n wire-up — the
  * serial wire-up adds this namespace from the lane's koManifest; until it
  * lands the English fallback keeps the page mountable (tests inject the
  * Korean mirror).
  */
-export function supportSloStrings(): SupportSloStrings {
+function baseSupportSloStrings(): SupportSloStrings {
   return (
     (ko.console as unknown as { supportslo?: SupportSloStrings }).supportslo ??
     FALLBACK
   );
+}
+
+export function supportSloStrings(): SupportSloStrings {
+  return baseSupportSloStrings();
+}
+
+/** Read-time merge with ENGINE_FALLBACK — always returns a filled `engine`. */
+export function supportSloStringsFilled(): SupportSloStrings & { engine: EngineSloStrings } {
+  const base = baseSupportSloStrings();
+  return { ...base, engine: base.engine ?? ENGINE_FALLBACK };
 }

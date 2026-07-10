@@ -13,6 +13,11 @@
 //                 requester (id) => `요청자 ${id}`, approvedChip "승인 완료", rejectedChip "반려됨"
 //   lifecycle:    preflightTitle (s) => `${s} 전환 점검`, blocker "차단", warning "대기",
 //                 notConfigured "전환 미구성(차단)", transition (s) => `${s}(으)로 전환`
+//
+// koManifest (ko.console.objectcardDyn — dynamic-layer additions):
+//   relations: codeNotFound "해당 코드의 개체를 찾을 수 없습니다", resolveFailed "코드 확인 실패",
+//              resolving "확인 중"
+//   acting:    navigateAria (label, kind) => `${kind} ${label} 열기`
 import { ko } from "../../i18n/ko";
 import type { GateKind, GateStatusKind } from "../../api/ontologyActions";
 
@@ -96,5 +101,35 @@ export function objectCardGovStrings(): ObjectCardGovStrings {
   return (
     (ko.console as unknown as { objectcardGov?: ObjectCardGovStrings })
       .objectcardGov ?? FALLBACK
+  );
+}
+
+export interface ObjectCardDynStrings {
+  relations: {
+    codeNotFound: string;
+    resolveFailed: string;
+    resolving: string;
+  };
+  acting: {
+    navigateAria: (label: string, kind: string) => string;
+  };
+}
+
+const DYN_FALLBACK: ObjectCardDynStrings = {
+  relations: {
+    codeNotFound: "No object resolves that code",
+    resolveFailed: "Code resolve failed",
+    resolving: "Resolving…",
+  },
+  acting: {
+    navigateAria: (label, kind) => `Open ${kind} ${label}`,
+  },
+};
+
+/** ko.console.objectcardDyn accessor (koManifest above) with the English fallback. */
+export function objectCardDynStrings(): ObjectCardDynStrings {
+  return (
+    (ko.console as unknown as { objectcardDyn?: ObjectCardDynStrings })
+      .objectcardDyn ?? DYN_FALLBACK
   );
 }
