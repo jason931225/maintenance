@@ -73,8 +73,11 @@ export function Sidebar({
   // it the 320px drawer is an unlabeled complementary and fails the a11y guard.
   useEffect(() => {
     if (!mobileOpen) return undefined;
-    const panelEl = panelRef.current;
-    if (!panelEl) return undefined;
+    const panel = panelRef.current;
+    if (!panel) return undefined;
+    // Alias after the guard so the closures below see a non-null type (TS does
+    // not carry linear null-narrowing of a nullable-typed const into closures).
+    const panelEl = panel;
     const previouslyFocused = document.activeElement;
 
     const focusableSelector = [
