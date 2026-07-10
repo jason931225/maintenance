@@ -3834,6 +3834,7 @@ export const ko = {
         dryRunning: "드라이런 중",
         apply: "검토 후 적용",
         applying: "적용 중",
+        checklistAck: "자가 점검 목록을 모두 확인했습니다",
       },
       dryRun: {
         insertCandidates: "추가 예정",
@@ -3889,6 +3890,7 @@ export const ko = {
         dryRunning: "근태 드라이런 중",
         apply: "근태 검토 후 적용",
         applying: "근태 적용 중",
+        checklistAck: "자가 점검 목록을 모두 확인했습니다",
       },
       dryRun: {
         readyRows: "적용 가능",

@@ -33,6 +33,7 @@ import kotlinx.serialization.Contextual
  *
  * @param triggerType
  * @param idempotencyKey
+ * @param fourEyesRequestRef §16 org-scope automation gate (85 판정); ignored for a personal-scope (§3.9.0-①) definition.
  */
 @Serializable
 
@@ -42,7 +43,11 @@ data class TriggerWorkflowRunRequest (
     val triggerType: TriggerWorkflowRunRequest.TriggerType? = TriggerType.MANUAL,
 
     @SerialName(value = "idempotency_key")
-    val idempotencyKey: kotlin.String? = null
+    val idempotencyKey: kotlin.String? = null,
+
+    /* §16 org-scope automation gate (85 판정); ignored for a personal-scope (§3.9.0-①) definition. */
+    @Contextual @SerialName(value = "four_eyes_request_ref")
+    val fourEyesRequestRef: java.util.UUID? = null
 
 ) {
 

@@ -212,8 +212,12 @@ async fn execute_happy_path_appends_revision_and_one_audit_atomically(owner_pool
     .expect("execute must succeed");
 
     assert!(outcome.gates.allow);
-    assert_eq!(outcome.instance.revision.version, 1);
-    assert_eq!(outcome.instance.revision.attributes["priority"], "hi");
+    let instance = outcome
+        .instance
+        .as_ref()
+        .expect("an instance_revision dispatch returns the appended head");
+    assert_eq!(instance.revision.version, 1);
+    assert_eq!(instance.revision.attributes["priority"], "hi");
     assert_eq!(
         count_instances(&owner_pool, org).await,
         1,

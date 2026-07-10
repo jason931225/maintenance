@@ -181,6 +181,30 @@ const CONFIGURED_ROUTE_SOURCES: &[RouteSource] = &[
         source: include_str!("../../crates/docs/rest/src/lib.rs"),
         ignored_route_refs: &[],
     },
+    RouteSource {
+        name: "notices REST router",
+        surface: "notices",
+        source: include_str!("../../crates/notices/rest/src/lib.rs"),
+        ignored_route_refs: &[],
+    },
+    RouteSource {
+        name: "finance-gl REST router",
+        surface: "finance-gl",
+        source: include_str!("../../crates/finance-gl/rest/src/lib.rs"),
+        ignored_route_refs: &[],
+    },
+    RouteSource {
+        name: "payroll REST router",
+        surface: "payroll",
+        source: include_str!("../../crates/payroll/rest/src/lib.rs"),
+        ignored_route_refs: &[],
+    },
+    RouteSource {
+        name: "analytics-quant REST router",
+        surface: "analytics",
+        source: include_str!("../../crates/analytics-quant/rest/src/lib.rs"),
+        ignored_route_refs: &[],
+    },
 ];
 
 #[test]

@@ -368,6 +368,12 @@ impl PgMessengerStore {
                     actor: Some(command.actor),
                     recipient,
                     category: "메신저".to_owned(),
+                    // ponytail: unrelated-lane unblock (BE-ingest-checklist-gates
+                    // needed a green `cargo check -p mnt-app`) — `kind` landed on
+                    // `EmitNotificationCommand` without updating this call site;
+                    // "info" mirrors the notices crate's generic default. The
+                    // notifications-kind lane should replace with a precise kind.
+                    kind: "info".to_owned(),
                     text: "메신저에서 회원님을 멘션했습니다".to_owned(),
                     link: NotificationLink::Object {
                         kind: "messenger_thread".to_owned(),

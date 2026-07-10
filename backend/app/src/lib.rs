@@ -10,6 +10,7 @@ use std::fmt::{Display, Formatter};
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::OnceLock;
 use std::time::Duration;
 
@@ -21,6 +22,7 @@ use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::{Json, Router};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
+use mnt_analytics_quant_rest::AnalyticsQuantState;
 use mnt_comms_adapter_postgres::PgMailStore;
 use mnt_comms_credential_cipher::EnvelopeCredentialCipher;
 use mnt_comms_rest::CommsRestState;
@@ -32,6 +34,8 @@ use mnt_dispatch_rest::DispatchRestState;
 use mnt_dispatch_worker::{AlimtalkEscalationPolicy, DispatchWorker};
 use mnt_docs_adapter_postgres::PgDocsStore;
 use mnt_docs_rest::DocsRestState;
+use mnt_finance_gl_adapter_postgres::PgVoucherStore;
+use mnt_finance_gl_rest::FinanceGlRestState;
 use mnt_financial_adapter_postgres::PgFinancialStore;
 use mnt_financial_rest::FinancialRestState;
 use mnt_governance_adapter_postgres::PgGovernanceStore;
@@ -44,16 +48,22 @@ use mnt_inspection_adapter_postgres::PgInspectionStore;
 use mnt_inspection_rest::InspectionRestState;
 use mnt_integrity::{IntegrityRestState, PgIntegrityStore};
 use mnt_kernel_core::{
-    AuditAction, AuditEvent, BranchId, BranchScope, ErrorKind, EvidenceId, KernelError, OrgId,
-    TraceContext, UserId,
+    AuditAction, AuditEvent, BranchId, BranchScope, EquipmentId, ErrorKind, EvidenceId,
+    KernelError, OrgId, TraceContext, UserId,
 };
 use mnt_messenger_adapter_postgres::PgMessengerStore;
 use mnt_messenger_rest::MessengerRestState;
+use mnt_notices_adapter_postgres::PgNoticeStore;
+use mnt_notices_rest::NoticeRestState;
 use mnt_notifications_adapter_postgres::PgNotificationStore;
 use mnt_notifications_rest::NotificationRestState;
 use mnt_ontology_adapter_postgres::PgOntologyStore;
 use mnt_ontology_adapter_postgres::instances::PgInstanceStore;
-use mnt_ontology_rest::OntologyRestState;
+use mnt_ontology_rest::{
+    ActionError, OntologyRestState, ProjectedDispatch, ProjectedDispatchRegistry, ProjectedHandler,
+};
+use mnt_payroll_adapter_postgres::PgPayrollStore;
+use mnt_payroll_rest::PayrollRestState;
 use mnt_platform_audit_chain::{
     ChainReport, InMemoryEd25519Signer, SealConfig, SealSigner, verify_org_chain,
 };
@@ -88,7 +98,9 @@ use mnt_platform_storage::{
     EvidenceService, FfmpegMediaProcessor, S3ObjectStore, S3StorageConfig, SeaweedS3Storage,
     StorageError,
 };
-use mnt_registry_adapter_postgres::PgRegistryStore;
+use mnt_registry_adapter_postgres::{PgRegistryError, PgRegistryStore};
+use mnt_registry_application::{UpdateEquipmentCommand, UpdateEquipmentFields};
+use mnt_registry_domain::EquipmentStatus;
 use mnt_registry_rest::RegistryRestState;
 use mnt_reporting_adapter_postgres::PgKpiRepository;
 use mnt_reporting_rest::KpiRestState;
@@ -271,6 +283,22 @@ pub const CONFIGURED_ROUTE_SURFACES: &[ConfiguredRouteSurface] = &[
     ConfiguredRouteSurface {
         name: "evidence",
         paths: mnt_docs_rest::EVIDENCE_ROUTE_PATHS,
+    },
+    ConfiguredRouteSurface {
+        name: "notices",
+        paths: mnt_notices_rest::NOTICES_ROUTE_PATHS,
+    },
+    ConfiguredRouteSurface {
+        name: "finance-gl",
+        paths: mnt_finance_gl_rest::FINANCE_GL_ROUTE_PATHS,
+    },
+    ConfiguredRouteSurface {
+        name: "payroll",
+        paths: mnt_payroll_rest::PAYROLL_ROUTE_PATHS,
+    },
+    ConfiguredRouteSurface {
+        name: "analytics",
+        paths: mnt_analytics_quant_rest::ANALYTICS_QUANT_ROUTE_PATHS,
     },
 ];
 
@@ -1298,6 +1326,73 @@ fn mail_attachment_store(state: &AppState) -> Option<mnt_comms_rest::SharedAttac
     })
 }
 
+// --- ontology §18 projected-dispatch registry (App-tier only; the ontology
+// REST tier stays free of a domain-adapter edge, exactly like
+// `TenantConfigSeeder` — see `mnt_ontology_rest::ProjectedDispatchRegistry`
+// module docs) ---------------------------------------------------------------
+
+/// Map a registry use-case error onto [`ActionError`] without touching the
+/// ontology adapter's error type — the pattern every App-tier projected
+/// handler follows.
+fn registry_error_to_action_error(err: PgRegistryError) -> ActionError {
+    match err {
+        PgRegistryError::Domain(kernel) => ActionError::domain(kernel),
+        PgRegistryError::Db(db) => ActionError::domain(KernelError::internal(db.to_string())),
+        PgRegistryError::Workbook(message) => ActionError::domain(KernelError::internal(message)),
+    }
+}
+
+/// `registry.update_equipment` projected dispatch: routes into the registry
+/// crate's real `update_equipment` use-case (its own RLS + audit + versioning).
+/// The ontology engine writes nothing of its own for this action (§9.3: no
+/// second source of truth).
+fn update_equipment_projected_handler(store: PgRegistryStore) -> ProjectedHandler {
+    Arc::new(move |input: ProjectedDispatch| {
+        let store = store.clone();
+        Box::pin(async move {
+            let equipment_uuid = input.target_id.ok_or_else(|| {
+                ActionError::domain(KernelError::validation(
+                    "update_equipment requires a target equipment id",
+                ))
+            })?;
+            let status = input
+                .params
+                .get("status")
+                .and_then(serde_json::Value::as_str)
+                .ok_or_else(|| {
+                    ActionError::domain(KernelError::validation("status param is required"))
+                })
+                .and_then(|s| EquipmentStatus::parse(s).map_err(ActionError::domain))?;
+
+            store
+                .update_equipment(UpdateEquipmentCommand {
+                    actor: input.principal.user_id,
+                    equipment_id: EquipmentId::from_uuid(equipment_uuid),
+                    fields: UpdateEquipmentFields {
+                        status: Some(status),
+                        ..UpdateEquipmentFields::default()
+                    },
+                    trace: TraceContext::generate(),
+                    occurred_at: input.occurred_at,
+                })
+                .await
+                .map_err(registry_error_to_action_error)?;
+
+            Ok(serde_json::json!({ "target": input.target, "target_id": equipment_uuid }))
+        })
+    })
+}
+
+/// The full projected-dispatch registry supplied to the ontology REST tier.
+/// Unregistered targets fail closed (`NotWiredYet`) — see
+/// `mnt_ontology_rest::ProjectedDispatchRegistry::dispatch`.
+fn projected_dispatch_registry(pool: PgPool) -> ProjectedDispatchRegistry {
+    ProjectedDispatchRegistry::new().register(
+        "registry.update_equipment",
+        update_equipment_projected_handler(PgRegistryStore::new(pool)),
+    )
+}
+
 fn realtime_hub_from_database(database: &DatabaseDependency) -> Option<Arc<PgRealtimeHub>> {
     match database {
         DatabaseDependency::Postgres(pool) => Some(Arc::new(PgRealtimeHub::new(
@@ -1403,11 +1498,27 @@ const HTTP_LATENCY_BUCKETS: &[f64] = &[
 ];
 
 static METRICS_HANDLE: OnceLock<PrometheusHandle> = OnceLock::new();
+// Serializes concurrent installers so at most one thread ever calls
+// `PrometheusBuilder::install_recorder()`. Without this, two threads racing
+// the `METRICS_HANDLE.get()` fast-path miss can both reach `install_recorder`;
+// the `metrics` crate's own global recorder slot rejects the loser, and the
+// loser's fallback read of `METRICS_HANDLE` can still be empty (the winner
+// hasn't written it yet) -- a genuine TOCTOU window that surfaced as a flaky
+// "metrics recorder installs once" panic under parallel #[tokio::test]s.
+static METRICS_INSTALL_LOCK: Mutex<()> = Mutex::new(());
 
 /// Install the process-global Prometheus recorder once and return a render
 /// handle. Idempotent: the first successful install wins and later calls (and a
 /// lost install race) return that same handle. Call at startup before serving.
 pub fn install_metrics_recorder() -> Result<PrometheusHandle, AppError> {
+    if let Some(handle) = METRICS_HANDLE.get() {
+        return Ok(handle.clone());
+    }
+    let _guard = METRICS_INSTALL_LOCK
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    // Re-check now that we hold the lock: another thread may have finished
+    // installing while we were waiting for it.
     if let Some(handle) = METRICS_HANDLE.get() {
         return Ok(handle.clone());
     }
@@ -1419,8 +1530,9 @@ pub fn install_metrics_recorder() -> Result<PrometheusHandle, AppError> {
         .and_then(PrometheusBuilder::install_recorder)
     {
         Ok(handle) => Ok(METRICS_HANDLE.get_or_init(|| handle).clone()),
-        // Lost the install race (another caller already set the global recorder)
-        // â adopt the winner's handle; only a genuine absence is an error.
+        // Lost the install race against a caller outside this lock (e.g. a
+        // non-mnt-app global installer in the same process) -- adopt the
+        // winner's handle; only a genuine absence is an error.
         Err(err) => METRICS_HANDLE
             .get()
             .cloned()
@@ -1819,7 +1931,7 @@ pub fn build_router(state: AppState) -> Router {
                     state.jwt_verifier.clone(),
                 )))
                 .merge(mnt_notifications_rest::router(NotificationRestState::new(
-                    notification_store,
+                    notification_store.clone(),
                     state.jwt_verifier.clone(),
                 )))
                 .merge(mnt_inbox_rest::router(
@@ -1867,18 +1979,45 @@ pub fn build_router(state: AppState) -> Router {
                 // Ontology / governance / Policy-Studio engine surfaces.
                 // `ontology` self-applies four-eyes/governance gate chains; its
                 // action-execute path is the single mutation surface (§16).
-                .merge(mnt_ontology_rest::router(OntologyRestState::new(
-                    ontology_registry_store,
-                    ontology_instance_store,
-                    governance_store.clone(),
-                    state.jwt_verifier.clone(),
-                )))
+                .merge(mnt_ontology_rest::router(
+                    OntologyRestState::new(
+                        ontology_registry_store,
+                        ontology_instance_store,
+                        governance_store.clone(),
+                        state.jwt_verifier.clone(),
+                    )
+                    .with_projected_dispatch(projected_dispatch_registry(pool.clone())),
+                ))
                 .merge(mnt_governance_rest::router(GovernanceRestState::new(
                     governance_store,
                     state.jwt_verifier.clone(),
                 )))
                 .merge(mnt_platform_authz_rest::router(CedarPolicyRestState::new(
                     cedar_policy_store,
+                    state.jwt_verifier.clone(),
+                )))
+                // Notice board (사내 게시판): publish snapshots recipients into
+                // `notice_receipts` and fans out one notification per recipient
+                // through the SAME notification-center sink the messenger
+                // @-mention path uses (#198 pattern).
+                .merge(mnt_notices_rest::router(NoticeRestState::new(
+                    PgNoticeStore::new(pool.clone())
+                        .with_notification_sink(Arc::new(notification_store.clone())),
+                    state.jwt_verifier.clone(),
+                )))
+                // Accounting GL vouchers (전표): create/submit/approve/post/reverse.
+                .merge(mnt_finance_gl_rest::router(FinanceGlRestState::new(
+                    PgVoucherStore::new(pool.clone()),
+                    state.jwt_verifier.clone(),
+                )))
+                // Payroll draft-run visibility (admin org-wide + self payslips).
+                .merge(mnt_payroll_rest::router(PayrollRestState::new(
+                    PgPayrollStore::new(pool.clone()),
+                    state.jwt_verifier.clone(),
+                )))
+                // Deterministic statistical projection (read-only, stateless).
+                .merge(mnt_analytics_quant_rest::router(AnalyticsQuantState::new(
+                    pool.clone(),
                     state.jwt_verifier.clone(),
                 )));
             // READ-ONLY WALL for PLATFORM "view as": wrap the WHOLE tenant

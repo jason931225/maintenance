@@ -178,6 +178,17 @@ typed_id!(
     /// engine AP- submission it started.
     LeavePromotionId
 );
+typed_id!(
+    /// One org-wide board notice (게시판 NT- 공지): a draft -> published
+    /// document. Publishing snapshots recipients into [`NoticeReceiptId`] rows
+    /// and fans out one `notifications`-table pointer per recipient.
+    NoticeId
+);
+typed_id!(
+    /// One recipient's 수령확인 (receipt acknowledgment) row for a
+    /// [`NoticeId`], snapshotted at publish time.
+    NoticeReceiptId
+);
 
 #[cfg(test)]
 mod tests {

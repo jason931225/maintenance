@@ -35,6 +35,7 @@ import com.maintenance.api.client.model.EmployeeLifecycleEvent
 import com.maintenance.api.client.model.EmployeeLifecycleEventPage
 import com.maintenance.api.client.model.EmployeePage
 import com.maintenance.api.client.model.ErrorBody
+import com.maintenance.api.client.model.ImportApplyRequest
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -69,6 +70,7 @@ open class EmployeesApi(basePath: kotlin.String = defaultBasePath, client: Call.
      * Apply a dry-run employee import run
      * Applies only candidate rows from a DRY_RUN import run; preserved rows remain raw-ledger evidence and are not promoted into employee records.
      * @param runId
+     * @param importApplyRequest  (optional)
      * @return EmployeeImportReport
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
@@ -78,8 +80,8 @@ open class EmployeesApi(basePath: kotlin.String = defaultBasePath, client: Call.
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun applyEmployeeImport(runId: java.util.UUID) : EmployeeImportReport = withContext(Dispatchers.IO) {
-        val localVarResponse = applyEmployeeImportWithHttpInfo(runId = runId)
+    suspend fun applyEmployeeImport(runId: java.util.UUID, importApplyRequest: ImportApplyRequest? = null) : EmployeeImportReport = withContext(Dispatchers.IO) {
+        val localVarResponse = applyEmployeeImportWithHttpInfo(runId = runId, importApplyRequest = importApplyRequest)
 
         return@withContext when (localVarResponse.responseType) {
             ResponseType.Success -> (localVarResponse as Success<*>).data as EmployeeImportReport
@@ -101,16 +103,17 @@ open class EmployeesApi(basePath: kotlin.String = defaultBasePath, client: Call.
      * Apply a dry-run employee import run
      * Applies only candidate rows from a DRY_RUN import run; preserved rows remain raw-ledger evidence and are not promoted into employee records.
      * @param runId
+     * @param importApplyRequest  (optional)
      * @return ApiResponse<EmployeeImportReport?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun applyEmployeeImportWithHttpInfo(runId: java.util.UUID) : ApiResponse<EmployeeImportReport?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = applyEmployeeImportRequestConfig(runId = runId)
+    suspend fun applyEmployeeImportWithHttpInfo(runId: java.util.UUID, importApplyRequest: ImportApplyRequest?) : ApiResponse<EmployeeImportReport?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = applyEmployeeImportRequestConfig(runId = runId, importApplyRequest = importApplyRequest)
 
-        return@withContext request<Unit, EmployeeImportReport>(
+        return@withContext request<ImportApplyRequest, EmployeeImportReport>(
             localVariableConfig
         )
     }
@@ -119,12 +122,14 @@ open class EmployeesApi(basePath: kotlin.String = defaultBasePath, client: Call.
      * To obtain the request config of the operation applyEmployeeImport
      *
      * @param runId
+     * @param importApplyRequest  (optional)
      * @return RequestConfig
      */
-    fun applyEmployeeImportRequestConfig(runId: java.util.UUID) : RequestConfig<Unit> {
-        val localVariableBody = null
+    fun applyEmployeeImportRequestConfig(runId: java.util.UUID, importApplyRequest: ImportApplyRequest?) : RequestConfig<ImportApplyRequest> {
+        val localVariableBody = importApplyRequest
         val localVariableQuery: MultiValueMap = mutableMapOf()
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
         localVariableHeaders["Accept"] = "application/json"
 
         return RequestConfig(

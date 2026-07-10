@@ -2730,6 +2730,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "mnt-analytics-quant-rest"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "mnt-analytics-quant-service",
+ "mnt-kernel-core",
+ "mnt-platform-auth",
+ "mnt-platform-authz",
+ "mnt-platform-request-context",
+ "serde",
+ "sqlx 0.9.0",
+]
+
+[[package]]
+name = "mnt-analytics-quant-service"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "mnt-app"
 version = "0.1.0"
 dependencies = [
@@ -2744,6 +2766,7 @@ dependencies = [
  "jsonwebtoken",
  "metrics",
  "metrics-exporter-prometheus",
+ "mnt-analytics-quant-rest",
  "mnt-comms-adapter-imap",
  "mnt-comms-adapter-postgres",
  "mnt-comms-application",
@@ -2758,11 +2781,15 @@ dependencies = [
  "mnt-docs-adapter-postgres",
  "mnt-docs-rest",
  "mnt-erp-domain",
+ "mnt-finance-gl-adapter-postgres",
+ "mnt-finance-gl-rest",
  "mnt-financial-adapter-postgres",
  "mnt-financial-application",
  "mnt-financial-domain",
  "mnt-financial-rest",
  "mnt-governance-adapter-postgres",
+ "mnt-governance-application",
+ "mnt-governance-domain",
  "mnt-governance-rest",
  "mnt-identity-adapter-postgres",
  "mnt-identity-rest",
@@ -2776,11 +2803,15 @@ dependencies = [
  "mnt-leave-rest",
  "mnt-messenger-adapter-postgres",
  "mnt-messenger-rest",
+ "mnt-notices-adapter-postgres",
+ "mnt-notices-rest",
  "mnt-notifications-adapter-postgres",
  "mnt-notifications-rest",
  "mnt-ontology-adapter-postgres",
  "mnt-ontology-rest",
+ "mnt-payroll-adapter-postgres",
  "mnt-payroll-domain",
+ "mnt-payroll-rest",
  "mnt-platform-audit-chain",
  "mnt-platform-auth",
  "mnt-platform-auth-rest",
@@ -2796,6 +2827,8 @@ dependencies = [
  "mnt-platform-rest",
  "mnt-platform-storage",
  "mnt-registry-adapter-postgres",
+ "mnt-registry-application",
+ "mnt-registry-domain",
  "mnt-registry-rest",
  "mnt-reporting-adapter-postgres",
  "mnt-reporting-rest",
@@ -3236,6 +3269,62 @@ version = "0.1.0"
 dependencies = [
  "mnt-kernel-core",
  "time",
+]
+
+[[package]]
+name = "mnt-finance-gl-adapter-postgres"
+version = "0.0.0"
+dependencies = [
+ "mnt-finance-gl-application",
+ "mnt-finance-gl-domain",
+ "mnt-kernel-core",
+ "mnt-platform-db",
+ "mnt-platform-request-context",
+ "sqlx 0.9.0",
+ "thiserror 2.0.18",
+ "time",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-finance-gl-application"
+version = "0.0.0"
+dependencies = [
+ "mnt-finance-gl-domain",
+ "mnt-kernel-core",
+ "serde",
+ "time",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-finance-gl-domain"
+version = "0.0.0"
+dependencies = [
+ "mnt-kernel-core",
+ "serde",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-finance-gl-rest"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "mnt-finance-gl-adapter-postgres",
+ "mnt-finance-gl-application",
+ "mnt-finance-gl-domain",
+ "mnt-kernel-core",
+ "mnt-platform-auth",
+ "mnt-platform-authz",
+ "mnt-platform-db",
+ "mnt-platform-request-context",
+ "serde",
+ "sqlx 0.9.0",
+ "time",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -3790,6 +3879,70 @@ dependencies = [
 ]
 
 [[package]]
+name = "mnt-notices-adapter-postgres"
+version = "0.1.0"
+dependencies = [
+ "mnt-kernel-core",
+ "mnt-notices-application",
+ "mnt-notices-domain",
+ "mnt-notifications-adapter-postgres",
+ "mnt-notifications-application",
+ "mnt-notifications-domain",
+ "mnt-platform-db",
+ "mnt-platform-request-context",
+ "serde_json",
+ "sqlx 0.9.0",
+ "thiserror 2.0.18",
+ "time",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-notices-application"
+version = "0.1.0"
+dependencies = [
+ "mnt-kernel-core",
+ "mnt-notices-domain",
+ "serde",
+ "time",
+]
+
+[[package]]
+name = "mnt-notices-domain"
+version = "0.1.0"
+dependencies = [
+ "mnt-kernel-core",
+ "serde",
+]
+
+[[package]]
+name = "mnt-notices-rest"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "http",
+ "mnt-kernel-core",
+ "mnt-notices-adapter-postgres",
+ "mnt-notices-application",
+ "mnt-notices-domain",
+ "mnt-notifications-adapter-postgres",
+ "mnt-platform-auth",
+ "mnt-platform-authz",
+ "mnt-platform-db",
+ "mnt-platform-request-context",
+ "mnt-platform-test-support",
+ "p256",
+ "serde",
+ "serde_json",
+ "sqlx 0.9.0",
+ "time",
+ "tower",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "mnt-notifications-adapter-postgres"
 version = "0.1.0"
 dependencies = [
@@ -3910,6 +4063,9 @@ dependencies = [
  "mnt-platform-db",
  "mnt-platform-request-context",
  "mnt-platform-test-support",
+ "mnt-registry-adapter-postgres",
+ "mnt-registry-application",
+ "mnt-registry-domain",
  "serde",
  "serde_json",
  "sqlx 0.9.0",
@@ -3920,11 +4076,52 @@ dependencies = [
 ]
 
 [[package]]
+name = "mnt-payroll-adapter-postgres"
+version = "0.1.0"
+dependencies = [
+ "mnt-kernel-core",
+ "mnt-platform-db",
+ "mnt-platform-request-context",
+ "mnt-platform-test-support",
+ "serde",
+ "serde_json",
+ "sqlx 0.9.0",
+ "thiserror 2.0.18",
+ "time",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
 name = "mnt-payroll-domain"
 version = "0.1.0"
 dependencies = [
  "mnt-kernel-core",
  "time",
+]
+
+[[package]]
+name = "mnt-payroll-rest"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "http",
+ "mnt-kernel-core",
+ "mnt-payroll-adapter-postgres",
+ "mnt-platform-auth",
+ "mnt-platform-authz",
+ "mnt-platform-db",
+ "mnt-platform-request-context",
+ "mnt-platform-test-support",
+ "p256",
+ "serde",
+ "serde_json",
+ "sqlx 0.9.0",
+ "time",
+ "tokio",
+ "tower",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]

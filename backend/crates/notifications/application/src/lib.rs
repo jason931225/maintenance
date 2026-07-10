@@ -59,6 +59,11 @@ pub struct EmitNotificationCommand {
     pub actor: Option<UserId>,
     pub recipient: UserId,
     pub category: String,
+    /// Behavioral kind (see `NotificationKind`), e.g. `"info"` or
+    /// `"slo_violation"`. A resolvable kind is auto-resolved by a later
+    /// [`ResolveNotificationsByLinkCommand`] matching this notification's
+    /// `link`.
+    pub kind: String,
     pub text: String,
     pub link: NotificationLink,
     /// Optional stable key for at-most-once emission. When set, a second emit
@@ -89,6 +94,12 @@ pub struct UnreadNotificationCountQuery {
     pub recipient: UserId,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct NotificationCountsSummaryQuery {
+    /// Bound from the authenticated principal, never from request input.
+    pub recipient: UserId,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MarkNotificationReadCommand {
     pub recipient: UserId,
@@ -109,6 +120,7 @@ pub struct NotificationSummary {
     pub id: NotificationId,
     pub recipient_user_id: UserId,
     pub category: String,
+    pub kind: String,
     /// Recipient-facing text (the `notifs.text` field in the logic inventory;
     /// stored in the `body` column).
     pub text: String,
@@ -118,6 +130,52 @@ pub struct NotificationSummary {
     pub created_at: Timestamp,
     #[serde(with = "time::serde::rfc3339::option")]
     pub read_at: Option<Timestamp>,
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub resolved_at: Option<Timestamp>,
+}
+
+/// Per-category unread breakdown for the comms-rail badge (`kind`/`category`
+/// double as the "surface" grouping — a new producer category needs no schema
+/// change to show up here).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NotificationCategoryCount {
+    pub category: String,
+    pub unread: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NotificationCountsSummary {
+    pub total_unread: i64,
+    pub by_category: Vec<NotificationCategoryCount>,
+}
+
+// ---------------------------------------------------------------------------
+// Generic detect -> assign -> resolve chain
+// ---------------------------------------------------------------------------
+
+/// Mark every still-open notification pointing at `link` as resolved, in one
+/// audited sweep. A producer calls this with the SAME [`NotificationLink`]
+/// shape it originally emitted (e.g. `Object { kind: "attendance_gap", id }`)
+/// when the resolving domain event fires (e.g. 대근 편성 covers a 미편성 결원
+/// breach) — generic to any producer, never hardcoded to one domain.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolveNotificationsByLinkCommand {
+    pub link: NotificationLink,
+    /// The actor/event that resolved it. `None` for a system-driven auto-close.
+    pub resolved_by: Option<UserId>,
+    pub trace: TraceContext,
+    pub occurred_at: Timestamp,
+}
+
+pub type ResolveNotificationsFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<u64, KernelError>> + Send + 'a>>;
+
+pub trait NotificationResolver: Send + Sync {
+    /// Returns the number of notifications resolved.
+    fn resolve_by_link(
+        &self,
+        command: ResolveNotificationsByLinkCommand,
+    ) -> ResolveNotificationsFuture<'_>;
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

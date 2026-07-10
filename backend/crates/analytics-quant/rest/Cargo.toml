@@ -1,0 +1,21 @@
+[package]
+name = "mnt-analytics-quant-rest"
+version = "0.1.0"
+description = "REST API for the deterministic analytics projection service."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+axum = { workspace = true }
+mnt-analytics-quant-service = { workspace = true }
+mnt-kernel-core = { workspace = true }
+mnt-platform-auth = { workspace = true }
+mnt-platform-authz = { workspace = true }
+mnt-platform-request-context = { workspace = true }
+serde = { workspace = true }
+sqlx = { workspace = true }
+
+[lints]
+workspace = true

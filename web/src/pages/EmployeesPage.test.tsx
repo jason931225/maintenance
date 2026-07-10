@@ -327,6 +327,7 @@ describe("EmployeesPage", () => {
     let sawPreview = false;
     let sawDryRun = false;
     let sawApply = false;
+    let appliedAck: boolean | undefined;
     server.use(
       http.post("*/api/v1/employees/import/preview", () => {
         // MSW/undici cannot reliably parse jsdom File/FormData across realms;
@@ -400,8 +401,11 @@ describe("EmployeesPage", () => {
           ],
         });
       }),
-      http.post("*/api/v1/employees/import/:runId/apply", () => {
+      http.post("*/api/v1/employees/import/:runId/apply", async ({ request }) => {
         sawApply = true;
+        appliedAck = (
+          (await request.json()) as { checklist_all_acknowledged?: boolean }
+        ).checklist_all_acknowledged;
         return HttpResponse.json({
           input_rows: 1,
           inserted: 1,
@@ -445,16 +449,23 @@ describe("EmployeesPage", () => {
     });
     expect(screen.getByText("추가 예정")).toBeVisible();
 
+    // §16 gate: apply is disabled until the self-checklist is acknowledged.
+    expect(screen.getByRole("button", { name: "검토 후 적용" })).toBeDisabled();
+    await userEvent.click(
+      screen.getByRole("checkbox", { name: "자가 점검 목록을 모두 확인했습니다" }),
+    );
     await userEvent.click(screen.getByRole("button", { name: "검토 후 적용" }));
     await waitFor(() => {
       expect(sawApply).toBe(true);
     });
+    expect(appliedAck).toBe(true);
     expect(screen.getByText("입력 행")).toBeVisible();
   });
   it("supports governed direct attendance import preview, dry-run, and append-only apply", async () => {
     let sawPreview = false;
     let sawDryRun = false;
     let sawApply = false;
+    let appliedAck: boolean | undefined;
     server.use(
       http.post("*/api/v1/hr/attendance-import/preview", () => {
         sawPreview = true;
@@ -523,15 +534,21 @@ describe("EmployeesPage", () => {
           row_errors: [],
         });
       }),
-      http.post("*/api/v1/hr/attendance-import/:runId/apply", () => {
-        sawApply = true;
-        return HttpResponse.json({
-          run_id: "22222222-2222-4222-8222-222222222222",
-          inserted: 1,
-          skipped: 0,
-          error_rows: 0,
-        });
-      }),
+      http.post(
+        "*/api/v1/hr/attendance-import/:runId/apply",
+        async ({ request }) => {
+          sawApply = true;
+          appliedAck = (
+            (await request.json()) as { checklist_all_acknowledged?: boolean }
+          ).checklist_all_acknowledged;
+          return HttpResponse.json({
+            run_id: "22222222-2222-4222-8222-222222222222",
+            inserted: 1,
+            skipped: 0,
+            error_rows: 0,
+          });
+        },
+      ),
     );
 
     renderEmployeesPage(["ADMIN"]);
@@ -567,12 +584,20 @@ describe("EmployeesPage", () => {
     });
     expect(screen.getByText("적용 가능")).toBeVisible();
 
+    // §16 gate: attendance apply is disabled until the self-checklist is acknowledged.
+    expect(
+      screen.getByRole("button", { name: "근태 검토 후 적용" }),
+    ).toBeDisabled();
+    await userEvent.click(
+      screen.getByRole("checkbox", { name: "자가 점검 목록을 모두 확인했습니다" }),
+    );
     await userEvent.click(
       screen.getByRole("button", { name: "근태 검토 후 적용" }),
     );
     await waitFor(() => {
       expect(sawApply).toBe(true);
     });
+    expect(appliedAck).toBe(true);
     expect(screen.getByText("건너뜀")).toBeVisible();
   });
 

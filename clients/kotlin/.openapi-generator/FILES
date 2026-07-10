@@ -7,6 +7,7 @@ gradlew
 gradlew.bat
 proguard-rules.pro
 settings.gradle
+src/main/kotlin/com/maintenance/api/client/api/AnalyticsApi.kt
 src/main/kotlin/com/maintenance/api/client/api/ApprovalItemsApi.kt
 src/main/kotlin/com/maintenance/api/client/api/AuditApi.kt
 src/main/kotlin/com/maintenance/api/client/api/AuthApi.kt
@@ -22,6 +23,7 @@ src/main/kotlin/com/maintenance/api/client/api/EquipmentByLocationApi.kt
 src/main/kotlin/com/maintenance/api/client/api/EquipmentSubstitutionsApi.kt
 src/main/kotlin/com/maintenance/api/client/api/EvidenceApi.kt
 src/main/kotlin/com/maintenance/api/client/api/ExportsApi.kt
+src/main/kotlin/com/maintenance/api/client/api/FinanceGlApi.kt
 src/main/kotlin/com/maintenance/api/client/api/FinancialApi.kt
 src/main/kotlin/com/maintenance/api/client/api/GovernanceApi.kt
 src/main/kotlin/com/maintenance/api/client/api/GroupAdminApi.kt
@@ -39,6 +41,7 @@ src/main/kotlin/com/maintenance/api/client/api/LocationPingsApi.kt
 src/main/kotlin/com/maintenance/api/client/api/MailApi.kt
 src/main/kotlin/com/maintenance/api/client/api/MeApi.kt
 src/main/kotlin/com/maintenance/api/client/api/MessengerApi.kt
+src/main/kotlin/com/maintenance/api/client/api/NoticesApi.kt
 src/main/kotlin/com/maintenance/api/client/api/ObjectActionsApi.kt
 src/main/kotlin/com/maintenance/api/client/api/ObjectLinksApi.kt
 src/main/kotlin/com/maintenance/api/client/api/ObjectTypesApi.kt
@@ -48,6 +51,7 @@ src/main/kotlin/com/maintenance/api/client/api/OntologyApi.kt
 src/main/kotlin/com/maintenance/api/client/api/OpsApi.kt
 src/main/kotlin/com/maintenance/api/client/api/P1DispatchesApi.kt
 src/main/kotlin/com/maintenance/api/client/api/PasskeysApi.kt
+src/main/kotlin/com/maintenance/api/client/api/PayrollApi.kt
 src/main/kotlin/com/maintenance/api/client/api/PeriodLocksApi.kt
 src/main/kotlin/com/maintenance/api/client/api/PlatformApi.kt
 src/main/kotlin/com/maintenance/api/client/api/PolicyApi.kt
@@ -89,6 +93,7 @@ src/main/kotlin/com/maintenance/api/client/infrastructure/StringBuilderAdapter.k
 src/main/kotlin/com/maintenance/api/client/infrastructure/URIAdapter.kt
 src/main/kotlin/com/maintenance/api/client/infrastructure/URLAdapter.kt
 src/main/kotlin/com/maintenance/api/client/infrastructure/UUIDAdapter.kt
+src/main/kotlin/com/maintenance/api/client/model/AccountDrillEntry.kt
 src/main/kotlin/com/maintenance/api/client/model/AccountStatus.kt
 src/main/kotlin/com/maintenance/api/client/model/AcquisitionBasis.kt
 src/main/kotlin/com/maintenance/api/client/model/ActingRule.kt
@@ -186,6 +191,7 @@ src/main/kotlin/com/maintenance/api/client/model/CreateLeaveRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateListingRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateListingResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateMessengerThreadRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/CreateNoticeDraftRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateObjectLinkRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateObjectTypeDraft.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateOfficeSession200Response.kt
@@ -207,6 +213,7 @@ src/main/kotlin/com/maintenance/api/client/model/CreateSiteRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateTodoRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateTriggerBindingRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateUserRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/CreateVoucherRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateWorkOrderRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateWorkflowDefinitionRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateWorkflowScheduleRequest.kt
@@ -221,6 +228,7 @@ src/main/kotlin/com/maintenance/api/client/model/DailyPlanItemSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/DailyPlanListPage.kt
 src/main/kotlin/com/maintenance/api/client/model/DailyPlanStatus.kt
 src/main/kotlin/com/maintenance/api/client/model/DailyPlanSummary.kt
+src/main/kotlin/com/maintenance/api/client/model/DebitCredit.kt
 src/main/kotlin/com/maintenance/api/client/model/DecideLeaveRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/DecideOwnershipTransferRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/DecideWorkflowTaskRequest.kt
@@ -322,6 +330,7 @@ src/main/kotlin/com/maintenance/api/client/model/HrOrgChartEmployee.kt
 src/main/kotlin/com/maintenance/api/client/model/HrOrgChartPosition.kt
 src/main/kotlin/com/maintenance/api/client/model/HrOrgChartResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/HrOrgChartUnit.kt
+src/main/kotlin/com/maintenance/api/client/model/ImportApplyRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/InboxDocConfirmReceiptRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/InboxDocDetail.kt
 src/main/kotlin/com/maintenance/api/client/model/InboxDocPage.kt
@@ -421,7 +430,13 @@ src/main/kotlin/com/maintenance/api/client/model/MyDispatchOffer.kt
 src/main/kotlin/com/maintenance/api/client/model/MyDispatchOfferPage.kt
 src/main/kotlin/com/maintenance/api/client/model/MyLeaveBalance.kt
 src/main/kotlin/com/maintenance/api/client/model/MyLeaveOverview.kt
+src/main/kotlin/com/maintenance/api/client/model/MyPayrollLine.kt
+src/main/kotlin/com/maintenance/api/client/model/MyPayrollLinePage.kt
 src/main/kotlin/com/maintenance/api/client/model/NamedEntity.kt
+src/main/kotlin/com/maintenance/api/client/model/NoticeProgress.kt
+src/main/kotlin/com/maintenance/api/client/model/NoticeSummary.kt
+src/main/kotlin/com/maintenance/api/client/model/NotificationCategoryCount.kt
+src/main/kotlin/com/maintenance/api/client/model/NotificationCountsSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/NotificationLink.kt
 src/main/kotlin/com/maintenance/api/client/model/NotificationLinkOneOf.kt
 src/main/kotlin/com/maintenance/api/client/model/NotificationLinkOneOf1.kt
@@ -463,6 +478,10 @@ src/main/kotlin/com/maintenance/api/client/model/PasskeyRegisterStartRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/PasskeyRegisterStartResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/PasskeyStepUpAssertion.kt
 src/main/kotlin/com/maintenance/api/client/model/PasskeySummary.kt
+src/main/kotlin/com/maintenance/api/client/model/PayrollLineSummary.kt
+src/main/kotlin/com/maintenance/api/client/model/PayrollRunDetail.kt
+src/main/kotlin/com/maintenance/api/client/model/PayrollRunPage.kt
+src/main/kotlin/com/maintenance/api/client/model/PayrollRunSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/Period.kt
 src/main/kotlin/com/maintenance/api/client/model/PeriodLock.kt
 src/main/kotlin/com/maintenance/api/client/model/PeriodLockList.kt
@@ -525,6 +544,9 @@ src/main/kotlin/com/maintenance/api/client/model/PriorityLevel.kt
 src/main/kotlin/com/maintenance/api/client/model/PrivacyConsentAcceptRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/PrivacyConsentStatusResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/ProcessingStatus.kt
+src/main/kotlin/com/maintenance/api/client/model/ProjectionAssumptions.kt
+src/main/kotlin/com/maintenance/api/client/model/ProjectionRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/ProjectionResult.kt
 src/main/kotlin/com/maintenance/api/client/model/PurchaseAttachmentDownloadResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/PurchaseAttachmentPresignRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/PurchaseAttachmentPresignResponse.kt
@@ -552,6 +574,7 @@ src/main/kotlin/com/maintenance/api/client/model/ResolvedInstance.kt
 src/main/kotlin/com/maintenance/api/client/model/RespondP1DispatchRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/RestartPurchaseRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/ReturnSubstituteRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/ReverseVoucherRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/ReviewDailyPlanRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/ReviewTargetChangeRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/RevisionSummary.kt
@@ -656,6 +679,11 @@ src/main/kotlin/com/maintenance/api/client/model/UserPage.kt
 src/main/kotlin/com/maintenance/api/client/model/UserSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/VerifyOutcome.kt
 src/main/kotlin/com/maintenance/api/client/model/VotePollRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/VoucherLineInput.kt
+src/main/kotlin/com/maintenance/api/client/model/VoucherLineSummary.kt
+src/main/kotlin/com/maintenance/api/client/model/VoucherSourceRef.kt
+src/main/kotlin/com/maintenance/api/client/model/VoucherStatus.kt
+src/main/kotlin/com/maintenance/api/client/model/VoucherSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/WorkDiaryActionEntry.kt
 src/main/kotlin/com/maintenance/api/client/model/WorkDiaryBody.kt
 src/main/kotlin/com/maintenance/api/client/model/WorkDiaryDraft.kt

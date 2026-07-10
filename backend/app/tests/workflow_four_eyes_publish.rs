@@ -18,11 +18,23 @@
 //! "distinct approver (clean)" and "same exempt actor (finding)". The hard 403
 //! self-approval block is unit-covered by `enforce_revision_self_approval`'s
 //! non-exempt branch (no non-exempt role can reach it under the current matrix).
+//!
+//! §16 org-scope automation gate (85 판정, BE-ingest-checklist-gates): direct
+//! activation of an org-scope automation additionally requires a distinct
+//! four-eyes approval — `create_and_activate` seeds one via
+//! `PgGovernanceStore::decide_approval` (mirrors the ontology action lane's
+//! test pattern) so the five pre-existing SoD tests above keep exercising a
+//! genuine org-scope definition. `org_scope_direct_activate_requires_four_eyes`
+//! and `personal_scope_direct_activate_stays_direct` at the bottom of this file
+//! prove the gate itself: deny + zero rows without it, admit with it, and a
+//! personal-scope (§3.9.0-①) definition skips the gate entirely.
 
 use axum::body::{Body, to_bytes};
 use http::{Request, StatusCode, header};
 use mnt_app::{AppConfig, AppRole, AppState, DatabaseDependency, build_router};
-use mnt_kernel_core::{BranchId, OrgId, UserId};
+use mnt_governance_adapter_postgres::PgGovernanceStore;
+use mnt_governance_application::{ApprovalDecision, DecideApprovalCommand};
+use mnt_kernel_core::{BranchId, OrgId, TraceContext, UserId};
 use mnt_platform_auth::{
     AccessTokenInput, JwtIssuer, JwtSettings, PasskeyRegistrationStart, PasskeyService,
     WebauthnSettings,
@@ -237,14 +249,58 @@ async fn send(
 }
 
 fn exec_definition() -> Value {
+    exec_definition_scoped("org")
+}
+
+/// `exec_definition()` with an explicit `metadata.owner_scope.type` — "org" (the
+/// default the gate assumes for a scope-less definition too) or "personal"
+/// (§3.9.0-①, skips the direct-activate four-eyes gate).
+fn exec_definition_scoped(owner_scope: &str) -> Value {
     json!({
         "schema_version": "wf.exec.v1",
+        "metadata": { "owner_scope": { "type": owner_scope } },
         "object_kinds": ["work_order"],
         "nodes": [{ "node_key": "gate", "node_type": "object_gate" }],
         "edges": []
     })
 }
 
+/// Seed an approved four-eyes decision (`gov_approvals`, distinct approver)
+/// under `org` and return its `request_ref` — mirrors the ontology action
+/// lane's `PgGovernanceStore::decide_approval` test pattern. The approver must
+/// be a real seeded user (`gov_approvals.approver_id` FKs to `users`).
+async fn seed_four_eyes_approval(
+    owner_pool: &PgPool,
+    rt: &PgPool,
+    org: OrgId,
+    requested_by: UserId,
+) -> uuid::Uuid {
+    let request_ref = uuid::Uuid::new_v4();
+    let approver = UserId::new();
+    seed_super_admin(owner_pool, approver, "four-eyes-gate-approver").await;
+    mnt_platform_request_context::scope_org(org, async {
+        PgGovernanceStore::new(rt.clone())
+            .decide_approval(DecideApprovalCommand {
+                approver,
+                request_ref,
+                kind: "workflow.publish".to_owned(),
+                requested_by,
+                decision: ApprovalDecision::Approved,
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .expect("record four-eyes approval")
+    })
+    .await;
+    request_ref
+}
+
+// ponytail: test-only helper threading the full HTTP+passkey harness plus the
+// new §16 four-eyes requester — an args struct would only move the noise, not
+// remove it, for a function every existing test call site already threads
+// positionally.
+#[allow(clippy::too_many_arguments)]
 async fn create_and_activate(
     service: &axum::Router,
     owner_pool: &PgPool,
@@ -253,6 +309,7 @@ async fn create_and_activate(
     authenticator: &mut WebauthnAuthenticator<SoftPasskey>,
     cred_id: &str,
     workflow_key: &str,
+    requester: UserId,
 ) -> String {
     let created = send(
         service.clone(),
@@ -270,8 +327,17 @@ async fn create_and_activate(
     assert_eq!(created.status, StatusCode::OK, "{:?}", created.json);
     let id = created.json["id"].as_str().unwrap().to_owned();
 
-    // Direct activate (never-published definition).
-    let body = step_up(owner_pool, svc, authenticator, cred_id).await;
+    // Direct activate (never-published definition). exec_definition() is
+    // org-scope, so the §16 gate needs a distinct four-eyes approval too.
+    let request_ref = seed_four_eyes_approval(
+        owner_pool,
+        &runtime_role_pool(owner_pool).await,
+        OrgId::knl(),
+        requester,
+    )
+    .await;
+    let mut body = step_up(owner_pool, svc, authenticator, cred_id).await;
+    body["four_eyes_request_ref"] = json!(request_ref);
     let published = send(
         service.clone(),
         "POST",
@@ -399,6 +465,7 @@ async fn distinct_approver_applies_staged_revision_without_finding(owner_pool: P
         &mut pub_auth,
         &pub_cred,
         "four.eyes.distinct",
+        publisher,
     )
     .await;
     let (active_before, pending) = edit_and_stage(
@@ -454,6 +521,7 @@ async fn exempt_self_approval_is_allowed_and_recorded(owner_pool: PgPool) {
         &mut auth,
         &cred,
         "four.eyes.solo",
+        publisher,
     )
     .await;
     let (_active, pending) =
@@ -507,6 +575,7 @@ async fn start_gates_on_approved_version_only(owner_pool: PgPool) {
         &mut pub_auth,
         &pub_cred,
         "four.eyes.start",
+        publisher,
     )
     .await;
 
@@ -630,6 +699,7 @@ async fn rollback_then_manual_start_uses_rolled_back_active_version(owner_pool: 
         &mut auth,
         &cred,
         "four.eyes.rollback",
+        actor,
     )
     .await;
     let v1 = start_run(&service, &token, &id, None, "rollback-before-start-01")
@@ -718,6 +788,7 @@ async fn withdraw_discards_staged_revision(owner_pool: PgPool) {
         &mut auth,
         &cred,
         "four.eyes.withdraw",
+        publisher,
     )
     .await;
     let (active_before, pending) =
@@ -739,4 +810,191 @@ async fn withdraw_discards_staged_revision(owner_pool: PgPool) {
         active_before,
         "withdraw must not change the active version"
     );
+}
+
+// ===========================================================================
+// §16 org-scope automation gate (85 판정, BE-ingest-checklist-gates).
+// ===========================================================================
+
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn org_scope_direct_activate_requires_four_eyes(owner_pool: PgPool) {
+    let keys = keys();
+    let svc = passkey_service();
+    let publisher = UserId::new();
+    seed_super_admin(&owner_pool, publisher, "org-gate").await;
+    let (mut auth, cred) = register_passkey(&owner_pool, &svc, publisher, "org-gate").await;
+    let service = build_router(app_state(runtime_role_pool(&owner_pool).await, &keys));
+    let token = bearer(&keys, publisher);
+
+    let created = send(
+        service.clone(),
+        "POST",
+        "/api/v1/workflow-studio/definitions",
+        &token,
+        Some(json!({
+            "workflow_key": "four.eyes.org.gate",
+            "display_name": "Org gate",
+            "object_type": "work_order",
+            "definition": exec_definition_scoped("org")
+        })),
+    )
+    .await;
+    assert_eq!(created.status, StatusCode::OK, "{:?}", created.json);
+    let id = created.json["id"].as_str().unwrap().to_owned();
+
+    // Publish WITHOUT a four-eyes ref: the §16 gate denies, nothing activates.
+    let body = step_up(&owner_pool, &svc, &mut auth, &cred).await;
+    let denied = send(
+        service.clone(),
+        "POST",
+        &format!("/api/v1/workflow-studio/definitions/{id}/publish"),
+        &token,
+        Some(body),
+    )
+    .await;
+    assert_eq!(denied.status, StatusCode::FORBIDDEN, "{:?}", denied.json);
+
+    let listed = send(
+        service.clone(),
+        "GET",
+        "/api/v1/workflow-studio/definitions",
+        &token,
+        None,
+    )
+    .await;
+    let row = listed.json["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["id"] == id)
+        .expect("definition must still exist");
+    assert_eq!(row["status"], "DRAFT", "a denied gate must not activate");
+    assert!(
+        row["active_version"].is_null(),
+        "a denied gate must write zero rows"
+    );
+
+    // With an approved four-eyes ref, the same publish call now activates.
+    let request_ref = seed_four_eyes_approval(
+        &owner_pool,
+        &runtime_role_pool(&owner_pool).await,
+        OrgId::knl(),
+        publisher,
+    )
+    .await;
+    let mut body = step_up(&owner_pool, &svc, &mut auth, &cred).await;
+    body["four_eyes_request_ref"] = json!(request_ref);
+    let published = send(
+        service.clone(),
+        "POST",
+        &format!("/api/v1/workflow-studio/definitions/{id}/publish"),
+        &token,
+        Some(body),
+    )
+    .await;
+    assert_eq!(published.status, StatusCode::OK, "{:?}", published.json);
+    assert_eq!(published.json["status"], "ACTIVE");
+}
+
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn personal_scope_direct_activate_stays_direct(owner_pool: PgPool) {
+    let keys = keys();
+    let svc = passkey_service();
+    let publisher = UserId::new();
+    seed_super_admin(&owner_pool, publisher, "personal-gate").await;
+    let (mut auth, cred) = register_passkey(&owner_pool, &svc, publisher, "personal-gate").await;
+    let service = build_router(app_state(runtime_role_pool(&owner_pool).await, &keys));
+    let token = bearer(&keys, publisher);
+
+    let created = send(
+        service.clone(),
+        "POST",
+        "/api/v1/workflow-studio/definitions",
+        &token,
+        Some(json!({
+            "workflow_key": "four.eyes.personal.gate",
+            "display_name": "Personal gate",
+            "object_type": "work_order",
+            "definition": exec_definition_scoped("personal")
+        })),
+    )
+    .await;
+    assert_eq!(created.status, StatusCode::OK, "{:?}", created.json);
+    let id = created.json["id"].as_str().unwrap().to_owned();
+
+    // §3.9.0-①: personal-scope skips the four-eyes gate — direct activate with
+    // only the mandatory passkey step-up, no four_eyes_request_ref.
+    let body = step_up(&owner_pool, &svc, &mut auth, &cred).await;
+    let published = send(
+        service.clone(),
+        "POST",
+        &format!("/api/v1/workflow-studio/definitions/{id}/publish"),
+        &token,
+        Some(body),
+    )
+    .await;
+    assert_eq!(published.status, StatusCode::OK, "{:?}", published.json);
+    assert_eq!(published.json["status"], "ACTIVE");
+}
+
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn org_scope_run_requires_four_eyes(owner_pool: PgPool) {
+    let keys = keys();
+    let svc = passkey_service();
+    let publisher = UserId::new();
+    seed_super_admin(&owner_pool, publisher, "run-gate").await;
+    let (mut auth, cred) = register_passkey(&owner_pool, &svc, publisher, "run-gate").await;
+    let service = build_router(app_state(runtime_role_pool(&owner_pool).await, &keys));
+    let token = bearer(&keys, publisher);
+
+    // Direct-activate an org-scope definition (create_and_activate already
+    // satisfies its OWN four-eyes gate for publish).
+    let id = create_and_activate(
+        &service,
+        &owner_pool,
+        &svc,
+        &token,
+        &mut auth,
+        &cred,
+        "four.eyes.run.gate",
+        publisher,
+    )
+    .await;
+
+    // Trigger a run WITHOUT a four-eyes ref: the §16 gate denies, no run row.
+    let denied = send(
+        service.clone(),
+        "POST",
+        &format!("/api/v1/workflow-studio/definitions/{id}/run"),
+        &token,
+        Some(json!({})),
+    )
+    .await;
+    assert_eq!(denied.status, StatusCode::FORBIDDEN, "{:?}", denied.json);
+    let runs: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM workflow_runs WHERE definition_id = $1::uuid")
+            .bind(&id)
+            .fetch_one(&owner_pool)
+            .await
+            .unwrap();
+    assert_eq!(runs, 0, "a denied run gate must write zero rows");
+
+    // With an approved four-eyes ref, the run triggers.
+    let request_ref = seed_four_eyes_approval(
+        &owner_pool,
+        &runtime_role_pool(&owner_pool).await,
+        OrgId::knl(),
+        publisher,
+    )
+    .await;
+    let admitted = send(
+        service.clone(),
+        "POST",
+        &format!("/api/v1/workflow-studio/definitions/{id}/run"),
+        &token,
+        Some(json!({ "four_eyes_request_ref": request_ref })),
+    )
+    .await;
+    assert_eq!(admitted.status, StatusCode::OK, "{:?}", admitted.json);
+    assert_eq!(admitted.json["status"], "RUNNING");
 }

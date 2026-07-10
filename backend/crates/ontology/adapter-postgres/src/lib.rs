@@ -342,6 +342,7 @@ impl PgOntologyStore {
         occurred_at: OffsetDateTime,
     ) -> Result<ObjectTypeSummary, PgOntologyError> {
         let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
         let event = ontology_audit_event(
             "ontology.object_type.transition",
             actor,
@@ -354,7 +355,7 @@ impl PgOntologyStore {
         with_audit::<_, ObjectTypeSummary, PgOntologyError>(&self.pool, event, |tx| {
             Box::pin(async move {
                 let row = sqlx::query(
-                    "SELECT stable_key, lifecycle_state FROM ont_object_types WHERE id = $1 FOR UPDATE",
+                    "SELECT stable_key, lifecycle_state, backing_kind FROM ont_object_types WHERE id = $1 FOR UPDATE",
                 )
                 .bind(*object_type_id.as_uuid())
                 .fetch_optional(tx.as_mut())
@@ -362,9 +363,23 @@ impl PgOntologyStore {
                 .ok_or_else(|| KernelError::not_found("object type version was not found"))?;
                 let stable_key: String = row.try_get("stable_key")?;
                 let from = SchemaLifecycleState::from_db_str(row.try_get("lifecycle_state")?)?;
+                let backing_kind = BackingKind::from_db_str(row.try_get("backing_kind")?)?;
                 validate_schema_transition(from, to, protection_enabled)?;
 
                 if to == SchemaLifecycleState::Published {
+                    // No-code gap ①: a user-authored instance-backed type
+                    // published with no create-capable action would have no
+                    // way to ever create an instance (there is no direct
+                    // POST /instances — creation only happens via an
+                    // `instance_revision` action). Auto-attach the same
+                    // generic create action `seed.rs` hand-builds so the
+                    // no-code loop (draft → publish → create instance) closes
+                    // with zero engineering.
+                    if backing_kind == BackingKind::Instance
+                        && !has_create_capable_action_tx(tx, object_type_id).await?
+                    {
+                        insert_generic_create_action_tx(tx, object_type_id, org_uuid).await?;
+                    }
                     // Supersede the prior published head (if any, and not self).
                     sqlx::query(
                         r#"
@@ -720,6 +735,83 @@ pub struct ResolvedInstance {
 // ===========================================================================
 // tx helpers
 // ===========================================================================
+
+/// Whether this object-type version already has an action that can create an
+/// instance (`instance_revision` dispatch). Scoped to this version's own
+/// action rows — each schema version carries its own child snapshot.
+async fn has_create_capable_action_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    object_type_id: ObjectTypeId,
+) -> Result<bool, PgOntologyError> {
+    let exists: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM ont_action_types WHERE object_type_id = $1 AND dispatch = 'instance_revision')",
+    )
+    .bind(*object_type_id.as_uuid())
+    .fetch_one(tx.as_mut())
+    .await?;
+    Ok(exists)
+}
+
+/// Auto-attach the generic `create` action (no-code gap ①) built from this
+/// version's own property defs — same builder `seed.rs` uses to provision the
+/// default catalog, so both paths stay in lock-step.
+async fn insert_generic_create_action_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    object_type_id: ObjectTypeId,
+    org_uuid: uuid::Uuid,
+) -> Result<(), PgOntologyError> {
+    let rows = sqlx::query(
+        r#"
+        SELECT key, title, type, config, backing_column, required, in_property_policy
+        FROM ont_property_defs
+        WHERE object_type_id = $1
+        ORDER BY key
+        "#,
+    )
+    .bind(*object_type_id.as_uuid())
+    .fetch_all(tx.as_mut())
+    .await?;
+    let properties = rows
+        .iter()
+        .map(|row| {
+            Ok::<_, PgOntologyError>(PropertyDefInput {
+                key: row.try_get("key")?,
+                title: row.try_get("title")?,
+                field_type: row.try_get("type")?,
+                config: row.try_get("config")?,
+                backing_column: row.try_get("backing_column")?,
+                required: row.try_get("required")?,
+                in_property_policy: row.try_get("in_property_policy")?,
+            })
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let action = seed::create_action(&properties);
+    sqlx::query(
+        r#"
+        INSERT INTO ont_action_types (
+            id, org_id, object_type_id, stable_key, title, params_schema,
+            edits, submission_criteria, side_effects, dispatch,
+            dispatch_target, control_points
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        "#,
+    )
+    .bind(*ActionTypeId::new().as_uuid())
+    .bind(org_uuid)
+    .bind(*object_type_id.as_uuid())
+    .bind(action.stable_key.trim())
+    .bind(action.title.trim())
+    .bind(json_or_empty_object(&action.params_schema))
+    .bind(json_or_empty_array(&action.edits))
+    .bind(json_or_empty_array(&action.submission_criteria))
+    .bind(json_or_empty_array(&action.side_effects))
+    .bind(action.dispatch.as_db_str())
+    .bind(action.dispatch_target.as_deref())
+    .bind(json_or_empty_array(&action.control_points))
+    .execute(tx.as_mut())
+    .await?;
+    Ok(())
+}
 
 async fn insert_object_type_version_tx(
     tx: &mut Transaction<'_, Postgres>,

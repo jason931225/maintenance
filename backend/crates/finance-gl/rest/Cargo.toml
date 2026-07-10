@@ -1,0 +1,27 @@
+[package]
+name = "mnt-finance-gl-rest"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+axum.workspace = true
+mnt-finance-gl-adapter-postgres = { path = "../adapter-postgres" }
+mnt-finance-gl-application = { path = "../application" }
+mnt-finance-gl-domain = { path = "../domain" }
+mnt-kernel-core.workspace = true
+mnt-platform-authz.workspace = true
+mnt-platform-db.workspace = true
+mnt-platform-request-context = { workspace = true }
+serde.workspace = true
+sqlx.workspace = true
+time.workspace = true
+tracing.workspace = true
+uuid.workspace = true
+
+[dependencies.mnt-platform-auth]
+path = "../../platform/auth"
+
+[lints]
+workspace = true

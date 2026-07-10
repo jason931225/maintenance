@@ -35,11 +35,13 @@ import kotlinx.serialization.Contextual
  * @param id
  * @param recipientUserId
  * @param category Extensible category (결재/멘션/문서/공지/근태/급여 and beyond).
+ * @param kind Extensible producer kind (default \"info\"); generic detect->assign->resolve chains key on this.
  * @param text
  * @param link
  * @param unread
  * @param createdAt
  * @param readAt When the notification was first marked read; null while unread.
+ * @param resolvedAt When a producer's resolve-by-link sweep closed this notification; null while open.
  */
 @Serializable
 
@@ -55,6 +57,10 @@ data class NotificationSummary (
     @SerialName(value = "category")
     val category: kotlin.String,
 
+    /* Extensible producer kind (default \"info\"); generic detect->assign->resolve chains key on this. */
+    @SerialName(value = "kind")
+    val kind: kotlin.String,
+
     @SerialName(value = "text")
     val text: kotlin.String,
 
@@ -69,7 +75,11 @@ data class NotificationSummary (
 
     /* When the notification was first marked read; null while unread. */
     @Contextual @SerialName(value = "read_at")
-    val readAt: java.time.OffsetDateTime?
+    val readAt: java.time.OffsetDateTime?,
+
+    /* When a producer's resolve-by-link sweep closed this notification; null while open. */
+    @Contextual @SerialName(value = "resolved_at")
+    val resolvedAt: java.time.OffsetDateTime?
 
 ) {
 

@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 
 const CATEGORY_MAX: usize = 64;
 const BODY_MAX: usize = 2000;
+const KIND_MAX: usize = 64;
 
 /// Extensible notification category (matches the DB `category` CHECK).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -29,6 +30,48 @@ impl NotificationCategory {
             )));
         }
         Ok(Self(trimmed))
+    }
+
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    #[must_use]
+    pub fn into_string(self) -> String {
+        self.0
+    }
+}
+
+/// Extensible notification behavioral kind (matches the DB `kind` CHECK).
+/// Distinct from [`NotificationCategory`] (display grouping, e.g. 결재/멘션):
+/// `kind` drives the detect -> assign -> resolve chain — a resolvable kind
+/// (e.g. `slo_violation`) is auto-resolved when the matching domain event
+/// fires, generically, by matching on the notification's `link`. Defaults to
+/// `info` (never resolvable).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct NotificationKind(String);
+
+impl NotificationKind {
+    pub fn new(value: impl Into<String>) -> Result<Self, KernelError> {
+        let trimmed = value.into().trim().to_owned();
+        if trimmed.is_empty() {
+            return Err(KernelError::validation("notification kind is required"));
+        }
+        if trimmed.chars().count() > KIND_MAX {
+            return Err(KernelError::validation(format!(
+                "notification kind must be at most {KIND_MAX} characters"
+            )));
+        }
+        Ok(Self(trimmed))
+    }
+
+    /// The default, never-auto-resolved kind for a plain informational
+    /// notification (결재/멘션/문서/공지/근태/급여 and beyond).
+    #[must_use]
+    pub fn info() -> Self {
+        Self("info".to_owned())
     }
 
     #[must_use]
@@ -102,6 +145,17 @@ impl NotificationLink {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn kind_defaults_to_info_and_rejects_blank_and_overlong() {
+        assert_eq!(NotificationKind::info().as_str(), "info");
+        assert!(NotificationKind::new("  ").is_err());
+        assert!(NotificationKind::new("x".repeat(KIND_MAX + 1)).is_err());
+        assert_eq!(
+            NotificationKind::new(" slo_violation ").unwrap().as_str(),
+            "slo_violation"
+        );
+    }
 
     #[test]
     fn category_rejects_blank_and_overlong() {

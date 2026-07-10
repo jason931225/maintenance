@@ -1,0 +1,23 @@
+[package]
+name = "mnt-finance-gl-adapter-postgres"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+mnt-finance-gl-application = { path = "../application" }
+mnt-finance-gl-domain = { path = "../domain" }
+mnt-kernel-core.workspace = true
+mnt-platform-db.workspace = true
+mnt-platform-request-context.workspace = true
+sqlx.workspace = true
+thiserror.workspace = true
+time.workspace = true
+uuid.workspace = true
+
+[dev-dependencies]
+tokio.workspace = true
+
+[lints]
+workspace = true

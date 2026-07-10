@@ -816,8 +816,8 @@ impl PgRealtimeHub {
             Box::pin(async move {
                 let row = sqlx::query(
                     r#"
-                    SELECT id, recipient_user_id, category, body, link,
-                           unread, created_at, read_at
+                    SELECT id, recipient_user_id, category, kind, body, link,
+                           unread, created_at, read_at, resolved_at
                     FROM notifications
                     WHERE id = $1
                     "#,
@@ -1488,11 +1488,13 @@ fn notification_summary_from_row(
         id: NotificationId::from_uuid(row.try_get("id")?),
         recipient_user_id: UserId::from_uuid(row.try_get("recipient_user_id")?),
         category: row.try_get("category")?,
+        kind: row.try_get("kind")?,
         text: row.try_get("body")?,
         link,
         unread: row.try_get("unread")?,
         created_at: row.try_get("created_at")?,
         read_at: row.try_get("read_at")?,
+        resolved_at: row.try_get("resolved_at")?,
     })
 }
 

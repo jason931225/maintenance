@@ -2080,6 +2080,12 @@ paths:
         required: true
         schema:
           $ref: '#/components/schemas/Uuid'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImportApplyRequest'
       responses:
         '200':
           description: Apply counts for append-only direct attendance facts.
@@ -2367,6 +2373,12 @@ paths:
         required: true
         schema:
           $ref: '#/components/schemas/Uuid'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ImportApplyRequest'
       responses:
         '200':
           description: Applied import counts by company.
@@ -6015,6 +6027,29 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '404':
           $ref: '#/components/responses/NotFound'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /api/v1/me/notifications/summary:
+    get:
+      tags:
+        - me
+      operationId: getNotificationsSummary
+      summary: Per-category unread breakdown for the comms-rail badge, plus the total
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Unread counts grouped by category, for the caller only.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotificationCountsSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '503':
           description: JWT verification is not configured.
           content:
@@ -12196,6 +12231,545 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+  /api/v1/notices:
+    get:
+      tags:
+      - notices
+      operationId: listNotices
+      summary: List notices (published-only for most callers; NoticeManage sees drafts too)
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '200':
+          description: Notices visible to the caller, newest first.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/NoticeSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      tags:
+      - notices
+      operationId: createNoticeDraft
+      summary: Create a draft notice (NoticeManage only)
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateNoticeDraftRequest'
+      responses:
+        '201':
+          description: Draft notice created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NoticeSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/notices/{id}:
+    get:
+      tags:
+      - notices
+      operationId: getNotice
+      summary: Fetch one notice (a draft is NotFound unless the caller holds NoticeManage)
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: The notice.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NoticeSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/notices/{id}/publish:
+    post:
+      tags:
+      - notices
+      operationId: publishNotice
+      summary: Publish a draft (NoticeManage only); issues the NT- code, snapshots recipients, fans out notifications
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: The published notice.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NoticeSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/notices/{id}/ack:
+    post:
+      tags:
+      - notices
+      operationId: acknowledgeNotice
+      summary: 수령확인 — the caller confirms receipt of a published notice (owner-scoped)
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '204':
+          description: Acknowledged.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/notices/{id}/progress:
+    get:
+      tags:
+      - notices
+      operationId: getNoticeProgress
+      summary: 수령확인 progress (done/total) for one notice (NoticeManage only)
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: Acknowledgment progress.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NoticeProgress'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/finance-gl/vouchers:
+    get:
+      tags:
+      - finance-gl
+      operationId: listVouchers
+      summary: List general-ledger vouchers (tenant-scoped; optional branch/status filter)
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: branch_id
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      - name: status
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/VoucherStatus'
+      responses:
+        '200':
+          description: Vouchers visible to the caller.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/VoucherSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+    post:
+      tags:
+      - finance-gl
+      operationId: createVoucherDraft
+      summary: Open a draft voucher (기표)
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateVoucherRequest'
+      responses:
+        '201':
+          description: Draft voucher created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VoucherSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/finance-gl/vouchers/{voucher_id}:
+    get:
+      tags:
+      - finance-gl
+      operationId: getVoucher
+      summary: Fetch one voucher with its lines and source linkage
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: voucher_id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: The voucher.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VoucherSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/finance-gl/vouchers/{voucher_id}/submit:
+    post:
+      tags:
+      - finance-gl
+      operationId: submitVoucher
+      summary: 기표 → 차대검증 (balance gate; unbalanced is rejected)
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: voucher_id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: Voucher advanced to 차대검증.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VoucherSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/finance-gl/vouchers/{voucher_id}/approve:
+    post:
+      tags:
+      - finance-gl
+      operationId: approveVoucher
+      summary: 차대검증 → 승인
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: voucher_id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: Voucher approved.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VoucherSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/finance-gl/vouchers/{voucher_id}/post:
+    post:
+      tags:
+      - finance-gl
+      operationId: postVoucher
+      summary: 승인 → 전기(posted); lines become immutable
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: voucher_id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: Voucher posted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VoucherSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/finance-gl/vouchers/{voucher_id}/reverse:
+    post:
+      tags:
+      - finance-gl
+      operationId: reverseVoucher
+      summary: 전기 → 역분개; creates a linked contra voucher (returns the contra)
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: voucher_id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReverseVoucherRequest'
+      responses:
+        '201':
+          description: Contra voucher created; original marked REVERSED.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VoucherSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+  /api/v1/finance-gl/accounts/{account_code}/entries:
+    get:
+      tags:
+      - finance-gl
+      operationId: accountDrill
+      summary: Account drill — voucher lines for an account with voucher/source links
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: account_code
+        in: path
+        required: true
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Account entries.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/AccountDrillEntry'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/payroll/runs:
+    get:
+      tags:
+      - payroll
+      operationId: listPayrollRuns
+      summary: List payroll draft runs (admin; EXECUTIVE/SUPER_ADMIN only, audited read)
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 500
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+      responses:
+        '200':
+          description: Page of payroll draft runs, newest period first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PayrollRunPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/payroll/runs/{id}:
+    get:
+      tags:
+      - payroll
+      operationId: getPayrollRun
+      summary: Get one payroll draft run and its per-employee readiness lines (admin)
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 500
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+      responses:
+        '200':
+          description: The run, its legal/source-summary context, and a page of lines.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PayrollRunDetail'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/payroll/payslips/me:
+    get:
+      tags:
+      - payroll
+      operationId: listMyPayrollLines
+      summary: List the signed-in employee's own payroll draft-line (readiness) rows
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 500
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+      responses:
+        '200':
+          description: Page of the caller's own payroll draft-line rows, newest run period first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyPayrollLinePage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+  /api/v1/analytics/projection:
+    post:
+      tags:
+        - analytics
+      operationId: computeAnalyticsProjection
+      summary: Project a value series forward with a fat-tail confidence band
+      description: >
+        Deterministic, read-only projection. Given a historical value series and
+        a horizon, returns a point estimate, a 95% confidence band, and a CVaR95
+        (expected shortfall) under EWMA volatility + Student-t(ν=4) innovations,
+        computed via a seeded Monte-Carlo (same input → same output) with an EVT
+        (Generalized-Pareto) lower-tail fit. No persistence, no PII.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProjectionRequest'
+      responses:
+        '200':
+          description: The projection result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectionResult'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
 components:
   securitySchemes:
     bearerAuth:
@@ -12379,6 +12953,75 @@ components:
           schema:
             $ref: '#/components/schemas/ErrorBody'
   schemas:
+    ProjectionRequest:
+      type: object
+      required: [series, horizon, kind]
+      properties:
+        series:
+          type: array
+          description: Ordered historical values, oldest first (min 3).
+          items:
+            type: number
+            format: double
+          minItems: 3
+        horizon:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 3650
+          description: Number of forward steps to project.
+        kind:
+          type: string
+          enum: [money, percent]
+          description: >
+            Composition rule. `money` = multiplicative (ratio returns, floored
+            at 0); `percent` = additive (arithmetic differences).
+    ProjectionResult:
+      type: object
+      required: [point_estimate, ci95_low, ci95_high, cvar95, assumptions]
+      properties:
+        point_estimate:
+          type: number
+          format: double
+          description: Deterministic central projection.
+        ci95_low:
+          type: number
+          format: double
+          description: 2.5th percentile of terminal outcomes.
+        ci95_high:
+          type: number
+          format: double
+          description: 97.5th percentile of terminal outcomes.
+        cvar95:
+          type: number
+          format: double
+          description: EVT-refined expected shortfall of the worst 5% of outcomes.
+        assumptions:
+          $ref: '#/components/schemas/ProjectionAssumptions'
+    ProjectionAssumptions:
+      type: object
+      required: [ewma_volatility, student_t_nu, drift, simulations, seed]
+      properties:
+        ewma_volatility:
+          type: number
+          format: double
+          description: Final EWMA volatility σ.
+        student_t_nu:
+          type: number
+          format: double
+          description: Student-t degrees of freedom (4).
+        drift:
+          type: number
+          format: double
+          description: Estimated per-step drift μ.
+        simulations:
+          type: integer
+          format: int32
+          description: Monte-Carlo path count.
+        seed:
+          type: integer
+          format: int64
+          description: RNG seed (echoed to prove determinism).
     ConsoleRouteTelemetryEventKind:
       type: string
       enum:
@@ -15145,6 +15788,13 @@ components:
           - string
           - 'null'
           maxLength: 160
+        four_eyes_request_ref:
+          type:
+          - string
+          - 'null'
+          format: uuid
+          description: >-
+            §16 org-scope automation gate (85 판정); ignored for a personal-scope (§3.9.0-①) definition.
     WorkflowDefinitionEventResponse:
       type: object
       required:
@@ -15695,6 +16345,15 @@ components:
       properties:
         step_up:
           $ref: '#/components/schemas/PasskeyStepUpAssertion'
+        four_eyes_request_ref:
+          type:
+          - string
+          - 'null'
+          format: uuid
+          description: >-
+            §16 org-scope automation gate (85 판정). Required to publish (direct-activate) an org-scope definition;
+            a personal-scope definition (§3.9.0-①) ignores this and publishes directly. References a gov_approvals
+            request_ref recorded by a distinct approver.
     RollbackWorkflowDefinitionRequest:
       type: object
       required:
@@ -16897,6 +17556,16 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/AttendanceImportRowError'
+    ImportApplyRequest:
+      type: object
+      description: >-
+        §16 self-checklist evidence for an ingest-commit ("적재") apply. Missing or false ⇒ fail-closed deny,
+        nothing written (85 판정).
+      properties:
+        checklist_all_acknowledged:
+          type:
+          - boolean
+          - 'null'
     AttendanceImportApplyReport:
       type: object
       required:
@@ -19306,11 +19975,13 @@ components:
       - id
       - recipient_user_id
       - category
+      - kind
       - text
       - link
       - unread
       - created_at
       - read_at
+      - resolved_at
       properties:
         id:
           $ref: '#/components/schemas/Uuid'
@@ -19319,6 +19990,9 @@ components:
         category:
           type: string
           description: Extensible category (결재/멘션/문서/공지/근태/급여 and beyond).
+        kind:
+          type: string
+          description: Extensible producer kind (default "info"); generic detect->assign->resolve chains key on this.
         text:
           type: string
         link:
@@ -19333,6 +20007,36 @@ components:
           - 'null'
           format: date-time
           description: When the notification was first marked read; null while unread.
+        resolved_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+          description: When a producer's resolve-by-link sweep closed this notification; null while open.
+    NotificationCategoryCount:
+      type: object
+      required:
+      - category
+      - unread
+      properties:
+        category:
+          type: string
+        unread:
+          type: integer
+          format: int64
+    NotificationCountsSummary:
+      type: object
+      required:
+      - total_unread
+      - by_category
+      properties:
+        total_unread:
+          type: integer
+          format: int64
+        by_category:
+          type: array
+          items:
+            $ref: '#/components/schemas/NotificationCategoryCount'
     NotificationPage:
       type: object
       required:
@@ -24766,3 +25470,480 @@ components:
         createdAt:
           type: string
           format: date-time
+    NoticeSummary:
+      type: object
+      required:
+      - id
+      - author_user_id
+      - title
+      - body
+      - status
+      - created_at
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        code:
+          type:
+          - string
+          - 'null'
+          description: NT- code, set only once published.
+        author_user_id:
+          $ref: '#/components/schemas/Uuid'
+        title:
+          type: string
+        body:
+          type: string
+        status:
+          type: string
+          enum: [draft, published]
+        published_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+    CreateNoticeDraftRequest:
+      type: object
+      required:
+      - title
+      - body
+      properties:
+        title:
+          type: string
+          maxLength: 300
+        body:
+          type: string
+          maxLength: 20000
+    NoticeProgress:
+      type: object
+      required:
+      - total
+      - acknowledged
+      properties:
+        total:
+          type: integer
+          format: int64
+        acknowledged:
+          type: integer
+          format: int64
+    DebitCredit:
+      type: string
+      enum: [DEBIT, CREDIT]
+    VoucherStatus:
+      type: string
+      enum: [DRAFT, BALANCE_CHECKED, APPROVED, POSTED, REVERSED]
+    VoucherSourceRef:
+      type: object
+      required:
+      - object_type
+      - object_id
+      properties:
+        object_type:
+          type: string
+        object_id:
+          type: string
+    VoucherLineInput:
+      type: object
+      required:
+      - account_code
+      - side
+      - amount_won
+      properties:
+        account_code:
+          type: string
+        side:
+          $ref: '#/components/schemas/DebitCredit'
+        amount_won:
+          type: integer
+          format: int64
+          minimum: 1
+        memo:
+          type: string
+    VoucherLineSummary:
+      type: object
+      required:
+      - id
+      - line_no
+      - account_code
+      - side
+      - amount_won
+      - memo
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        line_no:
+          type: integer
+          format: int32
+        account_code:
+          type: string
+        side:
+          $ref: '#/components/schemas/DebitCredit'
+        amount_won:
+          type: integer
+          format: int64
+        memo:
+          type: string
+    CreateVoucherRequest:
+      type: object
+      required:
+      - branch_id
+      - lines
+      properties:
+        branch_id:
+          $ref: '#/components/schemas/Uuid'
+        memo:
+          type: string
+        source:
+          oneOf:
+          - $ref: '#/components/schemas/VoucherSourceRef'
+          - type: 'null'
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/VoucherLineInput'
+    ReverseVoucherRequest:
+      type: object
+      properties:
+        memo:
+          type: string
+    VoucherSummary:
+      type: object
+      required:
+      - id
+      - voucher_no
+      - branch_id
+      - status
+      - memo
+      - debit_total_won
+      - credit_total_won
+      - lines
+      - created_by
+      - created_at
+      - updated_at
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        voucher_no:
+          type: string
+        branch_id:
+          $ref: '#/components/schemas/Uuid'
+        status:
+          $ref: '#/components/schemas/VoucherStatus'
+        memo:
+          type: string
+        source_object_type:
+          type:
+          - string
+          - 'null'
+        source_object_id:
+          type:
+          - string
+          - 'null'
+        reversal_of_voucher_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        reversed_by_voucher_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        debit_total_won:
+          type: integer
+          format: int64
+        credit_total_won:
+          type: integer
+          format: int64
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/VoucherLineSummary'
+        created_by:
+          $ref: '#/components/schemas/Uuid'
+        posted_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+    AccountDrillEntry:
+      type: object
+      required:
+      - voucher_id
+      - voucher_no
+      - status
+      - line_id
+      - account_code
+      - side
+      - amount_won
+      - entry_at
+      properties:
+        voucher_id:
+          $ref: '#/components/schemas/Uuid'
+        voucher_no:
+          type: string
+        status:
+          $ref: '#/components/schemas/VoucherStatus'
+        line_id:
+          $ref: '#/components/schemas/Uuid'
+        account_code:
+          type: string
+        side:
+          $ref: '#/components/schemas/DebitCredit'
+        amount_won:
+          type: integer
+          format: int64
+        source_object_type:
+          type:
+          - string
+          - 'null'
+        source_object_id:
+          type:
+          - string
+          - 'null'
+        entry_at:
+          $ref: '#/components/schemas/Timestamp'
+    PayrollRunSummary:
+      type: object
+      required:
+      - id
+      - period_start
+      - period_end
+      - source_label
+      - status
+      - calculation_enabled
+      - created_at
+      - updated_at
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        period_start:
+          type: string
+          format: date
+        period_end:
+          type: string
+          format: date
+        source_label:
+          type: string
+        status:
+          type: string
+          enum: [STAGED, BLOCKED_LEGAL_GATE, READY_FOR_REVIEW, APPROVED, ISSUED, VOID]
+        calculation_enabled:
+          type: boolean
+        created_by:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        approved_by:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        approved_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+    PayrollRunPage:
+      type: object
+      required:
+      - items
+      - total
+      - limit
+      - offset
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/PayrollRunSummary'
+        total:
+          type: integer
+          format: int64
+        limit:
+          type: integer
+          format: int64
+        offset:
+          type: integer
+          format: int64
+    PayrollLineSummary:
+      type: object
+      required:
+      - id
+      - employee_display_name
+      - employee_company
+      - gross_pay_source_present
+      - net_pay_source_present
+      - nts_tax_row_status
+      - calculation_status
+      - blockers
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        employee_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        employee_display_name:
+          type: string
+        employee_company:
+          type: string
+        work_days:
+          type:
+          - number
+          - 'null'
+        regular_hours:
+          type:
+          - number
+          - 'null'
+        overtime_hours:
+          type:
+          - number
+          - 'null'
+        night_hours:
+          type:
+          - number
+          - 'null'
+        holiday_hours:
+          type:
+          - number
+          - 'null'
+        leave_used:
+          type:
+          - number
+          - 'null'
+        leave_remaining:
+          type:
+          - number
+          - 'null'
+        gross_pay_source_present:
+          type: boolean
+        net_pay_source_present:
+          type: boolean
+        nts_tax_row_status:
+          type: string
+          enum: [REQUIRED_NOT_SUPPLIED, SUPPLIED_UNVERIFIED, VERIFIED_SOURCE_ROW]
+        calculation_status:
+          type: string
+          enum: [BLOCKED_LEGAL_GATE, READY_FOR_REVIEW, APPROVED, ISSUED, VOID]
+        blockers:
+          type: array
+          items: {}
+    PayrollRunDetail:
+      type: object
+      required:
+      - run
+      - legal_basis
+      - source_summary
+      - lines
+      - lines_total
+      - lines_limit
+      - lines_offset
+      properties:
+        run:
+          $ref: '#/components/schemas/PayrollRunSummary'
+        legal_basis:
+          type: object
+        source_summary:
+          type: object
+        lines:
+          type: array
+          items:
+            $ref: '#/components/schemas/PayrollLineSummary'
+        lines_total:
+          type: integer
+          format: int64
+        lines_limit:
+          type: integer
+          format: int64
+        lines_offset:
+          type: integer
+          format: int64
+    MyPayrollLine:
+      type: object
+      required:
+      - run_id
+      - period_start
+      - period_end
+      - run_status
+      - calculation_status
+      - gross_pay_source_present
+      - net_pay_source_present
+      properties:
+        run_id:
+          $ref: '#/components/schemas/Uuid'
+        period_start:
+          type: string
+          format: date
+        period_end:
+          type: string
+          format: date
+        run_status:
+          type: string
+          enum: [STAGED, BLOCKED_LEGAL_GATE, READY_FOR_REVIEW, APPROVED, ISSUED, VOID]
+        calculation_status:
+          type: string
+          enum: [BLOCKED_LEGAL_GATE, READY_FOR_REVIEW, APPROVED, ISSUED, VOID]
+        work_days:
+          type:
+          - number
+          - 'null'
+        regular_hours:
+          type:
+          - number
+          - 'null'
+        overtime_hours:
+          type:
+          - number
+          - 'null'
+        night_hours:
+          type:
+          - number
+          - 'null'
+        holiday_hours:
+          type:
+          - number
+          - 'null'
+        leave_used:
+          type:
+          - number
+          - 'null'
+        leave_remaining:
+          type:
+          - number
+          - 'null'
+        gross_pay_source_present:
+          type: boolean
+        net_pay_source_present:
+          type: boolean
+    MyPayrollLinePage:
+      type: object
+      required:
+      - items
+      - total
+      - limit
+      - offset
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MyPayrollLine'
+        total:
+          type: integer
+          format: int64
+        limit:
+          type: integer
+          format: int64
+        offset:
+          type: integer
+          format: int64

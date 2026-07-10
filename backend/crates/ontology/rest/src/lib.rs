@@ -13,9 +13,10 @@
 //!    writeback transaction that **re-checks** the mutable gate (four-eyes) inside
 //!    the tx (TOCTOU-safe), then dispatches: an `instance_revision` action appends
 //!    a fixity-chained revision through the instance store's in-tx helper; a
-//!    `projected_usecase` action returns a typed `NotWiredYet` (no table write) —
-//!    real domain-use-case dispatch lands in L-WIRE, never a second writeback into
-//!    a domain table.
+//!    `projected_usecase` action routes through the [`ProjectedDispatchRegistry`]
+//!    into the OWNING domain crate's use-case (which owns its own RLS, audit, and
+//!    transaction) — the engine never writes a domain table itself (§9.3, no second
+//!    source of truth); an unknown `dispatch_target` fails closed.
 //!
 //! `router(state)` self-applies `with_request_context`; `build_router` merges it
 //! (L-WIRE), this crate does not.
@@ -56,6 +57,10 @@ use mnt_platform_db::{DbError, with_audits};
 use mnt_platform_request_context::current_org;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -69,6 +74,11 @@ pub struct OntologyRestState {
     instances: PgInstanceStore,
     governance: PgGovernanceStore,
     jwt_verifier: Option<JwtVerifier>,
+    /// Routes a `projected_usecase` action to the OWNING domain crate's use-case.
+    /// Empty by default ⇒ every projected dispatch fails closed (`NotWiredYet`),
+    /// preserving the pre-wire dark behavior. The App composition root installs
+    /// the real handlers via [`Self::with_projected_dispatch`].
+    projected_dispatch: ProjectedDispatchRegistry,
 }
 
 impl OntologyRestState {
@@ -84,6 +94,85 @@ impl OntologyRestState {
             instances,
             governance,
             jwt_verifier,
+            projected_dispatch: ProjectedDispatchRegistry::new(),
+        }
+    }
+
+    /// Install the projected-dispatch registry (target → domain use-case). Supplied
+    /// by the App tier, which alone may depend on the domain adapters; the ontology
+    /// REST tier stays free of a domain-adapter edge (dependency inversion, exactly
+    /// like `TenantConfigSeeder`). An unregistered target still fails closed.
+    #[must_use]
+    pub fn with_projected_dispatch(mut self, registry: ProjectedDispatchRegistry) -> Self {
+        self.projected_dispatch = registry;
+        self
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Projected dispatch registry (§18 D1/D2, arch §1a + §9.3)
+// ---------------------------------------------------------------------------
+
+/// Everything a domain use-case needs to service one `projected_usecase` action,
+/// resolved from the action + command (HTTP-independent). The engine performs NO
+/// writeback of its own for a projected action; the handler routes into the owning
+/// domain crate's use-case, which owns its RLS + audit + transaction (§9.3: never a
+/// second source of truth). Tenant scope is ambient via `app.current_org`
+/// (the caller already scoped it), so no org travels in this struct.
+#[derive(Debug, Clone)]
+pub struct ProjectedDispatch {
+    /// The signed-in principal (actor + org + scope) for the domain command.
+    pub principal: Principal,
+    /// The `dispatch_target` key the registry routes on (e.g. `registry.update_equipment`).
+    pub target: String,
+    /// The projected entity's primary key (equipment id, work-order id, …) — the
+    /// domain row the action targets. `None` for a create-style projected action.
+    pub target_id: Option<Uuid>,
+    /// Validated action params (the edit values) for the domain command.
+    pub params: Value,
+    /// Optional caller reason, forwarded to the domain audit trail.
+    pub reason: Option<String>,
+    /// Deterministic occurrence time for the domain audit event.
+    pub occurred_at: OffsetDateTime,
+}
+
+/// One projected-dispatch handler: an async adapter that invokes the owning
+/// domain use-case. Returns a JSON summary of the domain result (opaque to the
+/// engine) or a typed [`ActionError`] (fail-closed).
+pub type ProjectedHandler = Arc<
+    dyn Fn(ProjectedDispatch) -> Pin<Box<dyn Future<Output = Result<Value, ActionError>> + Send>>
+        + Send
+        + Sync,
+>;
+
+/// Maps each `dispatch_target` to its domain-use-case handler. Owns the
+/// fail-closed contract: an **unknown target is a typed `NotWiredYet` error**, so
+/// a mis-seeded or not-yet-wired action can never silently no-op or write.
+#[derive(Clone, Default)]
+pub struct ProjectedDispatchRegistry {
+    handlers: HashMap<String, ProjectedHandler>,
+}
+
+impl ProjectedDispatchRegistry {
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Register a handler for one `dispatch_target`. Chainable builder.
+    #[must_use]
+    pub fn register(mut self, target: impl Into<String>, handler: ProjectedHandler) -> Self {
+        self.handlers.insert(target.into(), handler);
+        self
+    }
+
+    /// Route to the target's handler, or fail closed on an unknown target.
+    async fn dispatch(&self, input: ProjectedDispatch) -> Result<Value, ActionError> {
+        match self.handlers.get(&input.target) {
+            Some(handler) => handler(input).await,
+            None => Err(ActionError::NotWiredYet {
+                target: Some(input.target),
+            }),
         }
     }
 }
@@ -385,13 +474,22 @@ pub struct PreflightOutcome {
     pub would_execute: bool,
 }
 
-/// Outcome of a successful execute — the resulting instance state + the gate
-/// chain that admitted it.
+/// Outcome of a successful execute — the gate chain that admitted it plus the
+/// dispatch result. Exactly one of `instance` / `projected` is populated per the
+/// `dispatch` kind; both are `Option` so the serialized shape stays backward-
+/// compatible (an `instance_revision` result still carries the same top-level
+/// `instance` key it always did — the console reads it unchanged).
 #[derive(Debug, Clone, Serialize)]
 pub struct ExecuteOutcome {
     pub dispatch: ActionDispatch,
-    pub instance: InstanceState,
     pub gates: GateChainOutcome,
+    /// The appended revision head — present for an `instance_revision` dispatch.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub instance: Option<InstanceState>,
+    /// The domain use-case's JSON summary — present for a `projected_usecase`
+    /// dispatch (the engine wrote nothing; the owning domain crate did).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub projected: Option<Value>,
 }
 
 /// Typed action failure, distinct from a raw DB error so callers (and tests) can
@@ -406,11 +504,23 @@ pub enum ActionError {
     GateDenied(String),
     /// A submission criterion did not hold; nothing was written.
     CriteriaFailed(String),
-    /// A `projected_usecase` action whose real domain dispatch is not wired yet
-    /// (L-WIRE). No table write.
+    /// A `projected_usecase` action whose `dispatch_target` has no registered
+    /// domain handler (unwired or misconfigured). Fail-closed: no table write.
     NotWiredYet { target: Option<String> },
     /// A store / DB / context error.
     Store(PgOntologyError),
+}
+
+impl ActionError {
+    /// Wrap a domain use-case's [`KernelError`] as a projected-dispatch failure,
+    /// preserving its kind so the REST layer maps it to the right status (a domain
+    /// `forbidden`/`conflict`/`not_found` stays a 403/409/404). The canonical way a
+    /// [`ProjectedHandler`] surfaces a domain rejection without depending on the
+    /// ontology adapter's error type.
+    #[must_use]
+    pub fn domain(error: KernelError) -> Self {
+        Self::Store(PgOntologyError::Domain(error))
+    }
 }
 
 /// Everything resolved for an action request, shared by preflight + execute.
@@ -450,7 +560,8 @@ impl OntologyRestState {
     /// Fail-closed: an unmet gate, a failed submit criterion, or a malformed edit
     /// denies BEFORE any writeback opens. `instance_revision` then appends a
     /// fixity-chained revision inside one audited tx that re-checks the mutable
-    /// gate; `projected_usecase` returns [`ActionError::NotWiredYet`] (no write).
+    /// gate; `projected_usecase` routes to the owning domain use-case via the
+    /// [`ProjectedDispatchRegistry`] (unknown target ⇒ [`ActionError::NotWiredYet`]).
     pub async fn execute_action(
         &self,
         principal: &Principal,
@@ -472,19 +583,69 @@ impl OntologyRestState {
             return Err(ActionError::CriteriaFailed(err.message.clone()));
         }
 
-        // Resolve the declarative edits into the new attribute bag.
-        let new_attrs = apply_edits(
-            &prepared.action.edits,
-            &prepared.params,
-            &prepared.base_attrs,
-        )
-        .map_err(|e| ActionError::Validation(e.message))?;
-
         match prepared.action.dispatch {
-            ActionDispatch::ProjectedUsecase => Err(ActionError::NotWiredYet {
-                target: prepared.action.dispatch_target.clone(),
-            }),
+            ActionDispatch::ProjectedUsecase => {
+                // No engine writeback: route to the owning domain crate's use-case,
+                // which owns its own RLS + audit + tx (§9.3 — no second source of
+                // truth). An unwired/unknown target fails closed (`NotWiredYet`).
+                //
+                // The §16 gate chain was already enforced fail-closed above. TOCTOU-
+                // safety of the domain MUTATION is the domain use-case's own
+                // responsibility and varies by use-case (a work-order transition
+                // locks its row + guards the from-state; an equipment update is
+                // last-write-wins with non-destructive version capture) — the engine
+                // makes no claim about it here.
+                //
+                // Fail-closed on config the engine cannot honor: in v1 the engine
+                // cannot read a projected domain row generically, so a submission
+                // criterion (which would evaluate against an EMPTY base and could
+                // silently pass — fail-open) is not faithfully evaluable for a
+                // projected action. Reject it rather than dispatch on a criterion we
+                // did not really check. Params-scoped projected criteria return with
+                // the projected-state-read follow-up.
+                if prepared
+                    .action
+                    .submission_criteria
+                    .as_array()
+                    .is_some_and(|criteria| !criteria.is_empty())
+                {
+                    return Err(ActionError::CriteriaFailed(
+                        "submission criteria are not evaluable for a projected_usecase \
+                         action in v1 (the engine cannot read the projected domain row); \
+                         nothing was dispatched"
+                            .to_owned(),
+                    ));
+                }
+                let target = prepared.action.dispatch_target.clone().ok_or(
+                    // A projected action with no target can never resolve a handler.
+                    ActionError::NotWiredYet { target: None },
+                )?;
+                let projected = self
+                    .projected_dispatch
+                    .dispatch(ProjectedDispatch {
+                        principal: principal.clone(),
+                        target,
+                        target_id: command.instance_id.map(|id| *id.as_uuid()),
+                        params: prepared.params.clone(),
+                        reason: command.reason.clone(),
+                        occurred_at: OffsetDateTime::now_utc(),
+                    })
+                    .await?;
+                Ok(ExecuteOutcome {
+                    dispatch: ActionDispatch::ProjectedUsecase,
+                    gates,
+                    instance: None,
+                    projected: Some(projected),
+                })
+            }
             ActionDispatch::InstanceRevision => {
+                // Resolve the declarative edits into the new attribute bag.
+                let new_attrs = apply_edits(
+                    &prepared.action.edits,
+                    &prepared.params,
+                    &prepared.base_attrs,
+                )
+                .map_err(|e| ActionError::Validation(e.message))?;
                 let instance = self
                     .execute_instance_revision(
                         principal, action_key, &command, &prepared, new_attrs,
@@ -493,8 +654,9 @@ impl OntologyRestState {
                     .map_err(ActionError::Store)?;
                 Ok(ExecuteOutcome {
                     dispatch: ActionDispatch::InstanceRevision,
-                    instance,
                     gates,
+                    instance: Some(instance),
+                    projected: None,
                 })
             }
         }
@@ -521,8 +683,12 @@ impl OntologyRestState {
 
         // Load the edit target's current attributes (empty for a create) so submit
         // criteria can read both the pending params and the object's current state.
-        let base_attrs = match command.instance_id {
-            Some(id) => {
+        // Only an `instance_revision` target lives in `ont_instances`; a projected
+        // action's target_id is a DOMAIN row (equipment, work order, …) that the
+        // engine does not own, so we never resolve it here (submit criteria for a
+        // projected action read params only).
+        let base_attrs = match (action.dispatch, command.instance_id) {
+            (ActionDispatch::InstanceRevision, Some(id)) => {
                 self.instances
                     .get_current(id)
                     .await
@@ -530,7 +696,7 @@ impl OntologyRestState {
                     .revision
                     .attributes
             }
-            None => Value::Object(serde_json::Map::new()),
+            _ => Value::Object(serde_json::Map::new()),
         };
 
         let context = evaluation_context(&base_attrs, &params);

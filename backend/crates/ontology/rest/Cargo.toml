@@ -28,6 +28,15 @@ uuid.workspace = true
 mnt-governance-application = { path = "../../governance/application" }
 mnt-platform-test-support = { workspace = true }
 tokio.workspace = true
+# Dev-only: the projected-dispatch wiring test installs a registry-backed handler
+# to prove a projected_usecase action routes into the OWNING domain use-case
+# (registry.update_equipment) with the domain's own RLS + audit. The production
+# handlers are wired in the App tier (mnt-app); the ontology REST tier itself must
+# NOT depend on a domain ADAPTER (layer boundary), so these are dev-only. The
+# layer-boundary gate exempts dev-deps (kind = "dev").
+mnt-registry-adapter-postgres = { workspace = true }
+mnt-registry-application = { workspace = true }
+mnt-registry-domain = { workspace = true }
 
 [lints]
 workspace = true

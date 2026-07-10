@@ -92,7 +92,10 @@ type EmployeeApi = ConsoleApiClient & {
   ): Promise<{ data?: EmployeeImportDryRun }>;
   POST(
     path: "/api/v1/employees/import/{run_id}/apply",
-    options: { params: { path: { run_id: string } } },
+    options: {
+      params: { path: { run_id: string } };
+      body: { checklist_all_acknowledged: boolean };
+    },
   ): Promise<{ data?: EmployeeImportSummary }>;
   POST(
     path: "/api/v1/hr/attendance-import/preview",
@@ -107,7 +110,10 @@ type EmployeeApi = ConsoleApiClient & {
   ): Promise<{ data?: AttendanceImportDryRun }>;
   POST(
     path: "/api/v1/hr/attendance-import/{run_id}/apply",
-    options: { params: { path: { run_id: string } } },
+    options: {
+      params: { path: { run_id: string } };
+      body: { checklist_all_acknowledged: boolean };
+    },
   ): Promise<{ data?: AttendanceImportApplyReport }>;
   POST(
     path: "/api/v1/employees/{id}/lifecycle-events",
@@ -1253,6 +1259,7 @@ function EmployeeImportPanel({
   const [preview, setPreview] = useState<EmployeeImportPreview>();
   const [dryRun, setDryRun] = useState<EmployeeImportDryRun>();
   const [summary, setSummary] = useState<EmployeeImportSummary>();
+  const [acknowledged, setAcknowledged] = useState(false);
 
   async function previewFile() {
     if (!file) {
@@ -1300,11 +1307,12 @@ function EmployeeImportPanel({
   }
 
   async function applyImport() {
-    if (!preview || !dryRun) return;
+    if (!preview || !dryRun || !acknowledged) return;
     setState("applying");
     const response = await api
       .POST("/api/v1/employees/import/{run_id}/apply", {
         params: { path: { run_id: preview.run_id } },
+        body: { checklist_all_acknowledged: acknowledged },
       })
       .catch(() => undefined);
     if (!response?.data) {
@@ -1316,6 +1324,7 @@ function EmployeeImportPanel({
     setFile(undefined);
     setPreview(undefined);
     setDryRun(undefined);
+    setAcknowledged(false);
     if (inputRef.current) inputRef.current.value = "";
     onImported();
   }
@@ -1364,6 +1373,7 @@ function EmployeeImportPanel({
             setPreview(undefined);
             setDryRun(undefined);
             setSummary(undefined);
+            setAcknowledged(false);
           }}
         />
       </div>
@@ -1394,6 +1404,8 @@ function EmployeeImportPanel({
           preview={preview}
           dryRun={dryRun}
           state={state}
+          acknowledged={acknowledged}
+          onAcknowledgedChange={setAcknowledged}
           onDryRun={() => {
             void dryRunImport();
           }}
@@ -1416,6 +1428,7 @@ function AttendanceImportPanel({ api }: { api: EmployeeApi }) {
   const [preview, setPreview] = useState<AttendanceImportPreview>();
   const [dryRun, setDryRun] = useState<AttendanceImportDryRun>();
   const [summary, setSummary] = useState<AttendanceImportApplyReport>();
+  const [acknowledged, setAcknowledged] = useState(false);
 
   async function previewFile() {
     if (!file) {
@@ -1463,11 +1476,12 @@ function AttendanceImportPanel({ api }: { api: EmployeeApi }) {
   }
 
   async function applyImport() {
-    if (!preview || !dryRun) return;
+    if (!preview || !dryRun || !acknowledged) return;
     setState("applying");
     const response = await api
       .POST("/api/v1/hr/attendance-import/{run_id}/apply", {
         params: { path: { run_id: preview.run_id } },
+        body: { checklist_all_acknowledged: acknowledged },
       })
       .catch(() => undefined);
     if (!response?.data) {
@@ -1479,6 +1493,7 @@ function AttendanceImportPanel({ api }: { api: EmployeeApi }) {
     setFile(undefined);
     setPreview(undefined);
     setDryRun(undefined);
+    setAcknowledged(false);
     if (inputRef.current) inputRef.current.value = "";
   }
 
@@ -1513,6 +1528,7 @@ function AttendanceImportPanel({ api }: { api: EmployeeApi }) {
             setPreview(undefined);
             setDryRun(undefined);
             setSummary(undefined);
+            setAcknowledged(false);
           }}
         />
       </div>
@@ -1533,6 +1549,8 @@ function AttendanceImportPanel({ api }: { api: EmployeeApi }) {
           preview={preview}
           dryRun={dryRun}
           state={state}
+          acknowledged={acknowledged}
+          onAcknowledgedChange={setAcknowledged}
           onDryRun={() => {
             void dryRunImport();
           }}
@@ -1551,12 +1569,16 @@ function AttendanceImportPreviewPanel({
   preview,
   dryRun,
   state,
+  acknowledged,
+  onAcknowledgedChange,
   onDryRun,
   onApply,
 }: {
   preview: AttendanceImportPreview;
   dryRun?: AttendanceImportDryRun;
   state: UploadState;
+  acknowledged: boolean;
+  onAcknowledgedChange: (value: boolean) => void;
   onDryRun: () => void;
   onApply: () => void;
 }) {
@@ -1577,7 +1599,7 @@ function AttendanceImportPreviewPanel({
             {t.payrollLineageOnly}
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             type="button"
             variant="secondary"
@@ -1586,9 +1608,25 @@ function AttendanceImportPreviewPanel({
           >
             {state === "dryRunning" ? t.dryRunning : t.dryRun}
           </Button>
+          <label className="flex items-center gap-2 text-sm text-steel">
+            <input
+              type="checkbox"
+              checked={acknowledged}
+              disabled={!dryRun || dryRun.error_rows > 0}
+              onChange={(event) => {
+                onAcknowledgedChange(event.currentTarget.checked);
+              }}
+            />
+            {t.checklistAck}
+          </label>
           <Button
             type="button"
-            disabled={!dryRun || dryRun.error_rows > 0 || state === "applying"}
+            disabled={
+              !dryRun ||
+              dryRun.error_rows > 0 ||
+              !acknowledged ||
+              state === "applying"
+            }
             onClick={onApply}
           >
             {state === "applying" ? t.applying : t.apply}
@@ -1799,12 +1837,16 @@ function ImportPreview({
   preview,
   dryRun,
   state,
+  acknowledged,
+  onAcknowledgedChange,
   onDryRun,
   onApply,
 }: {
   preview: EmployeeImportPreview;
   dryRun?: EmployeeImportDryRun;
   state: UploadState;
+  acknowledged: boolean;
+  onAcknowledgedChange: (value: boolean) => void;
   onDryRun: () => void;
   onApply: () => void;
 }) {
@@ -1822,7 +1864,7 @@ function ImportPreview({
             </code>
           </p>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button
             type="button"
             variant="secondary"
@@ -1831,9 +1873,20 @@ function ImportPreview({
           >
             {state === "dryRunning" ? t.dryRunning : t.dryRun}
           </Button>
+          <label className="flex items-center gap-2 text-sm text-steel">
+            <input
+              type="checkbox"
+              checked={acknowledged}
+              disabled={!dryRun}
+              onChange={(event) => {
+                onAcknowledgedChange(event.currentTarget.checked);
+              }}
+            />
+            {t.checklistAck}
+          </label>
           <Button
             type="button"
-            disabled={!dryRun || state === "applying"}
+            disabled={!dryRun || !acknowledged || state === "applying"}
             onClick={onApply}
           >
             {state === "applying" ? t.applying : t.apply}

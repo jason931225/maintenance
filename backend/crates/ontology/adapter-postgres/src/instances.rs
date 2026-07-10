@@ -415,6 +415,12 @@ impl PgInstanceStore {
     }
 
     /// List current-state instances of one object type (RLS-scoped).
+    ///
+    /// Dispatches on the type's `backing_kind` (BE-semantic-backfill): an
+    /// `instance`-backed type reads its owned revision store as before; a
+    /// `projected` type (registered domain table, arch §1a) reads the real
+    /// domain rows directly — read path only, the domain crate's own
+    /// use-case remains the sole writer.
     pub async fn list_instances(
         &self,
         object_type_id: ObjectTypeId,
@@ -422,24 +428,31 @@ impl PgInstanceStore {
         let org = current_org().map_err(KernelError::from)?;
         with_org_conn::<_, Vec<InstanceState>, PgOntologyError>(&self.pool, org, |tx| {
             Box::pin(async move {
-                let rows = sqlx::query(
-                    r#"
-                    SELECT
-                        i.id AS instance_id, i.object_type_id, i.title,
-                        i.current_revision_id, i.lifecycle_state,
-                        r.id AS revision_id, r.version, r.attributes,
-                        r.valid_from, r.valid_to, r.action_type_id, r.actor,
-                        r.reason, r.prev_hash, r.row_hash
-                    FROM ont_instances i
-                    JOIN ont_instance_revisions r ON r.instance_id = i.id AND r.valid_to IS NULL
-                    WHERE i.object_type_id = $1
-                    ORDER BY i.created_at DESC
-                    "#,
-                )
-                .bind(*object_type_id.as_uuid())
-                .fetch_all(tx.as_mut())
-                .await?;
-                rows.iter().map(instance_state_from_row).collect()
+                match backing_kind_tx(tx, object_type_id).await? {
+                    mnt_ontology_domain::BackingKind::Instance => {
+                        let rows = sqlx::query(
+                            r#"
+                            SELECT
+                                i.id AS instance_id, i.object_type_id, i.title,
+                                i.current_revision_id, i.lifecycle_state,
+                                r.id AS revision_id, r.version, r.attributes,
+                                r.valid_from, r.valid_to, r.action_type_id, r.actor,
+                                r.reason, r.prev_hash, r.row_hash
+                            FROM ont_instances i
+                            JOIN ont_instance_revisions r ON r.instance_id = i.id AND r.valid_to IS NULL
+                            WHERE i.object_type_id = $1
+                            ORDER BY i.created_at DESC
+                            "#,
+                        )
+                        .bind(*object_type_id.as_uuid())
+                        .fetch_all(tx.as_mut())
+                        .await?;
+                        rows.iter().map(instance_state_from_row).collect()
+                    }
+                    mnt_ontology_domain::BackingKind::Projected => {
+                        list_projected_rows_tx(tx, object_type_id).await
+                    }
+                }
             })
         })
         .await
@@ -900,6 +913,214 @@ async fn require_instance_backed_object_type(
         .into()),
         None => Err(KernelError::not_found("object type was not found").into()),
     }
+}
+
+// ===========================================================================
+// Projected-type read path (BE-semantic-backfill, arch §1a).
+//
+// A `projected` object type owns no store of its own — its "instances" are
+// rows of a real domain table, registered via `ont_object_types.backing_table`
+// + each property's `backing_column`. This is a READ-ONLY view: the domain
+// crate's own use-case remains the sole writer (arch §9.3), so there is no
+// create/stage path here, only list.
+// ===========================================================================
+
+/// This version's `backing_kind`. `None` (missing row) is `NotFound`, never a
+/// silent default — a caller must never treat an unknown type as either kind.
+async fn backing_kind_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    object_type_id: ObjectTypeId,
+) -> Result<mnt_ontology_domain::BackingKind, PgOntologyError> {
+    let kind: Option<String> =
+        sqlx::query_scalar("SELECT backing_kind FROM ont_object_types WHERE id = $1")
+            .bind(*object_type_id.as_uuid())
+            .fetch_optional(tx.as_mut())
+            .await?;
+    match kind {
+        Some(kind) => Ok(mnt_ontology_domain::BackingKind::from_db_str(&kind)?),
+        None => Err(KernelError::not_found("object type was not found").into()),
+    }
+}
+
+/// The real domain tables a `projected` type may back onto. A `backing_table`
+/// value that doesn't match one of these literal names is refused — the
+/// match arm returns the COMPILED-IN literal, so a caller-supplied string is
+/// never itself interpolated into SQL as a table identifier (defense in depth
+/// beneath the fact that `backing_table` is only ever admin-authored via
+/// [`crate::seed`], never end-user input).
+///
+/// `ponytail:` a fixed allowlist, not a registry-driven one; add a table here
+/// when a future lane projects a new one — the DB-level identifier-injection
+/// guard belongs in code review either way, not config.
+fn allowlisted_projected_table(name: &str) -> Option<&'static str> {
+    Some(match name {
+        "work_orders" => "work_orders",
+        "employees" => "employees",
+        "registry_equipment" => "registry_equipment",
+        "registry_customers" => "registry_customers",
+        "registry_sites" => "registry_sites",
+        "support_tickets" => "support_tickets",
+        "docs_evidence_objects" => "docs_evidence_objects",
+        "compliance_obligations" => "compliance_obligations",
+        "compliance_regulation_impacts" => "compliance_regulation_impacts",
+        "compliance_frameworks" => "compliance_frameworks",
+        "leave_requests" => "leave_requests",
+        "workflow_definitions" => "workflow_definitions",
+        "messenger_threads" => "messenger_threads",
+        "email_messages" => "email_messages",
+        "gov_approval_requests" => "gov_approval_requests",
+        _ => return None,
+    })
+}
+
+/// A lower-snake-case SQL identifier: the shape every real column/table name
+/// in this schema has. Column names come from `ont_property_defs.backing_column`
+/// (admin-authored, arch §18) — checked here so a malformed value fails
+/// closed instead of ever reaching raw SQL text.
+fn is_safe_ident(value: &str) -> bool {
+    let mut chars = value.chars();
+    let Some(first) = chars.next() else {
+        return false;
+    };
+    (first.is_ascii_lowercase() || first == '_')
+        && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
+        && value.len() <= 63
+}
+
+/// List current rows of a `projected` type's backing table as synthetic
+/// [`InstanceState`]s: `id` = the row's primary key, `attributes` = each
+/// registered property's backing column (stringified — every Postgres value
+/// type round-trips through `::TEXT`, sidestepping a per-type decode matrix),
+/// `valid_from` = the row's `created_at`. There is no owned revision store for
+/// a projected type, so `version` is always 1 and the fixity hashes are empty
+/// (the domain's own `audit_events` before/after snapshots are the real
+/// history, per arch §1a — v1 gives current-state only).
+async fn list_projected_rows_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    object_type_id: ObjectTypeId,
+) -> Result<Vec<InstanceState>, PgOntologyError> {
+    let meta = sqlx::query(
+        "SELECT backing_table, primary_key_property, title_property_key \
+         FROM ont_object_types WHERE id = $1",
+    )
+    .bind(*object_type_id.as_uuid())
+    .fetch_optional(tx.as_mut())
+    .await?
+    .ok_or_else(|| KernelError::not_found("object type was not found"))?;
+
+    let backing_table: Option<String> = meta.try_get("backing_table")?;
+    let table = backing_table
+        .as_deref()
+        .and_then(allowlisted_projected_table)
+        .ok_or_else(|| {
+            KernelError::validation("projected object type has no allowlisted backing table")
+        })?;
+
+    let pk_column: Option<String> = meta.try_get("primary_key_property")?;
+    let pk_column = pk_column.filter(|c| is_safe_ident(c)).ok_or_else(|| {
+        KernelError::validation("projected object type has no primary_key_property")
+    })?;
+    let title_column: Option<String> = meta.try_get("title_property_key")?;
+
+    let prop_rows = sqlx::query(
+        "SELECT key, backing_column FROM ont_property_defs \
+         WHERE object_type_id = $1 AND backing_column IS NOT NULL ORDER BY key",
+    )
+    .bind(*object_type_id.as_uuid())
+    .fetch_all(tx.as_mut())
+    .await?;
+
+    let mut columns: Vec<(String, String)> = Vec::with_capacity(prop_rows.len());
+    for row in &prop_rows {
+        let key: String = row.try_get("key")?;
+        let column: String = row.try_get("backing_column")?;
+        if !is_safe_ident(&column) {
+            return Err(KernelError::validation(format!(
+                "property '{key}' has an unsafe backing_column"
+            ))
+            .into());
+        }
+        columns.push((key, column));
+    }
+
+    let select_list = columns
+        .iter()
+        .map(|(_, column)| format!("{column}::TEXT AS \"attr__{column}\""))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let select_list = if select_list.is_empty() {
+        String::new()
+    } else {
+        format!(", {select_list}")
+    };
+    // ponytail: a flat LIMIT, no pagination — this lane proves the read path;
+    // add cursor pagination when a console list view needs more than 200 rows.
+    let sql = format!(
+        "SELECT {pk_column}::TEXT AS __pk, created_at AS __created_at{select_list} \
+         FROM {table} ORDER BY created_at DESC LIMIT 200"
+    );
+    // SAFETY: `sql` interpolates only (a) `table`, the COMPILED-IN literal an
+    // allowlist match returned (never the caller-supplied string itself) and
+    // (b) column names that passed `is_safe_ident` above — never raw request
+    // input. `AssertSqlSafe` is sound under those two checks.
+    let rows = sqlx::query(sqlx::AssertSqlSafe(sql))
+        .fetch_all(tx.as_mut())
+        .await?;
+
+    rows.iter()
+        .map(|row| {
+            projected_instance_from_row(row, object_type_id, title_column.as_deref(), &columns)
+        })
+        .collect()
+}
+
+fn projected_instance_from_row(
+    row: &sqlx::postgres::PgRow,
+    object_type_id: ObjectTypeId,
+    title_column: Option<&str>,
+    columns: &[(String, String)],
+) -> Result<InstanceState, PgOntologyError> {
+    let pk_text: String = row.try_get("__pk")?;
+    let pk = Uuid::parse_str(&pk_text)
+        .map_err(|_| KernelError::internal("projected primary key was not a UUID"))?;
+    let created_at: OffsetDateTime = row.try_get("__created_at")?;
+
+    let mut attributes = serde_json::Map::with_capacity(columns.len());
+    let mut title: Option<String> = None;
+    for (key, column) in columns {
+        let value: Option<String> = row.try_get(format!("attr__{column}").as_str())?;
+        if title_column == Some(column.as_str()) {
+            title = value.clone();
+        }
+        attributes.insert(
+            key.clone(),
+            value.map_or(serde_json::Value::Null, serde_json::Value::String),
+        );
+    }
+
+    let instance_id = InstanceId::from_uuid(pk);
+    Ok(InstanceState {
+        instance: InstanceHead {
+            id: instance_id,
+            object_type_id,
+            title: title.unwrap_or(pk_text),
+            current_revision_id: None,
+            lifecycle_state: InstanceLifecycleState::Active,
+        },
+        revision: RevisionSummary {
+            id: InstanceRevisionId::from_uuid(pk),
+            instance_id,
+            version: 1,
+            attributes: serde_json::Value::Object(attributes),
+            valid_from: created_at,
+            valid_to: None,
+            action_type_id: None,
+            actor: None,
+            reason: None,
+            prev_hash: String::new(),
+            row_hash: String::new(),
+        },
+    })
 }
 
 fn require_object(value: &serde_json::Value) -> Result<serde_json::Value, PgOntologyError> {
