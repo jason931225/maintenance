@@ -99,6 +99,11 @@ export function SupportPage() {
     ROLES.ADMIN,
     ROLES.SUPER_ADMIN,
   ]);
+  // The SLO setting is a governed ontology object, and the ontology read/write
+  // API is RoleManage-gated (SUPER_ADMIN only). Any principal below RoleManage
+  // 403s on the card's mount fetch, so — deny-by-omission — only the RoleManage
+  // tier renders the card at all rather than firing a request it cannot make.
+  const canManageSlo = hasAnyRole(session?.roles, [ROLES.SUPER_ADMIN]);
 
   const [tickets, setTickets] = useState<SupportTicketSummary[]>([]);
   // The SLO policy setting object — the ACTIVE revision drives every derived
@@ -376,14 +381,16 @@ export function SupportPage() {
           ) : (
             <PageEmpty message={ko.common.noBranch} />
           )}
-          <SloSettingsCard
-            api={api}
-            canManage={canAssign}
-            actor={{
-              id: currentUserId ?? "",
-              name: session?.display_name ?? "",
-            }}
-          />
+          {canManageSlo ? (
+            <SloSettingsCard
+              api={api}
+              canManage={canManageSlo}
+              actor={{
+                id: currentUserId ?? "",
+                name: session?.display_name ?? "",
+              }}
+            />
+          ) : null}
         </div>
       </div>
     </>
