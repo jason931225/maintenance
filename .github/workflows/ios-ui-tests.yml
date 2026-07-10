@@ -39,8 +39,9 @@ permissions:
 
 # A UI run is expensive; cancel superseded runs on the same ref.
 concurrency:
-  group: ios-ui-tests-${{ github.ref }}
-  cancel-in-progress: true
+  group: ios-ui-tests-${{ github.event.pull_request.number || github.ref }}
+  # PR-only cancellation; pushes to main/tags run to completion.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   ios-ui-tests:
