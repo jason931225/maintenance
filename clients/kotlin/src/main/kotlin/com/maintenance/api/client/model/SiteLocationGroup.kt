@@ -40,8 +40,8 @@ import kotlinx.serialization.Contextual
  * @param postalCode
  * @param province
  * @param city
- * @param latitude
- * @param longitude
+ * @param latitude Admin-entered WGS84 latitude in degrees; null means the site is not pinned.
+ * @param longitude Admin-entered WGS84 longitude in degrees; null means the site is not pinned.
  * @param geofenceRadiusM Per-site geofence radius in metres for arrival/departure detection; null uses the system default (300 m).
  * @param contactName On-site representative contact name (담당자명).
  * @param contactPhone On-site contact phone (연락처).
@@ -82,9 +82,11 @@ data class SiteLocationGroup (
     @SerialName(value = "city")
     val city: kotlin.String?,
 
+    /* Admin-entered WGS84 latitude in degrees; null means the site is not pinned. */
     @SerialName(value = "latitude")
     val latitude: kotlin.Double?,
 
+    /* Admin-entered WGS84 longitude in degrees; null means the site is not pinned. */
     @SerialName(value = "longitude")
     val longitude: kotlin.Double?,
 

@@ -20,6 +20,7 @@ import type {
   WorkflowConnectorDescriptor,
   WorkflowDefinitionEventResponse,
   WorkflowDefinitionResponse,
+  WorkflowRunResponse,
   WorkflowStudioCatalogResponse,
   WorkflowTemplateDescriptor,
 } from "../api/types";
@@ -33,12 +34,22 @@ import { SkeletonTable } from "../components/states/Skeleton";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
+import { PolicyGateProvider, type PolicyGate } from "../console/policy";
+import {
+  createWorkflowAutoModelFromDefinitions,
+  WORKFLOW_AUTO_ACTIONS,
+  WorkflowAutoScreen,
+  type ScheduleDraft,
+  type WorkflowRunEvent,
+  type WorkflowRunStatus,
+} from "../console/workflows";
 import { useAuth } from "../context/auth";
 import { ko } from "../i18n/ko";
 import { formatKoreanDateTime } from "../lib/datetime";
 
 type ReadState = "loading" | "idle" | "error";
 type FeedbackKind = "success" | "error";
+type WorkflowDefinitionJson = Record<string, unknown>;
 type DraftForm = {
   workflowKey: string;
   displayName: string;
@@ -50,6 +61,11 @@ type DraftForm = {
   actionAllowlistJson: string;
   requiredApprovalLine: boolean;
   requiredPaymentLine: boolean;
+};
+
+type WorkflowDefinitionWithPending = WorkflowDefinitionResponse & {
+  pending_version?: number | null;
+  pending_staged_by?: string | null;
 };
 
 const EMPTY_CATALOG: WorkflowStudioCatalogResponse = {
@@ -104,6 +120,29 @@ const DEFAULT_DRAFT_FORM: DraftForm = {
 };
 
 const POLICY_TEMPLATE_KEY = "equipment_location_access_policy";
+const WORKFLOW_AUTO_READ_ACTIONS = new Set<string>([
+  WORKFLOW_AUTO_ACTIONS.viewWorkflowTab,
+  WORKFLOW_AUTO_ACTIONS.viewScheduleTab,
+  WORKFLOW_AUTO_ACTIONS.selectWorkflow,
+  WORKFLOW_AUTO_ACTIONS.selectSchedule,
+]);
+const WORKFLOW_AUTO_RUNTIME_ACTIONS = new Set<string>([
+  ...WORKFLOW_AUTO_READ_ACTIONS,
+  WORKFLOW_AUTO_ACTIONS.toggleWorkflow,
+  WORKFLOW_AUTO_ACTIONS.runWorkflow,
+  WORKFLOW_AUTO_ACTIONS.simulateWorkflow,
+  WORKFLOW_AUTO_ACTIONS.stagePublish,
+  WORKFLOW_AUTO_ACTIONS.approvePublish,
+  WORKFLOW_AUTO_ACTIONS.withdrawPublish,
+  WORKFLOW_AUTO_ACTIONS.toggleSchedule,
+  WORKFLOW_AUTO_ACTIONS.runSchedule,
+  WORKFLOW_AUTO_ACTIONS.editSchedule,
+  WORKFLOW_AUTO_ACTIONS.saveSchedule,
+  WORKFLOW_AUTO_ACTIONS.deleteSchedule,
+]);
+const WORKFLOW_AUTO_RUNTIME_GATE: PolicyGate = {
+  can: (action) => WORKFLOW_AUTO_RUNTIME_ACTIONS.has(action),
+};
 
 function workflowTemplateDefinition(
   template: WorkflowTemplateDescriptor,
@@ -144,8 +183,91 @@ function equipmentLocationPolicyDefinition(): Record<string, unknown> {
   };
 }
 
+function workflowRunEventFromResponse(run: WorkflowRunResponse): WorkflowRunEvent {
+  return {
+    id: run.id,
+    code: run.code,
+    at: run.completed_at ?? run.failed_at ?? run.updated_at,
+    actor: run.actor_display_name ?? ko.workflowStudio.unknownActor,
+    status: workflowRunStatusFromResponse(run.status),
+    label: run.summary,
+    error: run.error_message ?? undefined,
+    generatedObjects: run.generated_objects,
+    retryable: run.status === "FAILED",
+  };
+}
+
+function workflowRunStatusFromResponse(status: string): WorkflowRunStatus {
+  switch (status) {
+    case "SUCCEEDED":
+      return "succeeded";
+    case "FAILED":
+      return "failed";
+    case "CANCELLED":
+      return "cancelled";
+    case "RUNNING":
+      return "running";
+    case "WAITING":
+    case "STARTING":
+    default:
+      return "queued";
+  }
+}
+
+function definitionIdFromScheduleId(scheduleId: string): string {
+  return scheduleId.startsWith("schedule:")
+    ? scheduleId.slice("schedule:".length)
+    : scheduleId;
+}
+
+function sameActorId(left: string | undefined, right: string | null | undefined) {
+  return Boolean(left && right && left.toLowerCase() === right.toLowerCase());
+}
+
+function definitionJsonObject(
+  definition: WorkflowDefinitionResponse,
+): WorkflowDefinitionJson {
+  return { ...definition.definition };
+}
+
+function scheduleDefinitionPatch(
+  definition: WorkflowDefinitionResponse,
+  draft: ScheduleDraft,
+): WorkflowDefinitionJson {
+  const nextDefinition = definitionJsonObject(definition);
+  const existingSchedule =
+    nextDefinition.schedule &&
+    typeof nextDefinition.schedule === "object" &&
+    !Array.isArray(nextDefinition.schedule)
+      ? { ...(nextDefinition.schedule as WorkflowDefinitionJson) }
+      : {};
+  nextDefinition.schedule = {
+    ...existingSchedule,
+    name: draft.name.trim(),
+    active: draft.active,
+    cron: draft.cron.trim(),
+    cron_label: draft.cronLabel.trim(),
+  };
+  return nextDefinition;
+}
+
+function scheduleDeletePatch(
+  definition: WorkflowDefinitionResponse,
+): WorkflowDefinitionJson {
+  const nextDefinition = definitionJsonObject(definition);
+  delete nextDefinition.schedule;
+  return nextDefinition;
+}
+
+function workflowRunIdempotencyKey(
+  definitionId: string,
+  triggerType: "MANUAL" | "SCHEDULE",
+): string {
+  return `workflow-studio:${definitionId}:${triggerType}:${Date.now().toString(36)}`;
+}
+
 export function WorkflowStudioPage() {
-  const { api } = useAuth();
+  const { api, session } = useAuth();
   const [readState, setReadState] = useState<ReadState>("loading");
   const [catalog, setCatalog] =
     useState<WorkflowStudioCatalogResponse>(EMPTY_CATALOG);
@@ -153,6 +275,9 @@ export function WorkflowStudioPage() {
     [],
   );
   const [history, setHistory] = useState<WorkflowDefinitionEventResponse[]>([]);
+  const [runLogByDefinitionId, setRunLogByDefinitionId] = useState<
+    Partial<Record<string, WorkflowRunResponse[]>>
+  >({});
   const [selectedDefinitionId, setSelectedDefinitionId] = useState<string>();
   const [error, setError] = useState<string>();
   const [feedback, setFeedback] = useState<string>();
@@ -162,12 +287,33 @@ export function WorkflowStudioPage() {
   const [editingDefinitionId, setEditingDefinitionId] = useState<string>();
   const [creatingDraft, setCreatingDraft] = useState(false);
 
-  const selectedDefinition = useMemo(
+  const selectedDefinition = useMemo<WorkflowDefinitionResponse | undefined>(
     () =>
       definitions.find(
         (definition) => definition.id === selectedDefinitionId,
-      ) ?? definitions[0],
+      ) ?? definitions.at(0),
     [definitions, selectedDefinitionId],
+  );
+  const selectedDefinitionForCanvasId = selectedDefinition?.id;
+  const runLogEventsByDefinitionId = useMemo(() => {
+    if (!selectedDefinitionForCanvasId) return {};
+    const selectedRunLog = runLogByDefinitionId[selectedDefinitionForCanvasId];
+    if (!selectedRunLog) return {};
+    return {
+      [selectedDefinitionForCanvasId]: selectedRunLog.map(
+        workflowRunEventFromResponse,
+      ),
+    };
+  }, [runLogByDefinitionId, selectedDefinitionForCanvasId]);
+  const workflowAutoModel = useMemo(
+    () =>
+      createWorkflowAutoModelFromDefinitions(definitions, {
+        historyByDefinitionId: selectedDefinitionForCanvasId
+          ? { [selectedDefinitionForCanvasId]: history }
+          : {},
+        runLogByDefinitionId: runLogEventsByDefinitionId,
+      }),
+    [definitions, history, runLogEventsByDefinitionId, selectedDefinitionForCanvasId],
   );
 
   const loadHistory = useCallback(
@@ -182,6 +328,22 @@ export function WorkflowStudioPage() {
       );
       if (!response.data) throw new Error("workflow history load failed");
       setHistory(response.data.items);
+    },
+    [api],
+  );
+
+  const loadRunLog = useCallback(
+    async (definitionId: string | undefined) => {
+      if (!definitionId) return;
+      const response = await api.GET(
+        "/api/v1/workflow-studio/definitions/{id}/run-log",
+        { params: { path: { id: definitionId } } },
+      );
+      if (!response.data) throw new Error("workflow run log load failed");
+      setRunLogByDefinitionId((current) => ({
+        ...current,
+        [definitionId]: response.data.items,
+      }));
     },
     [api],
   );
@@ -205,13 +367,13 @@ export function WorkflowStudioPage() {
           (definition) => definition.id === selectedDefinitionId,
         )?.id ?? nextSelected;
       setSelectedDefinitionId(selected);
-      await loadHistory(selected);
+      await Promise.all([loadHistory(selected), loadRunLog(selected)]);
       setReadState("idle");
     } catch {
       setReadState("error");
       setError(ko.workflowStudio.loadFailed);
     }
-  }, [api, loadHistory, selectedDefinitionId]);
+  }, [api, loadHistory, loadRunLog, selectedDefinitionId]);
 
   useEffect(() => {
     const task = window.setTimeout(() => {
@@ -225,7 +387,7 @@ export function WorkflowStudioPage() {
   async function selectDefinition(definition: WorkflowDefinitionResponse) {
     setSelectedDefinitionId(definition.id);
     try {
-      await loadHistory(definition.id);
+      await Promise.all([loadHistory(definition.id), loadRunLog(definition.id)]);
     } catch {
       showError(ko.workflowStudio.actionFailed);
     }
@@ -252,7 +414,7 @@ export function WorkflowStudioPage() {
         setSelectedDefinitionId(updated.id);
         setEditingDefinitionId(undefined);
         setDraftForm(DEFAULT_DRAFT_FORM);
-        await loadHistory(updated.id);
+        await Promise.all([loadHistory(updated.id), loadRunLog(updated.id)]);
         showSuccess(ko.workflowStudio.updateSuccess);
       } else {
         const response = await api.POST("/api/v1/workflow-studio/definitions", {
@@ -266,7 +428,7 @@ export function WorkflowStudioPage() {
         const created = response.data;
         setDefinitions((items) => [created, ...items]);
         setSelectedDefinitionId(created.id);
-        await loadHistory(created.id);
+        await Promise.all([loadHistory(created.id), loadRunLog(created.id)]);
         showSuccess(ko.workflowStudio.createSuccess);
       }
     } catch {
@@ -305,6 +467,82 @@ export function WorkflowStudioPage() {
       if (!response.data) throw new Error("workflow publish failed");
       return response.data;
     });
+  }
+
+  async function stagePublishFromPanel(definitionId: string) {
+    const definition = definitions.find((item) => item.id === definitionId);
+    if (!definition) {
+      showError(ko.workflowStudio.actionFailed);
+      return;
+    }
+    setFeedback(undefined);
+    if (missingRequiredLines(definition)) {
+      showError(ko.workflowStudio.publishBlocked);
+      return;
+    }
+    await sensitiveDefinitionAction(definition, "stage", async (stepUp) => {
+      const response = await api.POST(
+        "/api/v1/workflow-studio/definitions/{id}/publish",
+        {
+          params: { path: { id: definition.id } },
+          body: { step_up: stepUp },
+        },
+      );
+      if (!response.data) throw new Error("workflow revision stage failed");
+      return response.data;
+    });
+  }
+
+  async function approvePublishRevision(definitionId: string, version: number) {
+    const definition = definitions.find((item) => item.id === definitionId);
+    if (!definition) {
+      showError(ko.workflowStudio.actionFailed);
+      return;
+    }
+    const pending = definition as WorkflowDefinitionWithPending;
+    if (sameActorId(session?.user_id, pending.pending_staged_by)) {
+      showError(ko.console.workflows.labels.selfApprovalBlocked);
+      return;
+    }
+    await sensitiveDefinitionAction(definition, "approve", async (stepUp) => {
+      const response = await api.POST(
+        "/api/v1/workflow-studio/definitions/{id}/revisions/{rev}/approve",
+        {
+          params: { path: { id: definitionId, rev: version } },
+          body: { step_up: stepUp },
+        },
+      );
+      if (!response.data) throw new Error("workflow revision approve failed");
+      return response.data;
+    });
+  }
+
+  async function withdrawPublishRevision(definitionId: string, version: number) {
+    const definition = definitions.find((item) => item.id === definitionId);
+    if (!definition) {
+      showError(ko.workflowStudio.actionFailed);
+      return;
+    }
+    setBusyDefinitionId(definitionId);
+    setFeedback(undefined);
+    try {
+      const response = await api.POST(
+        "/api/v1/workflow-studio/definitions/{id}/revisions/{rev}/withdraw",
+        { params: { path: { id: definitionId, rev: version } } },
+      );
+      if (!response.data) throw new Error("workflow revision withdraw failed");
+      const updated = response.data;
+      setDefinitions((items) =>
+        items.map((item) => (item.id === updated.id ? updated : item)),
+      );
+      setSelectedDefinitionId(updated.id);
+      await Promise.all([loadHistory(updated.id), loadRunLog(updated.id)]);
+      showSuccess(ko.workflowStudio.success.withdraw);
+    } catch {
+      showError(ko.workflowStudio.actionFailed);
+    } finally {
+      setBusyDefinitionId(undefined);
+    }
   }
 
   async function pauseDefinition(definition: WorkflowDefinitionResponse) {
@@ -373,7 +611,15 @@ export function WorkflowStudioPage() {
 
   async function sensitiveDefinitionAction(
     definition: WorkflowDefinitionResponse,
-    action: "publish" | "pause" | "rollback" | "clone" | "archive",
+    action:
+      | "publish"
+      | "stage"
+      | "approve"
+      | "pause"
+      | "resume"
+      | "rollback"
+      | "clone"
+      | "archive",
     request: (
       stepUp: Awaited<ReturnType<typeof assertPasskeyStepUp>>,
     ) => Promise<WorkflowDefinitionResponse>,
@@ -388,11 +634,11 @@ export function WorkflowStudioPage() {
           (item) => item.id !== definition.id,
         );
         const nextSelected =
-          remainingDefinitions.find((item) => item.id === selectedDefinitionId)
-            ?.id ?? remainingDefinitions[0]?.id;
+          remainingDefinitions.find((item) => item.id === selectedDefinitionId)?.id ??
+          remainingDefinitions[0]?.id;
         setDefinitions(remainingDefinitions);
         setSelectedDefinitionId(nextSelected);
-        await loadHistory(nextSelected);
+        await Promise.all([loadHistory(nextSelected), loadRunLog(nextSelected)]);
         if (editingDefinitionId === definition.id) {
           setEditingDefinitionId(undefined);
           setDraftForm(DEFAULT_DRAFT_FORM);
@@ -404,7 +650,7 @@ export function WorkflowStudioPage() {
         items.map((item) => (item.id === updated.id ? updated : item)),
       );
       setSelectedDefinitionId(updated.id);
-      await loadHistory(updated.id);
+      await Promise.all([loadHistory(updated.id), loadRunLog(updated.id)]);
       showSuccess(ko.workflowStudio.success[action]);
     } catch {
       showError(ko.workflowStudio.actionFailed);
@@ -435,6 +681,167 @@ export function WorkflowStudioPage() {
       );
     } catch {
       showError(ko.workflowStudio.actionFailed);
+    } finally {
+      setBusyDefinitionId(undefined);
+    }
+  }
+
+  async function simulateDefinitionById(definitionId: string) {
+    const definition = definitions.find((item) => item.id === definitionId);
+    if (!definition) {
+      showError(ko.workflowStudio.actionFailed);
+      return;
+    }
+    await simulateDefinition(definition);
+  }
+
+  async function triggerWorkflowRun(
+    definitionId: string,
+    triggerType: "MANUAL" | "SCHEDULE",
+  ) {
+    const definition = definitions.find((item) => item.id === definitionId);
+    if (!definition || definition.status !== "ACTIVE") {
+      showError(ko.workflowStudio.actionFailed);
+      return;
+    }
+    setBusyDefinitionId(definitionId);
+    setFeedback(undefined);
+    try {
+      const response = await api.POST(
+        "/api/v1/workflow-studio/definitions/{id}/run",
+        {
+          params: { path: { id: definitionId } },
+          body: {
+            trigger_type: triggerType,
+            idempotency_key: workflowRunIdempotencyKey(definitionId, triggerType),
+          },
+        },
+      );
+      if (!response.data) throw new Error("workflow run trigger failed");
+      const run = response.data;
+      setRunLogByDefinitionId((current) => ({
+        ...current,
+        [definitionId]: [
+          run,
+          ...(current[definitionId] ?? []).filter((item) => item.id !== run.id),
+        ].slice(0, 25),
+      }));
+      setSelectedDefinitionId(definitionId);
+      await loadRunLog(definitionId);
+      showSuccess(ko.workflowStudio.success.run);
+    } catch {
+      showError(ko.console.workflows.errors.runFailed);
+    } finally {
+      setBusyDefinitionId(undefined);
+    }
+  }
+
+  async function toggleWorkflow(definitionId: string, active: boolean) {
+    const definition = definitions.find((item) => item.id === definitionId);
+    if (!definition) {
+      showError(ko.workflowStudio.actionFailed);
+      return;
+    }
+    if (!active) {
+      await pauseDefinition(definition);
+      return;
+    }
+    if (definition.status === "DRAFT") {
+      await publishDefinition(definition);
+      return;
+    }
+    if (definition.status !== "PAUSED") {
+      showError(ko.workflowStudio.actionFailed);
+      return;
+    }
+    await sensitiveDefinitionAction(definition, "resume", async (stepUp) => {
+      const response = await api.POST(
+        "/api/v1/workflow-studio/definitions/{id}/resume",
+        {
+          params: { path: { id: definition.id } },
+          body: { step_up: stepUp },
+        },
+      );
+      if (!response.data) throw new Error("workflow resume failed");
+      return response.data;
+    });
+  }
+
+  async function saveScheduleDraft(scheduleId: string, draft: ScheduleDraft) {
+    const definitionId = definitionIdFromScheduleId(scheduleId);
+    const definition = definitions.find((item) => item.id === definitionId);
+    if (!definition) {
+      showError(ko.console.workflows.errors.scheduleSaveFailed);
+      return;
+    }
+    setBusyDefinitionId(definitionId);
+    setFeedback(undefined);
+    try {
+      const response = await api.PATCH(
+        "/api/v1/workflow-studio/definitions/{id}",
+        {
+          params: { path: { id: definitionId } },
+          body: { definition: scheduleDefinitionPatch(definition, draft) },
+        },
+      );
+      if (!response.data) throw new Error("workflow schedule save failed");
+      const updated = response.data;
+      setDefinitions((items) =>
+        items.map((item) => (item.id === updated.id ? updated : item)),
+      );
+      setSelectedDefinitionId(updated.id);
+      await Promise.all([loadHistory(updated.id), loadRunLog(updated.id)]);
+      showSuccess(ko.workflowStudio.success.scheduleSave);
+    } catch {
+      showError(ko.console.workflows.errors.scheduleSaveFailed);
+    } finally {
+      setBusyDefinitionId(undefined);
+    }
+  }
+
+  async function toggleSchedule(scheduleId: string, active: boolean) {
+    const schedule = workflowAutoModel.schedules.find(
+      (item) => item.id === scheduleId,
+    );
+    if (!schedule) {
+      showError(ko.console.workflows.errors.toggleFailed);
+      return;
+    }
+    await saveScheduleDraft(scheduleId, {
+      name: schedule.name,
+      cron: schedule.cron,
+      cronLabel: schedule.cronLabel,
+      active,
+    });
+  }
+
+  async function deleteSchedule(scheduleId: string) {
+    const definitionId = definitionIdFromScheduleId(scheduleId);
+    const definition = definitions.find((item) => item.id === definitionId);
+    if (!definition) {
+      showError(ko.console.workflows.errors.scheduleSaveFailed);
+      return;
+    }
+    setBusyDefinitionId(definitionId);
+    setFeedback(undefined);
+    try {
+      const response = await api.PATCH(
+        "/api/v1/workflow-studio/definitions/{id}",
+        {
+          params: { path: { id: definitionId } },
+          body: { definition: scheduleDeletePatch(definition) },
+        },
+      );
+      if (!response.data) throw new Error("workflow schedule delete failed");
+      const updated = response.data;
+      setDefinitions((items) =>
+        items.map((item) => (item.id === updated.id ? updated : item)),
+      );
+      setSelectedDefinitionId(updated.id);
+      await Promise.all([loadHistory(updated.id), loadRunLog(updated.id)]);
+      showSuccess(ko.workflowStudio.success.scheduleSave);
+    } catch {
+      showError(ko.console.workflows.errors.scheduleSaveFailed);
     } finally {
       setBusyDefinitionId(undefined);
     }
@@ -539,8 +946,57 @@ export function WorkflowStudioPage() {
           }}
         />
       ) : (
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(24rem,1fr)]">
-          <div className="grid min-w-0 gap-4">
+        <div className="grid gap-4">
+          <PolicyGateProvider gate={WORKFLOW_AUTO_RUNTIME_GATE}>
+            <WorkflowAutoScreen
+              model={workflowAutoModel}
+              selectedWorkflowId={selectedDefinition?.id}
+              currentUserId={session?.user_id}
+              onWorkflowSelect={(id: string) => {
+                const definition = definitions.find((item) => item.id === id);
+                if (definition) void selectDefinition(definition);
+              }}
+              onWorkflowToggle={(id: string, active: boolean) => {
+                void toggleWorkflow(id, active);
+              }}
+              onWorkflowRun={(id: string) => {
+                void triggerWorkflowRun(id, "MANUAL");
+              }}
+              onWorkflowSimulate={(id: string) => {
+                void simulateDefinitionById(id);
+              }}
+              onStagePublish={(id: string) => {
+                void stagePublishFromPanel(id);
+              }}
+              onApprovePublish={(id: string, version: number) => {
+                void approvePublishRevision(id, version);
+              }}
+              onWithdrawPublish={(id: string, version: number) => {
+                void withdrawPublishRevision(id, version);
+              }}
+              onScheduleSelect={(id: string) => {
+                const definition = definitions.find(
+                  (item) => item.id === definitionIdFromScheduleId(id),
+                );
+                if (definition) void selectDefinition(definition);
+              }}
+              onScheduleToggle={(id: string, active: boolean) => {
+                void toggleSchedule(id, active);
+              }}
+              onScheduleRun={(id: string) => {
+                void triggerWorkflowRun(definitionIdFromScheduleId(id), "SCHEDULE");
+              }}
+              onScheduleSave={(id: string, draft: ScheduleDraft) => {
+                void saveScheduleDraft(id, draft);
+              }}
+              onScheduleDelete={(id: string) => {
+                void deleteSchedule(id);
+              }}
+            />
+          </PolicyGateProvider>
+
+          <div className="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(24rem,1fr)]">
+            <div className="grid min-w-0 gap-4">
             <Card className="min-w-0">
               <div className="mb-3 flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
@@ -558,7 +1014,7 @@ export function WorkflowStudioPage() {
               ) : (
                 <WorkflowDefinitionTable
                   definitions={definitions}
-                  selectedDefinitionId={selectedDefinition.id}
+                  selectedDefinitionId={selectedDefinition?.id}
                   busyDefinitionId={busyDefinitionId}
                   onSelect={(definition) => void selectDefinition(definition)}
                   onSimulate={(definition) =>
@@ -588,7 +1044,7 @@ export function WorkflowStudioPage() {
             />
           </div>
 
-          <div className="grid gap-4 self-start">
+            <div className="grid gap-4 self-start">
             <Card>
               <div className="mb-3 flex items-center gap-2">
                 <PlugZap size={18} aria-hidden="true" />
@@ -643,6 +1099,7 @@ export function WorkflowStudioPage() {
                 </ol>
               )}
             </Card>
+            </div>
           </div>
         </div>
       )}
@@ -1132,20 +1589,24 @@ function countArray(value: unknown): number {
   return Array.isArray(value) ? value.length : 0;
 }
 
+function isJsonRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
 function parseJsonObject(value: string): Record<string, unknown> {
-  const parsed = JSON.parse(value) as unknown;
-  if (!parsed || Array.isArray(parsed) || typeof parsed !== "object") {
+  const parsed: unknown = JSON.parse(value);
+  if (!isJsonRecord(parsed)) {
     throw new Error("expected JSON object");
   }
-  return parsed as Record<string, unknown>;
+  return parsed;
 }
 
 function parseJsonArray(value: string): Record<string, unknown>[] {
-  const parsed = JSON.parse(value) as unknown;
-  if (!Array.isArray(parsed)) {
-    throw new Error("expected JSON array");
+  const parsed: unknown = JSON.parse(value);
+  if (!Array.isArray(parsed) || !parsed.every(isJsonRecord)) {
+    throw new Error("expected JSON object array");
   }
-  return parsed as Record<string, unknown>[];
+  return parsed;
 }
 
 function parseActionAllowlist(

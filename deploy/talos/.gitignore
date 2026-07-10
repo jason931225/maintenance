@@ -1,0 +1,5 @@
+# Talos generated machine configs, secrets, and kubeconfigs are operator-custody artifacts.
+_out/
+_talos/
+_talos-*/
+*.kubeconfig

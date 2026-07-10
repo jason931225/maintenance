@@ -29,13 +29,13 @@ use axum::routing::{delete, get, patch, post, put};
 use axum::{Json, Router};
 use mnt_identity_adapter_postgres::{PgOrgError, PgOrgStore};
 use mnt_identity_application::{
-    CreateBranchCommand, CreatePolicyAssignmentPreviewReceiptCommand, CreatePolicyRoleCommand,
-    CreateRegionCommand, CreateUserCommand, DeactivateBranchCommand, DeactivateRegionCommand,
-    DeactivateUserCommand, PolicyAuditEventSummary, PolicyRoleAssignmentSummary,
-    PolicyRoleCondition, PolicyRolePermission, PolicyRoleSummary, PolicyVersionSummary,
-    ReplacePolicyRoleAssignmentsCommand, UpdateBranchCommand, UpdatePolicyRoleCommand,
-    UpdatePolicyRoleStatusCommand, UpdateRegionCommand, UpdateSelfProfileCommand,
-    UpdateUserCommand, UserListQuery, UserSummary,
+    ActivateUserCommand, CreateBranchCommand, CreatePolicyAssignmentPreviewReceiptCommand,
+    CreatePolicyRoleCommand, CreateRegionCommand, CreateUserCommand, DeactivateBranchCommand,
+    DeactivateRegionCommand, DeactivateUserCommand, PolicyAuditEventSummary,
+    PolicyRoleAssignmentSummary, PolicyRoleCondition, PolicyRolePermission, PolicyRoleSummary,
+    PolicyVersionSummary, ReplacePolicyRoleAssignmentsCommand, UpdateBranchCommand,
+    UpdatePolicyRoleCommand, UpdatePolicyRoleStatusCommand, UpdateRegionCommand,
+    UpdateSelfProfileCommand, UpdateUserCommand, UserListQuery, UserSummary,
 };
 use mnt_identity_domain::Team;
 use mnt_kernel_core::{
@@ -53,7 +53,7 @@ use mnt_platform_authz::{
 use mnt_platform_db::{DbError, with_audit, with_audits, with_org_conn};
 use mnt_platform_request_context::{RequestContextError, current_org};
 use serde::{Deserialize, Serialize};
-use sqlx::{PgPool, Row};
+use sqlx::{PgPool, Postgres, Row, Transaction};
 use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
@@ -63,8 +63,13 @@ use uuid::Uuid;
 
 pub const USERS_PATH: &str = "/api/v1/users";
 pub const USERS_ME_PATH: &str = "/api/v1/users/me";
+pub const CONSOLE_ROLLOUT_PATH: &str = "/api/v1/console/rollout";
+pub const CONSOLE_ROLLOUT_OPT_IN_PATH: &str = "/api/v1/console/rollout/opt-in";
+pub const CONSOLE_ROLLOUT_ORG_FLAG_PATH: &str = "/api/v1/console/rollout/org-flag";
+pub const CONSOLE_LEGACY_KILL_SWITCH_PATH: &str = "/api/v1/console/kill-switch";
 pub const USER_PATH_TEMPLATE: &str = "/api/v1/users/{id}";
 pub const USER_DEACTIVATE_PATH_TEMPLATE: &str = "/api/v1/users/{id}/deactivate";
+pub const USER_ACTIVATE_PATH_TEMPLATE: &str = "/api/v1/users/{id}/activate";
 pub const REGIONS_PATH: &str = "/api/v1/regions";
 pub const REGION_PATH_TEMPLATE: &str = "/api/v1/regions/{id}";
 pub const BRANCHES_PATH: &str = "/api/v1/branches";
@@ -85,6 +90,9 @@ pub const POLICY_USER_ASSIGNMENT_PREVIEW_PATH_TEMPLATE: &str =
 pub const POLICY_AUDIT_EVENTS_PATH: &str = "/api/v1/policy/audit-events";
 const POLICY_STUDIO_OPERATION_TOTAL: &str = "policy_studio_operation_total";
 const POLICY_ASSIGNMENT_PREVIEW_RECEIPT_TTL: Duration = Duration::minutes(10);
+const CONSOLE_ROLLOUT_FLAG_KEY: &str = "console_carbon_copy";
+const CONSOLE_LEGACY_KILL_SWITCH_FLAG_KEY: &str = "console_legacy_kill_switch";
+const CONSOLE_ROLLOUT_USER_FEATURE_KEY: &str = "console_rollout";
 
 fn record_policy_studio_operation(operation: &'static str, outcome: &'static str) {
     metrics::counter!(
@@ -128,8 +136,13 @@ fn record_policy_studio_rejection(
 pub const IDENTITY_ROUTE_PATHS: &[&str] = &[
     USERS_PATH,
     USERS_ME_PATH,
+    CONSOLE_ROLLOUT_PATH,
+    CONSOLE_ROLLOUT_OPT_IN_PATH,
+    CONSOLE_ROLLOUT_ORG_FLAG_PATH,
+    CONSOLE_LEGACY_KILL_SWITCH_PATH,
     USER_PATH_TEMPLATE,
     USER_DEACTIVATE_PATH_TEMPLATE,
+    USER_ACTIVATE_PATH_TEMPLATE,
     REGIONS_PATH,
     REGION_PATH_TEMPLATE,
     BRANCHES_PATH,
@@ -183,9 +196,23 @@ pub fn router(state: IdentityRestState) -> Router {
         // `/users/me` MUST be registered before `/users/{id}` so the literal
         // segment wins over the path capture.
         .route(USERS_ME_PATH, get(get_me).patch(update_me))
+        .route(CONSOLE_ROLLOUT_PATH, get(get_console_rollout))
+        .route(
+            CONSOLE_ROLLOUT_OPT_IN_PATH,
+            put(update_console_rollout_opt_in),
+        )
+        .route(
+            CONSOLE_ROLLOUT_ORG_FLAG_PATH,
+            put(update_console_rollout_org_flag),
+        )
+        .route(
+            CONSOLE_LEGACY_KILL_SWITCH_PATH,
+            post(update_console_legacy_kill_switch),
+        )
         .route(USERS_PATH, get(list_users).post(create_user))
         .route(USER_PATH_TEMPLATE, get(get_user).patch(update_user))
         .route(USER_DEACTIVATE_PATH_TEMPLATE, post(deactivate_user))
+        .route(USER_ACTIVATE_PATH_TEMPLATE, post(activate_user))
         .route(REGIONS_PATH, get(list_regions).post(create_region))
         .route(
             REGION_PATH_TEMPLATE,
@@ -265,6 +292,12 @@ struct UpdateUserRequest {
     roles: Option<Vec<String>>,
     #[serde(default)]
     branch_ids: Option<Vec<BranchId>>,
+    /// Required when `roles` or `branch_ids` is present.
+    #[serde(default)]
+    preview_acknowledged: bool,
+    /// Server-issued impact-preview receipt for the exact role/scope edit.
+    #[serde(default)]
+    preview_receipt_id: Option<Uuid>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -273,6 +306,40 @@ struct UpdateSelfRequest {
     display_name: Option<String>,
     #[serde(default, deserialize_with = "deserialize_optional_field")]
     phone: Option<Option<String>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct UpdateConsoleRolloutOptInRequest {
+    opt_in: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct UpdateConsoleRolloutOrgFlagRequest {
+    enabled: bool,
+    #[serde(default)]
+    rollout_note: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct UpdateConsoleLegacyKillSwitchRequest {
+    enabled: bool,
+    #[serde(default, alias = "rollout_note")]
+    reason: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+struct ConsoleRolloutResponse {
+    flag_key: &'static str,
+    org_enabled: bool,
+    org_rollout_enabled: bool,
+    user_opted_in: bool,
+    legacy_kill_switch_enabled: bool,
+    kill_switch_active: bool,
+    effective_new_console: bool,
+    effective_route: &'static str,
+    effective_route_for_opted_in_user: &'static str,
+    effective_route_for_opted_out_user: &'static str,
+    overrides_individual_toggles: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -497,8 +564,21 @@ struct PolicyRoleAssignmentResponse {
 
 #[derive(Debug, Deserialize)]
 struct ReplacePolicyRoleAssignmentsRequest {
+    /// Custom-role replacement set. For account/person role-or-scope previews,
+    /// omitting this field preserves the target's current custom-role set;
+    /// sending an explicit empty array previews replacing it with no custom roles.
     #[serde(default)]
-    role_ids: Vec<Uuid>,
+    role_ids: Option<Vec<Uuid>>,
+    /// Optional replacement system-role set used by account/person mutation
+    /// previews. The custom-role save endpoint ignores this and preserves the
+    /// target's current system roles.
+    #[serde(default)]
+    system_roles: Option<Vec<String>>,
+    /// Optional replacement branch-scope set used by account/person mutation
+    /// previews. The custom-role save endpoint ignores this and preserves the
+    /// target's current branch memberships.
+    #[serde(default)]
+    branch_ids: Option<Vec<BranchId>>,
     #[serde(default)]
     preview_acknowledged: bool,
     #[serde(default)]
@@ -542,6 +622,10 @@ struct PolicyAssignmentPreviewResponse {
     preview_receipt_expires_at: OffsetDateTime,
     effective: bool,
     system_roles: Vec<String>,
+    current_system_roles: Vec<String>,
+    requested_system_roles: Vec<String>,
+    current_branch_ids: Vec<Uuid>,
+    requested_branch_ids: Vec<Uuid>,
     current_role_ids: Vec<Uuid>,
     requested_role_ids: Vec<Uuid>,
     delta: PolicyRoleAssignmentDeltaResponse,
@@ -976,7 +1060,8 @@ async fn replace_policy_assignments(
         .list_policy_roles()
         .await
         .map_err(RestError::from_store)?;
-    let requested_roles = validate_requested_policy_roles(&custom_roles, &body.role_ids)?;
+    let requested_role_ids = body.role_ids.clone().unwrap_or_default();
+    let requested_roles = validate_requested_policy_roles(&custom_roles, &requested_role_ids)?;
     let authorized_roles = policy_roles_touched_by_assignment_replace(
         &custom_roles,
         &requested_roles,
@@ -1002,7 +1087,7 @@ async fn replace_policy_assignments(
         .replace_policy_role_assignments(ReplacePolicyRoleAssignmentsCommand {
             actor: principal.user_id,
             user_id,
-            role_ids: body.role_ids,
+            role_ids: requested_role_ids,
             preview_receipt_id,
             trace: trace.clone(),
             occurred_at: OffsetDateTime::now_utc(),
@@ -1035,8 +1120,15 @@ async fn preview_policy_assignments(
     Json(body): Json<ReplacePolicyRoleAssignmentsRequest>,
 ) -> Result<impl IntoResponse, RestError> {
     let principal = principal_from_headers(&state, &headers).await?;
-    authorize_org_manage_observed(&state, &principal, Feature::RoleManage).await?;
     let user_id = UserId::from_uuid(id);
+    let account_scope_preview = body.system_roles.is_some() || body.branch_ids.is_some();
+    let explicit_custom_role_preview = body.role_ids.is_some();
+    if account_scope_preview {
+        authorize_org_manage(&principal, Feature::UserManage)?;
+    }
+    if !account_scope_preview || explicit_custom_role_preview {
+        authorize_org_manage_observed(&state, &principal, Feature::RoleManage).await?;
+    }
     let user = state
         .store
         .get_user(user_id, &principal.branch_scope)
@@ -1057,11 +1149,49 @@ async fn preview_policy_assignments(
         .list_policy_roles()
         .await
         .map_err(RestError::from_store)?;
-    let requested_roles = validate_requested_policy_roles(&custom_roles, &body.role_ids)?;
     let current_ids = current_assignments
         .iter()
         .map(|assignment| assignment.role_id)
         .collect::<BTreeSet<_>>();
+    let requested_role_id_input = match (&body.role_ids, account_scope_preview) {
+        (Some(role_ids), _) => role_ids.clone(),
+        (None, true) => current_ids.iter().copied().collect(),
+        (None, false) => Vec::new(),
+    };
+    let requested_roles = validate_requested_policy_roles(&custom_roles, &requested_role_id_input)?;
+    let current_system_roles = role_db_strings(&parse_roles(&user.roles)?);
+    let requested_system_role_set = match &body.system_roles {
+        Some(raw) => Some(parse_roles(raw)?),
+        None => None,
+    };
+    let requested_system_roles = requested_system_role_set
+        .as_ref()
+        .map(role_db_strings)
+        .unwrap_or_else(|| current_system_roles.clone());
+    let current_branch_ids = user
+        .branch_ids
+        .iter()
+        .map(|branch_id| *branch_id.as_uuid())
+        .collect::<Vec<_>>();
+    let requested_branch_ids = body
+        .branch_ids
+        .as_ref()
+        .map(|branch_ids| {
+            branch_ids
+                .iter()
+                .map(|branch_id| *branch_id.as_uuid())
+                .collect()
+        })
+        .unwrap_or_else(|| current_branch_ids.clone());
+    if account_scope_preview {
+        let elevated_role_changes =
+            elevated_role_membership_changes(&user.roles, requested_system_role_set.as_ref())?;
+        let target_branches = body
+            .branch_ids
+            .as_deref()
+            .unwrap_or(user.branch_ids.as_slice());
+        authorize_user_write(&principal, &elevated_role_changes, target_branches)?;
+    }
     let requested_ids = requested_roles
         .iter()
         .map(|role| role.id)
@@ -1090,7 +1220,7 @@ async fn preview_policy_assignments(
     };
 
     let mut feature_grants = Vec::new();
-    for role_code in &user.roles {
+    for role_code in &requested_system_roles {
         let role = Role::from_str(role_code)
             .map_err(|_| RestError::validation("user has an unknown system role"))?;
         for feature in Feature::ALL {
@@ -1166,19 +1296,17 @@ async fn preview_policy_assignments(
 
     let requested_role_count = requested_roles.len();
     let custom_roles = custom_role_impacts;
-    let current_branch_ids = user
-        .branch_ids
-        .iter()
-        .map(|branch_id| *branch_id.as_uuid())
-        .collect::<Vec<_>>();
     let current_role_ids = current_ids.iter().copied().collect::<Vec<_>>();
     let preview_receipt = state
         .store
         .create_policy_assignment_preview_receipt(CreatePolicyAssignmentPreviewReceiptCommand {
             actor: principal.user_id,
             user_id,
-            current_branch_ids,
+            current_branch_ids: current_branch_ids.clone(),
+            current_system_roles: current_system_roles.clone(),
             current_role_ids: current_role_ids.clone(),
+            branch_ids: requested_branch_ids.clone(),
+            system_roles: requested_system_roles.clone(),
             role_ids: requested_role_ids.clone(),
             policy_version: policy_version.version,
             expires_at: OffsetDateTime::now_utc() + POLICY_ASSIGNMENT_PREVIEW_RECEIPT_TTL,
@@ -1204,7 +1332,11 @@ async fn preview_policy_assignments(
         preview_receipt_id: preview_receipt.id,
         preview_receipt_expires_at: preview_receipt.expires_at,
         effective: assignment_runtime_effective,
-        system_roles: user.roles,
+        system_roles: requested_system_roles.clone(),
+        current_system_roles,
+        requested_system_roles,
+        current_branch_ids,
+        requested_branch_ids,
         current_role_ids,
         requested_role_ids,
         delta,
@@ -2218,7 +2350,10 @@ fn policy_studio_feature_visible(feature: Feature) -> bool {
     // ADR-0010/0016: the oyatie AI assistant is an application-layer port only.
     // Until the real adapter/route exists, Policy Studio must not expose a
     // catalog row, system-role permission, or custom-role affordance for it.
-    !matches!(feature, Feature::AiAssist)
+    !matches!(
+        feature,
+        Feature::AiAssist | Feature::AuditStreamRead | Feature::AuditStreamAccessLogRead
+    )
 }
 
 fn policy_feature_key_visible(feature_key: &str) -> bool {
@@ -2704,6 +2839,7 @@ async fn update_user(
         Some(raw) => Some(parse_roles(raw)?),
         None => None,
     };
+    let mut preview_receipt_id = None;
     if roles.is_some() || body.branch_ids.is_some() {
         let elevated_role_changes =
             elevated_role_membership_changes(&target.roles, roles.as_ref())?;
@@ -2712,6 +2848,11 @@ async fn update_user(
             .as_deref()
             .unwrap_or(target.branch_ids.as_slice());
         authorize_user_write(&principal, &elevated_role_changes, target_branches)?;
+        ensure_assignment_preview_acknowledged(&principal, body.preview_acknowledged)?;
+        preview_receipt_id = Some(require_assignment_preview_receipt(
+            &principal,
+            body.preview_receipt_id,
+        )?);
     }
 
     let summary = state
@@ -2725,6 +2866,7 @@ async fn update_user(
             team: body.team,
             roles: roles.as_ref().map(role_db_strings),
             branch_ids: body.branch_ids,
+            preview_receipt_id,
             trace: TraceContext::generate(),
             occurred_at: OffsetDateTime::now_utc(),
         })
@@ -2761,6 +2903,414 @@ async fn deactivate_user(
         .await
         .map_err(RestError::from_store)?;
     Ok(Json(summary))
+}
+
+async fn activate_user(
+    State(state): State<IdentityRestState>,
+    headers: HeaderMap,
+    Path(id): Path<uuid::Uuid>,
+) -> Result<impl IntoResponse, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    let target_id = UserId::from_uuid(id);
+    if target_id == principal.user_id {
+        return Err(RestError::bad_request("cannot activate your own account"));
+    }
+    authorize_org_manage(&principal, Feature::UserManage)?;
+    // Target must be within the caller's scope (IDOR), including archived users.
+    state
+        .store
+        .get_user(target_id, &principal.branch_scope)
+        .await
+        .map_err(RestError::from_store)?;
+    let summary = state
+        .store
+        .activate_user(ActivateUserCommand {
+            actor: principal.user_id,
+            user_id: target_id,
+            trace: TraceContext::generate(),
+            occurred_at: OffsetDateTime::now_utc(),
+        })
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(Json(summary))
+}
+
+// ---------------------------------------------------------------------------
+// New-console rollout handlers (per-org flag + per-user opt-in)
+// ---------------------------------------------------------------------------
+
+async fn get_console_rollout(
+    State(state): State<IdentityRestState>,
+    headers: HeaderMap,
+) -> Result<impl IntoResponse, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    authorize_org_manage(&principal, Feature::Login)?;
+    let org = current_org()?;
+    let user_id = principal.user_id;
+    let status =
+        with_org_conn::<_, ConsoleRolloutResponse, RestError>(state.pool(), org, move |tx| {
+            Box::pin(async move { fetch_console_rollout_status_tx(tx, user_id).await })
+        })
+        .await?;
+    Ok(Json(status))
+}
+
+async fn update_console_rollout_opt_in(
+    State(state): State<IdentityRestState>,
+    headers: HeaderMap,
+    Json(body): Json<UpdateConsoleRolloutOptInRequest>,
+) -> Result<impl IntoResponse, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    authorize_org_manage(&principal, Feature::Login)?;
+    let org = current_org()?;
+    let actor = principal.user_id;
+    let opt_in = body.opt_in;
+    let now = OffsetDateTime::now_utc();
+
+    let status =
+        with_audits::<_, ConsoleRolloutResponse, RestError>(state.pool(), org, move |tx| {
+            Box::pin(async move {
+                let before_preferences: Option<serde_json::Value> = sqlx::query_scalar(
+                    r#"
+                    SELECT preferences_json
+                    FROM user_feature_preferences
+                    WHERE user_id = $1 AND feature_key = $2
+                    FOR UPDATE
+                    "#,
+                )
+                .bind(*actor.as_uuid())
+                .bind(CONSOLE_ROLLOUT_USER_FEATURE_KEY)
+                .fetch_optional(tx.as_mut())
+                .await
+                .map_err(DbError::Sqlx)?;
+                let before_opt_in = before_preferences
+                    .as_ref()
+                    .and_then(|value| value.get("opt_in"))
+                    .and_then(serde_json::Value::as_bool)
+                    .unwrap_or(false);
+
+                let after_preferences = serde_json::json!({ "opt_in": opt_in });
+                sqlx::query(
+                    r#"
+                    INSERT INTO user_feature_preferences (
+                        org_id, user_id, feature_key, preferences_json, schema_version
+                    ) VALUES ($1, $2, $3, $4, 1)
+                    ON CONFLICT (org_id, user_id, feature_key) DO UPDATE SET
+                        preferences_json = EXCLUDED.preferences_json,
+                        schema_version = EXCLUDED.schema_version,
+                        updated_at = now()
+                    "#,
+                )
+                .bind(*org.as_uuid())
+                .bind(*actor.as_uuid())
+                .bind(CONSOLE_ROLLOUT_USER_FEATURE_KEY)
+                .bind(after_preferences)
+                .execute(tx.as_mut())
+                .await
+                .map_err(DbError::Sqlx)?;
+
+                let status = fetch_console_rollout_status_tx(tx, actor).await?;
+                let action =
+                    AuditAction::new("console.opt_in_update").map_err(RestError::from_kernel)?;
+                let event = AuditEvent::new(
+                    Some(actor),
+                    action,
+                    "user_feature_preference",
+                    format!("{}:{CONSOLE_ROLLOUT_USER_FEATURE_KEY}", actor),
+                    TraceContext::generate(),
+                    now,
+                )
+                .with_org(org)
+                .with_snapshots(
+                    Some(serde_json::json!({
+                        "feature_key": CONSOLE_ROLLOUT_USER_FEATURE_KEY,
+                        "opt_in": before_opt_in,
+                        "org_enabled": status.org_enabled,
+                        "legacy_kill_switch_enabled": status.legacy_kill_switch_enabled,
+                        "effective_new_console": status.org_enabled && before_opt_in && !status.legacy_kill_switch_enabled,
+                    })),
+                    Some(serde_json::json!({
+                        "feature_key": CONSOLE_ROLLOUT_USER_FEATURE_KEY,
+                        "opt_in": status.user_opted_in,
+                        "org_enabled": status.org_enabled,
+                        "effective_new_console": status.effective_new_console,
+                    })),
+                );
+                Ok((status, vec![event]))
+            })
+        })
+        .await?;
+
+    Ok(Json(status))
+}
+
+async fn update_console_rollout_org_flag(
+    State(state): State<IdentityRestState>,
+    headers: HeaderMap,
+    Json(body): Json<UpdateConsoleRolloutOrgFlagRequest>,
+) -> Result<impl IntoResponse, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    authorize_org_manage(&principal, Feature::RoleManage)?;
+    let org = current_org()?;
+    let actor = principal.user_id;
+    let enabled = body.enabled;
+    let rollout_note = normalize_console_rollout_note(body.rollout_note)?;
+    let now = OffsetDateTime::now_utc();
+
+    let status =
+        with_audits::<_, ConsoleRolloutResponse, RestError>(state.pool(), org, move |tx| {
+            Box::pin(async move {
+                let before_row = sqlx::query(
+                    r#"
+                    SELECT enabled, rollout_note
+                    FROM org_runtime_flags
+                    WHERE flag_key = $1
+                    FOR UPDATE
+                    "#,
+                )
+                .bind(CONSOLE_ROLLOUT_FLAG_KEY)
+                .fetch_optional(tx.as_mut())
+                .await
+                .map_err(DbError::Sqlx)?;
+                let before_snapshot = match before_row {
+                    Some(row) => Some(serde_json::json!({
+                        "flag_key": CONSOLE_ROLLOUT_FLAG_KEY,
+                        "enabled": row.try_get::<bool, _>("enabled").map_err(DbError::Sqlx)?,
+                        "rollout_note": row
+                            .try_get::<Option<String>, _>("rollout_note")
+                            .map_err(DbError::Sqlx)?,
+                    })),
+                    None => None,
+                };
+
+                sqlx::query(
+                    r#"
+                    INSERT INTO org_runtime_flags (org_id, flag_key, enabled, rollout_note, set_by)
+                    VALUES ($1, $2, $3, $4, $5)
+                    ON CONFLICT (org_id, flag_key) DO UPDATE SET
+                        enabled = EXCLUDED.enabled,
+                        rollout_note = EXCLUDED.rollout_note,
+                        set_by = EXCLUDED.set_by
+                    "#,
+                )
+                .bind(*org.as_uuid())
+                .bind(CONSOLE_ROLLOUT_FLAG_KEY)
+                .bind(enabled)
+                .bind(rollout_note.as_deref())
+                .bind(*actor.as_uuid())
+                .execute(tx.as_mut())
+                .await
+                .map_err(DbError::Sqlx)?;
+
+                let status = fetch_console_rollout_status_tx(tx, actor).await?;
+                let action =
+                    AuditAction::new("console.org_flag_update").map_err(RestError::from_kernel)?;
+                let event = AuditEvent::new(
+                    Some(actor),
+                    action,
+                    "org_runtime_flag",
+                    CONSOLE_ROLLOUT_FLAG_KEY.to_owned(),
+                    TraceContext::generate(),
+                    now,
+                )
+                .with_org(org)
+                .with_snapshots(
+                    before_snapshot,
+                    Some(serde_json::json!({
+                        "flag_key": CONSOLE_ROLLOUT_FLAG_KEY,
+                        "enabled": enabled,
+                        "rollout_note": rollout_note,
+                    })),
+                );
+                Ok((status, vec![event]))
+            })
+        })
+        .await?;
+
+    Ok(Json(status))
+}
+
+async fn update_console_legacy_kill_switch(
+    State(state): State<IdentityRestState>,
+    headers: HeaderMap,
+    Json(body): Json<UpdateConsoleLegacyKillSwitchRequest>,
+) -> Result<impl IntoResponse, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    authorize_org_manage(&principal, Feature::RoleManage)?;
+    let org = current_org()?;
+    let actor = principal.user_id;
+    let enabled = body.enabled;
+    let reason = normalize_console_rollout_note(body.reason)?;
+    let now = OffsetDateTime::now_utc();
+
+    let status = with_audits::<_, ConsoleRolloutResponse, RestError>(
+        state.pool(),
+        org,
+        move |tx| {
+            Box::pin(async move {
+                let before_row = sqlx::query(
+                    r#"
+                    SELECT enabled, rollout_note
+                    FROM org_runtime_flags
+                    WHERE flag_key = $1
+                    FOR UPDATE
+                    "#,
+                )
+                .bind(CONSOLE_LEGACY_KILL_SWITCH_FLAG_KEY)
+                .fetch_optional(tx.as_mut())
+                .await
+                .map_err(DbError::Sqlx)?;
+                let before_snapshot = match before_row {
+                    Some(row) => Some(serde_json::json!({
+                        "flag_key": CONSOLE_LEGACY_KILL_SWITCH_FLAG_KEY,
+                        "enabled": row.try_get::<bool, _>("enabled").map_err(DbError::Sqlx)?,
+                        "reason": row
+                            .try_get::<Option<String>, _>("rollout_note")
+                            .map_err(DbError::Sqlx)?,
+                    })),
+                    None => None,
+                };
+
+                sqlx::query(
+                    r#"
+                    INSERT INTO org_runtime_flags (org_id, flag_key, enabled, rollout_note, set_by)
+                    VALUES ($1, $2, $3, $4, $5)
+                    ON CONFLICT (org_id, flag_key) DO UPDATE SET
+                        enabled = EXCLUDED.enabled,
+                        rollout_note = EXCLUDED.rollout_note,
+                        set_by = EXCLUDED.set_by
+                    "#,
+                )
+                .bind(*org.as_uuid())
+                .bind(CONSOLE_LEGACY_KILL_SWITCH_FLAG_KEY)
+                .bind(enabled)
+                .bind(reason.as_deref())
+                .bind(*actor.as_uuid())
+                .execute(tx.as_mut())
+                .await
+                .map_err(DbError::Sqlx)?;
+
+                let status = fetch_console_rollout_status_tx(tx, actor).await?;
+                let action = AuditAction::new("console.kill_switch")
+                    .map_err(RestError::from_kernel)?;
+                let event = AuditEvent::new(
+                    Some(actor),
+                    action,
+                    "org_runtime_flag",
+                    CONSOLE_LEGACY_KILL_SWITCH_FLAG_KEY,
+                    TraceContext::generate(),
+                    now,
+                )
+                .with_org(org)
+                .with_snapshots(
+                    before_snapshot,
+                    Some(serde_json::json!({
+                        "flag_key": CONSOLE_LEGACY_KILL_SWITCH_FLAG_KEY,
+                        "enabled": enabled,
+                        "reason": reason,
+                        "org_rollout_enabled": status.org_rollout_enabled,
+                        "user_opted_in": status.user_opted_in,
+                        "effective_route": status.effective_route,
+                        "effective_route_for_opted_in_user": status.effective_route_for_opted_in_user,
+                        "effective_route_for_opted_out_user": status.effective_route_for_opted_out_user,
+                        "overrides_individual_toggles": status.overrides_individual_toggles,
+                    })),
+                );
+                Ok((status, vec![event]))
+            })
+        },
+    )
+    .await?;
+
+    if enabled {
+        tracing::warn!(
+            event = "console_legacy_kill_switch_updated",
+            actor_user_id = %actor,
+            org_id = %org,
+            enabled,
+            "console legacy kill switch enabled"
+        );
+    } else {
+        tracing::info!(
+            event = "console_legacy_kill_switch_updated",
+            actor_user_id = %actor,
+            org_id = %org,
+            enabled,
+            "console legacy kill switch disabled"
+        );
+    }
+
+    Ok(Json(status))
+}
+
+async fn fetch_console_rollout_status_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    user_id: UserId,
+) -> Result<ConsoleRolloutResponse, RestError> {
+    let org_enabled: bool = sqlx::query_scalar("SELECT org_runtime_flag_enabled($1)")
+        .bind(CONSOLE_ROLLOUT_FLAG_KEY)
+        .fetch_one(tx.as_mut())
+        .await
+        .map_err(DbError::Sqlx)?;
+    let legacy_kill_switch_enabled: bool =
+        sqlx::query_scalar("SELECT org_runtime_flag_enabled($1)")
+            .bind(CONSOLE_LEGACY_KILL_SWITCH_FLAG_KEY)
+            .fetch_one(tx.as_mut())
+            .await
+            .map_err(DbError::Sqlx)?;
+    let preferences: Option<serde_json::Value> = sqlx::query_scalar(
+        r#"
+        SELECT preferences_json
+        FROM user_feature_preferences
+        WHERE user_id = $1 AND feature_key = $2
+        "#,
+    )
+    .bind(*user_id.as_uuid())
+    .bind(CONSOLE_ROLLOUT_USER_FEATURE_KEY)
+    .fetch_optional(tx.as_mut())
+    .await
+    .map_err(DbError::Sqlx)?;
+    let user_opted_in = preferences
+        .as_ref()
+        .and_then(|value| value.get("opt_in"))
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+    let effective_new_console = org_enabled && user_opted_in && !legacy_kill_switch_enabled;
+    let effective_route_for_opted_in_user = if org_enabled && !legacy_kill_switch_enabled {
+        "new_console"
+    } else {
+        "legacy"
+    };
+    Ok(ConsoleRolloutResponse {
+        flag_key: CONSOLE_ROLLOUT_FLAG_KEY,
+        org_enabled,
+        org_rollout_enabled: org_enabled,
+        user_opted_in,
+        legacy_kill_switch_enabled,
+        kill_switch_active: legacy_kill_switch_enabled,
+        effective_new_console,
+        effective_route: if effective_new_console {
+            "new_console"
+        } else {
+            "legacy"
+        },
+        effective_route_for_opted_in_user,
+        effective_route_for_opted_out_user: "legacy",
+        overrides_individual_toggles: legacy_kill_switch_enabled,
+    })
+}
+
+fn normalize_console_rollout_note(raw: Option<String>) -> Result<Option<String>, RestError> {
+    let Some(raw) = raw else {
+        return Ok(None);
+    };
+    let note = raw.trim().to_owned();
+    if note.is_empty() || note.chars().count() > 500 {
+        return Err(RestError::validation(
+            "rollout_note must be between 1 and 500 characters when provided",
+        ));
+    }
+    Ok(Some(note))
 }
 
 // ---------------------------------------------------------------------------

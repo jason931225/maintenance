@@ -4,8 +4,9 @@
 # Same-origin requirement: the browser loads the Vite origin
 # (http://localhost:5173) and proxies /api -> 127.0.0.1:8080, so the WebAuthn RP
 # origin MUST be the Vite origin, not the backend's. MNT_COOKIE_SECURE=false lets
-# the HttpOnly mnt_refresh cookie set over plain http. The cold-start OTP seeds
-# the PLATFORM admin so AUTH-01 can redeem it.
+# the HttpOnly mnt_refresh cookie set over plain http. MNT_EMAIL_STUB_MODE=e2e
+# explicitly enables the OTP-logging email stub used by signup specs. The
+# cold-start OTP seeds the PLATFORM admin so AUTH-01 can redeem it.
 #
 # Writes the child PID to e2e/.auth/backend.pid for teardown. Idempotent keys via
 # gen-keys.sh. Sourcing is not required; run directly.
@@ -69,6 +70,7 @@ export MNT_HTTP_ADDR="${HTTP_ADDR}"
 export MNT_WEBAUTHN_RP_ID="${E2E_RP_ID:-localhost}"
 export MNT_WEBAUTHN_RP_ORIGIN="${E2E_RP_ORIGIN:-http://localhost:5173}"
 export MNT_COOKIE_SECURE=false
+export MNT_EMAIL_STUB_MODE=e2e
 export MNT_COLDSTART_OTP="${E2E_COLDSTART_OTP:-e2e-coldstart-otp-000}"
 export MNT_DISPATCH_JOBS_ENABLED=false
 export RUST_LOG="${RUST_LOG:-info}"

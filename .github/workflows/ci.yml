@@ -16,6 +16,7 @@ on:
       - "android/**"
       - "ios/**"
       - "deploy/**"
+      - "docs/CI-GATES.md"
       - "docs/benchmarks/**"
       - "docs/specs/**"
       - "docs/ENTERPRISE-READINESS.md"
@@ -40,6 +41,7 @@ on:
       - "android/**"
       - "ios/**"
       - "deploy/**"
+      - "docs/CI-GATES.md"
       - "docs/benchmarks/**"
       - "docs/specs/**"
       - "docs/ENTERPRISE-READINESS.md"
@@ -316,6 +318,12 @@ jobs:
       - name: Browser persona E2E matrix gate
         run: npm run check:browser-persona-matrix
 
+      - name: iOS UI-test fail-closed workflow guard
+        run: npm run check:ios-ui-test-fail-closed
+
+      - name: Android E2E fail-closed workflow guard
+        run: npm run check:android-e2e-fail-closed
+
       - name: G004 identity group org people policy foundation gate
         run: npm run check:g004-identity-foundation
 
@@ -362,13 +370,13 @@ jobs:
         run: npm run check:operations-intelligence-maturity
 
       - name: Lint (eslint + UI-string gate)
-        run: npm run lint --workspace @maintenance/web-console
+        run: npm run lint --workspace @console/web
 
       - name: Unit tests
-        run: npm run test --workspace @maintenance/web-console
+        run: npm run test --workspace @console/web
 
       - name: Production build
-        run: npm run build --workspace @maintenance/web-console
+        run: npm run build --workspace @console/web
 
   api-contract:
     name: API contract — app OpenAPI and generated TS round-trip
@@ -427,7 +435,7 @@ jobs:
         run: npm run test:contract
 
   kubernetes-manifests:
-    name: Kubernetes manifests — render / hardening / Argo target guard
+    name: Kubernetes manifests — render / hardening / NetworkPolicy preflight
     runs-on: ubuntu-latest
 
     steps:
@@ -444,8 +452,13 @@ jobs:
           sudo install -m 0755 kubectl /usr/local/bin/kubectl
           kubectl version --client=true
 
-      - name: Render production manifests and guard Argo targets
-        run: scripts/render-k8s-manifests.sh "${RUNNER_TEMP}/rendered-k8s"
+      - name: Render manifests and NetworkPolicy enforcement preflight
+        # Generic CI has no production kubeconfig, so the live readback runs in
+        # warning mode here. Real deployment validation must set
+        # MNT_NETWORKPOLICY_PREFLIGHT=require against the target cluster.
+        env:
+          MNT_NETWORKPOLICY_PREFLIGHT: warn
+        run: npm run check:k8s
 
       - name: Production hardening contract
         run: npm run check:production-hardening
@@ -684,35 +697,91 @@ jobs:
           sdkmanager --install "platform-tools" "platforms;android-36" "build-tools;36.1.0"
 
       - name: Mint a real backend session for the test user
-        id: session
         # No fakes: obtain a REAL session from the REAL backend. The test user's passkey
         # was registered through the automatable web ceremony; here we refresh its token at
-        # run start and hand the fresh access+refresh pair to the instrumented test.
-        # When the backend secret is absent (e.g. forks), the test self-skips via Assume.
+        # run start and hand the fresh access+refresh pair to the instrumented test via a
+        # permission-restricted temporary androidTest asset fixture (never step outputs or
+        # raw Gradle CLI arguments).
+        # Protected branch push runs require a real session. Fork PRs/manual optional
+        # contexts may still run without secrets, but must log an explicit optional skip.
         env:
           FIELD_E2E_BASE_URL: ${{ secrets.FIELD_E2E_BASE_URL }}
           FIELD_E2E_SEED_REFRESH_TOKEN: ${{ secrets.FIELD_E2E_SEED_REFRESH_TOKEN }}
+          # Trust-context decision, not a function of whether secrets are present:
+          # missing required inputs must fail closed before Gradle can false-green.
+          FIELD_E2E_REQUIRE_REAL_SESSION: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && '1' || '0' }}
         run: |
-          if [ -z "$FIELD_E2E_BASE_URL" ] || [ -z "$FIELD_E2E_SEED_REFRESH_TOKEN" ]; then
-            echo "No backend E2E secrets configured; instrumented test will self-skip."
-            echo "access=" >> "$GITHUB_OUTPUT"
-            echo "refresh=" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          if [ -z "${FIELD_E2E_BASE_URL:-}" ] || [ -z "${FIELD_E2E_SEED_REFRESH_TOKEN:-}" ]; then
+            if [ "${FIELD_E2E_REQUIRE_REAL_SESSION:-0}" = "1" ]; then
+              echo "::error title=Required Android E2E real-session inputs are missing::Protected branch push runs require FIELD_E2E_BASE_URL and FIELD_E2E_SEED_REFRESH_TOKEN; refusing a false-green post-login gate."
+              if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+                {
+                  echo "### Android instrumented E2E real-session gate"
+                  echo "- Gate: required"
+                  echo "- Result: failed closed before Gradle Managed Device execution"
+                  echo "- Required inputs: FIELD_E2E_BASE_URL and FIELD_E2E_SEED_REFRESH_TOKEN"
+                } >> "$GITHUB_STEP_SUMMARY"
+              fi
+              exit 1
+            fi
+            echo "::notice title=Optional Android E2E real-session gate skipped::FIELD_E2E_BASE_URL or FIELD_E2E_SEED_REFRESH_TOKEN is unavailable in this optional context; session-dependent instrumented tests may self-skip and this run is not protected-branch post-login evidence."
+            if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+              {
+                echo "### Android instrumented E2E real-session gate"
+                echo "- Gate: optional/skipped"
+                echo "- Reason: FIELD_E2E_BASE_URL or FIELD_E2E_SEED_REFRESH_TOKEN was not available in this non-required context"
+                echo "- Required protected branch push contexts fail closed before Gradle execution"
+              } >> "$GITHUB_STEP_SUMMARY"
+            fi
+            echo "FIELD_E2E_SESSION_ASSETS_DIR=" >> "$GITHUB_ENV"
             exit 0
           fi
-          resp=$(curl -fsS -X POST "$FIELD_E2E_BASE_URL/api/v1/auth/refresh" \
+          printf '::add-mask::%s\n' "$FIELD_E2E_SEED_REFRESH_TOKEN"
+          session_assets_dir="${RUNNER_TEMP}/android-e2e-session-assets"
+          session_file="${session_assets_dir}/field-e2e-session.properties"
+          rm -rf "$session_assets_dir"
+          install -d -m 700 "$session_assets_dir"
+          if ! resp=$(curl -fsS -X POST "$FIELD_E2E_BASE_URL/api/v1/auth/refresh" \
             -H 'Content-Type: application/json' \
-            -d "{\"refresh_token\":\"$FIELD_E2E_SEED_REFRESH_TOKEN\"}")
-          echo "access=$(echo "$resp" | jq -r '.access_token')" >> "$GITHUB_OUTPUT"
-          echo "refresh=$(echo "$resp" | jq -r '.refresh_token')" >> "$GITHUB_OUTPUT"
+            -d "{\"refresh_token\":\"$FIELD_E2E_SEED_REFRESH_TOKEN\"}"); then
+            echo "::error title=Android E2E real-session mint failed::The backend refresh-token exchange failed; refusing a false-green post-login gate."
+            exit 1
+          fi
+          if ! access_token=$(printf '%s' "$resp" | jq -er '.access_token'); then
+            echo "::error title=Android E2E real-session mint failed::The backend response did not contain access_token; refusing a false-green post-login gate."
+            exit 1
+          fi
+          if ! refresh_token=$(printf '%s' "$resp" | jq -er '.refresh_token'); then
+            echo "::error title=Android E2E real-session mint failed::The backend response did not contain refresh_token; refusing a false-green post-login gate."
+            exit 1
+          fi
+          printf '::add-mask::%s\n' "$access_token"
+          printf '::add-mask::%s\n' "$refresh_token"
+          umask 077
+          {
+            printf 'FIELD_E2E_ACCESS_TOKEN=%s\n' "$access_token"
+            printf 'FIELD_E2E_REFRESH_TOKEN=%s\n' "$refresh_token"
+          } > "$session_file"
+          chmod 600 "$session_file"
+          echo "FIELD_E2E_SESSION_ASSETS_DIR=$session_assets_dir" >> "$GITHUB_ENV"
 
       - name: Instrumented post-login E2E on Gradle Managed Device
         working-directory: android
         # Gradle Managed Device: API 34, google_apis_playstore, swiftshader_indirect.
         # The device is declared in app/build.gradle.kts (fieldApi34 GMD).
+        env:
+          FIELD_E2E_SESSION_ASSETS_DIR: ${{ env.FIELD_E2E_SESSION_ASSETS_DIR }}
         run: |
-          ./gradlew fieldApi34DebugAndroidTest \
-            -Pandroid.testInstrumentationRunnerArguments.FIELD_E2E_ACCESS_TOKEN="${{ steps.session.outputs.access }}" \
-            -Pandroid.testInstrumentationRunnerArguments.FIELD_E2E_REFRESH_TOKEN="${{ steps.session.outputs.refresh }}"
+          cleanup_session_fixture() {
+            if [ -n "${FIELD_E2E_SESSION_ASSETS_DIR:-}" ]; then
+              rm -rf "$FIELD_E2E_SESSION_ASSETS_DIR"
+              find app/build -type f -name 'field-e2e-session.properties' -delete 2>/dev/null || true
+              find app/build -type f -name '*androidTest*.apk' -delete 2>/dev/null || true
+            fi
+          }
+          trap cleanup_session_fixture EXIT
+          ./gradlew fieldApi34DebugAndroidTest
 
   ios-app:
     name: iOS app — Swift build and behavior tests

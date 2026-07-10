@@ -9,16 +9,17 @@
 use std::collections::BTreeSet;
 
 use mnt_identity_application::{
-    BranchSummary, CreateBranchCommand, CreatePolicyAssignmentPreviewReceiptCommand,
-    CreatePolicyRoleCommand, CreateRegionCommand, CreateUserCommand, DeactivateBranchCommand,
-    DeactivateRegionCommand, DeactivateUserCommand, EmployeeLinkStatus,
-    PolicyAssignmentPreviewReceiptSummary, PolicyAuditEventSummary, PolicyRoleAssignmentSummary,
-    PolicyRoleCondition, PolicyRolePermission, PolicyRoleSummary, PolicyVersionSummary,
-    RegionSummary, ReplacePolicyRoleAssignmentsCommand, UpdateBranchCommand,
+    ActivateUserCommand, BranchSummary, CreateBranchCommand,
+    CreatePolicyAssignmentPreviewReceiptCommand, CreatePolicyRoleCommand, CreateRegionCommand,
+    CreateUserCommand, DeactivateBranchCommand, DeactivateRegionCommand, DeactivateUserCommand,
+    EmployeeLinkStatus, PolicyAssignmentPreviewReceiptSummary, PolicyAuditEventSummary,
+    PolicyRoleAssignmentSummary, PolicyRoleCondition, PolicyRolePermission, PolicyRoleSummary,
+    PolicyVersionSummary, RegionSummary, ReplacePolicyRoleAssignmentsCommand, UpdateBranchCommand,
     UpdatePolicyRoleCommand, UpdatePolicyRoleStatusCommand, UpdateRegionCommand,
     UpdateSelfProfileCommand, UpdateUserCommand, UserListQuery, UserPage, UserSummary,
-    account_status_for, branch_audit_event, policy_role_assignment_audit_event,
-    policy_role_audit_event, region_audit_event, user_audit_event,
+    account_status_for, branch_audit_event, policy_account_audit_event,
+    policy_role_assignment_audit_event, policy_role_audit_event, region_audit_event,
+    user_audit_event,
 };
 use mnt_identity_domain::{
     Team, normalize_optional_phone, validate_display_name, validate_org_name,
@@ -154,6 +155,11 @@ impl PgOrgStore {
     pub async fn update_user(&self, command: UpdateUserCommand) -> Result<UserSummary, PgOrgError> {
         let org = current_org().map_err(KernelError::from)?;
         let org_uuid = *org.as_uuid();
+        let actor = command.actor;
+        let user_id = command.user_id;
+        let trace = command.trace.clone();
+        let occurred_at = command.occurred_at;
+        let preview_receipt_id = command.preview_receipt_id;
         let display_name = command
             .display_name
             .as_deref()
@@ -173,28 +179,70 @@ impl PgOrgStore {
             .branch_ids
             .as_ref()
             .map(|ids| ids.iter().map(|b| *b.as_uuid()).collect());
-        let user_id = command.user_id;
-        let occurred_at = command.occurred_at;
+        let role_or_scope_update = roles.is_some() || branch_ids.is_some();
 
         let event = user_audit_event(
             "user.update",
-            Some(command.actor),
+            Some(actor),
             user_id,
-            command.trace.clone(),
-            command.occurred_at,
+            trace.clone(),
+            occurred_at,
         )?
         .with_org(org);
 
         with_audit::<_, UserSummary, PgOrgError>(&self.pool, event, |tx| {
             Box::pin(async move {
-                // Ensure the target exists (and lock it) before mutating.
-                let exists: Option<uuid::Uuid> =
-                    sqlx::query_scalar("SELECT id FROM users WHERE id = $1 FOR UPDATE")
-                        .bind(*user_id.as_uuid())
-                        .fetch_optional(tx.as_mut())
-                        .await?;
-                if exists.is_none() {
+                // Ensure the target exists (and lock it) before mutating. Locking
+                // the row also freezes the mutable authorization baseline checked
+                // by the preview receipt below.
+                let row = sqlx::query("SELECT roles FROM users WHERE id = $1 FOR UPDATE")
+                    .bind(*user_id.as_uuid())
+                    .fetch_optional(tx.as_mut())
+                    .await?;
+                let Some(row) = row else {
                     return Err(PgOrgError::Domain(KernelError::not_found("user not found")));
+                };
+                let before = fetch_user_tx(tx, user_id).await?;
+                let current_system_roles = normalize_system_roles(row.try_get("roles")?);
+                let current_branch_ids = fetch_user_branch_uuid_ids_tx(tx, user_id).await?;
+                let previous_assignments = fetch_policy_role_assignments_tx(tx, user_id).await?;
+                let current_role_ids = normalize_policy_role_ids(
+                    previous_assignments
+                        .iter()
+                        .map(|assignment| assignment.role_id)
+                        .collect(),
+                );
+
+                if role_or_scope_update {
+                    let preview_receipt_id =
+                        preview_receipt_id.ok_or_else(stale_policy_assignment_preview_error)?;
+                    let requested_system_roles = roles
+                        .as_ref()
+                        .map(|roles| normalize_system_roles(roles.clone()))
+                        .unwrap_or_else(|| current_system_roles.clone());
+                    let requested_branch_ids = branch_ids
+                        .clone()
+                        .map(normalize_policy_role_ids)
+                        .unwrap_or_else(|| current_branch_ids.clone());
+                    let policy_version = lock_policy_version_tx(tx, org_uuid).await?;
+                    consume_policy_assignment_preview_receipt_tx(
+                        tx,
+                        AssignmentPreviewReceiptConsumption {
+                            actor,
+                            user_id,
+                            current_branch_ids: &current_branch_ids,
+                            current_system_roles: &current_system_roles,
+                            current_role_ids: &current_role_ids,
+                            branch_ids: &requested_branch_ids,
+                            system_roles: &requested_system_roles,
+                            role_ids: &current_role_ids,
+                            policy_version,
+                            receipt_id: preview_receipt_id,
+                            occurred_at,
+                            org_uuid,
+                        },
+                    )
+                    .await?;
                 }
 
                 if let Some(display_name) = &display_name {
@@ -231,18 +279,32 @@ impl PgOrgStore {
                         .bind(roles)
                         .execute(tx.as_mut())
                         .await?;
-                    // A system-role change is authorization-relevant: bump the
-                    // subject freshness version so a later Cedar slice can deny a
-                    // token minted before the change. Only bumps when roles were
-                    // actually part of this update (branch/profile-only edits do
-                    // not touch authorization material).
-                    bump_subject_version_tx(tx, org_uuid, *user_id.as_uuid(), occurred_at).await?;
                 }
                 if let Some(branch_ids) = &branch_ids {
                     replace_user_branches(tx, user_id, branch_ids, org_uuid).await?;
                 }
+                if role_or_scope_update {
+                    // System roles and branch memberships are authorization-relevant
+                    // subject material; bump freshness once after a successful
+                    // receipt-gated replacement.
+                    bump_subject_version_tx(tx, org_uuid, *user_id.as_uuid(), occurred_at).await?;
+                }
 
-                fetch_user_tx(tx, user_id).await
+                let after = fetch_user_tx(tx, user_id).await?;
+                let policy_event = policy_account_audit_event(
+                    "policy.account.update.snapshot",
+                    Some(actor),
+                    user_id,
+                    trace,
+                    occurred_at,
+                )?
+                .with_org(org)
+                .with_snapshots(
+                    Some(serde_json::json!({ "user": before })),
+                    Some(serde_json::json!({ "user": &after })),
+                );
+                insert_audit_event(tx, &policy_event).await?;
+                Ok(after)
             })
         })
         .await
@@ -429,6 +491,28 @@ impl PgOrgStore {
                 );
                 insert_audit_event(tx, &session_event).await?;
 
+                let policy_event = policy_account_audit_event(
+                    "policy.account.archive",
+                    Some(actor),
+                    user_id,
+                    trace.clone(),
+                    occurred_at,
+                )?
+                .with_org(org)
+                .with_snapshots(
+                    Some(serde_json::json!({
+                        "is_active": true,
+                        "account_status": "ACTIVE"
+                    })),
+                    Some(serde_json::json!({
+                        "is_active": false,
+                        "account_status": "ARCHIVED",
+                        "revoked_credential_count": revoked_credentials,
+                        "revoked_family_count": revoked_families,
+                    })),
+                );
+                insert_audit_event(tx, &policy_event).await?;
+
                 // Offboarding revokes every credential + session; bump the
                 // subject session_generation so any access token minted before
                 // this point is recognizably stale to a later Cedar slice.
@@ -441,6 +525,80 @@ impl PgOrgStore {
                 .await?;
 
                 fetch_user_tx(tx, user_id).await
+            })
+        })
+        .await
+    }
+
+    /// Reactivate an archived user. This reverses only the lifecycle flag; it
+    /// never recreates passkeys or sessions, so an account with no credential
+    /// returns as `PENDING_SETUP`.
+    pub async fn activate_user(
+        &self,
+        command: ActivateUserCommand,
+    ) -> Result<UserSummary, PgOrgError> {
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
+        let user_id = command.user_id;
+        let actor = command.actor;
+        let occurred_at = command.occurred_at;
+        let trace = command.trace.clone();
+        let event = user_audit_event(
+            "user.activate",
+            Some(actor),
+            user_id,
+            trace.clone(),
+            occurred_at,
+        )?
+        .with_org(org)
+        .with_snapshots(
+            Some(serde_json::json!({ "is_active": false })),
+            Some(serde_json::json!({ "is_active": true })),
+        );
+
+        with_audit::<_, UserSummary, PgOrgError>(&self.pool, event, |tx| {
+            Box::pin(async move {
+                let affected = sqlx::query(
+                    "UPDATE users SET is_active = true WHERE id = $1 AND is_active = false",
+                )
+                .bind(*user_id.as_uuid())
+                .execute(tx.as_mut())
+                .await?
+                .rows_affected();
+                if affected == 0 {
+                    let exists: Option<uuid::Uuid> =
+                        sqlx::query_scalar("SELECT id FROM users WHERE id = $1")
+                            .bind(*user_id.as_uuid())
+                            .fetch_optional(tx.as_mut())
+                            .await?;
+                    if exists.is_none() {
+                        return Err(PgOrgError::Domain(KernelError::not_found("user not found")));
+                    }
+                }
+
+                bump_subject_version_tx(tx, org_uuid, *user_id.as_uuid(), occurred_at).await?;
+                let summary = fetch_user_tx(tx, user_id).await?;
+                let policy_event = policy_account_audit_event(
+                    "policy.account.activate",
+                    Some(actor),
+                    user_id,
+                    trace,
+                    occurred_at,
+                )?
+                .with_org(org)
+                .with_snapshots(
+                    Some(serde_json::json!({
+                        "is_active": false,
+                        "account_status": "ARCHIVED"
+                    })),
+                    Some(serde_json::json!({
+                        "is_active": true,
+                        "account_status": summary.account_status,
+                        "has_passkey": summary.has_passkey,
+                    })),
+                );
+                insert_audit_event(tx, &policy_event).await?;
+                Ok(summary)
             })
         })
         .await
@@ -667,7 +825,7 @@ impl PgOrgStore {
                     FROM audit_events
                     WHERE org_id = $1
                       AND action LIKE 'policy.%'
-                      AND target_type IN ('policy_role', 'policy_role_assignment')
+                      AND target_type IN ('policy_role', 'policy_role_assignment', 'user')
                     ORDER BY occurred_at DESC, created_at DESC
                     LIMIT $2
                     "#,
@@ -1086,19 +1244,25 @@ impl PgOrgStore {
         let actor = command.actor;
         let user_id = command.user_id;
         let current_branch_ids = normalize_policy_role_ids(command.current_branch_ids);
+        let current_system_roles = normalize_system_roles(command.current_system_roles);
         let current_role_ids = normalize_policy_role_ids(command.current_role_ids);
+        let branch_ids = normalize_policy_role_ids(command.branch_ids);
+        let system_roles = normalize_system_roles(command.system_roles);
         let role_ids = normalize_policy_role_ids(command.role_ids);
         let policy_version = command.policy_version;
         let expires_at = command.expires_at;
         with_org_conn::<_, _, PgOrgError>(&self.pool, org, move |tx| {
             Box::pin(async move {
-                let exists: Option<uuid::Uuid> =
-                    sqlx::query_scalar("SELECT id FROM users WHERE id = $1 FOR UPDATE")
+                let row = sqlx::query("SELECT roles FROM users WHERE id = $1 FOR UPDATE")
                         .bind(*user_id.as_uuid())
                         .fetch_optional(tx.as_mut())
                         .await?;
-                if exists.is_none() {
+                let Some(row) = row else {
                     return Err(PgOrgError::Domain(KernelError::not_found("user not found")));
+                };
+                let locked_current_system_roles = normalize_system_roles(row.try_get("roles")?);
+                if locked_current_system_roles != current_system_roles {
+                    return Err(stale_policy_assignment_preview_error());
                 }
                 let locked_branch_ids = fetch_user_branch_uuid_ids_tx(tx, user_id).await?;
                 if locked_branch_ids != current_branch_ids {
@@ -1123,8 +1287,9 @@ impl PgOrgStore {
                     r#"
                     INSERT INTO policy_assignment_preview_receipts (
                         org_id, actor_id, user_id, current_branch_ids,
-                        current_role_ids, role_ids, policy_version, expires_at
-                    ) VALUES ($1, $2, $3, $4::uuid[], $5::uuid[], $6::uuid[], $7, $8)
+                        current_system_roles, current_role_ids, branch_ids,
+                        system_roles, role_ids, policy_version, expires_at
+                    ) VALUES ($1, $2, $3, $4::uuid[], $5::text[], $6::uuid[], $7::uuid[], $8::text[], $9::uuid[], $10, $11)
                     RETURNING id, expires_at
                     "#,
                 )
@@ -1132,7 +1297,10 @@ impl PgOrgStore {
                 .bind(*actor.as_uuid())
                 .bind(*user_id.as_uuid())
                 .bind(&current_branch_ids)
+                .bind(&current_system_roles)
                 .bind(&current_role_ids)
+                .bind(&branch_ids)
+                .bind(&system_roles)
                 .bind(&role_ids)
                 .bind(policy_version)
                 .bind(expires_at)
@@ -1173,14 +1341,14 @@ impl PgOrgStore {
 
         with_audit::<_, Vec<PolicyRoleAssignmentSummary>, PgOrgError>(&self.pool, event, |tx| {
             Box::pin(async move {
-                let exists: Option<uuid::Uuid> =
-                    sqlx::query_scalar("SELECT id FROM users WHERE id = $1 FOR UPDATE")
-                        .bind(*user_id.as_uuid())
-                        .fetch_optional(tx.as_mut())
-                        .await?;
-                if exists.is_none() {
+                let row = sqlx::query("SELECT roles FROM users WHERE id = $1 FOR UPDATE")
+                    .bind(*user_id.as_uuid())
+                    .fetch_optional(tx.as_mut())
+                    .await?;
+                let Some(row) = row else {
                     return Err(PgOrgError::Domain(KernelError::not_found("user not found")));
-                }
+                };
+                let current_system_roles = normalize_system_roles(row.try_get("roles")?);
 
                 let previous = fetch_policy_role_assignments_tx(tx, user_id).await?;
                 let current_branch_ids = fetch_user_branch_uuid_ids_tx(tx, user_id).await?;
@@ -1198,7 +1366,10 @@ impl PgOrgStore {
                         actor,
                         user_id,
                         current_branch_ids: &current_branch_ids,
+                        current_system_roles: &current_system_roles,
                         current_role_ids: &current_role_ids,
+                        branch_ids: &current_branch_ids,
+                        system_roles: &current_system_roles,
                         role_ids: &role_ids,
                         policy_version,
                         receipt_id: preview_receipt_id,
@@ -2013,6 +2184,14 @@ fn normalize_policy_role_ids(role_ids: Vec<uuid::Uuid>) -> Vec<uuid::Uuid> {
         .collect()
 }
 
+fn normalize_system_roles(roles: Vec<String>) -> Vec<String> {
+    roles
+        .into_iter()
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect()
+}
+
 fn stale_policy_assignment_preview_error() -> PgOrgError {
     PgOrgError::Domain(KernelError::validation(
         "assignment preview receipt is missing, expired, consumed, or no longer matches",
@@ -2023,7 +2202,10 @@ struct AssignmentPreviewReceiptConsumption<'a> {
     actor: UserId,
     user_id: UserId,
     current_branch_ids: &'a [uuid::Uuid],
+    current_system_roles: &'a [String],
     current_role_ids: &'a [uuid::Uuid],
+    branch_ids: &'a [uuid::Uuid],
+    system_roles: &'a [String],
     role_ids: &'a [uuid::Uuid],
     policy_version: i64,
     receipt_id: uuid::Uuid,
@@ -2048,7 +2230,10 @@ async fn consume_policy_assignment_preview_receipt_tx(
           AND role_ids = $7::uuid[]
           AND current_role_ids = $8::uuid[]
           AND current_branch_ids = $9::uuid[]
-          AND policy_version = $10
+          AND current_system_roles = $10::text[]
+          AND branch_ids = $11::uuid[]
+          AND system_roles = $12::text[]
+          AND policy_version = $13
         RETURNING id
         "#,
     )
@@ -2061,6 +2246,9 @@ async fn consume_policy_assignment_preview_receipt_tx(
     .bind(expected.role_ids)
     .bind(expected.current_role_ids)
     .bind(expected.current_branch_ids)
+    .bind(expected.current_system_roles)
+    .bind(expected.branch_ids)
+    .bind(expected.system_roles)
     .bind(expected.policy_version)
     .fetch_optional(tx.as_mut())
     .await?;

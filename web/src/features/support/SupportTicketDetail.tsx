@@ -11,12 +11,15 @@ import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
 import { Card } from "../../components/ui/card";
 import { Textarea } from "../../components/ui/textarea";
+import { objDrag } from "../../console/window";
 import { ko } from "../../i18n/ko";
 import { safeLabel } from "../../lib/utils";
+import { supportDeskStrings } from "./support-desk-strings";
 import {
   allowedTransitions,
   categoryLabel,
   formatDateTime,
+  isActionableSupportTicket,
   originLabel,
   priorityBadgeClass,
   priorityLabel,
@@ -46,6 +49,16 @@ interface SupportTicketDetailProps {
   onTransition: (to: SupportTicketStatus) => Promise<void>;
   onAddComment: (body: string, isInternalNote: boolean) => Promise<void>;
   onAssignSelf: () => Promise<void>;
+  /** SUP- object code — rendered as a mono chip that is a §4-20 drag source. */
+  code?: string;
+  /** SLO timer chip derived from the ACTIVE setting (see sloTimerChip). */
+  sloChip?: { className: string; label: string } | null;
+  /**
+   * SLO escalation action (§4-26 internal alert): posts `note` as an audited
+   * internal-note comment via the real comments REST. Label names the ACTIVE
+   * setting's escalation target (팀장/전담자/관리자).
+   */
+  escalation?: { label: string; note: string };
 }
 
 export function SupportTicketDetail({
@@ -56,6 +69,9 @@ export function SupportTicketDetail({
   onTransition,
   onAddComment,
   onAssignSelf,
+  code,
+  sloChip,
+  escalation,
 }: SupportTicketDetailProps) {
   const { ticket, comments } = detail;
   const transitions = allowedTransitions(ticket.status);
@@ -67,6 +83,9 @@ export function SupportTicketDetail({
   const [assignState, setAssignState] = useState<"idle" | "busy" | "error">(
     "idle",
   );
+  const [escalateState, setEscalateState] = useState<
+    "idle" | "busy" | "error"
+  >("idle");
 
   const alreadyMine =
     currentUserId !== undefined && ticket.assignee_user_id === currentUserId;
@@ -93,10 +112,31 @@ export function SupportTicketDetail({
     }
   }
 
+  // Escalation = an audited internal note through the real comments REST; the
+  // posted note appearing in the thread is the success feedback.
+  async function handleEscalate(note: string) {
+    setEscalateState("busy");
+    try {
+      await onAddComment(note, true);
+      setEscalateState("idle");
+    } catch {
+      setEscalateState("error");
+    }
+  }
+
   return (
     <div className="grid gap-5">
       <Card className="grid gap-4">
         <div className="flex flex-wrap items-center gap-2">
+          {code ? (
+            <Badge
+              className="bg-white font-mono"
+              title={ko.console.window.dragRefOf(ticket.title)}
+              {...objDrag(code, ticket.title)}
+            >
+              {code}
+            </Badge>
+          ) : null}
           <Badge className={priorityBadgeClass(ticket.priority)}>
             {priorityLabel(ticket.priority)}
           </Badge>
@@ -105,6 +145,9 @@ export function SupportTicketDetail({
           </Badge>
           <Badge>{originLabel(ticket.origin)}</Badge>
           <Badge>{categoryLabel(ticket.category)}</Badge>
+          {sloChip ? (
+            <Badge className={sloChip.className}>{sloChip.label}</Badge>
+          ) : null}
         </div>
 
         <h2 className="text-xl font-semibold text-ink">{ticket.title}</h2>
@@ -181,6 +224,23 @@ export function SupportTicketDetail({
             ) : null}
           </div>
         ) : null}
+        {canComment && escalation && isActionableSupportTicket(ticket) ? (
+          <div className="flex flex-wrap items-center gap-2 border-t border-line pt-4">
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              disabled={escalateState === "busy"}
+              onClick={() => {
+                void handleEscalate(escalation.note);
+              }}
+            >
+              {escalateState === "busy"
+                ? ko.support.comments.adding
+                : escalation.label}
+            </Button>
+          </div>
+        ) : null}
         {transitionFailed ? (
           <p role="alert" className="text-sm font-semibold text-red-700">
             {ko.support.transition.failed}
@@ -189,6 +249,11 @@ export function SupportTicketDetail({
         {assignState === "error" ? (
           <p role="alert" className="text-sm font-semibold text-red-700">
             {ko.support.assignFailed}
+          </p>
+        ) : null}
+        {escalateState === "error" ? (
+          <p role="alert" className="text-sm font-semibold text-red-700">
+            {supportDeskStrings().escalateFailed}
           </p>
         ) : null}
       </Card>

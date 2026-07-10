@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { SupportTicketDetail as SupportTicketDetailModel } from "../../api/types";
 import { ko } from "../../i18n/ko";
+import { KO_CONSOLE_SUPPORTDESK } from "./supportdesk-ko.test";
 import { SupportTicketDetail } from "./SupportTicketDetail";
 
 const ME = "00000000-0000-4000-8000-0000000000aa";
@@ -298,5 +299,100 @@ describe("SupportTicketDetail", () => {
       screen.getByRole("button", { name: ko.support.transition.to_ON_HOLD }),
     ).toBeVisible();
     release();
+  });
+
+  it("renders the SUP- code drag chip and the SLO timer chip when provided", () => {
+    render(
+      <SupportTicketDetail
+        detail={detail()}
+        currentUserId={ME}
+        canAssign
+        canComment
+        onTransition={vi.fn()}
+        onAddComment={vi.fn()}
+        onAssignSelf={vi.fn()}
+        code="SUP-3333"
+        sloChip={{ className: "", label: KO_CONSOLE_SUPPORTDESK.sloRemaining("1시간 5분") }}
+      />,
+    );
+
+    const chip = screen.getByText("SUP-3333");
+    expect(chip).toBeVisible();
+    expect(chip).toHaveAttribute("draggable", "true");
+    expect(chip).toHaveAttribute("data-obj-code", "SUP-3333");
+    expect(
+      screen.getByText(KO_CONSOLE_SUPPORTDESK.sloRemaining("1시간 5분")),
+    ).toBeVisible();
+  });
+
+  it("escalates as an internal note through onAddComment", async () => {
+    const user = userEvent.setup();
+    const onAddComment = vi.fn().mockResolvedValue(undefined);
+    render(
+      <SupportTicketDetail
+        detail={detail()}
+        currentUserId={ME}
+        canAssign
+        canComment
+        onTransition={vi.fn()}
+        onAddComment={onAddComment}
+        onAssignSelf={vi.fn()}
+        escalation={{
+          label: "팀장 에스컬레이션",
+          note: KO_CONSOLE_SUPPORTDESK.escalationNote("팀장"),
+        }}
+      />,
+    );
+
+    await user.click(
+      screen.getByRole("button", { name: "팀장 에스컬레이션" }),
+    );
+    expect(onAddComment).toHaveBeenCalledWith(
+      KO_CONSOLE_SUPPORTDESK.escalationNote("팀장"),
+      true,
+    );
+  });
+
+  it("hides escalation on settled tickets and surfaces a failed escalation", async () => {
+    const user = userEvent.setup();
+    const escalation = {
+      label: "팀장 에스컬레이션",
+      note: KO_CONSOLE_SUPPORTDESK.escalationNote("팀장"),
+    };
+    const { rerender } = render(
+      <SupportTicketDetail
+        detail={detail({ status: "RESOLVED", resolved_at: "2026-06-13T12:00:00Z" })}
+        currentUserId={ME}
+        canAssign
+        canComment
+        onTransition={vi.fn()}
+        onAddComment={vi.fn()}
+        onAssignSelf={vi.fn()}
+        escalation={escalation}
+      />,
+    );
+    // Settled tickets have nothing to escalate (§4.7-6: no dead action).
+    expect(
+      screen.queryByRole("button", { name: "팀장 에스컬레이션" }),
+    ).toBeNull();
+
+    rerender(
+      <SupportTicketDetail
+        detail={detail()}
+        currentUserId={ME}
+        canAssign
+        canComment
+        onTransition={vi.fn()}
+        onAddComment={vi.fn().mockRejectedValue(new Error("nope"))}
+        onAssignSelf={vi.fn()}
+        escalation={escalation}
+      />,
+    );
+    await user.click(
+      screen.getByRole("button", { name: "팀장 에스컬레이션" }),
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      KO_CONSOLE_SUPPORTDESK.escalateFailed,
+    );
   });
 });

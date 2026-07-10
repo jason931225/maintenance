@@ -6,6 +6,7 @@
 //! cache identity, subject-freshness checks, and dual-engine fail-closed
 //! semantics while preserving the existing legacy authorization functions.
 
+use std::collections::BTreeSet;
 use std::str::FromStr;
 
 use mnt_kernel_core::{BranchId, KernelError, OrgId};
@@ -20,6 +21,11 @@ use crate::{Action, Feature, PermissionLevel, Principal, authorize, authorize_or
 /// and produce real `Allow`/`Deny`/`Error` results for the shadow lane.
 pub mod engine;
 
+/// Cedar policy authoring + point-decision evaluation (Policy Studio spine,
+/// arch §5a/§5b/§5c). Pure domain logic only (no DB / no request-context) so the
+/// crate DAG stays acyclic; persistence + REST live in `authz-rest`.
+pub mod authoring;
+
 /// Coexistence-map loader: parse the canonical map JSON into typed
 /// [`CoexistenceMapEntry`] rows.
 ///
@@ -31,6 +37,13 @@ pub mod engine;
 /// a map action id and the [`Feature`] matrix so an unmodeled/typo action can
 /// never silently enroll or drop.
 pub mod map;
+
+/// List-filtering residual (arch §5d / decision D1): lower our own no-code
+/// condition grammar to a parameterized SQL `WHERE` fragment that composes as
+/// `WHERE <RLS org floor> AND <residual>`. Pure (no DB); the consumer binds the
+/// values. Fail-closed: no permit ⇒ `WHERE FALSE`, `forbid` ⇒ AND-NOT, any
+/// untranslatable term ⇒ the whole filter collapses to `FALSE`.
+pub mod residual;
 
 /// Mutable subject/version inputs that make stale subject material deny.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -91,6 +104,9 @@ impl SubjectFreshnessRequirement {
 pub struct AuthorizationSubject {
     pub principal: Principal,
     pub freshness: SubjectFreshness,
+    /// Server-loaded clearance labels for Cedar-only high-sensitivity actions.
+    /// Empty means deny-by-omission when a bundle requires a clearance key.
+    pub clearance_keys: BTreeSet<String>,
 }
 
 impl AuthorizationSubject {
@@ -99,6 +115,7 @@ impl AuthorizationSubject {
         Self {
             principal,
             freshness,
+            clearance_keys: BTreeSet::new(),
         }
     }
 }
@@ -213,6 +230,12 @@ impl AuthorizationRequest {
     #[must_use]
     pub fn with_subject_freshness(mut self, freshness: SubjectFreshness) -> Self {
         self.subject.freshness = freshness;
+        self
+    }
+
+    #[must_use]
+    pub fn with_clearance_keys(mut self, clearance_keys: BTreeSet<String>) -> Self {
+        self.subject.clearance_keys = clearance_keys;
         self
     }
 

@@ -313,6 +313,77 @@ workspace = true
 }
 
 // ---------------------------------------------------------------------------
+// Manifest hygiene: missing publish=false convention is detected
+// ---------------------------------------------------------------------------
+
+#[test]
+fn gate_detects_missing_publish_false_convention() -> Result<(), Box<dyn std::error::Error>> {
+    let ws = temp_workspace("publish")?;
+
+    write_file(
+        &ws.join("Cargo.toml"),
+        r#"
+[workspace]
+resolver = "3"
+members = ["crates/kernel/core"]
+
+[workspace.package]
+edition = "2024"
+publish = false
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+"#,
+    )?;
+
+    let kernel_dir = ws.join("crates/kernel/core");
+    write_file(
+        &kernel_dir.join("Cargo.toml"),
+        r#"
+[package]
+name = "mnt-kernel-core"
+version = "0.1.0"
+edition.workspace = true
+
+[lints]
+workspace = true
+"#,
+    )?;
+    write_file(&kernel_dir.join("src/lib.rs"), "// kernel\n")?;
+
+    let (metadata, edition) = load_metadata(&ws)?;
+    let result = check(&metadata, &edition);
+
+    assert!(
+        !result.passed(),
+        "expected missing publish=false convention to fail, but gate passed"
+    );
+    assert_eq!(
+        result.violations.len(),
+        1,
+        "missing publish=false fixture should fail only for the intended manifest hygiene rule; got: {:#?}",
+        result.violations
+    );
+    let violation = &result.violations[0];
+    assert_eq!(
+        violation.kind,
+        ViolationKind::MissingPublishFalse,
+        "expected MissingPublishFalse violation, got: {:#?}",
+        result.violations
+    );
+    assert_eq!(
+        violation.crate_name, "mnt-kernel-core",
+        "violation should be scoped to the crate missing publish=false"
+    );
+    assert!(
+        violation.detail.contains("publish = false"),
+        "expected publish=false diagnostic, got: {:#?}",
+        result.violations
+    );
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
 // Manifest hygiene: missing [lints] workspace = true is detected
 // ---------------------------------------------------------------------------
 

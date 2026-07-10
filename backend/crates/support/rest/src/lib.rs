@@ -21,7 +21,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use mnt_kernel_core::{
-    BranchId, BranchScope, ErrorKind, KernelError, SupportTicketId, TraceContext, UserId,
+    BranchId, BranchScope, ErrorKind, KernelError, OrgId, SupportTicketId, TraceContext, UserId,
 };
 use mnt_platform_auth::JwtVerifier;
 use mnt_platform_authz::{Action, Feature, Principal, authorize};
@@ -75,6 +75,13 @@ pub struct SupportRestState {
     store: PgSupportStore,
     jwt_verifier: Option<JwtVerifier>,
     push_notifier: Option<Arc<dyn PushNotifier>>,
+    /// Tenant that owns unauthenticated public support intake. It defaults to
+    /// KNL for legacy/local deployments, but the app composition root overrides
+    /// it from the public storefront config (`STOREFRONT_ORG_ID`) when set. The
+    /// router captures this configured value instead of hardcoding KNL, because
+    /// reminted storefront/support tenants would be hidden from same-org staff by
+    /// RLS.
+    public_intake_org: OrgId,
     /// Number of trusted reverse proxies in front of this service. Drives the
     /// `X-Forwarded-For` client-IP derivation in the intake rate limiter: the
     /// real client is the Nth-from-the-right XFF entry. Clamped to at least 1 so
@@ -83,9 +90,10 @@ pub struct SupportRestState {
 }
 
 impl SupportRestState {
-    /// Construct with a default of one trusted proxy. Prefer
-    /// [`SupportRestState::with_trusted_proxy_count`] when the deployment puts a
-    /// known number of proxies in front of the service.
+    /// Construct with a legacy KNL public-intake org and a default of one trusted
+    /// proxy. Prefer [`SupportRestState::with_storefront_org`] and
+    /// [`SupportRestState::with_trusted_proxy_count`] from the app composition
+    /// root so configured public storefront/support tenants are used.
     #[must_use]
     pub fn new(
         store: PgSupportStore,
@@ -96,8 +104,17 @@ impl SupportRestState {
             store,
             jwt_verifier,
             push_notifier,
+            public_intake_org: OrgId::knl(),
             trusted_proxy_count: 1,
         }
+    }
+
+    /// Set the public storefront/CX tenant used by unauthenticated support
+    /// intake (`STOREFRONT_ORG_ID`), mirroring sales REST storefront scoping.
+    #[must_use]
+    pub fn with_storefront_org(mut self, org: OrgId) -> Self {
+        self.public_intake_org = org;
+        self
     }
 
     /// Set the number of trusted reverse proxies (from `MNT_TRUSTED_PROXY_COUNT`).
@@ -132,17 +149,16 @@ pub fn router(state: SupportRestState) -> Router {
         .with_state(state.clone());
     let authed = mnt_platform_request_context::with_request_context(authed, verifier, pool);
     // Unauthenticated intake route — no JWT required, but still needs a tenant
-    // context for the store. Customer intake always belongs to the KNL org.
+    // context for the store. The public intake org is configured by app boot
+    // from `STOREFRONT_ORG_ID`, matching the public storefront tenant instead
+    // of hardcoding KNL in this router.
+    let public_intake_org = state.public_intake_org;
     let intake = Router::new()
         .route(SUPPORT_INTAKE_PATH, post(customer_intake))
         .with_state(state)
         .layer(axum::middleware::from_fn(
-            |req: axum::extract::Request, next: axum::middleware::Next| async move {
-                mnt_platform_request_context::scope_org(
-                    mnt_kernel_core::OrgId::knl(),
-                    next.run(req),
-                )
-                .await
+            move |req: axum::extract::Request, next: axum::middleware::Next| async move {
+                mnt_platform_request_context::scope_org(public_intake_org, next.run(req)).await
             },
         ));
     authed.merge(intake)

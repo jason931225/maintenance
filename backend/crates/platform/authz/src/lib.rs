@@ -162,6 +162,18 @@ pub enum Feature {
     /// Manage the public sales catalog (#6 지게차 매매): create/update/withdraw
     /// used-forklift listings and triage inbound customer inquiries. ADMIN tier.
     SalesManage,
+    /// Read IV inventory stock objects/events inside the caller's branch scope.
+    InventoryRead,
+    /// Create/update/archive IV inventory items, locations, and thresholds.
+    InventoryManage,
+    /// Consume IV inventory stock against visible work orders or P1 dispatches.
+    InventoryConsume,
+    /// Prepare future reorder/purchase requests from low-stock IV items.
+    InventoryReorder,
+    /// Read tenant benefit-catalog policy rows and console-ready legal/extra benefit details.
+    BenefitCatalogRead,
+    /// Create and maintain tenant benefit-catalog rows, tiers, and conditions.
+    BenefitCatalogManage,
     /// Permission metadata for the future AI assistant seam. T0.6 requires the
     /// 22-feature matrix; this does not implement an AI adapter or demo mode.
     AiAssist,
@@ -203,10 +215,17 @@ pub enum Feature {
     /// Generate/draft the exit settlement package + submit it for approval
     /// (퇴직 정산 초안/승인 상신). ADMIN + SUPER_ADMIN — the HR settlement tier.
     ExitSettlementManage,
+    /// Read the CEO/top-clearance covert audit stream. This is deliberately
+    /// denied by the legacy role matrix and enrolled only through Cedar/PBAC
+    /// clearance facts.
+    AuditStreamRead,
+    /// Read the audit-of-access stream for CEO/top-clearance audit reads.
+    /// Deliberately Cedar-only like [`Self::AuditStreamRead`].
+    AuditStreamAccessLogRead,
 }
 
 impl Feature {
-    pub const ALL: [Self; 49] = [
+    pub const ALL: [Self; 57] = [
         Self::Login,
         Self::WorkOrderCreate,
         Self::WorkOrderEditIntake,
@@ -245,6 +264,12 @@ impl Feature {
         Self::ExcelDownload,
         Self::OpsDashboardRead,
         Self::SalesManage,
+        Self::InventoryRead,
+        Self::InventoryManage,
+        Self::InventoryConsume,
+        Self::InventoryReorder,
+        Self::BenefitCatalogRead,
+        Self::BenefitCatalogManage,
         Self::AiAssist,
         Self::IntegrityFindingsRead,
         Self::IntegrityFindingTriage,
@@ -256,6 +281,8 @@ impl Feature {
         Self::ExitCaseHrConfirm,
         Self::ExitCaseHqConfirm,
         Self::ExitSettlementManage,
+        Self::AuditStreamRead,
+        Self::AuditStreamAccessLogRead,
     ];
 
     #[must_use]
@@ -299,6 +326,12 @@ impl Feature {
             Self::ExcelDownload => "excel_download",
             Self::OpsDashboardRead => "ops_dashboard_read",
             Self::SalesManage => "sales_manage",
+            Self::InventoryRead => "inventory_read",
+            Self::InventoryManage => "inventory_manage",
+            Self::InventoryConsume => "inventory_consume",
+            Self::InventoryReorder => "inventory_reorder",
+            Self::BenefitCatalogRead => "benefit_catalog_read",
+            Self::BenefitCatalogManage => "benefit_catalog_manage",
             Self::AiAssist => "ai_assist",
             Self::IntegrityFindingsRead => "integrity_findings_read",
             Self::IntegrityFindingTriage => "integrity_finding_triage",
@@ -310,6 +343,8 @@ impl Feature {
             Self::ExitCaseHrConfirm => "exit_case_hr_confirm",
             Self::ExitCaseHqConfirm => "exit_case_hq_confirm",
             Self::ExitSettlementManage => "exit_settlement_manage",
+            Self::AuditStreamRead => "audit_stream_read",
+            Self::AuditStreamAccessLogRead => "audit_stream_access_log_read",
         }
     }
 
@@ -363,6 +398,17 @@ impl Feature {
             Self::ExcelDownload => [D, A, A, A, A, A],
             Self::OpsDashboardRead => [D, D, D, A, D, A],
             Self::SalesManage => [D, D, D, A, A, A],
+            // IV inventory is branch-operational: front-office/mechanics may
+            // read stock; mechanics/admins may consume; management/reorder
+            // remains the admin tier until purchase integration lands.
+            Self::InventoryRead => [D, A, A, A, A, A],
+            Self::InventoryManage => [D, D, D, A, D, A],
+            Self::InventoryConsume => [D, D, A, A, D, A],
+            Self::InventoryReorder => [D, D, D, A, D, A],
+            // Benefits are HR/legal policy data. Admin/super-admin can manage;
+            // executives can read org-wide catalog state for policy oversight.
+            Self::BenefitCatalogRead => [D, D, D, A, A, A],
+            Self::BenefitCatalogManage => [D, D, D, A, D, A],
             Self::AiAssist => [D, A, A, A, A, A],
             // Integrity findings are labor-law sensitive: ADMIN must not read
             // findings about themselves. EXECUTIVE + SUPER_ADMIN only.
@@ -387,6 +433,9 @@ impl Feature {
             Self::ExitCaseHrConfirm => [D, D, D, A, D, A],
             Self::ExitCaseHqConfirm => [D, D, D, D, A, A],
             Self::ExitSettlementManage => [D, D, D, A, D, A],
+            // B26b covert audit stream: no legacy/static-role fallback. Cedar
+            // clearance facts are the only allow path; omission denies.
+            Self::AuditStreamRead | Self::AuditStreamAccessLogRead => [D, D, D, D, D, D],
         }
     }
 }
@@ -434,6 +483,12 @@ impl FromStr for Feature {
             "excel_download" => Ok(Self::ExcelDownload),
             "ops_dashboard_read" => Ok(Self::OpsDashboardRead),
             "sales_manage" => Ok(Self::SalesManage),
+            "inventory_read" => Ok(Self::InventoryRead),
+            "inventory_manage" => Ok(Self::InventoryManage),
+            "inventory_consume" => Ok(Self::InventoryConsume),
+            "inventory_reorder" => Ok(Self::InventoryReorder),
+            "benefit_catalog_read" => Ok(Self::BenefitCatalogRead),
+            "benefit_catalog_manage" => Ok(Self::BenefitCatalogManage),
             "ai_assist" => Ok(Self::AiAssist),
             "integrity_findings_read" => Ok(Self::IntegrityFindingsRead),
             "integrity_finding_triage" => Ok(Self::IntegrityFindingTriage),
@@ -445,6 +500,8 @@ impl FromStr for Feature {
             "exit_case_hr_confirm" => Ok(Self::ExitCaseHrConfirm),
             "exit_case_hq_confirm" => Ok(Self::ExitCaseHqConfirm),
             "exit_settlement_manage" => Ok(Self::ExitSettlementManage),
+            "audit_stream_read" => Ok(Self::AuditStreamRead),
+            "audit_stream_access_log_read" => Ok(Self::AuditStreamAccessLogRead),
             _ => Err(KernelError::validation(format!(
                 "unknown feature key: {raw}"
             ))),
@@ -958,7 +1015,11 @@ pub async fn resolve_effective_feature_grants_in_org(
 fn custom_role_runtime_feature_allowed(feature: Feature) -> bool {
     !matches!(
         feature,
-        Feature::RoleManage | Feature::ElevatedRoleGrant | Feature::OrgWideQueueTriage
+        Feature::RoleManage
+            | Feature::ElevatedRoleGrant
+            | Feature::OrgWideQueueTriage
+            | Feature::AuditStreamRead
+            | Feature::AuditStreamAccessLogRead
     )
 }
 

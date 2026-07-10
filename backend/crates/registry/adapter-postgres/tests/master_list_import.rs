@@ -1,23 +1,50 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
 use mnt_kernel_core::{
     BranchId, BranchScope, EquipmentId, EquipmentSubstitutionId, OrgId, SiteId, TraceContext,
     UserId,
 };
-use mnt_registry_adapter_postgres::{PgRegistryStore, parse_master_list};
+use mnt_registry_adapter_postgres::{
+    PgRegistryError, PgRegistryStore, parse_master_list, parse_master_list_bytes,
+};
 use mnt_registry_application::{
     SubstituteAssignmentCommand, SubstituteReturnCommand, SubstituteSearch, UpdateSiteCommand,
     UpdateSiteFields,
 };
 use mnt_registry_domain::{EquipmentNo, Ton};
 use sqlx::PgPool;
+use sqlx::postgres::PgPoolOptions;
 use time::OffsetDateTime;
 
 fn master_list_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../../../../docs/reference/master-list_251120.xlsx")
+}
+
+fn registry_import_staging_paths_for_this_process() -> BTreeSet<PathBuf> {
+    let prefix = format!("mnt-registry-import-{}-", std::process::id());
+    std::fs::read_dir(std::env::temp_dir())
+        .unwrap()
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|value| value.to_str())
+                .is_some_and(|name| name.starts_with(&prefix))
+        })
+        .collect()
+}
+
+fn assert_no_new_registry_import_staging_paths(before: &BTreeSet<PathBuf>) {
+    let after = registry_import_staging_paths_for_this_process();
+    let new_paths = after.difference(before).collect::<Vec<_>>();
+    assert!(
+        new_paths.is_empty(),
+        "uploaded workbook parsing/import must not leave mnt-registry-import-* staging files: {new_paths:#?}"
+    );
 }
 
 #[test]
@@ -28,6 +55,50 @@ fn parser_self_checks_prefix_formulas_against_the_real_workbook() {
     assert_eq!(parsed.equipment.len(), 445);
     assert!(parsed.errors.is_empty(), "{:#?}", parsed.errors);
     assert_eq!(parsed.prefix_checked_rows, 486);
+}
+
+#[test]
+fn byte_parser_matches_path_parser_for_the_real_workbook() {
+    let before = registry_import_staging_paths_for_this_process();
+    let bytes = std::fs::read(master_list_path()).unwrap();
+    let from_path = parse_master_list(master_list_path()).unwrap();
+    let from_bytes = parse_master_list_bytes(&bytes).unwrap();
+
+    assert_eq!(from_bytes, from_path);
+    assert_no_new_registry_import_staging_paths(&before);
+}
+
+#[test]
+fn byte_parser_rejects_invalid_workbook_bytes_without_echoing_payload() {
+    let before = registry_import_staging_paths_for_this_process();
+    let payload = b"not a workbook with private upload contents";
+    let err = parse_master_list_bytes(payload).unwrap_err();
+    let message = err.to_string();
+
+    assert!(message.contains("workbook error"));
+    assert!(
+        !message.contains("private upload contents"),
+        "workbook errors must not echo uploaded workbook contents: {message}"
+    );
+    assert_no_new_registry_import_staging_paths(&before);
+}
+
+#[tokio::test]
+async fn invalid_uploaded_bytes_return_workbook_error_without_temp_staging_residue() {
+    let before = registry_import_staging_paths_for_this_process();
+    let pool = PgPoolOptions::new()
+        .connect_lazy("postgres://mnt_rt:***@127.0.0.1/mnt_registry_import_unused")
+        .unwrap();
+
+    let result = PgRegistryStore::new(pool)
+        .import_master_list_bytes(UserId::new(), "broken-master-list.xlsx", b"not a workbook")
+        .await;
+
+    assert!(
+        matches!(result, Err(PgRegistryError::Workbook(_))),
+        "invalid uploaded workbook bytes should fail during workbook parsing, got {result:?}"
+    );
+    assert_no_new_registry_import_staging_paths(&before);
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]

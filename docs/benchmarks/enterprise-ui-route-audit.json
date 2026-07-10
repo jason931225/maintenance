@@ -1079,6 +1079,31 @@
       "groupScopeStory": "Group admin/executive can compare consolidated group and selected subsidiary views with row-level policy enforcement"
     },
     {
+      "rawPath": "/console",
+      "canonicalPath": "/console",
+      "epRows": [
+        "EP-012",
+        "EP-011",
+        "EP-015"
+      ],
+      "personas": [
+        "finance",
+        "procurement",
+        "executive",
+        "asset-manager"
+      ],
+      "roleStoryEvidence": "generic console module route defaults to the finance module and is covered by FinanceModuleScreen, ConsoleModuleRoute, AppRouter, and nav tests under the #332 finance lane",
+      "accessibilityEvidence": "FinanceModuleScreen and nav route tests use accessible headings/search/buttons; enterprise gate still requires browser screenshot fidelity before final acceptance",
+      "ownerLane": "G008 finance/procurement/accounting/rental-pricing maturity lane with the #332 console module fidelity gate",
+      "dataClass": "finance voucher metadata, approval/payment policy state, cost ledger references, source-object lineage, and audit/navigation metadata",
+      "sourceObject": "finance voucher placeholder shell, source-backed cost ledger, approval/payment line, GL/source-link target, or blocked backend dependency marker",
+      "lifecycleStates": "loading, empty constrained shell, backend-blocked, permission-denied, filtered, selected, posted, audited, and source-linked once B21a is live",
+      "e2eSpec": "Required browser story: finance persona opens /console finance module, sees constrained no-fake-data state while B21a is blocked, then later drills real VC/GL/source rows",
+      "denialScopeTest": "Finance console read/create/post/source-link affordances require policy gates and must stay hidden or denied for users without finance voucher permissions",
+      "screenshotTraceEvidence": "Pending #332 finance screenshot fidelity workflow; this route row only restores route-audit coverage and is not final visual acceptance",
+      "groupScopeStory": "Group finance can consolidate subsidiary finance views while subsidiary finance remains policy-scoped and source-object drilldowns stay tenant-bounded"
+    },
+    {
       "rawPath": "/financial",
       "canonicalPath": "/financial",
       "epRows": [

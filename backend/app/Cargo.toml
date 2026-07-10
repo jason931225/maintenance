@@ -53,6 +53,13 @@ mnt-payroll-domain = { workspace = true }
 mnt-platform-auth = { path = "../crates/platform/auth" }
 mnt-platform-auth-rest = { workspace = true }
 mnt-platform-authz = { path = "../crates/platform/authz" }
+mnt-platform-authz-rest = { workspace = true }
+mnt-ontology-adapter-postgres = { workspace = true }
+mnt-ontology-rest = { workspace = true }
+mnt-governance-adapter-postgres = { workspace = true }
+mnt-governance-rest = { workspace = true }
+mnt-docs-adapter-postgres = { workspace = true }
+mnt-docs-rest = { workspace = true }
 mnt-platform-request-context = { workspace = true }
 mnt-platform-db = { workspace = true }
 mnt-platform-email = { workspace = true }
@@ -93,6 +100,8 @@ url = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
+mnt-financial-application = { workspace = true }
+mnt-financial-domain = { workspace = true }
 p256 = { version = "0.13.2", features = ["ecdsa", "pkcs8", "pem"] }
 tokio = { workspace = true, features = ["io-util", "net", "macros", "rt-multi-thread"] }
 tower = { workspace = true, features = ["util"] }

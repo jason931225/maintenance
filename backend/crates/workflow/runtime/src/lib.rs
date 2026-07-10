@@ -28,4 +28,10 @@ pub use authz_guard::{
 pub use engine::{
     AuditContext, NodeStepOutcome, ProcessNodeRequest, StartRunRequest, process_node, start_run,
 };
-pub use interpreter::{NodeKind, NodeOutcome, NodeSpec, interpret_node};
+pub use interpreter::{
+    CHECKLIST_ATTESTATION_NODE_TYPE, ChecklistAttestationSpec, ChecklistItemKind,
+    ChecklistItemSpec, EGRESS_POLICY_NODE_TYPE, EgressExternalRecipientPolicy, EgressKind,
+    EgressPolicySpec, FOUR_EYES_PEER_REVIEW_NODE_TYPE, FourEyesPeerReviewSpec, NodeKind,
+    NodeOutcome, NodeSpec, OnMissingFact, SEGREGATION_OF_DUTIES_NODE_TYPE, SegregationOfDutiesSpec,
+    SodMode, interpret_node,
+};

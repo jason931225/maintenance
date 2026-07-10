@@ -14,10 +14,10 @@ import {
   vi,
 } from "vitest";
 
-import { AppRouter } from "../AppRouter";
 import { createConsoleApiClient } from "../api/client";
 import { AuthContext } from "../context/auth";
 import type { AuthContextValue, AuthSession } from "../context/auth";
+import { WorkflowStudioPage } from "./WorkflowStudioPage";
 
 const mockStepUpAssertion = {
   ceremony_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
@@ -46,6 +46,7 @@ const createRequests: unknown[] = [];
 const updateRequests: unknown[] = [];
 const archiveRequests: unknown[] = [];
 const lifecycleRequests: Array<{ action: string; body: unknown }> = [];
+const runRequests: unknown[] = [];
 
 beforeAll(() => {
   server.listen({ onUnhandledRequest: "bypass" });
@@ -57,7 +58,16 @@ beforeEach(() => {
   updateRequests.length = 0;
   archiveRequests.length = 0;
   lifecycleRequests.length = 0;
+  runRequests.length = 0;
   mockAssertPasskeyStepUp.mockResolvedValue(mockStepUpAssertion);
+  server.use(
+    http.get("*/api/v1/workflow-studio/schedules", () =>
+      HttpResponse.json({ items: [] }),
+    ),
+    http.get("*/api/v1/workflow-studio/definitions/:id/run-log", () =>
+      HttpResponse.json({ items: [] }),
+    ),
+  );
 });
 
 afterEach(() => {
@@ -98,7 +108,7 @@ function renderApp(path = "/settings/workflows") {
   return render(
     <AuthContext.Provider value={auth}>
       <MemoryRouter initialEntries={[path]}>
-        <AppRouter />
+        <WorkflowStudioPage />
       </MemoryRouter>
     </AuthContext.Provider>,
   );
@@ -166,6 +176,89 @@ const secondaryDefinition = {
   display_name: "안전 점검 승인",
 };
 
+const executableDefinition = {
+  ...baseDefinition,
+  id: "77777777-7777-4777-8777-777777777777",
+  workflow_key: "work_order.exec_approval",
+  display_name: "실행 그래프 승인",
+  status: "ACTIVE",
+  latest_version: 2,
+  active_version: 2,
+  updated_at: "2026-06-29T10:30:00Z",
+  definition: {
+    schema_version: "wf.exec.v1",
+    metadata: { object_type: "work_order" },
+    graph: {
+      nodes: [
+        {
+          id: "node-trigger",
+          key: "submitted",
+          type: "trigger.form_submission",
+          config: {
+            type: "trigger.form_submission",
+            label: "근태 이벤트",
+            source: { object_type: "work_order", event: "submitted", scope: "org" },
+          },
+          input_ports: [],
+          output_ports: [],
+        },
+        {
+          id: "node-condition",
+          key: "approval_result",
+          type: "condition.branch",
+          config: {
+            type: "condition.branch",
+            label: "승인 조건",
+            expression: { left: { ref: "approval.result" }, op: "equals", right: "approved" },
+            branches: [
+              { port: "approved", label: "승인", when: "true" },
+              { port: "rejected", label: "반려", when: "false" },
+            ],
+            default_port: "rejected",
+          },
+          input_ports: [],
+          output_ports: [],
+        },
+        {
+          id: "node-action",
+          key: "notify",
+          type: "action.notification",
+          config: {
+            type: "action.notification",
+            label: "알림 발송",
+            connector_key: "internal.notifications",
+            action_key: "send_push",
+          },
+          input_ports: [],
+          output_ports: [],
+        },
+      ],
+      edges: [],
+    },
+  },
+};
+
+const scheduledDefinition = {
+  ...executableDefinition,
+  id: "88888888-8888-4888-8888-888888888888",
+  workflow_key: "work_order.scheduled_reminder",
+  display_name: "근태 마감 예약",
+  status: "DRAFT",
+  latest_version: 1,
+  active_version: null,
+  definition: {
+    ...executableDefinition.definition,
+    schedule: {
+      name: "근태 마감 리마인더",
+      active: true,
+      cron: "0 17 * * *",
+      cron_label: "매일 17:00",
+      next_run_at: "2026-07-09T08:00:00Z",
+      last_run_at: "2026-07-08T08:00:00Z",
+    },
+  },
+};
+
 const definitionsResponse = {
   items: [baseDefinition],
 };
@@ -181,6 +274,27 @@ const historyResponse = {
       actor_display_name: "개발자",
       summary: "초안 생성",
       created_at: "2026-06-29T09:00:00Z",
+    },
+  ],
+};
+
+const runLogResponse = {
+  items: [
+    {
+      id: "77777777-7777-4777-8777-777777777777",
+      code: "RUN-001",
+      definition_id: baseDefinition.id,
+      definition_version: 2,
+      trigger_type: "MANUAL",
+      status: "FAILED",
+      actor_display_name: "자동화 엔진",
+      summary: "승인 객체 생성 실패",
+      error_message: "connector timeout",
+      generated_objects: ["AP-184"],
+      started_at: "2026-07-09T08:10:00Z",
+      updated_at: "2026-07-09T08:11:00Z",
+      completed_at: null,
+      failed_at: "2026-07-09T08:11:00Z",
     },
   ],
 };
@@ -207,6 +321,9 @@ function installBaseHandlers() {
     http.get("*/api/v1/workflow-studio/definitions/:id/history", () =>
       HttpResponse.json(historyResponse),
     ),
+    http.get("*/api/v1/workflow-studio/definitions/:id/run-log", () =>
+      HttpResponse.json(runLogResponse),
+    ),
   );
 }
 
@@ -219,7 +336,7 @@ describe("WorkflowStudioPage", () => {
     expect(
       await screen.findByRole("heading", { name: "워크플로 스튜디오" }),
     ).toBeInTheDocument();
-    expect(await screen.findByText("작업 완료 승인")).toBeInTheDocument();
+    expect((await screen.findAllByText("작업 완료 승인")).length).toBeGreaterThan(0);
     expect(screen.getByText("승인센터")).toBeInTheDocument();
     expect(screen.getByText("request_approval")).toBeInTheDocument();
     expect(
@@ -227,6 +344,127 @@ describe("WorkflowStudioPage", () => {
     ).toBeInTheDocument();
     expect(screen.getAllByText("초안 생성").length).toBeGreaterThan(0);
     expect(screen.queryByText("Workflow + Approval")).not.toBeInTheDocument();
+  });
+
+  it("renders read-only wf.exec.v1 trigger condition and branch blocks from the definitions endpoint", async () => {
+    server.use(
+      http.get("*/api/v1/workflow-studio/catalog", () =>
+        HttpResponse.json(catalogResponse),
+      ),
+      http.get("*/api/v1/workflow-studio/definitions", () =>
+        HttpResponse.json({ items: [executableDefinition] }),
+      ),
+      http.get("*/api/v1/workflow-studio/definitions/:id/history", () =>
+        HttpResponse.json(historyResponse),
+      ),
+      http.get("*/api/v1/workflow-studio/definitions/:id/run-log", () =>
+        HttpResponse.json(runLogResponse),
+      ),
+    );
+
+    renderApp();
+
+    expect((await screen.findAllByText("실행 그래프 승인")).length).toBeGreaterThan(0);
+    expect(
+      screen.getByRole("heading", { name: "노코드 블록" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("article", { name: "근태 이벤트 블록" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("article", { name: "승인 조건 블록" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("article", { name: "승인 / 반려 블록" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("article", { name: "알림 발송 블록" }),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText("wf.exec.v1").length).toBeGreaterThanOrEqual(3);
+    expect(screen.getByText("approval.result = approved")).toBeInTheDocument();
+    expect(screen.getByText("approved")).toBeInTheDocument();
+    expect(screen.getByText("rejected")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "비활성화" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "수동 실행" })).toBeInTheDocument();
+  });
+
+  it("triggers an active workflow manually and refreshes the real run-log timeline", async () => {
+    const triggeredRun = {
+      ...runLogResponse.items[0],
+      id: "99999999-9999-4999-8999-999999999999",
+      code: "RUN-999",
+      definition_id: executableDefinition.id,
+      status: "SUCCEEDED",
+      summary: "수동 실행 시작",
+      completed_at: "2026-07-09T08:12:00Z",
+      failed_at: null,
+      error_message: null,
+    };
+    server.use(
+      http.get("*/api/v1/workflow-studio/catalog", () =>
+        HttpResponse.json(catalogResponse),
+      ),
+      http.get("*/api/v1/workflow-studio/definitions", () =>
+        HttpResponse.json({ items: [executableDefinition] }),
+      ),
+      http.get("*/api/v1/workflow-studio/definitions/:id/history", () =>
+        HttpResponse.json(historyResponse),
+      ),
+      http.get("*/api/v1/workflow-studio/definitions/:id/run-log", () =>
+        HttpResponse.json({ items: [triggeredRun] }),
+      ),
+      http.post(
+        "*/api/v1/workflow-studio/definitions/:id/run",
+        async ({ request }) => {
+          const body = await request.json();
+          runRequests.push(body);
+          return HttpResponse.json(triggeredRun);
+        },
+      ),
+    );
+
+    renderApp();
+
+    await userEvent.click(await screen.findByRole("button", { name: "수동 실행" }));
+
+    await waitFor(() => {
+      expect(runRequests).toHaveLength(1);
+    });
+    expect(runRequests[0]).toMatchObject({ trigger_type: "MANUAL" });
+    expect(await screen.findByText("워크플로 수동 실행을 요청했습니다.")).toBeInTheDocument();
+    expect(screen.getByText("수동 실행 시작")).toBeInTheDocument();
+    expect(screen.getByText("RUN-999")).toBeInTheDocument();
+  });
+
+  it("renders wf.exec.v1 schedules from definitions with runtime schedule controls", async () => {
+    const activeDefinition = {
+      ...executableDefinition,
+      status: "ACTIVE",
+      latest_version: 2,
+      active_version: 2,
+    };
+    server.use(
+      http.get("*/api/v1/workflow-studio/catalog", () =>
+        HttpResponse.json(catalogResponse),
+      ),
+      http.get("*/api/v1/workflow-studio/definitions", () =>
+        HttpResponse.json({ items: [activeDefinition, scheduledDefinition] }),
+      ),
+      http.get("*/api/v1/workflow-studio/definitions/:id/history", () =>
+        HttpResponse.json(historyResponse),
+      ),
+    );
+
+    renderApp();
+
+    expect((await screen.findAllByText("실행 그래프 승인")).length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "비활성화" })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("tab", { name: "예약 작업" }));
+    expect((await screen.findAllByText("근태 마감 리마인더")).length).toBeGreaterThan(0);
+    expect(screen.getByText("cron 0 17 * * *")).toBeInTheDocument();
+    expect(screen.getByText("매일 17:00")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "예약 편집" })).toBeInTheDocument();
   });
 
   it("creates a draft from the authoring form with typed JSON mapping", async () => {
@@ -542,7 +780,7 @@ describe("WorkflowStudioPage", () => {
     expect(screen.queryByText("작업 완료 승인")).not.toBeInTheDocument();
     const remainingRow = screen.getByRole("row", { name: /안전 점검 승인/ });
     expect(remainingRow).toHaveClass("bg-signal/10");
-    expect(await screen.findByText("안전 점검 초안 생성")).toBeInTheDocument();
+    expect((await screen.findAllByText("안전 점검 초안 생성")).length).toBeGreaterThan(0);
     expect(historyRequests).toContain(secondaryDefinition.id);
 
     confirmSpy.mockRestore();
@@ -648,7 +886,7 @@ describe("WorkflowStudioPage", () => {
         HttpResponse.json(catalogResponse),
       ),
       http.get("*/api/v1/workflow-studio/definitions", () =>
-        HttpResponse.json({ items: [activeDefinition] }),
+        HttpResponse.json({ items: [activeDefinition, scheduledDefinition] }),
       ),
       http.get("*/api/v1/workflow-studio/definitions/:id/history", () =>
         HttpResponse.json(historyResponse),

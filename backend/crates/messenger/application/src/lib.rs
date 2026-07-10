@@ -11,7 +11,7 @@ use mnt_kernel_core::{
     AuditAction, AuditEvent, BranchId, BranchScope, EvidenceId, KernelError, MessageId, ThreadId,
     Timestamp, TraceContext, UserId, WorkOrderId,
 };
-use mnt_messenger_domain::ThreadKind;
+use mnt_messenger_domain::{PresenceStatus, ThreadKind, ThreadVisibility};
 use serde::{Deserialize, Serialize};
 
 pub type MessageNotifyFuture<'a> = Pin<Box<dyn Future<Output = ()> + Send + 'a>>;
@@ -23,8 +23,20 @@ pub struct MessagePostedNotification {
     pub branch_id: BranchId,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MessageAckNotification {
+    pub message_id: MessageId,
+    pub thread_id: ThreadId,
+    pub branch_id: BranchId,
+}
+
 pub trait MessageNotifier: Send + Sync {
     fn message_posted(&self, notification: MessagePostedNotification) -> MessageNotifyFuture<'_>;
+
+    fn message_ack_toggled(&self, notification: MessageAckNotification) -> MessageNotifyFuture<'_> {
+        let _ = notification;
+        Box::pin(async {})
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -33,11 +45,77 @@ pub struct CreateThreadCommand {
     pub branch_scope: BranchScope,
     pub branch_id: BranchId,
     pub kind: ThreadKind,
+    pub visibility: Option<ThreadVisibility>,
     pub title: Option<String>,
     pub work_order_id: Option<WorkOrderId>,
     pub member_ids: Vec<UserId>,
     pub trace: TraceContext,
     pub occurred_at: Timestamp,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct JoinThreadCommand {
+    pub actor: UserId,
+    pub branch_scope: BranchScope,
+    pub thread_id: ThreadId,
+    pub trace: TraceContext,
+    pub occurred_at: Timestamp,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ListChannelsQuery {
+    pub actor: UserId,
+    pub branch_scope: BranchScope,
+    pub limit: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToggleAckCommand {
+    pub actor: UserId,
+    pub branch_scope: BranchScope,
+    pub message_id: MessageId,
+    pub trace: TraceContext,
+    pub occurred_at: Timestamp,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AckSummary {
+    pub message_id: MessageId,
+    pub thread_id: ThreadId,
+    pub acked: bool,
+    pub ack_count: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SetThreadMuteCommand {
+    pub actor: UserId,
+    pub branch_scope: BranchScope,
+    pub thread_id: ThreadId,
+    pub muted: bool,
+    pub trace: TraceContext,
+    pub occurred_at: Timestamp,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ThreadMuteSummary {
+    pub thread_id: ThreadId,
+    pub muted: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ThreadPresenceQuery {
+    pub actor: UserId,
+    pub branch_scope: BranchScope,
+    pub thread_id: ThreadId,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MemberPresence {
+    pub user_id: UserId,
+    pub display_name: Option<String>,
+    #[serde(with = "time::serde::rfc3339::option")]
+    pub last_activity_at: Option<Timestamp>,
+    pub status: PresenceStatus,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -56,6 +134,7 @@ pub struct SendMessageCommand {
     pub thread_id: ThreadId,
     pub body: String,
     pub attachment_evidence_ids: Vec<EvidenceId>,
+    pub quoted_message_id: Option<MessageId>,
     pub trace: TraceContext,
     pub occurred_at: Timestamp,
 }
@@ -86,6 +165,16 @@ pub struct ListMembersQuery {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MemberProfileQuery {
+    pub actor: UserId,
+    pub branch_scope: BranchScope,
+    pub branch_id: BranchId,
+    pub user_id: UserId,
+    pub trace: TraceContext,
+    pub occurred_at: Timestamp,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MessagePageQuery {
     pub actor: UserId,
     pub branch_scope: BranchScope,
@@ -106,9 +195,11 @@ pub struct SearchMessagesQuery {
 pub struct ThreadSummary {
     pub id: ThreadId,
     pub kind: ThreadKind,
+    pub visibility: ThreadVisibility,
     pub branch_id: BranchId,
     pub title: Option<String>,
     pub work_order_id: Option<WorkOrderId>,
+    pub muted: bool,
     pub last_message_id: Option<MessageId>,
     #[serde(with = "time::serde::rfc3339::option")]
     pub last_message_at: Option<Timestamp>,
@@ -133,17 +224,16 @@ pub struct MessageSummary {
     pub thread_id: ThreadId,
     pub branch_id: BranchId,
     pub sender_id: UserId,
-    /// Display name of the sender, resolved via a LEFT JOIN on `users`. `None`
-    /// when the sender row no longer exists (e.g. a hard-deleted account); the
-    /// web falls back through `safeLabel` so a missing name never leaks a UUID.
     pub sender_name: Option<String>,
     pub body: String,
     pub attachment_evidence_ids: Vec<EvidenceId>,
-    /// Number of non-sender thread members whose read receipt has reached this
-    /// message. This is derived from thread-level receipts; no per-message rows.
     pub read_count: i64,
-    /// Number of non-sender thread members who are expected to read this message.
     pub read_target_count: i64,
+    pub ack_count: i64,
+    pub acked_by_me: bool,
+    pub quoted_message_id: Option<MessageId>,
+    pub quoted_body: Option<String>,
+    pub quoted_sender_name: Option<String>,
     #[serde(with = "time::serde::rfc3339")]
     pub sent_at: Timestamp,
     #[serde(with = "time::serde::rfc3339")]

@@ -1,5 +1,6 @@
 import Foundation
 import MaintenanceAPIClient
+import OpenAPIRuntime
 
 public actor WorkOrderCacheStore {
     private var today: [TechnicianWorkOrder] = []
@@ -83,22 +84,22 @@ public struct WorkOrderRepository: Sendable {
     public func start(id: Components.Schemas.Uuid) async throws -> SyncState {
         do {
             try await gateway.startWorkOrder(id: id)
-            _ = try await detail(id: id)
-            return .synced
         } catch {
+            guard Self.shouldQueueOfflineMutation(for: error) else { throw error }
             _ = try await offlineQueue.enqueueStart(workOrderID: id)
             await cache.markPending(id: id)
             return .pending
         }
+        _ = try await detail(id: id)
+        return .synced
     }
 
     @discardableResult
     public func submitReport(id: Components.Schemas.Uuid, draft: ReportDraft) async throws -> SyncState {
         do {
             try await gateway.submitReport(id: id, draft: draft)
-            _ = try await detail(id: id)
-            return .synced
         } catch {
+            guard Self.shouldQueueOfflineMutation(for: error) else { throw error }
             _ = try await offlineQueue.enqueueReport(
                 workOrderID: id,
                 resultType: draft.resultType,
@@ -108,9 +109,39 @@ public struct WorkOrderRepository: Sendable {
             await cache.markPending(id: id)
             return .pending
         }
+        _ = try await detail(id: id)
+        return .synced
     }
 
     public func replayPending() async throws -> ReplaySummary {
         try await offlineQueue.replayPending()
+    }
+
+    private static func shouldQueueOfflineMutation(for error: Error) -> Bool {
+        if let clientError = error as? ClientError {
+            guard clientError.response == nil else { return false }
+            return isQueueableTransportError(clientError.underlyingError)
+        }
+
+        return isQueueableTransportError(error)
+    }
+
+    private static func isQueueableTransportError(_ error: Error) -> Bool {
+        let nsError = error as NSError
+        guard nsError.domain == NSURLErrorDomain else { return false }
+        switch URLError.Code(rawValue: nsError.code) {
+        case .timedOut,
+             .cannotFindHost,
+             .cannotConnectToHost,
+             .networkConnectionLost,
+             .dnsLookupFailed,
+             .notConnectedToInternet,
+             .internationalRoamingOff,
+             .callIsActive,
+             .dataNotAllowed:
+            return true
+        default:
+            return false
+        }
     }
 }

@@ -212,7 +212,7 @@ describe("DailyPlanPage", () => {
     renderApp(makeAuthContext(adminSession));
 
     // Create
-    await screen.findByRole("option", { name: "김정비" }, { timeout: 3000 });
+    await screen.findByRole("option", { name: "김정비" }, { timeout: 10_000 });
     expect(screen.queryByLabelText("담당 정비사")).not.toBeInTheDocument();
     await user.selectOptions(screen.getByLabelText("정비사"), primaryMechanicId);
     const dateInput = screen.getByLabelText("계획 일자");

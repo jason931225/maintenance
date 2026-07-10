@@ -6,21 +6,39 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 use mnt_compliance_application::{
-    ArrivalEvent, ArrivalEventPage, ArrivalEventQuery, ConsentTransitionCommand,
-    ConsentTransitionKind, LocationConsentLedgerEntry, LocationConsentLedgerPage,
-    LocationConsentLedgerQuery, consent_audit_event,
+    ArrivalEvent, ArrivalEventPage, ArrivalEventQuery, AuditStreamAuthorizationFacts,
+    AuditStreamPage, AuditStreamQuery, AuditStreamReadKind, AuditStreamRecord,
+    CEO_COVERT_AUDIT_SENSITIVITY, CEO_COVERT_AUDIT_STREAM_KEY, ComplianceControlPage,
+    ComplianceControlQuery, ComplianceFrameworkPage, ComplianceFrameworkQuery,
+    ComplianceObligationPage, ComplianceObligationQuery, ConsentTransitionCommand,
+    ConsentTransitionKind, CreateComplianceControlCommand, CreateComplianceFrameworkCommand,
+    CreateComplianceObligationCommand, CreateEvidenceBindingCommand, CreateRegulationImpactCommand,
+    EvidenceBindingPage, EvidenceBindingQuery, LinkControlObligationCommand,
+    LinkObligationRegulationCommand, LocationConsentLedgerEntry, LocationConsentLedgerPage,
+    LocationConsentLedgerQuery, RegulationImpactPage, RegulationImpactQuery,
+    audit_stream_access_event, compliance_audit_event, consent_audit_event,
+    relation_audit_snapshot,
 };
 use mnt_compliance_domain::{
-    LocationConsent, LocationConsentState, LocationPing, PersistedLocationConsent,
-    evaluate_geofence,
+    ComplianceControl, ComplianceFramework, ComplianceObligation, ComplianceRiskLevel,
+    ComplianceScope, ComplianceScopeKind, ControlCadence, ControlObligationCoverage, ControlStatus,
+    ControlType, CoverageLevel, CoverageStatus, EvidenceBinding, EvidenceBindingStatus,
+    EvidenceConfidence, EvidenceTargetType, FrameworkKind, FrameworkStatus, LocationConsent,
+    LocationConsentState, LocationPing, ObligationRegulationLink, ObligationRegulationRelationship,
+    ObligationStatus, ObligationType, PersistedLocationConsent, RegulationImpact,
+    RegulationImpactStatus, ReviewCadence, evaluate_geofence, validate_control_key,
+    validate_date_range, validate_evidence_requirements, validate_hash_sha256,
+    validate_metadata_object, validate_optional_text, validate_required_text,
 };
 use mnt_kernel_core::{
     AuditAction, AuditEvent, BranchId, BranchScope, ConsentId, DEFAULT_GEOFENCE_RADIUS_M,
     ErrorKind, KernelError, OrgId, Timestamp, TraceContext, UserId,
 };
-use mnt_platform_db::{DbError, insert_audit_event, with_audit, with_org_conn};
+use mnt_platform_db::{DbError, insert_audit_event, with_audit, with_audits, with_org_conn};
 use mnt_platform_request_context::current_org;
-use sqlx::{PgPool, Postgres, QueryBuilder, Row};
+use std::collections::BTreeSet;
+
+use sqlx::{PgPool, Postgres, QueryBuilder, Row, Transaction, postgres::PgRow};
 
 #[derive(Debug, thiserror::Error)]
 pub enum PgComplianceError {
@@ -577,6 +595,837 @@ impl PgComplianceStore {
         Ok(total)
     }
 
+    pub async fn audit_stream_authorization_facts(
+        &self,
+        user_id: UserId,
+        stream_key: &str,
+    ) -> Result<AuditStreamAuthorizationFacts, PgComplianceError> {
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
+        let user_uuid = *user_id.as_uuid();
+        let stream_key = stream_key.to_owned();
+        let (clearance_keys, policy_version, subject_version, session_generation) =
+            with_org_conn::<_, _, PgComplianceError>(&self.pool, org, move |tx| {
+                Box::pin(async move {
+                    let clearance_keys: Vec<String> = sqlx::query_scalar(
+                        r#"
+                        SELECT clearance_key
+                        FROM clearance_assignments
+                        WHERE user_id = $1
+                          AND stream_key = $2
+                          AND status = 'ACTIVE'
+                          AND starts_at <= now()
+                          AND (expires_at IS NULL OR expires_at > now())
+                        ORDER BY clearance_key
+                        "#,
+                    )
+                    .bind(user_uuid)
+                    .bind(&stream_key)
+                    .fetch_all(tx.as_mut())
+                    .await?;
+
+                    let policy_version: i64 = sqlx::query_scalar(
+                        r#"
+                        SELECT COALESCE(
+                            (SELECT version FROM policy_versions WHERE org_id = $1),
+                            0
+                        )::BIGINT
+                        "#,
+                    )
+                    .bind(org_uuid)
+                    .fetch_one(tx.as_mut())
+                    .await?;
+
+                    let (subject_version, session_generation): (i64, i64) = sqlx::query_as(
+                        r#"
+                        SELECT
+                            COALESCE(s.version, 0)::BIGINT AS subject_version,
+                            COALESCE(s.session_generation, 0)::BIGINT AS session_generation
+                        FROM (SELECT 1) seed
+                        LEFT JOIN subject_authz_versions s
+                          ON s.org_id = $1 AND s.user_id = $2
+                        "#,
+                    )
+                    .bind(org_uuid)
+                    .bind(user_uuid)
+                    .fetch_one(tx.as_mut())
+                    .await?;
+
+                    Ok((
+                        clearance_keys,
+                        policy_version,
+                        subject_version,
+                        session_generation,
+                    ))
+                })
+            })
+            .await?;
+
+        Ok(AuditStreamAuthorizationFacts {
+            active_clearance_keys: clearance_keys.into_iter().collect::<BTreeSet<_>>(),
+            policy_version,
+            subject_version,
+            session_generation,
+        })
+    }
+
+    pub async fn list_ceo_covert_audit_stream(
+        &self,
+        actor: UserId,
+        read_kind: AuditStreamReadKind,
+        query: AuditStreamQuery,
+    ) -> Result<AuditStreamPage, PgComplianceError> {
+        let org = current_org().map_err(KernelError::from)?;
+        let event = audit_stream_access_event(
+            actor,
+            read_kind,
+            &query,
+            TraceContext::generate(),
+            time::OffsetDateTime::now_utc(),
+        )?
+        .with_org(org);
+        let access_audit_id = event.id.to_string();
+        let stream_key = CEO_COVERT_AUDIT_STREAM_KEY.to_owned();
+        let limit = query.limit;
+        let offset = query.offset;
+
+        with_audit::<_, AuditStreamPage, PgComplianceError>(&self.pool, event, |tx| {
+            Box::pin(async move {
+                let (items, total) = match read_kind {
+                    AuditStreamReadKind::Events => {
+                        fetch_labeled_audit_stream_events(tx, &stream_key, limit, offset).await?
+                    }
+                    AuditStreamReadKind::AccessEvents => {
+                        fetch_audit_stream_access_events(tx, &stream_key, limit, offset).await?
+                    }
+                };
+                Ok(AuditStreamPage {
+                    items,
+                    limit,
+                    offset,
+                    total,
+                    stream_key,
+                    read_kind,
+                    access_audit_id,
+                })
+            })
+        })
+        .await
+    }
+
+    // mnt-gate: state-changing-handler
+    pub async fn create_regulation_impact(
+        &self,
+        command: CreateRegulationImpactCommand,
+    ) -> Result<RegulationImpact, PgComplianceError> {
+        validate_create_regulation_impact(&command)?;
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
+        let id = uuid::Uuid::new_v4();
+
+        with_audits::<_, RegulationImpact, PgComplianceError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                let code = next_compliance_code_tx(tx, org_uuid, "RG").await?;
+                let row = sqlx::query(
+                    r#"
+                    INSERT INTO compliance_regulation_impacts (
+                        id, org_id, code, title, jurisdiction, regulator, citation,
+                        source_url, impact_area, impact_summary, risk_level, status,
+                        effective_from, effective_to, review_due_on, owner_user_id,
+                        metadata, created_by, updated_by, created_at, updated_at
+                    )
+                    VALUES (
+                        $1, $2, $3, $4, $5, $6, $7,
+                        $8, $9, $10, $11, 'DRAFT',
+                        $12, $13, $14, $15,
+                        $16, $17, $17, $18, $18
+                    )
+                    RETURNING id, code, title, jurisdiction, regulator, citation,
+                              source_url, impact_area, impact_summary, risk_level,
+                              status, effective_from, effective_to, review_due_on,
+                              owner_user_id, metadata, created_by, updated_by,
+                              created_at, updated_at
+                    "#,
+                )
+                .bind(id)
+                .bind(org_uuid)
+                .bind(&code)
+                .bind(command.title.trim())
+                .bind(command.jurisdiction.trim())
+                .bind(command.regulator.as_deref().map(str::trim))
+                .bind(command.citation.trim())
+                .bind(command.source_url.as_deref().map(str::trim))
+                .bind(command.impact_area.trim())
+                .bind(command.impact_summary.trim())
+                .bind(command.risk_level.as_db_str())
+                .bind(command.effective_from)
+                .bind(command.effective_to)
+                .bind(command.review_due_on)
+                .bind(command.owner_user_id.map(|id| *id.as_uuid()))
+                .bind(command.metadata)
+                .bind(*command.actor.as_uuid())
+                .bind(command.occurred_at)
+                .fetch_one(tx.as_mut())
+                .await?;
+                let item = regulation_impact_from_row(&row)?;
+                let event = compliance_audit_event(
+                    "compliance.regulation_impact.create",
+                    command.actor,
+                    "compliance_regulation_impacts",
+                    item.id,
+                    command.trace,
+                    command.occurred_at,
+                    None,
+                    Some(relation_audit_snapshot(&item)?),
+                )?
+                .with_org(org);
+                Ok((item, vec![event]))
+            })
+        })
+        .await
+    }
+
+    pub async fn list_regulation_impacts(
+        &self,
+        query: RegulationImpactQuery,
+    ) -> Result<RegulationImpactPage, PgComplianceError> {
+        let mut count_builder = QueryBuilder::<Postgres>::new(
+            "SELECT COUNT(*)::BIGINT FROM compliance_regulation_impacts r WHERE TRUE",
+        );
+        push_regulation_filters(&mut count_builder, &query);
+        let org = current_org().map_err(KernelError::from)?;
+        let total: i64 = with_org_conn::<_, _, PgComplianceError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                Ok(count_builder
+                    .build_query_scalar()
+                    .fetch_one(tx.as_mut())
+                    .await?)
+            })
+        })
+        .await?;
+
+        let mut builder = QueryBuilder::<Postgres>::new(
+            r#"
+            SELECT id, code, title, jurisdiction, regulator, citation,
+                   source_url, impact_area, impact_summary, risk_level, status,
+                   effective_from, effective_to, review_due_on, owner_user_id,
+                   metadata, created_by, updated_by, created_at, updated_at
+            FROM compliance_regulation_impacts r
+            WHERE TRUE
+            "#,
+        );
+        push_regulation_filters(&mut builder, &query);
+        builder.push(" ORDER BY r.updated_at DESC, r.id DESC LIMIT ");
+        builder.push_bind(query.page.limit);
+        builder.push(" OFFSET ");
+        builder.push_bind(query.page.offset);
+
+        let org = current_org().map_err(KernelError::from)?;
+        let rows = with_org_conn::<_, _, PgComplianceError>(&self.pool, org, move |tx| {
+            Box::pin(async move { Ok(builder.build().fetch_all(tx.as_mut()).await?) })
+        })
+        .await?;
+        let items = rows
+            .iter()
+            .map(regulation_impact_from_row)
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(RegulationImpactPage {
+            items,
+            limit: query.page.limit,
+            offset: query.page.offset,
+            total,
+        })
+    }
+
+    // mnt-gate: state-changing-handler
+    pub async fn create_compliance_obligation(
+        &self,
+        command: CreateComplianceObligationCommand,
+    ) -> Result<ComplianceObligation, PgComplianceError> {
+        validate_create_compliance_obligation(&command)?;
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
+        let id = uuid::Uuid::new_v4();
+
+        with_audits::<_, ComplianceObligation, PgComplianceError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                let code = next_compliance_code_tx(tx, org_uuid, "CP").await?;
+                let row = sqlx::query(
+                    r#"
+                    INSERT INTO compliance_obligations (
+                        id, org_id, code, title, description, obligation_type,
+                        scope_type, scope_ref, branch_id, site_id, owner_user_id,
+                        severity, status, effective_from, effective_to,
+                        review_cadence, next_review_on, metadata,
+                        created_by, updated_by, created_at, updated_at
+                    )
+                    VALUES (
+                        $1, $2, $3, $4, $5, $6,
+                        $7, $8, $9, $10, $11,
+                        $12, 'DRAFT', $13, $14,
+                        $15, $16, $17,
+                        $18, $18, $19, $19
+                    )
+                    RETURNING id, code, title, description, obligation_type,
+                              scope_type, scope_ref, branch_id, site_id, owner_user_id,
+                              severity, status, effective_from, effective_to,
+                              review_cadence, next_review_on, metadata,
+                              created_by, updated_by, created_at, updated_at
+                    "#,
+                )
+                .bind(id)
+                .bind(org_uuid)
+                .bind(&code)
+                .bind(command.title.trim())
+                .bind(command.description.trim())
+                .bind(command.obligation_type.as_db_str())
+                .bind(command.scope.kind.as_db_str())
+                .bind(command.scope.scope_ref)
+                .bind(command.scope.branch_id.map(|id| *id.as_uuid()))
+                .bind(command.scope.site_id.map(|id| *id.as_uuid()))
+                .bind(command.owner_user_id.map(|id| *id.as_uuid()))
+                .bind(command.severity.as_db_str())
+                .bind(command.effective_from)
+                .bind(command.effective_to)
+                .bind(command.review_cadence.map(ReviewCadence::as_db_str))
+                .bind(command.next_review_on)
+                .bind(command.metadata)
+                .bind(*command.actor.as_uuid())
+                .bind(command.occurred_at)
+                .fetch_one(tx.as_mut())
+                .await?;
+                let item = compliance_obligation_from_row(&row)?;
+                let mut events = vec![
+                    compliance_audit_event(
+                        "compliance.obligation.create",
+                        command.actor,
+                        "compliance_obligations",
+                        item.id,
+                        command.trace.clone(),
+                        command.occurred_at,
+                        None,
+                        Some(relation_audit_snapshot(&item)?),
+                    )?
+                    .with_org(org),
+                ];
+
+                for link in command.regulation_links {
+                    let relation = insert_obligation_regulation_link_tx(
+                        tx,
+                        org_uuid,
+                        item.id,
+                        link.regulation_impact_id,
+                        link.relationship,
+                        link.rationale.as_deref(),
+                        command.actor,
+                        command.occurred_at,
+                    )
+                    .await?;
+                    events.push(
+                        compliance_audit_event(
+                            "compliance.obligation_regulation.link",
+                            command.actor,
+                            "compliance_obligation_regulations",
+                            relation.id,
+                            command.trace.clone(),
+                            command.occurred_at,
+                            None,
+                            Some(relation_audit_snapshot(&relation)?),
+                        )?
+                        .with_org(org),
+                    );
+                }
+
+                Ok((item, events))
+            })
+        })
+        .await
+    }
+
+    pub async fn list_compliance_obligations(
+        &self,
+        query: ComplianceObligationQuery,
+    ) -> Result<ComplianceObligationPage, PgComplianceError> {
+        let mut count_builder = QueryBuilder::<Postgres>::new(
+            "SELECT COUNT(*)::BIGINT FROM compliance_obligations o WHERE",
+        );
+        push_obligation_filters(&mut count_builder, &query);
+        let org = current_org().map_err(KernelError::from)?;
+        let total: i64 = with_org_conn::<_, _, PgComplianceError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                Ok(count_builder
+                    .build_query_scalar()
+                    .fetch_one(tx.as_mut())
+                    .await?)
+            })
+        })
+        .await?;
+
+        let mut builder = QueryBuilder::<Postgres>::new(
+            r#"
+            SELECT id, code, title, description, obligation_type,
+                   scope_type, scope_ref, branch_id, site_id, owner_user_id,
+                   severity, status, effective_from, effective_to,
+                   review_cadence, next_review_on, metadata,
+                   created_by, updated_by, created_at, updated_at
+            FROM compliance_obligations o
+            WHERE
+            "#,
+        );
+        push_obligation_filters(&mut builder, &query);
+        builder.push(" ORDER BY o.updated_at DESC, o.id DESC LIMIT ");
+        builder.push_bind(query.page.limit);
+        builder.push(" OFFSET ");
+        builder.push_bind(query.page.offset);
+        let org = current_org().map_err(KernelError::from)?;
+        let rows = with_org_conn::<_, _, PgComplianceError>(&self.pool, org, move |tx| {
+            Box::pin(async move { Ok(builder.build().fetch_all(tx.as_mut()).await?) })
+        })
+        .await?;
+        let items = rows
+            .iter()
+            .map(compliance_obligation_from_row)
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(ComplianceObligationPage {
+            items,
+            limit: query.page.limit,
+            offset: query.page.offset,
+            total,
+        })
+    }
+
+    // mnt-gate: state-changing-handler
+    pub async fn link_obligation_regulation(
+        &self,
+        command: LinkObligationRegulationCommand,
+    ) -> Result<ObligationRegulationLink, PgComplianceError> {
+        validate_optional_text("rationale", command.rationale.as_deref(), 2_000)?;
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
+        with_audits::<_, ObligationRegulationLink, PgComplianceError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                let relation = insert_obligation_regulation_link_tx(
+                    tx,
+                    org_uuid,
+                    command.obligation_id,
+                    command.regulation_impact_id,
+                    command.relationship,
+                    command.rationale.as_deref(),
+                    command.actor,
+                    command.occurred_at,
+                )
+                .await?;
+                let event = compliance_audit_event(
+                    "compliance.obligation_regulation.link",
+                    command.actor,
+                    "compliance_obligation_regulations",
+                    relation.id,
+                    command.trace,
+                    command.occurred_at,
+                    None,
+                    Some(relation_audit_snapshot(&relation)?),
+                )?
+                .with_org(org);
+                Ok((relation, vec![event]))
+            })
+        })
+        .await
+    }
+
+    // mnt-gate: state-changing-handler
+    pub async fn create_compliance_framework(
+        &self,
+        command: CreateComplianceFrameworkCommand,
+    ) -> Result<ComplianceFramework, PgComplianceError> {
+        validate_create_compliance_framework(&command)?;
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
+        let id = uuid::Uuid::new_v4();
+        with_audits::<_, ComplianceFramework, PgComplianceError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                let code = next_compliance_code_tx(tx, org_uuid, "FW").await?;
+                let row = sqlx::query(
+                    r#"
+                    INSERT INTO compliance_frameworks (
+                        id, org_id, code, name, version_label, framework_kind,
+                        status, owner_user_id, effective_from, effective_to,
+                        metadata, created_by, updated_by, created_at, updated_at
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, 'DRAFT', $7, $8, $9, $10, $11, $11, $12, $12)
+                    RETURNING id, code, name, version_label, framework_kind, status,
+                              owner_user_id, effective_from, effective_to, metadata,
+                              created_by, updated_by, created_at, updated_at
+                    "#,
+                )
+                .bind(id)
+                .bind(org_uuid)
+                .bind(&code)
+                .bind(command.name.trim())
+                .bind(command.version_label.trim())
+                .bind(command.framework_kind.as_db_str())
+                .bind(command.owner_user_id.map(|id| *id.as_uuid()))
+                .bind(command.effective_from)
+                .bind(command.effective_to)
+                .bind(command.metadata)
+                .bind(*command.actor.as_uuid())
+                .bind(command.occurred_at)
+                .fetch_one(tx.as_mut())
+                .await?;
+                let item = compliance_framework_from_row(&row)?;
+                let event = compliance_audit_event(
+                    "compliance.framework.create",
+                    command.actor,
+                    "compliance_frameworks",
+                    item.id,
+                    command.trace,
+                    command.occurred_at,
+                    None,
+                    Some(relation_audit_snapshot(&item)?),
+                )?
+                .with_org(org);
+                Ok((item, vec![event]))
+            })
+        })
+        .await
+    }
+
+    pub async fn list_compliance_frameworks(
+        &self,
+        query: ComplianceFrameworkQuery,
+    ) -> Result<ComplianceFrameworkPage, PgComplianceError> {
+        let mut count_builder = QueryBuilder::<Postgres>::new(
+            "SELECT COUNT(*)::BIGINT FROM compliance_frameworks f WHERE TRUE",
+        );
+        push_framework_filters(&mut count_builder, &query);
+        let org = current_org().map_err(KernelError::from)?;
+        let total: i64 = with_org_conn::<_, _, PgComplianceError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                Ok(count_builder
+                    .build_query_scalar()
+                    .fetch_one(tx.as_mut())
+                    .await?)
+            })
+        })
+        .await?;
+        let mut builder = QueryBuilder::<Postgres>::new(
+            r#"
+            SELECT id, code, name, version_label, framework_kind, status,
+                   owner_user_id, effective_from, effective_to, metadata,
+                   created_by, updated_by, created_at, updated_at
+            FROM compliance_frameworks f
+            WHERE TRUE
+            "#,
+        );
+        push_framework_filters(&mut builder, &query);
+        builder.push(" ORDER BY f.updated_at DESC, f.id DESC LIMIT ");
+        builder.push_bind(query.page.limit);
+        builder.push(" OFFSET ");
+        builder.push_bind(query.page.offset);
+        let org = current_org().map_err(KernelError::from)?;
+        let rows = with_org_conn::<_, _, PgComplianceError>(&self.pool, org, move |tx| {
+            Box::pin(async move { Ok(builder.build().fetch_all(tx.as_mut()).await?) })
+        })
+        .await?;
+        let items = rows
+            .iter()
+            .map(compliance_framework_from_row)
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(ComplianceFrameworkPage {
+            items,
+            limit: query.page.limit,
+            offset: query.page.offset,
+            total,
+        })
+    }
+
+    // mnt-gate: state-changing-handler
+    pub async fn create_compliance_control(
+        &self,
+        command: CreateComplianceControlCommand,
+    ) -> Result<ComplianceControl, PgComplianceError> {
+        validate_create_compliance_control(&command)?;
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
+        let id = uuid::Uuid::new_v4();
+        with_audits::<_, ComplianceControl, PgComplianceError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                let row = sqlx::query(
+                    r#"
+                    INSERT INTO compliance_controls (
+                        id, org_id, framework_id, control_key, title, objective,
+                        control_type, cadence, status, evidence_requirements,
+                        owner_user_id, created_by, updated_by, created_at, updated_at
+                    )
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'DRAFT', $9, $10, $11, $11, $12, $12)
+                    RETURNING id, framework_id, control_key, title, objective,
+                              control_type, cadence, status, evidence_requirements,
+                              owner_user_id, created_by, updated_by, created_at, updated_at
+                    "#,
+                )
+                .bind(id)
+                .bind(org_uuid)
+                .bind(command.framework_id)
+                .bind(command.control_key.trim())
+                .bind(command.title.trim())
+                .bind(command.objective.trim())
+                .bind(command.control_type.as_db_str())
+                .bind(command.cadence.map(ControlCadence::as_db_str))
+                .bind(command.evidence_requirements)
+                .bind(command.owner_user_id.map(|id| *id.as_uuid()))
+                .bind(*command.actor.as_uuid())
+                .bind(command.occurred_at)
+                .fetch_one(tx.as_mut())
+                .await?;
+                let item = compliance_control_from_row(&row)?;
+                let event = compliance_audit_event(
+                    "compliance.control.create",
+                    command.actor,
+                    "compliance_controls",
+                    item.id,
+                    command.trace,
+                    command.occurred_at,
+                    None,
+                    Some(relation_audit_snapshot(&item)?),
+                )?
+                .with_org(org);
+                Ok((item, vec![event]))
+            })
+        })
+        .await
+    }
+
+    pub async fn list_compliance_controls(
+        &self,
+        query: ComplianceControlQuery,
+    ) -> Result<ComplianceControlPage, PgComplianceError> {
+        let mut count_builder = QueryBuilder::<Postgres>::new(
+            "SELECT COUNT(*)::BIGINT FROM compliance_controls c WHERE c.framework_id = ",
+        );
+        count_builder.push_bind(query.framework_id);
+        push_control_filters(&mut count_builder, &query);
+        let org = current_org().map_err(KernelError::from)?;
+        let total: i64 = with_org_conn::<_, _, PgComplianceError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                Ok(count_builder
+                    .build_query_scalar()
+                    .fetch_one(tx.as_mut())
+                    .await?)
+            })
+        })
+        .await?;
+        let mut builder = QueryBuilder::<Postgres>::new(
+            r#"
+            SELECT id, framework_id, control_key, title, objective,
+                   control_type, cadence, status, evidence_requirements,
+                   owner_user_id, created_by, updated_by, created_at, updated_at
+            FROM compliance_controls c
+            WHERE c.framework_id =
+            "#,
+        );
+        builder.push_bind(query.framework_id);
+        push_control_filters(&mut builder, &query);
+        builder.push(" ORDER BY c.control_key ASC, c.id ASC LIMIT ");
+        builder.push_bind(query.page.limit);
+        builder.push(" OFFSET ");
+        builder.push_bind(query.page.offset);
+        let org = current_org().map_err(KernelError::from)?;
+        let rows = with_org_conn::<_, _, PgComplianceError>(&self.pool, org, move |tx| {
+            Box::pin(async move { Ok(builder.build().fetch_all(tx.as_mut()).await?) })
+        })
+        .await?;
+        let items = rows
+            .iter()
+            .map(compliance_control_from_row)
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(ComplianceControlPage {
+            items,
+            limit: query.page.limit,
+            offset: query.page.offset,
+            total,
+        })
+    }
+
+    // mnt-gate: state-changing-handler
+    pub async fn link_control_obligation(
+        &self,
+        command: LinkControlObligationCommand,
+    ) -> Result<ControlObligationCoverage, PgComplianceError> {
+        validate_optional_text(
+            "coverage_rationale",
+            command.coverage_rationale.as_deref(),
+            2_000,
+        )?;
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
+        let id = uuid::Uuid::new_v4();
+        with_audits::<_, ControlObligationCoverage, PgComplianceError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                let row = sqlx::query(
+                    r#"
+                        INSERT INTO compliance_control_obligations (
+                            id, org_id, control_id, obligation_id, coverage_level,
+                            coverage_rationale, status, created_by, updated_by,
+                            created_at, updated_at
+                        )
+                        VALUES ($1, $2, $3, $4, $5, $6, 'ACTIVE', $7, $7, $8, $8)
+                        ON CONFLICT (org_id, control_id, obligation_id) DO UPDATE
+                        SET coverage_level = EXCLUDED.coverage_level,
+                            coverage_rationale = EXCLUDED.coverage_rationale,
+                            status = 'ACTIVE',
+                            updated_by = EXCLUDED.updated_by,
+                            updated_at = EXCLUDED.updated_at
+                        RETURNING id, control_id, obligation_id, coverage_level,
+                                  coverage_rationale, status, created_by, updated_by,
+                                  created_at, updated_at
+                        "#,
+                )
+                .bind(id)
+                .bind(org_uuid)
+                .bind(command.control_id)
+                .bind(command.obligation_id)
+                .bind(command.coverage_level.as_db_str())
+                .bind(command.coverage_rationale.as_deref().map(str::trim))
+                .bind(*command.actor.as_uuid())
+                .bind(command.occurred_at)
+                .fetch_one(tx.as_mut())
+                .await?;
+                let item = control_obligation_coverage_from_row(&row)?;
+                let event = compliance_audit_event(
+                    "compliance.control_obligation.link",
+                    command.actor,
+                    "compliance_control_obligations",
+                    item.id,
+                    command.trace,
+                    command.occurred_at,
+                    None,
+                    Some(relation_audit_snapshot(&item)?),
+                )?
+                .with_org(org);
+                Ok((item, vec![event]))
+            })
+        })
+        .await
+    }
+
+    // mnt-gate: state-changing-handler
+    pub async fn create_evidence_binding(
+        &self,
+        command: CreateEvidenceBindingCommand,
+    ) -> Result<EvidenceBinding, PgComplianceError> {
+        validate_create_evidence_binding(&command)?;
+        let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
+        let id = uuid::Uuid::new_v4();
+        with_audits::<_, EvidenceBinding, PgComplianceError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                let row = sqlx::query(
+                    r#"
+                    INSERT INTO compliance_evidence_bindings (
+                        id, org_id, control_id, obligation_id, evidence_target_type,
+                        evidence_target_id, source_audit_event_id, status, confidence,
+                        collected_at, collected_by, valid_from, valid_to, hash_sha256,
+                        metadata, created_by, updated_by, created_at, updated_at
+                    )
+                    VALUES (
+                        $1, $2, $3, $4, $5,
+                        $6, $7, 'PROPOSED', $8,
+                        $9, $10, $11, $12, $13,
+                        $14, $15, $15, $16, $16
+                    )
+                    RETURNING id, control_id, obligation_id, evidence_target_type,
+                              evidence_target_id, source_audit_event_id, status,
+                              confidence, collected_at, collected_by, valid_from,
+                              valid_to, hash_sha256, metadata, created_by, updated_by,
+                              created_at, updated_at
+                    "#,
+                )
+                .bind(id)
+                .bind(org_uuid)
+                .bind(command.control_id)
+                .bind(command.obligation_id)
+                .bind(command.evidence_target_type.as_db_str())
+                .bind(command.evidence_target_id.trim())
+                .bind(command.source_audit_event_id)
+                .bind(command.confidence.as_db_str())
+                .bind(command.collected_at)
+                .bind(command.collected_by.map(|id| *id.as_uuid()))
+                .bind(command.valid_from)
+                .bind(command.valid_to)
+                .bind(command.hash_sha256.as_deref().map(str::trim))
+                .bind(command.metadata)
+                .bind(*command.actor.as_uuid())
+                .bind(command.occurred_at)
+                .fetch_one(tx.as_mut())
+                .await?;
+                let item = evidence_binding_from_row(&row)?;
+                let event = compliance_audit_event(
+                    "compliance.evidence_binding.create",
+                    command.actor,
+                    "compliance_evidence_bindings",
+                    item.id,
+                    command.trace,
+                    command.occurred_at,
+                    None,
+                    Some(relation_audit_snapshot(&item)?),
+                )?
+                .with_org(org);
+                Ok((item, vec![event]))
+            })
+        })
+        .await
+    }
+
+    pub async fn list_evidence_bindings(
+        &self,
+        query: EvidenceBindingQuery,
+    ) -> Result<EvidenceBindingPage, PgComplianceError> {
+        let mut count_builder = QueryBuilder::<Postgres>::new(
+            "SELECT COUNT(*)::BIGINT FROM compliance_evidence_bindings e WHERE TRUE",
+        );
+        push_evidence_filters(&mut count_builder, &query);
+        let org = current_org().map_err(KernelError::from)?;
+        let total: i64 = with_org_conn::<_, _, PgComplianceError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                Ok(count_builder
+                    .build_query_scalar()
+                    .fetch_one(tx.as_mut())
+                    .await?)
+            })
+        })
+        .await?;
+        let mut builder = QueryBuilder::<Postgres>::new(
+            r#"
+            SELECT id, control_id, obligation_id, evidence_target_type,
+                   evidence_target_id, source_audit_event_id, status,
+                   confidence, collected_at, collected_by, valid_from,
+                   valid_to, hash_sha256, metadata, created_by, updated_by,
+                   created_at, updated_at
+            FROM compliance_evidence_bindings e
+            WHERE TRUE
+            "#,
+        );
+        push_evidence_filters(&mut builder, &query);
+        builder.push(" ORDER BY e.updated_at DESC, e.id DESC LIMIT ");
+        builder.push_bind(query.page.limit);
+        builder.push(" OFFSET ");
+        builder.push_bind(query.page.offset);
+        let org = current_org().map_err(KernelError::from)?;
+        let rows = with_org_conn::<_, _, PgComplianceError>(&self.pool, org, move |tx| {
+            Box::pin(async move { Ok(builder.build().fetch_all(tx.as_mut()).await?) })
+        })
+        .await?;
+        let items = rows
+            .iter()
+            .map(evidence_binding_from_row)
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(EvidenceBindingPage {
+            items,
+            limit: query.page.limit,
+            offset: query.page.offset,
+            total,
+        })
+    }
+
     async fn current_or_unrecorded(
         &self,
         user_id: UserId,
@@ -620,6 +1469,610 @@ impl PgComplianceStore {
             updated_at: row.updated_at,
         }))
     }
+}
+
+fn validate_create_regulation_impact(
+    command: &CreateRegulationImpactCommand,
+) -> Result<(), PgComplianceError> {
+    validate_required_text("title", &command.title, 200)?;
+    validate_required_text("jurisdiction", &command.jurisdiction, 80)?;
+    validate_optional_text("regulator", command.regulator.as_deref(), 160)?;
+    validate_required_text("citation", &command.citation, 300)?;
+    validate_optional_text("source_url", command.source_url.as_deref(), 500)?;
+    validate_required_text("impact_area", &command.impact_area, 80)?;
+    validate_required_text("impact_summary", &command.impact_summary, 4_000)?;
+    validate_date_range(
+        "regulation impact",
+        command.effective_from,
+        command.effective_to,
+    )?;
+    validate_metadata_object(&command.metadata)?;
+    Ok(())
+}
+
+fn validate_create_compliance_obligation(
+    command: &CreateComplianceObligationCommand,
+) -> Result<(), PgComplianceError> {
+    validate_required_text("title", &command.title, 200)?;
+    validate_required_text("description", &command.description, 4_000)?;
+    command.scope.validate()?;
+    validate_date_range(
+        "compliance obligation",
+        command.effective_from,
+        command.effective_to,
+    )?;
+    validate_metadata_object(&command.metadata)?;
+    for link in &command.regulation_links {
+        validate_optional_text("rationale", link.rationale.as_deref(), 2_000)?;
+    }
+    Ok(())
+}
+
+fn validate_create_compliance_framework(
+    command: &CreateComplianceFrameworkCommand,
+) -> Result<(), PgComplianceError> {
+    validate_required_text("name", &command.name, 200)?;
+    validate_required_text("version_label", &command.version_label, 80)?;
+    validate_date_range(
+        "compliance framework",
+        command.effective_from,
+        command.effective_to,
+    )?;
+    validate_metadata_object(&command.metadata)?;
+    Ok(())
+}
+
+fn validate_create_compliance_control(
+    command: &CreateComplianceControlCommand,
+) -> Result<(), PgComplianceError> {
+    validate_control_key(&command.control_key)?;
+    validate_required_text("title", &command.title, 200)?;
+    validate_required_text("objective", &command.objective, 4_000)?;
+    validate_evidence_requirements(&command.evidence_requirements)?;
+    Ok(())
+}
+
+fn validate_create_evidence_binding(
+    command: &CreateEvidenceBindingCommand,
+) -> Result<(), PgComplianceError> {
+    validate_required_text("evidence_target_id", &command.evidence_target_id, 200)?;
+    validate_date_range("evidence binding", command.valid_from, command.valid_to)?;
+    validate_hash_sha256(command.hash_sha256.as_deref())?;
+    validate_metadata_object(&command.metadata)?;
+    Ok(())
+}
+
+async fn next_compliance_code_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    org_uuid: uuid::Uuid,
+    prefix: &str,
+) -> Result<String, PgComplianceError> {
+    let allocated: i64 = sqlx::query_scalar(
+        r#"
+        INSERT INTO compliance_code_counters (org_id, object_prefix, next_value, updated_at)
+        VALUES ($1, $2, 2, now())
+        ON CONFLICT (org_id, object_prefix) DO UPDATE
+        SET next_value = compliance_code_counters.next_value + 1,
+            updated_at = now()
+        RETURNING next_value - 1
+        "#,
+    )
+    .bind(org_uuid)
+    .bind(prefix)
+    .fetch_one(tx.as_mut())
+    .await?;
+    Ok(format!("{prefix}-{allocated:04}"))
+}
+
+// ponytail: builder-shaped signature, struct-ify deferred
+#[allow(clippy::too_many_arguments)]
+async fn insert_obligation_regulation_link_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    org_uuid: uuid::Uuid,
+    obligation_id: uuid::Uuid,
+    regulation_impact_id: uuid::Uuid,
+    relationship: ObligationRegulationRelationship,
+    rationale: Option<&str>,
+    actor: UserId,
+    occurred_at: Timestamp,
+) -> Result<ObligationRegulationLink, PgComplianceError> {
+    let row = sqlx::query(
+        r#"
+        WITH inserted AS (
+            INSERT INTO compliance_obligation_regulations (
+                id, org_id, obligation_id, regulation_impact_id, relationship,
+                rationale, created_by, created_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            ON CONFLICT (org_id, obligation_id, regulation_impact_id, relationship) DO NOTHING
+            RETURNING id, obligation_id, regulation_impact_id, relationship, rationale,
+                      created_by, created_at
+        )
+        SELECT id, obligation_id, regulation_impact_id, relationship, rationale,
+               created_by, created_at
+        FROM inserted
+        UNION ALL
+        SELECT id, obligation_id, regulation_impact_id, relationship, rationale,
+               created_by, created_at
+        FROM compliance_obligation_regulations
+        WHERE org_id = $2
+          AND obligation_id = $3
+          AND regulation_impact_id = $4
+          AND relationship = $5
+        LIMIT 1
+        "#,
+    )
+    .bind(uuid::Uuid::new_v4())
+    .bind(org_uuid)
+    .bind(obligation_id)
+    .bind(regulation_impact_id)
+    .bind(relationship.as_db_str())
+    .bind(rationale.map(str::trim))
+    .bind(*actor.as_uuid())
+    .bind(occurred_at)
+    .fetch_one(tx.as_mut())
+    .await?;
+    obligation_regulation_link_from_row(&row)
+}
+
+fn regulation_impact_from_row(row: &PgRow) -> Result<RegulationImpact, PgComplianceError> {
+    let risk_level: String = row.try_get("risk_level")?;
+    let status: String = row.try_get("status")?;
+    Ok(RegulationImpact {
+        id: row.try_get("id")?,
+        code: row.try_get("code")?,
+        title: row.try_get("title")?,
+        jurisdiction: row.try_get("jurisdiction")?,
+        regulator: row.try_get("regulator")?,
+        citation: row.try_get("citation")?,
+        source_url: row.try_get("source_url")?,
+        impact_area: row.try_get("impact_area")?,
+        impact_summary: row.try_get("impact_summary")?,
+        risk_level: ComplianceRiskLevel::from_db_str(&risk_level)?,
+        status: RegulationImpactStatus::from_db_str(&status)?,
+        effective_from: row.try_get("effective_from")?,
+        effective_to: row.try_get("effective_to")?,
+        review_due_on: row.try_get("review_due_on")?,
+        owner_user_id: optional_user_id(row, "owner_user_id")?,
+        metadata: row.try_get("metadata")?,
+        created_by: user_id(row, "created_by")?,
+        updated_by: user_id(row, "updated_by")?,
+        created_at: row.try_get("created_at")?,
+        updated_at: row.try_get("updated_at")?,
+    })
+}
+
+fn compliance_obligation_from_row(row: &PgRow) -> Result<ComplianceObligation, PgComplianceError> {
+    let obligation_type: String = row.try_get("obligation_type")?;
+    let scope_type: String = row.try_get("scope_type")?;
+    let severity: String = row.try_get("severity")?;
+    let status: String = row.try_get("status")?;
+    let review_cadence: Option<String> = row.try_get("review_cadence")?;
+    Ok(ComplianceObligation {
+        id: row.try_get("id")?,
+        code: row.try_get("code")?,
+        title: row.try_get("title")?,
+        description: row.try_get("description")?,
+        obligation_type: ObligationType::from_db_str(&obligation_type)?,
+        scope: ComplianceScope {
+            kind: ComplianceScopeKind::from_db_str(&scope_type)?,
+            scope_ref: row.try_get("scope_ref")?,
+            branch_id: optional_branch_id(row, "branch_id")?,
+            site_id: optional_site_id(row, "site_id")?,
+        },
+        owner_user_id: optional_user_id(row, "owner_user_id")?,
+        severity: ComplianceRiskLevel::from_db_str(&severity)?,
+        status: ObligationStatus::from_db_str(&status)?,
+        effective_from: row.try_get("effective_from")?,
+        effective_to: row.try_get("effective_to")?,
+        review_cadence: review_cadence
+            .as_deref()
+            .map(ReviewCadence::from_db_str)
+            .transpose()?,
+        next_review_on: row.try_get("next_review_on")?,
+        metadata: row.try_get("metadata")?,
+        created_by: user_id(row, "created_by")?,
+        updated_by: user_id(row, "updated_by")?,
+        created_at: row.try_get("created_at")?,
+        updated_at: row.try_get("updated_at")?,
+    })
+}
+
+fn obligation_regulation_link_from_row(
+    row: &PgRow,
+) -> Result<ObligationRegulationLink, PgComplianceError> {
+    let relationship: String = row.try_get("relationship")?;
+    Ok(ObligationRegulationLink {
+        id: row.try_get("id")?,
+        obligation_id: row.try_get("obligation_id")?,
+        regulation_impact_id: row.try_get("regulation_impact_id")?,
+        relationship: ObligationRegulationRelationship::from_db_str(&relationship)?,
+        rationale: row.try_get("rationale")?,
+        created_by: user_id(row, "created_by")?,
+        created_at: row.try_get("created_at")?,
+    })
+}
+
+fn compliance_framework_from_row(row: &PgRow) -> Result<ComplianceFramework, PgComplianceError> {
+    let framework_kind: String = row.try_get("framework_kind")?;
+    let status: String = row.try_get("status")?;
+    Ok(ComplianceFramework {
+        id: row.try_get("id")?,
+        code: row.try_get("code")?,
+        name: row.try_get("name")?,
+        version_label: row.try_get("version_label")?,
+        framework_kind: FrameworkKind::from_db_str(&framework_kind)?,
+        status: FrameworkStatus::from_db_str(&status)?,
+        owner_user_id: optional_user_id(row, "owner_user_id")?,
+        effective_from: row.try_get("effective_from")?,
+        effective_to: row.try_get("effective_to")?,
+        metadata: row.try_get("metadata")?,
+        created_by: user_id(row, "created_by")?,
+        updated_by: user_id(row, "updated_by")?,
+        created_at: row.try_get("created_at")?,
+        updated_at: row.try_get("updated_at")?,
+    })
+}
+
+fn compliance_control_from_row(row: &PgRow) -> Result<ComplianceControl, PgComplianceError> {
+    let control_type: String = row.try_get("control_type")?;
+    let cadence: Option<String> = row.try_get("cadence")?;
+    let status: String = row.try_get("status")?;
+    Ok(ComplianceControl {
+        id: row.try_get("id")?,
+        framework_id: row.try_get("framework_id")?,
+        control_key: row.try_get("control_key")?,
+        title: row.try_get("title")?,
+        objective: row.try_get("objective")?,
+        control_type: ControlType::from_db_str(&control_type)?,
+        cadence: cadence
+            .as_deref()
+            .map(ControlCadence::from_db_str)
+            .transpose()?,
+        status: ControlStatus::from_db_str(&status)?,
+        evidence_requirements: row.try_get("evidence_requirements")?,
+        owner_user_id: optional_user_id(row, "owner_user_id")?,
+        created_by: user_id(row, "created_by")?,
+        updated_by: user_id(row, "updated_by")?,
+        created_at: row.try_get("created_at")?,
+        updated_at: row.try_get("updated_at")?,
+    })
+}
+
+fn control_obligation_coverage_from_row(
+    row: &PgRow,
+) -> Result<ControlObligationCoverage, PgComplianceError> {
+    let coverage_level: String = row.try_get("coverage_level")?;
+    let status: String = row.try_get("status")?;
+    Ok(ControlObligationCoverage {
+        id: row.try_get("id")?,
+        control_id: row.try_get("control_id")?,
+        obligation_id: row.try_get("obligation_id")?,
+        coverage_level: CoverageLevel::from_db_str(&coverage_level)?,
+        coverage_rationale: row.try_get("coverage_rationale")?,
+        status: CoverageStatus::from_db_str(&status)?,
+        created_by: user_id(row, "created_by")?,
+        updated_by: user_id(row, "updated_by")?,
+        created_at: row.try_get("created_at")?,
+        updated_at: row.try_get("updated_at")?,
+    })
+}
+
+fn evidence_binding_from_row(row: &PgRow) -> Result<EvidenceBinding, PgComplianceError> {
+    let evidence_target_type: String = row.try_get("evidence_target_type")?;
+    let status: String = row.try_get("status")?;
+    let confidence: String = row.try_get("confidence")?;
+    Ok(EvidenceBinding {
+        id: row.try_get("id")?,
+        control_id: row.try_get("control_id")?,
+        obligation_id: row.try_get("obligation_id")?,
+        evidence_target_type: EvidenceTargetType::from_db_str(&evidence_target_type)?,
+        evidence_target_id: row.try_get("evidence_target_id")?,
+        source_audit_event_id: row.try_get("source_audit_event_id")?,
+        status: EvidenceBindingStatus::from_db_str(&status)?,
+        confidence: EvidenceConfidence::from_db_str(&confidence)?,
+        collected_at: row.try_get("collected_at")?,
+        collected_by: optional_user_id(row, "collected_by")?,
+        valid_from: row.try_get("valid_from")?,
+        valid_to: row.try_get("valid_to")?,
+        hash_sha256: row.try_get("hash_sha256")?,
+        metadata: row.try_get("metadata")?,
+        created_by: user_id(row, "created_by")?,
+        updated_by: user_id(row, "updated_by")?,
+        created_at: row.try_get("created_at")?,
+        updated_at: row.try_get("updated_at")?,
+    })
+}
+
+fn user_id(row: &PgRow, column: &str) -> Result<UserId, PgComplianceError> {
+    Ok(UserId::from_uuid(row.try_get(column)?))
+}
+
+fn optional_user_id(row: &PgRow, column: &str) -> Result<Option<UserId>, PgComplianceError> {
+    Ok(row
+        .try_get::<Option<uuid::Uuid>, _>(column)?
+        .map(UserId::from_uuid))
+}
+
+fn optional_branch_id(row: &PgRow, column: &str) -> Result<Option<BranchId>, PgComplianceError> {
+    Ok(row
+        .try_get::<Option<uuid::Uuid>, _>(column)?
+        .map(BranchId::from_uuid))
+}
+
+fn optional_site_id(
+    row: &PgRow,
+    column: &str,
+) -> Result<Option<mnt_kernel_core::SiteId>, PgComplianceError> {
+    Ok(row
+        .try_get::<Option<uuid::Uuid>, _>(column)?
+        .map(mnt_kernel_core::SiteId::from_uuid))
+}
+
+fn push_regulation_filters(builder: &mut QueryBuilder<Postgres>, query: &RegulationImpactQuery) {
+    if let Some(status) = query.status {
+        builder.push(" AND r.status = ");
+        builder.push_bind(status.as_db_str());
+    }
+    if let Some(risk_level) = query.risk_level {
+        builder.push(" AND r.risk_level = ");
+        builder.push_bind(risk_level.as_db_str());
+    }
+    if let Some(q) = normalized_like(&query.q) {
+        builder.push(" AND (r.code ILIKE ");
+        builder.push_bind(q.clone());
+        builder.push(" OR r.title ILIKE ");
+        builder.push_bind(q.clone());
+        builder.push(" OR r.citation ILIKE ");
+        builder.push_bind(q);
+        builder.push(")");
+    }
+}
+
+fn push_obligation_filters(
+    builder: &mut QueryBuilder<Postgres>,
+    query: &ComplianceObligationQuery,
+) {
+    push_obligation_scope_filter(builder, &query.branch_scope);
+    if let Some(status) = query.status {
+        builder.push(" AND o.status = ");
+        builder.push_bind(status.as_db_str());
+    }
+    if let Some(severity) = query.severity {
+        builder.push(" AND o.severity = ");
+        builder.push_bind(severity.as_db_str());
+    }
+    if let Some(scope_type) = query.scope_type {
+        builder.push(" AND o.scope_type = ");
+        builder.push_bind(scope_type.as_db_str());
+    }
+    if let Some(branch_id) = query.branch_id {
+        builder.push(" AND o.branch_id = ");
+        builder.push_bind(*branch_id.as_uuid());
+    }
+    if let Some(site_id) = query.site_id {
+        builder.push(" AND o.site_id = ");
+        builder.push_bind(*site_id.as_uuid());
+    }
+    if let Some(q) = normalized_like(&query.q) {
+        builder.push(" AND (o.code ILIKE ");
+        builder.push_bind(q.clone());
+        builder.push(" OR o.title ILIKE ");
+        builder.push_bind(q.clone());
+        builder.push(" OR o.description ILIKE ");
+        builder.push_bind(q);
+        builder.push(")");
+    }
+}
+
+fn push_obligation_scope_filter(builder: &mut QueryBuilder<Postgres>, scope: &BranchScope) {
+    match scope {
+        BranchScope::All => {
+            builder.push(" TRUE ");
+        }
+        BranchScope::Branches(branches) if branches.is_empty() => {
+            builder.push(" FALSE ");
+        }
+        BranchScope::Branches(branches) => {
+            let branch_ids: Vec<uuid::Uuid> =
+                branches.iter().map(|branch| *branch.as_uuid()).collect();
+            builder.push(" (o.scope_type = 'ORG' OR o.branch_id = ANY(");
+            builder.push_bind(branch_ids);
+            builder.push(")) ");
+        }
+    };
+}
+
+fn push_framework_filters(builder: &mut QueryBuilder<Postgres>, query: &ComplianceFrameworkQuery) {
+    if let Some(status) = query.status {
+        builder.push(" AND f.status = ");
+        builder.push_bind(status.as_db_str());
+    }
+    if let Some(kind) = query.kind {
+        builder.push(" AND f.framework_kind = ");
+        builder.push_bind(kind.as_db_str());
+    }
+    if let Some(q) = normalized_like(&query.q) {
+        builder.push(" AND (f.code ILIKE ");
+        builder.push_bind(q.clone());
+        builder.push(" OR f.name ILIKE ");
+        builder.push_bind(q);
+        builder.push(")");
+    }
+}
+
+fn push_control_filters(builder: &mut QueryBuilder<Postgres>, query: &ComplianceControlQuery) {
+    if let Some(status) = query.status {
+        builder.push(" AND c.status = ");
+        builder.push_bind(status.as_db_str());
+    }
+    if let Some(q) = normalized_like(&query.q) {
+        builder.push(" AND (c.control_key ILIKE ");
+        builder.push_bind(q.clone());
+        builder.push(" OR c.title ILIKE ");
+        builder.push_bind(q.clone());
+        builder.push(" OR c.objective ILIKE ");
+        builder.push_bind(q);
+        builder.push(")");
+    }
+}
+
+fn push_evidence_filters(builder: &mut QueryBuilder<Postgres>, query: &EvidenceBindingQuery) {
+    if let Some(control_id) = query.control_id {
+        builder.push(" AND e.control_id = ");
+        builder.push_bind(control_id);
+    }
+    if let Some(obligation_id) = query.obligation_id {
+        builder.push(" AND e.obligation_id = ");
+        builder.push_bind(obligation_id);
+    }
+    if let Some(target_type) = query.target_type {
+        builder.push(" AND e.evidence_target_type = ");
+        builder.push_bind(target_type.as_db_str());
+    }
+    if let Some(status) = query.status {
+        builder.push(" AND e.status = ");
+        builder.push_bind(status.as_db_str());
+    }
+}
+
+fn normalized_like(query: &Option<String>) -> Option<String> {
+    query
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(|value| format!("%{value}%"))
+}
+
+async fn fetch_labeled_audit_stream_events(
+    tx: &mut Transaction<'_, Postgres>,
+    stream_key: &str,
+    limit: i64,
+    offset: i64,
+) -> Result<(Vec<AuditStreamRecord>, i64), PgComplianceError> {
+    let total: i64 = sqlx::query_scalar(
+        r#"
+        SELECT COUNT(*)::BIGINT
+        FROM audit_stream_event_labels l
+        JOIN audit_events e ON e.org_id = l.org_id AND e.id = l.audit_event_id
+        WHERE l.stream_key = $1 AND l.sensitivity = $2
+        "#,
+    )
+    .bind(stream_key)
+    .bind(CEO_COVERT_AUDIT_SENSITIVITY)
+    .fetch_one(tx.as_mut())
+    .await?;
+
+    let rows = sqlx::query(
+        r#"
+        SELECT e.id,
+               e.actor,
+               e.action,
+               e.target_type,
+               e.target_id,
+               l.sensitivity,
+               e.before_snap,
+               e.after_snap,
+               e.trace_id::TEXT AS trace_id,
+               e.span_id::TEXT AS span_id,
+               e.occurred_at,
+               e.created_at
+        FROM audit_stream_event_labels l
+        JOIN audit_events e ON e.org_id = l.org_id AND e.id = l.audit_event_id
+        WHERE l.stream_key = $1 AND l.sensitivity = $2
+        ORDER BY e.occurred_at DESC, e.id DESC
+        LIMIT $3 OFFSET $4
+        "#,
+    )
+    .bind(stream_key)
+    .bind(CEO_COVERT_AUDIT_SENSITIVITY)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(tx.as_mut())
+    .await?;
+
+    rows.into_iter()
+        .map(audit_stream_record_from_row)
+        .collect::<Result<Vec<_>, _>>()
+        .map(|items| (items, total))
+}
+
+async fn fetch_audit_stream_access_events(
+    tx: &mut Transaction<'_, Postgres>,
+    stream_key: &str,
+    limit: i64,
+    offset: i64,
+) -> Result<(Vec<AuditStreamRecord>, i64), PgComplianceError> {
+    let read_action = AuditStreamReadKind::Events.access_audit_action();
+    let access_action = AuditStreamReadKind::AccessEvents.access_audit_action();
+    let total: i64 = sqlx::query_scalar(
+        r#"
+        SELECT COUNT(*)::BIGINT
+        FROM audit_events e
+        WHERE e.target_type = 'audit_stream'
+          AND e.target_id = $1
+          AND e.action IN ($2, $3)
+        "#,
+    )
+    .bind(stream_key)
+    .bind(read_action)
+    .bind(access_action)
+    .fetch_one(tx.as_mut())
+    .await?;
+
+    let rows = sqlx::query(
+        r#"
+        SELECT e.id,
+               e.actor,
+               e.action,
+               e.target_type,
+               e.target_id,
+               'ACCESS'::TEXT AS sensitivity,
+               e.before_snap,
+               e.after_snap,
+               e.trace_id::TEXT AS trace_id,
+               e.span_id::TEXT AS span_id,
+               e.occurred_at,
+               e.created_at
+        FROM audit_events e
+        WHERE e.target_type = 'audit_stream'
+          AND e.target_id = $1
+          AND e.action IN ($2, $3)
+        ORDER BY e.occurred_at DESC, e.id DESC
+        LIMIT $4 OFFSET $5
+        "#,
+    )
+    .bind(stream_key)
+    .bind(read_action)
+    .bind(access_action)
+    .bind(limit)
+    .bind(offset)
+    .fetch_all(tx.as_mut())
+    .await?;
+
+    rows.into_iter()
+        .map(audit_stream_record_from_row)
+        .collect::<Result<Vec<_>, _>>()
+        .map(|items| (items, total))
+}
+
+fn audit_stream_record_from_row(row: PgRow) -> Result<AuditStreamRecord, PgComplianceError> {
+    let id: uuid::Uuid = row.try_get("id")?;
+    let actor: Option<uuid::Uuid> = row.try_get("actor")?;
+    Ok(AuditStreamRecord {
+        id: id.to_string(),
+        actor: actor.map(UserId::from_uuid),
+        action: row.try_get("action")?,
+        target_type: row.try_get("target_type")?,
+        target_id: row.try_get("target_id")?,
+        sensitivity: row.try_get("sensitivity")?,
+        before_snap: row.try_get("before_snap")?,
+        after_snap: row.try_get("after_snap")?,
+        trace_id: row.try_get("trace_id")?,
+        span_id: row.try_get("span_id")?,
+        occurred_at: row.try_get("occurred_at")?,
+        created_at: row.try_get("created_at")?,
+    })
 }
 
 /// Derive arrival/departure events for one on-duty ping against the mechanic's

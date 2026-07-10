@@ -23,15 +23,17 @@ const ROLES: [Role; 6] = [
     Role::SuperAdmin,
 ];
 
-fn expected_matrix() -> [(Feature, [PermissionLevel; 6]); 49] {
+fn expected_matrix() -> [(Feature, [PermissionLevel; 6]); 57] {
     use Feature::{
-        AiAssist, AssigneeManage, AuditLogRead, BranchManage, CompletionReview, DailyPlanRequest,
+        AiAssist, AssigneeManage, AuditLogRead, AuditStreamAccessLogRead, AuditStreamRead,
+        BenefitCatalogManage, BenefitCatalogRead, BranchManage, CompletionReview, DailyPlanRequest,
         DailyPlanReview, ElevatedRoleGrant, EmployeeDirectoryManage, EmployeeDirectoryRead,
         EquipmentCostLedgerRead, EquipmentCostLedgerWrite, EquipmentManage, EvidenceAttach,
         ExcelDownload, ExitCaseHqConfirm, ExitCaseHrConfirm, ExitCaseReport, ExitSettlementManage,
         InspectionRoundComplete, InspectionScheduleManage, IntegrityFindingTriage,
-        IntegrityFindingsRead, KpiExclusionManage, KpiRead, Login, MailAccountManage, MailUse,
-        MasterListImport, OpsDashboardRead, OrgWideQueueTriage, PriorityManage, PurchaseExecute,
+        IntegrityFindingsRead, InventoryConsume, InventoryManage, InventoryRead, InventoryReorder,
+        KpiExclusionManage, KpiRead, Login, MailAccountManage, MailUse, MasterListImport,
+        OpsDashboardRead, OrgWideQueueTriage, PriorityManage, PurchaseExecute,
         PurchaseFinalApprove, PurchaseRequestApprove, PurchaseRequestCreate, PurchaseRequestRead,
         RegionManage, RentalQuoteManage, RoleManage, SalesManage, SubordinateUserCreate,
         TargetManage, UserManage, WorkOrderCreate, WorkOrderEditIntake, WorkOrderReadAll,
@@ -83,6 +85,19 @@ fn expected_matrix() -> [(Feature, [PermissionLevel; 6]); 49] {
         (ExcelDownload, [D, A, A, A, A, A]),
         (OpsDashboardRead, [D, D, D, A, D, A]),
         (SalesManage, [D, D, D, A, A, A]),
+        // IV inventory is branch-operational: front-office/mechanics may read,
+        // mechanics/admins may consume, and management/reorder is admin-tier.
+        (InventoryRead, [D, A, A, A, A, A]),
+        (InventoryManage, [D, D, D, A, D, A]),
+        (InventoryConsume, [D, D, A, A, D, A]),
+        (InventoryReorder, [D, D, D, A, D, A]),
+        // Benefit catalog is HR compensation reference data — mirrors the HR
+        // EmployeeDirectory tier (the closest analogous feature): read is admin +
+        // leadership (ADMIN/EXECUTIVE/SUPER_ADMIN), management is the HR-config
+        // authority (ADMIN/SUPER_ADMIN). Values match the authoritative
+        // `permission_matrix` in lib.rs.
+        (BenefitCatalogRead, [D, D, D, A, A, A]),
+        (BenefitCatalogManage, [D, D, D, A, D, A]),
         // The inherited PERMISSIONS.md has 21 explicit table rows; its branch
         // strategy also names AI 조회 as a branch-filtered server API surface.
         // T0.6's brief requires 22 features, so the AI assistant seam is
@@ -106,6 +121,10 @@ fn expected_matrix() -> [(Feature, [PermissionLevel; 6]); 49] {
         (ExitCaseHrConfirm, [D, D, D, A, D, A]),
         (ExitCaseHqConfirm, [D, D, D, D, A, A]),
         (ExitSettlementManage, [D, D, D, A, D, A]),
+        // Covert audit stream actions are Cedar clearance-only: the legacy
+        // role matrix intentionally denies every built-in role.
+        (AuditStreamRead, [D, D, D, D, D, D]),
+        (AuditStreamAccessLogRead, [D, D, D, D, D, D]),
     ]
 }
 
@@ -767,7 +786,7 @@ fn cedar_compiled_bundle_cache_key_requires_versioned_identity() {
 #[test]
 fn permission_matrix_is_exhaustive_and_matches_inherited_table() {
     let matrix = expected_matrix();
-    assert_eq!(Feature::ALL.len(), 49);
+    assert_eq!(Feature::ALL.len(), 57);
     assert_eq!(matrix.len(), Feature::ALL.len());
 
     for feature in Feature::ALL {

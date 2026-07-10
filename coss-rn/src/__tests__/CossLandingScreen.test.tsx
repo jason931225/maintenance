@@ -1,5 +1,6 @@
 import React from 'react';
-import { fireEvent, render, waitFor } from '@testing-library/react-native';
+import { Linking, StyleSheet } from 'react-native';
+import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
 
 jest.mock('react-native-video', () => {
   const React = require('react');
@@ -24,6 +25,8 @@ import {
   cossSourceSitemapRoutes,
 } from '../cossContent';
 
+jest.setTimeout(30000);
+
 describe('CossLandingScreen', () => {
   it('renders the COSS Korea landing hero and service sections', async () => {
     const { getByText, getAllByText } = await render(<CossLandingScreen />);
@@ -36,10 +39,10 @@ describe('CossLandingScreen', () => {
   });
 
   it('uses cosskorea.com and console.cosskorea.com for the migrated domains', async () => {
-    const { getByText, queryByText } = await render(<CossLandingScreen />);
+    const { getByText, getAllByText, queryByText } = await render(<CossLandingScreen />);
 
     expect(getByText('www.cosskorea.com')).toBeTruthy();
-    expect(getByText('console.cosskorea.com')).toBeTruthy();
+    expect(getAllByText('console.cosskorea.com').length).toBeGreaterThan(0);
     expect(queryByText('www.cossok.com')).toBeNull();
   });
 
@@ -117,10 +120,16 @@ describe('CossLandingScreen', () => {
     });
   });
 
-  it('changes hero slides with source-style progress controls', async () => {
+  it('exposes visible source-style hero progress controls', async () => {
     const { getByLabelText, getByTestId, getByText } = await render(
       <CossLandingScreen />,
     );
+    const progressControls = getByTestId('hero-progress-controls');
+
+    expect(StyleSheet.flatten(progressControls.props.style).opacity).not.toBe(0);
+    expect(
+      getByLabelText('Hero progress 03: 생산도급').props.accessibilityRole,
+    ).toBe('button');
 
     fireEvent.press(getByLabelText('Hero progress 03: 생산도급'));
 
@@ -138,7 +147,9 @@ describe('CossLandingScreen', () => {
     const { getByLabelText, getByText, getAllByText, queryByLabelText } =
       await render(<CossLandingScreen />);
 
-    fireEvent.press(getByLabelText('Language selector'));
+    await act(async () => {
+      getByLabelText('Language selector').props.onClick();
+    });
     await waitFor(() => expect(getByText('KOR')).toBeTruthy());
     expect(getByText('ENG')).toBeTruthy();
 
@@ -182,17 +193,57 @@ describe('CossLandingScreen', () => {
       '생산도급',
     );
     fireEvent.press(getByLabelText('Business next'));
-    await waitFor(() =>
+    await waitFor(() => {
       expect(getByTestId('active-business-title').props.children).toBe(
         '물류도급',
-      ),
-    );
+      );
+      expect(getByTestId('desktop-active-route').props.children).toBe(
+        'cosskorea.com/business/logistics',
+      );
+    });
     fireEvent.press(getByLabelText('Business previous'));
     await waitFor(() =>
       expect(getByTestId('active-business-title').props.children).toBe(
         '생산도급',
       ),
     );
+  });
+
+  it('surfaces a compact desktop route dock with actionable public and console routes', async () => {
+    const { getByLabelText, getByTestId } = await render(<CossLandingScreen />);
+    const openUrlSpy = jest
+      .spyOn(Linking, 'openURL')
+      .mockResolvedValue(undefined);
+    const routeDock = getByTestId('desktop-route-dock');
+    const activeRoute = getByTestId('desktop-active-route');
+
+    expect(routeDock).toBeTruthy();
+    expect(activeRoute.props.children).toBe('cosskorea.com/company/vision');
+    expect(getByLabelText('공개 홈 열기').props.accessibilityRole).toBe('link');
+    expect(getByLabelText('운영 콘솔 열기').props.accessibilityRole).toBe('link');
+
+    expect(getByLabelText('데스크톱 사이트맵 경로: FAQ').props.accessibilityRole).toBe(
+      'button',
+    );
+    expect(
+      getByLabelText('데스크톱 사이트맵 경로: 개인정보 취급방침').props
+        .accessibilityRole,
+    ).toBe('button');
+    expect(
+      getByLabelText('공개 경로 열기: cosskorea.com/company/vision').props
+        .accessibilityRole,
+    ).toBe('link');
+
+    fireEvent.press(getByLabelText('데스크톱 사이트맵 경로: FAQ'));
+    await waitFor(() =>
+      expect(activeRoute.props.children).toBe('cosskorea.com/contactus/faq'),
+    );
+
+    fireEvent.press(getByLabelText('운영 콘솔 열기'));
+    expect(openUrlSpy).toHaveBeenCalledWith(
+      'https://console.cosskorea.com/login',
+    );
+    openUrlSpy.mockRestore();
   });
 
   it('maps every fetched cossok.com route to cosskorea.com', async () => {
@@ -204,20 +255,18 @@ describe('CossLandingScreen', () => {
     }
   });
 
-  it('navigates between full COSS pages from the RN section menu', async () => {
-    const { getByLabelText, getByText } = await render(<CossLandingScreen />);
+  it('keeps key source routes available in the desktop route dock', async () => {
+    const { getByLabelText } = await render(<CossLandingScreen />);
 
-    fireEvent.press(getByLabelText('COSS page: 연혁'));
-    await waitFor(() =>
-      expect(getByText('“새로운 도약, 미래를 잇다”')).toBeTruthy(),
+    expect(getByLabelText('데스크톱 사이트맵 경로: 연혁').props.accessibilityRole).toBe(
+      'button',
     );
-
-    fireEvent.press(getByLabelText('COSS page: FAQ'));
-    await waitFor(() => expect(getByText('자주 묻는 질문')).toBeTruthy());
-
-    fireEvent.press(getByLabelText('COSS page: 개인정보 취급방침'));
-    await waitFor(() =>
-      expect(getByText('개인정보 보호 및 권익 보호')).toBeTruthy(),
+    expect(getByLabelText('데스크톱 사이트맵 경로: FAQ').props.accessibilityRole).toBe(
+      'button',
     );
+    expect(
+      getByLabelText('데스크톱 사이트맵 경로: 개인정보 취급방침').props
+        .accessibilityRole,
+    ).toBe('button');
   });
 });

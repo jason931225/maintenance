@@ -15,15 +15,7 @@ data class MessengerThread(
     val memberCount: Long,
     val createdAt: OffsetDateTime,
     val updatedAt: OffsetDateTime,
-) {
-    val displayTitle: String
-        get() = title?.takeIf { it.isNotBlank() } ?: when (kind) {
-            MessengerThreadKind.WORK_ORDER -> "WO ${workOrderId ?: id}"
-            MessengerThreadKind.TEAM -> "팀 채널"
-            MessengerThreadKind.DM -> "1:1 대화"
-            MessengerThreadKind.GROUP -> "그룹 대화"
-        }
-}
+)
 
 data class MessengerMessage(
     val id: UUID,

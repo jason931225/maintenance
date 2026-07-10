@@ -30,9 +30,11 @@ import kotlinx.serialization.SerialName
 import kotlinx.serialization.Contextual
 
 /**
- * Custom-role assignment replacement. The preview endpoint accepts `role_ids` only. The mutating replacement endpoint also requires `preview_acknowledged: true`, the server-issued `preview_receipt_id` from a current impact preview for the same actor/user/role set, plus a fresh passkey `step_up` assertion server-side so the audit trail binds the sensitive policy write to the human actor. ACTIVE custom-role assignments become runtime-effective on the next request when their grants and conditions pass the fail-closed runtime evaluator.
+ * Policy assignment/account-scope preview and custom-role assignment replacement. The preview endpoint accepts `role_ids` plus optional `system_roles` and `branch_ids` for account/person mutation previews. The mutating custom-role replacement endpoint also requires `preview_acknowledged: true`, the server-issued `preview_receipt_id` from a current impact preview for the same actor/user/role set, plus a fresh passkey `step_up` assertion server-side so the audit trail binds the sensitive policy write to the human actor. ACTIVE custom-role assignments become runtime-effective on the next request when their grants and conditions pass the fail-closed runtime evaluator.
  *
- * @param roleIds
+ * @param roleIds Custom-role replacement set. For account/person role-or-scope previews, omit this field to preserve the target's current custom-role assignments; send an explicit empty array to preview removing all custom roles.
+ * @param systemRoles Optional replacement system-role set for account/person mutation previews. Ignored by the custom-role assignment save endpoint.
+ * @param branchIds Optional replacement branch membership set for account/person mutation previews. Ignored by the custom-role assignment save endpoint.
  * @param previewAcknowledged Must be true for the mutating replacement endpoint after the caller reviewed the assignment impact preview. The preview endpoint ignores this field. Omitted values are treated as false by the server.
  * @param previewReceiptId
  * @param stepUp
@@ -41,8 +43,17 @@ import kotlinx.serialization.Contextual
 
 data class ReplacePolicyRoleAssignmentsRequest (
 
+    /* Custom-role replacement set. For account/person role-or-scope previews, omit this field to preserve the target's current custom-role assignments; send an explicit empty array to preview removing all custom roles. */
     @SerialName(value = "role_ids")
     val roleIds: kotlin.collections.List<@Contextual java.util.UUID>? = null,
+
+    /* Optional replacement system-role set for account/person mutation previews. Ignored by the custom-role assignment save endpoint. */
+    @SerialName(value = "system_roles")
+    val systemRoles: kotlin.collections.List<kotlin.String>? = null,
+
+    /* Optional replacement branch membership set for account/person mutation previews. Ignored by the custom-role assignment save endpoint. */
+    @SerialName(value = "branch_ids")
+    val branchIds: kotlin.collections.List<@Contextual java.util.UUID>? = null,
 
     /* Must be true for the mutating replacement endpoint after the caller reviewed the assignment impact preview. The preview endpoint ignores this field. Omitted values are treated as false by the server. */
     @SerialName(value = "preview_acknowledged")

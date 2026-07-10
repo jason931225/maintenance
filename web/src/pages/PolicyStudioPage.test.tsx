@@ -51,6 +51,9 @@ beforeEach(() => {
     http.get("*/api/v1/users", () =>
       HttpResponse.json({ items: [], limit: 200, offset: 0, total: 0 }),
     ),
+    // Cedar policy canvas (wired Phase C) loads these on mount.
+    http.get("*/api/v1/policy/catalog", () => HttpResponse.json([])),
+    http.get("*/api/v1/policy/drafts", () => HttpResponse.json([])),
   );
 });
 afterEach(() => {
@@ -400,7 +403,14 @@ describe("PolicyStudioPage", () => {
     await user.type(screen.getByLabelText("표시 이름"), "정비 관리자");
     await user.type(screen.getByLabelText("설명"), "정비팀 관리자");
     await user.click(screen.getByLabelText("작업 생성"));
-    await user.click(screen.getByRole("button", { name: "조건 추가" }));
+    // scope to the role-form conditions fieldset — the policy canvas section
+    // renders its own predicate "조건 추가" button
+    await user.click(
+      within(screen.getByRole("group", { name: "적용 조건" })).getByRole(
+        "button",
+        { name: "조건 추가" },
+      ),
+    );
     await user.selectOptions(screen.getByLabelText("조건 연산자 1"), "in");
     await user.type(screen.getByLabelText("조건 값 1"), "정비팀, 야간조");
     await user.click(screen.getByRole("button", { name: "역할 만들기" }));
@@ -1104,8 +1114,11 @@ describe("PolicyStudioPage", () => {
 
     renderApp("/settings/policy", makeAuthContext(superAdminSession));
 
-    expect(await screen.findByText("정비 관리자")).toBeVisible();
-    await user.click(screen.getByRole("button", { name: "편집" }));
+    const editRoleRow = (await screen.findByText("정비 관리자")).closest("tr");
+    expect(editRoleRow).not.toBeNull();
+    await user.click(
+      within(editRoleRow as HTMLElement).getByRole("button", { name: "편집" }),
+    );
 
     const formHeading = await screen.findByRole("heading", {
       name: "사용자 지정 역할 편집",

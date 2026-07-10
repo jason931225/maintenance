@@ -84,17 +84,28 @@ interface CapturedSource<T = unknown> {
   skipped?: boolean;
 }
 
+interface HubObjectLink {
+  id: string;
+  label: string;
+  value: string;
+  href: string;
+}
+
 interface HubItem {
   id: string;
   filter: Exclude<FilterKey, "all" | "urgent" | "mail">;
+  objectCode?: string;
+  objectHref?: string;
   title: string;
   eyebrow: string;
   detail: string;
   href: string;
   action: string;
   dueLabel?: string;
+  statusLabel?: string;
   badge?: string;
   badgeClass?: string;
+  objectLinks?: HubObjectLink[];
   tone: "neutral" | "urgent" | "approval" | "conversation" | "support";
   sortTime: number;
 }
@@ -124,46 +135,87 @@ function timeValue(iso: string | null | undefined): number {
   return Number.isFinite(value) ? value : 0;
 }
 
+function equipmentObjectLabel(workOrder: WorkOrderListItem): string {
+  return safeLabel(
+    workOrder.equipment.equipment_no,
+    workOrder.equipment.management_no,
+    workOrder.equipment.model,
+  );
+}
+
 function workOrderTitle(workOrder: WorkOrderListItem): string {
   const customer = safeLabel(workOrder.customer.name);
   const site = safeLabel(workOrder.site.name);
-  return `${workOrder.request_no} · ${customer} / ${site}`;
+  return `${customer} / ${site}`;
 }
 
 function workOrderDetail(workOrder: WorkOrderListItem): string {
-  const equipment = safeLabel(
-    workOrder.equipment.management_no,
-    workOrder.equipment.equipment_no,
-    workOrder.equipment.model,
-  );
-  const status = labelFromMap(ko.status, workOrder.status);
+  const equipment = equipmentObjectLabel(workOrder);
   const assignees = workOrder.assignments
     .map((assignment) => safeLabel(assignment.mechanic_name))
     .filter((name) => name !== ko.common.unknownLabel)
     .join(", ");
-  return assignees
-    ? `${equipment} · ${status} · ${assignees}`
-    : `${equipment} · ${status}`;
+  return assignees ? `${equipment} · ${assignees}` : equipment;
+}
+
+function workOrderObjectLinks(workOrder: WorkOrderListItem): HubObjectLink[] {
+  const links: HubObjectLink[] = [];
+  const equipment = equipmentObjectLabel(workOrder);
+  if (equipment !== ko.common.unknownLabel) {
+    links.push({
+      id: `equipment-${workOrder.equipment.id}`,
+      label: ko.workOrder.detail.equipment,
+      value: equipment,
+      href: `/equipment/${encodeURIComponent(workOrder.equipment.id)}`,
+    });
+  }
+
+  const customer = safeLabel(workOrder.customer.name);
+  if (customer !== ko.common.unknownLabel) {
+    links.push({
+      id: `customer-${workOrder.customer.id}`,
+      label: ko.workOrder.detail.customer,
+      value: customer,
+      href: `/dispatch?customer_id=${encodeURIComponent(workOrder.customer.id)}`,
+    });
+  }
+
+  const site = safeLabel(workOrder.site.name);
+  if (site !== ko.common.unknownLabel) {
+    links.push({
+      id: `site-${workOrder.site.id}`,
+      label: ko.workOrder.detail.site,
+      value: site,
+      href: `/dispatch?site_id=${encodeURIComponent(workOrder.site.id)}`,
+    });
+  }
+
+  return links;
 }
 
 function buildWorkItems(workOrders: WorkOrderListItem[]): HubItem[] {
   return workOrders.map((workOrder) => {
     const overdue = isOverdue(workOrder.target_due_at);
+    const href = `/work-orders/${workOrder.id}`;
     return {
       id: `work-${workOrder.id}`,
       filter: "work",
+      objectCode: workOrder.request_no,
+      objectHref: href,
       title: workOrderTitle(workOrder),
       eyebrow: ko.workHub.items.work,
       detail: workOrderDetail(workOrder),
-      href: `/work-orders/${workOrder.id}`,
+      href,
       action: ko.workHub.actions.openWorkOrder,
       dueLabel: workOrder.target_due_at
         ? ko.workHub.due.target.replace("{time}", formatKoreanDateTime(workOrder.target_due_at))
         : undefined,
+      statusLabel: labelFromMap(ko.status, workOrder.status),
       badge: overdue ? ko.workHub.badges.overdue : priorityLabel(workOrder.priority),
       badgeClass: overdue
         ? "border-red-300 bg-red-50 text-red-800"
         : priorityClass(workOrder.priority),
+      objectLinks: workOrderObjectLinks(workOrder),
       tone: overdue || workOrder.priority === "P1" ? "urgent" : "neutral",
       sortTime: overdue ? Date.now() + 1 : timeValue(workOrder.target_due_at || workOrder.updated_at),
     };
@@ -221,6 +273,8 @@ function buildApprovalItems(items: ApprovalItem[]): HubItem[] {
   return items.map((item) => ({
     id: `approval-${item.id}`,
     filter: "approval",
+    objectCode: item.work_order?.request_no,
+    objectHref: item.work_order ? `/work-orders/${item.work_order.id}` : undefined,
     title: safeLabel(item.title),
     eyebrow: `${ko.workHub.items.approval} · ${approvalSourceLabel(item.source)}`,
     detail: safeLabel(item.summary, item.workflow.workflow_key),
@@ -229,8 +283,10 @@ function buildApprovalItems(items: ApprovalItem[]): HubItem[] {
     dueLabel: item.due_at
       ? ko.workHub.due.target.replace("{time}", formatKoreanDateTime(item.due_at))
       : undefined,
+    statusLabel: approvalStatusLabel(item),
     badge: approvalStatusLabel(item),
     badgeClass: "border-amber-300 bg-amber-50 text-amber-900",
+    objectLinks: item.work_order ? workOrderObjectLinks(item.work_order) : undefined,
     tone: "approval",
     sortTime: timeValue(item.due_at || item.requested_at),
   }));
@@ -249,6 +305,7 @@ function buildDailyItems(plans: DailyPlanSummary[]): HubItem[] {
       detail: status,
       href,
       action: ko.workHub.actions.openDailyPlan,
+      statusLabel: status,
       badge: status,
       badgeClass:
         plan.status === "REQUESTED"
@@ -276,6 +333,7 @@ function buildSupportItems(tickets: SupportTicketSummary[]): HubItem[] {
       dueLabel: ticket.due_at
         ? ko.workHub.due.target.replace("{time}", formatKoreanDateTime(ticket.due_at))
         : undefined,
+      statusLabel: labelFromMap(ko.support.ticketStatus, ticket.status),
       badge: overdue ? ko.workHub.badges.overdue : labelFromMap(ko.support.ticketPriority, ticket.priority),
       badgeClass:
         overdue || ticket.priority === "URGENT"
@@ -509,7 +567,6 @@ export function WorkHubPage() {
         key: "urgent" as const,
         filter: "urgent" as const,
         label: ko.workHub.priorityRail.cards.urgent.label,
-        hint: ko.workHub.priorityRail.cards.urgent.hint,
         count: urgentCount,
         className: "border-red-200 bg-red-50 text-red-900",
       },
@@ -517,7 +574,6 @@ export function WorkHubPage() {
         key: "approval" as const,
         filter: "approval" as const,
         label: ko.workHub.priorityRail.cards.approval.label,
-        hint: ko.workHub.priorityRail.cards.approval.hint,
         count: canApprove ? data.approvalItems.length : 0,
         disabled: !canApprove,
         className: "border-amber-200 bg-amber-50 text-amber-950",
@@ -526,7 +582,6 @@ export function WorkHubPage() {
         key: "daily" as const,
         filter: "daily" as const,
         label: ko.workHub.priorityRail.cards.daily.label,
-        hint: ko.workHub.priorityRail.cards.daily.hint,
         count: canUseDailyPlan ? data.dailyPlans.length : 0,
         disabled: !canUseDailyPlan,
         className: "border-violet-200 bg-violet-50 text-violet-950",
@@ -535,7 +590,6 @@ export function WorkHubPage() {
         key: "support" as const,
         filter: "support" as const,
         label: ko.workHub.priorityRail.cards.support.label,
-        hint: ko.workHub.priorityRail.cards.support.hint,
         count: data.tickets.length,
         className: "border-sky-200 bg-sky-50 text-sky-950",
       },
@@ -554,46 +608,53 @@ export function WorkHubPage() {
     <>
       <PageHeader
         title={ko.workHub.title}
-        description={canSeeTeamQueue ? ko.workHub.descriptionTeam : ko.workHub.descriptionMine}
         actions={
-          <>
-            <Badge>{ko.workHub.badges.liveWorkflow}</Badge>
-            <RefreshButton onClick={() => { void loadData(); }} isLoading={readState === "loading"} />
-          </>
+          <RefreshButton onClick={() => { void loadData(); }} isLoading={readState === "loading"} />
         }
       />
 
       <div className="grid gap-5">
-        <section className="grid gap-3 md:grid-cols-2 xl:grid-cols-3" aria-label={ko.workHub.sections.capabilities}>
-          {stats.map(({ key, label, value, href, Icon, disabled }) => (
-            <Card key={key} className={cn("flex min-h-36 flex-col justify-between gap-4", disabled && "bg-muted-panel/40")}>
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <p className="text-sm font-semibold text-steel">{label}</p>
-                  <p className="mt-1 text-3xl font-semibold text-ink">{disabled ? "—" : value}</p>
-                </div>
-                <span className="rounded-full border border-line bg-white p-2 text-brand-teal">
-                  <Icon size={20} aria-hidden="true" />
+        <section
+          className="flex flex-col gap-2 rounded-xl border border-line bg-white p-2 md:flex-row md:items-stretch"
+          aria-label={ko.workHub.sections.capabilities}
+        >
+          {stats.map(({ key, label, value, href, Icon, disabled }) => {
+            const valueText = disabled ? "—" : `${String(value)}${ko.workHub.priorityRail.countSuffix}`;
+            const content = (
+              <>
+                <span className="flex min-w-0 items-center gap-2">
+                  <Icon size={16} aria-hidden="true" className="shrink-0 text-brand-teal" />
+                  <span className="whitespace-nowrap text-sm font-semibold text-steel">{label}</span>
                 </span>
+                <span className="whitespace-nowrap font-mono text-sm font-semibold text-ink">{valueText}</span>
+              </>
+            );
+
+            return disabled ? (
+              <div
+                key={key}
+                aria-label={`${label} ${ko.workHub.permissionScoped}`}
+                className="flex min-w-0 flex-1 items-center justify-between gap-3 rounded-lg border border-line bg-muted-panel/40 px-3 py-2"
+              >
+                {content}
               </div>
-              {disabled ? (
-                <p className="text-sm text-steel">{ko.workHub.permissionScoped}</p>
-              ) : (
-                <Button asChild variant="secondary" size="sm" className="self-start">
-                  <Link to={href} aria-label={`${label} ${ko.workHub.actions.openModule}`}>
-                    {ko.workHub.actions.openModule}
-                  </Link>
-                </Button>
-              )}
-            </Card>
-          ))}
+            ) : (
+              <Link
+                key={key}
+                to={href}
+                aria-label={`${label} ${valueText} ${ko.workHub.actions.openModule}`}
+                className="flex min-w-0 flex-1 items-center justify-between gap-3 rounded-lg border border-line bg-white px-3 py-2 transition hover:border-brand-teal/40 hover:bg-brand-teal/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-teal"
+              >
+                {content}
+              </Link>
+            );
+          })}
         </section>
 
         <WorkHubFocusDashboard
           workOrders={data.workOrders}
           dailyPlans={data.dailyPlans}
           inboxItems={inboxItems}
-          urgentCount={urgentCount}
         />
 
         <Card
@@ -602,20 +663,16 @@ export function WorkHubPage() {
           role="region"
         >
           <div className="flex flex-wrap items-start justify-between gap-4">
-            <div>
-              <p className="text-sm font-semibold text-brand-teal">{ko.workHub.priorityRail.eyebrow}</p>
-              <h2 id="work-hub-priority-title" className="mt-1 text-xl font-semibold text-ink">
-                {ko.workHub.priorityRail.title}
-              </h2>
-            </div>
+            <h2 id="work-hub-priority-title" className="text-lg font-semibold text-ink">
+              {ko.workHub.priorityRail.title}
+            </h2>
             <div className="flex flex-wrap gap-2">
               <Badge className="border-brand-teal/20 bg-brand-teal/10 text-brand-teal">
                 {canSeeTeamQueue ? ko.workHub.scope.team : ko.workHub.scope.mine}
               </Badge>
-              <Badge className="border-line bg-muted-panel text-steel">{ko.workHub.priorityRail.policyBadge}</Badge>
             </div>
           </div>
-          <div className="grid gap-3 md:grid-cols-5">
+          <div className="grid gap-2 md:grid-cols-4">
             {priorityCards.map((card) => (
               <button
                 key={card.key}
@@ -626,19 +683,18 @@ export function WorkHubPage() {
                   .replace("{label}", card.label)
                   .replace("{count}", String(card.count))}
                 className={cn(
-                  "rounded-xl border p-3 text-left transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-teal",
+                  "flex items-center justify-between gap-3 rounded-lg border px-3 py-2 text-left transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-teal",
                   card.className,
                   filter === card.filter && "ring-2 ring-brand-teal ring-offset-2",
                   card.disabled && "cursor-not-allowed opacity-50",
                 )}
                 onClick={() => { setFilter(card.filter); }}
               >
-                <span className="block text-xs font-semibold uppercase tracking-wide">{card.label}</span>
-                <span className="mt-1 block text-3xl font-semibold">
+                <span className="text-sm font-semibold">{card.label}</span>
+                <span className="font-mono text-sm font-semibold">
                   {card.count}
                   {ko.workHub.priorityRail.countSuffix}
                 </span>
-                <span className="mt-1 block text-sm">{card.hint}</span>
               </button>
             ))}
           </div>
@@ -649,13 +705,10 @@ export function WorkHubPage() {
         ) : null}
 
         <section aria-labelledby="work-hub-inbox-title" className="grid gap-3">
-          <div className="flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <h2 id="work-hub-inbox-title" className="text-lg font-semibold text-ink">
-                {ko.workHub.sections.inbox}
-              </h2>
-              <p className="text-sm text-steel">{ko.workHub.sections.inboxHint}</p>
-            </div>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 id="work-hub-inbox-title" className="text-lg font-semibold text-ink">
+              {ko.workHub.sections.inbox}
+            </h2>
             <div className="flex flex-wrap gap-2" aria-label={ko.workHub.filters.label}>
               {ko.workHub.filters.options.map((option) => (
                 <Button
@@ -695,12 +748,10 @@ function WorkHubFocusDashboard({
   workOrders,
   dailyPlans,
   inboxItems,
-  urgentCount,
 }: {
   workOrders: WorkOrderListItem[];
   dailyPlans: DailyPlanSummary[];
   inboxItems: HubItem[];
-  urgentCount: number;
 }) {
   const calendarItems = [
     ...workOrders.flatMap((workOrder) =>
@@ -708,6 +759,7 @@ function WorkHubFocusDashboard({
         ? [
             {
               id: `work-${workOrder.id}`,
+              href: `/work-orders/${workOrder.id}`,
               time: workOrder.target_due_at,
               title: workOrder.request_no,
               detail: workOrderDetail(workOrder),
@@ -717,6 +769,7 @@ function WorkHubFocusDashboard({
     ),
     ...dailyPlans.map((plan, index) => ({
       id: `daily-${String(plan.id ?? index)}`,
+      href: plan.id ? `/daily-plan?planId=${plan.id}` : "/daily-plan",
       time: plan.plan_date,
       title: ko.workHub.items.dailyTitle.replace(
         "{date}",
@@ -733,20 +786,41 @@ function WorkHubFocusDashboard({
   return (
     <section className="grid gap-3 xl:grid-cols-[1fr_1fr_1.2fr]" aria-label={ko.workHub.dashboard.label}>
       <Card className="grid gap-3 p-3">
-        <div>
-          <h2 className="text-base font-semibold text-ink">{ko.workHub.dashboard.focusTitle}</h2>
-          <p className="text-xs text-steel">
-            {ko.workHub.dashboard.focusHint.replace("{count}", String(urgentCount))}
-          </p>
-        </div>
+        <h2 className="text-base font-semibold text-ink">{ko.workHub.dashboard.focusTitle}</h2>
         <ul className="grid gap-2">
           {focusItems.length === 0 ? (
             <li className="text-sm text-steel">{ko.workHub.dashboard.emptyFocus}</li>
           ) : (
             focusItems.map((item) => (
-              <li key={item.id} className="rounded-md border border-line px-3 py-2">
-                <p className="truncate text-sm font-semibold text-ink">{item.title}</p>
-                <p className="truncate text-xs text-steel">{item.eyebrow} · {item.detail}</p>
+              <li key={item.id}>
+                <Link
+                  to={item.href}
+                  className="grid gap-1 rounded-md border border-line px-3 py-2 transition hover:border-brand-teal/40 hover:bg-brand-teal/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-teal"
+                >
+                  <span className="flex min-w-0 flex-wrap items-center gap-2">
+                    {item.objectCode ? (
+                      <span className="rounded border border-line bg-white px-1.5 py-0.5 font-mono text-xs font-semibold text-ink">
+                        {item.objectCode}
+                      </span>
+                    ) : null}
+                    <span className="truncate text-sm font-semibold text-ink">{item.title}</span>
+                  </span>
+                  <span className="flex min-w-0 flex-wrap items-center gap-2">
+                    {item.statusLabel ? (
+                      <Badge className="border-line bg-white py-0.5 text-steel">
+                        {item.statusLabel}
+                      </Badge>
+                    ) : null}
+                    {item.badge && item.badge !== item.statusLabel ? (
+                      <Badge className={cn("py-0.5", item.badgeClass)}>
+                        {item.badge}
+                      </Badge>
+                    ) : null}
+                    {item.dueLabel ? (
+                      <span className="truncate text-xs font-medium text-steel">{item.dueLabel}</span>
+                    ) : null}
+                  </span>
+                </Link>
               </li>
             ))
           )}
@@ -754,23 +828,25 @@ function WorkHubFocusDashboard({
       </Card>
 
       <Card className="grid gap-3 p-3">
-        <div>
-          <h2 className="text-base font-semibold text-ink">{ko.workHub.dashboard.calendarTitle}</h2>
-          <p className="text-xs text-steel">{ko.workHub.dashboard.calendarHint}</p>
-        </div>
+        <h2 className="text-base font-semibold text-ink">{ko.workHub.dashboard.calendarTitle}</h2>
         <ol className="grid gap-2">
           {calendarItems.length === 0 ? (
             <li className="text-sm text-steel">{ko.workHub.dashboard.emptyCalendar}</li>
           ) : (
             calendarItems.map((item) => (
-              <li key={item.id} className="grid grid-cols-[auto_1fr] gap-2 rounded-md border border-line px-3 py-2">
-                <time className="text-xs font-semibold text-brand-teal">
-                  {item.time ? formatKoreanDateTime(item.time) : ko.common.unknownLabel}
-                </time>
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-ink">{item.title}</p>
-                  <p className="truncate text-xs text-steel">{item.detail}</p>
-                </div>
+              <li key={item.id}>
+                <Link
+                  to={item.href}
+                  className="grid grid-cols-[auto_1fr] gap-2 rounded-md border border-line px-3 py-2 transition hover:border-brand-teal/40 hover:bg-brand-teal/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-teal"
+                >
+                  <time className="text-xs font-semibold text-brand-teal">
+                    {item.time ? formatKoreanDateTime(item.time) : ko.common.unknownLabel}
+                  </time>
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-semibold text-ink">{item.title}</span>
+                    <span className="block truncate text-xs text-steel">{item.detail}</span>
+                  </span>
+                </Link>
               </li>
             ))
           )}
@@ -778,23 +854,23 @@ function WorkHubFocusDashboard({
       </Card>
 
       <Card className="grid gap-3 p-3">
-        <div>
-          <h2 className="text-base font-semibold text-ink">{ko.workHub.dashboard.personalTitle}</h2>
-          <p className="text-xs text-steel">
-            {ko.workHub.dashboard.personalHint.replace("{count}", String(workOrders.length))}
-          </p>
-        </div>
+        <h2 className="text-base font-semibold text-ink">{ko.workHub.dashboard.personalTitle}</h2>
         <ul className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1">
           {compactWorkOrders.length === 0 ? (
             <li className="text-sm text-steel">{ko.workHub.dashboard.emptyWork}</li>
           ) : (
             compactWorkOrders.map((workOrder) => (
-              <li key={workOrder.id} className="rounded-md border border-line px-3 py-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge className={priorityClass(workOrder.priority)}>{priorityLabel(workOrder.priority)}</Badge>
-                  <span className="truncate text-sm font-semibold text-ink">{workOrder.request_no}</span>
-                </div>
-                <p className="mt-1 truncate text-xs text-steel">{workOrderDetail(workOrder)}</p>
+              <li key={workOrder.id}>
+                <Link
+                  to={`/work-orders/${workOrder.id}`}
+                  className="grid gap-1 rounded-md border border-line px-3 py-2 transition hover:border-brand-teal/40 hover:bg-brand-teal/5 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-teal"
+                >
+                  <span className="flex flex-wrap items-center gap-2">
+                    <Badge className={priorityClass(workOrder.priority)}>{priorityLabel(workOrder.priority)}</Badge>
+                    <span className="truncate font-mono text-sm font-semibold text-ink">{workOrder.request_no}</span>
+                  </span>
+                  <span className="truncate text-xs text-steel">{workOrderDetail(workOrder)}</span>
+                </Link>
               </li>
             ))
           )}
@@ -817,28 +893,71 @@ function WorkHubItemCard({ item }: { item: HubItem }) {
   return (
     <Card
       className={cn(
-        "grid gap-3 border-l-4 md:grid-cols-[auto_1fr_auto] md:items-center",
-        item.tone === "urgent" && "border-l-red-500",
-        item.tone === "approval" && "border-l-amber-500",
-        item.tone === "conversation" && "border-l-brand-teal",
-        item.tone === "support" && "border-l-sky-500",
-        item.tone === "neutral" && "border-l-line",
+        "grid gap-3 md:grid-cols-[auto_1fr_auto] md:items-center",
+        item.tone === "urgent" && "border-red-200 bg-red-50",
+        item.tone === "approval" && "border-amber-200 bg-amber-50",
+        item.tone === "conversation" && "border-brand-teal/30 bg-brand-teal/10",
+        item.tone === "support" && "border-sky-200 bg-sky-50",
+        item.tone === "neutral" && "border-line bg-white",
       )}
     >
-      <span className="hidden rounded-full border border-line bg-muted-panel p-2 text-steel md:inline-flex">
+      <span
+        className={cn(
+          "hidden rounded-full border bg-white/75 p-2 md:inline-flex",
+          item.tone === "urgent" && "border-red-200 text-red-700",
+          item.tone === "approval" && "border-amber-200 text-amber-700",
+          item.tone === "conversation" && "border-brand-teal/30 text-brand-teal",
+          item.tone === "support" && "border-sky-200 text-sky-700",
+          item.tone === "neutral" && "border-line text-steel",
+        )}
+      >
         <Icon size={18} aria-hidden="true" />
       </span>
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2">
+          {item.objectCode && item.objectHref ? (
+            <Link
+              to={item.objectHref}
+              className="inline-flex min-h-6 items-center rounded-md border border-line bg-white px-2 py-0.5 font-mono text-xs font-semibold text-ink underline-offset-2 transition hover:border-brand-teal/40 hover:bg-brand-teal/5 hover:underline focus-visible:underline"
+            >
+              {item.objectCode}
+            </Link>
+          ) : null}
           <p className="text-xs font-semibold uppercase tracking-wide text-steel">{item.eyebrow}</p>
-          {item.badge ? (
+          {item.statusLabel ? (
+            <Badge className="min-h-6 border-line bg-white py-0.5 text-steel">
+              {item.statusLabel}
+            </Badge>
+          ) : null}
+          {item.badge && item.badge !== item.statusLabel ? (
             <Badge className={cn("min-h-6 py-0.5", item.badgeClass)}>
               {item.badge}
             </Badge>
           ) : null}
         </div>
-        <h3 className="mt-1 truncate text-base font-semibold text-ink">{item.title}</h3>
-        <p className="mt-1 text-sm text-steel">{item.detail}</p>
+        <h3 className="mt-1 truncate text-base font-semibold text-ink">
+          <Link to={item.href} className="underline-offset-2 hover:underline focus-visible:underline">
+            {item.title}
+          </Link>
+        </h3>
+        {item.detail && item.detail !== item.statusLabel ? (
+          <p className="mt-1 text-sm text-steel">{item.detail}</p>
+        ) : null}
+        {item.objectLinks?.length ? (
+          <div className="mt-2 flex flex-wrap gap-2">
+            {item.objectLinks.map((link) => (
+              <Link
+                key={link.id}
+                to={link.href}
+                aria-label={`${link.label} ${link.value}`}
+                className="inline-flex min-h-6 min-w-0 items-center gap-1 rounded-md border border-line bg-white px-2 py-0.5 text-xs underline-offset-2 transition hover:border-brand-teal/40 hover:bg-brand-teal/5 hover:underline focus-visible:underline"
+              >
+                <span className="text-steel">{link.label}</span>
+                <span className="max-w-[10rem] truncate font-semibold text-ink">{link.value}</span>
+              </Link>
+            ))}
+          </div>
+        ) : null}
         {item.dueLabel ? <p className="mt-1 text-xs font-medium text-steel">{item.dueLabel}</p> : null}
       </div>
       <Button asChild variant="secondary" size="sm" className="justify-self-start md:justify-self-end">

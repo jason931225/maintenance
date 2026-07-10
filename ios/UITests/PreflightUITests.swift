@@ -7,9 +7,9 @@ import XCTest
 /// the real suite to run, so a misconfigured CI job (missing secrets, dropped
 /// entitlement, signing regression) can never pass silently.
 ///
-/// Gate: only enforced when `MNT_UITEST_REQUIRE_REAL=1` is set (CI sets it on the
-/// protected branches where the real suite must execute). Without the flag this
-/// test no-ops, so local/PR runs without secrets stay green.
+/// Gate: only enforced when `MNT_UITEST_REQUIRE_REAL=1` is set (CI sets it for
+/// push/protected contexts where the real suite must execute). Without the flag
+/// this test no-ops, so local/PR runs without secrets stay green.
 final class PreflightUITests: XCTestCase {
     private var requireReal: Bool {
         ProcessInfo.processInfo.environment["MNT_UITEST_REQUIRE_REAL"] == "1"

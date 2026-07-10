@@ -4,6 +4,27 @@ How ANY operator (or a fresh AI session) takes control of the running stack:
 the Talos cluster, the Kubernetes/GitOps server, the database, and routine tasks.
 Everything needed to recover from zero is in **OCI Vault** + this doc.
 
+This file is the **`oci-guest` runbook** for the live Oracle Cloud Ampere A1
+cluster. The additive ADR-0022 bare-metal/on-prem operator path is documented in
+[`OPS-RUNBOOK-baremetal.md`](OPS-RUNBOOK-baremetal.md). Do not copy OCI-only
+constraints from this file — the single A1 warning, OCI Vault, OCI Bastion, OCI
+Object Storage, the `dd` boot-volume bootstrap, and the OCI MTU workaround — onto
+bare metal.
+
+## Deployment-context hardening properties (`oci-guest`)
+
+| Property | Live `oci-guest` posture |
+|---|---|
+| Secret store | **OCI Vault** is the recovery source for Talos/kubeconfig/app secret bundles. Kubernetes `Secret` objects are created out of band from that bundle; External Secrets / Sealed Secrets are an upgrade path, not the current live controller. |
+| Object-store endpoint and retention | CNPG/Barman uses OCI Object Storage through the S3-compatible endpoint in `deploy/apps/maintenance/base/database.yaml` (`s3://mnt-db-backups/`), with the `oci-objectstore-creds` customer-secret-key pair. Retention is intentionally indefinite in the manifest today: no `retentionPolicy` means no automatic pruning, so storage growth must be monitored against the Always Free object-storage guardrail. Evidence objects use the same OCI S3-compatible posture until a context-specific endpoint is selected. |
+| Database/topology HA | One VM.Standard.A1.Flex node, one schedulable Talos control-plane, and CNPG `instances: 1`. The API/web replicas and PDBs improve rollout behavior but do not survive node loss because they share the same node. |
+| Automatic failover | **Not present** for node or database loss in this context. A failed node is a restore-from-backup / rebuild event using Vault plus Barman backup artifacts, not a transparent failover. |
+
+Passing the production-hardening gate for `oci-guest` means the current live
+single-node deployment is honest and recoverable for its constraints. It does not
+mean the platform has multi-node HA; that is the separate `on-prem-ha` / paid
+multi-node substrate described in the ADR-0022 docs.
+
 ## 0. The one rule that bit us
 **Never keep the only copy of a cluster credential in `/tmp` or a single laptop.**
 All cluster secrets live in **OCI Vault** (`bitween-default-vault`, compartment
@@ -33,7 +54,7 @@ kubectl get nodes        # server: https://140.245.68.253:6443
 ```
 Large responses work **only because eth0 is pinned to MTU 1500** (OCI VNICs default
 to 9000; the public path drops oversized frames — ICMP frag-needed is filtered, so
-PMTUD blackholes). This is baked into `deploy/talos/controlplane.patch.yaml`.
+PMTUD blackholes). This is baked into `deploy/talos/oci-guest/controlplane.patch.yaml`.
 
 ## 3. talosctl
 ```sh
@@ -100,7 +121,52 @@ kubectl exec -n maintenance mnt-db-1 -c postgres -- psql -U postgres -d maintena
 - App images: main build (`gh workflow run image-release.yml --ref main`),
   digests pinned in `deploy/apps/maintenance/overlays/prod/kustomization.yaml`.
 
-## 6. Full rebuild from zero
+## 6. Verified deploy versus digest-bump-only
+
+`scripts/deploy.sh` is the operator-facing output contract for production deploys.
+Run it from the repo root with a pushed commit SHA after CI/Image Release has
+built the images:
+
+```sh
+scripts/deploy.sh <git-sha>
+```
+
+Default mode is fail-closed and is the only mode that may be described as
+"deployed and verified". It requires `gh`, `git`, `curl`, `kubectl`, the
+argo-rollouts kubectl plugin, and a kubeconfig pointed at the target cluster. The
+script must reach its final `done: <sha> deployed and verified (...)` line before
+an operator or release note claims deployment completion. The required signals are:
+
+1. the matching `image-release.yml` run for the commit succeeds;
+2. the `digest-mnt-app` and `digest-mnt-web` artifacts provide fresh `sha256`
+   digests;
+3. the prod kustomization pins those digests and the bump commit/revision is the
+   desired GitOps revision;
+4. Argo Application `maintenance` reports `Synced` at that revision;
+5. `mnt-app` and `mnt-web` Argo Rollouts become Healthy;
+6. `mnt-worker` Deployment rollout completes;
+7. each workload template image and each running/ready pod's image ID or image
+   reference matches the built digest; and
+8. `https://console.knllogistic.com` and `https://knllogistic.com` return HTTP
+   200.
+
+If `kubectl` is missing, the kubeconfig cannot reach the target cluster, the Argo
+Application cannot be read/refreshed, a rollout fails, a pod is not ready, a digest
+does not match, or an endpoint check fails, the script exits non-zero before the
+success line. Treat that as **not deployed/verified** and fix access or the
+cluster state; do not downgrade the claim to a partial success.
+
+`scripts/deploy.sh --digest-bump-only <git-sha>` (alias: `--bump-only`) is a
+separate, explicit desired-state operation for hosts without production cluster
+access. It updates/commits the prod digest pins and exits with
+`done: <sha> desired prod digests updated only (...); deployment, rollout,
+pod-image, and endpoint verification were NOT run.` Record that exactly as a
+digest bump or desired-state update. It is not proof that Argo synced, pods run
+the new images, endpoints serve traffic, or go-live readiness changed. A second
+operator with cluster access must still run the default deploy path before any
+deployment-complete or production-ready statement.
+
+## 7. Full rebuild from zero
 Talos was `dd`'d onto the boot volume (free tier blocks image import) and reads its
 config from gzip'd user_data; bootstrap apid via the bastion tunnel. The complete,
 tested sequence + every gotcha is in the AI memory `cluster-rebuild-runbook` and the
@@ -108,7 +174,7 @@ scripts under `/Users/jasonlee/.config/talos-mnt/` (talos-up.sh, reserve-relaunc
 deploy.sh). DB + DNS data is recoverable: DB has CNPG/Barman backups (bucket
 `mnt-db-backups`), evidence in `mnt-evidence`.
 
-## 7. Free-tier guardrails
+## 8. Free-tier guardrails
 1 A1 node (4 OCPU) · ≤200 GB block · ≤20 GB object · 1 reserved IP (assigned).
 Check: `oci compute instance list`, `oci bv boot-volume list`, `oci os object list`.
 Delete failed custom images + console-history captures; never leave a 2nd A1 running.

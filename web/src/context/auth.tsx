@@ -66,7 +66,8 @@ export interface AuthSession {
    * JWT `platform` claim. True for the vendor platform-admin tier (multi-tenant
    * console) rather than a tenant session. Drives client-side routing between the
    * tenant app and the `/platform` console; the backend re-verifies on every call
-   * (a tenant token is rejected on /platform/*, and vice-versa).
+   * (a tenant token is rejected on `/api/platform/*`, and a platform token is
+   * rejected on tenant `/api/*` routes).
    */
   isPlatform?: boolean;
   /**

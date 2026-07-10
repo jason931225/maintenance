@@ -49,6 +49,16 @@ spec:
               value: "api"
             - name: MNT_SERVICE_NAME # metrics/traces service_name — must match the SLO selector
               value: "mnt-app-api"
+            # SMTP relay is enabled by non-secret MNT_EMAIL_* fields in mnt-config.
+            # Require the credential keys explicitly so a missing/partial
+            # mnt-secrets Secret fails closed during rollout instead of envFrom
+            # silently omitting the variables and degrading to stub email.
+            - name: MNT_EMAIL_SMTP_USERNAME
+              valueFrom:
+                secretKeyRef: { name: mnt-secrets, key: MNT_EMAIL_SMTP_USERNAME }
+            - name: MNT_EMAIL_SMTP_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: mnt-secrets, key: MNT_EMAIL_SMTP_PASSWORD }
             # Runtime connects as the NON-OWNER role mnt_rt (subject to RLS).
             # Schema migrations are applied out of band with the owner mnt-db-app
             # secret — never from this workload.

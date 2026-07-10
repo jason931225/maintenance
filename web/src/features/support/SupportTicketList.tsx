@@ -2,26 +2,31 @@ import type { SupportTicketSummary } from "../../api/types";
 import { Badge } from "../../components/ui/badge";
 import { Card } from "../../components/ui/card";
 import { LoadMoreButton } from "../../components/shell/LoadMoreButton";
+import { objDrag } from "../../console/window";
 import { ko } from "../../i18n/ko";
 import { formatListCount, safeLabel } from "../../lib/utils";
+import { sloPosture, type SloRules } from "./slo-settings";
 import {
   categoryLabel,
   formatDateTime,
   originLabel,
   priorityBadgeClass,
   priorityLabel,
-  slaState,
-  slaStateBadgeClass,
+  sloPostureBadgeClass,
   statusBadgeClass,
   statusLabel,
+  ticketCode,
 } from "./support-format";
+import { supportSloStrings } from "./supportslo-strings";
 
 interface SupportTicketListProps {
   tickets: SupportTicketSummary[];
   selectedId?: string;
   isLoading?: boolean;
-  /** Epoch millis used to classify SLA posture; injected for deterministic tests. */
+  /** Epoch millis used to classify SLO posture; injected for deterministic tests. */
   nowMs: number;
+  /** ACTIVE SLO setting rules — chips/timers derive from these (§4-25-⑥). */
+  sloRules: SloRules;
   onSelect: (id: string) => void;
   /** True when a full page was returned, so more rows may exist behind the cap. */
   hasMore?: boolean;
@@ -36,6 +41,7 @@ export function SupportTicketList({
   selectedId,
   isLoading = false,
   nowMs,
+  sloRules,
   onSelect,
   hasMore = false,
   isLoadingMore = false,
@@ -68,7 +74,7 @@ export function SupportTicketList({
       ) : (
         <ul className="grid gap-2">
           {tickets.map((ticket) => {
-            const sla = slaState(ticket.due_at, ticket.status, nowMs);
+            const slo = sloPosture(ticket, sloRules, nowMs);
             const selected = ticket.id === selectedId;
             return (
               <li key={ticket.id}>
@@ -85,6 +91,13 @@ export function SupportTicketList({
                   }`}
                 >
                   <div className="flex flex-wrap items-center gap-2">
+                    <Badge
+                      className="bg-white font-mono"
+                      title={ko.console.window.dragRefOf(ticket.title)}
+                      {...objDrag(ticketCode(ticket.id), ticket.title)}
+                    >
+                      {ticketCode(ticket.id)}
+                    </Badge>
                     <Badge className={priorityBadgeClass(ticket.priority)}>
                       {priorityLabel(ticket.priority)}
                     </Badge>
@@ -92,13 +105,9 @@ export function SupportTicketList({
                       {statusLabel(ticket.status)}
                     </Badge>
                     <Badge>{originLabel(ticket.origin)}</Badge>
-                    {sla === "overdue" ? (
-                      <Badge className={slaStateBadgeClass(sla)}>
-                        {ko.support.overdue}
-                      </Badge>
-                    ) : sla === "dueSoon" ? (
-                      <Badge className={slaStateBadgeClass(sla)}>
-                        {ko.support.dueSoon}
+                    {slo === "overdue" || slo === "dueSoon" ? (
+                      <Badge className={sloPostureBadgeClass(slo)}>
+                        {supportSloStrings().posture[slo]}
                       </Badge>
                     ) : null}
                   </div>

@@ -1,0 +1,29 @@
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: mnt-object-store-s3-ingress
+  namespace: maintenance-object-store
+  labels:
+    app.kubernetes.io/name: seaweedfs-s3
+    app.kubernetes.io/instance: mnt-object-store
+    app.kubernetes.io/part-of: maintenance-object-store
+    maintenance.nousresearch.com/dark-stage: "true"
+    maintenance.nousresearch.com/context: "onprem"
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: seaweedfs-s3
+      app.kubernetes.io/instance: mnt-object-store
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: maintenance
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: maintenance-object-store
+      ports:
+        - protocol: TCP
+          port: 8333

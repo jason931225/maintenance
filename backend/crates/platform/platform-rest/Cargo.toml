@@ -29,6 +29,10 @@ tokio = { workspace = true }
 tower = { workspace = true, features = ["util"] }
 mnt-platform-db = { workspace = true }
 mnt-platform-request-context = { workspace = true }
+# Dev-only: the onboarding-seed wiring test installs an engine-backed seeder.
+# The production impl lives in the App tier (mnt-app); the platform tier itself
+# must NOT depend on the ontology ADAPTER (layer boundary), so this is dev-only.
+mnt-ontology-adapter-postgres = { workspace = true }
 serde_json = { workspace = true }
 p256 = { version = "0.13.2", features = ["ecdsa", "pkcs8", "pem"] }
 

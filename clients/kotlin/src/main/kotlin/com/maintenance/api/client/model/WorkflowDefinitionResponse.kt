@@ -46,6 +46,8 @@ import kotlinx.serialization.Contextual
  * @param actionAllowlist
  * @param requiredApprovalLine
  * @param requiredPaymentLine
+ * @param pendingVersion
+ * @param pendingStagedBy
  * @param createdAt
  * @param updatedAt
  */
@@ -94,6 +96,12 @@ data class WorkflowDefinitionResponse (
 
     @SerialName(value = "required_payment_line")
     val requiredPaymentLine: kotlin.Boolean,
+
+    @SerialName(value = "pending_version")
+    val pendingVersion: kotlin.Int?,
+
+    @Contextual @SerialName(value = "pending_staged_by")
+    val pendingStagedBy: java.util.UUID?,
 
     @Contextual @SerialName(value = "created_at")
     val createdAt: java.time.OffsetDateTime,

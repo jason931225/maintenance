@@ -56,10 +56,21 @@ object Serializer {
         Json {
             serializersModule = kotlinxSerializationAdapters
             encodeDefaults = true
-            ignoreUnknownKeys = true
-            isLenient = true
+            // Production/client-contract parsing is fail-closed by default.
+            // Compatibility exceptions must use a documented route-specific parser,
+            // not relaxed shared generated-client settings.
+            ignoreUnknownKeys = false
+            isLenient = false
 
             apply(kotlinxSerializationJsonConfiguration)
+            check(!ignoreUnknownKeys) {
+                "Kotlin generated-client parsing must fail on unknown fields by default. " +
+                    "Use a documented route-specific compatibility parser instead."
+            }
+            check(!isLenient) {
+                "Kotlin generated-client parsing must reject lenient JSON by default. " +
+                    "Use a documented route-specific compatibility parser instead."
+            }
         }
     }
 

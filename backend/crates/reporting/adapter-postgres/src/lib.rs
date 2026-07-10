@@ -20,10 +20,12 @@ use mnt_reporting_application::{
 };
 use mnt_reporting_domain::{
     DailyStatusReport, DailyStatusRow, ExportSourceNote, KpiInputRecord, KpiInspectionRecord,
-    KpiMetric, KpiP1Record, KpiReport, KpiRollupScope, KpiScope, OpsEquipmentStatus, OpsFunnel,
-    OpsMechanicLoad, OpsSummary, PeriodicInspectionRow, UnavailableMetric, WorkDiaryActionEntry,
-    WorkDiaryBody, WorkDiaryDraft, WorkDiaryStatus, calculate_kpi_report,
+    KpiMetric, KpiP1Record, KpiPriorityLevel, KpiReport, KpiRollupScope, KpiScope,
+    KpiWorkOrderStatus, KpiWorkResultType, OpsEquipmentStatus, OpsFunnel, OpsMechanicLoad,
+    OpsSummary, PeriodicInspectionRow, UnavailableMetric, WorkDiaryActionEntry, WorkDiaryBody,
+    WorkDiaryDraft, WorkDiaryStatus, calculate_kpi_report,
 };
+use mnt_workorder_domain::{PriorityLevel, WorkOrderStatus, WorkResultType};
 use sqlx::{PgPool, Postgres, QueryBuilder, Row};
 use time::{Date, Duration, OffsetDateTime, Time};
 
@@ -1460,20 +1462,76 @@ fn record_from_row(row: &sqlx::postgres::PgRow) -> Result<KpiInputRecord, KpiQue
     let technician_id = row
         .try_get::<Option<uuid::Uuid>, _>("technician_id")
         .map_err(row_error)?;
+    let status_raw: String = row.try_get("status").map_err(row_error)?;
+    let priority_raw: String = row.try_get("priority").map_err(row_error)?;
+    let result_type_raw: String = row.try_get("result_type").map_err(row_error)?;
     Ok(KpiInputRecord {
         work_order_id,
         branch_id: BranchId::from_uuid(branch_id),
         region_id: RegionId::from_uuid(region_id),
         technician_id: technician_id.map(UserId::from_uuid),
-        status: row.try_get("status").map_err(row_error)?,
-        priority: row.try_get("priority").map_err(row_error)?,
-        result_type: row.try_get("result_type").map_err(row_error)?,
+        status: parse_kpi_status(work_order_id, &status_raw)?,
+        priority: parse_kpi_priority(work_order_id, &priority_raw)?,
+        result_type: parse_kpi_result_type(work_order_id, &result_type_raw)?,
         delay_reason: row.try_get("delay_reason").map_err(row_error)?,
         created_at: row.try_get("created_at").map_err(row_error)?,
         first_in_progress_at: row.try_get("first_in_progress_at").map_err(row_error)?,
         approved_at: row.try_get("approved_at").map_err(row_error)?,
         target_due_at: row.try_get("target_due_at").map_err(row_error)?,
     })
+}
+
+fn parse_kpi_status(
+    work_order_id: uuid::Uuid,
+    value: &str,
+) -> Result<KpiWorkOrderStatus, KpiQueryError> {
+    let status = WorkOrderStatus::from_db_str(value)
+        .map_err(|error| kpi_enum_error(work_order_id, "status", value, error))?;
+    Ok(match status {
+        WorkOrderStatus::FinalCompleted => KpiWorkOrderStatus::FinalCompleted,
+        _ => KpiWorkOrderStatus::Other,
+    })
+}
+
+fn parse_kpi_priority(
+    work_order_id: uuid::Uuid,
+    value: &str,
+) -> Result<KpiPriorityLevel, KpiQueryError> {
+    let priority = PriorityLevel::from_db_str(value)
+        .map_err(|error| kpi_enum_error(work_order_id, "priority", value, error))?;
+    Ok(match priority {
+        PriorityLevel::P1 => KpiPriorityLevel::P1,
+        PriorityLevel::P2 => KpiPriorityLevel::P2,
+        PriorityLevel::P3 => KpiPriorityLevel::P3,
+        PriorityLevel::Outsource | PriorityLevel::Unset => KpiPriorityLevel::Other,
+    })
+}
+
+fn parse_kpi_result_type(
+    work_order_id: uuid::Uuid,
+    value: &str,
+) -> Result<KpiWorkResultType, KpiQueryError> {
+    let result_type = WorkResultType::from_db_str(value)
+        .map_err(|error| kpi_enum_error(work_order_id, "result_type", value, error))?;
+    Ok(match result_type {
+        WorkResultType::RevisitRequired => KpiWorkResultType::RevisitRequired,
+        WorkResultType::Completed
+        | WorkResultType::TemporaryAction
+        | WorkResultType::Incomplete
+        | WorkResultType::Unknown => KpiWorkResultType::Other,
+    })
+}
+
+fn kpi_enum_error(
+    work_order_id: uuid::Uuid,
+    field: &'static str,
+    value: &str,
+    source: KernelError,
+) -> KpiQueryError {
+    KernelError::validation(format!(
+        "invalid KPI work_order enum work_order_id={work_order_id} field={field} value={value:?}: {source}"
+    ))
+    .into()
 }
 
 fn inspection_record_from_row(
@@ -1859,4 +1917,59 @@ fn korean_month_day(date: Date) -> String {
 
 fn work_diary_sheet_name(date: Date) -> String {
     korean_month_day(date)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn work_order_id() -> uuid::Uuid {
+        uuid::Uuid::from_u128(0x6842_defe)
+    }
+
+    #[test]
+    fn kpi_row_parser_accepts_known_work_order_enums() {
+        assert_eq!(
+            parse_kpi_status(work_order_id(), "FINAL_COMPLETED").unwrap(),
+            KpiWorkOrderStatus::FinalCompleted
+        );
+        assert_eq!(
+            parse_kpi_priority(work_order_id(), "P2").unwrap(),
+            KpiPriorityLevel::P2
+        );
+        assert_eq!(
+            parse_kpi_result_type(work_order_id(), "REVISIT_REQUIRED").unwrap(),
+            KpiWorkResultType::RevisitRequired
+        );
+    }
+
+    #[test]
+    fn kpi_row_parser_rejects_unknown_status_with_field_value_context() {
+        let error = parse_kpi_status(work_order_id(), "DONE-ish").unwrap_err();
+        let message = error.to_string();
+
+        assert!(message.contains("work_order_id"));
+        assert!(message.contains("status"));
+        assert!(message.contains("DONE-ish"));
+    }
+
+    #[test]
+    fn kpi_row_parser_rejects_unknown_priority_with_field_value_context() {
+        let error = parse_kpi_priority(work_order_id(), "P0").unwrap_err();
+        let message = error.to_string();
+
+        assert!(message.contains("work_order_id"));
+        assert!(message.contains("priority"));
+        assert!(message.contains("P0"));
+    }
+
+    #[test]
+    fn kpi_row_parser_rejects_unknown_result_type_with_field_value_context() {
+        let error = parse_kpi_result_type(work_order_id(), "PARTIAL").unwrap_err();
+        let message = error.to_string();
+
+        assert!(message.contains("work_order_id"));
+        assert!(message.contains("result_type"));
+        assert!(message.contains("PARTIAL"));
+    }
 }

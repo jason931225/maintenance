@@ -1,0 +1,195 @@
+# Example on-prem inventory for a future Metal3/CAPI/Talos HA lane.
+# Copy to a private *.tfvars file and replace every placeholder before a real
+# plan/apply. Do not commit BMC passwords, generated Talos secrets, talosconfig,
+# kubeconfig, or machine config output.
+
+cluster = {
+  name               = "maintenance-onprem"
+  namespace          = "maintenance-system"
+  kubernetes_version = "v1.32.3"
+  control_plane_endpoint = {
+    host = "10.20.0.10" # ON_PREM_CONTROL_PLANE_VIP / load balancer
+    port = 6443
+  }
+  pod_cidr_blocks     = ["10.244.0.0/16"]
+  service_cidr_blocks = ["10.96.0.0/12"]
+  labels = {
+    "maintenance.io/site" = "example-rack-a"
+  }
+}
+
+talos = {
+  # Use the Talos Image Factory metal image for the target architecture. The
+  # checksum must be the real sha256 before activation.
+  installer_image = "factory.talos.dev/installer/<schematic-id>:v1.13.4"
+  image_url       = "https://factory.talos.dev/image/<schematic-id>/v1.13.4/metal-amd64.raw.xz"
+  image_checksum  = "sha256:REPLACE_WITH_REAL_TALOS_IMAGE_SHA256"
+  image_format    = "raw"
+
+  control_plane_install_disk = "/dev/disk/by-id/nvme-MAINTENANCE_CP_BOOT"
+  worker_install_disk        = "/dev/disk/by-id/nvme-MAINTENANCE_WORKER_BOOT"
+  wipe                       = false
+
+  # Mirrors the Oyatie/Talos CAPI pattern: Cilium owns CNI and kube-proxy
+  # replacement, so Talos generates cni:none and disables kube-proxy.
+  cni_name       = "none"
+  proxy_disabled = true
+
+  worker_node_labels = {
+    "maintenance.io/workload-pool" = "general"
+  }
+  worker_kernel_modules = ["vhost_net", "vhost_vsock"]
+  api_server_cert_sans  = ["maintenance-onprem.example.internal", "10.20.0.10"]
+}
+
+capm3 = {
+  cluster_api_version              = "cluster.x-k8s.io/v1beta1"
+  metal3_api_version               = "infrastructure.cluster.x-k8s.io/v1beta1"
+  bare_metal_host_api_version      = "metal3.io/v1alpha1"
+  talos_control_plane_api_version  = "controlplane.cluster.x-k8s.io/v1alpha3"
+  talos_bootstrap_api_version      = "bootstrap.cluster.x-k8s.io/v1alpha3"
+}
+
+nodes = {
+  "mnt-cp-01" = {
+    role             = "control-plane"
+    boot_mac_address = "52:54:00:20:00:11"
+    boot_mode        = "UEFI"
+    bmc = {
+      address                                = "redfish-virtualmedia://10.20.10.11/redfish/v1/Systems/1"
+      credentials_secret_name                = "mnt-cp-01-bmc"
+      disable_certificate_verification       = true
+    }
+    network = {
+      hostname      = "mnt-cp-01"
+      ip_address    = "10.20.0.11"
+      prefix_length = 24
+      gateway       = "10.20.0.1"
+      dns_servers   = ["10.20.0.53", "10.20.0.54"]
+      interfaces = [{
+        name        = "eno1"
+        mac_address = "52:54:00:20:00:11"
+        vlan_id     = 120
+        mtu         = 1500
+      }]
+    }
+    disks = {
+      install_disk = "/dev/disk/by-id/nvme-MAINTENANCE_CP01_BOOT"
+      root_device_hints = {
+        device_name        = "/dev/nvme0n1"
+        serial_number      = "MAINT-CP01-BOOT"
+        min_size_gigabytes = 240
+        rotational         = false
+      }
+      data_disks = [{
+        name               = "etcd-local"
+        device             = "/dev/disk/by-id/nvme-MAINTENANCE_CP01_ETCD"
+        purpose            = "etcd"
+        min_size_gigabytes = 240
+      }]
+    }
+    talos = {
+      install_disk = "/dev/disk/by-id/nvme-MAINTENANCE_CP01_BOOT"
+      schematic_id = "<schematic-id>"
+      node_labels = {
+        "node-role.kubernetes.io/control-plane" = ""
+      }
+    }
+  }
+
+  "mnt-cp-02" = {
+    role             = "control-plane"
+    boot_mac_address = "52:54:00:20:00:12"
+    bmc = {
+      address                          = "redfish-virtualmedia://10.20.10.12/redfish/v1/Systems/1"
+      credentials_secret_name          = "mnt-cp-02-bmc"
+      disable_certificate_verification = true
+    }
+    network = {
+      hostname      = "mnt-cp-02"
+      ip_address    = "10.20.0.12"
+      prefix_length = 24
+      gateway       = "10.20.0.1"
+      dns_servers   = ["10.20.0.53", "10.20.0.54"]
+      interfaces = [{ name = "eno1", mac_address = "52:54:00:20:00:12", vlan_id = 120, mtu = 1500 }]
+    }
+    disks = {
+      install_disk = "/dev/disk/by-id/nvme-MAINTENANCE_CP02_BOOT"
+      root_device_hints = { serial_number = "MAINT-CP02-BOOT", min_size_gigabytes = 240, rotational = false }
+    }
+  }
+
+  "mnt-cp-03" = {
+    role             = "control-plane"
+    boot_mac_address = "52:54:00:20:00:13"
+    bmc = {
+      address                          = "redfish-virtualmedia://10.20.10.13/redfish/v1/Systems/1"
+      credentials_secret_name          = "mnt-cp-03-bmc"
+      disable_certificate_verification = true
+    }
+    network = {
+      hostname      = "mnt-cp-03"
+      ip_address    = "10.20.0.13"
+      prefix_length = 24
+      gateway       = "10.20.0.1"
+      dns_servers   = ["10.20.0.53", "10.20.0.54"]
+      interfaces = [{ name = "eno1", mac_address = "52:54:00:20:00:13", vlan_id = 120, mtu = 1500 }]
+    }
+    disks = {
+      install_disk = "/dev/disk/by-id/nvme-MAINTENANCE_CP03_BOOT"
+      root_device_hints = { serial_number = "MAINT-CP03-BOOT", min_size_gigabytes = 240, rotational = false }
+    }
+  }
+
+  "mnt-worker-01" = {
+    role             = "worker"
+    boot_mac_address = "52:54:00:20:00:21"
+    bmc = {
+      address                          = "redfish-virtualmedia://10.20.10.21/redfish/v1/Systems/1"
+      credentials_secret_name          = "mnt-worker-01-bmc"
+      disable_certificate_verification = true
+    }
+    network = {
+      hostname      = "mnt-worker-01"
+      ip_address    = "10.20.0.21"
+      prefix_length = 24
+      gateway       = "10.20.0.1"
+      dns_servers   = ["10.20.0.53", "10.20.0.54"]
+      interfaces = [{ name = "eno1", mac_address = "52:54:00:20:00:21", vlan_id = 120, mtu = 1500 }]
+    }
+    disks = {
+      install_disk = "/dev/disk/by-id/nvme-MAINTENANCE_W01_BOOT"
+      root_device_hints = { serial_number = "MAINT-W01-BOOT", min_size_gigabytes = 240, rotational = false }
+      data_disks = [{ name = "workload-local", device = "/dev/disk/by-id/nvme-MAINTENANCE_W01_DATA", purpose = "local-pv", min_size_gigabytes = 960 }]
+    }
+    labels = {
+      "maintenance.io/ingress-capable" = "true"
+    }
+  }
+
+  "mnt-worker-02" = {
+    role             = "worker"
+    boot_mac_address = "52:54:00:20:00:22"
+    bmc = {
+      address                          = "redfish-virtualmedia://10.20.10.22/redfish/v1/Systems/1"
+      credentials_secret_name          = "mnt-worker-02-bmc"
+      disable_certificate_verification = true
+    }
+    network = {
+      hostname      = "mnt-worker-02"
+      ip_address    = "10.20.0.22"
+      prefix_length = 24
+      gateway       = "10.20.0.1"
+      dns_servers   = ["10.20.0.53", "10.20.0.54"]
+      interfaces = [{ name = "eno1", mac_address = "52:54:00:20:00:22", vlan_id = 120, mtu = 1500 }]
+    }
+    disks = {
+      install_disk = "/dev/disk/by-id/nvme-MAINTENANCE_W02_BOOT"
+      root_device_hints = { serial_number = "MAINT-W02-BOOT", min_size_gigabytes = 240, rotational = false }
+      data_disks = [{ name = "workload-local", device = "/dev/disk/by-id/nvme-MAINTENANCE_W02_DATA", purpose = "local-pv", min_size_gigabytes = 960 }]
+    }
+    labels = {
+      "maintenance.io/ingress-capable" = "true"
+    }
+  }
+}

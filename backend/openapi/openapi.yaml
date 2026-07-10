@@ -72,6 +72,103 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '503':
           description: Realtime is unavailable.
+  /api/v1/console/telemetry/route:
+    post:
+      operationId: recordConsoleRouteTelemetry
+      summary: Record tenant console route-adoption/RUM telemetry
+      description: Ingests one cardinality-safe route-selection or RUM event for the authenticated tenant. Org and user are derived
+        from the bearer token; clients must not send raw URLs, query strings, secrets, or row-level payloads. Platform operators
+        read only per-org aggregates through `GET /api/platform/ops`.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ConsoleRouteTelemetryRequest'
+      responses:
+        '202':
+          description: Telemetry event accepted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ConsoleRouteTelemetryAccepted'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/audit:
+    get:
+      operationId: listAuditLog
+      summary: List branch-scoped audit log records
+      description: Returns append-only audit records visible to the caller's branch scope. Filters are optional and the result
+        is paginated to keep the evidence surface bounded.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 200
+          default: 50
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+          default: 0
+      - name: target_type
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: actor
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: Paginated audit records.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - items
+                - limit
+                - offset
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      additionalProperties: true
+                  limit:
+                    type: integer
+                    format: int64
+                  offset:
+                    type: integer
+                    format: int64
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /api/approval-items:
     get:
       operationId: listApprovalItems
@@ -291,6 +388,39 @@ paths:
                 $ref: '#/components/schemas/WorkOrderSummary'
         '409':
           $ref: '#/components/responses/Conflict'
+  /api/v1/mobile/work-orders/{workOrderId}/approve:
+    post:
+      operationId: approveMobileWorkOrder
+      summary: Approve the next pending approval step from a native mobile client
+      description: Mobile-scoped approval route. It requires a fresh passkey step-up envelope bound to this work order before
+        the approval mutation or audit side effect runs.
+      security:
+      - bearerAuth: []
+      parameters:
+      - $ref: '#/components/parameters/WorkOrderId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MobileApproveWorkOrderRequest'
+      responses:
+        '200':
+          description: Updated work-order approval state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkOrderSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+        '422':
+          $ref: '#/components/responses/ValidationError'
   /api/work-orders/{workOrderId}/target-change-requests:
     post:
       operationId: requestTargetChange
@@ -1514,6 +1644,204 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+  /api/v1/hr/readiness-summary:
+    get:
+      operationId: getHrReadinessSummary
+      summary: Read HR data readiness counters
+      description: Returns import, payroll, annual-leave, and attendance readiness counters for org-wide HR operators without
+        exposing raw workbook rows.
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: HR readiness counters.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/hr/absence-exit-dashboard:
+    get:
+      operationId: getHrAbsenceExitDashboard
+      summary: Read absence-to-exit HR dashboard
+      description: Lists absence alerts and exit-case workflow state for HR users who can triage Korean labor-law exit flows.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 1000
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+      - name: employee_id
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: Absence and exit-case dashboard data.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/v1/hr/exit-cases:
+    post:
+      operationId: reportEmployeeExitCase
+      summary: Report an employee exit case from an absence signal
+      description: Creates an audited employee exit case that HR can confirm and prepare for settlement/approval workflows.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - employee_id
+              - effective_exit_date
+              - site_manager_note
+              properties:
+                employee_id:
+                  $ref: '#/components/schemas/Uuid'
+                branch_id:
+                  $ref: '#/components/schemas/Uuid'
+                absence_alert_id:
+                  $ref: '#/components/schemas/Uuid'
+                effective_exit_date:
+                  type: string
+                site_manager_note:
+                  type: string
+      responses:
+        '201':
+          description: Employee exit case created.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/hr/exit-cases/{id}/confirm:
+    post:
+      operationId: confirmEmployeeExitCase
+      summary: Confirm an employee exit case for HR/HQ review
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                decision:
+                  type: string
+                hq_confirmation:
+                  type: boolean
+                  default: false
+                note:
+                  type: string
+                settlement_input:
+                  type: object
+                  additionalProperties: true
+      responses:
+        '200':
+          description: Employee exit case after confirmation.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/hr/exit-cases/{id}/approval-draft:
+    post:
+      operationId: draftEmployeeExitApproval
+      summary: Draft or submit employee exit approval documents
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                submit:
+                  type: boolean
+                  default: false
+                note:
+                  type: string
+                settlement_input:
+                  type: object
+                  additionalProperties: true
+      responses:
+        '200':
+          description: Employee exit case with generated approval payloads.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
   /api/v1/hr/attendance-import/preview:
     post:
       operationId: previewAttendanceImport
@@ -2508,6 +2836,84 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '422':
           $ref: '#/components/responses/ValidationError'
+  /api/v1/audit-streams/ceo-covert/events:
+    get:
+      operationId: listCeoCovertAuditEvents
+      summary: Read the CEO/top-clearance covert audit stream
+      description: Cedar/PBAC clearance-gated stream of CEO/top-clearance-labeled audit events. The backend loads clearance
+        facts under org-scoped RLS and records an audit-of-access event for every successful read.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 1000
+          default: 100
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+          default: 0
+      responses:
+        '200':
+          description: Paged covert audit events, plus the audit-of-access event id created by this read.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditStreamPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/audit-streams/ceo-covert/access-events:
+    get:
+      operationId: listCeoCovertAuditAccessEvents
+      summary: Read the audit-of-access stream for CEO/top-clearance audit reads
+      description: Cedar/PBAC clearance-gated access log for reads of the CEO covert audit stream. Successful reads of this
+        stream are themselves audited.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 1000
+          default: 100
+      - name: offset
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 0
+          default: 0
+      responses:
+        '200':
+          description: Paged audit-stream access events, plus the audit-of-access event id created by this read.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditStreamPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
   /api/v1/location-consents/ledger.csv:
     get:
       operationId: exportLocationConsentLedgerCsv
@@ -2648,6 +3054,33 @@ paths:
                 $ref: '#/components/schemas/PasskeyLoginStartResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
+  /api/v1/auth/passkey/step-up/start:
+    post:
+      operationId: startMobilePasskeyStepUp
+      summary: Start an authenticated action-bound mobile passkey step-up ceremony
+      description: Starts a discoverable WebAuthn ceremony for a signed-in native client and persists the submitted action
+        binding beside the ceremony. The resulting assertion may authorize only the bound approval or poll-vote action.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MobilePasskeyStepUpStartRequest'
+      responses:
+        '200':
+          description: Action-bound authentication ceremony challenge.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MobilePasskeyStepUpStartResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '422':
+          $ref: '#/components/responses/ValidationError'
         '429':
           $ref: '#/components/responses/TooManyRequests'
   /api/v1/auth/passkey/login/finish:
@@ -2996,6 +3429,100 @@ paths:
           description: Refresh-token family revoked.
         '401':
           $ref: '#/components/responses/Unauthorized'
+  /api/v1/group-admin/groups:
+    get:
+      operationId: listGroupAdminGroups
+      summary: List group-admin managed tenant organizations
+      description: Returns only group memberships for which the authenticated actor has GROUP_ADMIN authority. Used before
+        minting a bounded tenant context for a member organization.
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Group-admin visible groups and member organizations.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/group-admin/tenant-context:
+    post:
+      operationId: startGroupAdminTenantContext
+      summary: Start a bounded group-admin tenant context
+      description: Mints a short-lived tenant token scoped to a member organization controlled by the actor's group-admin grant.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - org_id
+              properties:
+                org_id:
+                  $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: Tenant context token for the selected group member organization.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/group-admin/tenant-context/exit:
+    post:
+      operationId: exitGroupAdminTenantContext
+      summary: End a group-admin tenant context audit trail
+      description: Records the group-admin tenant-context stop event for the selected member organization.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - org_id
+              properties:
+                org_id:
+                  $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: Group-admin tenant context ended.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - ended
+                properties:
+                  ended:
+                    type: boolean
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /api/messenger/members:
     get:
       operationId: listMessengerMembers
@@ -3751,6 +4278,12 @@ paths:
       - bearerAuth: []
       parameters:
       - $ref: '#/components/parameters/PurchaseRequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FinancialStepUpRequest'
       responses:
         '200':
           description: Admin-approved purchase request.
@@ -3764,6 +4297,10 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '409':
           $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
   /api/v1/financial/purchase-requests/{purchaseRequestId}/prepare-expenditure:
     post:
       operationId: preparePurchaseExpenditure
@@ -3791,6 +4328,10 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '409':
           $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
   /api/v1/financial/purchase-requests/{purchaseRequestId}/approve-executive:
     post:
       operationId: approvePurchaseRequestExecutive
@@ -3799,6 +4340,12 @@ paths:
       - bearerAuth: []
       parameters:
       - $ref: '#/components/parameters/PurchaseRequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FinancialStepUpRequest'
       responses:
         '200':
           description: Purchase request ready to execute.
@@ -3812,6 +4359,10 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '409':
           $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
   /api/v1/financial/purchase-requests/{purchaseRequestId}/reject:
     post:
       operationId: rejectPurchaseRequest
@@ -3839,6 +4390,10 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '409':
           $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
   /api/v1/financial/purchase-requests/{purchaseRequestId}/restart:
     post:
       operationId: restartPurchaseRequest
@@ -3876,6 +4431,12 @@ paths:
       - bearerAuth: []
       parameters:
       - $ref: '#/components/parameters/PurchaseRequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FinancialStepUpRequest'
       responses:
         '200':
           description: Executed purchase request.
@@ -3889,6 +4450,10 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '409':
           $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
   /api/v1/work-orders/{workOrderId}/p1-dispatch:
     post:
       operationId: startP1Dispatch
@@ -4692,6 +5257,185 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
+  /api/v1/console/rollout:
+    get:
+      operationId: getConsoleRollout
+      summary: Read the current user's new-console rollout state
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Console rollout status.
+          content:
+            application/json:
+              schema:
+                type: object
+                required:
+                - flag_key
+                - org_enabled
+                - org_rollout_enabled
+                - user_opted_in
+                - legacy_kill_switch_enabled
+                - kill_switch_active
+                - effective_new_console
+                - effective_route
+                - effective_route_for_opted_in_user
+                - effective_route_for_opted_out_user
+                - overrides_individual_toggles
+                properties:
+                  flag_key:
+                    type: string
+                  org_enabled:
+                    type: boolean
+                  org_rollout_enabled:
+                    type: boolean
+                  user_opted_in:
+                    type: boolean
+                  legacy_kill_switch_enabled:
+                    type: boolean
+                  kill_switch_active:
+                    type: boolean
+                  effective_new_console:
+                    type: boolean
+                  effective_route:
+                    type: string
+                    enum: [legacy, new_console]
+                  effective_route_for_opted_in_user:
+                    type: string
+                    enum: [legacy, new_console]
+                  effective_route_for_opted_out_user:
+                    type: string
+                    enum: [legacy]
+                  overrides_individual_toggles:
+                    type: boolean
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /api/v1/console/rollout/opt-in:
+    put:
+      operationId: updateConsoleRolloutOptIn
+      summary: Update the current user's new-console opt-in preference
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - opt_in
+              properties:
+                opt_in:
+                  type: boolean
+      responses:
+        '200':
+          description: Updated console rollout status.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /api/v1/console/rollout/org-flag:
+    put:
+      operationId: updateConsoleRolloutOrgFlag
+      summary: Update the org-level new-console rollout flag
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - enabled
+              properties:
+                enabled:
+                  type: boolean
+                rollout_note:
+                  type: string
+      responses:
+        '200':
+          description: Updated console rollout status.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /api/v1/console/kill-switch:
+    post:
+      operationId: updateConsoleLegacyKillSwitch
+      summary: Force or release org-wide legacy-console routing
+      description: Super-admin endpoint that overrides all individual new-console opt-ins and records an audit event.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+              - enabled
+              properties:
+                enabled:
+                  type: boolean
+                reason:
+                  type: string
+                rollout_note:
+                  type: string
+      responses:
+        '200':
+          description: Updated console rollout status after applying the kill switch.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
   /api/v1/users/{id}:
     get:
       operationId: getUser
@@ -4776,6 +5520,39 @@ paths:
       responses:
         '200':
           description: Deactivated user.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserSummary'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /api/v1/users/{id}/activate:
+    post:
+      operationId: activateUser
+      summary: Reactivate an archived user
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: Reactivated user.
           content:
             application/json:
               schema:
@@ -5425,7 +6202,96 @@ paths:
           $ref: '#/components/responses/NotFound'
         '422':
           $ref: '#/components/responses/ValidationError'
+  /api/platform/orgs:
+    get:
+      operationId: listPlatformOrgs
+      summary: List tenant organizations (platform vendor tier)
+      description: Lists all tenant organizations through the platform extractor. A tenant token is rejected before the handler
+        runs; reads are authorized with TenantList and audited as a cross-tenant platform read.
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Tenant organizations visible to the platform operator.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PlatformOrg'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    post:
+      operationId: onboardPlatformOrg
+      summary: Onboard a new tenant organization (platform vendor tier)
+      description: Creates a tenant organization, seeds its first SUPER_ADMIN account, and returns the one-time bootstrap OTP
+        exactly once. Platform token required; tenant tokens are rejected before the handler runs.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePlatformOrgRequest'
+      responses:
+        '201':
+          description: Tenant onboarding succeeded; deliver the OTP out-of-band and do not log it.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformOrgOnboardingResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /api/platform/orgs/{id}:
+    patch:
+      operationId: setPlatformOrgStatus
+      summary: Change a tenant lifecycle status (platform vendor tier)
+      description: Sets a tenant organization status to ACTIVE, SUSPENDED, or ARCHIVED. Platform token required; every write
+        is cross-tenant and audited to the target organization.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePlatformOrgRequest'
+      responses:
+        '200':
+          description: The updated tenant organization.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformOrg'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
     delete:
       operationId: removePlatformOrg
       summary: Remove a tenant — guarded shell removal, or opt-in force-delete with data (platform vendor tier)
@@ -5484,11 +6350,407 @@ paths:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
         '503':
-          description: JWT verification is not configured.
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/platform/ops:
+    get:
+      operationId: getPlatformOps
+      summary: Read cross-tenant platform operations health (platform vendor tier)
+      description: Returns per-tenant health and usage counts from the sanctioned SECURITY DEFINER platform rollup. Authorized
+        with TenantHealthRead and audited as a platform read; no row-level tenant data is returned.
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Platform operations dashboard rollup.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ErrorBody'
+                $ref: '#/components/schemas/PlatformOpsResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/platform/groups:
+    get:
+      operationId: listPlatformGroups
+      summary: List platform groups and member organizations (platform vendor tier)
+      description: Lists group identities and their subsidiary organization memberships. Platform token and GroupManage authority
+        required.
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Platform groups with member organization identities.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PlatformGroup'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    post:
+      operationId: createPlatformGroup
+      summary: Create a platform group identity (platform vendor tier)
+      description: Creates a group identity that can own multiple tenant organizations. Platform token and GroupManage authority
+        required.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePlatformGroupRequest'
+      responses:
+        '201':
+          description: The created platform group.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformGroup'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/platform/groups/{id}:
+    patch:
+      operationId: updatePlatformGroup
+      summary: Update a platform group identity or lifecycle status
+      description: Updates group slug, name, and/or status. Platform token and GroupManage authority required.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdatePlatformGroupRequest'
+      responses:
+        '200':
+          description: The updated platform group.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformGroup'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/platform/groups/{id}/accounts:
+    get:
+      operationId: listPlatformGroupAccounts
+      summary: List tenant-anchored accounts with group roles
+      description: Lists tenant user accounts that hold one or more grants for the selected platform group. Platform token and
+        GroupManage authority required.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: Group account summaries.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/PlatformGroupAccount'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    post:
+      operationId: createPlatformGroupAccount
+      summary: Create a tenant-anchored user account with a group role
+      description: Creates one tenant account in the target organization, grants a group role, and returns the one-time setup
+        OTP exactly once. Tenant roles default to MEMBER and group_role defaults to GROUP_ADMIN when omitted.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreatePlatformGroupAccountRequest'
+      responses:
+        '201':
+          description: The created group account plus one-time setup OTP.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreatePlatformGroupAccountResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/platform/groups/{id}/accounts/{user_id}/roles/{group_role}:
+    delete:
+      operationId: revokePlatformGroupRole
+      summary: Revoke one group role from a tenant-anchored account
+      description: Removes one group-level role grant from the selected account. Platform token and GroupManage authority required.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      - name: user_id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      - name: group_role
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/PlatformGroupRole'
+      responses:
+        '204':
+          description: The group role grant was revoked.
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/platform/groups/{id}/organizations/{org_id}:
+    put:
+      operationId: assignPlatformOrgToGroup
+      summary: Assign or move a tenant organization into a platform group
+      description: Assigns the tenant organization to the selected group. Platform token and GroupManage authority required;
+        the write is audited to the target organization.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      - name: org_id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: The tenant organization after group assignment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformOrg'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    delete:
+      operationId: removePlatformOrgFromGroup
+      summary: Remove a tenant organization from a platform group
+      description: Removes the tenant organization from the selected group. Platform token and GroupManage authority required;
+        the write is audited to the target organization.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      - name: org_id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: The tenant organization after group removal.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformOrg'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/platform/view-as:
+    post:
+      operationId: startPlatformViewAs
+      summary: Start a read-only platform view-as session for one tenant
+      description: Mints a short-lived tenant token pinned to the requested organization and role with view_as/read_only flags.
+        Platform token and TenantHealthRead authority required; the operator identity comes from the verified bearer token.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlatformViewAsStartRequest'
+      responses:
+        '200':
+          description: The short-lived read-only tenant token and banner context.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformViewAsStartResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/platform/view-as/exit:
+    post:
+      operationId: exitPlatformViewAs
+      summary: End a read-only platform view-as session audit trail
+      description: Records the platform.view_as.stop audit event. Called with the operator's real platform token, not the
+        impersonation token.
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: The exit audit acknowledgement.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformExitResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/platform/tenant-context:
+    post:
+      operationId: startPlatformTenantContext
+      summary: Start a writable platform-managed tenant context
+      description: Mints a short-lived writable tenant token with SUPER_ADMIN for exactly one active tenant. Platform token and
+        TenantManage authority required; the operator identity comes from the verified bearer token and the start is audited.
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlatformTenantContextStartRequest'
+      responses:
+        '200':
+          description: The short-lived writable tenant token and banner context.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformTenantContextStartResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/platform/tenant-context/exit:
+    post:
+      operationId: exitPlatformTenantContext
+      summary: End a writable platform-managed tenant context audit trail
+      description: Records the platform.tenant_context.stop audit event. Called with the operator's real platform token after
+        restoring the platform session.
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: The exit audit acknowledgement.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PlatformExitResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /api/v1/integrity/findings:
     get:
       operationId: listIntegrityFindings
@@ -6100,6 +7362,68 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+  /api/v1/workflow-studio/definitions/{id}/run-log:
+    get:
+      operationId: listWorkflowRunLog
+      summary: List workflow automation run-log entries
+      description: Returns the most recent durable runtime rows for this workflow definition, scoped by tenant RLS, for the Workflow Studio timeline.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: Workflow runtime run log.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowRunLogResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/workflow-studio/definitions/{id}/run:
+    post:
+      operationId: triggerWorkflowRun
+      summary: Trigger a workflow definition run
+      description: Creates an idempotent MANUAL runtime row for an ACTIVE workflow definition and returns the run-log event used by Workflow Studio.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TriggerWorkflowRunRequest'
+      responses:
+        '200':
+          description: Workflow run trigger accepted.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowRunResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
   /api/v1/workflow-studio/definitions/{id}/simulate:
     post:
       operationId: simulateWorkflowDefinition
@@ -6177,6 +7501,91 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
         '422':
           $ref: '#/components/responses/ValidationError'
+  /api/v1/workflow-studio/definitions/{id}/revisions/{rev}/approve:
+    post:
+      operationId: approveWorkflowDefinitionRevision
+      summary: Approve a pending workflow definition revision
+      description: Sensitive four-eyes approval for a pending no-code workflow revision. Requires RoleManage, tenant RLS,
+        a fresh passkey step-up assertion, and rejects self-approval by the original staging actor.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      - name: rev
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int32
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkflowStepUpRequest'
+      responses:
+        '200':
+          description: Approved workflow definition revision.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowDefinitionResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '428':
+          description: Fresh passkey step-up is required.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/workflow-studio/definitions/{id}/revisions/{rev}/withdraw:
+    post:
+      operationId: withdrawWorkflowDefinitionRevision
+      summary: Withdraw a pending workflow definition revision
+      description: Clears a pending no-code workflow revision before approval while preserving append-only history and audit evidence.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      - name: rev
+        in: path
+        required: true
+        schema:
+          type: integer
+          format: int32
+      responses:
+        '200':
+          description: Withdrawn workflow definition revision.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowDefinitionResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
   /api/v1/workflow-studio/definitions/{id}/pause:
     post:
       operationId: pauseWorkflowDefinition
@@ -6198,6 +7607,45 @@ paths:
       responses:
         '200':
           description: Paused workflow definition.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowDefinitionResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '428':
+          description: Fresh passkey step-up is required.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/workflow-studio/definitions/{id}/resume:
+    post:
+      operationId: resumeWorkflowDefinition
+      summary: Resume a paused workflow definition
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WorkflowStepUpRequest'
+      responses:
+        '200':
+          description: Resumed workflow definition.
           content:
             application/json:
               schema:
@@ -6458,6 +7906,43 @@ paths:
           $ref: '#/components/responses/NotFound'
         '422':
           $ref: '#/components/responses/ValidationError'
+  /api/v1/mobile/collaboration/polls/{id}/vote:
+    post:
+      operationId: voteMobileCollaborationPoll
+      summary: Submit or replace a native mobile poll vote with passkey step-up
+      description: Mobile-scoped poll vote route. It validates poll lifecycle and option ownership only after a fresh passkey
+        step-up envelope is verified for this poll vote.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/MobileVotePollRequest'
+      responses:
+        '200':
+          description: Updated poll with aggregate counts and caller vote state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PollResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
+        '422':
+          $ref: '#/components/responses/ValidationError'
   /api/v1/financial/purchase-requests/preferences:
     get:
       operationId: getPurchaseRequestPreferences
@@ -6575,6 +8060,1195 @@ paths:
           $ref: '#/components/responses/NotFound'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/ontology/object-types:
+    get:
+      operationId: listObjectTypes
+      summary: List ontology object types
+      description: Lists the tenant's registry object types (Cedar-filtered) with their current schema version and lifecycle state.
+      tags:
+      - Ontology
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Object type summaries for the caller's tenant.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    post:
+      operationId: createObjectType
+      summary: Create a draft object type
+      description: Creates a DRAFT object type schema (with its property/link/action/analytic children). Publishing is a governed,
+        separate lifecycle step; this only stages a draft.
+      tags:
+      - Ontology
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateObjectTypeDraft'
+      responses:
+        '201':
+          description: Draft object type created.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/ontology/object-types/{key}:
+    get:
+      operationId: getObjectType
+      summary: Get an object type definition
+      description: Returns the object type definition plus its property/link/action/analytic children. An optional version pins an
+        immutable, content-addressed published schema version; absent returns the head.
+      tags:
+      - Ontology
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: key
+        in: path
+        required: true
+        schema:
+          type: string
+      - name: version
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      responses:
+        '200':
+          description: Object type definition.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    put:
+      operationId: stageObjectTypeRevision
+      summary: Stage an object type schema revision
+      description: Stages a version+1 revision of an object type schema (draft-staged, governed publish). Immutable published versions
+        are preserved for rollback and as-of schema reads.
+      tags:
+      - Ontology
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: key
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateObjectTypeDraft'
+      responses:
+        '201':
+          description: Staged schema revision.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/ontology/instances:
+    get:
+      operationId: listOntologyInstances
+      summary: List object instances of a type
+      description: Lists current-state instances of one object type (RLS-scoped, Cedar residual-filtered). The type is the object-type
+        version id whose head instances to list.
+      tags:
+      - Ontology
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: type
+        in: query
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: Instance states for the object type.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/ontology/instances/{id}:
+    get:
+      operationId: getOntologyInstance
+      summary: Get an object instance card
+      description: Returns one instance's current (or as-of) state. Property policies null forbidden fields (deny-by-omission).
+      tags:
+      - Ontology
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      - name: as_of
+        in: query
+        required: false
+        description: RFC3339 instant for a bi-temporal as-of read; absent = current head.
+        schema:
+          $ref: '#/components/schemas/Timestamp'
+      responses:
+        '200':
+          description: Instance state.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/ontology/instances/{id}/history:
+    get:
+      operationId: listOntologyInstanceHistory
+      summary: List an instance's revision history
+      description: Returns the append-only, fixity-chained revision timeline for one instance (hash-verified).
+      tags:
+      - Ontology
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: Revision history for the instance.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/ontology/instances/{id}/traverse:
+    get:
+      operationId: traverseOntologyInstance
+      summary: Traverse the object graph around an instance
+      description: Search-around graph traversal from one instance over ontology links, depth-bounded, returning a node/edge payload.
+      tags:
+      - Ontology
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      - name: link_type
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      - name: depth
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+      responses:
+        '200':
+          description: Traversal node/edge graph.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/ontology/actions/{action_key}/preflight:
+    post:
+      operationId: preflightOntologyAction
+      summary: Preflight an object action's gate chain
+      description: Runs the ordered §16 gate chain (authority / self-checklist / four-eyes / egress) for an action and returns each
+        gate's status WITHOUT committing anything.
+      tags:
+      - Ontology
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: action_key
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OntologyActionRequest'
+      responses:
+        '200':
+          description: Gate-chain preflight status.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/ontology/actions/{action_key}/execute:
+    post:
+      operationId: executeOntologyAction
+      summary: Execute an object action (single mutation path)
+      description: Re-evaluates the §16 gate chain inside the writeback transaction (TOCTOU-safe), then dispatches an instance-revision
+        (append fixity-chained revision) or a projected use-case. Humans and automation use this same path.
+      tags:
+      - Ontology
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: action_key
+        in: path
+        required: true
+        schema:
+          type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OntologyActionRequest'
+      responses:
+        '200':
+          description: Action executed; the mutation and its audit row committed atomically.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '501':
+          description: A projected-use-case dispatch is not wired yet.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/governance/overrides:
+    post:
+      operationId: openGovernanceOverride
+      summary: Open a post-draft override
+      description: Opens a governance override (reason + before-value snapshot) for editing a non-draft object, recorded append-only.
+      tags:
+      - Governance
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GovernanceOpenOverrideRequest'
+      responses:
+        '201':
+          description: Override opened.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/governance/approvals/decide:
+    post:
+      operationId: decideGovernanceApproval
+      summary: Decide a four-eyes approval
+      description: Records a four-eyes approval decision; the approver must differ from the requester (self-approval is rejected).
+      tags:
+      - Governance
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GovernanceDecideApprovalRequest'
+      responses:
+        '201':
+          description: Approval decision recorded.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/governance/lifecycle/transitions:
+    post:
+      operationId: configureLifecycleTransition
+      summary: Configure a lifecycle transition's requirements
+      description: Configures the reason / four-eyes / checklist requirements for one object-type lifecycle edge.
+      tags:
+      - Governance
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GovernanceConfigureTransitionRequest'
+      responses:
+        '201':
+          description: Transition requirements configured.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/governance/lifecycle/preflight:
+    post:
+      operationId: preflightLifecycleTransition
+      summary: Preflight a lifecycle transition
+      description: Evaluates the gate chain for a lifecycle edge WITHOUT committing. An unconfigured edge is fail-closed (denied).
+      tags:
+      - Governance
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GovernanceLifecyclePreflightRequest'
+      responses:
+        '200':
+          description: Lifecycle gate-chain preflight status.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/policy/catalog:
+    get:
+      operationId: listPolicyCatalog
+      summary: List Cedar policy catalog entries
+      description: Lists the tenant's Cedar policy catalog entries (enforced / shadow / draft / …), optionally filtered by status.
+      tags:
+      - Policy
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: status
+        in: query
+        required: false
+        schema:
+          type: string
+      responses:
+        '200':
+          description: Catalog entries for the caller's tenant.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/policy/drafts:
+    get:
+      operationId: listPolicyDrafts
+      summary: List no-code policy drafts
+      description: Lists the tenant's no-code Cedar policy drafts and their review status.
+      tags:
+      - Policy
+      security:
+      - bearerAuth: []
+      responses:
+        '200':
+          description: Policy drafts for the caller's tenant.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    post:
+      operationId: createPolicyDraft
+      summary: Create a no-code policy draft
+      description: Creates a no-code policy draft; the blocks are normalized and compiled to Cedar text. A draft can never create a
+        live or shadow enforcement row.
+      tags:
+      - Policy
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PolicyCreateDraftRequest'
+      responses:
+        '201':
+          description: Draft created.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/policy/drafts/{draft_id}:
+    get:
+      operationId: getPolicyDraft
+      summary: Get a policy draft
+      tags:
+      - Policy
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: draft_id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: The policy draft.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    put:
+      operationId: updatePolicyDraft
+      summary: Update a policy draft
+      description: Edits a per-user draft (re-normalized and re-compiled to Cedar text). Cannot promote a draft to shadow/enforced.
+      tags:
+      - Policy
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: draft_id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PolicyUpdateDraftRequest'
+      responses:
+        '200':
+          description: Updated draft.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/policy/drafts/{draft_id}/validate:
+    post:
+      operationId: validatePolicyDraft
+      summary: Strict-validate a policy draft
+      description: Strict-validates the draft's generated Cedar against the authoring schema and returns any errors. Does not activate
+        anything.
+      tags:
+      - Policy
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: draft_id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: Validation result.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/policy/drafts/{draft_id}/submit:
+    post:
+      operationId: submitPolicyDraft
+      summary: Submit a policy draft for review
+      description: Moves a validated draft to review_pending (validation must be valid).
+      tags:
+      - Policy
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: draft_id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: Draft submitted for review.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/policy/drafts/{draft_id}/review:
+    post:
+      operationId: reviewPolicyDraft
+      summary: Four-eyes review a policy draft
+      description: Records a four-eyes review decision (reviewer must differ from the author) moving the draft to
+        approved_for_promotion or rejected.
+      tags:
+      - Policy
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: draft_id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PolicyReviewRequest'
+      responses:
+        '200':
+          description: Review decision recorded.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/policy/simulate:
+    post:
+      operationId: simulatePolicyDecision
+      summary: Simulate a Cedar policy decision
+      description: Evaluates a point decision (with an optional what-if draft overlay) and returns Allow/Deny plus matched policies and
+        diagnostics. Deny-by-omission is the default.
+      tags:
+      - Policy
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PolicySimulateRequest'
+      responses:
+        '200':
+          description: Simulation outcome.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/policy/authorize:
+    post:
+      operationId: authorizePolicyDecision
+      summary: Live Cedar authorization decision
+      description: The live point decision (the same fail-closed evaluator the guardrail gate calls), optionally scoped to one object
+        type or property's attached policies.
+      tags:
+      - Policy
+      security:
+      - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PolicyAuthorizeRequest'
+      responses:
+        '200':
+          description: Authorization outcome.
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: true
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/messenger/channels:
+    get:
+      operationId: listMessengerChannels
+      summary: List branch-scoped channel threads the caller can see
+      tags:
+      - Messenger
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 100
+          default: 50
+      responses:
+        '200':
+          description: List branch-scoped channel threads the caller can see.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessengerThreadListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+  /api/messenger/threads/{threadId}/join:
+    post:
+      operationId: joinMessengerThread
+      summary: Join a channel-visibility thread in scope (idempotent)
+      tags:
+      - Messenger
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: threadId
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: The joined thread.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessengerThreadSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/messenger/threads/{threadId}/mute:
+    put:
+      operationId: setMessengerThreadMute
+      summary: Mute or unmute a thread for the authenticated member
+      tags:
+      - Messenger
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: threadId
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetMessengerThreadMuteRequest'
+      responses:
+        '200':
+          description: The thread with its updated mute state.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessengerThreadSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/messenger/threads/{threadId}/presence:
+    get:
+      operationId: messengerThreadPresence
+      summary: Presence of the members of a thread
+      tags:
+      - Messenger
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: threadId
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: Per-member presence for the thread.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessengerPresenceListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/messenger/messages/{messageId}/ack:
+    post:
+      operationId: toggleMessengerMessageAck
+      summary: Toggle the caller's acknowledgement of a message
+      tags:
+      - Messenger
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: messageId
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: The message's acknowledgement summary after toggling.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MessengerAckSummary'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+  /api/v1/evidence/objects:
+    get:
+      tags: [Evidence]
+      operationId: listEvidenceObjects
+      summary: List EV objects (RLS-scoped) with filters.
+      parameters:
+        - { name: q, in: query, required: false, schema: { type: string } }
+        - { name: source_type, in: query, required: false, schema: { $ref: '#/components/schemas/EvidenceSourceType' } }
+        - { name: source_id, in: query, required: false, schema: { type: string } }
+        - { name: admissibility_status, in: query, required: false, schema: { $ref: '#/components/schemas/AdmissibilityStatus' } }
+        - { name: legal_hold_state, in: query, required: false, schema: { $ref: '#/components/schemas/LegalHoldState' } }
+        - { name: custody_stage, in: query, required: false, schema: { $ref: '#/components/schemas/CustodyStage' } }
+        - { name: classification, in: query, required: false, schema: { $ref: '#/components/schemas/EvidenceClassification' } }
+        - { name: limit, in: query, required: false, schema: { type: integer, format: int64 } }
+        - { name: offset, in: query, required: false, schema: { type: integer, format: int64 } }
+      responses:
+        '200': { description: A page of EV objects., content: { application/json: { schema: { $ref: '#/components/schemas/EvidenceObjectPage' } } } }
+  /api/v1/evidence/objects/{id}:
+    get:
+      tags: [Evidence]
+      operationId: getEvidenceObject
+      parameters: [ { name: id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '200': { description: Full EV object detail., content: { application/json: { schema: { $ref: '#/components/schemas/EvidenceObjectDetail' } } } }
+        '404': { description: 'Not found (or cross-tenant, hidden by RLS).' }
+  /api/v1/evidence/objects/{id}/verify:
+    post:
+      tags: [Evidence]
+      operationId: verifyEvidenceObject
+      summary: Recompute WORM fixity for every copy; audited.
+      parameters: [ { name: id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '200': { description: Fixity report (outcome + per-copy verdict)., content: { application/json: { schema: { $ref: '#/components/schemas/EvidenceVerifyReport' } } } }
+        '404': { description: Not found. }
+        '503': { description: Object storage not configured — fixity cannot be checked. }
+  /api/v1/evidence/objects/{id}/hold:
+    post:
+      tags: [Evidence]
+      operationId: holdEvidenceObject
+      summary: Apply or release a legal hold (release is four-eyes gated).
+      parameters: [ { name: id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/EvidenceHoldRequest' } } }
+      responses:
+        '200': { description: Hold released., content: { application/json: { schema: { $ref: '#/components/schemas/LegalHoldRecordView' } } } }
+        '201': { description: Hold applied., content: { application/json: { schema: { $ref: '#/components/schemas/LegalHoldRecordView' } } } }
+        '403': { description: Release requires a distinct-approver four-eyes approval (code four_eyes_required). }
+  /api/v1/hr/leave-requests:
+    post:
+      tags: [HR-Leave]
+      operationId: createLeaveRequest
+      summary: File a leave request (owner self-service)
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateLeaveRequest' } } }
+      responses:
+        '200': { description: created, content: { application/json: { schema: { $ref: '#/components/schemas/LeaveRequest' } } } }
+        '403': { description: no linked employee }
+        '422': { description: validation (bad enum / date range) }
+    get:
+      tags: [HR-Leave]
+      operationId: listTeamLeaveRequests
+      summary: Team leave-request queue (branch-scoped)
+      parameters:
+        - { name: status, in: query, schema: { type: string, enum: [all, DRAFT, SUBMITTED, APPROVED, REJECTED] } }
+        - { name: limit, in: query, schema: { type: integer } }
+        - { name: offset, in: query, schema: { type: integer } }
+      responses:
+        '200': { description: page, content: { application/json: { schema: { $ref: '#/components/schemas/LeaveRequestPage' } } } }
+        '403': { description: missing EmployeeDirectoryManage }
+  /api/v1/hr/leave-requests/me:
+    get:
+      tags: [HR-Leave]
+      operationId: myLeaveOverview
+      summary: My leave balance and requests
+      responses:
+        '200': { description: overview, content: { application/json: { schema: { $ref: '#/components/schemas/MyLeaveOverview' } } } }
+        '403': { description: no linked employee }
+  /api/v1/hr/leave-requests/{id}/decide:
+    post:
+      tags: [HR-Leave]
+      operationId: decideLeaveRequest
+      parameters: [ { name: id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/DecideLeaveRequest' } } }
+      responses:
+        '200': { description: decided, content: { application/json: { schema: { $ref: '#/components/schemas/LeaveRequest' } } } }
+        '403': { description: not authorized OR decider == requester }
+        '409': { description: not in SUBMITTED state }
+  /api/v1/hr/leave-promotions:
+    post:
+      tags: [HR-Leave]
+      operationId: createLeavePromotion
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: '#/components/schemas/CreateLeavePromotion' } } }
+      responses:
+        '200': { description: created, content: { application/json: { schema: { $ref: '#/components/schemas/LeavePromotion' } } } }
+        '409': { description: round already exists for year/round }
+    get:
+      tags: [HR-Leave]
+      operationId: listLeavePromotions
+      responses:
+        '200': { description: rounds, content: { application/json: { schema: { type: array, items: { $ref: '#/components/schemas/LeavePromotion' } } } } }
+  /api/v1/hr/leave-promotions/{id}/send:
+    post:
+      tags: [HR-Leave]
+      operationId: sendLeavePromotion
+      parameters: [ { name: id, in: path, required: true, schema: { type: string, format: uuid } } ]
+      responses:
+        '200': { description: sent, content: { application/json: { schema: { $ref: '#/components/schemas/LeavePromotion' } } } }
+        '409': { description: not DRAFT }
+        '422': { description: no target employees }
+  /api/v1/governance/approvals:
+    post:
+      tags: [Governance]
+      operationId: createGovernanceApproval
+      summary: Open a pending four-eyes approval request
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [request_ref, kind]
+              properties:
+                request_ref: { type: string, format: uuid }
+                kind: { type: string, maxLength: 80 }
+                payload_summary: { type: object, additionalProperties: true }
+      responses:
+        '201':
+          description: Pending approval request created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, request_ref, kind, requested_by, payload_summary, created_at]
+                properties:
+                  id: { type: string, format: uuid }
+                  request_ref: { type: string, format: uuid }
+                  kind: { type: string }
+                  requested_by: { type: string, format: uuid }
+                  payload_summary: { type: object, additionalProperties: true }
+                  created_at: { type: string, format: date-time }
+        '403': { description: Forbidden }
+        '409': { description: A request already exists for this ref }
+        '422': { description: Validation error }
+  /api/v1/ontology/instances/{id}/lifecycle:
+    post:
+      tags: [Ontology]
+      operationId: commitInstanceLifecycle
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/LifecycleRequest' }
+      responses:
+        '200': { description: committed, content: { application/json: { schema: { $ref: '#/components/schemas/LifecycleOutcome' } } } }
+        '403': { description: gate denied / unconfigured edge }
+        '409': { description: illegal FSM edge or concurrent state change }
+        '404': { description: instance not found (RLS-scoped) }
+
+  /api/v1/ontology/instances/{id}/acting:
+    get:
+      tags: [Ontology]
+      operationId: listInstanceActing
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+      responses:
+        '200':
+          description: automation rules + policies acting on the object type
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/ActingRule' } }
+        '404': { description: instance not found (RLS-scoped) }
+
+  /api/v1/ontology/resolve:
+    get:
+      tags: [Ontology]
+      operationId: resolveInstanceByCode
+      parameters:
+        - { name: code, in: query, required: true, schema: { type: string } }
+      responses:
+        '200': { description: resolved, content: { application/json: { schema: { $ref: '#/components/schemas/ResolvedInstance' } } } }
+        '404': { description: no instance resolves that code (deny-by-omission — also cross-tenant) }
+
+  /api/v1/policy/authorize/bulk:
+    post:
+      tags: [Policy]
+      operationId: authorizeBulk
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/BulkAuthorizeBody' }
+      responses:
+        '200': { description: per-check decisions (index-aligned with checks), content: { application/json: { schema: { $ref: '#/components/schemas/BulkDecisionResponse' } } } }
+
+  /api/v1/policy/decisions:
+    get:
+      tags: [Policy]
+      operationId: listPolicyDecisions
+      parameters:
+        - { name: since, in: query, required: false, schema: { type: string, format: date-time } }
+      responses:
+        '200':
+          description: recent decisions, newest first, capped at 200
+          content:
+            application/json:
+              schema: { type: array, items: { $ref: '#/components/schemas/DecisionLogRow' } }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -6712,6 +9386,12 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorBody'
+    PreconditionRequired:
+      description: A required passkey step-up or other precondition is missing.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
     TooManyRequests:
       description: Rate limit exceeded for this client; retry later.
       content:
@@ -6738,6 +9418,61 @@ components:
           schema:
             $ref: '#/components/schemas/ErrorBody'
   schemas:
+    ConsoleRouteTelemetryEventKind:
+      type: string
+      enum:
+      - route_selection
+      - rum_error
+      - rum_perf
+    ConsoleRouteSurface:
+      type: string
+      enum:
+      - console
+      - legacy
+    ConsoleRouteTelemetryRequest:
+      type: object
+      required:
+      - event_kind
+      - route_surface
+      - route_path
+      - release_cycle
+      properties:
+        event_kind:
+          $ref: '#/components/schemas/ConsoleRouteTelemetryEventKind'
+        route_surface:
+          $ref: '#/components/schemas/ConsoleRouteSurface'
+        route_path:
+          type: string
+          minLength: 1
+          maxLength: 120
+          pattern: ^/[A-Za-z0-9._:/-]*$
+          description: Cardinality-safe route template; never include raw URL parameters, queries, or fragments.
+        release_cycle:
+          type: string
+          minLength: 1
+          maxLength: 80
+          pattern: ^[A-Za-z0-9._:-]+$
+        duration_ms:
+          type:
+          - integer
+          - 'null'
+          format: int32
+          minimum: 0
+          maximum: 600000
+        error_name:
+          type:
+          - string
+          - 'null'
+          minLength: 1
+          maxLength: 80
+          pattern: ^[A-Za-z0-9._:-]+$
+    ConsoleRouteTelemetryAccepted:
+      type: object
+      required:
+      - accepted
+      properties:
+        accepted:
+          type: boolean
     CollaborationScopeType:
       type: string
       enum:
@@ -7051,6 +9786,20 @@ components:
           maxItems: 20
           items:
             $ref: '#/components/schemas/Uuid'
+    MobileVotePollRequest:
+      type: object
+      required:
+      - selected_option_ids
+      - step_up
+      properties:
+        selected_option_ids:
+          type: array
+          minItems: 1
+          maxItems: 20
+          items:
+            $ref: '#/components/schemas/Uuid'
+        step_up:
+          $ref: '#/components/schemas/MobilePasskeyStepUpEnvelope'
     Uuid:
       type: string
       format: uuid
@@ -7060,6 +9809,441 @@ components:
     Date:
       type: string
       format: date
+    PlatformOrgStatus:
+      type: string
+      enum:
+      - ACTIVE
+      - SUSPENDED
+      - ARCHIVED
+    PlatformTenantRole:
+      type: string
+      enum:
+      - SUPER_ADMIN
+      - ADMIN
+      - MECHANIC
+      - RECEPTIONIST
+      - EXECUTIVE
+      - MEMBER
+    PlatformGroupRole:
+      type: string
+      enum:
+      - GROUP_ADMIN
+      - GROUP_VIEWER
+      - GROUP_FINANCE
+    PlatformAccountStatus:
+      type: string
+      enum:
+      - ACTIVE
+      - PENDING_SETUP
+      - DEACTIVATED
+    PlatformOrg:
+      type: object
+      required:
+      - id
+      - slug
+      - name
+      - status
+      - group_id
+      - group_slug
+      - group_name
+      - created_at
+      - updated_at
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        slug:
+          type: string
+        name:
+          type: string
+        status:
+          $ref: '#/components/schemas/PlatformOrgStatus'
+        group_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        group_slug:
+          type:
+          - string
+          - 'null'
+        group_name:
+          type:
+          - string
+          - 'null'
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+    CreatePlatformOrgRequest:
+      type: object
+      required:
+      - slug
+      - name
+      properties:
+        slug:
+          type: string
+          minLength: 1
+        name:
+          type: string
+          minLength: 1
+    UpdatePlatformOrgRequest:
+      type: object
+      required:
+      - status
+      properties:
+        status:
+          $ref: '#/components/schemas/PlatformOrgStatus'
+    PlatformOrgOnboardingResponse:
+      type: object
+      required:
+      - org
+      - admin_user_id
+      - otp
+      - admin_otp_expires_at
+      properties:
+        org:
+          $ref: '#/components/schemas/PlatformOrg'
+        admin_user_id:
+          $ref: '#/components/schemas/Uuid'
+        otp:
+          type: string
+          minLength: 1
+          description: One-time bootstrap OTP returned exactly once; deliver out-of-band and never log it.
+        admin_otp_expires_at:
+          $ref: '#/components/schemas/Timestamp'
+    PlatformGroupMember:
+      type: object
+      required:
+      - id
+      - slug
+      - name
+      - status
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        slug:
+          type: string
+        name:
+          type: string
+        status:
+          $ref: '#/components/schemas/PlatformOrgStatus'
+    PlatformGroup:
+      type: object
+      required:
+      - id
+      - slug
+      - name
+      - status
+      - member_count
+      - members
+      - created_at
+      - updated_at
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        slug:
+          type: string
+        name:
+          type: string
+        status:
+          $ref: '#/components/schemas/PlatformOrgStatus'
+        member_count:
+          type: integer
+          format: int64
+        members:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlatformGroupMember'
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+    CreatePlatformGroupRequest:
+      type: object
+      required:
+      - slug
+      - name
+      properties:
+        slug:
+          type: string
+          minLength: 1
+        name:
+          type: string
+          minLength: 1
+    UpdatePlatformGroupRequest:
+      type: object
+      properties:
+        slug:
+          type: string
+          minLength: 1
+        name:
+          type: string
+          minLength: 1
+        status:
+          $ref: '#/components/schemas/PlatformOrgStatus'
+    PlatformGroupAccount:
+      type: object
+      required:
+      - user_id
+      - display_name
+      - phone
+      - tenant_roles
+      - is_active
+      - has_passkey
+      - account_status
+      - org_id
+      - org_slug
+      - org_name
+      - group_roles
+      - created_at
+      properties:
+        user_id:
+          $ref: '#/components/schemas/Uuid'
+        display_name:
+          type: string
+        phone:
+          type:
+          - string
+          - 'null'
+        tenant_roles:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlatformTenantRole'
+        is_active:
+          type: boolean
+        has_passkey:
+          type: boolean
+        account_status:
+          $ref: '#/components/schemas/PlatformAccountStatus'
+        org_id:
+          $ref: '#/components/schemas/Uuid'
+        org_slug:
+          type: string
+        org_name:
+          type: string
+        group_roles:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlatformGroupRole'
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+    CreatePlatformGroupAccountRequest:
+      type: object
+      required:
+      - org_id
+      - display_name
+      properties:
+        org_id:
+          $ref: '#/components/schemas/Uuid'
+        display_name:
+          type: string
+          minLength: 1
+        phone:
+          type: string
+        tenant_roles:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlatformTenantRole'
+          default:
+          - MEMBER
+        group_role:
+          allOf:
+          - $ref: '#/components/schemas/PlatformGroupRole'
+          default: GROUP_ADMIN
+    CreatePlatformGroupAccountResponse:
+      type: object
+      required:
+      - account
+      - otp
+      - otp_expires_at
+      properties:
+        account:
+          $ref: '#/components/schemas/PlatformGroupAccount'
+        otp:
+          type: string
+          minLength: 1
+          description: One-time setup OTP returned exactly once; deliver out-of-band and never log it.
+        otp_expires_at:
+          $ref: '#/components/schemas/Timestamp'
+    PlatformTenantHealth:
+      type: object
+      required:
+      - id
+      - slug
+      - name
+      - status
+      - group_id
+      - group_slug
+      - group_name
+      - user_count
+      - active_user_count
+      - active_work_orders
+      - open_work_orders
+      - last_activity_at
+      - route_adoption
+      - zero_legacy_release_cycles
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        slug:
+          type: string
+        name:
+          type: string
+        status:
+          $ref: '#/components/schemas/PlatformOrgStatus'
+        group_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        group_slug:
+          type:
+          - string
+          - 'null'
+        group_name:
+          type:
+          - string
+          - 'null'
+        user_count:
+          type: integer
+          format: int64
+        active_user_count:
+          type: integer
+          format: int64
+        active_work_orders:
+          type: integer
+          format: int64
+        open_work_orders:
+          type: integer
+          format: int64
+        last_activity_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        route_adoption:
+          type: array
+          description: Per-release console-vs-legacy route adoption and RUM rollup for ramp decisions.
+          items:
+            $ref: '#/components/schemas/RouteAdoptionMetric'
+        zero_legacy_release_cycles:
+          type: integer
+          format: int64
+          description: Count of release cycles with console route traffic and zero legacy route-selection events.
+    RouteAdoptionMetric:
+      type: object
+      required:
+      - release_cycle
+      - console_route_events
+      - legacy_route_events
+      - rum_error_events
+      - rum_perf_p95_ms
+      - last_event_at
+      properties:
+        release_cycle:
+          type: string
+        console_route_events:
+          type: integer
+          format: int64
+        legacy_route_events:
+          type: integer
+          format: int64
+        rum_error_events:
+          type: integer
+          format: int64
+        rum_perf_p95_ms:
+          type:
+          - integer
+          - 'null'
+          format: int64
+        last_event_at:
+          type: string
+          format: date-time
+    PlatformOpsResponse:
+      type: object
+      required:
+      - tenants
+      properties:
+        tenants:
+          type: array
+          items:
+            $ref: '#/components/schemas/PlatformTenantHealth'
+    PlatformViewAsStartRequest:
+      type: object
+      required:
+      - org_id
+      - role
+      properties:
+        org_id:
+          $ref: '#/components/schemas/Uuid'
+        role:
+          $ref: '#/components/schemas/PlatformTenantRole'
+    PlatformViewAsStartResponse:
+      type: object
+      required:
+      - access_token
+      - token_type
+      - acting_org_id
+      - acting_org_name
+      - acting_role
+      - expires_at
+      properties:
+        access_token:
+          type: string
+          minLength: 1
+        token_type:
+          type: string
+          enum:
+          - Bearer
+        acting_org_id:
+          $ref: '#/components/schemas/Uuid'
+        acting_org_name:
+          type: string
+        acting_role:
+          $ref: '#/components/schemas/PlatformTenantRole'
+        expires_at:
+          $ref: '#/components/schemas/Timestamp'
+    PlatformTenantContextStartRequest:
+      type: object
+      required:
+      - org_id
+      properties:
+        org_id:
+          $ref: '#/components/schemas/Uuid'
+    PlatformTenantContextStartResponse:
+      type: object
+      required:
+      - access_token
+      - token_type
+      - acting_org_id
+      - acting_org_name
+      - acting_role
+      - expires_at
+      properties:
+        access_token:
+          type: string
+          minLength: 1
+        token_type:
+          type: string
+          enum:
+          - Bearer
+        acting_org_id:
+          $ref: '#/components/schemas/Uuid'
+        acting_org_name:
+          type: string
+        acting_role:
+          type: string
+          enum:
+          - SUPER_ADMIN
+        expires_at:
+          $ref: '#/components/schemas/Timestamp'
+    PlatformExitResponse:
+      type: object
+      required:
+      - ended
+      properties:
+        ended:
+          type: boolean
     PriorityLevel:
       type: string
       enum:
@@ -7605,6 +10789,17 @@ components:
         comment:
           type: string
           minLength: 1
+    MobileApproveWorkOrderRequest:
+      type: object
+      required:
+      - comment
+      - step_up
+      properties:
+        comment:
+          type: string
+          minLength: 1
+        step_up:
+          $ref: '#/components/schemas/MobilePasskeyStepUpEnvelope'
     RejectWorkOrderRequest:
       type: object
       required:
@@ -8447,6 +11642,8 @@ components:
       - action_allowlist
       - required_approval_line
       - required_payment_line
+      - pending_version
+      - pending_staged_by
       - created_at
       - updated_at
       properties:
@@ -8500,6 +11697,15 @@ components:
           type: boolean
         required_payment_line:
           type: boolean
+        pending_version:
+          type:
+          - integer
+          - 'null'
+          format: int32
+        pending_staged_by:
+          oneOf:
+          - $ref: '#/components/schemas/Uuid'
+          - type: 'null'
         created_at:
           type: string
           format: date-time
@@ -8525,6 +11731,105 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/WorkflowDefinitionEventResponse'
+    WorkflowRunLogResponse:
+      type: object
+      required:
+      - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkflowRunResponse'
+    WorkflowRunResponse:
+      type: object
+      required:
+      - id
+      - code
+      - definition_id
+      - definition_version
+      - trigger_type
+      - status
+      - actor_display_name
+      - summary
+      - error_message
+      - generated_objects
+      - started_at
+      - updated_at
+      - completed_at
+      - failed_at
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        code:
+          type: string
+          example: RUN-9AF31C
+        definition_id:
+          $ref: '#/components/schemas/Uuid'
+        definition_version:
+          type: integer
+          format: int32
+        trigger_type:
+          type: string
+          enum:
+          - MANUAL
+          - SCHEDULE
+          - WEBHOOK
+          - SYSTEM
+        status:
+          type: string
+          enum:
+          - STARTING
+          - RUNNING
+          - WAITING
+          - SUCCEEDED
+          - FAILED
+          - CANCELLED
+        actor_display_name:
+          type:
+          - string
+          - 'null'
+        summary:
+          type: string
+        error_message:
+          type:
+          - string
+          - 'null'
+        generated_objects:
+          type: array
+          items:
+            type: string
+        started_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+        completed_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        failed_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+    TriggerWorkflowRunRequest:
+      type: object
+      properties:
+        trigger_type:
+          type: string
+          enum:
+          - MANUAL
+          - SCHEDULE
+          - WEBHOOK
+          - SYSTEM
+          default: MANUAL
+        idempotency_key:
+          type:
+          - string
+          - 'null'
+          maxLength: 160
     WorkflowDefinitionEventResponse:
       type: object
       required:
@@ -10954,6 +14259,92 @@ components:
         total:
           type: integer
           format: int64
+    AuditStreamReadKind:
+      type: string
+      enum:
+      - events
+      - access_events
+    AuditStreamRecord:
+      type: object
+      required:
+      - id
+      - actor
+      - action
+      - target_type
+      - target_id
+      - sensitivity
+      - before_snap
+      - after_snap
+      - trace_id
+      - span_id
+      - occurred_at
+      - created_at
+      properties:
+        id:
+          type: string
+        actor:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        action:
+          type: string
+        target_type:
+          type: string
+        target_id:
+          type: string
+        sensitivity:
+          type: string
+        before_snap:
+          type:
+          - object
+          - 'null'
+          additionalProperties: true
+        after_snap:
+          type:
+          - object
+          - 'null'
+          additionalProperties: true
+        trace_id:
+          type: string
+        span_id:
+          type: string
+        occurred_at:
+          $ref: '#/components/schemas/Timestamp'
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+    AuditStreamPage:
+      type: object
+      required:
+      - items
+      - limit
+      - offset
+      - total
+      - stream_key
+      - read_kind
+      - access_audit_id
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AuditStreamRecord'
+        limit:
+          type: integer
+          format: int64
+        offset:
+          type: integer
+          format: int64
+        total:
+          type: integer
+          format: int64
+        stream_key:
+          type: string
+          enum:
+          - ceo_covert_audit
+        read_kind:
+          $ref: '#/components/schemas/AuditStreamReadKind'
+        access_audit_id:
+          type: string
     PasskeyRegisterStartRequest:
       type: object
       description: Optional overrides for the authenticated session user's passkey registration (username/display_name default
@@ -10983,6 +14374,69 @@ components:
         credential:
           type: object
           additionalProperties: true
+    MobileStepUpActionKind:
+      type: string
+      enum:
+      - APPROVAL_DECISION
+      - POLL_VOTE
+    MobilePasskeyStepUpBinding:
+      type: object
+      required:
+      - action_kind
+      - object_id
+      - reason_key
+      - replay_attempt
+      properties:
+        action_kind:
+          $ref: '#/components/schemas/MobileStepUpActionKind'
+        object_id:
+          $ref: '#/components/schemas/Uuid'
+        reason_key:
+          type: string
+          enum:
+          - operations_passkey_approval_decision
+          - operations_passkey_poll_vote
+        replay_attempt:
+          type:
+          - integer
+          - 'null'
+          format: int32
+          minimum: 1
+          description: Null for an immediate online action; 1-based for queued replay attempts.
+    MobilePasskeyStepUpStartRequest:
+      type: object
+      required:
+      - binding
+      properties:
+        binding:
+          $ref: '#/components/schemas/MobilePasskeyStepUpBinding'
+    MobilePasskeyStepUpStartResponse:
+      type: object
+      required:
+      - ceremony_id
+      - challenge
+      - expires_at
+      - binding
+      properties:
+        ceremony_id:
+          $ref: '#/components/schemas/Uuid'
+        challenge:
+          type: object
+          additionalProperties: true
+        expires_at:
+          $ref: '#/components/schemas/Timestamp'
+        binding:
+          $ref: '#/components/schemas/MobilePasskeyStepUpBinding'
+    MobilePasskeyStepUpEnvelope:
+      type: object
+      required:
+      - binding
+      - assertion
+      properties:
+        binding:
+          $ref: '#/components/schemas/MobilePasskeyStepUpBinding'
+        assertion:
+          $ref: '#/components/schemas/PasskeyStepUpAssertion'
     AppleAppSiteAssociation:
       type: object
       description: Apple App Site Association document authorizing the native iOS app's passkeys for the RP domain.
@@ -11588,9 +15042,11 @@ components:
       required:
       - id
       - kind
+      - visibility
       - branch_id
       - title
       - work_order_id
+      - muted
       - last_message_id
       - last_message_at
       - member_count
@@ -11602,6 +15058,8 @@ components:
           $ref: '#/components/schemas/Uuid'
         kind:
           $ref: '#/components/schemas/MessengerThreadKind'
+        visibility:
+          $ref: '#/components/schemas/MessengerThreadVisibility'
         branch_id:
           $ref: '#/components/schemas/Uuid'
         title:
@@ -11613,6 +15071,8 @@ components:
           - string
           - 'null'
           format: uuid
+        muted:
+          type: boolean
         last_message_id:
           type:
           - string
@@ -11880,11 +15340,17 @@ components:
           - number
           - 'null'
           format: double
+          minimum: -90
+          maximum: 90
+          description: Admin-entered WGS84 latitude in degrees; null means the site is not pinned.
         longitude:
           type:
           - number
           - 'null'
           format: double
+          minimum: -180
+          maximum: 180
+          description: Admin-entered WGS84 longitude in degrees; null means the site is not pinned.
         geofence_radius_m:
           type:
           - number
@@ -11995,11 +15461,17 @@ components:
           - number
           - 'null'
           format: double
+          minimum: -90
+          maximum: 90
+          description: Optional admin-authored WGS84 latitude in degrees. Must be supplied together with longitude.
         longitude:
           type:
           - number
           - 'null'
           format: double
+          minimum: -180
+          maximum: 180
+          description: Optional admin-authored WGS84 longitude in degrees. Must be supplied together with latitude.
         geofence_radius_m:
           type:
           - number
@@ -12073,11 +15545,17 @@ components:
           - number
           - 'null'
           format: double
+          minimum: -90
+          maximum: 90
+          description: Admin-authored WGS84 latitude in degrees, or null when unpinned.
         longitude:
           type:
           - number
           - 'null'
           format: double
+          minimum: -180
+          maximum: 180
+          description: Admin-authored WGS84 longitude in degrees, or null when unpinned.
         geofence_radius_m:
           type:
           - number
@@ -12121,11 +15599,17 @@ components:
           - number
           - 'null'
           format: double
+          minimum: -90
+          maximum: 90
+          description: Nullable admin-authored WGS84 latitude in degrees. Include with longitude to set or clear the pair.
         longitude:
           type:
           - number
           - 'null'
           format: double
+          minimum: -180
+          maximum: 180
+          description: Nullable admin-authored WGS84 longitude in degrees. Include with latitude to set or clear the pair.
         geofence_radius_m:
           type:
           - number
@@ -13156,22 +16640,36 @@ components:
           $ref: '#/components/schemas/Timestamp'
         updated_at:
           $ref: "#/components/schemas/Timestamp"
+    FinancialStepUpRequest:
+      type: object
+      description: Fresh passkey step-up evidence required before sensitive financial state transitions.
+      required:
+      - step_up
+      properties:
+        step_up:
+          $ref: '#/components/schemas/PasskeyStepUpAssertion'
     PrepareExpenditureRequest:
       type: object
       required:
       - expenditure_no
+      - step_up
       properties:
         expenditure_no:
           type: string
           minLength: 1
+        step_up:
+          $ref: '#/components/schemas/PasskeyStepUpAssertion'
     RejectPurchaseRequest:
       type: object
       required:
       - memo
+      - step_up
       properties:
         memo:
           type: string
           minLength: 1
+        step_up:
+          $ref: '#/components/schemas/PasskeyStepUpAssertion'
     RestartPurchaseRequest:
       type: object
       required:
@@ -13394,11 +16892,11 @@ components:
     AccountStatus:
       type: string
       description: Derived account-setup state for the console roster. ACTIVE only once the user has enrolled a passkey (can
-        sign in); PENDING_SETUP when created / OTP-issued but not yet enrolled; DEACTIVATED when soft-disabled.
+        sign in); PENDING_SETUP when created / OTP-issued but not yet enrolled; ARCHIVED when soft-disabled.
       enum:
       - ACTIVE
       - PENDING_SETUP
-      - DEACTIVATED
+      - ARCHIVED
     PolicyPermissionResponse:
       type: object
       required:
@@ -13951,6 +17449,10 @@ components:
       - preview_receipt_expires_at
       - effective
       - system_roles
+      - current_system_roles
+      - requested_system_roles
+      - current_branch_ids
+      - requested_branch_ids
       - current_role_ids
       - requested_role_ids
       - delta
@@ -13973,6 +17475,26 @@ components:
           type: array
           items:
             type: string
+        current_system_roles:
+          type: array
+          description: System-role set currently persisted on the target before this preview.
+          items:
+            type: string
+        requested_system_roles:
+          type: array
+          description: Replacement system-role set covered by the preview receipt. Defaults to the current system roles when omitted.
+          items:
+            type: string
+        current_branch_ids:
+          type: array
+          description: Branch membership set currently persisted on the target before this preview.
+          items:
+            $ref: '#/components/schemas/Uuid'
+        requested_branch_ids:
+          type: array
+          description: Replacement branch membership set covered by the preview receipt. Defaults to the current branch ids when omitted.
+          items:
+            $ref: '#/components/schemas/Uuid'
         current_role_ids:
           type: array
           items:
@@ -14002,14 +17524,27 @@ components:
             type: string
     ReplacePolicyRoleAssignmentsRequest:
       type: object
-      description: 'Custom-role assignment replacement. The preview endpoint accepts `role_ids` only. The mutating replacement
-        endpoint also requires `preview_acknowledged: true`, the server-issued `preview_receipt_id` from a current impact
-        preview for the same actor/user/role set, plus a fresh passkey `step_up` assertion server-side so the audit trail
-        binds the sensitive policy write to the human actor. ACTIVE custom-role assignments become runtime-effective on the
-        next request when their grants and conditions pass the fail-closed runtime evaluator.'
+      description: 'Policy assignment/account-scope preview and custom-role assignment replacement. The preview endpoint
+        accepts `role_ids` plus optional `system_roles` and `branch_ids` for account/person mutation previews. The mutating
+        custom-role replacement endpoint also requires `preview_acknowledged: true`, the server-issued `preview_receipt_id`
+        from a current impact preview for the same actor/user/role set, plus a fresh passkey `step_up` assertion server-side
+        so the audit trail binds the sensitive policy write to the human actor. ACTIVE custom-role assignments become runtime-effective
+        on the next request when their grants and conditions pass the fail-closed runtime evaluator.'
       properties:
         role_ids:
           type: array
+          description: Custom-role replacement set. For account/person role-or-scope previews, omit this field to preserve
+            the target's current custom-role assignments; send an explicit empty array to preview removing all custom roles.
+          items:
+            $ref: '#/components/schemas/Uuid'
+        system_roles:
+          type: array
+          description: Optional replacement system-role set for account/person mutation previews. Ignored by the custom-role assignment save endpoint.
+          items:
+            type: string
+        branch_ids:
+          type: array
+          description: Optional replacement branch membership set for account/person mutation previews. Ignored by the custom-role assignment save endpoint.
           items:
             $ref: '#/components/schemas/Uuid'
         preview_acknowledged:
@@ -14244,6 +17779,11 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Uuid'
+        preview_acknowledged:
+          type: boolean
+          description: Required when `roles` or `branch_ids` is present; confirms the caller reviewed the policy assignment/account-scope preview.
+        preview_receipt_id:
+          $ref: '#/components/schemas/Uuid'
     UpdateSelfProfileRequest:
       type: object
       properties:
@@ -15452,3 +18992,799 @@ components:
         preferences:
           type: object
           additionalProperties: true
+    CreateObjectTypeDraft:
+      type: object
+      description: Draft object-type schema (registry backbone) with its property/link/action/analytic children.
+      required:
+      - stable_key
+      - title
+      - backing_kind
+      properties:
+        stable_key:
+          type: string
+        title:
+          type: string
+        title_property_key:
+          type: string
+        backing_kind:
+          type: string
+          enum:
+          - projected
+          - instance
+        backing_table:
+          type: string
+        primary_key_property:
+          type: string
+        properties:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        links:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        actions:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        analytics:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+    OntologyActionRequest:
+      type: object
+      description: An object-action preflight/execute request. `params` is validated against the action type's typed param schema.
+      required:
+      - object_type_id
+      properties:
+        object_type_id:
+          $ref: '#/components/schemas/Uuid'
+        instance_id:
+          $ref: '#/components/schemas/Uuid'
+        title:
+          type: string
+        params:
+          type: object
+          additionalProperties: true
+        reason:
+          type: string
+        valid_from:
+          $ref: '#/components/schemas/Timestamp'
+        checklist_all_acknowledged:
+          type: boolean
+        four_eyes_request_ref:
+          $ref: '#/components/schemas/Uuid'
+    GovernanceOpenOverrideRequest:
+      type: object
+      required:
+      - target_type
+      - target_id
+      - reason
+      - before_snapshot
+      properties:
+        target_type:
+          type: string
+        target_id:
+          $ref: '#/components/schemas/Uuid'
+        reason:
+          type: string
+        before_snapshot:
+          type: object
+          additionalProperties: true
+    GovernanceDecideApprovalRequest:
+      type: object
+      required:
+      - request_ref
+      - kind
+      - requested_by
+      - decision
+      properties:
+        request_ref:
+          $ref: '#/components/schemas/Uuid'
+        kind:
+          type: string
+        requested_by:
+          $ref: '#/components/schemas/Uuid'
+        decision:
+          type: string
+          enum:
+          - approved
+          - rejected
+    GovernanceConfigureTransitionRequest:
+      type: object
+      required:
+      - object_type_id
+      - from_state
+      - to_state
+      properties:
+        object_type_id:
+          $ref: '#/components/schemas/Uuid'
+        from_state:
+          $ref: '#/components/schemas/LifecycleState'
+        to_state:
+          $ref: '#/components/schemas/LifecycleState'
+        requires_reason:
+          type: boolean
+        requires_four_eyes:
+          type: boolean
+        requires_checklist:
+          type: boolean
+    GovernanceLifecyclePreflightRequest:
+      type: object
+      required:
+      - object_type_id
+      - from_state
+      - to_state
+      properties:
+        object_type_id:
+          $ref: '#/components/schemas/Uuid'
+        from_state:
+          $ref: '#/components/schemas/LifecycleState'
+        to_state:
+          $ref: '#/components/schemas/LifecycleState'
+        authority_allow:
+          type: boolean
+        checklist_all_acknowledged:
+          type: boolean
+        four_eyes_request_ref:
+          $ref: '#/components/schemas/Uuid'
+        egress_cleared:
+          type: boolean
+    LifecycleState:
+      type: string
+      description: Instance lifecycle state. Dispose is terminal; there is no hard delete.
+      enum:
+      - DRAFT
+      - ACTIVE
+      - LOCKED
+      - ARCHIVED
+      - DISPOSED
+    PolicyCreateDraftRequest:
+      type: object
+      required:
+      - draft_key
+      - title
+      - blocks
+      properties:
+        draft_key:
+          type: string
+        title:
+          type: string
+        author_note:
+          type: string
+        blocks:
+          $ref: '#/components/schemas/PolicyNoCodeBlocks'
+    PolicyUpdateDraftRequest:
+      type: object
+      required:
+      - blocks
+      properties:
+        title:
+          type: string
+        author_note:
+          type: string
+        blocks:
+          $ref: '#/components/schemas/PolicyNoCodeBlocks'
+    PolicyReviewRequest:
+      type: object
+      required:
+      - decision
+      properties:
+        decision:
+          type: string
+          enum:
+          - approve
+          - reject
+        note:
+          type: string
+    PolicyNoCodeBlocks:
+      type: object
+      description: One authored policy - one effect, one action, one resource type, and a set of AND-ed conditions.
+      required:
+      - effect
+      - action
+      - resource_type
+      properties:
+        effect:
+          type: string
+          enum:
+          - permit
+          - forbid
+        action:
+          type: string
+        resource_type:
+          type: string
+        conditions:
+          type: array
+          items:
+            $ref: '#/components/schemas/PolicyNoCodeCondition'
+    PolicyNoCodeCondition:
+      type: object
+      required:
+      - attr
+      - op
+      - value
+      properties:
+        attr:
+          type: string
+        op:
+          type: string
+          enum:
+          - eq
+          - ne
+          - contains
+        value:
+          type: object
+          description: 'Tagged right-hand side: {kind: literal|subject_attr|bool, value: ...}.'
+          additionalProperties: true
+    PolicySimulateRequest:
+      type: object
+      required:
+      - request
+      properties:
+        request:
+          $ref: '#/components/schemas/PolicySimRequest'
+        include_draft_id:
+          $ref: '#/components/schemas/Uuid'
+    PolicyAuthorizeRequest:
+      type: object
+      required:
+      - request
+      properties:
+        request:
+          $ref: '#/components/schemas/PolicySimRequest'
+        object_type_id:
+          $ref: '#/components/schemas/Uuid'
+        property_def_id:
+          $ref: '#/components/schemas/Uuid'
+    PolicySimRequest:
+      type: object
+      required:
+      - subject
+      - action
+      - resource
+      properties:
+        subject:
+          $ref: '#/components/schemas/PolicySimSubject'
+        action:
+          type: string
+        resource:
+          $ref: '#/components/schemas/PolicySimResource'
+        purpose:
+          type: string
+        field:
+          type: string
+    PolicySimSubject:
+      type: object
+      required:
+      - org
+      - user_id
+      properties:
+        org:
+          $ref: '#/components/schemas/Uuid'
+        user_id:
+          type: string
+        roles:
+          type: array
+          items:
+            type: string
+        clearance_keys:
+          type: array
+          items:
+            type: string
+    PolicySimResource:
+      type: object
+      required:
+      - org
+      - resource_type
+      properties:
+        org:
+          $ref: '#/components/schemas/Uuid'
+        resource_type:
+          type: string
+        resource_id:
+          type: string
+        owner:
+          type: string
+        branch:
+          type: string
+        legal_hold:
+          type: boolean
+    MessengerThreadVisibility:
+      type: string
+      enum:
+      - channel
+      - direct
+    MessengerPresenceStatus:
+      type: string
+      enum:
+      - online
+      - away
+      - offline
+    SetMessengerThreadMuteRequest:
+      type: object
+      required:
+      - muted
+      properties:
+        muted:
+          type: boolean
+    MessengerPresence:
+      type: object
+      required:
+      - user_id
+      - display_name
+      - last_activity_at
+      - status
+      properties:
+        user_id:
+          $ref: '#/components/schemas/Uuid'
+        display_name:
+          type:
+          - string
+          - 'null'
+        last_activity_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        status:
+          $ref: '#/components/schemas/MessengerPresenceStatus'
+    MessengerPresenceListResponse:
+      type: object
+      required:
+      - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/MessengerPresence'
+    MessengerAckSummary:
+      type: object
+      required:
+      - message_id
+      - thread_id
+      - acked
+      - ack_count
+      properties:
+        message_id:
+          $ref: '#/components/schemas/Uuid'
+        thread_id:
+          $ref: '#/components/schemas/Uuid'
+        acked:
+          type: boolean
+        ack_count:
+          type: integer
+          format: int64
+    EvidenceSourceType: { type: string, enum: [record_archive, inbox_doc, mail_attachment, ingest_job, work_order_evidence_media, external_document] }
+    EvidenceClassification: { type: string, enum: [General, Internal, Sensitive, Confidential, Secret] }
+    AdmissibilityStatus: { type: string, enum: [ADMISSIBLE, REVIEW_NEEDED, BLOCKED, INADMISSIBLE] }
+    LegalHoldState: { type: string, enum: [CLEAR, ACTIVE] }
+    LegalHoldStatus: { type: string, enum: [ACTIVE, RELEASED] }
+    CustodyStage: { type: string, enum: [REGISTERED, HASH_RECORDED, TSA_SUBMITTED, TSA_VERIFIED, WORM_REPLICATED, CUSTODY_TRANSFERRED, UNDER_REVIEW, ADMISSIBILITY_EVALUATED, LEGAL_HOLD_APPLIED, LEGAL_HOLD_RELEASED, EXPORTED, ARCHIVED, DISPOSAL_REQUESTED, DISPOSED] }
+    EvidenceCopyKind: { type: string, enum: [ORIGINAL, DERIVATIVE] }
+    WormStorageStatus: { type: string, enum: [PENDING, VERIFIED, FAILED] }
+    TsaProofStatus: { type: string, enum: [MISSING, PENDING, VERIFIED, FAILED, REVOKED, EXPIRED_CA] }
+    EvidenceSourceRef:
+      type: object
+      required: [source_type, source_id]
+      properties:
+        source_type: { $ref: '#/components/schemas/EvidenceSourceType' }
+        source_id: { type: string }
+        source_code: { type: string, nullable: true }
+    EvidenceStorageRef:
+      type: object
+      required: [provider, object_id]
+      properties:
+        provider: { type: string }
+        object_id: { type: string }
+        key_ref: { type: string, nullable: true }
+        version_id: { type: string, nullable: true }
+    EvidenceObjectView:
+      type: object
+      required: [id, code, title, source, classification, current_custody_stage, legal_hold_state, admissibility_status, admissibility_reasons, admissibility_inputs, created_by, updated_by, created_at, updated_at]
+      properties:
+        id: { type: string, format: uuid }
+        code: { type: string }
+        title: { type: string }
+        description: { type: string, nullable: true }
+        source: { $ref: '#/components/schemas/EvidenceSourceRef' }
+        classification: { $ref: '#/components/schemas/EvidenceClassification' }
+        record_owner_user_id: { type: string, format: uuid, nullable: true }
+        current_custody_stage: { $ref: '#/components/schemas/CustodyStage' }
+        legal_hold_state: { $ref: '#/components/schemas/LegalHoldState' }
+        admissibility_status: { $ref: '#/components/schemas/AdmissibilityStatus' }
+        admissibility_reasons: { type: array, items: { type: string } }
+        admissibility_inputs: { type: object, additionalProperties: true }
+        created_by: { type: string, format: uuid }
+        updated_by: { type: string, format: uuid }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        disposed_at: { type: string, format: date-time, nullable: true }
+    EvidenceObjectPage:
+      type: object
+      required: [items, limit, offset, total]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/EvidenceObjectView' } }
+        limit: { type: integer, format: int64 }
+        offset: { type: integer, format: int64 }
+        total: { type: integer, format: int64 }
+    EvidenceCopyView:
+      type: object
+      required: [id, evidence_object_id, copy_kind, storage, digest_sha256, content_type, size_bytes, worm_status, created_by, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        evidence_object_id: { type: string, format: uuid }
+        copy_kind: { $ref: '#/components/schemas/EvidenceCopyKind' }
+        derivative_kind: { type: string, nullable: true, enum: [REDACTED, THUMBNAIL, TRANSCODED, EXCERPT, EXPORT_MANIFEST, NORMALIZED_TEXT, OTHER] }
+        parent_copy_id: { type: string, format: uuid, nullable: true }
+        storage: { $ref: '#/components/schemas/EvidenceStorageRef' }
+        source_evidence_media_id: { type: string, format: uuid, nullable: true }
+        digest_sha256: { type: string }
+        content_type: { type: string }
+        size_bytes: { type: integer, format: int64 }
+        worm_status: { $ref: '#/components/schemas/WormStorageStatus' }
+        verified_at: { type: string, format: date-time, nullable: true }
+        created_by: { type: string, format: uuid }
+        created_at: { type: string, format: date-time }
+    TimestampAuthorityProofView:
+      type: object
+      description: Nullable/absent until an RFC-3161 TSA lane exists (FUTURE — not faked).
+      required: [id, copy_id, status, provider, hash_algorithm, created_by, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        copy_id: { type: string, format: uuid }
+        status: { $ref: '#/components/schemas/TsaProofStatus' }
+        provider: { type: string }
+        policy_oid: { type: string, nullable: true }
+        serial_number: { type: string, nullable: true }
+        hash_algorithm: { type: string }
+        message_imprint_sha256: { type: string, nullable: true }
+        generated_at: { type: string, format: date-time, nullable: true }
+        accuracy_millis: { type: integer, format: int64, nullable: true }
+        ordering: { type: boolean, nullable: true }
+        tsa_cert_fingerprint_sha256: { type: string, nullable: true }
+        token_digest_sha256: { type: string, nullable: true }
+        token_storage: { allOf: [ { $ref: '#/components/schemas/EvidenceStorageRef' } ], nullable: true }
+        verified_at: { type: string, format: date-time, nullable: true }
+        failure_reason: { type: string, nullable: true }
+        created_by: { type: string, format: uuid }
+        created_at: { type: string, format: date-time }
+    CustodyEventView:
+      type: object
+      required: [id, evidence_object_id, stage, actor_user_id, reason, event_digest_sha256, occurred_at, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        evidence_object_id: { type: string, format: uuid }
+        stage: { $ref: '#/components/schemas/CustodyStage' }
+        actor_user_id: { type: string, format: uuid }
+        from_custodian: { type: object, additionalProperties: true, nullable: true }
+        to_custodian: { type: object, additionalProperties: true, nullable: true }
+        location_label: { type: string, nullable: true }
+        reason: { type: string }
+        source_ref: { allOf: [ { $ref: '#/components/schemas/EvidenceSourceRef' } ], nullable: true }
+        audit_event_id: { type: string, format: uuid, nullable: true }
+        previous_event_id: { type: string, format: uuid, nullable: true }
+        event_digest_sha256: { type: string }
+        occurred_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+    LegalHoldRecordView:
+      type: object
+      required: [id, evidence_object_id, status, case_ref, basis, reason, applied_by, applied_at]
+      properties:
+        id: { type: string, format: uuid }
+        evidence_object_id: { type: string, format: uuid }
+        status: { $ref: '#/components/schemas/LegalHoldStatus' }
+        case_ref: { type: string }
+        basis: { type: string }
+        reason: { type: string }
+        applied_by: { type: string, format: uuid }
+        applied_at: { type: string, format: date-time }
+        released_by: { type: string, format: uuid, nullable: true }
+        released_at: { type: string, format: date-time, nullable: true }
+        release_reason: { type: string, nullable: true }
+        audit_event_id: { type: string, format: uuid, nullable: true }
+    EvidenceExportView:
+      type: object
+      required: [id, evidence_object_id, manifest_digest_sha256, signature_algorithm, export_reason, exported_by, exported_at]
+      properties:
+        id: { type: string, format: uuid }
+        evidence_object_id: { type: string, format: uuid }
+        manifest_digest_sha256: { type: string }
+        signature_algorithm: { type: string }
+        signature_ref: { type: string, nullable: true }
+        export_reason: { type: string }
+        exported_by: { type: string, format: uuid }
+        exported_at: { type: string, format: date-time }
+    EvidenceObjectDetail:
+      type: object
+      required: [object, copies, tsa_proofs, custody_history, legal_holds, exports]
+      properties:
+        object: { $ref: '#/components/schemas/EvidenceObjectView' }
+        copies: { type: array, items: { $ref: '#/components/schemas/EvidenceCopyView' } }
+        tsa_proofs: { type: array, items: { $ref: '#/components/schemas/TimestampAuthorityProofView' } }
+        custody_history: { type: array, items: { $ref: '#/components/schemas/CustodyEventView' } }
+        legal_holds: { type: array, items: { $ref: '#/components/schemas/LegalHoldRecordView' } }
+        exports: { type: array, items: { $ref: '#/components/schemas/EvidenceExportView' } }
+    FixityStatus: { type: string, enum: [MATCH, MISMATCH, CHECKSUM_UNAVAILABLE, STORAGE_ERROR] }
+    VerifyOutcome: { type: string, enum: [VERIFIED, MISMATCH, INDETERMINATE] }
+    CopyVerification:
+      type: object
+      required: [copy_id, copy_kind, recorded_digest_sha256, recorded_size_bytes, status]
+      properties:
+        copy_id: { type: string, format: uuid }
+        copy_kind: { $ref: '#/components/schemas/EvidenceCopyKind' }
+        recorded_digest_sha256: { type: string }
+        storage_checksum_sha256: { type: string, nullable: true }
+        recorded_size_bytes: { type: integer, format: int64 }
+        storage_size_bytes: { type: integer, format: int64, nullable: true }
+        status: { $ref: '#/components/schemas/FixityStatus' }
+    EvidenceVerifyReport:
+      type: object
+      required: [evidence_object_id, verified_at, outcome, copies]
+      properties:
+        evidence_object_id: { type: string, format: uuid }
+        verified_at: { type: string, format: date-time }
+        outcome: { $ref: '#/components/schemas/VerifyOutcome' }
+        copies: { type: array, items: { $ref: '#/components/schemas/CopyVerification' } }
+    EvidenceHoldRequest:
+      oneOf:
+        - type: object
+          required: [op, case_ref, basis, reason]
+          properties:
+            op: { type: string, enum: [apply] }
+            case_ref: { type: string }
+            basis: { type: string }
+            reason: { type: string }
+        - type: object
+          required: [op, hold_id, reason, four_eyes_request_ref]
+          properties:
+            op: { type: string, enum: [release] }
+            hold_id: { type: string, format: uuid }
+            reason: { type: string }
+            four_eyes_request_ref: { type: string, format: uuid }
+      discriminator: { propertyName: op }
+    CreateLeaveRequest:
+      type: object
+      required: [leave_type, reason, start_date, end_date]
+      properties:
+        leave_type: { type: string, enum: [ANNUAL, HALF_DAY_AM, HALF_DAY_PM, SICK, FAMILY_EVENT, PUBLIC_DUTY, UNPAID, OTHER] }
+        reason: { type: string, enum: [PERSONAL, FAMILY_EVENT, MEDICAL, BEREAVEMENT, CHILDCARE, CIVIC_DUTY, OTHER] }
+        start_date: { type: string, format: date }
+        end_date: { type: string, format: date }
+        note: { type: string, nullable: true }
+    DecideLeaveRequest:
+      type: object
+      required: [decision]
+      properties:
+        decision: { type: string, enum: [APPROVE, REJECT] }
+        note: { type: string, nullable: true }
+    LeaveRequest:
+      type: object
+      required: [id, employee_id, leave_type, reason, start_date, end_date, status, requested_by, requested_at]
+      properties:
+        id: { type: string, format: uuid }
+        employee_id: { type: string, format: uuid }
+        employee_name: { type: string, nullable: true }
+        branch_id: { type: string, format: uuid, nullable: true }
+        leave_type: { type: string }
+        reason: { type: string }
+        start_date: { type: string, format: date }
+        end_date: { type: string, format: date }
+        note: { type: string, nullable: true }
+        status: { type: string, enum: [DRAFT, SUBMITTED, APPROVED, REJECTED] }
+        requested_by: { type: string, format: uuid }
+        requested_at: { type: string, format: date-time }
+        decided_by: { type: string, format: uuid, nullable: true }
+        decided_at: { type: string, format: date-time, nullable: true }
+        decision_note: { type: string, nullable: true }
+    LeaveRequestPage:
+      type: object
+      required: [items, limit, offset]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/LeaveRequest' } }
+        limit: { type: integer }
+        offset: { type: integer }
+    MyLeaveBalance:
+      type: object
+      required: [employee_id]
+      properties:
+        employee_id: { type: string, format: uuid }
+        leave_accrued: { type: string, nullable: true }
+        leave_used: { type: string, nullable: true }
+        leave_remaining: { type: string, nullable: true }
+    MyLeaveOverview:
+      type: object
+      required: [balance, requests]
+      properties:
+        balance: { $ref: '#/components/schemas/MyLeaveBalance' }
+        requests: { type: array, items: { $ref: '#/components/schemas/LeaveRequest' } }
+    CreateLeavePromotion:
+      type: object
+      required: [round_no, reference_year]
+      properties:
+        round_no: { type: integer, enum: [1, 2] }
+        reference_year: { type: integer }
+        min_remaining_days: { type: number, nullable: true }
+        note: { type: string, nullable: true }
+    LeavePromotion:
+      type: object
+      required: [id, round_no, reference_year, threshold_days, status, created_by, target_count, confirmed_count]
+      properties:
+        id: { type: string, format: uuid }
+        round_no: { type: integer }
+        reference_year: { type: integer }
+        threshold_days: { type: string }
+        status: { type: string, enum: [DRAFT, SENT, COMPLETED] }
+        note: { type: string, nullable: true }
+        created_by: { type: string, format: uuid }
+        sent_at: { type: string, format: date-time, nullable: true }
+        target_count: { type: integer }
+        confirmed_count: { type: integer }
+    # --- shared ontology read responses (object-types / instances / history / traverse) ---
+    InstanceHead:
+      type: object
+      required: [id, object_type_id, title, lifecycle_state]
+      properties:
+        id: { type: string, format: uuid }
+        object_type_id: { type: string, format: uuid }
+        title: { type: string }
+        current_revision_id: { type: string, format: uuid, nullable: true }
+        lifecycle_state: { $ref: '#/components/schemas/InstanceLifecycleState' }
+    RevisionSummary:
+      type: object
+      required: [id, instance_id, version, attributes, valid_from, prev_hash, row_hash]
+      properties:
+        id: { type: string, format: uuid }
+        instance_id: { type: string, format: uuid }
+        version: { type: integer, format: int64 }
+        attributes: { type: object, additionalProperties: true }
+        valid_from: { type: string, format: date-time }
+        valid_to: { type: string, format: date-time, nullable: true }
+        action_type_id: { type: string, format: uuid, nullable: true }
+        actor: { type: string, format: uuid, nullable: true }
+        reason: { type: string, nullable: true }
+        prev_hash: { type: string }
+        row_hash: { type: string }
+    InstanceState:
+      type: object
+      required: [instance, revision]
+      properties:
+        instance: { $ref: '#/components/schemas/InstanceHead' }
+        revision: { $ref: '#/components/schemas/RevisionSummary' }
+    TraversalNode:
+      type: object
+      required: [instance_id, object_type_id, title, lifecycle_state, depth]
+      properties:
+        instance_id: { type: string, format: uuid }
+        object_type_id: { type: string, format: uuid }
+        title: { type: string }
+        lifecycle_state: { $ref: '#/components/schemas/InstanceLifecycleState' }
+        depth: { type: integer, format: int32, minimum: 0 }
+    TraversalEdge:
+      type: object
+      required: [id, link_type_id, from_instance_id, to_instance_id]
+      properties:
+        id: { type: string, format: uuid }
+        link_type_id: { type: string, format: uuid }
+        from_instance_id: { type: string, format: uuid }
+        to_instance_id: { type: string, format: uuid }
+    TraversalGraph:
+      type: object
+      required: [root, nodes, edges]
+      properties:
+        root: { type: string, format: uuid }
+        nodes: { type: array, items: { $ref: '#/components/schemas/TraversalNode' } }
+        edges: { type: array, items: { $ref: '#/components/schemas/TraversalEdge' } }
+    ObjectTypeSummary:
+      type: object
+      required: [id, stable_key, title, backing_kind, schema_version, lifecycle_state]
+      properties:
+        id: { type: string, format: uuid }
+        stable_key: { type: string }
+        title: { type: string }
+        backing_kind: { type: string, enum: [instance, projected] }
+        schema_version: { type: integer, format: int64 }
+        lifecycle_state: { type: string, enum: [draft, review_pending, published, superseded, retired] }
+    InstanceLifecycleState:
+      type: string
+      enum: [draft, active, locked, archived, disposed]
+
+    # --- gap 1: lifecycle commit ---
+    LifecycleRequest:
+      type: object
+      required: [to_state]
+      properties:
+        to_state: { $ref: '#/components/schemas/InstanceLifecycleState' }
+        reason: { type: string, nullable: true }
+        checklist_all_acknowledged: { type: boolean, nullable: true }
+        four_eyes_request_ref: { type: string, format: uuid, nullable: true }
+    GateChainConfig:
+      type: object
+      required: [authority, self_checklist, four_eyes, egress_dlp]
+      properties:
+        authority: { type: boolean }
+        self_checklist: { type: boolean }
+        four_eyes: { type: boolean }
+        egress_dlp: { type: boolean }
+    GateChainOutcome:
+      type: object
+      required: [allow, gates]
+      properties:
+        allow: { type: boolean }
+        gates:
+          type: array
+          items: { type: object, additionalProperties: true }  # per-gate { gate, status }
+    LifecycleOutcome:
+      type: object
+      required: [instance, config, gates]
+      properties:
+        instance: { $ref: '#/components/schemas/InstanceHead' }
+        config: { $ref: '#/components/schemas/GateChainConfig' }
+        gates: { $ref: '#/components/schemas/GateChainOutcome' }
+
+    # --- gap 2: acting-read ---
+    ActingRule:
+      type: object
+      required: [id, label, kind]
+      properties:
+        id: { type: string, format: uuid }
+        label: { type: string }
+        kind: { type: string, enum: [automation, policy] }
+
+    # --- gap 3: code resolve ---
+    ResolvedInstance:
+      type: object
+      required: [id, type, title]
+      properties:
+        id: { type: string, format: uuid }
+        type: { type: string }   # object-type stable_key
+        title: { type: string }
+
+    # --- gap 4: bulk authorize ---
+    BulkAuthorizeBody:
+      type: object
+      required: [subject, checks]
+      properties:
+        subject: { $ref: '#/components/schemas/PolicySimSubject' }
+        checks:
+          type: array
+          items:
+            type: object
+            required: [action, resource]
+            properties:
+              action: { type: string }
+              resource: { $ref: '#/components/schemas/PolicySimResource' }
+              purpose: { type: string, nullable: true }
+              field: { type: string, nullable: true }
+    BulkDecisionResponse:
+      type: object
+      required: [decisions]
+      properties:
+        decisions: { type: array, items: { $ref: '#/components/schemas/SimulationOutcome' } }
+    SimulationOutcome:
+      type: object
+      required: [effect, determining_policies, errors, reason]
+      properties:
+        effect: { type: string, enum: [allow, deny] }
+        determining_policies: { type: array, items: { type: string } }
+        errors: { type: array, items: { type: string } }
+        reason: { type: string }
+
+    # --- gap 5: decision feed ---
+    DecisionLogRow:
+      type: object
+      required: [id, decided_at, subject_ref, action, resource_type, effect, determining_policies, reason]
+      properties:
+        id: { type: string, format: uuid }
+        decided_at: { type: string, format: date-time }
+        subject_ref: { type: string }
+        action: { type: string }
+        resource_type: { type: string }
+        resource_id: { type: string, nullable: true }
+        effect: { type: string, enum: [allow, deny] }
+        determining_policies: { type: array, items: { type: string } }
+        reason: { type: string }

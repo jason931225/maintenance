@@ -1,0 +1,24 @@
+{
+  "screen": "module",
+  "kind": "post-snapshot",
+  "note": "MOD_SCREENS has no dc.html surface (charter D2 RATIFIED 2026-07-09); build-side state captures are the visual-regression baseline. Reference side runs retroactively when a later dc.html sync delivers the surface.",
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  },
+  "capturedAt": "2026-07-10T01:38:23.583Z",
+  "captures": [
+    {
+      "id": "list",
+      "png": "e2e/fidelity/baseline/module/list.build.png",
+      "path": "/console?screen=asset",
+      "selector": "[data-fidelity=\"module-list\"]"
+    },
+    {
+      "id": "detail-open",
+      "png": "e2e/fidelity/baseline/module/detail-open.build.png",
+      "path": "/console?screen=asset",
+      "selector": "[data-fidelity=\"module-detail\"]"
+    }
+  ]
+}

@@ -1,5 +1,6 @@
 import {
   BarChart2,
+  Boxes,
   Building2,
   CalendarCheck,
   CalendarClock,
@@ -21,11 +22,14 @@ import {
   Network,
   Receipt,
   Settings2,
+  SlidersHorizontal,
   Mail,
   ShieldAlert,
   ShieldCheck,
+  TrendingUp,
   UserCircle,
   Users,
+  Workflow,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
@@ -238,6 +242,7 @@ const ITEM_ROLE_GATES = new Map<string, readonly Role[]>([
   // Equipment/sales surfaces use the same intended viewer set unless a narrower
   // management guard below applies.
   ["equipment", EQUIPMENT_SALES_ROLES],
+  ["finance", OPERATIONAL_ROLES],
   ["financial", OPERATIONAL_ROLES],
   ["location", OPERATIONAL_ROLES],
   // catalog (sales-listing & inquiry admin, #6): ADMIN/SUPER_ADMIN only by
@@ -256,6 +261,16 @@ const ITEM_ROLE_GATES = new Map<string, readonly Role[]>([
   ["users", ADMIN_ROLES],
   ["policy", ROLE_MANAGE_ROLES],
   ["workflows", ROLE_MANAGE_ROLES],
+  // Foundry ontology explorer (object graph read): analytical read gate, same as
+  // KPI — ADMIN/EXECUTIVE/SUPER_ADMIN. Phase A stub wraps the object explorer.
+  ["ontology", KPI_ROLES],
+  // Automate hub (workflow + schedule authoring): system-only like the workflow
+  // studio (SUPER_ADMIN) until Cedar PBAC emits an elevated decision.
+  ["automate", ROLE_MANAGE_ROLES],
+  // Forecast (예측): executive analytical read, same gate as KPI.
+  ["forecast", KPI_ROLES],
+  // Config Console / dashboard editor (§19): admin configuration surface.
+  ["config-console", ADMIN_ROLES],
   ["org", ADMIN_ROLES],
   ["sites", ADMIN_ROLES],
   ["employees", EMPLOYEE_DIRECTORY_ROLES],
@@ -303,6 +318,8 @@ const ITEM_FEATURE_GATES = new Map<string, readonly FeatureGrant[]>([
   ],
   ["kpi", [FEATURES.KPI_READ]],
   ["intelligence", [FEATURES.KPI_READ]],
+  ["ontology", [FEATURES.KPI_READ]],
+  ["forecast", [FEATURES.KPI_READ]],
   ["mail", [FEATURES.MAIL_USE]],
   ["employees", [FEATURES.EMPLOYEE_DIRECTORY_READ]],
   ["leave-management", [FEATURES.EMPLOYEE_DIRECTORY_READ]],
@@ -341,6 +358,12 @@ export function isNavItemVisible(
   );
 }
 
+// The console shell follows the Foundry information architecture (DESIGN §4.8):
+// a personal/comms lead-in, the operational surfaces, the Foundry platform
+// (ontology + automation), analytics, the asset/finance/HR domains, and the
+// governance/organization/identity administration tail. Group membership is
+// presentation only — every item keeps its own deny-by-default role/feature gate
+// above, so regrouping never changes what a session can reach.
 export const NAV_GROUPS = [
   {
     key: "personal",
@@ -364,6 +387,12 @@ export const NAV_GROUPS = [
         labelKey: "nav.approvals",
         Icon: CheckSquare,
       },
+    ],
+  },
+  {
+    key: "comms",
+    label: "nav.groups.comms",
+    items: [
       {
         key: "messenger",
         href: "/messenger",
@@ -430,8 +459,36 @@ export const NAV_GROUPS = [
     ],
   },
   {
-    key: "executive",
-    label: "nav.groups.executive",
+    key: "foundry",
+    label: "nav.groups.foundry",
+    items: [
+      // Ontology workspace (object types + graph explore). Wraps the existing
+      // object explorer; the 매니저 tab is a Phase B/C stub.
+      {
+        key: "ontology",
+        href: "/ontology",
+        labelKey: "nav.ontology",
+        Icon: Boxes,
+      },
+      // Workflow studio (자동화): Cedar-guarded workflow authoring. SUPER_ADMIN.
+      {
+        key: "workflows",
+        href: "/settings/workflows",
+        labelKey: "nav.workflows",
+        Icon: ShieldCheck,
+      },
+      // Automate hub (workflow + schedule unified). Phase A stub, SUPER_ADMIN.
+      {
+        key: "automate",
+        href: "/automate",
+        labelKey: "nav.automate",
+        Icon: Workflow,
+      },
+    ],
+  },
+  {
+    key: "analytics",
+    label: "nav.groups.analytics",
     items: [
       { key: "kpi", href: "/kpi", labelKey: "nav.kpi", Icon: BarChart2 },
       {
@@ -441,6 +498,21 @@ export const NAV_GROUPS = [
         Icon: Gauge,
       },
       { key: "ops", href: "/ops", labelKey: "nav.ops", Icon: Gauge },
+      // Forecast (예측): executive analytical read. Phase A stub.
+      {
+        key: "forecast",
+        href: "/forecast",
+        labelKey: "nav.forecast",
+        Icon: TrendingUp,
+      },
+      // Config Console / dashboard editor (§19): admin configuration surface.
+      // Phase A stub.
+      {
+        key: "config-console",
+        href: "/config-console",
+        labelKey: "nav.config-console",
+        Icon: SlidersHorizontal,
+      },
       // reporting (ExcelDownload): [A,A,A,A,A] for the five granted roles in the
       // backend matrix — they may download the work-diary / daily-status
       // workbooks, so the item is gated to the operational roles (not MEMBER).
@@ -449,15 +521,6 @@ export const NAV_GROUPS = [
         href: "/reporting",
         labelKey: "nav.reporting",
         Icon: FileSpreadsheet,
-      },
-      // integrity (#12 / #34): governance findings (review-needed anomalies).
-      // EXECUTIVE/SUPER_ADMIN only — gated by ITEM_ROLE_GATES("integrity") and
-      // the RequireIntegrityRoute guard on /integrity.
-      {
-        key: "integrity",
-        href: "/integrity",
-        labelKey: "nav.integrity",
-        Icon: ShieldAlert,
       },
     ],
   },
@@ -495,6 +558,12 @@ export const NAV_GROUPS = [
     key: "finance",
     label: "nav.groups.finance",
     items: [
+      {
+        key: "finance",
+        href: "/console",
+        labelKey: "nav.finance",
+        Icon: Receipt,
+      },
       // Payroll readiness is high-sensitivity: expose only the audited HR read
       // path and legal-blocked planning state for now, not payable payroll issuance.
       {
@@ -508,6 +577,51 @@ export const NAV_GROUPS = [
         href: "/financial",
         labelKey: "nav.financial",
         Icon: Receipt,
+      },
+    ],
+  },
+  {
+    key: "hr",
+    label: "nav.groups.hr",
+    items: [
+      {
+        key: "employees",
+        href: "/settings/employees",
+        labelKey: "nav.employees",
+        Icon: Users,
+      },
+      {
+        key: "leave-management",
+        href: "/hr/leave-management",
+        labelKey: "nav.leave-management",
+        Icon: CalendarCheck,
+      },
+      {
+        key: "insurance-assist",
+        href: "/hr/insurance",
+        labelKey: "nav.insurance-assist",
+        Icon: ShieldCheck,
+      },
+    ],
+  },
+  {
+    key: "governance",
+    label: "nav.groups.governance",
+    items: [
+      {
+        key: "policy",
+        href: "/settings/policy",
+        labelKey: "nav.policy",
+        Icon: ShieldAlert,
+      },
+      // integrity (#12 / #34): governance findings (review-needed anomalies).
+      // EXECUTIVE/SUPER_ADMIN only — gated by ITEM_ROLE_GATES("integrity") and
+      // the RequireIntegrityRoute guard on /integrity.
+      {
+        key: "integrity",
+        href: "/integrity",
+        labelKey: "nav.integrity",
+        Icon: ShieldAlert,
       },
     ],
   },
@@ -539,24 +653,6 @@ export const NAV_GROUPS = [
         labelKey: "nav.location",
         Icon: MapPin,
       },
-      {
-        key: "employees",
-        href: "/settings/employees",
-        labelKey: "nav.employees",
-        Icon: Users,
-      },
-      {
-        key: "leave-management",
-        href: "/hr/leave-management",
-        labelKey: "nav.leave-management",
-        Icon: CalendarCheck,
-      },
-      {
-        key: "insurance-assist",
-        href: "/hr/insurance",
-        labelKey: "nav.insurance-assist",
-        Icon: ShieldCheck,
-      },
     ],
   },
   {
@@ -570,18 +666,6 @@ export const NAV_GROUPS = [
         href: "/settings/users",
         labelKey: "nav.users",
         Icon: Users,
-      },
-      {
-        key: "policy",
-        href: "/settings/policy",
-        labelKey: "nav.policy",
-        Icon: ShieldAlert,
-      },
-      {
-        key: "workflows",
-        href: "/settings/workflows",
-        labelKey: "nav.workflows",
-        Icon: ShieldCheck,
       },
       {
         key: "security",

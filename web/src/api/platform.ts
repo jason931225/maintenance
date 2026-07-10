@@ -1,108 +1,99 @@
+import type { components, operations, paths } from "@maintenance/api-client-ts";
+
 import { canonicalOrgSlug } from "../lib/orgSlug";
 import { getDeviceId } from "./device";
 import { isAuthPath, singleFlightRefresh } from "./refresh";
 
 /**
- * Vendor platform-admin (multi-tenant) API. These `/api/platform/*` routes are
- * an internal vendor API and are intentionally NOT in the served OpenAPI, so they
- * are NOT on the generated `ConsoleApiClient`. We call them with a small raw
- * `fetch` wrapper that mirrors the auth/transport behavior of the generated
- * client (bearer header, cookie transport opt-in, X-Device-Id, credentials).
+ * Vendor platform-admin (multi-tenant) API. The `/api/platform/*` surface is
+ * described by `backend/openapi/openapi.yaml` and generated into
+ * `@maintenance/api-client-ts`; this module keeps the raw fetch transport only
+ * so platform calls continue to mirror the console client's auth behavior
+ * (bearer header, cookie transport opt-in, X-Device-Id, credentials).
  *
  * They live under `/api` so the ingress `/api`→backend rule reaches them, with no
  * path collision with the SPA's own `/platform/*` browser routes (which the
  * client-side router owns).
  */
 
-export type OrgStatus = "ACTIVE" | "SUSPENDED" | "ARCHIVED";
+type PlatformRouteTemplate = Extract<keyof paths, `/api/platform/${string}`>;
 
-export interface PlatformOrg {
-  id: string;
-  slug: string;
-  name: string;
-  status: OrgStatus;
-  group_id?: string | null;
-  group_slug?: string | null;
-  group_name?: string | null;
-  created_at: string;
+// Frontend mirror of the generated platform path keys. The backend route
+// inventory comparison (`scripts/check-platform-contract-drift.mjs`) keeps
+// `mnt-platform-rest` in lockstep with OpenAPI; this `satisfies` check keeps raw
+// fetch call sites from naming a platform route that is absent from the generated
+// TypeScript contract.
+const PLATFORM_ROUTES = {
+  orgs: "/api/platform/orgs",
+  orgById: "/api/platform/orgs/{id}",
+  ops: "/api/platform/ops",
+  groups: "/api/platform/groups",
+  groupById: "/api/platform/groups/{id}",
+  groupAccounts: "/api/platform/groups/{id}/accounts",
+  groupAccountRole:
+    "/api/platform/groups/{id}/accounts/{user_id}/roles/{group_role}",
+  groupOrganization: "/api/platform/groups/{id}/organizations/{org_id}",
+  viewAs: "/api/platform/view-as",
+  viewAsExit: "/api/platform/view-as/exit",
+  tenantContext: "/api/platform/tenant-context",
+  tenantContextExit: "/api/platform/tenant-context/exit",
+} as const satisfies Record<string, PlatformRouteTemplate>;
+
+type JsonRequestBody<OperationId extends keyof operations> =
+  operations[OperationId] extends {
+    requestBody: { content: { "application/json": infer Body } };
+  }
+    ? Body
+    : never;
+
+type OperationResponses<OperationId extends keyof operations> =
+  operations[OperationId] extends { responses: infer Responses }
+    ? Responses
+    : never;
+
+type JsonResponse<
+  OperationId extends keyof operations,
+  Status extends keyof OperationResponses<OperationId>,
+> = OperationResponses<OperationId>[Status] extends {
+  content: { "application/json": infer Body };
 }
+  ? Body
+  : never;
 
-export interface PlatformGroupMember {
-  id: string;
-  slug: string;
-  name: string;
-  status: OrgStatus;
-}
-
-export interface PlatformGroup {
-  id: string;
-  slug: string;
-  name: string;
-  status: OrgStatus;
-  member_count: number;
-  members: PlatformGroupMember[];
-  created_at: string;
-  updated_at: string;
-}
-
-export interface CreatePlatformGroupRequest {
-  name: string;
-  slug: string;
-}
-
-export interface UpdatePlatformGroupRequest {
-  slug?: string;
-  name?: string;
-  status?: OrgStatus;
-}
-
-export type PlatformGroupRole =
-  | "GROUP_ADMIN"
-  | "GROUP_VIEWER"
-  | "GROUP_FINANCE";
-
-export type PlatformAccountStatus = "ACTIVE" | "PENDING_SETUP" | "DEACTIVATED";
-
-export interface PlatformGroupAccount {
-  user_id: string;
-  display_name: string;
-  phone?: string | null;
-  tenant_roles: string[];
-  is_active: boolean;
-  has_passkey: boolean;
-  account_status: PlatformAccountStatus;
-  org_id: string;
-  org_slug: string;
-  org_name: string;
-  group_roles: PlatformGroupRole[];
-  created_at: string;
-}
-
-export interface CreatePlatformGroupAccountRequest {
-  org_id: string;
-  display_name: string;
-  phone?: string;
-  tenant_roles?: string[];
-  group_role?: PlatformGroupRole;
-}
-
-export interface CreatePlatformGroupAccountResponse {
-  account: PlatformGroupAccount;
-  otp: string;
-  otp_expires_at: string;
-}
-
+export type OrgStatus = components["schemas"]["PlatformOrgStatus"];
+export type PlatformTenantRole = components["schemas"]["PlatformTenantRole"];
+export type PlatformGroupRole = components["schemas"]["PlatformGroupRole"];
+export type PlatformAccountStatus =
+  components["schemas"]["PlatformAccountStatus"];
+export type PlatformOrg = components["schemas"]["PlatformOrg"];
+export type PlatformGroupMember = components["schemas"]["PlatformGroupMember"];
+export type PlatformGroup = components["schemas"]["PlatformGroup"];
+export type PlatformGroupAccount =
+  components["schemas"]["PlatformGroupAccount"];
+export type CreatePlatformGroupRequest =
+  JsonRequestBody<"createPlatformGroup">;
+export type UpdatePlatformGroupRequest =
+  JsonRequestBody<"updatePlatformGroup">;
+export type CreatePlatformGroupAccountRequest =
+  JsonRequestBody<"createPlatformGroupAccount">;
+export type CreatePlatformGroupAccountResponse = JsonResponse<
+  "createPlatformGroupAccount",
+  201
+>;
+export type OnboardOrgRequest = JsonRequestBody<"onboardPlatformOrg">;
 /** Onboarding response: the new org plus a one-time OTP shown exactly once. */
-export interface OnboardOrgResponse {
-  org: PlatformOrg;
-  /** Single-use code to deliver out-of-band; never returned again. */
-  otp: string;
-}
-
-export interface OnboardOrgRequest {
-  name: string;
-  slug: string;
-}
+export type OnboardOrgResponse = JsonResponse<"onboardPlatformOrg", 201>;
+export type ViewAsRole = PlatformTenantRole;
+export type ViewAsStartRequest = JsonRequestBody<"startPlatformViewAs">;
+export type ViewAsStartResponse = JsonResponse<"startPlatformViewAs", 200>;
+export type TenantContextStartRequest =
+  JsonRequestBody<"startPlatformTenantContext">;
+export type TenantContextStartResponse = JsonResponse<
+  "startPlatformTenantContext",
+  200
+>;
+export type PlatformTenantHealth = components["schemas"]["PlatformTenantHealth"];
+export type PlatformOpsResponse = JsonResponse<"getPlatformOps", 200>;
 
 /**
  * Raised when a platform call returns a non-2xx response. `status` lets callers
@@ -198,48 +189,37 @@ async function parseError(response: Response): Promise<PlatformApiError> {
   return new PlatformApiError(response.status, code);
 }
 
-/**
- * The canonical tenant role codes a platform operator may impersonate, matching
- * the backend `Role` enum. Kept here (not derived from a generated client) since
- * the `/api/platform/*` API is intentionally outside the served OpenAPI.
- */
-export type ViewAsRole =
-  | "SUPER_ADMIN"
-  | "ADMIN"
-  | "EXECUTIVE"
-  | "MECHANIC"
-  | "RECEPTIONIST"
-  | "MEMBER";
-
-/** Request body for POST /api/platform/view-as. */
-export interface ViewAsStartRequest {
-  org_id: string;
-  role: ViewAsRole;
+function encodeSegment(value: string): string {
+  return encodeURIComponent(value);
 }
 
-/** Response of POST /api/platform/view-as: the short-lived read-only token. */
-export interface ViewAsStartResponse {
-  access_token: string;
-  token_type: string;
-  acting_org_id: string;
-  acting_org_name: string;
-  acting_role: string;
-  expires_at: string;
+function platformOrgPath(id: string): string {
+  return PLATFORM_ROUTES.orgById.replace("{id}", encodeSegment(id));
 }
 
-/** Request body for POST /api/platform/tenant-context. */
-export interface TenantContextStartRequest {
-  org_id: string;
+function platformGroupPath(id: string): string {
+  return PLATFORM_ROUTES.groupById.replace("{id}", encodeSegment(id));
 }
 
-/** Response of POST /api/platform/tenant-context: short-lived writable tenant token. */
-export interface TenantContextStartResponse {
-  access_token: string;
-  token_type: string;
-  acting_org_id: string;
-  acting_org_name: string;
-  acting_role: "SUPER_ADMIN";
-  expires_at: string;
+function platformGroupAccountsPath(groupId: string): string {
+  return PLATFORM_ROUTES.groupAccounts.replace("{id}", encodeSegment(groupId));
+}
+
+function platformGroupRolePath(
+  groupId: string,
+  userId: string,
+  role: PlatformGroupRole,
+): string {
+  return PLATFORM_ROUTES.groupAccountRole
+    .replace("{id}", encodeSegment(groupId))
+    .replace("{user_id}", encodeSegment(userId))
+    .replace("{group_role}", encodeSegment(role));
+}
+
+function platformGroupOrganizationPath(groupId: string, orgId: string): string {
+  return PLATFORM_ROUTES.groupOrganization
+    .replace("{id}", encodeSegment(groupId))
+    .replace("{org_id}", encodeSegment(orgId));
 }
 
 function normalizePlatformOrg(org: PlatformOrg): PlatformOrg {
@@ -277,7 +257,10 @@ function normalizePlatformGroupAccountResponse(
 function normalizePlatformTenantHealth(
   tenant: PlatformTenantHealth,
 ): PlatformTenantHealth {
-  return { ...tenant, slug: canonicalOrgSlug(tenant.slug) };
+  return {
+    ...tenant,
+    slug: canonicalOrgSlug(tenant.slug),
+  };
 }
 
 /**
@@ -290,7 +273,7 @@ export async function startViewAs(
   bearerToken: string | undefined,
   body: ViewAsStartRequest,
 ): Promise<ViewAsStartResponse> {
-  const response = await platformFetch(bearerToken, "/api/platform/view-as", {
+  const response = await platformFetch(bearerToken, PLATFORM_ROUTES.viewAs, {
     method: "POST",
     body: JSON.stringify(body),
   });
@@ -308,7 +291,7 @@ export async function exitViewAs(
 ): Promise<void> {
   const response = await platformFetch(
     bearerToken,
-    "/api/platform/view-as/exit",
+    PLATFORM_ROUTES.viewAsExit,
     { method: "POST" },
   );
   if (!response.ok) throw await parseError(response);
@@ -325,7 +308,7 @@ export async function startTenantContext(
 ): Promise<TenantContextStartResponse> {
   const response = await platformFetch(
     bearerToken,
-    "/api/platform/tenant-context",
+    PLATFORM_ROUTES.tenantContext,
     {
       method: "POST",
       body: JSON.stringify(body),
@@ -341,38 +324,17 @@ export async function exitTenantContext(
 ): Promise<void> {
   const response = await platformFetch(
     bearerToken,
-    "/api/platform/tenant-context/exit",
+    PLATFORM_ROUTES.tenantContextExit,
     { method: "POST" },
   );
   if (!response.ok) throw await parseError(response);
 }
 
-/** One tenant's health/usage numbers from the platform ops dashboard. */
-export interface PlatformTenantHealth {
-  id: string;
-  slug: string;
-  name: string;
-  status: OrgStatus;
-  group_id?: string | null;
-  group_slug?: string | null;
-  group_name?: string | null;
-  user_count: number;
-  active_user_count: number;
-  active_work_orders: number;
-  open_work_orders: number;
-  last_activity_at: string | null;
-}
-
-/** Response shape of GET /api/platform/ops. */
-export interface PlatformOpsResponse {
-  tenants: PlatformTenantHealth[];
-}
-
-/** GET /platform/ops â cross-tenant ops health rollup (audited). */
+/** GET /api/platform/ops — cross-tenant ops health rollup (audited). */
 export async function getPlatformOps(
   bearerToken: string | undefined,
 ): Promise<PlatformTenantHealth[]> {
-  const response = await platformFetch(bearerToken, "/api/platform/ops", {
+  const response = await platformFetch(bearerToken, PLATFORM_ROUTES.ops, {
     method: "GET",
   });
   if (!response.ok) throw await parseError(response);
@@ -380,11 +342,11 @@ export async function getPlatformOps(
   return body.tenants.map(normalizePlatformTenantHealth);
 }
 
-/** GET /platform/orgs â list every tenant organization. */
+/** GET /api/platform/orgs — list every tenant organization. */
 export async function listPlatformOrgs(
   bearerToken: string | undefined,
 ): Promise<PlatformOrg[]> {
-  const response = await platformFetch(bearerToken, "/api/platform/orgs", {
+  const response = await platformFetch(bearerToken, PLATFORM_ROUTES.orgs, {
     method: "GET",
   });
   if (!response.ok) throw await parseError(response);
@@ -392,12 +354,12 @@ export async function listPlatformOrgs(
   return orgs.map(normalizePlatformOrg);
 }
 
-/** POST /platform/orgs â onboard a tenant; returns the org + a one-time OTP. */
+/** POST /api/platform/orgs — onboard a tenant; returns the org + a one-time OTP. */
 export async function onboardPlatformOrg(
   bearerToken: string | undefined,
   body: OnboardOrgRequest,
 ): Promise<OnboardOrgResponse> {
-  const response = await platformFetch(bearerToken, "/api/platform/orgs", {
+  const response = await platformFetch(bearerToken, PLATFORM_ROUTES.orgs, {
     method: "POST",
     body: JSON.stringify(body),
   });
@@ -406,7 +368,7 @@ export async function onboardPlatformOrg(
   return { ...onboarded, org: normalizePlatformOrg(onboarded.org) };
 }
 
-/** PATCH /platform/orgs/{id} â set a tenant's lifecycle status. */
+/** PATCH /api/platform/orgs/{id} — set a tenant's lifecycle status. */
 export async function setPlatformOrgStatus(
   bearerToken: string | undefined,
   id: string,
@@ -414,7 +376,7 @@ export async function setPlatformOrgStatus(
 ): Promise<PlatformOrg> {
   const response = await platformFetch(
     bearerToken,
-    `/api/platform/orgs/${encodeURIComponent(id)}`,
+    platformOrgPath(id),
     {
       method: "PATCH",
       body: JSON.stringify({ status }),
@@ -425,7 +387,7 @@ export async function setPlatformOrgStatus(
 }
 
 /**
- * DELETE /platform/orgs/{id} — GUARDED hard-removal of an empty/test tenant.
+ * DELETE /api/platform/orgs/{id} — GUARDED hard-removal of an empty/test tenant.
  *
  * Succeeds (204) only for an empty tenant. A tenant with real operational data
  * is refused with 409 (`PlatformApiError.status === 409`, code `tenant_has_data`)
@@ -437,7 +399,7 @@ export async function removePlatformOrg(
 ): Promise<void> {
   const response = await platformFetch(
     bearerToken,
-    `/api/platform/orgs/${encodeURIComponent(id)}`,
+    platformOrgPath(id),
     {
       method: "DELETE",
     },
@@ -446,7 +408,7 @@ export async function removePlatformOrg(
 }
 
 /**
- * DELETE /platform/orgs/{id}?delete_data=true — FORCE hard-removal of a tenant
+ * DELETE /api/platform/orgs/{id}?delete_data=true — FORCE hard-removal of a tenant
  * AND all of its data. The DESTRUCTIVE counterpart to {@link removePlatformOrg}.
  *
  * Erases the org and every operational row it owns. Fail-closed by a status rail:
@@ -460,7 +422,7 @@ export async function forceRemovePlatformOrg(
 ): Promise<void> {
   const response = await platformFetch(
     bearerToken,
-    `/api/platform/orgs/${encodeURIComponent(id)}?delete_data=true`,
+    `${platformOrgPath(id)}?delete_data=true`,
     {
       method: "DELETE",
     },
@@ -468,11 +430,11 @@ export async function forceRemovePlatformOrg(
   if (!response.ok) throw await parseError(response);
 }
 
-/** GET /platform/groups — list every group and its member org identities. */
+/** GET /api/platform/groups — list every group and its member org identities. */
 export async function listPlatformGroups(
   bearerToken: string | undefined,
 ): Promise<PlatformGroup[]> {
-  const response = await platformFetch(bearerToken, "/api/platform/groups", {
+  const response = await platformFetch(bearerToken, PLATFORM_ROUTES.groups, {
     method: "GET",
   });
   if (!response.ok) throw await parseError(response);
@@ -480,12 +442,12 @@ export async function listPlatformGroups(
   return groups.map(normalizePlatformGroup);
 }
 
-/** POST /platform/groups — create a group identity, not a tenant. */
+/** POST /api/platform/groups — create a group identity, not a tenant. */
 export async function createPlatformGroup(
   bearerToken: string | undefined,
   body: CreatePlatformGroupRequest,
 ): Promise<PlatformGroup> {
-  const response = await platformFetch(bearerToken, "/api/platform/groups", {
+  const response = await platformFetch(bearerToken, PLATFORM_ROUTES.groups, {
     method: "POST",
     body: JSON.stringify(body),
   });
@@ -493,7 +455,7 @@ export async function createPlatformGroup(
   return normalizePlatformGroup((await response.json()) as PlatformGroup);
 }
 
-/** PATCH /platform/groups/{id} — update group slug/name/status. */
+/** PATCH /api/platform/groups/{id} — update group slug/name/status. */
 export async function updatePlatformGroup(
   bearerToken: string | undefined,
   id: string,
@@ -501,7 +463,7 @@ export async function updatePlatformGroup(
 ): Promise<PlatformGroup> {
   const response = await platformFetch(
     bearerToken,
-    `/api/platform/groups/${encodeURIComponent(id)}`,
+    platformGroupPath(id),
     {
       method: "PATCH",
       body: JSON.stringify(body),
@@ -511,14 +473,14 @@ export async function updatePlatformGroup(
   return normalizePlatformGroup((await response.json()) as PlatformGroup);
 }
 
-/** GET /platform/groups/{id}/accounts — list tenant-anchored group accounts. */
+/** GET /api/platform/groups/{id}/accounts — list tenant-anchored group accounts. */
 export async function listPlatformGroupAccounts(
   bearerToken: string | undefined,
   groupId: string,
 ): Promise<PlatformGroupAccount[]> {
   const response = await platformFetch(
     bearerToken,
-    `/api/platform/groups/${encodeURIComponent(groupId)}/accounts`,
+    platformGroupAccountsPath(groupId),
     { method: "GET" },
   );
   if (!response.ok) throw await parseError(response);
@@ -526,7 +488,7 @@ export async function listPlatformGroupAccounts(
   return accounts.map(normalizePlatformGroupAccount);
 }
 
-/** POST /platform/groups/{id}/accounts — create a tenant-anchored group account. */
+/** POST /api/platform/groups/{id}/accounts — create a tenant-anchored group account. */
 export async function createPlatformGroupAccount(
   bearerToken: string | undefined,
   groupId: string,
@@ -534,7 +496,7 @@ export async function createPlatformGroupAccount(
 ): Promise<CreatePlatformGroupAccountResponse> {
   const response = await platformFetch(
     bearerToken,
-    `/api/platform/groups/${encodeURIComponent(groupId)}/accounts`,
+    platformGroupAccountsPath(groupId),
     {
       method: "POST",
       body: JSON.stringify(body),
@@ -546,7 +508,7 @@ export async function createPlatformGroupAccount(
   );
 }
 
-/** DELETE /platform/groups/{id}/accounts/{userId}/roles/{role} — revoke one group role. */
+/** DELETE /api/platform/groups/{id}/accounts/{userId}/roles/{role} — revoke one group role. */
 export async function revokePlatformGroupRole(
   bearerToken: string | undefined,
   groupId: string,
@@ -555,13 +517,13 @@ export async function revokePlatformGroupRole(
 ): Promise<void> {
   const response = await platformFetch(
     bearerToken,
-    `/api/platform/groups/${encodeURIComponent(groupId)}/accounts/${encodeURIComponent(userId)}/roles/${encodeURIComponent(role)}`,
+    platformGroupRolePath(groupId, userId, role),
     { method: "DELETE" },
   );
   if (!response.ok) throw await parseError(response);
 }
 
-/** PUT /platform/groups/{id}/organizations/{orgId} — assign or move org into a group. */
+/** PUT /api/platform/groups/{id}/organizations/{orgId} — assign or move org into a group. */
 export async function assignPlatformOrgToGroup(
   bearerToken: string | undefined,
   groupId: string,
@@ -569,14 +531,14 @@ export async function assignPlatformOrgToGroup(
 ): Promise<PlatformOrg> {
   const response = await platformFetch(
     bearerToken,
-    `/api/platform/groups/${encodeURIComponent(groupId)}/organizations/${encodeURIComponent(orgId)}`,
+    platformGroupOrganizationPath(groupId, orgId),
     { method: "PUT" },
   );
   if (!response.ok) throw await parseError(response);
   return normalizePlatformOrg((await response.json()) as PlatformOrg);
 }
 
-/** DELETE /platform/groups/{id}/organizations/{orgId} — remove an org from a group. */
+/** DELETE /api/platform/groups/{id}/organizations/{orgId} — remove an org from a group. */
 export async function removePlatformOrgFromGroup(
   bearerToken: string | undefined,
   groupId: string,
@@ -584,7 +546,7 @@ export async function removePlatformOrgFromGroup(
 ): Promise<PlatformOrg> {
   const response = await platformFetch(
     bearerToken,
-    `/api/platform/groups/${encodeURIComponent(groupId)}/organizations/${encodeURIComponent(orgId)}`,
+    platformGroupOrganizationPath(groupId, orgId),
     { method: "DELETE" },
   );
   if (!response.ok) throw await parseError(response);

@@ -4,7 +4,11 @@ metadata:
   name: mnt-db
   namespace: maintenance
 spec:
-  instances: 1 # single node on free tier; HA replica would need a second A1
+  # Deployment context: live oci-guest base. This cluster is intentionally one
+  # CNPG instance on one Always Free A1 node; it has restore/PITR artifacts but no
+  # automatic database failover. The ADR-0022 on-prem-ha overlay patches this to
+  # >=3 instances plus replicated storage without changing the live OCI posture.
+  instances: 1
   imageName: ghcr.io/cloudnative-pg/postgresql:18.4
   primaryUpdateStrategy: unsupervised
   storage:
@@ -12,6 +16,9 @@ spec:
   resources:
     requests: { cpu: 250m, memory: 512Mi }
     limits: { memory: 1Gi }
+  # OCI-specific Barman/S3 compatibility workaround. Do not treat these env vars
+  # as universal: the on-prem-ha self-hosted S3 endpoint must be validated on its
+  # own before copying checksum behavior.
   # boto3 >= 1.36 (bundled in barman-cloud's S3 client) defaults to flexible
   # checksums sent via AWS *chunked encoding* on PutObject. OCI Object Storage's
   # S3-compatible API rejects that with "NotImplemented: AWS chunked encoding not
@@ -75,6 +82,8 @@ spec:
   configuration:
     # OCI Object Storage, S3-compatible API, Chuncheon. NAMESPACE = the tenancy
     # object-storage namespace (oci os ns get); bucket pre-created out of band.
+    # The on-prem-ha overlay replaces endpoint/credentials with the selected
+    # self-hosted S3-compatible service and OpenBao/ESO-projected secrets.
     destinationPath: s3://mnt-db-backups/
     endpointURL: https://axdotp9iv3ua.compat.objectstorage.ap-chuncheon-1.oraclecloud.com
     s3Credentials:

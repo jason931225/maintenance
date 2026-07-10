@@ -195,7 +195,7 @@ GRANT EXECUTE ON FUNCTION platform_set_organization_status(UUID, TEXT) TO mnt_rt
 -- `platform = true` when the user's org is the sentinel).
 --
 -- KNL's OWN tenant admin is NOT this row: KNL is onboarded as tenant #1 through
--- the platform onboarding flow (POST /platform/orgs), which seeds a fresh
+-- the platform onboarding flow (POST /api/platform/orgs), which seeds a fresh
 -- per-org SUPER_ADMIN + a per-org cold-start OTP. See deploy/SECRETS.md.
 --
 -- `users` is FORCE RLS (0030) AND carries the org_id-immutability BEFORE UPDATE

@@ -1,11 +1,10 @@
 //! Real Cedar bundle compilation + evaluation for the Cedar/PBAC boundary.
 //!
-//! Slice 1 (tests only): this module can compile a schema-validated Cedar
-//! bundle from the legacy permission matrix and evaluate an
-//! [`AuthorizationRequest`] into a real [`CedarEvaluation`]. NOTHING here is
-//! wired into a live request path — callers still construct
-//! [`CedarEvaluation::NotConfigured`], so production authorization is
-//! byte-for-byte unchanged.
+//! This module compiles schema-validated Cedar bundles and evaluates an
+//! [`AuthorizationRequest`] into a real [`CedarEvaluation`]. Most production
+//! paths still use the legacy boundary or shadow lane; selected high-sensitivity
+//! surfaces (for example the CEO/top-clearance covert audit stream) can opt into
+//! Cedar-only enforcement with server-loaded facts.
 //!
 //! Two safety properties are load-bearing:
 //!  * **Fail-closed compile.** [`compile_bundle`] rejects the bundle on ANY
@@ -51,12 +50,14 @@ pub const ROLE_MANAGE_SCHEMA_VERSION: &str = "2026-07-role-manage-v1";
 pub const ROLE_MANAGE_SCHEMA: &str = r#"entity Subject = {
   "org": String,
   "roles": Set<String>,
-  "subject_version": Long
+  "subject_version": Long,
+  "clearance_keys": Set<String>
 };
 
 entity Resource = {
   "org": String,
   "resource_type": String,
+  "resource_id"?: String,
   "branch"?: String
 };
 
@@ -67,6 +68,49 @@ action role_manage appliesTo {
     "purpose"?: String,
     "channel"?: String,
     "step_up"?: Bool
+  }
+};
+"#;
+
+/// Schema identity for the B26b CEO/top-clearance covert audit stream bundle.
+pub const AUDIT_STREAM_SCHEMA_VERSION: &str = "2026-07-ceo-covert-audit-stream-v1";
+
+/// Tenant-owned stream id for the first covert audit stream. The public REST
+/// path uses the hyphenated slug; Cedar/resource labels stay snake_case.
+pub const CEO_COVERT_AUDIT_STREAM_KEY: &str = "ceo_covert_audit";
+
+/// Clearance fact required to read the CEO/top-clearance covert stream.
+pub const CEO_COVERT_AUDIT_CLEARANCE_KEY: &str = "audit.ceo_covert.read";
+
+pub const AUDIT_STREAM_SCHEMA: &str = r#"entity Subject = {
+  "org": String,
+  "roles": Set<String>,
+  "subject_version": Long,
+  "clearance_keys": Set<String>
+};
+
+entity Resource = {
+  "org": String,
+  "resource_type": String,
+  "resource_id": String,
+  "branch"?: String
+};
+
+action audit_stream_read appliesTo {
+  principal: [Subject],
+  resource: [Resource],
+  context: {
+    "purpose"?: String,
+    "channel"?: String
+  }
+};
+
+action audit_stream_access_log_read appliesTo {
+  principal: [Subject],
+  resource: [Resource],
+  context: {
+    "purpose"?: String,
+    "channel"?: String
   }
 };
 "#;
@@ -124,6 +168,52 @@ pub fn compile_bundle(org_id: OrgId, policy_version: u64) -> Result<CompiledBund
             "cedar bundle compilation panicked".to_owned(),
         )),
     }
+}
+
+/// Compile the B26b CEO/top-clearance covert audit stream bundle.
+///
+/// This bundle has no legacy role-matrix allow path: both stream read actions
+/// require the server-loaded clearance key on the Cedar subject, the same tenant
+/// org on subject/resource, and the fixed CEO covert audit stream resource id.
+pub fn compile_audit_stream_bundle(
+    org_id: OrgId,
+    policy_version: u64,
+) -> Result<CompiledBundle, KernelError> {
+    match std::panic::catch_unwind(AssertUnwindSafe(|| {
+        compile_audit_stream_bundle_inner(org_id, policy_version)
+    })) {
+        Ok(result) => result,
+        Err(_) => Err(KernelError::validation(
+            "cedar audit-stream bundle compilation panicked".to_owned(),
+        )),
+    }
+}
+
+fn compile_audit_stream_bundle_inner(
+    org_id: OrgId,
+    policy_version: u64,
+) -> Result<CompiledBundle, KernelError> {
+    compile_bundle_from_sources(
+        org_id,
+        policy_version,
+        AUDIT_STREAM_SCHEMA_VERSION,
+        AUDIT_STREAM_SCHEMA,
+        &generate_audit_stream_policies(),
+    )
+}
+
+#[must_use]
+pub fn generate_audit_stream_policies() -> String {
+    let mut policies = String::new();
+    for feature in [Feature::AuditStreamRead, Feature::AuditStreamAccessLogRead] {
+        let action = feature.as_str();
+        policies.push_str(&format!(
+            "permit(\n  principal,\n  action == Action::\"{action}\",\n  resource\n)\nwhen {{\n  principal.org == resource.org &&\n  resource.resource_type == \"audit_stream\" &&\n  resource.resource_id == \"{stream}\" &&\n  principal.clearance_keys.contains(\"{clearance}\")\n}};\n",
+            stream = CEO_COVERT_AUDIT_STREAM_KEY,
+            clearance = CEO_COVERT_AUDIT_CLEARANCE_KEY
+        ));
+    }
+    policies
 }
 
 fn compile_bundle_inner(org_id: OrgId, policy_version: u64) -> Result<CompiledBundle, KernelError> {
@@ -223,6 +313,17 @@ fn evaluate_inner(
             "subject_version".to_owned(),
             RestrictedExpression::new_long(subject_version),
         ),
+        (
+            "clearance_keys".to_owned(),
+            RestrictedExpression::new_set(
+                request
+                    .subject
+                    .clearance_keys
+                    .iter()
+                    .cloned()
+                    .map(RestrictedExpression::new_string),
+            ),
+        ),
     ]);
     let subject = Entity::new(subject_uid.clone(), subject_attrs, HashSet::new())
         .map_err(|err| format!("cedar subject entity failed: {err}"))?;
@@ -245,6 +346,12 @@ fn evaluate_inner(
             RestrictedExpression::new_string(resource.resource_type.clone()),
         ),
     ]);
+    if let Some(resource_id) = &resource.resource_id {
+        resource_attrs.insert(
+            "resource_id".to_owned(),
+            RestrictedExpression::new_string(resource_id.clone()),
+        );
+    }
     if let Some(branch_id) = resource.branch_id {
         resource_attrs.insert(
             "branch".to_owned(),

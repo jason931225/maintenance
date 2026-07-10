@@ -29,9 +29,9 @@ import kotlinx.serialization.Serializable
 
 
 /**
- * Derived account-setup state for the console roster. ACTIVE only once the user has enrolled a passkey (can sign in); PENDING_SETUP when created / OTP-issued but not yet enrolled; DEACTIVATED when soft-disabled.
+ * Derived account-setup state for the console roster. ACTIVE only once the user has enrolled a passkey (can sign in); PENDING_SETUP when created / OTP-issued but not yet enrolled; ARCHIVED when soft-disabled.
  *
- * Values: ACTIVE,PENDING_SETUP,DEACTIVATED
+ * Values: ACTIVE,PENDING_SETUP,ARCHIVED
  */
 @Serializable
 enum class AccountStatus(val value: kotlin.String) {
@@ -42,8 +42,8 @@ enum class AccountStatus(val value: kotlin.String) {
     @SerialName(value = "PENDING_SETUP")
     PENDING_SETUP("PENDING_SETUP"),
 
-    @SerialName(value = "DEACTIVATED")
-    DEACTIVATED("DEACTIVATED");
+    @SerialName(value = "ARCHIVED")
+    ARCHIVED("ARCHIVED");
 
     /**
      * Override [toString()] to avoid using the enum variable name as the value, and instead use

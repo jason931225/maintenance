@@ -80,7 +80,7 @@ pub enum RequestContextError {
     AccessScope(KernelError),
 
     /// A PLATFORM token was presented to a tenant (`/api/*`) route, or a TENANT
-    /// token was presented to a `/platform/*` route. The two tiers are strictly
+    /// token was presented to a `/api/platform/*` route. The two tiers are strictly
     /// separated; crossing them is rejected before any handler runs.
     #[error("token tier is not valid for this route")]
     WrongTokenTier,
@@ -357,7 +357,7 @@ fn error_response_for(err: &RequestContextError) -> Response {
 /// Mirrors [`resolve_principal`] but for the SaaS-vendor PLATFORM tier:
 /// 1. parse + verify the bearer token,
 /// 2. REQUIRE `platform = true` — a tenant token is rejected here, so a tenant
-///    admin can never reach `/platform/*`,
+///    admin can never reach `/api/platform/*`,
 /// 3. parse the subject.
 ///
 /// It deliberately resolves NO tenant org and NO branch scope: a platform
@@ -372,7 +372,7 @@ pub async fn resolve_platform_principal(
         .verify_access_token(token)
         .map_err(|_| RequestContextError::InvalidToken)?;
 
-    // Tier separation: ONLY a platform token may reach a `/platform/*` route.
+    // Tier separation: ONLY a platform token may reach a `/api/platform/*` route.
     if !claims.platform {
         return Err(RequestContextError::WrongTokenTier);
     }
@@ -382,7 +382,7 @@ pub async fn resolve_platform_principal(
     Ok(PlatformPrincipal::new(user_id))
 }
 
-/// Apply the PLATFORM extractor middleware to a `/platform/*` router.
+/// Apply the PLATFORM extractor middleware to a `/api/platform/*` router.
 ///
 /// Resolves the [`PlatformPrincipal`] (rejecting any tenant token) and stores it
 /// in the request extensions for handlers to read as `Extension<PlatformPrincipal>`.

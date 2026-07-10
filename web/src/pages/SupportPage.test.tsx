@@ -1,0 +1,309 @@
+import { render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { http, HttpResponse } from "msw";
+import { setupServer } from "msw/node";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+
+import { createConsoleApiClient } from "../api/client";
+import { WindowManagerProvider } from "../console/window";
+import { AuthContext } from "../context/auth";
+import type { AuthContextValue, AuthSession } from "../context/auth";
+import { ticketCode } from "../features/support/support-format";
+import { KO_CONSOLE_SUPPORTDESK as D } from "../features/support/supportdesk-ko.test";
+import { KO_CONSOLE_SUPPORTSLO as T } from "../features/support/supportslo-ko.test";
+import { ko } from "../i18n/ko";
+import { SupportPage } from "./SupportPage";
+
+const NOW_ISH_BRANCH = "00000000-0000-4000-8000-000000000001";
+
+// COMPLAINT target is 4h — a ticket created a day ago with no due date is an
+// SLO breach derived purely from the ACTIVE setting object.
+const breachedTicket = {
+  id: "bbbbbbbb-2222-4222-8222-bbbbbbbbbbbb",
+  branch_id: NOW_ISH_BRANCH,
+  origin: "CUSTOMER",
+  category: "COMPLAINT",
+  priority: "HIGH",
+  status: "OPEN",
+  title: "지게차 리프트 고장 재발",
+  requester_user_id: "00000000-0000-4000-8000-0000000000aa",
+  requester_name: "고객사",
+  assignee_user_id: null,
+  assignee_name: null,
+  due_at: null,
+  created_at: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+  updated_at: new Date().toISOString(),
+  resolved_at: null,
+  closed_at: null,
+};
+
+// OTHER target is 48h — a fresh, already-assigned ticket is inside its SLO.
+const onTimeTicket = {
+  ...breachedTicket,
+  id: "cccccccc-3333-4333-8333-cccccccccccc",
+  category: "OTHER",
+  title: "기타 문의",
+  assignee_user_id: "00000000-0000-4000-8000-0000000000bb",
+  assignee_name: "김담당",
+  created_at: new Date().toISOString(),
+};
+
+interface CommentRow {
+  id: string;
+  ticket_id: string;
+  author_user_id: string | null;
+  author_name: string | null;
+  body: string;
+  is_internal_note: boolean;
+  created_at: string;
+}
+
+// Captured by the list handler so filter-chip tests can assert the real query.
+let lastListQuery = new URLSearchParams();
+// Comments posted through the real REST during a test run.
+let postedComments: CommentRow[] = [];
+
+const server = setupServer(
+  http.get("*/api/v1/support/tickets", ({ request }) => {
+    lastListQuery = new URL(request.url).searchParams;
+    return HttpResponse.json({
+      items: [breachedTicket, onTimeTicket],
+      next_cursor: null,
+      total: 2,
+    });
+  }),
+  http.get("*/api/v1/support/tickets/:id", ({ params }) =>
+    HttpResponse.json({
+      ticket: params.id === breachedTicket.id ? breachedTicket : onTimeTicket,
+      comments: postedComments.filter(
+        (comment) => comment.ticket_id === params.id,
+      ),
+    }),
+  ),
+  http.post("*/api/v1/support/tickets/:id/comments", async ({ params, request }) => {
+    const body = (await request.json()) as {
+      body: string;
+      is_internal_note: boolean;
+    };
+    const comment: CommentRow = {
+      id: `c-${String(postedComments.length + 1)}`,
+      ticket_id: String(params.id),
+      author_user_id: adminSession.user_id,
+      author_name: adminSession.display_name,
+      body: body.body,
+      is_internal_note: body.is_internal_note,
+      created_at: new Date().toISOString(),
+    };
+    postedComments.push(comment);
+    return HttpResponse.json(comment);
+  }),
+);
+
+beforeAll(() => {
+  server.listen({ onUnhandledRequest: "error" });
+});
+afterEach(() => {
+  server.resetHandlers();
+  postedComments = [];
+});
+afterAll(() => {
+  server.close();
+});
+
+const adminSession: AuthSession = {
+  access_token: "test-token",
+  user_id: "00000000-0000-4000-8000-000000000002",
+  display_name: "관리자A",
+  roles: ["ADMIN"],
+  branches: [NOW_ISH_BRANCH],
+};
+
+function renderSupportPage(session: AuthSession = adminSession) {
+  const ctx: AuthContextValue = {
+    session,
+    restoring: false,
+    login: async () => {},
+    logout: async () => {},
+    refresh: async () => {},
+    acceptTokens: () => {},
+    clearPasskeySetup: () => {},
+    viewAs: undefined,
+    enterViewAs: () => {},
+    exitViewAs: () => undefined,
+    api: createConsoleApiClient(session.access_token),
+  };
+  return render(
+    <AuthContext.Provider value={ctx}>
+      <WindowManagerProvider>
+        <SupportPage />
+      </WindowManagerProvider>
+    </AuthContext.Provider>,
+  );
+}
+
+describe("SupportPage SLO surface", () => {
+  it("derives breach alerts and chips from the ACTIVE SLO setting", async () => {
+    renderSupportPage();
+
+    // Alert section (internal alert, §4-26): only the breached ticket rows.
+    const alerts = await screen.findByRole("alert", { name: T.alerts.title });
+    expect(alerts).toBeVisible();
+    expect(
+      screen.getByRole("button", {
+        name: T.alerts.rowAria(breachedTicket.title),
+      }),
+    ).toBeVisible();
+    expect(
+      screen.queryByRole("button", {
+        name: T.alerts.rowAria(onTimeTicket.title),
+      }),
+    ).toBeNull();
+    // The row escalates per the setting: COMPLAINT → 관리자.
+    expect(
+      screen.getByText(T.alerts.escalateTo(T.settings.targets.ADMIN)),
+    ).toBeVisible();
+
+    // Stat tile is SLO-labelled (never SLA), and the settings card is present.
+    expect(screen.getByText(T.urgentOrBreached)).toBeVisible();
+    expect(screen.getByText(T.settings.title)).toBeVisible();
+    expect(screen.getByText(T.settings.scopeChip)).toBeVisible();
+  });
+
+  it("opens the breached ticket from its alert row as the right pin", async () => {
+    const user = userEvent.setup();
+    renderSupportPage();
+
+    await user.click(
+      await screen.findByRole("button", {
+        name: T.alerts.rowAria(breachedTicket.title),
+      }),
+    );
+
+    // §4.7-3: the detail opens as the pinned right panel, not an inline column.
+    const panel = await screen.findByRole("region", {
+      name: breachedTicket.title,
+    });
+    await waitFor(() => {
+      expect(
+        within(panel).getByText(ko.support.transition.title),
+      ).toBeVisible();
+    });
+    // SUP- object code chip + SLO timer chip derived from the ACTIVE setting.
+    expect(
+      within(panel).getByText(ticketCode(breachedTicket.id)),
+    ).toBeVisible();
+    expect(
+      within(panel).getByText(new RegExp(`^${D.sloOverdueBy("")}`)),
+    ).toBeVisible();
+  });
+
+  it("escalates per the ACTIVE setting via an audited internal note", async () => {
+    const user = userEvent.setup();
+    renderSupportPage();
+
+    await user.click(
+      await screen.findByRole("button", {
+        name: T.alerts.rowAria(breachedTicket.title),
+      }),
+    );
+    const panel = await screen.findByRole("region", {
+      name: breachedTicket.title,
+    });
+    const escalate = await within(panel).findByRole("button", {
+      name: T.alerts.escalateTo(T.settings.targets.ADMIN),
+    });
+    await user.click(escalate);
+
+    // The note posted through the real comments REST shows up in the thread.
+    const note = D.escalationNote(T.settings.targets.ADMIN);
+    await waitFor(() => {
+      expect(within(panel).getByText(note)).toBeVisible();
+    });
+    expect(postedComments.at(-1)).toMatchObject({
+      body: note,
+      is_internal_note: true,
+      ticket_id: breachedTicket.id,
+    });
+  });
+
+  it("drills the list from the stat strip", async () => {
+    const user = userEvent.setup();
+    renderSupportPage();
+
+    // Both tickets are listed before any drill.
+    expect(await screen.findByText(onTimeTicket.title)).toBeVisible();
+
+    // 미배정 drill: only the unassigned (breached) ticket remains listed.
+    await user.click(
+      screen.getByRole("button", {
+        name: D.drill(ko.support.command.unassigned),
+      }),
+    );
+    expect(screen.queryByText(onTimeTicket.title)).toBeNull();
+
+    // Pressing the same stat again clears the drill.
+    await user.click(
+      screen.getByRole("button", {
+        name: D.drill(ko.support.command.unassigned),
+      }),
+    );
+    expect(await screen.findByText(onTimeTicket.title)).toBeVisible();
+  });
+
+  it("omits the deleted eyebrow and explanatory copy", async () => {
+    renderSupportPage();
+    await screen.findByText(onTimeTicket.title);
+
+    // §4-12: the CX Operations caption block and explanatory subtitles were
+    // deleted from ko.ts — assert no literal survives in the rendered page.
+    expect(screen.queryByText(/CX Operations/i)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("사내 문의와 고객 접수 요청을 한 곳에서 처리합니다."),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("문의, SLA, 담당, 보고를 한 화면에서 처리합니다."),
+    ).not.toBeInTheDocument();
+  });
+
+  it("filters server-side through the status chip segment", async () => {
+    const user = userEvent.setup();
+    renderSupportPage();
+    await screen.findByText(onTimeTicket.title);
+
+    const statusGroup = screen.getByRole("group", {
+      name: ko.support.filters.status,
+    });
+    const chip = within(statusGroup).getByRole("button", {
+      name: ko.support.ticketStatus.IN_PROGRESS,
+    });
+    await user.click(chip);
+    await waitFor(
+      () => {
+        expect(lastListQuery.get("status")).toBe("IN_PROGRESS");
+      },
+      { timeout: 5000 },
+    );
+    expect(chip).toHaveAttribute("aria-pressed", "true");
+
+    // Toggling the same chip off clears the facet. The cleared-query URL is
+    // identical to the initial load, so the client's read cache may serve it —
+    // prove the facet cleared server-side via the next distinct request: a
+    // priority chip click must carry priority WITHOUT the stale status.
+    await user.click(chip);
+    await waitFor(() => {
+      expect(chip).toHaveAttribute("aria-pressed", "false");
+    });
+    await user.click(
+      within(
+        screen.getByRole("group", { name: ko.support.filters.priority }),
+      ).getByRole("button", { name: ko.support.ticketPriority.URGENT }),
+    );
+    await waitFor(
+      () => {
+        expect(lastListQuery.get("priority")).toBe("URGENT");
+      },
+      { timeout: 5000 },
+    );
+    expect(lastListQuery.get("status")).toBeNull();
+  });
+});

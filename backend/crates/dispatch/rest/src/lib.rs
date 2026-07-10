@@ -52,23 +52,27 @@ impl DispatchRestState {
     }
 }
 
+pub const START_DISPATCH_PATH_TEMPLATE: &str = "/api/v1/work-orders/{work_order_id}/p1-dispatch";
+pub const P1_DISPATCH_PATH_TEMPLATE: &str = "/api/v1/p1-dispatches/{dispatch_id}";
+pub const P1_DISPATCH_RESPONSES_PATH_TEMPLATE: &str =
+    "/api/v1/p1-dispatches/{dispatch_id}/responses";
+pub const P1_DISPATCH_FORCE_ASSIGN_PATH_TEMPLATE: &str =
+    "/api/v1/p1-dispatches/{dispatch_id}/force-assign";
+pub const DISPATCH_ROUTE_PATHS: &[&str] = &[
+    START_DISPATCH_PATH_TEMPLATE,
+    P1_DISPATCH_PATH_TEMPLATE,
+    P1_DISPATCH_RESPONSES_PATH_TEMPLATE,
+    P1_DISPATCH_FORCE_ASSIGN_PATH_TEMPLATE,
+];
+
 pub fn router(state: DispatchRestState) -> Router {
     let verifier = state.jwt_verifier.clone();
     let pool = state.store.pool().clone();
     let router = Router::new()
-        .route(
-            "/api/v1/work-orders/{work_order_id}/p1-dispatch",
-            post(start_dispatch),
-        )
-        .route("/api/v1/p1-dispatches/{dispatch_id}", get(get_dispatch))
-        .route(
-            "/api/v1/p1-dispatches/{dispatch_id}/responses",
-            post(respond_dispatch),
-        )
-        .route(
-            "/api/v1/p1-dispatches/{dispatch_id}/force-assign",
-            post(force_assign),
-        )
+        .route(START_DISPATCH_PATH_TEMPLATE, post(start_dispatch))
+        .route(P1_DISPATCH_PATH_TEMPLATE, get(get_dispatch))
+        .route(P1_DISPATCH_RESPONSES_PATH_TEMPLATE, post(respond_dispatch))
+        .route(P1_DISPATCH_FORCE_ASSIGN_PATH_TEMPLATE, post(force_assign))
         .with_state(state);
     mnt_platform_request_context::with_request_context(router, verifier, pool)
 }

@@ -28,5 +28,45 @@ services:
     cpus: 0.25
     restart: unless-stopped
 
+  # DEV-ONLY: keep the local Postgres WAL archive volume bounded across repeated
+  # `npm run dev:up`/`dev:down` cycles. This intentionally lives outside
+  # ops/compose.yml and outside archive_command so a pruning failure cannot make
+  # Postgres WAL archiving fail, and production-like PITR/off-VM retention stays
+  # owned by ops/backup + ops/dr policy instead.
+  postgres-wal-archive-pruner:
+    image: postgres:18.4@sha256:65f70a152846cf504dff86e807007e9aeac98c3aeb7b62541b2c55ab9d264e56
+    user: postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
+    entrypoint:
+      - bash
+      - /usr/local/bin/mnt-dev-wal-archive-prune
+    volumes:
+      - postgres-wal-archive:/wal-archive
+      - ./dev/wal-archive-prune.sh:/usr/local/bin/mnt-dev-wal-archive-prune:ro
+    environment:
+      # Default policy: prune dev archived WAL older than 72h and cap retained
+      # matching archive files at 1 GiB, while preserving the newest 8 files as a
+      # local PITR safety margin. Set either bound to `off`/`0` only for a local
+      # PITR drill where older WAL must be retained temporarily.
+      MNT_DEV_WAL_ARCHIVE_RETENTION_HOURS: ${MNT_DEV_WAL_ARCHIVE_RETENTION_HOURS:-72}
+      MNT_DEV_WAL_ARCHIVE_MAX_BYTES: ${MNT_DEV_WAL_ARCHIVE_MAX_BYTES:-1073741824}
+      MNT_DEV_WAL_ARCHIVE_MIN_SEGMENTS: ${MNT_DEV_WAL_ARCHIVE_MIN_SEGMENTS:-8}
+      MNT_DEV_WAL_ARCHIVE_PRUNE_INTERVAL_SECONDS: ${MNT_DEV_WAL_ARCHIVE_PRUNE_INTERVAL_SECONDS:-300}
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "test -d /wal-archive && test -r /usr/local/bin/mnt-dev-wal-archive-prune",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    mem_limit: 64m
+    cpus: 0.1
+    restart: unless-stopped
+
 volumes:
   mailpit-data:

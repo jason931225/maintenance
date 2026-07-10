@@ -35,8 +35,8 @@ import kotlinx.serialization.Contextual
  * @param province
  * @param city
  * @param postalCode
- * @param latitude
- * @param longitude
+ * @param latitude Nullable admin-authored WGS84 latitude in degrees. Include with longitude to set or clear the pair.
+ * @param longitude Nullable admin-authored WGS84 longitude in degrees. Include with latitude to set or clear the pair.
  * @param geofenceRadiusM Per-site geofence radius in metres (> 0, ≤ 100000). Null clears the override so the system default (300 m) applies.
  * @param contactName On-site representative contact name (담당자명). Null clears it.
  * @param contactPhone On-site contact phone (연락처). Null clears it.
@@ -58,9 +58,11 @@ data class UpdateSiteRequest (
     @SerialName(value = "postal_code")
     val postalCode: kotlin.String? = null,
 
+    /* Nullable admin-authored WGS84 latitude in degrees. Include with longitude to set or clear the pair. */
     @SerialName(value = "latitude")
     val latitude: kotlin.Double? = null,
 
+    /* Nullable admin-authored WGS84 longitude in degrees. Include with latitude to set or clear the pair. */
     @SerialName(value = "longitude")
     val longitude: kotlin.Double? = null,
 

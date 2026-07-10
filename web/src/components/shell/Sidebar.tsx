@@ -1,4 +1,4 @@
-import { ChevronsLeft, ChevronsRight, PanelsTopLeft } from "lucide-react";
+import { ChevronsLeft, ChevronsRight } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { NavLink } from "react-router-dom";
 
@@ -212,13 +212,14 @@ export function Sidebar({
           "lg:static lg:translate-x-0 lg:z-auto",
         )}
       >
-        {/* Brand */}
+        {/* Brand — DS letter mark: rounded brand-amber square + bold "C" (no logo asset). */}
         <div className="flex h-14 items-center gap-3 px-4 border-b border-line shrink-0">
-          <PanelsTopLeft
-            size={20}
-            className="text-ink shrink-0"
+          <span
             aria-hidden="true"
-          />
+            className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-signal text-base font-black text-ink"
+          >
+            C
+          </span>
           {!collapsed && (
             <span className="font-bold text-ink truncate">
               {ko.shell.title}
@@ -254,8 +255,9 @@ export function Sidebar({
                       className={({ isActive }) =>
                         cn(
                           "relative flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
+                          // Active-nav brand accent (DS: amber active accents), via tokens.
                           isActive
-                            ? "bg-muted-panel text-ink font-semibold"
+                            ? "bg-muted-panel text-ink font-semibold before:absolute before:inset-y-1.5 before:left-0 before:w-0.5 before:rounded-full before:bg-signal before:content-['']"
                             : "text-steel hover:bg-muted-panel hover:text-ink",
                         )
                       }

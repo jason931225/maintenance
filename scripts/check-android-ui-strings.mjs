@@ -3,7 +3,10 @@ import { join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
-const uiRoot = join(repoRoot, "android/app/src/main/kotlin/com/maintenance/field/ui");
+const sourceRoots = [
+  join(repoRoot, "android/app/src/main/kotlin/com/maintenance/field/ui"),
+  join(repoRoot, "android/app/src/main/kotlin/com/maintenance/field/data/messenger"),
+];
 const stringsPath = join(repoRoot, "android/app/src/main/res/values/strings.xml");
 const kotlinStringLiteral = /"""[\s\S]*?"""|"(?:\\.|[^"\\])*"/g;
 const hangul = /[\u3131-\uD79D]/;
@@ -54,7 +57,7 @@ function isUiTextLiteral(content, literalStart) {
 }
 
 const stringKeys = parseAndroidStringKeys(await readFile(stringsPath, "utf8"));
-const files = await collectKotlinFiles(uiRoot);
+const files = (await Promise.all(sourceRoots.map(collectKotlinFiles))).flat();
 const violations = [];
 
 for (const file of files) {
@@ -88,4 +91,4 @@ if (violations.length > 0) {
   process.exit(1);
 }
 
-console.log(`Checked ${files.length} Android Compose source files against ${stringKeys.size} string keys.`);
+console.log(`Checked ${files.length} Android Kotlin source files against ${stringKeys.size} string keys.`);

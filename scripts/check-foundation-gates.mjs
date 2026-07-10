@@ -33,6 +33,16 @@ function requireIncludes(path, needle, label) {
   }
 }
 
+function requireIncludesAtLeast(path, needle, minimumCount, label) {
+  const text = read(path);
+  const count = text.split(needle).length - 1;
+  if (count >= minimumCount) {
+    passes.push(`${label}: ${count} occurrences`);
+  } else {
+    failures.push(`${label}: ${path} must include ${JSON.stringify(needle)} at least ${minimumCount} times (found ${count})`);
+  }
+}
+
 function requireNotIncludes(path, needle, label) {
   const text = read(path);
   if (!text.includes(needle)) {
@@ -49,6 +59,148 @@ function requireAny(path, needles, label) {
   } else {
     failures.push(`${label}: ${path} must include one of ${needles.map((needle) => JSON.stringify(needle)).join(", ")}`);
   }
+}
+
+function uniqueSorted(values) {
+  return [...new Set(values)].sort((a, b) => a.localeCompare(b));
+}
+
+function markdownCodeListUnderHeading(path, heading) {
+  const lines = read(path).split(/\r?\n/);
+  const headingLine = `### ${heading}`;
+  const start = lines.findIndex((line) => line.trim() === headingLine);
+  if (start === -1) {
+    failures.push(`${path}: missing heading ${headingLine}`);
+    return [];
+  }
+
+  const entries = [];
+  for (const line of lines.slice(start + 1)) {
+    if (/^#{2,3}\s+/.test(line)) {
+      break;
+    }
+    const match = line.match(/^\s*-\s+`([^`]+)`/);
+    if (match) {
+      entries.push(match[1]);
+    }
+  }
+
+  if (entries.length === 0) {
+    failures.push(`${path}: ${headingLine} must contain a markdown bullet list of backticked entries`);
+  }
+  return uniqueSorted(entries);
+}
+
+function compareInventory(label, documented, actual, docsPath, sourcePath) {
+  const missing = actual.filter((entry) => !documented.includes(entry));
+  const stale = documented.filter((entry) => !actual.includes(entry));
+
+  if (missing.length > 0 || stale.length > 0) {
+    const details = [];
+    if (missing.length > 0) {
+      details.push(`missing from ${docsPath}: ${missing.join(", ")}`);
+    }
+    if (stale.length > 0) {
+      details.push(`documented but not found in ${sourcePath}: ${stale.join(", ")}`);
+    }
+    failures.push(`${label} drift: ${details.join("; ")}`);
+  } else {
+    passes.push(`${label} inventory matches ${sourcePath}`);
+  }
+}
+
+function extractCiBackendGatePackages(ciText) {
+  return uniqueSorted(
+    [...ciText.matchAll(/\bcargo\s+run(?:\s+-q)?\s+-p\s+(mnt-gate-[a-z0-9-]+)/g)].map(
+      ([, gatePackage]) => gatePackage,
+    ),
+  );
+}
+
+function extractCiNpmRunInvocations(ciText) {
+  const invocations = [];
+  for (const line of ciText.split(/\r?\n/)) {
+    for (const match of line.matchAll(/\bnpm\s+run\s+([^\s&|;]+)([^&|;]*)/g)) {
+      invocations.push({
+        script: match[1].replace(/^['"]|['"]$/g, ""),
+        options: match[2] ?? "",
+      });
+    }
+  }
+  return invocations;
+}
+
+function requireNoMissingPackageScripts(label, scripts, packageJson, packagePath, displayName = (script) => script) {
+  const missing = scripts.filter((script) => !Object.hasOwn(packageJson.scripts ?? {}, script));
+  if (missing.length > 0) {
+    failures.push(`${label}: ${packagePath} is missing scripts used by CI: ${missing.map(displayName).join(", ")}`);
+  } else {
+    passes.push(`${label}: all CI-run package scripts exist in ${packagePath}`);
+  }
+}
+
+function requireCiGateDocsDriftInventory() {
+  const docsPath = "docs/CI-GATES.md";
+  const ciPath = ".github/workflows/ci.yml";
+  const rootPackagePath = "package.json";
+  const webPackagePath = "web/package.json";
+
+  const docs = read(docsPath);
+  const ci = read(ciPath);
+  const rootPackage = JSON.parse(read(rootPackagePath));
+  const webPackage = JSON.parse(read(webPackagePath));
+  const npmInvocations = extractCiNpmRunInvocations(ci);
+
+  const backendGatePackages = extractCiBackendGatePackages(ci);
+  const rootScripts = uniqueSorted(
+    npmInvocations
+      .filter(({ options }) => !/\s--workspace\s+/.test(options))
+      .map(({ script }) => script),
+  );
+  const webScripts = uniqueSorted(
+    npmInvocations
+      .filter(({ options }) => /\s--workspace\s+(?:web|@maintenance\/web-console)\b/.test(options))
+      .map(({ script }) => script),
+  );
+  const unknownWorkspaceInvocations = npmInvocations
+    .filter(({ options }) => /\s--workspace\s+/.test(options))
+    .filter(({ options }) => !/\s--workspace\s+(?:web|@maintenance\/web-console)\b/.test(options));
+
+  if (!docs.includes("check:foundation-gates") || !docs.includes(".github/workflows/ci.yml")) {
+    failures.push(`${docsPath}: CI drift inventory must name check:foundation-gates and .github/workflows/ci.yml as the source of truth`);
+  }
+  if (unknownWorkspaceInvocations.length > 0) {
+    failures.push(
+      `${ciPath}: npm workspace scripts are not covered by docs/CI-GATES.md drift policy: ${unknownWorkspaceInvocations
+        .map(({ script, options }) => `${script}${options.trim() ? ` ${options.trim()}` : ""}`)
+        .join(", ")}`,
+    );
+  }
+
+  requireNoMissingPackageScripts("root CI package scripts", rootScripts, rootPackage, rootPackagePath);
+  requireNoMissingPackageScripts("web-console CI package scripts", webScripts, webPackage, webPackagePath, (script) => `web:${script}`);
+
+  compareInventory(
+    "docs/CI-GATES.md backend mnt-gate binaries run by CI",
+    markdownCodeListUnderHeading(docsPath, "Backend mnt-gate binaries run by CI"),
+    backendGatePackages,
+    docsPath,
+    ciPath,
+  );
+  compareInventory(
+    "docs/CI-GATES.md root package scripts run by CI",
+    markdownCodeListUnderHeading(docsPath, "Root package scripts run by CI"),
+    rootScripts,
+    docsPath,
+    `${ciPath} + ${rootPackagePath}`,
+  );
+  compareInventory(
+    "docs/CI-GATES.md web console package scripts run by CI",
+    markdownCodeListUnderHeading(docsPath, "Web console package scripts run by CI"),
+    webScripts.map((script) => `web:${script}`),
+    docsPath,
+    `${ciPath} + ${webPackagePath}`,
+  );
 }
 
 function requireScript(name) {
@@ -79,14 +231,8 @@ for (const staleGoal of ["G011", "G012", "G013", "G014", "G015", "G016", "G017",
 }
 
 // Policy/audit/passkey baseline.
-for (const gate of [
-  "layer-boundary",
-  "audit-coverage",
-  "migration-safety",
-  "tenant-isolation",
-  "pii-no-logs",
-  "rls-arming",
-]) {
+for (const gatePackage of extractCiBackendGatePackages(read(".github/workflows/ci.yml"))) {
+  const gate = gatePackage.replace(/^mnt-gate-/, "");
   requireFile(`backend/ci/gates/${gate}/Cargo.toml`, `backend ${gate} gate`);
 }
 requireIncludes("backend/openapi/openapi.yaml", "Sensitive actions require a fresh passkey step-up assertion", "object action passkey step-up contract");
@@ -99,6 +245,8 @@ requireIncludes("backend/openapi/openapi.yaml", "Append-only Policy Studio audit
 requireScript("check:foundation-gates");
 requireIncludes(".github/workflows/ci.yml", "npm run check:foundation-gates", "CI runs foundation gate contract");
 requireIncludes(".github/workflows/ci.yml", "docs/specs/**", "CI watches docs/specs gate inputs");
+requireIncludesAtLeast(".github/workflows/ci.yml", '"docs/CI-GATES.md"', 2, "CI watches CI gate documentation for push and pull_request");
+requireCiGateDocsDriftInventory();
 for (const ciNeedle of [
   "cargo fmt --all -- --check",
   "cargo clippy --all-targets -- -D warnings",

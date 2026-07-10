@@ -1,11 +1,12 @@
 import { Monitor, QrCode } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
+import { visibleNavItemsForRoles } from "../components/shell/nav";
 import { EnrollHandoffQr } from "../features/auth/EnrollHandoffQr";
-import { useAuth } from "../context/auth";
+import { useAuth, type AuthSession } from "../context/auth";
 import { ko } from "../i18n/ko";
 import {
   acceptPrivacyConsent,
@@ -17,6 +18,40 @@ import {
 
 const FALLBACK_PRIVACY_TERMS_VERSION = "kr-pipa-v1-2026-06-25";
 const DESKTOP_APPROVE_SESSION_KEY = "mnt.desktop_approve";
+
+function onboardingDestination(session: AuthSession | undefined): string {
+  if (session?.isPlatform) return "/platform";
+  return (
+    visibleNavItemsForRoles(
+      session?.roles,
+      session?.group_roles,
+      session?.feature_grants,
+    ).find((item) => item.key !== "profile")?.href ?? "/pending"
+  );
+}
+
+const privacyConsentSections = [
+  {
+    key: "purpose",
+    title: ko.onboarding.privacy.purposeTitle,
+    body: ko.onboarding.privacy.purpose,
+  },
+  {
+    key: "items",
+    title: ko.onboarding.privacy.itemsTitle,
+    body: ko.onboarding.privacy.items,
+  },
+  {
+    key: "retention",
+    title: ko.onboarding.privacy.retentionTitle,
+    body: ko.onboarding.privacy.retention,
+  },
+  {
+    key: "refusal",
+    title: ko.onboarding.privacy.refusalTitle,
+    body: ko.onboarding.privacy.refusal,
+  },
+] as const;
 
 function safeDeviceApproveToken(raw: string | null): string | undefined {
   if (!raw) return undefined;
@@ -39,7 +74,7 @@ function safeDeviceApproveToken(raw: string | null): string | undefined {
  *      passkey there. Works with NO Bluetooth.
  */
 export function OnboardingPage() {
-  const { api, logout, acceptTokens, clearPasskeySetup } = useAuth();
+  const { api, logout, acceptTokens, clearPasskeySetup, session } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [desktopApproveToken] = useState(() =>
@@ -61,6 +96,7 @@ export function OnboardingPage() {
   );
   const [pending, setPending] = useState(false);
   const [showQr, setShowQr] = useState(false);
+  const handoffRedirectTokenRef = useRef<string | undefined>(undefined);
   const [error, setError] = useState<string | undefined>(undefined);
 
   const loadConsentStatus = useCallback(async () => {
@@ -122,7 +158,7 @@ export function OnboardingPage() {
       await finishPasskeyRegistration(api, ceremony);
       await approveDesktopIfNeeded();
       clearPasskeySetup();
-      void navigate("/work-hub", { replace: true });
+      void navigate(onboardingDestination(session), { replace: true });
     } catch (cause) {
       const cancelled =
         cause instanceof DOMException &&
@@ -137,17 +173,31 @@ export function OnboardingPage() {
 
   const handlePhoneQrCompleted = useCallback(
     (accessToken?: string) => {
-      if (accessToken) {
-        acceptTokens({
-          access_token: accessToken,
-          requires_passkey_setup: false,
-        });
+      if (!accessToken) {
+        clearPasskeySetup();
+        void navigate(onboardingDestination(session), { replace: true });
+        return;
       }
+
+      acceptTokens({
+        access_token: accessToken,
+        requires_passkey_setup: false,
+      });
       clearPasskeySetup();
-      void navigate("/work-hub", { replace: true });
+      handoffRedirectTokenRef.current = accessToken;
     },
-    [acceptTokens, clearPasskeySetup, navigate],
+    [acceptTokens, clearPasskeySetup, navigate, session],
   );
+
+  useEffect(() => {
+    const redirectToken = handoffRedirectTokenRef.current;
+    if (!redirectToken || session?.access_token !== redirectToken) {
+      return;
+    }
+    handoffRedirectTokenRef.current = undefined;
+    clearPasskeySetup();
+    void navigate(onboardingDestination(session), { replace: true });
+  }, [clearPasskeySetup, navigate, session]);
 
   const busy = pending || consentLoading || consentPending;
   const canAcceptConsent = privacyChecked && termsChecked && !consentPending;
@@ -156,68 +206,52 @@ export function OnboardingPage() {
     <div className="flex min-h-screen flex-col items-center justify-center bg-muted-panel px-4 py-12">
       <div className="grid w-full max-w-md gap-6">
         <Card className="grid gap-5 p-6">
-          <div className="grid gap-1">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <h1 className="text-xl font-semibold text-ink">
               {ko.onboarding.title}
             </h1>
-            <p className="text-sm text-steel">{ko.onboarding.subtitle}</p>
+            <div className="flex flex-wrap gap-2" aria-hidden="true">
+              <span className="rounded-full border border-brand-teal/20 bg-brand-teal/5 px-2 py-1 text-xs font-semibold text-brand-teal">
+                {ko.onboarding.privacy.title}
+              </span>
+              <span className="rounded-full border border-line bg-muted-panel px-2 py-1 text-xs font-semibold text-steel">
+                {ko.onboarding.title}
+              </span>
+            </div>
           </div>
 
           {!consentAccepted ? (
             <div className="grid gap-4">
-              <div className="rounded-lg border border-line bg-muted-panel p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
                 <h2 className="text-base font-semibold text-ink">
                   {ko.onboarding.privacy.title}
                 </h2>
-                <p className="mt-2 text-sm leading-6 text-steel">
-                  {ko.onboarding.privacy.intro}
-                </p>
-                <dl className="mt-4 grid gap-3 text-sm">
-                  <div>
-                    <dt className="font-semibold text-ink">
-                      {ko.onboarding.privacy.purposeTitle}
-                    </dt>
-                    <dd className="mt-1 text-steel">
-                      {ko.onboarding.privacy.purpose}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="font-semibold text-ink">
-                      {ko.onboarding.privacy.itemsTitle}
-                    </dt>
-                    <dd className="mt-1 text-steel">
-                      {ko.onboarding.privacy.items}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="font-semibold text-ink">
-                      {ko.onboarding.privacy.retentionTitle}
-                    </dt>
-                    <dd className="mt-1 text-steel">
-                      {ko.onboarding.privacy.retention}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="font-semibold text-ink">
-                      {ko.onboarding.privacy.refusalTitle}
-                    </dt>
-                    <dd className="mt-1 text-steel">
-                      {ko.onboarding.privacy.refusal}
-                    </dd>
-                  </div>
-                </dl>
-                <p className="mt-4 rounded border border-line bg-white p-3 text-xs leading-5 text-steel">
-                  {ko.onboarding.privacy.optionalNote}
-                </p>
+                <span className="rounded-full border border-line bg-muted-panel px-2 py-1 text-xs font-semibold text-steel">
+                  {consentLoading
+                    ? ko.onboarding.privacy.loading
+                    : ko.onboarding.privacy.submit}
+                </span>
               </div>
 
+              <dl className="grid gap-3 rounded-lg border border-line bg-muted-panel p-4 text-sm">
+                {privacyConsentSections.map((section) => (
+                  <div key={section.key}>
+                    <dt className="font-semibold text-ink">{section.title}</dt>
+                    <dd className="mt-1 leading-6 text-steel">{section.body}</dd>
+                  </div>
+                ))}
+              </dl>
+
               {consentLoading ? (
-                <p className="text-sm text-steel">
+                <p
+                  role="status"
+                  className="justify-self-start rounded-full border border-line bg-muted-panel px-2 py-1 text-xs font-semibold text-steel"
+                >
                   {ko.onboarding.privacy.loading}
                 </p>
               ) : (
                 <>
-                  <label className="flex items-start gap-3 rounded-lg border border-line bg-white p-3 text-sm text-ink">
+                  <label className="flex items-center gap-3 rounded-lg border border-line bg-white p-3 text-sm font-medium text-ink transition hover:border-steel hover:bg-muted-panel">
                     <input
                       type="checkbox"
                       checked={privacyChecked}
@@ -228,7 +262,7 @@ export function OnboardingPage() {
                     />
                     <span>{ko.onboarding.privacy.privacyCheckbox}</span>
                   </label>
-                  <label className="flex items-start gap-3 rounded-lg border border-line bg-white p-3 text-sm text-ink">
+                  <label className="flex items-center gap-3 rounded-lg border border-line bg-white p-3 text-sm font-medium text-ink transition hover:border-steel hover:bg-muted-panel">
                     <input
                       type="checkbox"
                       checked={termsChecked}
@@ -271,27 +305,25 @@ export function OnboardingPage() {
               <button
                 type="button"
                 disabled={busy}
+                aria-label={
+                  pending
+                    ? ko.onboarding.enrolling
+                    : ko.onboarding.methods.desktop.title
+                }
                 onClick={() => {
                   void enrollThisDevice();
                 }}
-                className="flex items-start gap-3 rounded-lg border border-line bg-white p-4 text-left transition hover:border-steel hover:bg-muted-panel focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-60"
+                className="flex min-h-14 items-center gap-3 rounded-lg border border-line bg-white p-4 text-left transition hover:border-steel hover:bg-muted-panel focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <Monitor
                   aria-hidden="true"
                   size={22}
-                  className="mt-0.5 shrink-0 text-steel"
+                  className="shrink-0 text-steel"
                 />
-                <span className="grid gap-0.5">
-                  <span className="text-sm font-semibold text-ink">
-                    {pending
-                      ? ko.onboarding.enrolling
-                      : ko.onboarding.methods.desktop.title}
-                  </span>
-                  <span className="text-sm text-steel">
-                    {pending
-                      ? ko.onboarding.enrollingHint
-                      : ko.onboarding.methods.desktop.description}
-                  </span>
+                <span className="text-sm font-semibold text-ink">
+                  {pending
+                    ? ko.onboarding.enrolling
+                    : ko.onboarding.methods.desktop.title}
                 </span>
               </button>
 
@@ -299,24 +331,20 @@ export function OnboardingPage() {
                 type="button"
                 disabled={busy}
                 aria-expanded={showQr}
+                aria-label={ko.onboarding.methods.phoneQr.title}
                 onClick={() => {
                   setError(undefined);
                   setShowQr((open) => !open);
                 }}
-                className="flex items-start gap-3 rounded-lg border border-line bg-white p-4 text-left transition hover:border-steel hover:bg-muted-panel focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-60"
+                className="flex min-h-14 items-center gap-3 rounded-lg border border-line bg-white p-4 text-left transition hover:border-steel hover:bg-muted-panel focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-60"
               >
                 <QrCode
                   aria-hidden="true"
                   size={22}
-                  className="mt-0.5 shrink-0 text-steel"
+                  className="shrink-0 text-steel"
                 />
-                <span className="grid gap-0.5">
-                  <span className="text-sm font-semibold text-ink">
-                    {ko.onboarding.methods.phoneQr.title}
-                  </span>
-                  <span className="text-sm text-steel">
-                    {ko.onboarding.methods.phoneQr.description}
-                  </span>
+                <span className="text-sm font-semibold text-ink">
+                  {ko.onboarding.methods.phoneQr.title}
                 </span>
               </button>
 

@@ -51,6 +51,7 @@ async fn messenger_rest_polling_send_read_and_search_are_authorized(pool: PgPool
                 branch_scope: BranchScope::single(branch_id),
                 branch_id,
                 kind: ThreadKind::Team,
+                visibility: None,
                 title: Some("정비팀".to_owned()),
                 work_order_id: None,
                 member_ids: vec![sender, recipient],
@@ -170,6 +171,189 @@ async fn messenger_rest_polling_send_read_and_search_are_authorized(pool: PgPool
         let search = get_json(service, "/api/messenger/search?q=누유&limit=10", &token).await;
         assert_eq!(search.status, StatusCode::OK, "{:?}", search.json);
         assert_eq!(search.json["items"][0]["id"], message_id);
+    })
+    .await;
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn messenger_rest_exposes_channel_ack_presence_quote_and_mute_parity(pool: PgPool) {
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let signing_key = SigningKey::random(&mut OsRng);
+        let private_pem = signing_key.to_pkcs8_pem(LineEnding::LF).unwrap();
+        let public_key_pem = signing_key
+            .verifying_key()
+            .to_public_key_pem(LineEnding::LF)
+            .unwrap();
+        let branch_id =
+            seed_branch(&pool, "Messenger Parity Region", "Messenger Parity Branch").await;
+        let sender = UserId::new();
+        let recipient = UserId::new();
+        seed_user_with_branch(&pool, sender, "MECHANIC", branch_id).await;
+        seed_user_with_branch(&pool, recipient, "ADMIN", branch_id).await;
+        let token = issue_token(
+            private_pem.as_bytes(),
+            public_key_pem.as_bytes(),
+            sender,
+            vec!["MECHANIC".to_owned()],
+            vec![branch_id],
+        )
+        .unwrap();
+        let verifier = JwtVerifier::from_es256_public_pem(
+            JwtSettings {
+                issuer: TEST_ISSUER.to_owned(),
+                audience: TEST_AUDIENCE.to_owned(),
+                access_token_ttl: Duration::minutes(15),
+            },
+            public_key_pem.as_bytes(),
+        )
+        .unwrap();
+        let service = router(MessengerRestState::new(
+            PgMessengerStore::new(pool.clone()),
+            Some(verifier),
+        ));
+
+        let channel = post_json(
+            service.clone(),
+            "/api/messenger/threads",
+            &token,
+            json!({
+                "branch_id": branch_id,
+                "kind": "team",
+                "visibility": "channel",
+                "title": "배차 관제",
+                "member_ids": [sender],
+            }),
+        )
+        .await;
+        assert_eq!(channel.status, StatusCode::CREATED, "{:?}", channel.json);
+        assert_eq!(channel.json["visibility"], "channel");
+        assert_eq!(channel.json["muted"], false);
+        let channel_id = channel.json["id"].as_str().unwrap().to_owned();
+
+        let direct = post_json(
+            service.clone(),
+            "/api/messenger/threads",
+            &token,
+            json!({
+                "branch_id": branch_id,
+                "kind": "dm",
+                "member_ids": [recipient],
+            }),
+        )
+        .await;
+        assert_eq!(direct.status, StatusCode::CREATED, "{:?}", direct.json);
+        assert_eq!(direct.json["visibility"], "direct");
+
+        let channels = get_json(service.clone(), "/api/messenger/channels?limit=10", &token).await;
+        assert_eq!(channels.status, StatusCode::OK, "{:?}", channels.json);
+        assert!(
+            channels.json["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|item| item["id"] == channel_id && item["visibility"] == "channel"),
+            "{:?}",
+            channels.json
+        );
+
+        let joined = post_json(
+            service.clone(),
+            &format!("/api/messenger/threads/{channel_id}/join"),
+            &token,
+            json!({}),
+        )
+        .await;
+        assert_eq!(joined.status, StatusCode::OK, "{:?}", joined.json);
+        assert_eq!(joined.json["id"], channel_id);
+
+        let base = post_json(
+            service.clone(),
+            &format!("/api/messenger/threads/{channel_id}/messages"),
+            &token,
+            json!({ "body": "WO-2643 배차 확인 부탁" }),
+        )
+        .await;
+        assert_eq!(base.status, StatusCode::CREATED, "{:?}", base.json);
+        assert_eq!(base.json["ack_count"], 0);
+        assert_eq!(base.json["acked_by_me"], false);
+        let base_id = base.json["id"].as_str().unwrap().to_owned();
+
+        let quote = post_json(
+            service.clone(),
+            &format!("/api/messenger/threads/{channel_id}/messages"),
+            &token,
+            json!({ "body": "확인했습니다", "quoted_message_id": base_id }),
+        )
+        .await;
+        assert_eq!(quote.status, StatusCode::CREATED, "{:?}", quote.json);
+        assert_eq!(quote.json["quoted_message_id"], base_id);
+        assert_eq!(quote.json["quoted_body"], "WO-2643 배차 확인 부탁");
+
+        let ack = post_json(
+            service.clone(),
+            &format!("/api/messenger/messages/{base_id}/ack"),
+            &token,
+            json!({}),
+        )
+        .await;
+        assert_eq!(ack.status, StatusCode::OK, "{:?}", ack.json);
+        assert_eq!(ack.json["acked"], true);
+        assert_eq!(ack.json["ack_count"], 1);
+
+        let page = get_json(
+            service.clone(),
+            &format!("/api/messenger/threads/{channel_id}/messages?limit=20"),
+            &token,
+        )
+        .await;
+        assert_eq!(page.status, StatusCode::OK, "{:?}", page.json);
+        let base_message = page.json["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|message| message["id"] == base_id)
+            .unwrap();
+        assert_eq!(base_message["ack_count"], 1);
+        assert_eq!(base_message["acked_by_me"], true);
+
+        let presence = get_json(
+            service.clone(),
+            &format!("/api/messenger/threads/{channel_id}/presence"),
+            &token,
+        )
+        .await;
+        assert_eq!(presence.status, StatusCode::OK, "{:?}", presence.json);
+        assert!(
+            presence.json["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|item| item["user_id"] == sender.to_string() && item["status"] == "online"),
+            "{:?}",
+            presence.json
+        );
+
+        let mute = put_json(
+            service.clone(),
+            &format!("/api/messenger/threads/{channel_id}/mute"),
+            &token,
+            json!({ "muted": true }),
+        )
+        .await;
+        assert_eq!(mute.status, StatusCode::OK, "{:?}", mute.json);
+        assert_eq!(mute.json["muted"], true);
+
+        let threads = get_json(service, "/api/messenger/threads?limit=10", &token).await;
+        assert_eq!(threads.status, StatusCode::OK, "{:?}", threads.json);
+        assert!(
+            threads.json["items"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|item| item["id"] == channel_id && item["muted"] == true),
+            "{:?}",
+            threads.json
+        );
     })
     .await;
 }

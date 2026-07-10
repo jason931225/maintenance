@@ -1,5 +1,5 @@
 {
-  "name": "@maintenance/web-console",
+  "name": "@console/web",
   "version": "0.1.41",
   "private": true,
   "type": "module",
@@ -7,7 +7,7 @@
     "dev": "vite --host localhost",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "lint": "eslint . --max-warnings 0 && node scripts/check-ui-strings.mjs",
+    "lint": "eslint . --max-warnings 0 && node scripts/check-ui-strings.mjs && node scripts/check-console-purity.mjs",
     "test": "vitest run"
   },
   "dependencies": {

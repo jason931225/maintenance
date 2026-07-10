@@ -1120,6 +1120,7 @@ fn message_select_builder() -> QueryBuilder<Postgres> {
     QueryBuilder::<Postgres>::new(
         r#"
         SELECT m.id, m.thread_id, m.branch_id, m.sender_id, m.body,
+               m.quoted_message_id,
                m.sent_at, m.created_at, sender.display_name AS sender_name,
                COALESCE(
                    array_agg(a.evidence_id ORDER BY a.sort_order)
@@ -1130,7 +1131,23 @@ fn message_select_builder() -> QueryBuilder<Postgres> {
                COUNT(DISTINCT tm_read_target.user_id) FILTER (
                    WHERE read_receipt_message.id IS NOT NULL
                      AND (read_receipt_message.sent_at, read_receipt_message.id) >= (m.sent_at, m.id)
-               )::BIGINT AS read_count
+               )::BIGINT AS read_count,
+               (
+                   SELECT COUNT(*)::BIGINT
+                   FROM messenger_message_acks ma
+                   WHERE ma.message_id = m.id
+               ) AS ack_count,
+               (
+                   SELECT qm.body
+                   FROM messenger_messages qm
+                   WHERE qm.id = m.quoted_message_id
+               ) AS quoted_body,
+               (
+                   SELECT qs.display_name
+                   FROM messenger_messages qm2
+                   LEFT JOIN users qs ON qs.id = qm2.sender_id
+                   WHERE qm2.id = m.quoted_message_id
+               ) AS quoted_sender_name
         FROM messenger_messages m
         LEFT JOIN messenger_message_attachments a ON a.message_id = m.id
         LEFT JOIN messenger_thread_members tm_read_target
@@ -1159,6 +1176,16 @@ fn message_summary_from_row(row: &sqlx::postgres::PgRow) -> Result<MessageSummar
         body: row.try_get("body")?,
         read_count: row.try_get("read_count")?,
         read_target_count: row.try_get("read_target_count")?,
+        ack_count: row.try_get("ack_count")?,
+        // ponytail: the realtime fan-out payload has no per-recipient actor
+        // (it broadcasts one row to a channel), so per-user ack state is left
+        // false and the receiving client derives it from its own ack store.
+        acked_by_me: false,
+        quoted_message_id: row
+            .try_get::<Option<uuid::Uuid>, _>("quoted_message_id")?
+            .map(MessageId::from_uuid),
+        quoted_body: row.try_get("quoted_body")?,
+        quoted_sender_name: row.try_get("quoted_sender_name")?,
         attachment_evidence_ids: attachment_ids
             .into_iter()
             .map(mnt_kernel_core::EvidenceId::from_uuid)

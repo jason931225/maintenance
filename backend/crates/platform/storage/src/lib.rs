@@ -6,6 +6,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 use std::future::Future;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::time::Duration as StdDuration;
 
@@ -2146,7 +2147,6 @@ impl MediaProcessor for FfmpegMediaProcessor {
             let thumbnail_bytes = tokio::fs::read(&thumb)
                 .await
                 .map_err(|err| StorageError::Processing(format!("read thumbnail: {err}")))?;
-            let _ = tokio::fs::remove_dir_all(&dir).await;
 
             let content_type = match kind {
                 MediaKind::Image => "image/jpeg",
@@ -2161,15 +2161,83 @@ impl MediaProcessor for FfmpegMediaProcessor {
     }
 }
 
-fn tempdir_in_runtime() -> Result<std::path::PathBuf, StorageError> {
-    let base = std::env::temp_dir();
-    let dir = base.join(format!("mnt-evidence-{}", uuid::Uuid::new_v4()));
-    std::fs::create_dir_all(&dir)
-        .map_err(|err| StorageError::Processing(format!("create temp dir: {err}")))?;
-    Ok(dir)
+#[derive(Debug)]
+struct ProcessingTempDir {
+    path: PathBuf,
 }
 
-fn path_str(path: &std::path::Path) -> Result<String, StorageError> {
+impl ProcessingTempDir {
+    fn new(path: PathBuf) -> Self {
+        Self { path }
+    }
+
+    #[cfg(test)]
+    fn path(&self) -> &Path {
+        &self.path
+    }
+
+    fn join(&self, child: impl AsRef<Path>) -> PathBuf {
+        self.path.join(child)
+    }
+}
+
+impl Drop for ProcessingTempDir {
+    fn drop(&mut self) {
+        match std::fs::remove_dir_all(&self.path) {
+            Ok(()) => {}
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+            Err(err) => {
+                // Do not include the temp path in logs: evidence media may be
+                // tenant/user sensitive, and cleanup observability must not add
+                // a new PII leak. The original processing result remains primary.
+                tracing::warn!(
+                    error = %err,
+                    "failed to remove ffmpeg media-processing temp directory"
+                );
+            }
+        }
+    }
+}
+
+fn tempdir_in_runtime() -> Result<ProcessingTempDir, StorageError> {
+    let base = std::env::temp_dir();
+    for _ in 0..16 {
+        let dir = base.join(format!("mnt-evidence-{}", uuid::Uuid::new_v4()));
+        match create_private_temp_dir(&dir) {
+            Ok(()) => return Ok(ProcessingTempDir::new(dir)),
+            Err(err) if err.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(err) => {
+                return Err(StorageError::Processing(format!(
+                    "create private temp dir: {err}"
+                )));
+            }
+        }
+    }
+    Err(StorageError::Processing(
+        "create private temp dir: exhausted unique names".to_owned(),
+    ))
+}
+
+#[cfg(unix)]
+fn create_private_temp_dir(path: &Path) -> std::io::Result<()> {
+    use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
+
+    let mut builder = std::fs::DirBuilder::new();
+    builder.mode(0o700);
+    builder.create(path)?;
+    if let Err(err) = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)) {
+        let _ = std::fs::remove_dir(path);
+        return Err(err);
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn create_private_temp_dir(path: &Path) -> std::io::Result<()> {
+    std::fs::DirBuilder::new().create(path)
+}
+
+fn path_str(path: &Path) -> Result<String, StorageError> {
     path.to_str()
         .map(ToOwned::to_owned)
         .ok_or_else(|| StorageError::Processing("non-utf8 temp path".to_owned()))
@@ -3241,6 +3309,39 @@ mod tests {
                 StdDuration::from_secs(FFMPEG_IMAGE_TIMEOUT_SECS)
             );
         }
+    }
+
+    #[test]
+    fn ffmpeg_processing_tempdir_is_private_and_removed_on_drop() {
+        let dir = tempdir_in_runtime().unwrap();
+        let path = dir.path().to_path_buf();
+        assert!(
+            path.is_dir(),
+            "processing tempdir should exist while guard is live"
+        );
+        assert!(
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with("mnt-evidence-")),
+            "processing tempdir should keep the evidence prefix without tenant identifiers"
+        );
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+
+            let mode = std::fs::metadata(&path).unwrap().permissions().mode() & 0o777;
+            assert_eq!(
+                mode, 0o700,
+                "processing tempdir must not be group/world accessible"
+            );
+        }
+
+        drop(dir);
+        assert!(
+            !path.exists(),
+            "processing tempdir should be removed by the guard even when process returns early"
+        );
     }
 
     #[test]

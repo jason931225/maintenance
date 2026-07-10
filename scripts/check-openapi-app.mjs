@@ -4,6 +4,8 @@ import { resolve } from "node:path";
 import { createServer } from "node:net";
 import { fileURLToPath } from "node:url";
 
+import { checkPlatformContractDrift } from "./check-platform-contract-drift.mjs";
+
 const root = fileURLToPath(new URL("..", import.meta.url));
 const backendDir = resolve(root, "backend");
 const port = process.env.OPENAPI_DRIFT_PORT
@@ -14,17 +16,26 @@ if (!Number.isInteger(port) || port <= 0 || port > 65535) {
 }
 const baseUrl = `http://127.0.0.1:${port}`;
 const expected = readFileSync(resolve(root, "backend/openapi/openapi.yaml"), "utf8");
+const cargoEnv = {
+  ...process.env,
+  SQLX_OFFLINE: process.env.SQLX_OFFLINE ?? "true",
+};
+
+const { backendOperations } = checkPlatformContractDrift();
+console.error(
+  `Platform contract drift gate covered ${backendOperations.size} backend operations.`,
+);
 
 await runCommand("cargo", ["build", "-p", "mnt-app"], {
   cwd: backendDir,
-  env: process.env,
+  env: cargoEnv,
   label: "cargo build -p mnt-app",
 });
 
 const child = spawn("cargo", ["run", "-p", "mnt-app", "--quiet"], {
   cwd: backendDir,
   env: {
-    ...process.env,
+    ...cargoEnv,
     MNT_HTTP_ADDR: `127.0.0.1:${port}`,
     MNT_APP_ROLE: "api",
   },

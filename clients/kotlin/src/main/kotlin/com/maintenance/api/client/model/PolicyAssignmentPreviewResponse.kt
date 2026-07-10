@@ -39,6 +39,10 @@ import kotlinx.serialization.Contextual
  * @param previewReceiptExpiresAt
  * @param effective True when the requested saved assignment set contains at least one ACTIVE custom role that will produce runtime-effective feature grants for the target user's live branch scope. DRAFT/RETIRED roles, unsupported conditions, invalid branch values, and reserved elevated/scope-widening features remain fail-closed.
  * @param systemRoles
+ * @param currentSystemRoles System-role set currently persisted on the target before this preview.
+ * @param requestedSystemRoles Replacement system-role set covered by the preview receipt. Defaults to the current system roles when omitted.
+ * @param currentBranchIds Branch membership set currently persisted on the target before this preview.
+ * @param requestedBranchIds Replacement branch membership set covered by the preview receipt. Defaults to the current branch ids when omitted.
  * @param currentRoleIds
  * @param requestedRoleIds
  * @param delta
@@ -65,6 +69,22 @@ data class PolicyAssignmentPreviewResponse (
 
     @SerialName(value = "system_roles")
     val systemRoles: kotlin.collections.List<kotlin.String>,
+
+    /* System-role set currently persisted on the target before this preview. */
+    @SerialName(value = "current_system_roles")
+    val currentSystemRoles: kotlin.collections.List<kotlin.String>,
+
+    /* Replacement system-role set covered by the preview receipt. Defaults to the current system roles when omitted. */
+    @SerialName(value = "requested_system_roles")
+    val requestedSystemRoles: kotlin.collections.List<kotlin.String>,
+
+    /* Branch membership set currently persisted on the target before this preview. */
+    @SerialName(value = "current_branch_ids")
+    val currentBranchIds: kotlin.collections.List<@Contextual java.util.UUID>,
+
+    /* Replacement branch membership set covered by the preview receipt. Defaults to the current branch ids when omitted. */
+    @SerialName(value = "requested_branch_ids")
+    val requestedBranchIds: kotlin.collections.List<@Contextual java.util.UUID>,
 
     @SerialName(value = "current_role_ids")
     val currentRoleIds: kotlin.collections.List<@Contextual java.util.UUID>,

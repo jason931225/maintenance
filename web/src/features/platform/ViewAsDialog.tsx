@@ -8,14 +8,14 @@ import { Select } from "../../components/ui/select";
 import { ko } from "../../i18n/ko";
 
 /** The roles a platform operator may impersonate, highest-privilege first. */
-const VIEW_AS_ROLES: ViewAsRole[] = [
+const VIEW_AS_ROLES = [
   "SUPER_ADMIN",
   "ADMIN",
   "EXECUTIVE",
   "MECHANIC",
   "RECEPTIONIST",
   "MEMBER",
-];
+] as const satisfies readonly ViewAsRole[];
 
 /**
  * Role-picker dialog for starting a read-only "view as" session against one

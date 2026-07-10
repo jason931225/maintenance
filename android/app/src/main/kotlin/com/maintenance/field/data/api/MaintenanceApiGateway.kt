@@ -1,16 +1,20 @@
 package com.maintenance.field.data.api
 
 import com.maintenance.api.client.api.DefaultApi
-import com.maintenance.api.client.model.ApproveWorkOrderRequest
 import com.maintenance.api.client.model.DevicePlatform
 import com.maintenance.api.client.model.ApprovalItemsPage
 import com.maintenance.api.client.model.CalendarEventResponse
 import com.maintenance.api.client.model.MailFolderView
 import com.maintenance.api.client.model.MailThreadReadStateRequest
 import com.maintenance.api.client.model.MailThreadView
+import com.maintenance.api.client.model.MobileApproveWorkOrderRequest
+import com.maintenance.api.client.model.MobilePasskeyStepUpBinding
+import com.maintenance.api.client.model.MobilePasskeyStepUpEnvelope
+import com.maintenance.api.client.model.MobilePasskeyStepUpStartRequest
+import com.maintenance.api.client.model.MobilePasskeyStepUpStartResponse
+import com.maintenance.api.client.model.MobileVotePollRequest
 import com.maintenance.api.client.model.PollResponse
 import com.maintenance.api.client.model.PollStatus
-import com.maintenance.api.client.model.VotePollRequest
 import com.maintenance.field.data.collaboration.MobileOperationsGateway
 import java.time.OffsetDateTime
 import com.maintenance.api.client.model.DeviceRegistrationRequest
@@ -65,6 +69,8 @@ interface MaintenanceApiGateway : SyncGateway, MessengerGateway, MobileOperation
         appVersion: String,
         pushToken: String?,
     ): DeviceRegistrationResponse
+
+    override suspend fun startMobilePasskeyStepUp(binding: MobilePasskeyStepUpBinding): MobilePasskeyStepUpStartResponse
 
     suspend fun getLocationConsentStatus(): LocationConsentStatus
 
@@ -133,10 +139,22 @@ class GeneratedMaintenanceApiGateway(
     override suspend fun listApprovalItems(limit: Long, offset: Long): ApprovalItemsPage =
         api.listApprovalItems(limit = limit, offset = offset)
 
-    override suspend fun approveWorkOrder(workOrderId: UUID, comment: String) {
-        api.approveWorkOrder(
+    override suspend fun startMobilePasskeyStepUp(binding: MobilePasskeyStepUpBinding): MobilePasskeyStepUpStartResponse =
+        api.startMobilePasskeyStepUp(
+            MobilePasskeyStepUpStartRequest(binding = binding),
+        )
+
+    override suspend fun approveWorkOrder(
+        workOrderId: UUID,
+        comment: String,
+        stepUp: MobilePasskeyStepUpEnvelope,
+    ) {
+        api.approveMobileWorkOrder(
             workOrderId = workOrderId,
-            approveWorkOrderRequest = ApproveWorkOrderRequest(comment = comment),
+            mobileApproveWorkOrderRequest = MobileApproveWorkOrderRequest(
+                comment = comment,
+                stepUp = stepUp,
+            ),
         )
     }
 
@@ -176,10 +194,17 @@ class GeneratedMaintenanceApiGateway(
     override suspend fun listPolls(status: PollStatus?, limit: Long): List<PollResponse> =
         api.listCollaborationPolls(status = status, limit = limit).items
 
-    override suspend fun votePoll(pollId: UUID, selectedOptionIds: List<UUID>): PollResponse =
-        api.voteCollaborationPoll(
+    override suspend fun votePoll(
+        pollId: UUID,
+        selectedOptionIds: List<UUID>,
+        stepUp: MobilePasskeyStepUpEnvelope,
+    ): PollResponse =
+        api.voteMobileCollaborationPoll(
             id = pollId,
-            votePollRequest = VotePollRequest(selectedOptionIds = selectedOptionIds),
+            mobileVotePollRequest = MobileVotePollRequest(
+                selectedOptionIds = selectedOptionIds,
+                stepUp = stepUp,
+            ),
         )
 
     override suspend fun listThreads(limit: Long): List<MessengerThread> =

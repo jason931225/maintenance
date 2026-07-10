@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "goalId": "G003-browser-e2e-persona-harness",
-  "updatedAt": "2026-06-30",
+  "updatedAt": "2026-07-09",
   "fixtureModule": "e2e/fixtures/personas.ts",
   "sourceEvidence": [
     ".omx/context/platform-maturity-g001/live-baseline-20260630T0017Z.txt",
@@ -73,12 +73,13 @@
         "e2e/specs/admin-sadmin-elevated.spec.ts",
         "e2e/specs/admin-21-work-hub.spec.ts",
         "e2e/specs/admin-25-policy-studio.spec.ts",
+        "e2e/specs/admin-07-approvals.spec.ts",
         "e2e/specs/hr-30-absence-exit-settlement.spec.ts"
       ],
       "exitWorkflowCapabilities": ["exit_case_hq_confirm"],
       "denialPaths": ["outside-group subsidiary denial", "policy edit without step-up denial", "org-switch private-data boundary"],
       "uiStates": ["loading", "empty", "error", "permission-denied"],
-      "screenshotTraceEvidence": "Required screenshot and trace: group-all overview, selected subsidiary scope, and denied outside-group operation.",
+      "screenshotTraceEvidence": "Required screenshot and trace: group-all overview, selected subsidiary scope, appr approval console/prototype fidelity capture, and denied outside-group operation.",
       "liveVerification": ["db", "api", "browser", "screenshot", "trace", "logs", "rollout"]
     },
     {

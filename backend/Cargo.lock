@@ -2663,9 +2663,15 @@ dependencies = [
  "mnt-dispatch-domain",
  "mnt-dispatch-rest",
  "mnt-dispatch-worker",
+ "mnt-docs-adapter-postgres",
+ "mnt-docs-rest",
  "mnt-erp-domain",
  "mnt-financial-adapter-postgres",
+ "mnt-financial-application",
+ "mnt-financial-domain",
  "mnt-financial-rest",
+ "mnt-governance-adapter-postgres",
+ "mnt-governance-rest",
  "mnt-identity-adapter-postgres",
  "mnt-identity-rest",
  "mnt-inspection-adapter-postgres",
@@ -2674,10 +2680,13 @@ dependencies = [
  "mnt-kernel-core",
  "mnt-messenger-adapter-postgres",
  "mnt-messenger-rest",
+ "mnt-ontology-adapter-postgres",
+ "mnt-ontology-rest",
  "mnt-payroll-domain",
  "mnt-platform-auth",
  "mnt-platform-auth-rest",
  "mnt-platform-authz",
+ "mnt-platform-authz-rest",
  "mnt-platform-db",
  "mnt-platform-email",
  "mnt-platform-jobs",
@@ -2718,6 +2727,43 @@ dependencies = [
  "uuid",
  "webauthn-authenticator-rs",
  "webauthn-rs",
+]
+
+[[package]]
+name = "mnt-benefit-adapter-postgres"
+version = "0.1.0"
+dependencies = [
+ "mnt-benefit-application",
+ "mnt-benefit-domain",
+ "mnt-kernel-core",
+ "mnt-platform-db",
+ "mnt-platform-request-context",
+ "serde_json",
+ "sqlx 0.9.0",
+ "thiserror 2.0.18",
+ "time",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-benefit-application"
+version = "0.1.0"
+dependencies = [
+ "mnt-benefit-domain",
+ "mnt-kernel-core",
+ "serde",
+ "serde_json",
+ "time",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-benefit-domain"
+version = "0.1.0"
+dependencies = [
+ "mnt-kernel-core",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
@@ -2878,6 +2924,8 @@ dependencies = [
  "mnt-kernel-core",
  "serde",
  "serde_json",
+ "time",
+ "uuid",
 ]
 
 [[package]]
@@ -2886,7 +2934,9 @@ version = "0.1.0"
 dependencies = [
  "mnt-kernel-core",
  "serde",
+ "serde_json",
  "time",
+ "uuid",
 ]
 
 [[package]]
@@ -2984,6 +3034,71 @@ dependencies = [
  "sqlx 0.9.0",
  "thiserror 2.0.18",
  "time",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-docs-adapter-postgres"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "mnt-docs-application",
+ "mnt-docs-domain",
+ "mnt-kernel-core",
+ "mnt-platform-db",
+ "mnt-platform-request-context",
+ "serde_json",
+ "sha2 0.11.0",
+ "sqlx 0.9.0",
+ "thiserror 2.0.18",
+ "time",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-docs-application"
+version = "0.1.0"
+dependencies = [
+ "mnt-docs-domain",
+ "mnt-kernel-core",
+ "serde",
+ "serde_json",
+ "time",
+]
+
+[[package]]
+name = "mnt-docs-domain"
+version = "0.1.0"
+dependencies = [
+ "mnt-kernel-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "mnt-docs-rest"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "base64 0.22.1",
+ "hex",
+ "mnt-docs-adapter-postgres",
+ "mnt-docs-application",
+ "mnt-docs-domain",
+ "mnt-governance-adapter-postgres",
+ "mnt-governance-application",
+ "mnt-kernel-core",
+ "mnt-platform-auth",
+ "mnt-platform-authz",
+ "mnt-platform-db",
+ "mnt-platform-request-context",
+ "mnt-platform-storage",
+ "serde",
+ "serde_json",
+ "sqlx 0.9.0",
+ "time",
+ "tokio",
  "tracing",
  "uuid",
 ]
@@ -3089,6 +3204,73 @@ version = "0.1.0"
 [[package]]
 name = "mnt-gate-tenant-isolation"
 version = "0.1.0"
+
+[[package]]
+name = "mnt-gate-vendor-lockin"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "mnt-governance-adapter-postgres"
+version = "0.0.0"
+dependencies = [
+ "mnt-governance-application",
+ "mnt-governance-domain",
+ "mnt-kernel-core",
+ "mnt-platform-authz",
+ "mnt-platform-db",
+ "mnt-platform-request-context",
+ "serde_json",
+ "sqlx 0.9.0",
+ "thiserror 2.0.18",
+ "time",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-governance-application"
+version = "0.0.0"
+dependencies = [
+ "mnt-governance-domain",
+ "mnt-kernel-core",
+ "serde",
+ "serde_json",
+ "time",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-governance-domain"
+version = "0.0.0"
+dependencies = [
+ "mnt-kernel-core",
+ "serde",
+]
+
+[[package]]
+name = "mnt-governance-rest"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "mnt-governance-adapter-postgres",
+ "mnt-governance-application",
+ "mnt-governance-domain",
+ "mnt-kernel-core",
+ "mnt-platform-auth",
+ "mnt-platform-authz",
+ "mnt-platform-db",
+ "mnt-platform-request-context",
+ "serde",
+ "serde_json",
+ "sqlx 0.9.0",
+ "time",
+ "tracing",
+ "uuid",
+]
 
 [[package]]
 name = "mnt-identity-adapter-postgres"
@@ -3236,6 +3418,44 @@ dependencies = [
 ]
 
 [[package]]
+name = "mnt-inventory-adapter-postgres"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "mnt-inventory-application",
+ "mnt-inventory-domain",
+ "mnt-kernel-core",
+ "mnt-platform-db",
+ "mnt-platform-request-context",
+ "serde_json",
+ "sha2 0.11.0",
+ "sqlx 0.9.0",
+ "thiserror 2.0.18",
+ "time",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-inventory-application"
+version = "0.1.0"
+dependencies = [
+ "mnt-inventory-domain",
+ "mnt-kernel-core",
+ "serde",
+ "serde_json",
+ "time",
+]
+
+[[package]]
+name = "mnt-inventory-domain"
+version = "0.1.0"
+dependencies = [
+ "mnt-kernel-core",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "mnt-kernel-core"
 version = "0.1.0"
 dependencies = [
@@ -3308,6 +3528,73 @@ dependencies = [
 ]
 
 [[package]]
+name = "mnt-ontology-adapter-postgres"
+version = "0.0.0"
+dependencies = [
+ "hex",
+ "mnt-kernel-core",
+ "mnt-ontology-domain",
+ "mnt-platform-authz",
+ "mnt-platform-db",
+ "mnt-platform-request-context",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "sqlx 0.9.0",
+ "thiserror 2.0.18",
+ "time",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-ontology-application"
+version = "0.0.0"
+dependencies = [
+ "mnt-governance-domain",
+ "mnt-kernel-core",
+ "mnt-ontology-domain",
+ "serde",
+ "serde_json",
+ "time",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-ontology-domain"
+version = "0.0.0"
+dependencies = [
+ "mnt-kernel-core",
+ "serde",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-ontology-rest"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "mnt-governance-adapter-postgres",
+ "mnt-governance-application",
+ "mnt-governance-domain",
+ "mnt-kernel-core",
+ "mnt-ontology-adapter-postgres",
+ "mnt-ontology-application",
+ "mnt-ontology-domain",
+ "mnt-platform-auth",
+ "mnt-platform-authz",
+ "mnt-platform-db",
+ "mnt-platform-request-context",
+ "serde",
+ "serde_json",
+ "sqlx 0.9.0",
+ "time",
+ "tokio",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
 name = "mnt-payroll-domain"
 version = "0.1.0"
 dependencies = [
@@ -3375,6 +3662,28 @@ dependencies = [
  "serde_json",
  "sha2 0.11.0",
  "sqlx 0.9.0",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-platform-authz-rest"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "hex",
+ "mnt-kernel-core",
+ "mnt-platform-auth",
+ "mnt-platform-authz",
+ "mnt-platform-db",
+ "mnt-platform-request-context",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "sqlx 0.9.0",
+ "thiserror 2.0.18",
+ "time",
+ "tokio",
+ "tracing",
  "uuid",
 ]
 
@@ -3521,6 +3830,7 @@ dependencies = [
  "axum",
  "http",
  "mnt-kernel-core",
+ "mnt-ontology-adapter-postgres",
  "mnt-platform-auth",
  "mnt-platform-authz",
  "mnt-platform-db",
@@ -3560,6 +3870,48 @@ dependencies = [
  "tokio",
  "tracing",
  "url",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-policy-adapter-postgres"
+version = "0.1.0"
+dependencies = [
+ "mnt-kernel-core",
+ "mnt-platform-db",
+ "mnt-platform-request-context",
+ "mnt-policy-application",
+ "mnt-policy-domain",
+ "serde_json",
+ "sqlx 0.9.0",
+ "thiserror 2.0.18",
+ "time",
+ "tokio",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-policy-application"
+version = "0.1.0"
+dependencies = [
+ "hex",
+ "mnt-kernel-core",
+ "mnt-policy-domain",
+ "serde",
+ "serde_json",
+ "sha2 0.11.0",
+ "time",
+ "uuid",
+]
+
+[[package]]
+name = "mnt-policy-domain"
+version = "0.1.0"
+dependencies = [
+ "mnt-kernel-core",
+ "serde",
+ "serde_json",
+ "time",
  "uuid",
 ]
 
@@ -3638,6 +3990,7 @@ dependencies = [
  "mnt-platform-request-context",
  "mnt-reporting-application",
  "mnt-reporting-domain",
+ "mnt-workorder-domain",
  "serde_json",
  "sqlx 0.9.0",
  "thiserror 2.0.18",

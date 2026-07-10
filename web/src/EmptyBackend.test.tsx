@@ -9,6 +9,7 @@ import { AuthContext } from "./context/auth";
 import type { AuthContextValue, AuthSession } from "./context/auth";
 import { createConsoleApiClient } from "./api/client";
 import type { AbsenceExitDashboardResponse } from "./api/types";
+import { dashboardStrings } from "./console/dashboard";
 
 // ── Empty backend ───────────────────────────────────────────────────────────
 // The production database is empty (0 work orders, 0 equipment, 0 branches).
@@ -27,6 +28,20 @@ const emptyKpiReport = {
   requested_scope: { kind: "company" },
   rollups: [],
   unavailable_metrics: [],
+};
+
+// Zeroed ops summary: the dashboard's ops stats are real zeros on cold start.
+const emptyOpsSummary = {
+  funnel: { received: 0, assigned: 0, in_progress: 0, completed: 0 },
+  aging_hours: 24,
+  aging_work_orders: 0,
+  sla_breached: 0,
+  sla_at_risk: 0,
+  mechanic_load: [],
+  equipment_status: { rented: 0, spare: 0, scrapped: 0, replacement: 0, sold: 0 },
+  active_substitutions: 0,
+  pending_approvals: 0,
+  open_support_tickets: 0,
 };
 
 const emptyConsentStatus = {
@@ -137,6 +152,7 @@ const server = setupServer(
     HttpResponse.json({ items: [], total: 0 }),
   ),
   http.get("*/api/v1/kpi", () => HttpResponse.json(emptyKpiReport)),
+  http.get("*/api/v1/ops/summary", () => HttpResponse.json(emptyOpsSummary)),
   http.get("*/api/messenger/threads", () =>
     HttpResponse.json({ items: [] }),
   ),
@@ -261,7 +277,9 @@ const pages: { path: string; heading: string; empty: string }[] = [
   { path: "/work-hub", heading: "업무 허브", empty: "현재 처리할 업무·승인·지원 티켓이 없습니다." },
   { path: "/dispatch", heading: "배차 보드", empty: "표시할 접수건이 없습니다." },
   { path: "/approvals", heading: "전자결제 대기", empty: "승인 대기 건이 없습니다." },
-  { path: "/kpi", heading: "임원 KPI 대시보드", empty: "KPI 데이터를 불러오면 표시됩니다." },
+  // The /kpi empty copy routes through the console dashboard strings accessor
+  // so this assertion tracks the serial ko.console.dashboard wire-up.
+  { path: "/kpi", heading: "임원 KPI 대시보드", empty: dashboardStrings().emptyReason },
   { path: "/messenger", heading: "메신저", empty: "표시할 대화방이 없습니다." },
   { path: "/support", heading: "고객지원 티켓", empty: "표시할 티켓이 없습니다." },
   { path: "/settings/users", heading: "사용자 관리", empty: "등록된 사용자가 없습니다." },

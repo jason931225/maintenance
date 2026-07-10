@@ -2,7 +2,11 @@ import { ko } from "../../i18n/ko";
 import type { OrgStatus } from "../../api/platform";
 
 /** All tenant lifecycle statuses, in display order. */
-export const ORG_STATUSES: OrgStatus[] = ["ACTIVE", "SUSPENDED", "ARCHIVED"];
+export const ORG_STATUSES = [
+  "ACTIVE",
+  "SUSPENDED",
+  "ARCHIVED",
+] as const satisfies readonly OrgStatus[];
 
 /** Korean label for a tenant status. */
 export function orgStatusLabel(status: OrgStatus): string {

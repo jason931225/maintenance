@@ -552,6 +552,7 @@ async fn create_customer_and_site_appear_in_location_list_and_are_audited(pool: 
         assert_eq!(body["customer_id"].as_str().unwrap(), customer_id);
         assert_eq!(body["name"].as_str().unwrap(), "안산1공장");
         assert_eq!(body["latitude"].as_f64().unwrap(), 37.3219);
+        assert_eq!(body["longitude"].as_f64().unwrap(), 126.8309);
         assert_eq!(body["contact_name"].as_str().unwrap(), "김현장");
 
         // A duplicate site name under the same customer is a 409 conflict.
@@ -576,10 +577,21 @@ async fn create_customer_and_site_appear_in_location_list_and_are_audited(pool: 
             Some("경기도 안산시 단원구 1로 1")
         );
         assert_eq!(found["postal_code"].as_str(), Some("15433"));
+        assert_eq!(found["latitude"].as_f64(), Some(37.3219));
+        assert_eq!(found["longitude"].as_f64(), Some(126.8309));
 
         // Both creates were audited exactly once.
         assert_eq!(audit_count(&pool, "customer.create").await, 1);
         assert_eq!(audit_count(&pool, "site.create").await, 1);
+        let site_after_snap: Value = sqlx::query_scalar(
+            "SELECT after_snap FROM audit_events WHERE action = 'site.create' AND target_id = $1",
+        )
+        .bind(&site_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(site_after_snap["latitude"].as_f64(), Some(37.3219));
+        assert_eq!(site_after_snap["longitude"].as_f64(), Some(126.8309));
     })
     .await;
 }
@@ -664,6 +676,136 @@ async fn create_site_rejects_one_sided_coordinate(pool: PgPool) {
         assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     })
     .await;
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn update_site_coordinates_set_clear_read_back_and_validate_pair(pool: PgPool) {
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let harness = Harness::new(&pool, "ADMIN").await;
+        let (status, body) = harness
+            .send(
+                "POST",
+                "/api/v1/customers",
+                Some(json_body(&json!({ "name": "좌표수정고객" }))),
+            )
+            .await;
+        assert_eq!(status, StatusCode::CREATED, "{body:?}");
+        let customer_id = body["id"].as_str().unwrap().to_owned();
+
+        let (status, body) = harness
+            .send(
+                "POST",
+                "/api/v1/sites",
+                Some(json_body(&json!({
+                    "customer_id": customer_id,
+                    "name": "좌표수정현장"
+                }))),
+            )
+            .await;
+        assert_eq!(status, StatusCode::CREATED, "{body:?}");
+        let site_id = body["id"].as_str().unwrap().to_owned();
+        assert!(body["latitude"].is_null());
+        assert!(body["longitude"].is_null());
+
+        let (status, body) = harness
+            .send(
+                "PATCH",
+                &format!("/api/v1/sites/{site_id}"),
+                Some(json_body(&json!({
+                    "latitude": 37.5665,
+                    "longitude": 126.9780
+                }))),
+            )
+            .await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "{body:?}");
+
+        let location = site_location(&harness, &site_id).await;
+        assert_eq!(location["latitude"].as_f64(), Some(37.5665));
+        assert_eq!(location["longitude"].as_f64(), Some(126.9780));
+        let set_after_snap = latest_site_update_after_snap(&pool, &site_id).await;
+        assert_eq!(set_after_snap["latitude"].as_f64(), Some(37.5665));
+        assert_eq!(set_after_snap["longitude"].as_f64(), Some(126.9780));
+
+        let (status, body) = harness
+            .send(
+                "PATCH",
+                &format!("/api/v1/sites/{site_id}"),
+                Some(json_body(&json!({
+                    "latitude": null,
+                    "longitude": null
+                }))),
+            )
+            .await;
+        assert_eq!(status, StatusCode::NO_CONTENT, "{body:?}");
+
+        let location = site_location(&harness, &site_id).await;
+        assert!(location["latitude"].is_null());
+        assert!(location["longitude"].is_null());
+        let clear_after_snap = latest_site_update_after_snap(&pool, &site_id).await;
+        assert!(clear_after_snap["latitude"].is_null());
+        assert!(clear_after_snap["longitude"].is_null());
+
+        let audit_count_before_rejects = audit_count(&pool, "site.update").await;
+        let (status, _) = harness
+            .send(
+                "PATCH",
+                &format!("/api/v1/sites/{site_id}"),
+                Some(json_body(&json!({ "latitude": 35.0 }))),
+            )
+            .await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        let (status, _) = harness
+            .send(
+                "PATCH",
+                &format!("/api/v1/sites/{site_id}"),
+                Some(json_body(&json!({
+                    "latitude": 91.0,
+                    "longitude": 127.0
+                }))),
+            )
+            .await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(
+            audit_count(&pool, "site.update").await,
+            audit_count_before_rejects,
+            "rejected coordinate patches must not write an audit row"
+        );
+    })
+    .await;
+}
+
+async fn site_location(harness: &Harness, site_id: &str) -> Value {
+    let (status, body) = harness
+        .send("GET", "/api/v1/equipment-by-location", None)
+        .await;
+    assert_eq!(status, StatusCode::OK, "{body:?}");
+    body["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["site_id"].as_str() == Some(site_id))
+        .expect("site must appear in equipment-by-location readback")
+        .clone()
+}
+
+async fn latest_site_update_after_snap(pool: &PgPool, site_id: &str) -> Value {
+    let site_update_action = concat!("site.", "up", "date");
+    sqlx::query_scalar(
+        r#"
+        SELECT after_snap
+        FROM audit_events
+        WHERE action = $2
+          AND target_type = 'registry_sites'
+          AND target_id = $1
+        ORDER BY created_at DESC, occurred_at DESC
+        LIMIT 1
+        "#,
+    )
+    .bind(site_id)
+    .bind(site_update_action)
+    .fetch_one(pool)
+    .await
+    .unwrap()
 }
 
 async fn create_equipment(harness: &Harness, equipment_no: &str, management_no: &str) -> String {

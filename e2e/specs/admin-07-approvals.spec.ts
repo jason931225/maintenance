@@ -82,6 +82,13 @@ test("ADMIN-07 admin approves a submitted completion", async ({
   // "{requestNo} 승인" (the request_no lives in the aria-label, not the text).
   const approveBtn = page.getByRole("button", { name: /-071 승인/ });
   await expect(approveBtn).toBeVisible({ timeout: 8_000 });
+  const approveAuditBefore = querySql<{ count: number }>(
+    `SELECT COUNT(*)::int AS count
+       FROM audit_events
+      WHERE org_id = '${ORG_ID}'
+        AND action = 'work_order.approve'
+        AND target_id = '${WO_APPROVE}'`,
+  )[0]?.count ?? 0;
   await approveBtn.click();
 
   const dialog = page.getByRole("dialog", { name: "작업지시 승인" });
@@ -127,6 +134,15 @@ test("ADMIN-07 admin approves a submitted completion", async ({
     executive_step_status: "PENDING",
     executive_approver_id: SADMIN_ID,
   });
+  expect(
+    querySql<{ count: number }>(
+      `SELECT COUNT(*)::int AS count
+         FROM audit_events
+        WHERE org_id = '${ORG_ID}'
+          AND action = 'work_order.approve'
+          AND target_id = '${WO_APPROVE}'`,
+    )[0]?.count,
+  ).toBe(approveAuditBefore + 1);
 
   await page.reload();
   await expect(page.getByRole("button", { name: /-071 승인/ })).not.toBeVisible(
@@ -146,6 +162,13 @@ test("ADMIN-07 admin rejects a submitted completion with a memo", async ({
 
   const rejectBtn = page.getByRole("button", { name: /-072 반려/ });
   await expect(rejectBtn).toBeVisible({ timeout: 8_000 });
+  const rejectAuditBefore = querySql<{ count: number }>(
+    `SELECT COUNT(*)::int AS count
+       FROM audit_events
+      WHERE org_id = '${ORG_ID}'
+        AND action = 'work_order.reject'
+        AND target_id = '${WO_REJECT}'`,
+  )[0]?.count ?? 0;
   await rejectBtn.click();
 
   const dialog = page.getByRole("dialog", { name: "작업지시 반려" });
@@ -180,6 +203,15 @@ test("ADMIN-07 admin rejects a submitted completion with a memo", async ({
     decision_comment: "E2E 반려 사유: 추가 점검이 필요합니다.",
     approved_by_id: ADMIN_ID,
   });
+  expect(
+    querySql<{ count: number }>(
+      `SELECT COUNT(*)::int AS count
+         FROM audit_events
+        WHERE org_id = '${ORG_ID}'
+          AND action = 'work_order.reject'
+          AND target_id = '${WO_REJECT}'`,
+    )[0]?.count,
+  ).toBe(rejectAuditBefore + 1);
 
   // A rejected order transitions to REJECTED and leaves the pending queue.
   await expect(rejectBtn).not.toBeVisible({ timeout: 8_000 });

@@ -640,6 +640,17 @@ const opsTenants = {
       active_work_orders: 4,
       open_work_orders: 7,
       last_activity_at: "2026-06-18T09:00:00Z",
+      route_adoption: [
+        {
+          release_cycle: "2026.07.2",
+          console_route_events: 42,
+          legacy_route_events: 0,
+          rum_error_events: 1,
+          rum_perf_p95_ms: 180,
+          last_event_at: "2026-06-18T09:30:00Z",
+        },
+      ],
+      zero_legacy_release_cycles: 2,
     },
     {
       id: "22222222-2222-4222-8222-222222222222",
@@ -654,6 +665,8 @@ const opsTenants = {
       active_work_orders: 0,
       open_work_orders: 0,
       last_activity_at: null,
+      route_adoption: [],
+      zero_legacy_release_cycles: 0,
     },
   ],
 };
@@ -677,6 +690,9 @@ describe("Platform ops dashboard", () => {
     expect(cells.getByText("활성")).toBeVisible();
     expect(cells.getByText("12")).toBeVisible();
     expect(cells.getByText("4")).toBeVisible();
+    expect(
+      cells.getByText("2026.07.2 · 콘솔 42 / 기존 0 · 오류 1 · p95 180ms · 무기존 릴리스 2"),
+    ).toBeVisible();
     // The no-activity placeholder renders for the suspended tenant.
     const suspendedRow = (
       await screen.findByText("Globex Corporation")

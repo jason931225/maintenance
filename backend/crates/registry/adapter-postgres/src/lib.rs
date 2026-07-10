@@ -6,10 +6,10 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 use std::collections::BTreeMap;
-use std::io::Write;
+use std::io::Cursor;
 use std::path::Path;
 
-use calamine::{Data, DataType, Range, Reader, open_workbook_auto};
+use calamine::{Data, DataType, Range, Reader, open_workbook_auto, open_workbook_auto_from_rs};
 use mnt_kernel_core::{
     AuditEventId, BranchId, BranchScope, CustomerId, EquipmentId, EquipmentSubstitutionId,
     KernelError, SiteId, TraceContext, UserId, WorkOrderId,
@@ -94,32 +94,18 @@ impl PgRegistryStore {
 
     /// Import an uploaded master-list workbook supplied as raw bytes.
     ///
-    /// `calamine` reads from a path, so the bytes are spilled to a uniquely
-    /// named temp file that is removed before returning. The actual upsert and
-    /// audit row are produced by [`Self::import_master_list`].
+    /// Uploaded bytes are parsed in memory via `calamine`, so the REST upload
+    /// path never creates `mnt-registry-import-*` temp staging files that can be
+    /// left behind after parse/import failures.
     pub async fn import_master_list_bytes(
         &self,
         actor: UserId,
         source_name: &str,
         bytes: &[u8],
     ) -> Result<RegistryImportReport, PgRegistryError> {
-        let temp_path = std::env::temp_dir().join(format!(
-            "mnt-registry-import-{}-{}.xlsx",
-            std::process::id(),
-            uuid::Uuid::new_v4()
-        ));
-        let mut file = std::fs::File::create(&temp_path)
-            .map_err(|err| PgRegistryError::Workbook(format!("cannot stage upload: {err}")))?;
-        file.write_all(bytes)
-            .and_then(|()| file.flush())
-            .map_err(|err| PgRegistryError::Workbook(format!("cannot stage upload: {err}")))?;
-        drop(file);
-
-        let result = self
-            .import_master_list_with_actor(&temp_path, Some(actor), source_name)
-            .await;
-        let _ = std::fs::remove_file(&temp_path);
-        result
+        let parsed = parse_master_list_bytes(bytes)?;
+        self.import_parsed_master_list_with_actor(parsed, Some(actor), source_name)
+            .await
     }
 
     /// Create a single equipment master row, audited. Branch-scoped admins land
@@ -859,9 +845,19 @@ impl PgRegistryStore {
         actor: Option<UserId>,
         source_name: &str,
     ) -> Result<RegistryImportReport, PgRegistryError> {
+        let parsed = parse_master_list(path)?;
+        self.import_parsed_master_list_with_actor(parsed, actor, source_name)
+            .await
+    }
+
+    async fn import_parsed_master_list_with_actor(
+        &self,
+        parsed: ParsedMasterList,
+        actor: Option<UserId>,
+        source_name: &str,
+    ) -> Result<RegistryImportReport, PgRegistryError> {
         let org = current_org().map_err(KernelError::from)?;
         let org_uuid = *org.as_uuid();
-        let parsed = parse_master_list(path)?;
         let branch_id = self.ensure_default_hq_branch().await?;
         // Tag the audit event with the calling tenant so `with_audit` arms the
         // transaction-local `app.current_org` GUC before the upsert loop runs.
@@ -3303,13 +3299,33 @@ pub fn parse_master_list(path: impl AsRef<Path>) -> Result<ParsedMasterList, PgR
         .worksheet_range(ImportSheet::Reserve.workbook_name())
         .map_err(|err| PgRegistryError::Workbook(err.to_string()))?;
 
+    parse_master_list_ranges(&master, &reserve)
+}
+
+pub fn parse_master_list_bytes(bytes: &[u8]) -> Result<ParsedMasterList, PgRegistryError> {
+    let mut workbook = open_workbook_auto_from_rs(Cursor::new(bytes))
+        .map_err(|err| PgRegistryError::Workbook(err.to_string()))?;
+    let master = workbook
+        .worksheet_range(ImportSheet::Master.workbook_name())
+        .map_err(|err| PgRegistryError::Workbook(err.to_string()))?;
+    let reserve = workbook
+        .worksheet_range(ImportSheet::Reserve.workbook_name())
+        .map_err(|err| PgRegistryError::Workbook(err.to_string()))?;
+
+    parse_master_list_ranges(&master, &reserve)
+}
+
+fn parse_master_list_ranges(
+    master: &Range<Data>,
+    reserve: &Range<Data>,
+) -> Result<ParsedMasterList, PgRegistryError> {
     let mut by_equipment_no = BTreeMap::new();
     let mut errors = Vec::new();
     let mut input_rows = 0usize;
     let mut prefix_checked_rows = 0usize;
 
     for row in 4..=447 {
-        match parse_master_row(&master, row) {
+        match parse_master_row(master, row) {
             Ok(Some(equipment)) => {
                 input_rows += 1;
                 prefix_checked_rows += 1;
@@ -3321,7 +3337,7 @@ pub fn parse_master_list(path: impl AsRef<Path>) -> Result<ParsedMasterList, PgR
     }
 
     for row in 5..=61 {
-        match parse_reserve_row(&reserve, row) {
+        match parse_reserve_row(reserve, row) {
             Ok(Some(equipment)) => {
                 input_rows += 1;
                 prefix_checked_rows += 1;

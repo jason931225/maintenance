@@ -527,3 +527,626 @@ mod geofence_tests {
         assert_eq!(crossing, Some(GeofenceCrossing::Arrival));
     }
 }
+
+macro_rules! compliance_enum {
+    (
+        pub enum $name:ident {
+            $($variant:ident => $wire:literal),+ $(,)?
+        }
+    ) => {
+        #[derive(
+            Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash,
+            serde::Serialize, serde::Deserialize,
+        )]
+        pub enum $name {
+            $($variant,)+
+        }
+
+        impl $name {
+            #[must_use]
+            pub const fn as_db_str(self) -> &'static str {
+                match self {
+                    $(Self::$variant => $wire,)+
+                }
+            }
+
+            pub fn from_db_str(value: &str) -> Result<Self, KernelError> {
+                match value {
+                    $($wire => Ok(Self::$variant),)+
+                    other => Err(KernelError::validation(format!(
+                        "unknown {} value {other:?}",
+                        stringify!($name)
+                    ))),
+                }
+            }
+        }
+    };
+}
+
+compliance_enum! {
+    pub enum ComplianceRiskLevel { Info => "INFO", Low => "LOW", Medium => "MEDIUM", High => "HIGH", Critical => "CRITICAL" }
+}
+
+compliance_enum! {
+    pub enum RegulationImpactStatus { Draft => "DRAFT", Active => "ACTIVE", Superseded => "SUPERSEDED", Archived => "ARCHIVED" }
+}
+
+compliance_enum! {
+    pub enum ObligationType { Legal => "LEGAL", Regulatory => "REGULATORY", Contractual => "CONTRACTUAL", InternalPolicy => "INTERNAL_POLICY", ControlRequirement => "CONTROL_REQUIREMENT" }
+}
+
+compliance_enum! {
+    pub enum ComplianceScopeKind { Org => "ORG", Branch => "BRANCH", Site => "SITE", Team => "TEAM", Role => "ROLE" }
+}
+
+compliance_enum! {
+    pub enum ObligationStatus { Draft => "DRAFT", Active => "ACTIVE", Waived => "WAIVED", Superseded => "SUPERSEDED", Archived => "ARCHIVED" }
+}
+
+compliance_enum! {
+    pub enum ReviewCadence { Monthly => "MONTHLY", Quarterly => "QUARTERLY", SemiAnnual => "SEMI_ANNUAL", Annual => "ANNUAL", EventDriven => "EVENT_DRIVEN" }
+}
+
+compliance_enum! {
+    pub enum FrameworkKind { LegalBaseline => "LEGAL_BASELINE", InternalControl => "INTERNAL_CONTROL", CustomerControl => "CUSTOMER_CONTROL", SecurityStandard => "SECURITY_STANDARD", SafetyStandard => "SAFETY_STANDARD", AuditProgram => "AUDIT_PROGRAM" }
+}
+
+compliance_enum! {
+    pub enum FrameworkStatus { Draft => "DRAFT", Active => "ACTIVE", Retired => "RETIRED", Archived => "ARCHIVED" }
+}
+
+compliance_enum! {
+    pub enum ControlType { Preventive => "PREVENTIVE", Detective => "DETECTIVE", Corrective => "CORRECTIVE", Directive => "DIRECTIVE", Compensating => "COMPENSATING" }
+}
+
+compliance_enum! {
+    pub enum ControlCadence { Continuous => "CONTINUOUS", Daily => "DAILY", Weekly => "WEEKLY", Monthly => "MONTHLY", Quarterly => "QUARTERLY", Annual => "ANNUAL", EventDriven => "EVENT_DRIVEN" }
+}
+
+compliance_enum! {
+    pub enum ControlStatus { Draft => "DRAFT", Active => "ACTIVE", Retired => "RETIRED", Archived => "ARCHIVED" }
+}
+
+compliance_enum! {
+    pub enum ObligationRegulationRelationship { DerivedFrom => "DERIVED_FROM", AmendedBy => "AMENDED_BY", SupersededBy => "SUPERSEDED_BY", Interprets => "INTERPRETS", Evidences => "EVIDENCES" }
+}
+
+compliance_enum! {
+    pub enum CoverageLevel { Primary => "PRIMARY", Partial => "PARTIAL", Supporting => "SUPPORTING", Compensating => "COMPENSATING" }
+}
+
+compliance_enum! {
+    pub enum CoverageStatus { Active => "ACTIVE", Retired => "RETIRED" }
+}
+
+compliance_enum! {
+    pub enum EvidenceTargetType { AuditEvent => "audit_event", EvidenceMedia => "evidence_media", WorkflowRun => "workflow_run", WorkflowTask => "workflow_task", ObjectLink => "object_link", GovernanceFinding => "governance_finding", ExternalDocument => "external_document", FutureEvObject => "future_ev_object" }
+}
+
+compliance_enum! {
+    pub enum EvidenceBindingStatus { Proposed => "PROPOSED", Accepted => "ACCEPTED", Rejected => "REJECTED", Expired => "EXPIRED", Retracted => "RETRACTED" }
+}
+
+compliance_enum! {
+    pub enum EvidenceConfidence { Low => "LOW", Medium => "MEDIUM", High => "HIGH", System => "SYSTEM" }
+}
+
+/// Caller-independent tenant scope for CP obligations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ComplianceScope {
+    pub kind: ComplianceScopeKind,
+    pub scope_ref: Option<uuid::Uuid>,
+    pub branch_id: Option<BranchId>,
+    pub site_id: Option<mnt_kernel_core::SiteId>,
+}
+
+impl ComplianceScope {
+    #[must_use]
+    pub const fn org() -> Self {
+        Self {
+            kind: ComplianceScopeKind::Org,
+            scope_ref: None,
+            branch_id: None,
+            site_id: None,
+        }
+    }
+
+    #[must_use]
+    pub fn branch(branch_id: BranchId) -> Self {
+        Self {
+            kind: ComplianceScopeKind::Branch,
+            scope_ref: Some(*branch_id.as_uuid()),
+            branch_id: Some(branch_id),
+            site_id: None,
+        }
+    }
+
+    #[must_use]
+    pub fn site(branch_id: BranchId, site_id: mnt_kernel_core::SiteId) -> Self {
+        Self {
+            kind: ComplianceScopeKind::Site,
+            scope_ref: Some(*site_id.as_uuid()),
+            branch_id: Some(branch_id),
+            site_id: Some(site_id),
+        }
+    }
+
+    pub fn validate(self) -> Result<(), KernelError> {
+        match self.kind {
+            ComplianceScopeKind::Org => {
+                if self.scope_ref.is_some() || self.branch_id.is_some() || self.site_id.is_some() {
+                    return Err(KernelError::validation(
+                        "ORG compliance scope must not carry scope_ref, branch_id, or site_id",
+                    ));
+                }
+            }
+            ComplianceScopeKind::Branch => {
+                let branch_id = self.branch_id.ok_or_else(|| {
+                    KernelError::validation("BRANCH compliance scope requires branch_id")
+                })?;
+                if self.scope_ref != Some(*branch_id.as_uuid()) || self.site_id.is_some() {
+                    return Err(KernelError::validation(
+                        "BRANCH compliance scope requires scope_ref=branch_id and no site_id",
+                    ));
+                }
+            }
+            ComplianceScopeKind::Site => {
+                let site_id = self.site_id.ok_or_else(|| {
+                    KernelError::validation("SITE compliance scope requires site_id")
+                })?;
+                if self.branch_id.is_none() || self.scope_ref != Some(*site_id.as_uuid()) {
+                    return Err(KernelError::validation(
+                        "SITE compliance scope requires branch_id and scope_ref=site_id",
+                    ));
+                }
+            }
+            ComplianceScopeKind::Team | ComplianceScopeKind::Role => {
+                return Err(KernelError::validation(
+                    "TEAM and ROLE compliance scopes require same-org owner validation and are not accepted yet",
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct RegulationImpact {
+    pub id: uuid::Uuid,
+    pub code: String,
+    pub title: String,
+    pub jurisdiction: String,
+    pub regulator: Option<String>,
+    pub citation: String,
+    pub source_url: Option<String>,
+    pub impact_area: String,
+    pub impact_summary: String,
+    pub risk_level: ComplianceRiskLevel,
+    pub status: RegulationImpactStatus,
+    pub effective_from: Option<time::Date>,
+    pub effective_to: Option<time::Date>,
+    pub review_due_on: Option<time::Date>,
+    pub owner_user_id: Option<UserId>,
+    pub metadata: serde_json::Value,
+    pub created_by: UserId,
+    pub updated_by: UserId,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ComplianceObligation {
+    pub id: uuid::Uuid,
+    pub code: String,
+    pub title: String,
+    pub description: String,
+    pub obligation_type: ObligationType,
+    pub scope: ComplianceScope,
+    pub owner_user_id: Option<UserId>,
+    pub severity: ComplianceRiskLevel,
+    pub status: ObligationStatus,
+    pub effective_from: Option<time::Date>,
+    pub effective_to: Option<time::Date>,
+    pub review_cadence: Option<ReviewCadence>,
+    pub next_review_on: Option<time::Date>,
+    pub metadata: serde_json::Value,
+    pub created_by: UserId,
+    pub updated_by: UserId,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ObligationRegulationLink {
+    pub id: uuid::Uuid,
+    pub obligation_id: uuid::Uuid,
+    pub regulation_impact_id: uuid::Uuid,
+    pub relationship: ObligationRegulationRelationship,
+    pub rationale: Option<String>,
+    pub created_by: UserId,
+    pub created_at: Timestamp,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ComplianceFramework {
+    pub id: uuid::Uuid,
+    pub code: String,
+    pub name: String,
+    pub version_label: String,
+    pub framework_kind: FrameworkKind,
+    pub status: FrameworkStatus,
+    pub owner_user_id: Option<UserId>,
+    pub effective_from: Option<time::Date>,
+    pub effective_to: Option<time::Date>,
+    pub metadata: serde_json::Value,
+    pub created_by: UserId,
+    pub updated_by: UserId,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ComplianceControl {
+    pub id: uuid::Uuid,
+    pub framework_id: uuid::Uuid,
+    pub control_key: String,
+    pub title: String,
+    pub objective: String,
+    pub control_type: ControlType,
+    pub cadence: Option<ControlCadence>,
+    pub status: ControlStatus,
+    pub evidence_requirements: serde_json::Value,
+    pub owner_user_id: Option<UserId>,
+    pub created_by: UserId,
+    pub updated_by: UserId,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct ControlObligationCoverage {
+    pub id: uuid::Uuid,
+    pub control_id: uuid::Uuid,
+    pub obligation_id: uuid::Uuid,
+    pub coverage_level: CoverageLevel,
+    pub coverage_rationale: Option<String>,
+    pub status: CoverageStatus,
+    pub created_by: UserId,
+    pub updated_by: UserId,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
+}
+
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct EvidenceBinding {
+    pub id: uuid::Uuid,
+    pub control_id: uuid::Uuid,
+    pub obligation_id: Option<uuid::Uuid>,
+    pub evidence_target_type: EvidenceTargetType,
+    pub evidence_target_id: String,
+    pub source_audit_event_id: Option<uuid::Uuid>,
+    pub status: EvidenceBindingStatus,
+    pub confidence: EvidenceConfidence,
+    pub collected_at: Option<Timestamp>,
+    pub collected_by: Option<UserId>,
+    pub valid_from: Option<time::Date>,
+    pub valid_to: Option<time::Date>,
+    pub hash_sha256: Option<String>,
+    pub metadata: serde_json::Value,
+    pub created_by: UserId,
+    pub updated_by: UserId,
+    pub created_at: Timestamp,
+    pub updated_at: Timestamp,
+}
+
+pub fn validate_prefixed_code(prefix: &str, code: &str) -> Result<(), KernelError> {
+    let Some(rest) = code
+        .strip_prefix(prefix)
+        .and_then(|value| value.strip_prefix('-'))
+    else {
+        return Err(KernelError::validation(format!(
+            "compliance code {code:?} must start with {prefix}-"
+        )));
+    };
+    if rest.len() < 4 || !rest.bytes().all(|byte| byte.is_ascii_digit()) {
+        return Err(KernelError::validation(format!(
+            "compliance code {code:?} must use at least four digits after {prefix}-"
+        )));
+    }
+    Ok(())
+}
+
+pub fn validate_required_text(
+    field: &str,
+    value: &str,
+    max_chars: usize,
+) -> Result<(), KernelError> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Err(KernelError::validation(format!("{field} is required")));
+    }
+    if trimmed.chars().count() > max_chars {
+        return Err(KernelError::validation(format!(
+            "{field} must be at most {max_chars} characters"
+        )));
+    }
+    Ok(())
+}
+
+pub fn validate_optional_text(
+    field: &str,
+    value: Option<&str>,
+    max_chars: usize,
+) -> Result<(), KernelError> {
+    if let Some(value) = value {
+        if value.trim().is_empty() {
+            return Err(KernelError::validation(format!(
+                "{field} must be omitted or non-empty"
+            )));
+        }
+        if value.trim().chars().count() > max_chars {
+            return Err(KernelError::validation(format!(
+                "{field} must be at most {max_chars} characters"
+            )));
+        }
+    }
+    Ok(())
+}
+
+pub fn validate_date_range(
+    field: &str,
+    start: Option<time::Date>,
+    end: Option<time::Date>,
+) -> Result<(), KernelError> {
+    if let (Some(start), Some(end)) = (start, end)
+        && end < start
+    {
+        return Err(KernelError::validation(format!(
+            "{field} end date must be on or after start date"
+        )));
+    }
+    Ok(())
+}
+
+pub fn validate_metadata_object(value: &serde_json::Value) -> Result<(), KernelError> {
+    if value.is_object() {
+        Ok(())
+    } else {
+        Err(KernelError::validation("metadata must be a JSON object"))
+    }
+}
+
+pub fn validate_evidence_requirements(value: &serde_json::Value) -> Result<(), KernelError> {
+    if value.is_array() {
+        Ok(())
+    } else {
+        Err(KernelError::validation(
+            "evidence requirements must be a JSON array",
+        ))
+    }
+}
+
+pub fn validate_control_key(value: &str) -> Result<(), KernelError> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() || trimmed.chars().count() > 64 {
+        return Err(KernelError::validation(
+            "control_key must be 1..=64 characters",
+        ));
+    }
+    let mut chars = trimmed.chars();
+    let Some(first) = chars.next() else {
+        return Err(KernelError::validation("control_key is required"));
+    };
+    if !first.is_ascii_uppercase() && !first.is_ascii_digit() {
+        return Err(KernelError::validation(
+            "control_key must start with an uppercase ASCII letter or digit",
+        ));
+    }
+    if !chars
+        .all(|ch| ch.is_ascii_uppercase() || ch.is_ascii_digit() || matches!(ch, '.' | '_' | '-'))
+    {
+        return Err(KernelError::validation(
+            "control_key may contain only uppercase ASCII letters, digits, dot, underscore, or hyphen",
+        ));
+    }
+    Ok(())
+}
+
+pub fn validate_hash_sha256(value: Option<&str>) -> Result<(), KernelError> {
+    if let Some(value) = value
+        && (value.len() != 64 || !value.bytes().all(|byte| byte.is_ascii_hexdigit()))
+    {
+        return Err(KernelError::validation(
+            "hash_sha256 must be exactly 64 hexadecimal characters",
+        ));
+    }
+    Ok(())
+}
+
+pub fn validate_status_memo(
+    status: &str,
+    memo: Option<&str>,
+    statuses_requiring_memo: &[&str],
+) -> Result<(), KernelError> {
+    if statuses_requiring_memo.contains(&status) {
+        validate_required_text("status memo", memo.unwrap_or_default(), 2_000)?;
+    }
+    Ok(())
+}
+
+pub fn validate_regulation_status_transition(
+    from: RegulationImpactStatus,
+    to: RegulationImpactStatus,
+) -> Result<(), KernelError> {
+    let allowed = matches!(
+        (from, to),
+        (
+            RegulationImpactStatus::Draft,
+            RegulationImpactStatus::Active | RegulationImpactStatus::Archived
+        ) | (
+            RegulationImpactStatus::Active,
+            RegulationImpactStatus::Superseded | RegulationImpactStatus::Archived
+        ) | (
+            RegulationImpactStatus::Superseded,
+            RegulationImpactStatus::Archived
+        )
+    );
+    validate_transition(
+        "regulation impact",
+        from.as_db_str(),
+        to.as_db_str(),
+        allowed,
+    )
+}
+
+pub fn validate_obligation_status_transition(
+    from: ObligationStatus,
+    to: ObligationStatus,
+) -> Result<(), KernelError> {
+    let allowed = matches!(
+        (from, to),
+        (
+            ObligationStatus::Draft,
+            ObligationStatus::Active | ObligationStatus::Archived
+        ) | (
+            ObligationStatus::Active,
+            ObligationStatus::Waived | ObligationStatus::Superseded | ObligationStatus::Archived
+        ) | (
+            ObligationStatus::Waived,
+            ObligationStatus::Active | ObligationStatus::Archived
+        ) | (ObligationStatus::Superseded, ObligationStatus::Archived)
+    );
+    validate_transition(
+        "compliance obligation",
+        from.as_db_str(),
+        to.as_db_str(),
+        allowed,
+    )
+}
+
+pub fn validate_framework_status_transition(
+    from: FrameworkStatus,
+    to: FrameworkStatus,
+) -> Result<(), KernelError> {
+    let allowed = matches!(
+        (from, to),
+        (
+            FrameworkStatus::Draft,
+            FrameworkStatus::Active | FrameworkStatus::Archived
+        ) | (
+            FrameworkStatus::Active,
+            FrameworkStatus::Retired | FrameworkStatus::Archived
+        ) | (FrameworkStatus::Retired, FrameworkStatus::Archived)
+    );
+    validate_transition(
+        "compliance framework",
+        from.as_db_str(),
+        to.as_db_str(),
+        allowed,
+    )
+}
+
+pub fn validate_control_status_transition(
+    from: ControlStatus,
+    to: ControlStatus,
+) -> Result<(), KernelError> {
+    let allowed = matches!(
+        (from, to),
+        (
+            ControlStatus::Draft,
+            ControlStatus::Active | ControlStatus::Archived
+        ) | (
+            ControlStatus::Active,
+            ControlStatus::Retired | ControlStatus::Archived
+        ) | (ControlStatus::Retired, ControlStatus::Archived)
+    );
+    validate_transition(
+        "compliance control",
+        from.as_db_str(),
+        to.as_db_str(),
+        allowed,
+    )
+}
+
+pub fn validate_evidence_status_transition(
+    from: EvidenceBindingStatus,
+    to: EvidenceBindingStatus,
+) -> Result<(), KernelError> {
+    let allowed = matches!(
+        (from, to),
+        (
+            EvidenceBindingStatus::Proposed,
+            EvidenceBindingStatus::Accepted
+                | EvidenceBindingStatus::Rejected
+                | EvidenceBindingStatus::Retracted
+        ) | (
+            EvidenceBindingStatus::Accepted,
+            EvidenceBindingStatus::Expired | EvidenceBindingStatus::Retracted
+        ) | (
+            EvidenceBindingStatus::Expired,
+            EvidenceBindingStatus::Retracted
+        )
+    );
+    validate_transition(
+        "compliance evidence binding",
+        from.as_db_str(),
+        to.as_db_str(),
+        allowed,
+    )
+}
+
+fn validate_transition(
+    object: &str,
+    from: &str,
+    to: &str,
+    allowed: bool,
+) -> Result<(), KernelError> {
+    if from == to || allowed {
+        Ok(())
+    } else {
+        Err(KernelError::conflict(format!(
+            "illegal {object} status transition {from} -> {to}"
+        )))
+    }
+}
+
+#[cfg(test)]
+mod compliance_domain_tests {
+    use super::*;
+
+    #[test]
+    fn org_scope_rejects_resource_refs() {
+        let mut scope = ComplianceScope::org();
+        scope.scope_ref = Some(uuid::Uuid::new_v4());
+        assert!(scope.validate().is_err());
+    }
+
+    #[test]
+    fn site_scope_requires_branch_for_deny_by_omission_filtering() {
+        let scope = ComplianceScope {
+            kind: ComplianceScopeKind::Site,
+            scope_ref: Some(uuid::Uuid::new_v4()),
+            branch_id: None,
+            site_id: Some(mnt_kernel_core::SiteId::new()),
+        };
+        assert!(scope.validate().is_err());
+    }
+
+    #[test]
+    fn evidence_status_rejects_terminal_reopen() {
+        assert!(
+            validate_evidence_status_transition(
+                EvidenceBindingStatus::Rejected,
+                EvidenceBindingStatus::Accepted
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn code_validation_requires_prefix_and_four_digits() {
+        assert!(validate_prefixed_code("CP", "CP-0001").is_ok());
+        assert!(validate_prefixed_code("CP", "RG-0001").is_err());
+        assert!(validate_prefixed_code("CP", "CP-12").is_err());
+    }
+}

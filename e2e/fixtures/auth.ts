@@ -139,11 +139,12 @@ export async function submitSignup(page: Page, email: string): Promise<void> {
 /**
  * Read the one-time signup code the StubEmailSender logged for `email`.
  *
- * MNT_EMAIL_* is unset in the e2e harness, so the app uses the stub sender, which
- * logs `[DEV] OTP for {email}: {code} (ttl ...)` at info on target `mnt::email`
- * (see backend/crates/platform/email/src/lib.rs). The harness pipes all backend
- * output to e2e/.auth/backend.log, so the test scrapes the LAST matching line for
- * this address — the real OTP-delivery path, exercised end-to-end via the stub.
+ * MNT_EMAIL_STUB_MODE=e2e is set in the e2e harness, so the app uses the
+ * explicitly-gated stub sender, which logs `[NONPROD:e2e] OTP for {email}: {code}
+ * (ttl ...)` at info on target `mnt::email` (see
+ * backend/crates/platform/email/src/lib.rs). The harness pipes all backend output
+ * to e2e/.auth/backend.log, so the test scrapes the LAST matching line for this
+ * address — the real OTP-delivery path, exercised end-to-end via the stub.
  */
 export function readSignupOtpFromLog(email: string): string {
   const log = readFileSync(BACKEND_LOG, "utf8");

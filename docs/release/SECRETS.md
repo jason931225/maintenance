@@ -46,16 +46,39 @@ Optional:
 - `APP_STORE_CONNECT_KEY_ID`: App Store Connect API key ID.
 - `APP_STORE_CONNECT_ISSUER_ID`: App Store Connect issuer ID.
 - `APP_STORE_CONNECT_KEY_BASE64`: base64 of the downloaded App Store Connect `.p8` API key. Apple only allows downloading the key file once.
-- `IOS_APP_IDENTIFIER`: bundle identifier registered in App Store Connect.
-- `IOS_SCHEME`: Xcode scheme to archive.
-- `IOS_XCODE_PROJECT`: path to the Xcode project, for example `ios/MaintenanceField.xcodeproj`.
-- `IOS_XCODE_WORKSPACE`: path to the Xcode workspace if the app uses one. Set this instead of `IOS_XCODE_PROJECT`.
+- `IOS_APP_IDENTIFIER`: bundle identifier registered in App Store Connect. The
+  repo default is `com.maintenance.field` (`ios/Config/App.xcconfig` defaults
+  `MNT_IOS_BUNDLE_ID` to the same value under Team `98Q89GFZWP`), but this is
+  production-ready only after the App ID and capabilities are registered and
+  matched by provisioning profiles.
+- `IOS_SCHEME`: Xcode scheme to archive, for example `MaintenanceFieldApp` once
+  the archive-capable project/workspace is available to the release job.
+- `IOS_XCODE_PROJECT`: path to the Xcode project, for example
+  `ios/MaintenanceField.xcodeproj`.
+- `IOS_XCODE_WORKSPACE`: path to the Xcode workspace if the app uses one. Set
+  this instead of `IOS_XCODE_PROJECT`.
 - `IOS_CERTIFICATE_P12_BASE64`: base64 of the Apple Distribution certificate exported as `.p12`.
 - `IOS_CERTIFICATE_PASSWORD`: password for the `.p12`.
 - `IOS_PROVISIONING_PROFILE_BASE64`: base64 of the App Store distribution provisioning profile.
 - `IOS_KEYCHAIN_PASSWORD`: temporary CI keychain password.
 
-Current iOS repo state: `ios/` is a SwiftPM package and does not yet include an `.xcodeproj` or `.xcworkspace`. The dry-run lane builds the Swift package. The TestFlight lane fails clearly until the Xcode packaging layer exists and `IOS_XCODE_PROJECT` or `IOS_XCODE_WORKSPACE` is provided.
+Current iOS repo state has three separate readiness levels:
+
+1. **SwiftPM build/test:** `ios/` builds through Swift Package Manager. The
+   release dry-run lane and main CI build this path without uploading to
+   TestFlight.
+2. **XcodeGen/XCUITest:** `.github/workflows/ios-ui-tests.yml` generates
+   `ios/MaintenanceField.xcodeproj` from `ios/project.yml` with XcodeGen and runs
+   Simulator XCUITest/accessibility checks. That generated `.xcodeproj` is a CI
+   artifact and is not committed.
+3. **TestFlight/archive:** the release workflow has an iOS/TestFlight lane, but
+   it does not currently create the XcodeGen project before fastlane runs and it
+   requires App Store Connect credentials, manual signing assets,
+   `IOS_APP_IDENTIFIER`, `IOS_SCHEME`, and either `IOS_XCODE_PROJECT` or
+   `IOS_XCODE_WORKSPACE`. Until those inputs point at an archive-capable project
+   or workspace and a signed archive/export has been proven, TestFlight and
+   production go-live are blocked.
+
 The workflow derives `IOS_PROVISIONING_PROFILE_NAME` from the uploaded provisioning profile and passes it to fastlane export options. If you run the `ios release` lane locally, set `IOS_PROVISIONING_PROFILE_NAME` to that profile's `Name` value.
 
 ## Local Dry Runs
@@ -86,10 +109,14 @@ git tag v0.1.0
 git push origin v0.1.0
 ```
 
-The workflow uploads:
+When all required secrets and archive inputs are present, the workflow uploads:
 
 - Android `android/app/build/outputs/bundle/release/app-release.aab` to the Play internal track.
 - iOS archive output from the configured Xcode project/workspace to TestFlight.
+
+A passing SwiftPM build, release dry run, or XcodeGen XCUITest run is not itself
+TestFlight or production readiness; it is only the corresponding build/test state
+above.
 
 ## Sources Checked
 

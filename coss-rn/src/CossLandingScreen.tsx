@@ -381,6 +381,14 @@ function pagesForGroup(group: CossPageGroup) {
   return cossPages.filter(page => page.group === group);
 }
 
+function publicPageUrl(page: CossPage) {
+  return `https://www.cosskorea.com${page.route}`;
+}
+
+function publicRouteLabel(page: CossPage) {
+  return `cosskorea.com${page.route}`;
+}
+
 function PageSelector({
   selectedPage,
   onSelectPage,
@@ -508,6 +516,88 @@ function LinkButton({
         {children}
       </Text>
     </Pressable>
+  );
+}
+
+function DesktopRouteDock({
+  selectedPage,
+  onSelectPage,
+}: {
+  selectedPage: CossPage;
+  onSelectPage: (page: CossPage) => void;
+}) {
+  const activeRoute = publicRouteLabel(selectedPage);
+
+  return (
+    <View testID="desktop-route-dock" style={styles.desktopRouteDock}>
+      <View style={styles.routeDockSegment}>
+        <Text style={styles.routeDockLabel}>선택 경로</Text>
+        <Pressable
+          accessibilityRole="link"
+          accessibilityLabel={`공개 경로 열기: ${activeRoute}`}
+          onPress={() => openExternal(publicPageUrl(selectedPage))}
+          style={({ pressed }) => [
+            styles.routeDockActiveButton,
+            pressed && styles.pressed,
+          ]}
+        >
+          <Text testID="desktop-active-route" style={styles.routeDockActiveRoute}>
+            {activeRoute}
+          </Text>
+        </Pressable>
+      </View>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.desktopRouteRail}
+      >
+        {cossPages.map(page => (
+          <Pressable
+            key={`desktop-${page.id}`}
+            accessibilityRole="button"
+            accessibilityLabel={`데스크톱 사이트맵 경로: ${page.title}`}
+            onPress={() => onSelectPage(page)}
+            style={({ pressed }) => [
+              styles.desktopRouteChip,
+              selectedPage.id === page.id && styles.desktopRouteChipActive,
+              pressed && styles.pressed,
+            ]}
+          >
+            <Text
+              style={[
+                styles.desktopRouteChipText,
+                selectedPage.id === page.id && styles.desktopRouteChipTextActive,
+              ]}
+            >
+              {page.title}
+            </Text>
+          </Pressable>
+        ))}
+      </ScrollView>
+      <View style={styles.desktopRouteActions}>
+        <Pressable
+          accessibilityRole="link"
+          accessibilityLabel="공개 홈 열기"
+          onPress={() => openExternal('https://www.cosskorea.com/')}
+          style={({ pressed }) => [styles.routeDockLink, pressed && styles.pressed]}
+        >
+          <Text style={styles.routeDockLinkText}>공개 홈</Text>
+        </Pressable>
+        <Pressable
+          accessibilityRole="link"
+          accessibilityLabel="운영 콘솔 열기"
+          onPress={() => openExternal('https://console.cosskorea.com/login')}
+          style={({ pressed }) => [
+            styles.routeDockLink,
+            styles.routeDockConsole,
+            pressed && styles.pressed,
+          ]}
+        >
+          <Text style={styles.routeDockConsoleText}>운영 콘솔</Text>
+          <Text style={styles.routeDockConsoleHost}>console.cosskorea.com</Text>
+        </Pressable>
+      </View>
+    </View>
   );
 }
 
@@ -643,6 +733,7 @@ export function CossLandingScreen() {
   );
   const scrollRef = useRef<ScrollHandle | null>(null);
   const activeFrameRef = useRef(0);
+  const lastLanguageToggleAtRef = useRef(0);
   const lastWheelAtRef = useRef(0);
   const [activeFrameIndex, setActiveFrameIndex] = useState(0);
   const scrollY = useRef(new Animated.Value(0)).current;
@@ -873,14 +964,31 @@ export function CossLandingScreen() {
     ],
   };
 
+  const selectPageByRoute = useCallback((route: string) => {
+    const page = cossPages.find(item => item.route === route);
+    if (page) setSelectedPage(page);
+  }, []);
+  const toggleLanguageMenu = useCallback(() => {
+    const now = Date.now();
+
+    if (now - lastLanguageToggleAtRef.current < 50) return;
+
+    lastLanguageToggleAtRef.current = now;
+    setLanguageOpen(value => !value);
+  }, []);
   const goRecruit = (delta: number) =>
     setActiveRecruitIndex(index =>
       shiftedIndex(index, delta, recruitItems.length),
     );
-  const goBusiness = (delta: number) =>
-    setActiveBusinessIndex(index =>
-      shiftedIndex(index, delta, businessItems.length),
+  const goBusiness = (delta: number) => {
+    const nextIndex = shiftedIndex(
+      activeBusinessIndex,
+      delta,
+      businessItems.length,
     );
+    setActiveBusinessIndex(nextIndex);
+    selectPageByRoute(businessItems[nextIndex].route);
+  };
 
   return (
     <View style={styles.safeArea}>
@@ -1005,6 +1113,7 @@ export function CossLandingScreen() {
             </Animated.View>
 
             <View
+              testID="hero-progress-controls"
               style={[styles.heroProgress, isWide && styles.heroProgressWide]}
             >
               {heroSlides.map((slide, index) => (
@@ -1138,7 +1247,19 @@ export function CossLandingScreen() {
               <Text style={styles.activeBusinessRoute}>
                 cosskorea.com{activeBusiness.route}
               </Text>
-              <Text style={styles.viewMore}>view more →</Text>
+              <Pressable
+                accessibilityRole="link"
+                accessibilityLabel={`사업 경로 열기: ${activeBusiness.title}`}
+                onPress={() =>
+                  openExternal(`https://www.cosskorea.com${activeBusiness.route}`)
+                }
+                style={({ pressed }) => [
+                  styles.viewMoreButton,
+                  pressed && styles.pressed,
+                ]}
+              >
+                <Text style={styles.viewMore}>경로 열기</Text>
+              </Pressable>
               <View style={styles.businessControls}>
                 <Pressable
                   accessibilityRole="button"
@@ -1185,7 +1306,10 @@ export function CossLandingScreen() {
                     key={item.no}
                     accessibilityRole="button"
                     accessibilityLabel={`Business route ${item.no}: ${item.title}`}
-                    onPress={() => setActiveBusinessIndex(sourceIndex)}
+                    onPress={() => {
+                      setActiveBusinessIndex(sourceIndex);
+                      selectPageByRoute(item.route);
+                    }}
                     style={({ pressed }) => [
                       styles.businessPressable,
                       pressed && styles.pressed,
@@ -1409,6 +1533,10 @@ export function CossLandingScreen() {
                 </View>
               ))}
             </View>
+            <DesktopRouteDock
+              selectedPage={selectedPage}
+              onSelectPage={setSelectedPage}
+            />
             <View style={styles.footerLegal}>
               <View style={styles.footerBrandColumn}>
                 <Image
@@ -1505,7 +1633,7 @@ export function CossLandingScreen() {
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Language selector"
-            onPress={() => setLanguageOpen(value => !value)}
+            onPress={toggleLanguageMenu}
             style={styles.languageButton}
           >
             <Text
@@ -1747,7 +1875,7 @@ const styles = StyleSheet.create({
     bottom: 330,
     gap: 16,
     maxWidth: 520,
-    opacity: 0,
+    opacity: 1,
   },
   progressItem: { flex: 1, minHeight: 30, justifyContent: 'flex-end' },
   progressNumber: {
@@ -1940,28 +2068,34 @@ const styles = StyleSheet.create({
     letterSpacing: -1.9,
   },
   activeBusinessTitle: {
-    height: 0,
-    marginTop: 0,
-    opacity: 0,
+    marginTop: 18,
     color: colors.blue,
     fontSize: 18,
+    lineHeight: 24,
     fontWeight: '900',
   },
   activeBusinessRoute: {
-    height: 0,
-    marginTop: 0,
-    opacity: 0,
+    marginTop: 8,
     color: colors.muted,
     fontSize: 13,
+    lineHeight: 18,
     fontWeight: '800',
   },
+  viewMoreButton: {
+    alignSelf: 'flex-start',
+    marginTop: 18,
+    minHeight: 38,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.ink,
+    paddingHorizontal: 16,
+    justifyContent: 'center',
+  },
   viewMore: {
-    marginTop: 24,
     color: colors.ink,
     fontSize: 13,
     fontWeight: '900',
     letterSpacing: 1.6,
-    textTransform: 'uppercase',
   },
   businessControls: { marginTop: 34, flexDirection: 'row', gap: 10 },
   businessControlButton: {
@@ -2420,6 +2554,77 @@ const styles = StyleSheet.create({
     fontWeight: '900',
     letterSpacing: -12,
   },
+  desktopRouteDock: {
+    minHeight: 74,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderColor: '#d7dbe1',
+    paddingVertical: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+  routeDockSegment: { width: 260, gap: 5 },
+  routeDockLabel: {
+    color: '#7d8288',
+    fontSize: 11,
+    fontWeight: '900',
+    letterSpacing: 1.4,
+  },
+  routeDockActiveButton: { minHeight: 28, justifyContent: 'center' },
+  routeDockActiveRoute: {
+    color: '#0754d9',
+    fontSize: 13,
+    lineHeight: 18,
+    fontWeight: '900',
+  },
+  desktopRouteRail: {
+    gap: 8,
+    paddingRight: 6,
+    alignItems: 'center',
+  },
+  desktopRouteChip: {
+    minHeight: 34,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#d7dbe1',
+    paddingHorizontal: 12,
+    justifyContent: 'center',
+    backgroundColor: colors.white,
+  },
+  desktopRouteChipActive: { borderColor: colors.blue, backgroundColor: colors.blue },
+  desktopRouteChipText: { color: colors.ink, fontSize: 12, fontWeight: '900' },
+  desktopRouteChipTextActive: { color: colors.white },
+  desktopRouteActions: {
+    width: 296,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    gap: 8,
+  },
+  routeDockLink: {
+    minHeight: 36,
+    borderRadius: 999,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: '#d7dbe1',
+    paddingHorizontal: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.white,
+  },
+  routeDockLinkText: { color: colors.ink, fontSize: 12, fontWeight: '900' },
+  routeDockConsole: {
+    minWidth: 156,
+    borderColor: colors.blue,
+    backgroundColor: colors.blue,
+  },
+  routeDockConsoleText: { color: colors.white, fontSize: 12, fontWeight: '900' },
+  routeDockConsoleHost: {
+    color: 'rgba(255,255,255,0.78)',
+    fontSize: 10,
+    lineHeight: 13,
+    fontWeight: '800',
+  },
   linkButton: {
     minHeight: 48,
     borderRadius: 999,
@@ -2444,8 +2649,8 @@ const styles = StyleSheet.create({
   },
   footerWide: {
     paddingHorizontal: 20,
-    paddingTop: 70,
-    paddingBottom: 64,
+    paddingTop: 44,
+    paddingBottom: 36,
   },
   footerSiteTools: {
     marginTop: 34,
@@ -2465,7 +2670,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     gap: 34,
-    paddingBottom: 54,
+    paddingBottom: 28,
   },
   footerGroup: { flex: 1, gap: 14 },
   footerGroupTitle: {
@@ -2482,10 +2687,10 @@ const styles = StyleSheet.create({
     fontWeight: '800',
   },
   footerLegal: {
-    minHeight: 132,
+    minHeight: 116,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: '#d7dbe1',
-    paddingTop: 31,
+    paddingTop: 22,
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 44,

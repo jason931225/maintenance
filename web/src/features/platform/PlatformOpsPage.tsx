@@ -30,6 +30,25 @@ function formatActivity(value: string | null): string {
   return formatKoreanDateTime(value);
 }
 
+function formatRouteAdoption(tenant: PlatformTenantHealth): string {
+  const metric = tenant.route_adoption.at(0);
+  if (!metric) return ko.platform.ops.routeAdoption.none;
+
+  const labels = ko.platform.ops.routeAdoption;
+  const perf =
+    metric.rum_perf_p95_ms == null
+      ? labels.noPerf
+      : `${labels.p95} ${String(metric.rum_perf_p95_ms)}ms`;
+
+  return [
+    metric.release_cycle,
+    `${labels.console} ${String(metric.console_route_events)} / ${labels.legacy} ${String(metric.legacy_route_events)}`,
+    `${labels.errors} ${String(metric.rum_error_events)}`,
+    perf,
+    `${labels.zeroLegacyCycles} ${String(tenant.zero_legacy_release_cycles)}`,
+  ].join(" · ");
+}
+
 /**
  * Platform ops dashboard: a cross-tenant health/usage table. Reads the audited
  * `GET /api/platform/ops` endpoint (platform token only) and lists every tenant
@@ -146,6 +165,7 @@ function TenantHealthTable({ tenants }: { tenants: PlatformTenantHealth[] }) {
             <th className="px-4 py-3 text-right">{cols.activeUsers}</th>
             <th className="px-4 py-3 text-right">{cols.activeWorkOrders}</th>
             <th className="px-4 py-3 text-right">{cols.openWorkOrders}</th>
+            <th className="px-4 py-3">{cols.routeAdoption}</th>
             <th className="px-4 py-3">{cols.lastActivity}</th>
           </tr>
         </thead>
@@ -175,6 +195,9 @@ function TenantHealthTable({ tenants }: { tenants: PlatformTenantHealth[] }) {
               </td>
               <td className="px-4 py-3 text-right tabular-nums text-steel">
                 {tenant.open_work_orders}
+              </td>
+              <td className="max-w-xs px-4 py-3 text-xs text-steel">
+                {formatRouteAdoption(tenant)}
               </td>
               <td className="px-4 py-3 text-steel">
                 {formatActivity(tenant.last_activity_at)}

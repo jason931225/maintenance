@@ -17,7 +17,8 @@
 //!     policy whose USING/WITH CHECK references `current_setting('app.current_org'`.
 //!     (RLS-on without FORCE = owner bypass; RLS-on without a policy = lockout.)
 //!  2. Every table that gains an `org_id` column — except the small nullable /
-//!     platform allowlist (audit_events) — is RLS ENABLED + FORCED + policied.
+//!     platform allowlist (audit_events) — makes it NOT NULL and is RLS ENABLED
+//!     + FORCED + policied.
 //!  3. No migration arms the GUC with a NON-local `set_config(..., false)` or a
 //!     session-level `SET app.current_org` (cross-request bleed).
 //!  4. Every CREATE TABLE is classified: it must either gain an `org_id` column
@@ -57,6 +58,10 @@ pub fn global_table_allowlist() -> &'static [(&'static str, &'static str)] {
         (
             "auth_webauthn_ceremonies",
             "pre-auth ceremony state, user/org not yet resolved",
+        ),
+        (
+            "auth_webauthn_ceremony_bindings",
+            "transient WebAuthn action binding keyed to global ceremony state",
         ),
         // Cross-device login handoff state: a desktop starts polling before the
         // approving phone has proven user/org/passkey possession. It stores
@@ -127,6 +132,8 @@ pub enum ViolationKind {
     RlsEnabledWithoutForce,
     /// RLS ENABLED but no `current_setting('app.current_org'` policy (lockout).
     RlsEnabledWithoutOrgPolicy,
+    /// Table has a nullable `org_id` column but is not in the nullable allowlist.
+    NullableOrgIdWithoutAllowlist,
     /// Table has an `org_id` column but RLS is not enabled (untenanted leak).
     OrgColumnWithoutRls,
     /// A CREATE TABLE that is neither tenant-scoped nor in the global allowlist.
@@ -214,6 +221,7 @@ pub fn check_migrations_root(root: &Path) -> GateResult {
 struct TableFacts {
     created_in: Option<PathBuf>,
     has_org_column: bool,
+    org_column_not_null: bool,
     org_column_file: Option<PathBuf>,
     rls_enabled: bool,
     rls_forced: bool,
@@ -319,7 +327,21 @@ fn discover_org_columns(file: &Path, sanitized: &str, facts: &mut HashMap<String
         if let Some(table) = alter_table_target(&tokens)
             && tokens_contain_sequence(&tokens, &["add", "column", "org_id"])
         {
-            mark_org_column(file, table, facts);
+            mark_org_column(
+                file,
+                table,
+                facts,
+                org_column_definition_has_not_null(statement),
+            );
+        }
+        // ALTER TABLE <t> ALTER COLUMN org_id SET NOT NULL
+        if let Some(table) = alter_table_target(&tokens)
+            && tokens_contain_sequence(
+                &tokens,
+                &["alter", "column", "org_id", "set", "not", "null"],
+            )
+        {
+            mark_org_column(file, table, facts, true);
         }
         // CREATE TABLE <t> ( ... org_id uuid ... )
         for (index, token) in tokens.iter().enumerate() {
@@ -334,18 +356,67 @@ fn discover_org_columns(file: &Path, sanitized: &str, facts: &mut HashMap<String
                 && tokens_contain_sequence(&tokens, &["org_id", "uuid"])
             {
                 let table = table.to_string();
-                mark_org_column(file, &table, facts);
+                mark_org_column(
+                    file,
+                    &table,
+                    facts,
+                    org_column_definition_has_not_null(statement),
+                );
             }
         }
     }
 }
 
-fn mark_org_column(file: &Path, table: &str, facts: &mut HashMap<String, TableFacts>) {
+fn mark_org_column(
+    file: &Path,
+    table: &str,
+    facts: &mut HashMap<String, TableFacts>,
+    not_null: bool,
+) {
     let entry = facts.entry(table.to_string()).or_default();
     entry.has_org_column = true;
+    entry.org_column_not_null |= not_null;
     if entry.org_column_file.is_none() {
         entry.org_column_file = Some(file.to_path_buf());
     }
+}
+
+fn org_column_definition_has_not_null(statement: &str) -> bool {
+    let lower = statement.to_ascii_lowercase();
+    let mut search_from = 0usize;
+
+    while let Some(relative) = lower[search_from..].find("org_id") {
+        let start = search_from + relative;
+        let end = start + "org_id".len();
+        if !identifier_boundaries(&lower, start, end) {
+            search_from = end;
+            continue;
+        }
+
+        let tail = &lower[end..];
+        let clause_end = tail.find([',', ')', ';']).unwrap_or(tail.len());
+        let clause_tokens = tokenize_sql(&tail[..clause_end]);
+        if tokens_contain_sequence(&clause_tokens, &["not", "null"])
+            || tokens_contain_sequence(&clause_tokens, &["primary", "key"])
+        {
+            return true;
+        }
+        search_from = end;
+    }
+
+    false
+}
+
+fn identifier_boundaries(sql: &str, start: usize, end: usize) -> bool {
+    let before_ok = sql[..start]
+        .chars()
+        .next_back()
+        .is_none_or(|ch| !ch.is_ascii_alphanumeric() && ch != '_');
+    let after_ok = sql[end..]
+        .chars()
+        .next()
+        .is_none_or(|ch| !ch.is_ascii_alphanumeric() && ch != '_');
+    before_ok && after_ok
 }
 
 /// `ALTER TABLE [IF EXISTS] <name>` → the target table.
@@ -660,9 +731,29 @@ fn evaluate_facts(facts: &HashMap<String, TableFacts>, result: &mut GateResult) 
             }
         }
 
-        // (2) org_id column ⇒ RLS enabled (unless allowlisted). When RLS IS
-        // enabled, the FORCE + org-policy sub-checks in (1) already cover the
-        // rest, so this branch only needs to catch the "org_id but no RLS" gap.
+        // (2) org_id column ⇒ NOT NULL + RLS enabled unless the table is in the
+        // explicit nullable-org allowlist. When RLS IS enabled, the FORCE +
+        // org-policy sub-checks in (1) already cover the rest, so the RLS branch
+        // only needs to catch the "org_id but no RLS" gap.
+        if f.has_org_column
+            && !global.contains(table.as_str())
+            && !owner_only.contains(table.as_str())
+            && !nullable_org.contains(table.as_str())
+            && !f.org_column_not_null
+        {
+            result.violations.push(Violation {
+                kind: ViolationKind::NullableOrgIdWithoutAllowlist,
+                file: f
+                    .org_column_file
+                    .clone()
+                    .unwrap_or_else(|| migrations_root.clone()),
+                detail: format!(
+                    "tenant table '{table}' has a nullable org_id column but is not in \
+                     nullable_org_allowlist(); tenant-scoped org_id columns must be NOT NULL \
+                     unless explicitly allowlisted with a platform/global rationale"
+                ),
+            });
+        }
         if f.has_org_column
             && !global.contains(table.as_str())
             && !owner_only.contains(table.as_str())
@@ -1189,8 +1280,8 @@ mod tests {
         write(
             &dir,
             "0001_w.sql",
-            "ALTER TABLE alpha ADD COLUMN org_id UUID;\n\
-             ALTER TABLE beta ADD COLUMN org_id UUID;\n\
+            "ALTER TABLE alpha ADD COLUMN org_id UUID NOT NULL;\n\
+             ALTER TABLE beta ADD COLUMN org_id UUID NOT NULL;\n\
              DO $$\nDECLARE t TEXT;\n\
              tenant_tables TEXT[] := ARRAY['alpha', 'beta'];\nBEGIN\n\
              FOREACH t IN ARRAY tenant_tables LOOP\n\
@@ -1225,6 +1316,100 @@ mod tests {
         assert!(
             result.passed(),
             "audit_events should pass: {:?}",
+            result.violations
+        );
+    }
+
+    #[test]
+    fn nullable_org_column_tenant_table_is_flagged_even_with_rls() {
+        let dir = tmpdir("nullable-org");
+        write(
+            &dir,
+            "0001_w.sql",
+            "CREATE TABLE work_orders (id uuid primary key, org_id uuid);\n\
+             ALTER TABLE work_orders ENABLE ROW LEVEL SECURITY;\n\
+             ALTER TABLE work_orders FORCE ROW LEVEL SECURITY;\n\
+             CREATE POLICY org_isolation ON work_orders \
+                 USING (org_id = NULLIF(current_setting('app.current_org', true), '')::uuid) \
+                 WITH CHECK (org_id = NULLIF(current_setting('app.current_org', true), '')::uuid);\n",
+        );
+        let result = check_migrations_root(&dir);
+        assert!(
+            result.violations.iter().any(|v| {
+                v.detail.contains("work_orders")
+                    && v.detail.contains("org_id")
+                    && v.detail.contains("NOT NULL")
+            }),
+            "tenant table with nullable org_id should be rejected with a clear diagnostic: {:?}",
+            result.violations
+        );
+    }
+
+    #[test]
+    fn alter_add_org_column_not_null_passes() {
+        let dir = tmpdir("alter-add-not-null");
+        write(
+            &dir,
+            "0001_w.sql",
+            "CREATE TABLE work_orders (id uuid primary key);\n\
+             ALTER TABLE work_orders ADD COLUMN org_id uuid NOT NULL;\n\
+             ALTER TABLE work_orders ENABLE ROW LEVEL SECURITY;\n\
+             ALTER TABLE work_orders FORCE ROW LEVEL SECURITY;\n\
+             CREATE POLICY org_isolation ON work_orders \
+                 USING (org_id = NULLIF(current_setting('app.current_org', true), '')::uuid) \
+                 WITH CHECK (org_id = NULLIF(current_setting('app.current_org', true), '')::uuid);\n",
+        );
+        let result = check_migrations_root(&dir);
+        assert!(
+            result.passed(),
+            "ADD COLUMN org_id uuid NOT NULL should pass: {:?}",
+            result.violations
+        );
+    }
+
+    #[test]
+    fn alter_set_org_column_not_null_passes() {
+        let dir = tmpdir("alter-set-not-null");
+        write(
+            &dir,
+            "0001_w.sql",
+            "CREATE TABLE work_orders (id uuid primary key);\n\
+             ALTER TABLE work_orders ADD COLUMN org_id uuid;\n\
+             ALTER TABLE work_orders ALTER COLUMN org_id SET NOT NULL;\n\
+             ALTER TABLE work_orders ENABLE ROW LEVEL SECURITY;\n\
+             ALTER TABLE work_orders FORCE ROW LEVEL SECURITY;\n\
+             CREATE POLICY org_isolation ON work_orders \
+                 USING (org_id = NULLIF(current_setting('app.current_org', true), '')::uuid) \
+                 WITH CHECK (org_id = NULLIF(current_setting('app.current_org', true), '')::uuid);\n",
+        );
+        let result = check_migrations_root(&dir);
+        assert!(
+            result.passed(),
+            "ALTER COLUMN org_id SET NOT NULL should satisfy the tenant gate: {:?}",
+            result.violations
+        );
+    }
+
+    #[test]
+    fn org_id_primary_key_is_treated_as_not_null() {
+        let dir = tmpdir("org-primary-key");
+        write(
+            &dir,
+            "0001_w.sql",
+            "CREATE TABLE policy_versions (\n\
+                 org_id uuid PRIMARY KEY REFERENCES organizations(id) ON DELETE CASCADE,\n\
+                 version bigint NOT NULL DEFAULT 1\n\
+             );\n\
+             ALTER TABLE policy_versions ENABLE ROW LEVEL SECURITY;\n\
+             ALTER TABLE policy_versions FORCE ROW LEVEL SECURITY;\n\
+             CREATE POLICY org_isolation ON policy_versions \
+                 USING (org_id = NULLIF(current_setting('app.current_org', true), '')::uuid) \
+                 WITH CHECK (org_id = NULLIF(current_setting('app.current_org', true), '')::uuid);\n",
+        );
+        let result = check_migrations_root(&dir);
+        assert!(
+            result.passed(),
+            "org_id PRIMARY KEY is implicitly NOT NULL and should pass: {:?}",
             result.violations
         );
     }
@@ -1318,8 +1503,8 @@ mod tests {
         write(
             &dir,
             "0001_w.sql",
-            "ALTER TABLE alpha ADD COLUMN org_id UUID;\n\
-             ALTER TABLE beta ADD COLUMN org_id UUID;\n\
+            "ALTER TABLE alpha ADD COLUMN org_id UUID NOT NULL;\n\
+             ALTER TABLE beta ADD COLUMN org_id UUID NOT NULL;\n\
              DO $$\n\
              -- rollout note — these tables are tenant-scoped — RLS below.\n\
              DECLARE t TEXT;\n\

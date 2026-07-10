@@ -17,7 +17,10 @@ use mnt_kernel_core::{
     AuditAction, AuditEvent, BranchId, BranchScope, DailyPlanId, DeviceId, ErrorKind, EvidenceId,
     KernelError, OrgId, TraceContext, UserId, WorkOrderId,
 };
-use mnt_platform_auth::JwtVerifier;
+use mnt_platform_auth::{
+    JwtVerifier, MobilePasskeyStepUpBinding, MobilePasskeyStepUpEnvelope,
+    MobilePasskeyStepUpVerificationError, PasskeyService,
+};
 use mnt_platform_authz::{
     Action, BranchColumn, Feature, PermissionLevel, Principal, Role, authorize, permission_for,
 };
@@ -61,6 +64,32 @@ time::serde::format_description!(iso_date, Date, "[year]-[month]-[day]");
 /// entry (`drive_completion_if_enabled`) stays crate-private.
 pub mod m2_strangler;
 
+pub const APPROVAL_ITEMS_PATH: &str = "/api/approval-items";
+pub const WORKORDERS_V1_PATH: &str = "/api/v1/work-orders";
+pub const WORKORDER_DETAIL_V1_PATH_TEMPLATE: &str = "/api/v1/work-orders/{work_order_id}";
+pub const WORKORDER_REJECT_V1_PATH_TEMPLATE: &str = "/api/v1/work-orders/{work_order_id}/reject";
+pub const EQUIPMENT_LOOKUP_PATH: &str = "/api/v1/equipment/lookup";
+pub const EQUIPMENT_AUTOCOMPLETE_PATH: &str = "/api/v1/equipment";
+pub const WORKORDERS_PATH: &str = "/api/work-orders";
+pub const WORKORDER_PATH_TEMPLATE: &str = "/api/work-orders/{work_order_id}";
+pub const WORKORDER_PRIORITY_PATH_TEMPLATE: &str = "/api/work-orders/{work_order_id}/priority";
+pub const WORKORDER_ASSIGNMENTS_PATH_TEMPLATE: &str =
+    "/api/work-orders/{work_order_id}/assignments";
+pub const WORKORDER_START_PATH_TEMPLATE: &str = "/api/work-orders/{work_order_id}/start";
+pub const WORKORDER_REPORT_PATH_TEMPLATE: &str = "/api/work-orders/{work_order_id}/report";
+pub const WORKORDER_APPROVE_PATH_TEMPLATE: &str = "/api/work-orders/{work_order_id}/approve";
+pub const WORKORDER_TARGET_CHANGE_REQUESTS_PATH_TEMPLATE: &str =
+    "/api/work-orders/{work_order_id}/target-change-requests";
+pub const TARGET_CHANGE_REVIEW_PATH_TEMPLATE: &str =
+    "/api/target-change-requests/{request_id}/review";
+pub const DAILY_WORK_PLANS_PATH: &str = "/api/daily-work-plans";
+pub const DAILY_WORK_PLAN_PATH_TEMPLATE: &str = "/api/daily-work-plans/{plan_id}";
+pub const DAILY_WORK_PLAN_REQUEST_REVIEW_PATH_TEMPLATE: &str =
+    "/api/daily-work-plans/{plan_id}/request-review";
+pub const DAILY_WORK_PLAN_REVIEW_PATH_TEMPLATE: &str = "/api/daily-work-plans/{plan_id}/review";
+pub const DAILY_WORK_PLAN_CONFIRM_PATH_TEMPLATE: &str = "/api/daily-work-plans/{plan_id}/confirm";
+pub const WORKORDER_OUTSOURCE_WORKS_PATH_TEMPLATE: &str =
+    "/api/work-orders/{work_order_id}/outsource-works";
 pub const SYNC_PATH: &str = "/api/v1/sync";
 pub const EVIDENCE_PRESIGN_PATH: &str = "/api/v1/evidence/presign";
 pub const EVIDENCE_CONFIRM_PATH_TEMPLATE: &str = "/api/v1/evidence/{evidenceId}/confirm";
@@ -70,6 +99,31 @@ pub const EVIDENCE_STAGING_PRESIGN_PATH: &str = "/api/v1/evidence/staging-presig
 /// Per-row processing-status poll (처리 중 → 완료 / 실패) for the web UI.
 pub const EVIDENCE_STATUS_PATH_TEMPLATE: &str = "/api/v1/evidence/{evidenceId}/status";
 pub const DEVICES_PATH: &str = "/api/v1/devices";
+pub const MOBILE_APPROVE_WORK_ORDER_PATH_TEMPLATE: &str =
+    "/api/v1/mobile/work-orders/{work_order_id}/approve";
+pub const WORKORDER_ROUTE_PATHS: &[&str] = &[
+    APPROVAL_ITEMS_PATH,
+    WORKORDERS_V1_PATH,
+    WORKORDER_DETAIL_V1_PATH_TEMPLATE,
+    WORKORDER_REJECT_V1_PATH_TEMPLATE,
+    EQUIPMENT_LOOKUP_PATH,
+    EQUIPMENT_AUTOCOMPLETE_PATH,
+    WORKORDERS_PATH,
+    WORKORDER_PATH_TEMPLATE,
+    WORKORDER_PRIORITY_PATH_TEMPLATE,
+    WORKORDER_ASSIGNMENTS_PATH_TEMPLATE,
+    WORKORDER_START_PATH_TEMPLATE,
+    WORKORDER_REPORT_PATH_TEMPLATE,
+    WORKORDER_APPROVE_PATH_TEMPLATE,
+    WORKORDER_TARGET_CHANGE_REQUESTS_PATH_TEMPLATE,
+    TARGET_CHANGE_REVIEW_PATH_TEMPLATE,
+    DAILY_WORK_PLANS_PATH,
+    DAILY_WORK_PLAN_PATH_TEMPLATE,
+    DAILY_WORK_PLAN_REQUEST_REVIEW_PATH_TEMPLATE,
+    DAILY_WORK_PLAN_REVIEW_PATH_TEMPLATE,
+    DAILY_WORK_PLAN_CONFIRM_PATH_TEMPLATE,
+    WORKORDER_OUTSOURCE_WORKS_PATH_TEMPLATE,
+];
 pub const MOBILE_ROUTE_PATHS: &[&str] = &[
     SYNC_PATH,
     EVIDENCE_PRESIGN_PATH,
@@ -77,6 +131,7 @@ pub const MOBILE_ROUTE_PATHS: &[&str] = &[
     EVIDENCE_STAGING_PRESIGN_PATH,
     EVIDENCE_STATUS_PATH_TEMPLATE,
     DEVICES_PATH,
+    MOBILE_APPROVE_WORK_ORDER_PATH_TEMPLATE,
 ];
 
 /// Maximum number of operations accepted in a single `/sync` batch. A larger
@@ -122,6 +177,8 @@ pub struct MobileRestState<S> {
     pool: PgPool,
     store: PgWorkOrderStore,
     jwt_verifier: Option<JwtVerifier>,
+    passkey_step_up: Option<PasskeyService>,
+    workflow_runtime: Option<PgWorkflowRuntimeStore>,
     evidence_service: Option<EvidenceService<S>>,
     /// Job queue used to enqueue the async evidence transcode after a staging
     /// upload presign. `None` disables the media-processing path (the staging
@@ -141,9 +198,26 @@ impl<S> MobileRestState<S> {
             pool,
             store,
             jwt_verifier,
+            passkey_step_up: None,
+            workflow_runtime: None,
             evidence_service,
             job_queue: None,
         }
+    }
+
+    #[must_use]
+    pub fn with_passkey_step_up(mut self, passkey_step_up: Option<PasskeyService>) -> Self {
+        self.passkey_step_up = passkey_step_up;
+        self
+    }
+
+    #[must_use]
+    pub fn with_workflow_runtime(
+        mut self,
+        workflow_runtime: Option<PgWorkflowRuntimeStore>,
+    ) -> Self {
+        self.workflow_runtime = workflow_runtime;
+        self
     }
 
     /// Attach the job queue that backs the async evidence-transcode pipeline.
@@ -158,67 +232,52 @@ pub fn router(state: WorkOrderRestState) -> Router {
     let verifier = state.jwt_verifier.clone();
     let pool = state.store.pool().clone();
     let router = Router::new()
-        .route("/api/approval-items", get(list_approval_items))
-        .route("/api/v1/work-orders", get(list_work_orders))
+        .route(APPROVAL_ITEMS_PATH, get(list_approval_items))
+        .route(WORKORDERS_V1_PATH, get(list_work_orders))
         .route(
-            "/api/v1/work-orders/{work_order_id}",
+            WORKORDER_DETAIL_V1_PATH_TEMPLATE,
             get(get_work_order_detail),
         )
+        .route(WORKORDER_REJECT_V1_PATH_TEMPLATE, post(reject_work_order))
+        .route(EQUIPMENT_LOOKUP_PATH, get(lookup_equipment))
+        .route(EQUIPMENT_AUTOCOMPLETE_PATH, get(autocomplete_equipment))
+        .route(WORKORDERS_PATH, post(create_work_order))
         .route(
-            "/api/v1/work-orders/{work_order_id}/reject",
-            post(reject_work_order),
-        )
-        .route("/api/v1/equipment/lookup", get(lookup_equipment))
-        .route("/api/v1/equipment", get(autocomplete_equipment))
-        .route("/api/work-orders", post(create_work_order))
-        .route(
-            "/api/work-orders/{work_order_id}",
+            WORKORDER_PATH_TEMPLATE,
             get(get_work_order).patch(update_work_order_intake),
         )
+        .route(WORKORDER_PRIORITY_PATH_TEMPLATE, patch(update_priority))
+        .route(WORKORDER_ASSIGNMENTS_PATH_TEMPLATE, put(assign_work_order))
+        .route(WORKORDER_START_PATH_TEMPLATE, post(start_work))
+        .route(WORKORDER_REPORT_PATH_TEMPLATE, post(submit_report))
+        .route(WORKORDER_APPROVE_PATH_TEMPLATE, post(approve_work_order))
         .route(
-            "/api/work-orders/{work_order_id}/priority",
-            patch(update_priority),
-        )
-        .route(
-            "/api/work-orders/{work_order_id}/assignments",
-            put(assign_work_order),
-        )
-        .route("/api/work-orders/{work_order_id}/start", post(start_work))
-        .route(
-            "/api/work-orders/{work_order_id}/report",
-            post(submit_report),
-        )
-        .route(
-            "/api/work-orders/{work_order_id}/approve",
-            post(approve_work_order),
-        )
-        .route(
-            "/api/work-orders/{work_order_id}/target-change-requests",
+            WORKORDER_TARGET_CHANGE_REQUESTS_PATH_TEMPLATE,
             post(request_target_change),
         )
         .route(
-            "/api/target-change-requests/{request_id}/review",
+            TARGET_CHANGE_REVIEW_PATH_TEMPLATE,
             post(review_target_change),
         )
         .route(
-            "/api/daily-work-plans",
+            DAILY_WORK_PLANS_PATH,
             get(list_daily_plans).post(create_daily_plan),
         )
-        .route("/api/daily-work-plans/{plan_id}", get(get_daily_plan))
+        .route(DAILY_WORK_PLAN_PATH_TEMPLATE, get(get_daily_plan))
         .route(
-            "/api/daily-work-plans/{plan_id}/request-review",
+            DAILY_WORK_PLAN_REQUEST_REVIEW_PATH_TEMPLATE,
             post(request_daily_plan_review),
         )
         .route(
-            "/api/daily-work-plans/{plan_id}/review",
+            DAILY_WORK_PLAN_REVIEW_PATH_TEMPLATE,
             post(review_daily_plan),
         )
         .route(
-            "/api/daily-work-plans/{plan_id}/confirm",
+            DAILY_WORK_PLAN_CONFIRM_PATH_TEMPLATE,
             post(confirm_daily_plan),
         )
         .route(
-            "/api/work-orders/{work_order_id}/outsource-works",
+            WORKORDER_OUTSOURCE_WORKS_PATH_TEMPLATE,
             post(create_outsource_work),
         )
         .with_state(state);
@@ -235,18 +294,16 @@ where
         .route(SYNC_PATH, post(sync_batch::<S>))
         .route(DEVICES_PATH, post(register_device::<S>))
         .route(EVIDENCE_PRESIGN_PATH, post(presign_evidence::<S>))
-        .route(
-            "/api/v1/evidence/{evidence_id}/confirm",
-            post(confirm_evidence::<S>),
-        )
+        .route(EVIDENCE_CONFIRM_PATH_TEMPLATE, post(confirm_evidence::<S>))
         .route(
             EVIDENCE_STAGING_PRESIGN_PATH,
             post(presign_evidence_staging::<S>),
         )
         .route(
-            "/api/v1/evidence/{evidence_id}/status",
-            get(evidence_status::<S>),
+            MOBILE_APPROVE_WORK_ORDER_PATH_TEMPLATE,
+            post(approve_mobile_work_order::<S>),
         )
+        .route(EVIDENCE_STATUS_PATH_TEMPLATE, get(evidence_status::<S>))
         .with_state(state);
     mnt_platform_request_context::with_request_context(router, verifier, pool)
 }
@@ -294,6 +351,13 @@ struct SubmitReportRequest {
 #[derive(Debug, Deserialize)]
 struct ApproveWorkOrderRequest {
     comment: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct MobileApproveWorkOrderRequest {
+    comment: String,
+    #[serde(default)]
+    step_up: Option<MobilePasskeyStepUpEnvelope>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -910,6 +974,7 @@ struct ErrorPayload {
 struct RestError {
     status: StatusCode,
     kind: ErrorKind,
+    code_override: Option<&'static str>,
     message: String,
 }
 
@@ -918,6 +983,7 @@ impl RestError {
         Self {
             status: StatusCode::BAD_REQUEST,
             kind: ErrorKind::Validation,
+            code_override: None,
             message: message.into(),
         }
     }
@@ -926,6 +992,7 @@ impl RestError {
         Self {
             status: StatusCode::UNAUTHORIZED,
             kind: ErrorKind::Forbidden,
+            code_override: None,
             message: message.into(),
         }
     }
@@ -934,6 +1001,7 @@ impl RestError {
         Self {
             status: StatusCode::SERVICE_UNAVAILABLE,
             kind: ErrorKind::Internal,
+            code_override: None,
             message: message.into(),
         }
     }
@@ -942,6 +1010,25 @@ impl RestError {
         Self {
             status: StatusCode::INTERNAL_SERVER_ERROR,
             kind: ErrorKind::Internal,
+            code_override: None,
+            message: message.into(),
+        }
+    }
+
+    fn precondition_required(code: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::PRECONDITION_REQUIRED,
+            kind: ErrorKind::Validation,
+            code_override: Some(code),
+            message: message.into(),
+        }
+    }
+
+    fn passkey_step_up_failed(code: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::UNAUTHORIZED,
+            kind: ErrorKind::Forbidden,
+            code_override: Some(code),
             message: message.into(),
         }
     }
@@ -950,6 +1037,7 @@ impl RestError {
         Self {
             status: status_for_error_kind(error.kind),
             kind: error.kind,
+            code_override: None,
             message: error.message,
         }
     }
@@ -997,6 +1085,9 @@ impl RestError {
     }
 
     fn code(&self) -> &'static str {
+        if let Some(code) = self.code_override {
+            return code;
+        }
         match self.kind {
             ErrorKind::Validation => "validation",
             ErrorKind::NotFound => "not_found",
@@ -3017,6 +3108,114 @@ async fn approve_work_order(
     }
 
     Ok(Json(summary))
+}
+
+async fn approve_mobile_work_order<S>(
+    State(state): State<MobileRestState<S>>,
+    headers: HeaderMap,
+    Path(work_order_id): Path<uuid::Uuid>,
+    Json(body): Json<MobileApproveWorkOrderRequest>,
+) -> Result<impl IntoResponse, RestError>
+where
+    S: S3ObjectStore + Clone + Send + Sync + 'static,
+{
+    let work_order_id = WorkOrderId::from_uuid(work_order_id);
+    let principal = mobile_principal_from_headers(&state, &headers).await?;
+    let current = state
+        .store
+        .work_order(work_order_id)
+        .await
+        .map_err(RestError::from_store)?;
+    authorize(
+        &principal,
+        Action::new(Feature::CompletionReview),
+        current.branch_id,
+    )
+    .map_err(RestError::from_kernel)?;
+
+    verify_mobile_approval_step_up(
+        &state,
+        &principal,
+        work_order_id,
+        body.step_up.ok_or_else(|| {
+            RestError::precondition_required(
+                "passkey_step_up_required",
+                "mobile work-order approval requires a fresh passkey step-up",
+            )
+        })?,
+    )
+    .await?;
+
+    let summary = state
+        .store
+        .approve_work_order(WorkOrderApprovalCommand {
+            actor: principal.user_id,
+            work_order_id,
+            comment: body.comment,
+            trace: TraceContext::generate(),
+            occurred_at: time::OffsetDateTime::now_utc(),
+        })
+        .await
+        .map_err(RestError::from_store)?;
+
+    if summary.status == WorkOrderStatus::FinalCompleted
+        && let Some(runtime) = state.workflow_runtime.as_ref()
+        && let Err(err) = m2_strangler::drive_completion_if_enabled(
+            runtime,
+            &principal,
+            summary.branch_id,
+            work_order_id,
+        )
+        .await
+    {
+        tracing::warn!(
+            error = %err.message,
+            work_order_id = %work_order_id,
+            "m2 strangler: runtime completion record failed after mobile approval (completion already persisted; drainer will restage payroll)"
+        );
+    }
+
+    Ok(Json(summary))
+}
+
+async fn verify_mobile_approval_step_up<S>(
+    state: &MobileRestState<S>,
+    principal: &Principal,
+    work_order_id: WorkOrderId,
+    step_up: MobilePasskeyStepUpEnvelope,
+) -> Result<(), RestError> {
+    step_up
+        .binding
+        .validate()
+        .map_err(|err| RestError::from_kernel(KernelError::validation(err.to_string())))?;
+    let expected_binding = MobilePasskeyStepUpBinding::approval_decision(
+        *work_order_id.as_uuid(),
+        step_up.binding.replay_attempt,
+    );
+    let verifier = state.passkey_step_up.as_ref().ok_or_else(|| {
+        RestError::unavailable("passkey step-up is not configured for mobile work-order API")
+    })?;
+    verifier
+        .verify_mobile_step_up_for_user(
+            &state.pool,
+            step_up,
+            *principal.user_id.as_uuid(),
+            &expected_binding,
+        )
+        .await
+        .map_err(rest_error_from_mobile_step_up)
+}
+
+fn rest_error_from_mobile_step_up(error: MobilePasskeyStepUpVerificationError) -> RestError {
+    match error {
+        MobilePasskeyStepUpVerificationError::BindingMismatch => RestError::passkey_step_up_failed(
+            "passkey_step_up_binding_mismatch",
+            "passkey step-up binding does not match the requested action",
+        ),
+        MobilePasskeyStepUpVerificationError::Auth(err) => {
+            RestError::passkey_step_up_failed("passkey_step_up_failed", err.to_string())
+        }
+    }
 }
 
 async fn request_target_change(

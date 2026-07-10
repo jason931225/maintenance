@@ -8,6 +8,7 @@ struct FieldAppContainer {
     let messengerRepository: MessengerRepository
     let locationConsentRepository: LocationConsentRepository
     let mobileOperationsRepository: MobileOperationsRepository
+    let passkeyStepUpRepository: PasskeyStepUpRepository
 
     /// Suffix of the shared keychain access group (the part after the
     /// AppIdentifierPrefix). Must match the `keychain-access-groups` entitlement
@@ -75,6 +76,16 @@ struct FieldAppContainer {
             preconditionFailure("Messenger outbox initialization failed: \(error)")
         }
         let messenger = MessengerRepository(gateway: gateway, outbox: messengerStore)
+        let mobileOperationsCache: any MobileOperationsCacheStore
+        let mobileNotificationStore: any MobileNotificationStore
+        let mobileSensitiveActionStore: any MobileSensitiveActionStore
+        do {
+            mobileOperationsCache = try FileMobileOperationsCacheStore(fileURL: FileMobileOperationsCacheStore.defaultStoreURL())
+            mobileNotificationStore = try FileMobileNotificationStore(fileURL: FileMobileNotificationStore.defaultStoreURL())
+            mobileSensitiveActionStore = try FileMobileSensitiveActionStore(fileURL: FileMobileSensitiveActionStore.defaultStoreURL())
+        } catch {
+            preconditionFailure("Mobile operations store initialization failed: \(error)")
+        }
         let passkeys = AuthorizationPasskeyCredentialProvider(relyingPartyIdentifier: serverURL.host ?? "localhost")
 
         return FieldAppContainer(
@@ -89,7 +100,16 @@ struct FieldAppContainer {
             evidenceRepository: evidence,
             messengerRepository: messenger,
             locationConsentRepository: LocationConsentRepository(gateway: gateway),
-            mobileOperationsRepository: MobileOperationsRepository(gateway: gateway)
+            mobileOperationsRepository: MobileOperationsRepository(
+                gateway: gateway,
+                cache: mobileOperationsCache,
+                notificationStore: mobileNotificationStore,
+                sensitiveActionStore: mobileSensitiveActionStore
+            ),
+            passkeyStepUpRepository: PasskeyStepUpRepository(
+                gateway: gateway,
+                credentialProvider: passkeys
+            )
         )
     }
 

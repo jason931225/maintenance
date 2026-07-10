@@ -3,11 +3,12 @@ import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { AuthContext } from "../../context/auth";
 import type { AuthContextValue, AuthSession } from "../../context/auth";
 import { createConsoleApiClient } from "../../api/client";
+import { useWindowManager } from "../../console/window";
 import { ko } from "../../i18n/ko";
 import { PageHeader } from "./PageHeader";
 import { AppShell } from "./AppShell";
@@ -20,6 +21,8 @@ beforeAll(() => {
 });
 afterEach(() => {
   server.resetHandlers();
+  window.localStorage.clear();
+  vi.unstubAllGlobals();
 });
 afterAll(() => {
   server.close();
@@ -58,6 +61,30 @@ function StubPage({ title, marker }: { title: string; marker: string }) {
   );
 }
 
+function WindowStubPage() {
+  const { open, minimize } = useWindowManager();
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => {
+          open({ id: "WO-1", title: "패널 A", render: () => <p>panel body</p> });
+        }}
+      >
+        open-window
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          minimize("WO-1");
+        }}
+      >
+        minimize-window
+      </button>
+    </>
+  );
+}
+
 function renderShell(roles: string[], initialPath = "/dispatch", featureGrants: string[] = []) {
   return render(
     <AuthContext.Provider value={makeAuthContext(roles, featureGrants)}>
@@ -76,6 +103,7 @@ function renderShell(roles: string[], initialPath = "/dispatch", featureGrants: 
               path="/settings/policy"
               element={<StubPage title="권한 정책" marker="policy page" />}
             />
+            <Route path="/window-stub" element={<WindowStubPage />} />
           </Route>
         </Routes>
       </MemoryRouter>
@@ -89,7 +117,7 @@ function openCommandPalette() {
 }
 
 describe("AppShell navigation fabric", () => {
-  it("opens Cmd-K navigation and preserves the back-stack breadcrumb", async () => {
+  it("opens Cmd-K navigation between screens", async () => {
     const user = userEvent.setup();
     renderShell(["ADMIN"]);
 
@@ -100,15 +128,14 @@ describe("AppShell navigation fabric", () => {
     await user.click(within(dialog).getByRole("button", { name: /장비 조회/ }));
 
     expect(await screen.findByText("equipment page")).toBeVisible();
-    const breadcrumbs = screen.getByRole("navigation", { name: "이동 경로" });
-    expect(within(breadcrumbs).getByRole("link", { name: "배차" })).toHaveAttribute(
-      "href",
-      "/dispatch",
-    );
-    expect(within(breadcrumbs).getByText("장비 조회")).toHaveAttribute(
-      "aria-current",
-      "page",
-    );
+    // The redundant breadcrumb strip is gone — the page <h1> is the single
+    // title source.
+    expect(
+      screen.queryByRole("navigation", { name: ko.shell.breadcrumbs.label }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { level: 1, name: "장비 조회" }),
+    ).toBeVisible();
   });
 
   it("uses the same role-gated nav registry for command visibility", () => {
@@ -270,5 +297,76 @@ describe("AppShell navigation fabric", () => {
         screen.queryByRole("dialog", { name: "명령 팔레트" }),
       ).not.toBeInTheDocument();
     });
+  });
+});
+
+describe("AppShell chrome", () => {
+  function stubWideViewport() {
+    vi.stubGlobal("matchMedia", (query: string): MediaQueryList => ({
+      matches: query === "(min-width: 1440px)",
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }) as MediaQueryList);
+  }
+
+  it("defaults the comms rail open on wide viewports and persists the toggle", () => {
+    stubWideViewport();
+    const view = renderShell(["ADMIN"]);
+
+    const rail = screen.getByRole("complementary", { name: ko.commsRail.label });
+    fireEvent.click(within(rail).getByRole("button", { name: ko.commsRail.close }));
+
+    expect(
+      screen.queryByRole("complementary", { name: ko.commsRail.label }),
+    ).not.toBeInTheDocument();
+    expect(window.localStorage.getItem("oyatie.console.commsRail.open")).toBe("0");
+
+    // The saved personal setting wins over the viewport default on next mount.
+    view.unmount();
+    renderShell(["ADMIN"]);
+    expect(
+      screen.queryByRole("complementary", { name: ko.commsRail.label }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps the comms rail collapsed by default below the wide breakpoint", () => {
+    renderShell(["ADMIN"]);
+    expect(
+      screen.queryByRole("complementary", { name: ko.commsRail.label }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("opens the command palette from the persistent quick-actions dock", () => {
+    renderShell(["ADMIN"]);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: ko.shell.dock.quickActions }),
+    );
+
+    expect(screen.getByRole("dialog", { name: "명령 팔레트" })).toBeVisible();
+  });
+
+  it("hosts the single minimized-window tray in the bottom dock", () => {
+    renderShell(["ADMIN"], "/window-stub");
+
+    fireEvent.click(screen.getByRole("button", { name: "open-window" }));
+    expect(screen.getByText("panel body")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "minimize-window" }));
+    expect(screen.queryByText("panel body")).not.toBeInTheDocument();
+
+    // Exactly one tray (the dock-hosted one — no floating duplicate).
+    const trays = screen.getAllByRole("group", { name: ko.console.window.tray });
+    expect(trays).toHaveLength(1);
+
+    fireEvent.click(
+      within(trays[0]).getByRole("button", { name: "패널 A 복원" }),
+    );
+    expect(screen.getByText("panel body")).toBeVisible();
   });
 });

@@ -10,10 +10,10 @@ import {
  * PLAT-04 NEGATIVE — a PLATFORM session is rejected on tenant /api/* routes.
  *
  * The two tiers are strictly separated: a PLATFORM token is rejected on the
- * tenant `/api/*` routes (and a tenant token on `/platform/*`). The platform
+ * tenant `/api/*` routes (and a tenant token on `/api/platform/*`). The platform
  * extractor bounces the wrong tier with 403 BEFORE any handler runs.
  *
- * We capture the live platform bearer from an outgoing `/platform/*` request,
+ * We capture the live platform bearer from an outgoing `/api/platform/*` request,
  * then replay it against a tenant API route and assert a 403. The UI-level bounce
  * (a platform session visiting a tenant page is sent back to /platform) is also
  * asserted, mirroring AUTH-07b but from the platform side.

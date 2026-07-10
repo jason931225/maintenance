@@ -498,6 +498,9 @@ struct TodayListView: View {
     var body: some View {
         List {
             LocationConsentSection(viewModel: viewModel)
+            if let messageKey = viewModel.messageKey {
+                Text(LocalizedStringKey(messageKey))
+            }
             if viewModel.today.isEmpty {
                 Text("empty_today")
                     .accessibilityIdentifier(FieldAccessibilityID.todayEmpty)
@@ -663,7 +666,7 @@ struct MessengerThreadRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Text(thread.displayTitle)
+                Text(messengerThreadDisplayTitle(thread))
                     .font(.headline)
                 Spacer()
                 FieldChip(key: thread.kind.fieldLabelKey)
@@ -677,6 +680,41 @@ struct MessengerThreadRow: View {
                     .foregroundStyle(.secondary)
             }
         }
+    }
+}
+
+private func messengerThreadDisplayTitle(_ thread: MessengerThread) -> String {
+    if let title = thread.trimmedTitle {
+        return title
+    }
+
+    switch thread.kind {
+    case .workOrder:
+        if let identifier = thread.friendlyWorkOrderIdentifier {
+            return localizedString("messenger_thread_work_order_title_format", identifier)
+        }
+        return localizedString("messenger_thread_work_order_title")
+    case .team:
+        return localizedString("messenger_thread_team_title")
+    case .dm:
+        return localizedString("messenger_thread_dm_title")
+    case .group:
+        return localizedString("messenger_thread_group_title")
+    }
+}
+
+private extension MessengerThread {
+    var trimmedTitle: String? {
+        guard let title else { return nil }
+        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    var friendlyWorkOrderIdentifier: String? {
+        guard let workOrderID else { return nil }
+        let trimmed = workOrderID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.isEmpty == false else { return nil }
+        return UUID(uuidString: trimmed) == nil ? trimmed : nil
     }
 }
 

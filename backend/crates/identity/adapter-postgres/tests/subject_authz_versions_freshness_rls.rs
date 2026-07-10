@@ -18,12 +18,14 @@
 //! SLICE-2 is additive: no authorization decision consults this table yet.
 
 use mnt_identity_adapter_postgres::PgOrgStore;
-use mnt_identity_application::{DeactivateUserCommand, UpdateUserCommand};
+use mnt_identity_application::{
+    CreatePolicyAssignmentPreviewReceiptCommand, DeactivateUserCommand, UpdateUserCommand,
+};
 use mnt_kernel_core::{OrgId, TraceContext, UserId};
 use mnt_platform_request_context::CURRENT_ORG;
 use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
-use time::OffsetDateTime;
+use time::{Duration, OffsetDateTime};
 use uuid::Uuid;
 
 /// A second, non-KNL tenant id, to prove cross-tenant isolation under `mnt_rt`.
@@ -189,6 +191,44 @@ async fn subject_authz_versions_isolate_tenants_and_deny_delete_as_runtime_role(
     }
 }
 
+/// Mint the impact-preview receipt that a system-role replacement now requires
+/// (adapter consumes it against the locked baseline inside `update_user`). The
+/// target here has no policy roles/branches and the org seeds no `policy_versions`
+/// row, so every baseline field but the system-role set is empty.
+// ponytail: policy_version hardcoded 0 = the seeded baseline (no policy_versions
+// row → lock_policy_version_tx unwrap_or(0)); read it from the DB if a future
+// fixture starts bumping org policy_version.
+async fn mint_role_change_receipt(
+    store: &PgOrgStore,
+    org: OrgId,
+    actor: UserId,
+    target: UserId,
+    current_system_roles: Vec<String>,
+    new_system_roles: Vec<String>,
+) -> Uuid {
+    CURRENT_ORG
+        .scope(
+            org,
+            store.create_policy_assignment_preview_receipt(
+                CreatePolicyAssignmentPreviewReceiptCommand {
+                    actor,
+                    user_id: target,
+                    current_branch_ids: Vec::new(),
+                    current_system_roles,
+                    current_role_ids: Vec::new(),
+                    branch_ids: Vec::new(),
+                    system_roles: new_system_roles,
+                    role_ids: Vec::new(),
+                    policy_version: 0,
+                    expires_at: OffsetDateTime::now_utc() + Duration::hours(1),
+                },
+            ),
+        )
+        .await
+        .expect("minting a preview receipt must succeed as mnt_rt under the armed GUC")
+        .id
+}
+
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn bump_and_get_subject_authz_versions_via_store(owner_pool: PgPool) {
     let rt_pool = runtime_role_pool(&owner_pool).await;
@@ -209,6 +249,15 @@ async fn bump_and_get_subject_authz_versions_via_store(owner_pool: PgPool) {
 
     // A system-role change bumps the subject version in the same audited tx. The
     // first bump creates the row at the (1, 1) monotonic baseline.
+    let receipt = mint_role_change_receipt(
+        &store,
+        org,
+        actor,
+        target,
+        vec!["MECHANIC".to_owned()],
+        vec!["ADMIN".to_owned()],
+    )
+    .await;
     CURRENT_ORG
         .scope(
             org,
@@ -221,6 +270,7 @@ async fn bump_and_get_subject_authz_versions_via_store(owner_pool: PgPool) {
                 team: None,
                 roles: Some(vec!["ADMIN".to_owned()]),
                 branch_ids: None,
+                preview_receipt_id: Some(receipt),
                 trace: TraceContext::generate(),
                 occurred_at: OffsetDateTime::now_utc(),
             }),
@@ -237,6 +287,15 @@ async fn bump_and_get_subject_authz_versions_via_store(owner_pool: PgPool) {
     );
 
     // A second role change increments the version only.
+    let receipt = mint_role_change_receipt(
+        &store,
+        org,
+        actor,
+        target,
+        vec!["ADMIN".to_owned()],
+        vec!["SUPER_ADMIN".to_owned()],
+    )
+    .await;
     CURRENT_ORG
         .scope(
             org,
@@ -249,6 +308,7 @@ async fn bump_and_get_subject_authz_versions_via_store(owner_pool: PgPool) {
                 team: None,
                 roles: Some(vec!["SUPER_ADMIN".to_owned()]),
                 branch_ids: None,
+                preview_receipt_id: Some(receipt),
                 trace: TraceContext::generate(),
                 occurred_at: OffsetDateTime::now_utc(),
             }),
@@ -299,6 +359,8 @@ async fn bump_and_get_subject_authz_versions_via_store(owner_pool: PgPool) {
                 team: None,
                 roles: None,
                 branch_ids: None,
+                // Profile-only edit: no role/scope replacement, so no receipt required.
+                preview_receipt_id: None,
                 trace: TraceContext::generate(),
                 occurred_at: OffsetDateTime::now_utc(),
             }),

@@ -3,7 +3,10 @@
 use axum::body::{Body, to_bytes};
 use http::{Request, StatusCode, header};
 use mnt_app::{AppConfig, AppRole, AppState, DatabaseDependency, build_router};
-use mnt_kernel_core::{AuditAction, AuditEvent, BranchId, OrgId, TraceContext, UserId};
+use mnt_kernel_core::{
+    AuditAction, AuditClassification, AuditEvent, AuditRequestContext, BranchId, OrgId,
+    TraceContext, UserId,
+};
 use mnt_platform_auth::{AccessTokenInput, JwtIssuer, JwtSettings};
 use p256::ecdsa::SigningKey;
 use p256::elliptic_curve::rand_core::OsRng;
@@ -74,6 +77,14 @@ async fn admin_reads_only_branch_scoped_audits_and_read_access_is_audited(pool: 
     assert_eq!(items.len(), 1);
     assert_eq!(items[0]["target_id"], "wo-in-scope");
     assert_eq!(items[0]["branch_id"], branch_id.to_string());
+    assert_eq!(items[0]["ip"], "203.0.113.10");
+    assert_eq!(items[0]["user_agent"], "Maintenance Console/1.0");
+    assert_eq!(items[0]["auth_method"], "passkey");
+    assert_eq!(items[0]["device"], "desktop-web");
+    assert_eq!(items[0]["classification_badges"][0], "민감정보");
+    assert_eq!(items[0]["classification_badges"][1], "대외비");
+    assert_eq!(items[0]["anomaly"], true);
+    assert_eq!(items[0]["reason"], "manager override");
 
     let read_count: i64 = sqlx::query_scalar(
         "SELECT COUNT(*) FROM audit_events WHERE actor = $1 AND action = 'audit.read'",
@@ -237,14 +248,33 @@ async fn insert_audit(
         TraceContext::generate(),
         OffsetDateTime::now_utc(),
     )
-    .with_branch(branch_id);
+    .with_branch(branch_id)
+    .with_org(OrgId::knl())
+    .with_request_context(AuditRequestContext {
+        ip: Some("203.0.113.10".to_owned()),
+        user_agent: Some("Maintenance Console/1.0".to_owned()),
+        auth_method: Some("passkey".to_owned()),
+        device: Some("desktop-web".to_owned()),
+    })
+    .with_classification(AuditClassification {
+        badges: Some(vec!["민감정보".to_owned(), "대외비".to_owned()]),
+        anomaly: Some(true),
+        reason: Some("manager override".to_owned()),
+    });
     let actor_uuid = actor.map(|user_id| *user_id.as_uuid());
     sqlx::query(
         r#"
         INSERT INTO audit_events (
             id, actor, action, target_type, target_id,
-            branch_id, trace_id, span_id, occurred_at
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            branch_id, trace_id, span_id, occurred_at, org_id,
+            ip, user_agent, auth_method, device,
+            classification_badges, anomaly, reason
+        ) VALUES (
+            $1, $2, $3, $4, $5,
+            $6, $7, $8, $9, $10,
+            $11, $12, $13, $14,
+            $15, $16, $17
+        )
         "#,
     )
     .bind(*event.id.as_uuid())
@@ -256,6 +286,14 @@ async fn insert_audit(
     .bind(event.trace.trace_id())
     .bind(event.trace.span_id())
     .bind(event.occurred_at)
+    .bind(*event.org_id.expect("test event has org").as_uuid())
+    .bind(event.request_context.ip.as_deref())
+    .bind(event.request_context.user_agent.as_deref())
+    .bind(event.request_context.auth_method.as_deref())
+    .bind(event.request_context.device.as_deref())
+    .bind(event.classification.badges.clone())
+    .bind(event.classification.anomaly)
+    .bind(event.classification.reason.as_deref())
     .execute(pool)
     .await?;
     Ok(())

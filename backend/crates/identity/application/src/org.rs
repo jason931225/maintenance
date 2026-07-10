@@ -51,6 +51,8 @@ pub struct UpdateUserCommand {
     pub roles: Option<Vec<String>>,
     /// Replacement branch-membership set when `Some`.
     pub branch_ids: Option<Vec<BranchId>>,
+    /// Short-lived impact-preview receipt required for role/scope replacements.
+    pub preview_receipt_id: Option<uuid::Uuid>,
     pub trace: TraceContext,
     pub occurred_at: Timestamp,
 }
@@ -70,6 +72,16 @@ pub struct UpdateSelfProfileCommand {
 /// Deactivate (soft-disable) a user. Sign-in is gated on `is_active`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct DeactivateUserCommand {
+    pub actor: UserId,
+    pub user_id: UserId,
+    pub trace: TraceContext,
+    pub occurred_at: Timestamp,
+}
+
+/// Reactivate a previously archived user. Credentials are not recreated here;
+/// a reactivated account without passkeys returns to `PENDING_SETUP`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ActivateUserCommand {
     pub actor: UserId,
     pub user_id: UserId,
     pub trace: TraceContext,
@@ -139,7 +151,10 @@ pub struct CreatePolicyAssignmentPreviewReceiptCommand {
     pub actor: UserId,
     pub user_id: UserId,
     pub current_branch_ids: Vec<uuid::Uuid>,
+    pub current_system_roles: Vec<String>,
     pub current_role_ids: Vec<uuid::Uuid>,
+    pub branch_ids: Vec<uuid::Uuid>,
+    pub system_roles: Vec<String>,
     pub role_ids: Vec<uuid::Uuid>,
     pub policy_version: i64,
     pub expires_at: Timestamp,
@@ -250,8 +265,9 @@ pub struct UserPage {
 /// `is_active` alone is insufficient: a freshly-created user (admin issued an OTP
 /// but the user has not yet enrolled a passkey) is `is_active = true` yet cannot
 /// actually sign in. The console must show "활성" ONLY once the account is set up
-/// with a credential, so this enum distinguishes the pending-setup state from the
-/// fully-active one. It is derived (never stored): see `account_status_for`.
+/// with a credential, so this enum distinguishes pending setup from the
+/// fully-active state and the archived/보관 lifecycle state. It is derived (never
+/// stored): see `account_status_for`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum AccountStatus {
@@ -259,15 +275,15 @@ pub enum AccountStatus {
     Active,
     /// Active but has NO passkey yet — created / OTP-issued, awaiting enrollment.
     PendingSetup,
-    /// Soft-deactivated — sign-in is blocked regardless of credentials.
-    Deactivated,
+    /// Archived/보관 — sign-in is blocked regardless of credentials.
+    Archived,
 }
 
 /// Derive the console account status from the row flag + credential presence.
 #[must_use]
 pub fn account_status_for(is_active: bool, has_passkey: bool) -> AccountStatus {
     match (is_active, has_passkey) {
-        (false, _) => AccountStatus::Deactivated,
+        (false, _) => AccountStatus::Archived,
         (true, true) => AccountStatus::Active,
         (true, false) => AccountStatus::PendingSetup,
     }
@@ -435,6 +451,26 @@ pub fn policy_role_assignment_audit_event(
         actor,
         AuditAction::new(action)?,
         "policy_role_assignment",
+        user_id.to_string(),
+        trace,
+        occurred_at,
+    ))
+}
+
+/// Build a policy-audit row for account/person lifecycle and authorization-scope
+/// mutations. These `policy.*` rows are the evidence stream consumed by Policy
+/// Studio audit chips; general `user.*` rows remain the operational audit trail.
+pub fn policy_account_audit_event(
+    action: &str,
+    actor: Option<UserId>,
+    user_id: UserId,
+    trace: TraceContext,
+    occurred_at: Timestamp,
+) -> Result<AuditEvent, KernelError> {
+    Ok(AuditEvent::new(
+        actor,
+        AuditAction::new(action)?,
+        "user",
         user_id.to_string(),
         trace,
         occurred_at,

@@ -124,6 +124,74 @@ fn cedar_ready(request: AuthorizationRequest) -> AuthorizationRequest {
         .with_rls_scope_proof(RlsScopeProof::runtime_role_guc(OrgId::knl()))
 }
 
+fn audit_stream_entry(bundle: Option<CompiledBundleCacheKey>) -> CoexistenceMapEntry {
+    CoexistenceMapEntry::new(
+        "compliance.audit_stream.audit_stream_read",
+        "compliance.audit_stream",
+        Feature::AuditStreamRead,
+        "audit_stream",
+        DualEngineMode::CedarOnly,
+        bundle,
+    )
+}
+
+fn audit_stream_request(clearance_keys: BTreeSet<String>) -> AuthorizationRequest {
+    let principal = Principal::new(
+        UserId::new(),
+        OrgId::knl(),
+        BTreeSet::from([Role::SuperAdmin]),
+        BranchScope::All,
+    );
+    AuthorizationRequest::new(
+        principal,
+        Action::new(Feature::AuditStreamRead),
+        AuthorizationResource::org_wide(OrgId::knl(), "audit_stream")
+            .with_resource_id(engine::CEO_COVERT_AUDIT_STREAM_KEY),
+    )
+    .with_policy_domain("compliance.audit_stream")
+    .with_subject_freshness(SubjectFreshness {
+        policy_version: 7,
+        subject_version: 11,
+        session_generation: 3,
+        step_up_generation: None,
+    })
+    .requiring_freshness(SubjectFreshnessRequirement {
+        min_policy_version: 7,
+        min_subject_version: 11,
+        min_session_generation: 3,
+        required_step_up_generation: None,
+    })
+    .with_clearance_keys(clearance_keys)
+    .with_rls_scope_proof(RlsScopeProof::runtime_role_guc(OrgId::knl()))
+}
+
+#[test]
+fn ceo_covert_audit_stream_cedar_allows_only_with_clearance() {
+    let bundle = engine::compile_audit_stream_bundle(OrgId::knl(), 7)
+        .expect("audit stream bundle must compile");
+    let entry = audit_stream_entry(Some(bundle.key.clone()));
+
+    let allowed_request = audit_stream_request(BTreeSet::from([
+        engine::CEO_COVERT_AUDIT_CLEARANCE_KEY.to_owned(),
+    ]));
+    let allowed = evaluate_cedar_pbac_boundary(
+        &allowed_request,
+        Some(&entry),
+        engine::evaluate(&allowed_request, &bundle),
+    );
+    assert_eq!(allowed.effect, DecisionEffect::Allow);
+    assert_eq!(allowed.reason, DecisionReason::CedarAllowed);
+
+    let denied_request = audit_stream_request(BTreeSet::new());
+    let denied = evaluate_cedar_pbac_boundary(
+        &denied_request,
+        Some(&entry),
+        engine::evaluate(&denied_request, &bundle),
+    );
+    assert_eq!(denied.effect, DecisionEffect::Deny);
+    assert_eq!(denied.reason, DecisionReason::CedarDenied);
+}
+
 struct Scenario {
     request: AuthorizationRequest,
     entry: Option<CoexistenceMapEntry>,

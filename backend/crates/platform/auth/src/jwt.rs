@@ -30,7 +30,7 @@ pub struct AccessTokenInput {
     pub branches: Vec<BranchId>,
     /// `true` marks a SaaS-vendor PLATFORM token (the tier ABOVE all tenants).
     /// A platform token is rejected on tenant `/api/*` routes, and a tenant
-    /// token is rejected on `/platform/*` — the two tiers are strictly
+    /// token is rejected on `/api/platform/*` — the two tiers are strictly
     /// separated. Tenant tokens always set this `false`.
     pub platform: bool,
     /// PLATFORM "view as" impersonation marker. When `true` this is a short-lived

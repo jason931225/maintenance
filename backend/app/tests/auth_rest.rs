@@ -3,7 +3,15 @@
 use axum::body::{Body, to_bytes};
 use http::{Request, StatusCode, header};
 use mnt_app::{AppConfig, AppRole, AppState, DatabaseDependency, build_router};
-use mnt_kernel_core::{BranchId, OrgId, UserId};
+use mnt_financial_adapter_postgres::PgFinancialStore;
+use mnt_financial_application::{
+    CreatePurchaseRequestCommand, FinancialConfigSnapshot, PrepareExpenditureCommand,
+    PurchaseApprovalCommand, PurchaseRequestLineInput, PurchaseSubmitCommand, PurchaseType,
+};
+use mnt_financial_domain::DepreciationMethod;
+use mnt_kernel_core::{
+    BranchId, EquipmentId, EvidenceId, OrgId, PurchaseRequestId, TraceContext, UserId, WorkOrderId,
+};
 use mnt_platform_provisioning::BootstrapCredentialStore;
 use p256::ecdsa::SigningKey;
 use p256::elliptic_curve::rand_core::OsRng;
@@ -208,6 +216,664 @@ async fn otp_first_signin_then_passkey_enrollment_then_usernameless_login(pool: 
 
     assert_audit_count(&pool, "auth.otp.signin", 2).await; // admin + new user
     assert_audit_count(&pool, "auth.login", 1).await; // usernameless login
+}
+
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn mobile_bound_step_up_start_gates_mobile_approval_and_poll_vote(pool: PgPool) {
+    let signing_key = SigningKey::random(&mut OsRng);
+    let private_key_pem = signing_key.to_pkcs8_pem(LineEnding::LF).unwrap();
+    let public_key_pem = signing_key
+        .verifying_key()
+        .to_public_key_pem(LineEnding::LF)
+        .unwrap();
+    let branch_id = seed_branch(&pool, "Mobile Step-Up Region", "Mobile Step-Up Branch").await;
+    let admin_id = seed_user_with_branch(
+        &pool,
+        "Mobile Step-Up Admin",
+        "010-4100-0000",
+        "ADMIN",
+        branch_id,
+    )
+    .await;
+    let executive_id = seed_user_with_branch(
+        &pool,
+        "Mobile Step-Up Executive",
+        "010-4100-0001",
+        "EXECUTIVE",
+        branch_id,
+    )
+    .await;
+    let mechanic_id = seed_user_with_branch(
+        &pool,
+        "Mobile Step-Up Mechanic",
+        "010-4100-0002",
+        "MECHANIC",
+        branch_id,
+    )
+    .await;
+    let receptionist_id = seed_user_with_branch(
+        &pool,
+        "Mobile Step-Up Reception",
+        "010-4100-0003",
+        "RECEPTIONIST",
+        branch_id,
+    )
+    .await;
+    seed_equipment(&pool, branch_id, "4100").await;
+    let work_order_id = seed_mobile_step_up_work_order(
+        &pool,
+        branch_id,
+        receptionist_id,
+        mechanic_id,
+        admin_id,
+        executive_id,
+    )
+    .await;
+    let (poll_id, poll_option_id) = seed_mobile_step_up_poll(&pool, admin_id).await;
+
+    let service = build_router(
+        app_state(
+            pool.clone(),
+            private_key_pem.to_string(),
+            public_key_pem.clone(),
+        )
+        .unwrap(),
+    );
+    let admin_access = admin_session_via_otp(&service, &pool, admin_id).await;
+    let mut authenticator = WebauthnAuthenticator::new(SoftPasskey::new(true));
+    let credential_id = enroll_passkey(&service, &mut authenticator, &admin_access).await;
+
+    let approval_path = format!("/api/v1/mobile/work-orders/{work_order_id}/approve");
+    let missing_approval = post_raw(
+        service.clone(),
+        &approval_path,
+        Some(&admin_access),
+        json!({ "comment": "missing step-up must not mutate" }),
+    )
+    .await;
+    assert_eq!(missing_approval.status(), StatusCode::PRECONDITION_REQUIRED);
+    assert_eq!(
+        body_json(missing_approval).await["error"]["code"],
+        "passkey_step_up_required"
+    );
+    assert_work_order_status(&pool, work_order_id, "REPORT_SUBMITTED").await;
+    assert_audit_count(&pool, "work_order.approve", 0).await;
+
+    let missing_replay_attempt_start = post_raw(
+        service.clone(),
+        "/api/v1/auth/passkey/step-up/start",
+        Some(&admin_access),
+        json!({
+            "binding": {
+                "action_kind": "APPROVAL_DECISION",
+                "object_id": work_order_id,
+                "reason_key": "operations_passkey_approval_decision"
+            }
+        }),
+    )
+    .await;
+    assert_eq!(
+        missing_replay_attempt_start.status(),
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+
+    let invalid_replay_attempt_start = post_raw(
+        service.clone(),
+        "/api/v1/auth/passkey/step-up/start",
+        Some(&admin_access),
+        json!({
+            "binding": {
+                "action_kind": "APPROVAL_DECISION",
+                "object_id": work_order_id,
+                "reason_key": "operations_passkey_approval_decision",
+                "replay_attempt": 0
+            }
+        }),
+    )
+    .await;
+    assert_eq!(
+        invalid_replay_attempt_start.status(),
+        StatusCode::UNPROCESSABLE_ENTITY
+    );
+
+    let approval_binding = json!({
+        "action_kind": "APPROVAL_DECISION",
+        "object_id": work_order_id,
+        "reason_key": "operations_passkey_approval_decision",
+        "replay_attempt": null
+    });
+    let approval_step_up = start_mobile_step_up_assertion(
+        &service,
+        &mut authenticator,
+        &credential_id,
+        &admin_access,
+        approval_binding.clone(),
+    )
+    .await;
+    assert_persisted_mobile_step_up_binding(&pool, &approval_step_up).await;
+
+    let executive_access = admin_session_via_otp(&service, &pool, executive_id).await;
+    let mut executive_authenticator = WebauthnAuthenticator::new(SoftPasskey::new(true));
+    let executive_credential_id =
+        enroll_passkey(&service, &mut executive_authenticator, &executive_access).await;
+    let wrong_user_step_up = start_mobile_step_up_assertion(
+        &service,
+        &mut executive_authenticator,
+        &executive_credential_id,
+        &executive_access,
+        approval_binding.clone(),
+    )
+    .await;
+
+    let wrong_user_approval = post_raw(
+        service.clone(),
+        &approval_path,
+        Some(&admin_access),
+        json!({
+            "comment": "wrong user step-up must not mutate",
+            "step_up": wrong_user_step_up
+        }),
+    )
+    .await;
+    assert_eq!(wrong_user_approval.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        body_json(wrong_user_approval).await["error"]["code"],
+        "passkey_step_up_failed"
+    );
+    assert_work_order_status(&pool, work_order_id, "REPORT_SUBMITTED").await;
+    assert_audit_count(&pool, "work_order.approve", 0).await;
+
+    let mismatched_approval = post_raw(
+        service.clone(),
+        &approval_path,
+        Some(&admin_access),
+        json!({
+            "comment": "mismatched step-up must not mutate",
+            "step_up": {
+                "binding": {
+                    "action_kind": "APPROVAL_DECISION",
+                    "object_id": Uuid::new_v4(),
+                    "reason_key": "operations_passkey_approval_decision",
+                    "replay_attempt": null
+                },
+                "assertion": approval_step_up["assertion"].clone()
+            }
+        }),
+    )
+    .await;
+    assert_eq!(mismatched_approval.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        body_json(mismatched_approval).await["error"]["code"],
+        "passkey_step_up_binding_mismatch"
+    );
+    assert_work_order_status(&pool, work_order_id, "REPORT_SUBMITTED").await;
+    assert_audit_count(&pool, "work_order.approve", 0).await;
+
+    let approved = post_json::<Value>(
+        service.clone(),
+        &approval_path,
+        Some(&admin_access),
+        json!({
+            "comment": "bound step-up approved",
+            "step_up": approval_step_up
+        }),
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(approved["status"], "ADMIN_REVIEW");
+    assert_audit_count(&pool, "work_order.approve", 1).await;
+
+    let replayed_approval = post_raw(
+        service.clone(),
+        &approval_path,
+        Some(&admin_access),
+        json!({
+            "comment": "replayed step-up must not mutate",
+            "step_up": approval_step_up
+        }),
+    )
+    .await;
+    assert_eq!(replayed_approval.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        body_json(replayed_approval).await["error"]["code"],
+        "passkey_step_up_failed"
+    );
+    assert_work_order_status(&pool, work_order_id, "ADMIN_REVIEW").await;
+    assert_audit_count(&pool, "work_order.approve", 1).await;
+
+    let poll_path = format!("/api/v1/mobile/collaboration/polls/{poll_id}/vote");
+    let missing_poll = post_raw(
+        service.clone(),
+        &poll_path,
+        Some(&admin_access),
+        json!({ "selected_option_ids": [poll_option_id] }),
+    )
+    .await;
+    assert_eq!(missing_poll.status(), StatusCode::PRECONDITION_REQUIRED);
+    assert_eq!(
+        body_json(missing_poll).await["error"]["code"],
+        "passkey_step_up_required"
+    );
+    assert_poll_vote_count(&pool, poll_id, 0).await;
+    assert_audit_count(&pool, "collaboration.poll.vote", 0).await;
+
+    let poll_binding = json!({
+        "action_kind": "POLL_VOTE",
+        "object_id": poll_id,
+        "reason_key": "operations_passkey_poll_vote",
+        "replay_attempt": null
+    });
+    let poll_step_up = start_mobile_step_up_assertion(
+        &service,
+        &mut authenticator,
+        &credential_id,
+        &admin_access,
+        poll_binding.clone(),
+    )
+    .await;
+    assert_persisted_mobile_step_up_binding(&pool, &poll_step_up).await;
+
+    let voted = post_json::<Value>(
+        service.clone(),
+        &poll_path,
+        Some(&admin_access),
+        json!({
+            "selected_option_ids": [poll_option_id],
+            "step_up": poll_step_up
+        }),
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(voted["my_vote"]["submitted"], true);
+    assert_poll_vote_count(&pool, poll_id, 1).await;
+    assert_audit_count(&pool, "collaboration.poll.vote", 1).await;
+
+    let replayed_poll = post_raw(
+        service.clone(),
+        &poll_path,
+        Some(&admin_access),
+        json!({
+            "selected_option_ids": [poll_option_id],
+            "step_up": poll_step_up
+        }),
+    )
+    .await;
+    assert_eq!(replayed_poll.status(), StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        body_json(replayed_poll).await["error"]["code"],
+        "passkey_step_up_failed"
+    );
+    assert_poll_vote_count(&pool, poll_id, 1).await;
+    assert_audit_count(&pool, "collaboration.poll.vote", 1).await;
+
+    let replay_poll_binding = json!({
+        "action_kind": "POLL_VOTE",
+        "object_id": poll_id,
+        "reason_key": "operations_passkey_poll_vote",
+        "replay_attempt": 1
+    });
+    let replay_poll_step_up = start_mobile_step_up_assertion(
+        &service,
+        &mut authenticator,
+        &credential_id,
+        &admin_access,
+        replay_poll_binding,
+    )
+    .await;
+    assert_persisted_mobile_step_up_binding(&pool, &replay_poll_step_up).await;
+    let replay_attempt_voted = post_json::<Value>(
+        service.clone(),
+        &poll_path,
+        Some(&admin_access),
+        json!({
+            "selected_option_ids": [poll_option_id],
+            "step_up": replay_poll_step_up
+        }),
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(replay_attempt_voted["my_vote"]["submitted"], true);
+    assert_poll_vote_count(&pool, poll_id, 1).await;
+    assert_audit_count(&pool, "collaboration.poll.vote", 2).await;
+}
+
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn financial_purchase_sensitive_actions_require_fresh_passkey_step_up(pool: PgPool) {
+    let signing_key = SigningKey::random(&mut OsRng);
+    let private_key_pem = signing_key.to_pkcs8_pem(LineEnding::LF).unwrap();
+    let public_key_pem = signing_key
+        .verifying_key()
+        .to_public_key_pem(LineEnding::LF)
+        .unwrap();
+    let branch_id = seed_branch(
+        &pool,
+        "Financial Step-Up Region",
+        "Financial Step-Up Branch",
+    )
+    .await;
+    let requester_id = seed_user_with_branch(
+        &pool,
+        "Financial Step-Up Requester",
+        "010-4200-0000",
+        "MECHANIC",
+        branch_id,
+    )
+    .await;
+    let receptionist_id = seed_user_with_branch(
+        &pool,
+        "Financial Step-Up Reception",
+        "010-4200-0001",
+        "RECEPTIONIST",
+        branch_id,
+    )
+    .await;
+    let admin_id = seed_user_with_branch(
+        &pool,
+        "Financial Step-Up Admin",
+        "010-4200-0002",
+        "ADMIN",
+        branch_id,
+    )
+    .await;
+    let executive_id = seed_user_with_branch(
+        &pool,
+        "Financial Step-Up Executive",
+        "010-4200-0003",
+        "EXECUTIVE",
+        branch_id,
+    )
+    .await;
+    let fixture =
+        seed_financial_step_up_fixture(&pool, branch_id, requester_id, receptionist_id, admin_id)
+            .await;
+
+    let service = build_router(
+        app_state(
+            pool.clone(),
+            private_key_pem.to_string(),
+            public_key_pem.clone(),
+        )
+        .unwrap(),
+    );
+    let admin_access = admin_session_via_otp(&service, &pool, admin_id).await;
+    let mut admin_authenticator = WebauthnAuthenticator::new(SoftPasskey::new(true));
+    let admin_credential_id =
+        enroll_passkey(&service, &mut admin_authenticator, &admin_access).await;
+    let receptionist_access = admin_session_via_otp(&service, &pool, receptionist_id).await;
+    let mut receptionist_authenticator = WebauthnAuthenticator::new(SoftPasskey::new(true));
+    let receptionist_credential_id = enroll_passkey(
+        &service,
+        &mut receptionist_authenticator,
+        &receptionist_access,
+    )
+    .await;
+    let executive_access = admin_session_via_otp(&service, &pool, executive_id).await;
+    let mut executive_authenticator = WebauthnAuthenticator::new(SoftPasskey::new(true));
+    let executive_credential_id =
+        enroll_passkey(&service, &mut executive_authenticator, &executive_access).await;
+
+    let admin_approve_purchase = submitted_financial_purchase(&pool, fixture, 900_000).await;
+    let admin_approve_path =
+        format!("/api/v1/financial/purchase-requests/{admin_approve_purchase}/approve-admin");
+    assert_financial_step_up_denied(
+        service.clone(),
+        &pool,
+        &admin_access,
+        &admin_approve_path,
+        json!({}),
+        admin_approve_purchase,
+        "REQUEST_SUBMITTED",
+        "purchase.admin.approve",
+        "purchase.admin.approve",
+        StatusCode::PRECONDITION_REQUIRED,
+        "passkey_step_up_required",
+        "missing",
+    )
+    .await;
+    let invalid_admin_step_up = start_step_up_assertion(
+        &service,
+        &mut executive_authenticator,
+        &executive_credential_id,
+    )
+    .await;
+    assert_financial_step_up_denied(
+        service.clone(),
+        &pool,
+        &admin_access,
+        &admin_approve_path,
+        json!({ "step_up": invalid_admin_step_up }),
+        admin_approve_purchase,
+        "REQUEST_SUBMITTED",
+        "purchase.admin.approve",
+        "purchase.admin.approve",
+        StatusCode::UNAUTHORIZED,
+        "passkey_step_up_failed",
+        "invalid_or_expired",
+    )
+    .await;
+    let valid_admin_step_up =
+        start_step_up_assertion(&service, &mut admin_authenticator, &admin_credential_id).await;
+    let admin_approved = post_json::<Value>(
+        service.clone(),
+        &admin_approve_path,
+        Some(&admin_access),
+        json!({ "step_up": valid_admin_step_up }),
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(admin_approved["status"], "ADMIN_APPROVED");
+    assert_purchase_status(&pool, admin_approve_purchase, "ADMIN_APPROVED").await;
+    assert_financial_audit_count(&pool, "purchase.admin.approve", admin_approve_purchase, 1).await;
+
+    let prepare_purchase = admin_approved_financial_purchase(&pool, fixture, 3_000_000).await;
+    let prepare_path =
+        format!("/api/v1/financial/purchase-requests/{prepare_purchase}/prepare-expenditure");
+    assert_financial_step_up_denied(
+        service.clone(),
+        &pool,
+        &admin_access,
+        &prepare_path,
+        json!({ "expenditure_no": "EXP-MISSING-001" }),
+        prepare_purchase,
+        "ADMIN_APPROVED",
+        "purchase.expenditure.prepare",
+        "purchase.expenditure.prepare",
+        StatusCode::PRECONDITION_REQUIRED,
+        "passkey_step_up_required",
+        "missing",
+    )
+    .await;
+    let invalid_prepare_step_up = start_step_up_assertion(
+        &service,
+        &mut executive_authenticator,
+        &executive_credential_id,
+    )
+    .await;
+    assert_financial_step_up_denied(
+        service.clone(),
+        &pool,
+        &admin_access,
+        &prepare_path,
+        json!({ "expenditure_no": "EXP-INVALID-001", "step_up": invalid_prepare_step_up }),
+        prepare_purchase,
+        "ADMIN_APPROVED",
+        "purchase.expenditure.prepare",
+        "purchase.expenditure.prepare",
+        StatusCode::UNAUTHORIZED,
+        "passkey_step_up_failed",
+        "invalid_or_expired",
+    )
+    .await;
+    let valid_prepare_step_up =
+        start_step_up_assertion(&service, &mut admin_authenticator, &admin_credential_id).await;
+    let prepared = post_json::<Value>(
+        service.clone(),
+        &prepare_path,
+        Some(&admin_access),
+        json!({ "expenditure_no": "EXP-VALID-001", "step_up": valid_prepare_step_up }),
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(prepared["status"], "EXECUTIVE_PENDING");
+    assert_purchase_status(&pool, prepare_purchase, "EXECUTIVE_PENDING").await;
+    assert_financial_audit_count(&pool, "purchase.expenditure.prepare", prepare_purchase, 1).await;
+
+    let executive_purchase = executive_pending_financial_purchase(&pool, fixture).await;
+    let executive_path =
+        format!("/api/v1/financial/purchase-requests/{executive_purchase}/approve-executive");
+    assert_financial_step_up_denied(
+        service.clone(),
+        &pool,
+        &executive_access,
+        &executive_path,
+        json!({}),
+        executive_purchase,
+        "EXECUTIVE_PENDING",
+        "purchase.executive.approve",
+        "purchase.executive.approve",
+        StatusCode::PRECONDITION_REQUIRED,
+        "passkey_step_up_required",
+        "missing",
+    )
+    .await;
+    let invalid_executive_step_up =
+        start_step_up_assertion(&service, &mut admin_authenticator, &admin_credential_id).await;
+    assert_financial_step_up_denied(
+        service.clone(),
+        &pool,
+        &executive_access,
+        &executive_path,
+        json!({ "step_up": invalid_executive_step_up }),
+        executive_purchase,
+        "EXECUTIVE_PENDING",
+        "purchase.executive.approve",
+        "purchase.executive.approve",
+        StatusCode::UNAUTHORIZED,
+        "passkey_step_up_failed",
+        "invalid_or_expired",
+    )
+    .await;
+    let valid_executive_step_up = start_step_up_assertion(
+        &service,
+        &mut executive_authenticator,
+        &executive_credential_id,
+    )
+    .await;
+    let executive_approved = post_json::<Value>(
+        service.clone(),
+        &executive_path,
+        Some(&executive_access),
+        json!({ "step_up": valid_executive_step_up }),
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(executive_approved["status"], "READY_TO_EXECUTE");
+    assert_purchase_status(&pool, executive_purchase, "READY_TO_EXECUTE").await;
+    assert_financial_audit_count(&pool, "purchase.executive.approve", executive_purchase, 1).await;
+
+    let reject_purchase = submitted_financial_purchase(&pool, fixture, 900_000).await;
+    let reject_path = format!("/api/v1/financial/purchase-requests/{reject_purchase}/reject");
+    assert_financial_step_up_denied(
+        service.clone(),
+        &pool,
+        &admin_access,
+        &reject_path,
+        json!({ "memo": "missing proof" }),
+        reject_purchase,
+        "REQUEST_SUBMITTED",
+        "purchase.reject",
+        "purchase.reject",
+        StatusCode::PRECONDITION_REQUIRED,
+        "passkey_step_up_required",
+        "missing",
+    )
+    .await;
+    let invalid_reject_step_up = start_step_up_assertion(
+        &service,
+        &mut executive_authenticator,
+        &executive_credential_id,
+    )
+    .await;
+    assert_financial_step_up_denied(
+        service.clone(),
+        &pool,
+        &admin_access,
+        &reject_path,
+        json!({ "memo": "invalid proof", "step_up": invalid_reject_step_up }),
+        reject_purchase,
+        "REQUEST_SUBMITTED",
+        "purchase.reject",
+        "purchase.reject",
+        StatusCode::UNAUTHORIZED,
+        "passkey_step_up_failed",
+        "invalid_or_expired",
+    )
+    .await;
+    let valid_reject_step_up =
+        start_step_up_assertion(&service, &mut admin_authenticator, &admin_credential_id).await;
+    let rejected = post_json::<Value>(
+        service.clone(),
+        &reject_path,
+        Some(&admin_access),
+        json!({ "memo": "valid rejection", "step_up": valid_reject_step_up }),
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(rejected["status"], "REJECTED");
+    assert_purchase_status(&pool, reject_purchase, "REJECTED").await;
+    assert_financial_audit_count(&pool, "purchase.reject", reject_purchase, 1).await;
+
+    let execute_purchase = ready_to_execute_financial_purchase(&pool, fixture).await;
+    let execute_path = format!("/api/v1/financial/purchase-requests/{execute_purchase}/execute");
+    assert_financial_step_up_denied(
+        service.clone(),
+        &pool,
+        &receptionist_access,
+        &execute_path,
+        json!({}),
+        execute_purchase,
+        "READY_TO_EXECUTE",
+        "purchase.execute",
+        "purchase.execute",
+        StatusCode::PRECONDITION_REQUIRED,
+        "passkey_step_up_required",
+        "missing",
+    )
+    .await;
+    let invalid_execute_step_up =
+        start_step_up_assertion(&service, &mut admin_authenticator, &admin_credential_id).await;
+    assert_financial_step_up_denied(
+        service.clone(),
+        &pool,
+        &receptionist_access,
+        &execute_path,
+        json!({ "step_up": invalid_execute_step_up }),
+        execute_purchase,
+        "READY_TO_EXECUTE",
+        "purchase.execute",
+        "purchase.execute",
+        StatusCode::UNAUTHORIZED,
+        "passkey_step_up_failed",
+        "invalid_or_expired",
+    )
+    .await;
+    let valid_execute_step_up = start_step_up_assertion(
+        &service,
+        &mut receptionist_authenticator,
+        &receptionist_credential_id,
+    )
+    .await;
+    let executed = post_json::<Value>(
+        service.clone(),
+        &execute_path,
+        Some(&receptionist_access),
+        json!({ "step_up": valid_execute_step_up }),
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(executed["status"], "EXECUTED");
+    assert_purchase_status(&pool, execute_purchase, "EXECUTED").await;
+    assert_financial_audit_count(&pool, "purchase.execute", execute_purchase, 1).await;
 }
 
 /// Regression for desktop/phone onboarding: a zero-passkey user can refresh the
@@ -1304,6 +1970,31 @@ async fn cookie_mode_usernameless_login(
     .await
 }
 
+async fn start_step_up_assertion(
+    service: &axum::Router,
+    authenticator: &mut WebauthnAuthenticator<SoftPasskey>,
+    credential_id: &str,
+) -> Value {
+    let start: LoginStartResponse = post_raw(
+        service.clone(),
+        "/api/v1/auth/passkey/login/start",
+        None,
+        json!({}),
+    )
+    .await
+    .into_json(StatusCode::OK)
+    .await;
+    let challenge = inject_allow_credential(start.challenge, credential_id);
+    let assertion = authenticator
+        .do_authentication(Url::parse(TEST_ORIGIN).unwrap(), challenge)
+        .unwrap();
+
+    json!({
+        "ceremony_id": start.ceremony_id,
+        "credential": assertion
+    })
+}
+
 /// Sign a user in via a directly-issued OTP (used to bootstrap an authenticated
 /// session for any role in tests without a pre-existing passkey).
 async fn admin_session_via_otp(service: &axum::Router, pool: &PgPool, user_id: UserId) -> String {
@@ -1429,6 +2120,467 @@ async fn usernameless_login(
         StatusCode::OK,
     )
     .await
+}
+
+async fn start_mobile_step_up_assertion(
+    service: &axum::Router,
+    authenticator: &mut WebauthnAuthenticator<SoftPasskey>,
+    credential_id: &str,
+    access_token: &str,
+    binding: Value,
+) -> Value {
+    let start = post_json::<Value>(
+        service.clone(),
+        "/api/v1/auth/passkey/step-up/start",
+        Some(access_token),
+        json!({ "binding": binding.clone() }),
+        StatusCode::OK,
+    )
+    .await;
+    assert_eq!(start["binding"], binding);
+
+    let ceremony_id = start["ceremony_id"]
+        .as_str()
+        .expect("step-up start must return ceremony id")
+        .to_owned();
+    let challenge: RequestChallengeResponse =
+        serde_json::from_value(start["challenge"].clone()).unwrap();
+    let challenge = inject_allow_credential(challenge, credential_id);
+    let assertion = authenticator
+        .do_authentication(Url::parse(TEST_ORIGIN).unwrap(), challenge)
+        .unwrap();
+
+    json!({
+        "binding": binding,
+        "assertion": {
+            "ceremony_id": ceremony_id,
+            "credential": assertion
+        }
+    })
+}
+
+async fn assert_persisted_mobile_step_up_binding(pool: &PgPool, step_up: &Value) {
+    let ceremony_id = Uuid::parse_str(
+        step_up["assertion"]["ceremony_id"]
+            .as_str()
+            .expect("step-up assertion must carry ceremony id"),
+    )
+    .unwrap();
+    let row: (String, Uuid, String, Option<i32>) = sqlx::query_as(
+        r#"
+        SELECT action_kind, object_id, reason_key, replay_attempt
+        FROM auth_webauthn_ceremony_bindings
+        WHERE ceremony_id = $1
+        "#,
+    )
+    .bind(ceremony_id)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    assert_eq!(row.0, step_up["binding"]["action_kind"]);
+    assert_eq!(row.1.to_string(), step_up["binding"]["object_id"]);
+    assert_eq!(row.2, step_up["binding"]["reason_key"]);
+    assert_eq!(
+        row.3,
+        step_up["binding"]["replay_attempt"]
+            .as_i64()
+            .map(|value| value as i32)
+    );
+}
+
+#[derive(Clone, Copy)]
+struct FinancialStepUpFixture {
+    branch_id: BranchId,
+    requester: UserId,
+    receptionist: UserId,
+    admin: UserId,
+    equipment: EquipmentId,
+    work_order: WorkOrderId,
+    statement_evidence: EvidenceId,
+}
+
+async fn seed_financial_step_up_fixture(
+    pool: &PgPool,
+    branch_id: BranchId,
+    requester: UserId,
+    receptionist: UserId,
+    admin: UserId,
+) -> FinancialStepUpFixture {
+    let equipment = seed_financial_step_up_equipment(pool, branch_id).await;
+    let work_order =
+        seed_financial_step_up_work_order(pool, branch_id, receptionist, equipment).await;
+    let statement_evidence = seed_financial_step_up_statement(pool, work_order, requester).await;
+    FinancialStepUpFixture {
+        branch_id,
+        requester,
+        receptionist,
+        admin,
+        equipment,
+        work_order,
+        statement_evidence,
+    }
+}
+
+async fn submitted_financial_purchase(
+    pool: &PgPool,
+    fixture: FinancialStepUpFixture,
+    amount_won: i64,
+) -> PurchaseRequestId {
+    let purchase_id = create_financial_purchase(pool, fixture, amount_won).await;
+    let pool = pool.clone();
+    mnt_platform_request_context::scope_org(OrgId::knl(), async move {
+        PgFinancialStore::new(pool)
+            .submit_purchase_request(PurchaseSubmitCommand {
+                actor: fixture.receptionist,
+                purchase_request_id: purchase_id,
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .unwrap();
+    })
+    .await;
+    purchase_id
+}
+
+async fn admin_approved_financial_purchase(
+    pool: &PgPool,
+    fixture: FinancialStepUpFixture,
+    amount_won: i64,
+) -> PurchaseRequestId {
+    let purchase_id = submitted_financial_purchase(pool, fixture, amount_won).await;
+    let pool = pool.clone();
+    mnt_platform_request_context::scope_org(OrgId::knl(), async move {
+        PgFinancialStore::new(pool)
+            .approve_purchase_admin(PurchaseApprovalCommand {
+                actor: fixture.admin,
+                purchase_request_id: purchase_id,
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .unwrap();
+    })
+    .await;
+    purchase_id
+}
+
+async fn executive_pending_financial_purchase(
+    pool: &PgPool,
+    fixture: FinancialStepUpFixture,
+) -> PurchaseRequestId {
+    let purchase_id = admin_approved_financial_purchase(pool, fixture, 3_000_000).await;
+    let pool = pool.clone();
+    mnt_platform_request_context::scope_org(OrgId::knl(), async move {
+        PgFinancialStore::new(pool)
+            .prepare_expenditure(PrepareExpenditureCommand {
+                actor: fixture.admin,
+                purchase_request_id: purchase_id,
+                expenditure_no: format!("EXP-{}", Uuid::new_v4()),
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .unwrap();
+    })
+    .await;
+    purchase_id
+}
+
+async fn ready_to_execute_financial_purchase(
+    pool: &PgPool,
+    fixture: FinancialStepUpFixture,
+) -> PurchaseRequestId {
+    let purchase_id = admin_approved_financial_purchase(pool, fixture, 900_000).await;
+    let pool = pool.clone();
+    mnt_platform_request_context::scope_org(OrgId::knl(), async move {
+        PgFinancialStore::new(pool)
+            .prepare_expenditure(PrepareExpenditureCommand {
+                actor: fixture.admin,
+                purchase_request_id: purchase_id,
+                expenditure_no: format!("EXP-{}", Uuid::new_v4()),
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .unwrap();
+    })
+    .await;
+    purchase_id
+}
+
+async fn create_financial_purchase(
+    pool: &PgPool,
+    fixture: FinancialStepUpFixture,
+    amount_won: i64,
+) -> PurchaseRequestId {
+    let pool = pool.clone();
+    mnt_platform_request_context::scope_org(OrgId::knl(), async move {
+        let purchase = PgFinancialStore::new(pool)
+            .create_purchase_request(CreatePurchaseRequestCommand {
+                actor: fixture.requester,
+                branch_id: fixture.branch_id,
+                equipment_id: Some(fixture.equipment),
+                work_order_id: Some(fixture.work_order),
+                statement_evidence_id: Some(fixture.statement_evidence),
+                purchase_type: PurchaseType::LegacyManual,
+                vendor_name: "Financial Step-Up Vendor".to_owned(),
+                amount_won: Some(amount_won),
+                lines: vec![financial_step_up_purchase_line(amount_won)],
+                quote_attachment_ids: Vec::new(),
+                memo: "financial step-up fixture".to_owned(),
+                config: financial_step_up_config(),
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            })
+            .await
+            .unwrap();
+        purchase.id
+    })
+    .await
+}
+
+fn financial_step_up_config() -> FinancialConfigSnapshot {
+    FinancialConfigSnapshot {
+        depreciation_method: DepreciationMethod::StraightLine,
+        useful_life_months: 60,
+        residual_rate_bps: 1_000,
+        declining_balance_rate_bps: 2_000,
+        management_fee_rate_bps: 1_000,
+        profit_rate_bps: 500,
+        floor_negative_quote_residual: true,
+        executive_approval_threshold_won: 2_000_000,
+    }
+}
+
+fn financial_step_up_purchase_line(amount_won: i64) -> PurchaseRequestLineInput {
+    PurchaseRequestLineInput {
+        item: "step-up protected purchase".to_owned(),
+        quantity: 1,
+        unit_supply_price_won: amount_won,
+        vat_won: Some(0),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn assert_financial_step_up_denied(
+    service: axum::Router,
+    pool: &PgPool,
+    access_token: &str,
+    path: &str,
+    body: Value,
+    purchase_request_id: PurchaseRequestId,
+    unchanged_status: &str,
+    mutation_action: &str,
+    required_action: &str,
+    expected_status: StatusCode,
+    expected_code: &str,
+    expected_failure_reason: &str,
+) {
+    let mutation_count_before =
+        financial_audit_count(pool, mutation_action, purchase_request_id).await;
+    let denial_count_before =
+        financial_audit_count(pool, "purchase.step_up.denied", purchase_request_id).await;
+    let rejected = post_raw(service, path, Some(access_token), body).await;
+    assert_eq!(rejected.status(), expected_status);
+    assert_eq!(body_json(rejected).await["error"]["code"], expected_code);
+    assert_purchase_status(pool, purchase_request_id, unchanged_status).await;
+    assert_financial_audit_count(
+        pool,
+        mutation_action,
+        purchase_request_id,
+        mutation_count_before,
+    )
+    .await;
+    assert_financial_audit_count(
+        pool,
+        "purchase.step_up.denied",
+        purchase_request_id,
+        denial_count_before + 1,
+    )
+    .await;
+    let after = latest_financial_step_up_denial_after(pool, purchase_request_id).await;
+    assert_eq!(after["required_action"], required_action);
+    assert_eq!(after["failure_code"], expected_code);
+    assert_eq!(after["failure_reason"], expected_failure_reason);
+    assert_eq!(after["step_up_verified"], false);
+    assert!(after.get("credential").is_none());
+    assert!(after.get("ceremony_id").is_none());
+}
+
+async fn assert_purchase_status(
+    pool: &PgPool,
+    purchase_request_id: PurchaseRequestId,
+    expected: &str,
+) {
+    let status: String =
+        sqlx::query_scalar("SELECT status FROM financial_purchase_requests WHERE id = $1")
+            .bind(*purchase_request_id.as_uuid())
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        status, expected,
+        "unexpected status for {purchase_request_id}"
+    );
+}
+
+async fn assert_financial_audit_count(
+    pool: &PgPool,
+    action: &str,
+    purchase_request_id: PurchaseRequestId,
+    expected: i64,
+) {
+    let count = financial_audit_count(pool, action, purchase_request_id).await;
+    assert_eq!(
+        count, expected,
+        "unexpected audit count for {action} on {purchase_request_id}"
+    );
+}
+
+async fn financial_audit_count(
+    pool: &PgPool,
+    action: &str,
+    purchase_request_id: PurchaseRequestId,
+) -> i64 {
+    sqlx::query_scalar(
+        "SELECT COUNT(*)::BIGINT FROM audit_events WHERE action = $1 AND target_id = $2",
+    )
+    .bind(action)
+    .bind(purchase_request_id.to_string())
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+async fn latest_financial_step_up_denial_after(
+    pool: &PgPool,
+    purchase_request_id: PurchaseRequestId,
+) -> Value {
+    sqlx::query_scalar::<_, Option<Value>>(
+        r#"
+        SELECT after_snap
+        FROM audit_events
+        WHERE action = 'purchase.step_up.denied'
+          AND target_id = $1
+        ORDER BY created_at DESC
+        LIMIT 1
+        "#,
+    )
+    .bind(purchase_request_id.to_string())
+    .fetch_one(pool)
+    .await
+    .unwrap()
+    .expect("step-up denial audit must include an after snapshot")
+}
+
+async fn seed_financial_step_up_equipment(pool: &PgPool, branch_id: BranchId) -> EquipmentId {
+    let customer_id: Uuid = sqlx::query_scalar(
+        "INSERT INTO registry_customers (branch_id, name, org_id) VALUES ($1, $2, $3) RETURNING id",
+    )
+    .bind(*branch_id.as_uuid())
+    .bind("Financial Step-Up Customer")
+    .bind(*OrgId::knl().as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    let site_id: Uuid = sqlx::query_scalar(
+        "INSERT INTO registry_sites (branch_id, customer_id, name, org_id) VALUES ($1, $2, $3, $4) RETURNING id",
+    )
+    .bind(*branch_id.as_uuid())
+    .bind(customer_id)
+    .bind("Financial Step-Up Site")
+    .bind(*OrgId::knl().as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    let equipment_id: Uuid = sqlx::query_scalar(
+        r#"
+        INSERT INTO registry_equipment (
+            branch_id, customer_id, site_id, equipment_no, management_no,
+            manufacturer_code, kind_code, power_code, status,
+            specification, ton_text, model, vehicle_value, residual_value,
+            asset_registered_on, source_sheet, source_row, org_id
+        )
+        VALUES ($1, $2, $3, $4, $5,
+                'A', 'B', 'C', '임대', '좌식', '2.5T', 'GTS25DE',
+                12000000, 9000000, DATE '2024-01-01', 'financial-step-up-test', 1, $6)
+        RETURNING id
+        "#,
+    )
+    .bind(*branch_id.as_uuid())
+    .bind(customer_id)
+    .bind(site_id)
+    .bind("FST12-4200")
+    .bind("FST-4200")
+    .bind(*OrgId::knl().as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    EquipmentId::from_uuid(equipment_id)
+}
+
+async fn seed_financial_step_up_work_order(
+    pool: &PgPool,
+    branch_id: BranchId,
+    requested_by: UserId,
+    equipment_id: EquipmentId,
+) -> WorkOrderId {
+    let row: (Uuid, Uuid) =
+        sqlx::query_as("SELECT customer_id, site_id FROM registry_equipment WHERE id = $1")
+            .bind(*equipment_id.as_uuid())
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    let work_order_id = WorkOrderId::new();
+    sqlx::query(
+        r#"
+        INSERT INTO work_orders (
+            id, request_no, branch_id, equipment_id, customer_id, site_id,
+            requested_by, status, symptom, org_id
+        )
+        VALUES ($1, '20260709-420', $2, $3, $4, $5, $6, 'RECEIVED', 'financial step-up fixture', $7)
+        "#,
+    )
+    .bind(*work_order_id.as_uuid())
+    .bind(*branch_id.as_uuid())
+    .bind(*equipment_id.as_uuid())
+    .bind(row.0)
+    .bind(row.1)
+    .bind(*requested_by.as_uuid())
+    .bind(*OrgId::knl().as_uuid())
+    .execute(pool)
+    .await
+    .unwrap();
+    work_order_id
+}
+
+async fn seed_financial_step_up_statement(
+    pool: &PgPool,
+    work_order_id: WorkOrderId,
+    uploaded_by: UserId,
+) -> EvidenceId {
+    let evidence_id = EvidenceId::new();
+    sqlx::query(
+        r#"
+        INSERT INTO evidence_media (
+            id, work_order_id, stage, s3_key, content_type, size_bytes,
+            uploaded_by, worm_replica_status, retry_count, org_id
+        )
+        VALUES ($1, $2, 'REQUEST', $3, 'application/pdf', 2048, $4, 'VERIFIED', 0, $5)
+        "#,
+    )
+    .bind(*evidence_id.as_uuid())
+    .bind(*work_order_id.as_uuid())
+    .bind(format!(
+        "work-orders/{work_order_id}/REQUEST/{evidence_id}.pdf"
+    ))
+    .bind(*uploaded_by.as_uuid())
+    .bind(*OrgId::knl().as_uuid())
+    .execute(pool)
+    .await
+    .unwrap();
+    evidence_id
 }
 
 /// Inject one `allowCredentials` entry into a discoverable challenge so the
@@ -1700,6 +2852,166 @@ async fn seed_equipment(pool: &PgPool, branch_id: BranchId, management_no: &str)
     .execute(pool)
     .await
     .unwrap();
+}
+
+async fn seed_mobile_step_up_work_order(
+    pool: &PgPool,
+    branch_id: BranchId,
+    receptionist: UserId,
+    mechanic: UserId,
+    admin: UserId,
+    executive: UserId,
+) -> Uuid {
+    let (equipment_id, customer_id, site_id): (Uuid, Uuid, Uuid) = sqlx::query_as(
+        r#"
+        SELECT id, customer_id, site_id
+        FROM registry_equipment
+        WHERE branch_id = $1 AND org_id = $2
+        ORDER BY created_at DESC
+        LIMIT 1
+        "#,
+    )
+    .bind(*branch_id.as_uuid())
+    .bind(*OrgId::knl().as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    let work_order_id = Uuid::new_v4();
+    let submitted_at = OffsetDateTime::now_utc() - Duration::hours(1);
+    sqlx::query(
+        r#"
+        INSERT INTO work_orders (
+            id, request_no, branch_id, equipment_id, customer_id, site_id,
+            requested_by, status, priority, symptom, result_type, diagnosis,
+            action_taken, target_due_at, report_submitted_by, report_submitted_at,
+            created_at, updated_at, org_id
+        )
+        VALUES (
+            $1, '20260709-410', $2, $3, $4, $5, $6, 'REPORT_SUBMITTED', 'P1',
+            'Mobile step-up fixture', 'COMPLETED', 'diagnosis', 'action taken',
+            $7, $8, $9, $9, $9, $10
+        )
+        "#,
+    )
+    .bind(work_order_id)
+    .bind(*branch_id.as_uuid())
+    .bind(equipment_id)
+    .bind(customer_id)
+    .bind(site_id)
+    .bind(*receptionist.as_uuid())
+    .bind(submitted_at + Duration::days(1))
+    .bind(*mechanic.as_uuid())
+    .bind(submitted_at)
+    .bind(*OrgId::knl().as_uuid())
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"
+        INSERT INTO work_order_assignments (work_order_id, mechanic_id, role, assigned_at, org_id)
+        VALUES ($1, $2, 'PRIMARY', $3, $4)
+        "#,
+    )
+    .bind(work_order_id)
+    .bind(*mechanic.as_uuid())
+    .bind(submitted_at - Duration::hours(1))
+    .bind(*OrgId::knl().as_uuid())
+    .execute(pool)
+    .await
+    .unwrap();
+    for (step_order, role, approver_id, status, requested_at) in [
+        (
+            1_i16,
+            "MECHANIC",
+            Some(mechanic),
+            "APPROVED",
+            Some(submitted_at),
+        ),
+        (2_i16, "ADMIN", Some(admin), "PENDING", Some(submitted_at)),
+        (3_i16, "EXECUTIVE", Some(executive), "NOT_STARTED", None),
+    ] {
+        sqlx::query(
+            r#"
+            INSERT INTO work_order_approval_steps (
+                work_order_id, step_order, role, approver_id, status, requested_at, org_id
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7)
+            "#,
+        )
+        .bind(work_order_id)
+        .bind(step_order)
+        .bind(role)
+        .bind(approver_id.map(|user| *user.as_uuid()))
+        .bind(status)
+        .bind(requested_at)
+        .bind(*OrgId::knl().as_uuid())
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+    work_order_id
+}
+
+async fn seed_mobile_step_up_poll(pool: &PgPool, actor: UserId) -> (Uuid, Uuid) {
+    let poll_id = Uuid::new_v4();
+    sqlx::query(
+        r#"
+        INSERT INTO collaboration_polls (
+            id, org_id, target_scope_type, title, question, status, anonymity,
+            allow_multiple, created_by, updated_by
+        )
+        VALUES ($1, $2, 'ORG', 'Mobile step-up poll', 'Select one', 'OPEN', 'NAMED', false, $3, $3)
+        "#,
+    )
+    .bind(poll_id)
+    .bind(*OrgId::knl().as_uuid())
+    .bind(*actor.as_uuid())
+    .execute(pool)
+    .await
+    .unwrap();
+    let option_id: Uuid = sqlx::query_scalar(
+        r#"
+        INSERT INTO collaboration_poll_options (org_id, poll_id, label, position)
+        VALUES ($1, $2, 'Approve', 0)
+        RETURNING id
+        "#,
+    )
+    .bind(*OrgId::knl().as_uuid())
+    .bind(poll_id)
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"
+        INSERT INTO collaboration_poll_options (org_id, poll_id, label, position)
+        VALUES ($1, $2, 'Reject', 1)
+        "#,
+    )
+    .bind(*OrgId::knl().as_uuid())
+    .bind(poll_id)
+    .execute(pool)
+    .await
+    .unwrap();
+    (poll_id, option_id)
+}
+
+async fn assert_work_order_status(pool: &PgPool, work_order_id: Uuid, expected: &str) {
+    let status: String = sqlx::query_scalar("SELECT status FROM work_orders WHERE id = $1")
+        .bind(work_order_id)
+        .fetch_one(pool)
+        .await
+        .unwrap();
+    assert_eq!(status, expected);
+}
+
+async fn assert_poll_vote_count(pool: &PgPool, poll_id: Uuid, expected: i64) {
+    let count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM collaboration_poll_votes WHERE poll_id = $1")
+            .bind(poll_id)
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    assert_eq!(count, expected, "unexpected vote count for poll {poll_id}");
 }
 
 async fn assert_audit_count(pool: &PgPool, action: &str, expected: i64) {

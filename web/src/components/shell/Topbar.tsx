@@ -1,9 +1,8 @@
-import { Bell, LogOut, MapPin, Menu, RefreshCw, Search, User } from "lucide-react";
+import { Bell, LogOut, MapPin, Menu, PanelRight, RefreshCw, Search, User } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { useActiveBranchId, useAuth } from "../../context/auth";
-import { useCurrentTitle } from "../../context/title";
 import { GroupScopeSwitcher } from "../../features/group/GroupScopeSwitcher";
 import { roleLabel } from "../../features/org/org-format";
 import { ko } from "../../i18n/ko";
@@ -21,14 +20,16 @@ import {
 interface TopbarProps {
   onOpenMobileSidebar: () => void;
   onOpenCommandPalette?: () => void;
+  onToggleComms?: () => void;
+  commsOpen?: boolean;
 }
 
 export function Topbar({
   onOpenMobileSidebar,
   onOpenCommandPalette,
+  onToggleComms,
+  commsOpen = false,
 }: TopbarProps) {
-  const title = useCurrentTitle();
-
   return (
     <header className="h-14 flex items-center gap-4 px-4 border-b border-line bg-white shrink-0 z-30 sticky top-0">
       {/* Mobile hamburger */}
@@ -39,13 +40,6 @@ export function Topbar({
       >
         <Menu size={20} aria-hidden="true" />
       </button>
-
-      {/* Contextual page label — the primary <h1> lives in each page's PageHeader. */}
-      <div className="flex-1 min-w-0">
-        {title ? (
-          <p className="text-sm font-medium text-steel truncate">{title}</p>
-        ) : null}
-      </div>
 
       {onOpenCommandPalette ? (
         <button
@@ -65,6 +59,21 @@ export function Topbar({
       ) : null}
 
       <GroupScopeSwitcher />
+
+      {/* The page title's single source is each page's PageHeader <h1>. */}
+      <div className="flex-1" />
+
+      {onToggleComms ? (
+        <button
+          type="button"
+          aria-label={commsOpen ? ko.commsRail.close : ko.commsRail.open}
+          aria-pressed={commsOpen}
+          onClick={onToggleComms}
+          className="hidden rounded-md p-2 text-steel hover:bg-muted-panel hover:text-ink focus-visible:outline-2 focus-visible:outline-ink lg:inline-flex"
+        >
+          <PanelRight size={18} aria-hidden="true" />
+        </button>
+      ) : null}
 
       <NotificationBell />
 

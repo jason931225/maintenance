@@ -30,6 +30,7 @@ async fn message_send_persists_audit_before_post_commit_notify(pool: PgPool) {
                 thread_id: thread.id,
                 body: "지게차 누유 사진 확인했습니다".to_owned(),
                 attachment_evidence_ids: Vec::new(),
+                quoted_message_id: None,
                 trace: TraceContext::generate(),
                 occurred_at: OffsetDateTime::now_utc(),
             })
@@ -131,6 +132,7 @@ async fn membership_and_branch_scope_are_default_deny(pool: PgPool) {
                 thread_id: thread.id,
                 body: "should not land".to_owned(),
                 attachment_evidence_ids: Vec::new(),
+                quoted_message_id: None,
                 trace: TraceContext::generate(),
                 occurred_at: OffsetDateTime::now_utc(),
             })
@@ -145,6 +147,7 @@ async fn membership_and_branch_scope_are_default_deny(pool: PgPool) {
                 thread_id: thread.id,
                 body: "wrong branch scope".to_owned(),
                 attachment_evidence_ids: Vec::new(),
+                quoted_message_id: None,
                 trace: TraceContext::generate(),
                 occurred_at: OffsetDateTime::now_utc(),
             })
@@ -555,6 +558,7 @@ async fn create_team_thread(
             branch_scope: BranchScope::single(seeded.branch),
             branch_id: seeded.branch,
             kind: ThreadKind::Team,
+            visibility: None,
             title: Some("정비팀".to_owned()),
             work_order_id: None,
             member_ids: vec![seeded.sender, seeded.recipient],
@@ -579,6 +583,7 @@ async fn send_at(
             thread_id,
             body: body.to_owned(),
             attachment_evidence_ids: Vec::new(),
+            quoted_message_id: None,
             trace: TraceContext::generate(),
             occurred_at,
         })
@@ -601,6 +606,7 @@ async fn send_from(
             thread_id,
             body: body.to_owned(),
             attachment_evidence_ids: Vec::new(),
+            quoted_message_id: None,
             trace: TraceContext::generate(),
             occurred_at,
         })

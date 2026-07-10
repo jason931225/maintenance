@@ -1,5 +1,5 @@
 import { ShieldAlert } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import type {
   FindingStatus,
@@ -18,6 +18,12 @@ import { PageError } from "../components/states/PageError";
 import { SkeletonTable } from "../components/states/Skeleton";
 import { PageHeader } from "../components/shell/PageHeader";
 import { RefreshButton } from "../components/shell/RefreshButton";
+import {
+  EVIDENCE_ACTIONS,
+  EvidenceRecords,
+  type VerifyEvidence,
+} from "../console/evidence";
+import { PolicyGateProvider, type PolicyGate } from "../console/policy";
 import { useAuth } from "../context/auth";
 import { ko } from "../i18n/ko";
 import { formatKoreanDateTime } from "../lib/datetime";
@@ -68,9 +74,13 @@ function severityClass(severity: GovernanceFinding["severity"]): string {
   }
 }
 
-export function IntegrityPage() {
-  const { api } = useAuth();
+/** Surface tabs: 이상 징후 (findings, default) / 증거 (EV- records). */
+type IntegrityTab = "findings" | "evidence";
 
+export function IntegrityPage() {
+  const { api, session } = useAuth();
+
+  const [tab, setTab] = useState<IntegrityTab>("findings");
   const [findings, setFindings] = useState<GovernanceFinding[]>([]);
   const [users, setUsers] = useState<UserSummary[]>([]);
   const [listState, setListState] = useState<ReadState>("loading");
@@ -125,6 +135,51 @@ export function IntegrityPage() {
     [users],
   );
 
+  // Evidence PBAC gate (deny-by-omission). Role-derived stand-in: SUPER_ADMIN
+  // acts as the 컴플라이언스 전담 persona (custody/hold/disposal controls);
+  // EXECUTIVE is read-only — controls are absent, not disabled.
+  // wire-pending: Phase C → Cedar decision feed per
+  // .omc/research/be-ontology-engine-arch.md §5 (render=policy).
+  const evidenceGate = useMemo<PolicyGate>(() => {
+    const compliance = session?.roles?.includes("SUPER_ADMIN") ?? false;
+    return {
+      can: (action) =>
+        action === EVIDENCE_ACTIONS.read ||
+        (compliance &&
+          (action === EVIDENCE_ACTIONS.custodyManage ||
+            action === EVIDENCE_ACTIONS.holdManage ||
+            action === EVIDENCE_ACTIONS.dispose)),
+    };
+  }, [session]);
+
+  // 무결성 검증 — REAL wiring: the original copy that wraps a work-order
+  // evidence_media row polls GET /api/v1/evidence/{evidenceId}/status. EV
+  // objects without such a copy report "unavailable" until the EV attestation
+  // REST lands (wire-pending: Phase C → POST
+  // /api/v1/evidence-objects/{id}/admissibility/recompute, t_15b1a1ec §7.8).
+  const verifyEvidence = useCallback<VerifyEvidence>(
+    async (detail) => {
+      const mediaId = detail.copies.find(
+        (copy) => copy.kind === "ORIGINAL",
+      )?.sourceEvidenceMediaId;
+      if (!mediaId) return { state: "unavailable" };
+      const res = await api
+        .GET("/api/v1/evidence/{evidenceId}/status", {
+          params: { path: { evidenceId: mediaId } },
+        })
+        .catch(() => undefined);
+      if (!res?.data) return { state: "failed", reason: null };
+      if (res.data.processing_status === "READY") {
+        return { state: "verified", processedAt: res.data.processed_at ?? null };
+      }
+      if (res.data.processing_status === "PROCESSING") {
+        return { state: "processing" };
+      }
+      return { state: "failed", reason: res.data.processing_error ?? null };
+    },
+    [api],
+  );
+
   async function submitTriage(
     finding: GovernanceFinding,
     status: "REVIEWED" | "DISMISSED" | "ESCALATED",
@@ -167,6 +222,40 @@ export function IntegrityPage() {
         className="mb-4"
       />
 
+      <div
+        role="group"
+        aria-label={ko.console.evidence.tabs.label}
+        className="mb-4 flex flex-wrap items-center gap-2"
+      >
+        <Button
+          type="button"
+          variant={tab === "findings" ? undefined : "secondary"}
+          aria-pressed={tab === "findings"}
+          onClick={() => {
+            setTab("findings");
+          }}
+        >
+          {ko.console.evidence.tabs.findings}
+        </Button>
+        <Button
+          type="button"
+          variant={tab === "evidence" ? undefined : "secondary"}
+          aria-pressed={tab === "evidence"}
+          onClick={() => {
+            setTab("evidence");
+          }}
+        >
+          {ko.console.evidence.tabs.records}
+        </Button>
+      </div>
+
+      {tab === "evidence" ? (
+        <Card className="grid gap-4">
+          <PolicyGateProvider gate={evidenceGate}>
+            <EvidenceRecords verify={verifyEvidence} />
+          </PolicyGateProvider>
+        </Card>
+      ) : (
       <Card className="grid gap-4">
         <div className="flex flex-wrap items-center gap-2">
           <label
@@ -218,6 +307,7 @@ export function IntegrityPage() {
           </ul>
         )}
       </Card>
+      )}
 
       {triageTarget ? (
         <TriageDialog

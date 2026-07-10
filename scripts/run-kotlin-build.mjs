@@ -29,9 +29,9 @@ if (hasJava()) {
     chmodSync(gradlew, 0o755);
   }
   if (process.platform === "win32") {
-    run("cmd.exe", ["/c", gradlew, "build", "-x", "test"]);
+    run("cmd.exe", ["/c", gradlew, "build"]);
   } else {
-    run(gradlew, ["build", "-x", "test"]);
+    run(gradlew, ["build"]);
   }
 } else {
   if (!hasRunningDocker()) {
@@ -52,7 +52,5 @@ if (hasJava()) {
     "gradle:8.14.3-jdk21",
     "gradle",
     "build",
-    "-x",
-    "test",
   ]);
 }

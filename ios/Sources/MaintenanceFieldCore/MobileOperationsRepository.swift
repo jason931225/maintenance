@@ -3,7 +3,11 @@ import MaintenanceAPIClient
 
 public protocol MobileOperationsGateway: Sendable {
     func listApprovalItems(limit: Int64, offset: Int64) async throws -> Components.Schemas.ApprovalItemsPage
-    func approveWorkOrder(workOrderID: Components.Schemas.Uuid, comment: String) async throws
+    func approveWorkOrder(
+        workOrderID: Components.Schemas.Uuid,
+        comment: String,
+        stepUp: Components.Schemas.MobilePasskeyStepUpEnvelope
+    ) async throws
     func listMailFolders() async throws -> [Components.Schemas.MailFolderView]
     func listMailThreads(
         unread: Bool?,
@@ -24,7 +28,8 @@ public protocol MobileOperationsGateway: Sendable {
     ) async throws -> [Components.Schemas.PollResponse]
     func votePoll(
         pollID: Components.Schemas.Uuid,
-        selectedOptionIDs: [Components.Schemas.Uuid]
+        selectedOptionIDs: [Components.Schemas.Uuid],
+        stepUp: Components.Schemas.MobilePasskeyStepUpEnvelope
     ) async throws -> Components.Schemas.PollResponse
     func registerDevice(
         deviceID: String,
@@ -43,26 +48,8 @@ public enum MobileSensitiveActionKind: String, Codable, Hashable, Sendable, Case
     case onDutyPing
 }
 
-public struct MobilePasskeyStepUpEnvelope: Codable, Hashable, Sendable {
-    public let actionKind: MobileSensitiveActionKind
-    public let objectID: Components.Schemas.Uuid?
-    public let reasonKey: String
-    public let assertion: Components.Schemas.PasskeyStepUpAssertion?
-
-    public init(
-        actionKind: MobileSensitiveActionKind,
-        objectID: Components.Schemas.Uuid?,
-        reasonKey: String,
-        assertion: Components.Schemas.PasskeyStepUpAssertion?
-    ) {
-        self.actionKind = actionKind
-        self.objectID = objectID
-        self.reasonKey = reasonKey
-        self.assertion = assertion
-    }
-
-    public var requiresFreshPasskey: Bool { assertion == nil }
-}
+private let operationsPasskeyApprovalDecisionReason = "operations_passkey_approval_decision"
+private let operationsPasskeyPollVoteReason = "operations_passkey_poll_vote"
 
 public struct MobileOperationsSnapshot: Codable, Hashable, Sendable {
     public let approvals: Components.Schemas.ApprovalItemsPage
@@ -227,6 +214,47 @@ public actor InMemoryMobileNotificationStore: MobileNotificationStore {
     }
 }
 
+public actor FileMobileNotificationStore: MobileNotificationStore {
+    private let fileURL: URL
+    private var notifications: [String: MobileRoutedNotification]
+
+    public init(fileURL: URL) throws {
+        self.fileURL = fileURL
+        try MobileOperationsStoreRoot.ensureParentDirectory(for: fileURL)
+        if let data = try? Data(contentsOf: fileURL),
+           let decoded = try? JSONDecoder().decode([String: MobileRoutedNotification].self, from: data) {
+            self.notifications = decoded
+        } else {
+            self.notifications = [:]
+        }
+    }
+
+    public static func defaultStoreURL() throws -> URL {
+        try MobileOperationsStoreRoot.defaultURL(fileName: "mobile-notification-inbox.json")
+    }
+
+    public func loadNotifications() -> [MobileRoutedNotification] {
+        Array(notifications.values).sorted { $0.receivedAt > $1.receivedAt }
+    }
+
+    public func saveNotification(_ notification: MobileRoutedNotification) {
+        notifications[notification.id] = notification
+        save()
+    }
+
+    public func markRead(id: String, at: Date) {
+        guard var notification = notifications[id] else { return }
+        notification.readAt = at
+        notifications[id] = notification
+        save()
+    }
+
+    private func save() {
+        guard let data = try? JSONEncoder().encode(notifications) else { return }
+        try? data.write(to: fileURL, options: [.atomic])
+    }
+}
+
 public enum MobileQueuedActionStatus: String, Codable, Hashable, Sendable, CaseIterable {
     case waitingForPasskey
     case readyForReplay
@@ -240,10 +268,12 @@ public struct MobileQueuedSensitiveAction: Codable, Hashable, Identifiable, Send
     public let objectID: Components.Schemas.Uuid?
     public let reasonKey: String
     public let comment: String?
+    public let selectedOptionIDs: [Components.Schemas.Uuid]
     public let deviceID: String?
     public let appVersion: String?
     public let pushToken: String?
     public let locationPing: Components.Schemas.LocationPingRequest?
+    public var nextReplayAttempt: Int32
     public let createdAt: Date
     public var status: MobileQueuedActionStatus
     public var lastError: String?
@@ -254,10 +284,12 @@ public struct MobileQueuedSensitiveAction: Codable, Hashable, Identifiable, Send
         objectID: Components.Schemas.Uuid?,
         reasonKey: String,
         comment: String? = nil,
+        selectedOptionIDs: [Components.Schemas.Uuid] = [],
         deviceID: String? = nil,
         appVersion: String? = nil,
         pushToken: String? = nil,
         locationPing: Components.Schemas.LocationPingRequest? = nil,
+        nextReplayAttempt: Int32 = 1,
         createdAt: Date,
         status: MobileQueuedActionStatus,
         lastError: String? = nil
@@ -267,13 +299,68 @@ public struct MobileQueuedSensitiveAction: Codable, Hashable, Identifiable, Send
         self.objectID = objectID
         self.reasonKey = reasonKey
         self.comment = comment
+        self.selectedOptionIDs = selectedOptionIDs
         self.deviceID = deviceID
         self.appVersion = appVersion
         self.pushToken = pushToken
         self.locationPing = locationPing
+        self.nextReplayAttempt = nextReplayAttempt
         self.createdAt = createdAt
         self.status = status
         self.lastError = lastError
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(String.self, forKey: .id)
+        self.actionKind = try container.decode(MobileSensitiveActionKind.self, forKey: .actionKind)
+        self.objectID = try container.decodeIfPresent(Components.Schemas.Uuid.self, forKey: .objectID)
+        self.reasonKey = try container.decode(String.self, forKey: .reasonKey)
+        self.comment = try container.decodeIfPresent(String.self, forKey: .comment)
+        self.selectedOptionIDs = try container.decodeIfPresent([Components.Schemas.Uuid].self, forKey: .selectedOptionIDs) ?? []
+        self.deviceID = try container.decodeIfPresent(String.self, forKey: .deviceID)
+        self.appVersion = try container.decodeIfPresent(String.self, forKey: .appVersion)
+        self.pushToken = try container.decodeIfPresent(String.self, forKey: .pushToken)
+        self.locationPing = try container.decodeIfPresent(Components.Schemas.LocationPingRequest.self, forKey: .locationPing)
+        self.nextReplayAttempt = try container.decodeIfPresent(Int32.self, forKey: .nextReplayAttempt) ?? 1
+        self.createdAt = try container.decode(Date.self, forKey: .createdAt)
+        self.status = try container.decode(MobileQueuedActionStatus.self, forKey: .status)
+        self.lastError = try container.decodeIfPresent(String.self, forKey: .lastError)
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(actionKind, forKey: .actionKind)
+        try container.encodeIfPresent(objectID, forKey: .objectID)
+        try container.encode(reasonKey, forKey: .reasonKey)
+        try container.encodeIfPresent(comment, forKey: .comment)
+        try container.encode(selectedOptionIDs, forKey: .selectedOptionIDs)
+        try container.encodeIfPresent(deviceID, forKey: .deviceID)
+        try container.encodeIfPresent(appVersion, forKey: .appVersion)
+        try container.encodeIfPresent(pushToken, forKey: .pushToken)
+        try container.encodeIfPresent(locationPing, forKey: .locationPing)
+        try container.encode(nextReplayAttempt, forKey: .nextReplayAttempt)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(status, forKey: .status)
+        try container.encodeIfPresent(lastError, forKey: .lastError)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case actionKind
+        case objectID
+        case reasonKey
+        case comment
+        case selectedOptionIDs
+        case deviceID
+        case appVersion
+        case pushToken
+        case locationPing
+        case nextReplayAttempt
+        case createdAt
+        case status
+        case lastError
     }
 
     public var requiresPasskey: Bool {
@@ -337,6 +424,62 @@ public actor InMemoryMobileSensitiveActionStore: MobileSensitiveActionStore {
     }
 }
 
+public actor FileMobileSensitiveActionStore: MobileSensitiveActionStore {
+    private let fileURL: URL
+    private var actions: [String: MobileQueuedSensitiveAction]
+
+    public init(fileURL: URL) throws {
+        self.fileURL = fileURL
+        try MobileOperationsStoreRoot.ensureParentDirectory(for: fileURL)
+        if let data = try? Data(contentsOf: fileURL),
+           let decoded = try? JSONDecoder().decode([String: MobileQueuedSensitiveAction].self, from: data) {
+            self.actions = decoded
+        } else {
+            self.actions = [:]
+        }
+    }
+
+    public static func defaultStoreURL() throws -> URL {
+        try MobileOperationsStoreRoot.defaultURL(fileName: "mobile-sensitive-actions.json")
+    }
+
+    public func upsert(_ action: MobileQueuedSensitiveAction) {
+        actions[action.id] = action
+        save()
+    }
+
+    public func pending() -> [MobileQueuedSensitiveAction] {
+        actions.values
+            .filter { $0.status != .submitted }
+            .sorted { $0.createdAt < $1.createdAt }
+    }
+
+    public func get(_ id: String) -> MobileQueuedSensitiveAction? {
+        actions[id]
+    }
+
+    public func markSubmitted(id: String) {
+        guard var action = actions[id] else { return }
+        action.status = .submitted
+        action.lastError = nil
+        actions[id] = action
+        save()
+    }
+
+    public func markFailed(id: String, message: String) {
+        guard var action = actions[id] else { return }
+        action.status = .failed
+        action.lastError = message
+        actions[id] = action
+        save()
+    }
+
+    private func save() {
+        guard let data = try? JSONEncoder().encode(actions) else { return }
+        try? data.write(to: fileURL, options: [.atomic])
+    }
+}
+
 public struct MobileReplaySummary: Equatable, Sendable {
     public let attempted: Int
     public let submitted: Int
@@ -390,6 +533,60 @@ public actor InMemoryMobileOperationsCacheStore: MobileOperationsCacheStore {
 
     public func saveSnapshot(_ snapshot: MobileOperationsSnapshot) async {
         self.snapshot = snapshot
+    }
+}
+
+public actor FileMobileOperationsCacheStore: MobileOperationsCacheStore {
+    private let fileURL: URL
+    private var snapshot: MobileOperationsSnapshot?
+
+    public init(fileURL: URL) throws {
+        self.fileURL = fileURL
+        try MobileOperationsStoreRoot.ensureParentDirectory(for: fileURL)
+        if let data = try? Data(contentsOf: fileURL),
+           let decoded = try? JSONDecoder().decode(MobileOperationsSnapshot.self, from: data) {
+            self.snapshot = decoded
+        } else {
+            self.snapshot = nil
+        }
+    }
+
+    public static func defaultStoreURL() throws -> URL {
+        try MobileOperationsStoreRoot.defaultURL(fileName: "mobile-operations-overview.json")
+    }
+
+    public func loadSnapshot() -> MobileOperationsSnapshot? {
+        snapshot
+    }
+
+    public func saveSnapshot(_ snapshot: MobileOperationsSnapshot) {
+        self.snapshot = snapshot
+        save()
+    }
+
+    private func save() {
+        guard let data = try? JSONEncoder().encode(snapshot) else { return }
+        try? data.write(to: fileURL, options: [.atomic])
+    }
+}
+
+private enum MobileOperationsStoreRoot {
+    static func defaultURL(fileName: String) throws -> URL {
+        let root = try FileManager.default.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        ).appendingPathComponent("MaintenanceField", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        return root.appendingPathComponent(fileName)
+    }
+
+    static func ensureParentDirectory(for fileURL: URL) throws {
+        try FileManager.default.createDirectory(
+            at: fileURL.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
     }
 }
 
@@ -523,9 +720,9 @@ public struct MobileOperationsRepository: Sendable {
 
     public init(
         gateway: any MobileOperationsGateway,
-        cache: any MobileOperationsCacheStore = InMemoryMobileOperationsCacheStore(),
-        notificationStore: any MobileNotificationStore = InMemoryMobileNotificationStore(),
-        sensitiveActionStore: any MobileSensitiveActionStore = InMemoryMobileSensitiveActionStore(),
+        cache: any MobileOperationsCacheStore,
+        notificationStore: any MobileNotificationStore,
+        sensitiveActionStore: any MobileSensitiveActionStore,
         requestIDFactory: any RequestIDFactory = ULIDRequestIDFactory(),
         clock: any FieldClock = SystemFieldClock()
     ) {
@@ -599,21 +796,47 @@ public struct MobileOperationsRepository: Sendable {
     @discardableResult
     public func votePoll(
         pollID: Components.Schemas.Uuid,
-        selectedOptionIDs: [Components.Schemas.Uuid]
-    ) async throws -> Components.Schemas.PollResponse {
-        let updatedPoll = try await gateway.votePoll(pollID: pollID, selectedOptionIDs: selectedOptionIDs)
-        if let cached = await cache.loadSnapshot() {
-            let updated = MobileOperationsSnapshot(
-                approvals: cached.approvals,
-                mailFolders: cached.mailFolders,
-                mailThreads: cached.mailThreads,
-                calendarEvents: cached.calendarEvents,
-                polls: cached.polls.map { $0.id == pollID ? updatedPoll : $0 },
-                refreshedAt: clock.now()
-            )
-            await cache.saveSnapshot(updated)
+        selectedOptionIDs: [Components.Schemas.Uuid],
+        stepUp: Components.Schemas.MobilePasskeyStepUpEnvelope?
+    ) async throws -> MobileQueuedSensitiveAction? {
+        guard selectedOptionIDs.isEmpty == false else {
+            throw MaintenanceGatewayError.unexpectedResponse("poll vote requires at least one option")
         }
-        return updatedPoll
+        guard let stepUp else {
+            return await queuePollVote(pollID: pollID, selectedOptionIDs: selectedOptionIDs)
+        }
+        try validate(
+            stepUpEnvelope: stepUp,
+            expectedBinding: stepUpBinding(actionKind: .pollVote, objectID: pollID)
+        )
+
+        do {
+            let updatedPoll = try await gateway.votePoll(
+                pollID: pollID,
+                selectedOptionIDs: selectedOptionIDs,
+                stepUp: stepUp
+            )
+            if let cached = await cache.loadSnapshot() {
+                let updated = MobileOperationsSnapshot(
+                    approvals: cached.approvals,
+                    mailFolders: cached.mailFolders,
+                    mailThreads: cached.mailThreads,
+                    calendarEvents: cached.calendarEvents,
+                    polls: cached.polls.map { $0.id == pollID ? updatedPoll : $0 },
+                    refreshedAt: clock.now()
+                )
+                await cache.saveSnapshot(updated)
+            }
+            return nil
+        } catch {
+            return await queuePollVote(
+                pollID: pollID,
+                selectedOptionIDs: selectedOptionIDs,
+                status: .readyForReplay,
+                nextReplayAttempt: 1,
+                lastError: String(describing: error)
+            )
+        }
     }
 
     public func registerPushDevice(
@@ -669,16 +892,43 @@ public struct MobileOperationsRepository: Sendable {
 
     public func queueApprovalDecision(
         approval: MobileApprovalRow,
-        comment: String
+        comment: String,
+        status: MobileQueuedActionStatus = .waitingForPasskey,
+        nextReplayAttempt: Int32 = 1,
+        lastError: String? = nil
     ) async -> MobileQueuedSensitiveAction {
         let action = MobileQueuedSensitiveAction(
             id: requestIDFactory.nextID(),
             actionKind: .approvalDecision,
             objectID: approval.sourceID,
-            reasonKey: "operations_passkey_approval_decision",
+            reasonKey: operationsPasskeyApprovalDecisionReason,
             comment: comment.trimmedForSubmission,
+            nextReplayAttempt: nextReplayAttempt,
             createdAt: clock.now(),
-            status: .waitingForPasskey
+            status: status,
+            lastError: lastError
+        )
+        await sensitiveActionStore.upsert(action)
+        return action
+    }
+
+    public func queuePollVote(
+        pollID: Components.Schemas.Uuid,
+        selectedOptionIDs: [Components.Schemas.Uuid],
+        status: MobileQueuedActionStatus = .waitingForPasskey,
+        nextReplayAttempt: Int32 = 1,
+        lastError: String? = nil
+    ) async -> MobileQueuedSensitiveAction {
+        let action = MobileQueuedSensitiveAction(
+            id: requestIDFactory.nextID(),
+            actionKind: .pollVote,
+            objectID: pollID,
+            reasonKey: operationsPasskeyPollVoteReason,
+            selectedOptionIDs: selectedOptionIDs,
+            nextReplayAttempt: nextReplayAttempt,
+            createdAt: clock.now(),
+            status: status,
+            lastError: lastError
         )
         await sensitiveActionStore.upsert(action)
         return action
@@ -688,30 +938,37 @@ public struct MobileOperationsRepository: Sendable {
     public func approveWorkOrder(
         approval: MobileApprovalRow,
         comment: String,
-        stepUpAssertion: Components.Schemas.PasskeyStepUpAssertion?
+        stepUp: Components.Schemas.MobilePasskeyStepUpEnvelope?
     ) async throws -> MobileQueuedSensitiveAction? {
-        guard approval.canExecuteOnMobile, let stepUpAssertion else {
+        guard approval.canExecuteOnMobile else {
+            throw MaintenanceGatewayError.unexpectedResponse("approval source cannot execute on mobile")
+        }
+        guard let stepUp else {
             return await queueApprovalDecision(approval: approval, comment: comment)
         }
-        _ = stepUpAssertion
+        try validate(
+            stepUpEnvelope: stepUp,
+            expectedBinding: stepUpBinding(actionKind: .approvalDecision, objectID: approval.sourceID)
+        )
+
         do {
-            try await gateway.approveWorkOrder(workOrderID: approval.sourceID, comment: comment.trimmedForSubmission)
-            let refreshed = try await refreshOverview()
-            await cache.saveSnapshot(refreshed.snapshot)
+            try await gateway.approveWorkOrder(
+                workOrderID: approval.sourceID,
+                comment: comment.trimmedForSubmission,
+                stepUp: stepUp
+            )
+            if let refreshed = try? await refreshOverview() {
+                await cache.saveSnapshot(refreshed.snapshot)
+            }
             return nil
         } catch {
-            let action = MobileQueuedSensitiveAction(
-                id: requestIDFactory.nextID(),
-                actionKind: .approvalDecision,
-                objectID: approval.sourceID,
-                reasonKey: "operations_passkey_approval_decision",
-                comment: comment.trimmedForSubmission,
-                createdAt: clock.now(),
+            return await queueApprovalDecision(
+                approval: approval,
+                comment: comment,
                 status: .readyForReplay,
+                nextReplayAttempt: 1,
                 lastError: String(describing: error)
             )
-            await sensitiveActionStore.upsert(action)
-            return action
         }
     }
 
@@ -765,7 +1022,10 @@ public struct MobileOperationsRepository: Sendable {
     }
 
     public func replaySensitiveActions(
-        stepUpAssertion: Components.Schemas.PasskeyStepUpAssertion?
+        stepUpProvider: @Sendable (
+            MobileQueuedSensitiveAction,
+            Components.Schemas.MobilePasskeyStepUpBinding
+        ) async throws -> Components.Schemas.MobilePasskeyStepUpEnvelope?
     ) async -> MobileReplaySummary {
         let actions = await sensitiveActionStore.pending()
         var attempted = 0
@@ -773,33 +1033,66 @@ public struct MobileOperationsRepository: Sendable {
         var failed = 0
         var waiting = 0
 
-        for action in actions where action.status == .readyForReplay {
-            attempted += 1
-            do {
-                switch action.actionKind {
-                case .deviceRegistration:
-                    guard let deviceID = action.deviceID,
-                          let appVersion = action.appVersion,
-                          let pushToken = action.pushToken else {
-                        throw MaintenanceGatewayError.unexpectedResponse("missing_device_registration_payload")
-                    }
-                    _ = try await gateway.registerDevice(deviceID: deviceID, appVersion: appVersion, pushToken: pushToken)
-                case .approvalDecision:
-                    guard let stepUpAssertion, let objectID = action.objectID else {
-                        waiting += 1
-                        continue
-                    }
-                    _ = stepUpAssertion
-                    try await gateway.approveWorkOrder(workOrderID: objectID, comment: action.comment ?? "")
-                case .onDutyPing:
-                    guard let locationPing = action.locationPing else {
-                        throw MaintenanceGatewayError.unexpectedResponse("missing_on_duty_payload")
-                    }
-                    try await gateway.recordLocationPing(locationPing)
-                case .mailSend, .pollVote, .workflowStepUp:
+        for action in actions where action.status == .readyForReplay || action.status == .waitingForPasskey {
+            if action.requiresPasskey {
+                attempted += 1
+                let binding: Components.Schemas.MobilePasskeyStepUpBinding
+                do {
+                    binding = try action.stepUpBinding(replayAttempt: action.nextReplayAttempt)
+                } catch {
+                    var waitingAction = action
+                    waitingAction.status = .waitingForPasskey
+                    waitingAction.lastError = String(describing: error)
+                    await sensitiveActionStore.upsert(waitingAction)
                     waiting += 1
                     continue
                 }
+
+                let stepUp: Components.Schemas.MobilePasskeyStepUpEnvelope?
+                do {
+                    stepUp = try await stepUpProvider(action, binding)
+                    if let stepUp {
+                        try validate(stepUpEnvelope: stepUp, expectedBinding: binding)
+                    }
+                } catch {
+                    var waitingAction = action
+                    waitingAction.status = .waitingForPasskey
+                    waitingAction.lastError = String(describing: error)
+                    await sensitiveActionStore.upsert(waitingAction)
+                    waiting += 1
+                    continue
+                }
+
+                guard let stepUp else {
+                    var waitingAction = action
+                    waitingAction.status = .waitingForPasskey
+                    waitingAction.lastError = nil
+                    await sensitiveActionStore.upsert(waitingAction)
+                    waiting += 1
+                    continue
+                }
+
+                do {
+                    try await submitPasskeyProtectedAction(action: action, stepUp: stepUp)
+                    await sensitiveActionStore.markSubmitted(id: action.id)
+                    submitted += 1
+                } catch {
+                    var retryAction = action
+                    retryAction.status = .readyForReplay
+                    retryAction.nextReplayAttempt = action.nextReplayAttempt + 1
+                    retryAction.lastError = String(describing: error)
+                    await sensitiveActionStore.upsert(retryAction)
+                    failed += 1
+                }
+                continue
+            }
+
+            guard action.status == .readyForReplay else {
+                continue
+            }
+            attempted += 1
+            do {
+                try await replayNonPasskeyAction(action)
                 await sensitiveActionStore.markSubmitted(id: action.id)
                 submitted += 1
             } catch {
@@ -816,17 +1109,113 @@ public struct MobileOperationsRepository: Sendable {
         )
     }
 
-    public func stepUpEnvelope(
+    public func stepUpBinding(
         actionKind: MobileSensitiveActionKind,
-        objectID: Components.Schemas.Uuid?,
-        reasonKey: String,
-        assertion: Components.Schemas.PasskeyStepUpAssertion? = nil
-    ) -> MobilePasskeyStepUpEnvelope {
-        MobilePasskeyStepUpEnvelope(
+        objectID: Components.Schemas.Uuid,
+        replayAttempt: Int32? = nil
+    ) throws -> Components.Schemas.MobilePasskeyStepUpBinding {
+        try Self.stepUpBinding(actionKind: actionKind, objectID: objectID, replayAttempt: replayAttempt)
+    }
+
+    public static func stepUpBinding(
+        actionKind: MobileSensitiveActionKind,
+        objectID: Components.Schemas.Uuid,
+        replayAttempt: Int32? = nil
+    ) throws -> Components.Schemas.MobilePasskeyStepUpBinding {
+        if let replayAttempt, replayAttempt < 1 {
+            throw MaintenanceGatewayError.unexpectedResponse("replay attempt must be 1-based")
+        }
+        let generatedActionKind: Components.Schemas.MobileStepUpActionKind
+        let reasonKey: Components.Schemas.MobilePasskeyStepUpBinding.ReasonKeyPayload
+        switch actionKind {
+        case .approvalDecision:
+            generatedActionKind = .approvalDecision
+            reasonKey = .operationsPasskeyApprovalDecision
+        case .pollVote:
+            generatedActionKind = .pollVote
+            reasonKey = .operationsPasskeyPollVote
+        case .mailSend, .workflowStepUp, .deviceRegistration, .onDutyPing:
+            throw MaintenanceGatewayError.unexpectedResponse("unsupported mobile passkey step-up action: \(actionKind.rawValue)")
+        }
+        return Components.Schemas.MobilePasskeyStepUpBinding(
+            actionKind: generatedActionKind,
+            objectId: objectID,
+            reasonKey: reasonKey,
+            replayAttempt: replayAttempt
+        )
+    }
+
+    private func submitPasskeyProtectedAction(
+        action: MobileQueuedSensitiveAction,
+        stepUp: Components.Schemas.MobilePasskeyStepUpEnvelope
+    ) async throws {
+        switch action.actionKind {
+        case .approvalDecision:
+            guard let objectID = action.objectID else {
+                throw MaintenanceGatewayError.unexpectedResponse("missing_approval_object_id")
+            }
+            try await gateway.approveWorkOrder(
+                workOrderID: objectID,
+                comment: action.comment ?? "",
+                stepUp: stepUp
+            )
+        case .pollVote:
+            guard let objectID = action.objectID else {
+                throw MaintenanceGatewayError.unexpectedResponse("missing_poll_object_id")
+            }
+            _ = try await gateway.votePoll(
+                pollID: objectID,
+                selectedOptionIDs: action.selectedOptionIDs,
+                stepUp: stepUp
+            )
+        case .mailSend, .workflowStepUp, .deviceRegistration, .onDutyPing:
+            throw MaintenanceGatewayError.unexpectedResponse("unsupported mobile passkey replay action: \(action.actionKind.rawValue)")
+        }
+    }
+
+    private func replayNonPasskeyAction(_ action: MobileQueuedSensitiveAction) async throws {
+        switch action.actionKind {
+        case .deviceRegistration:
+            guard let deviceID = action.deviceID,
+                  let appVersion = action.appVersion,
+                  let pushToken = action.pushToken else {
+                throw MaintenanceGatewayError.unexpectedResponse("missing_device_registration_payload")
+            }
+            _ = try await gateway.registerDevice(deviceID: deviceID, appVersion: appVersion, pushToken: pushToken)
+        case .onDutyPing:
+            guard let locationPing = action.locationPing else {
+                throw MaintenanceGatewayError.unexpectedResponse("missing_on_duty_payload")
+            }
+            try await gateway.recordLocationPing(locationPing)
+        case .approvalDecision, .mailSend, .pollVote, .workflowStepUp:
+            throw MaintenanceGatewayError.unexpectedResponse("unsupported non-passkey replay action: \(action.actionKind.rawValue)")
+        }
+    }
+
+    private func validate(
+        stepUpEnvelope envelope: Components.Schemas.MobilePasskeyStepUpEnvelope,
+        expectedBinding: Components.Schemas.MobilePasskeyStepUpBinding
+    ) throws {
+        guard envelope.binding == expectedBinding else {
+            throw MaintenanceGatewayError.unexpectedResponse("passkey step-up binding mismatch")
+        }
+        guard envelope.assertion.ceremonyId != "00000000-0000-0000-0000-000000000000" else {
+            throw MaintenanceGatewayError.unexpectedResponse("passkey step-up ceremony id is required")
+        }
+    }
+}
+
+public extension MobileQueuedSensitiveAction {
+    func stepUpBinding(
+        replayAttempt: Int32? = nil
+    ) throws -> Components.Schemas.MobilePasskeyStepUpBinding {
+        guard let objectID else {
+            throw MaintenanceGatewayError.unexpectedResponse("missing_step_up_object_id")
+        }
+        return try MobileOperationsRepository.stepUpBinding(
             actionKind: actionKind,
             objectID: objectID,
-            reasonKey: reasonKey,
-            assertion: assertion
+            replayAttempt: replayAttempt
         )
     }
 }

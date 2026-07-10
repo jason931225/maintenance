@@ -7,8 +7,7 @@ import {
   originLabel,
   priorityBadgeClass,
   priorityLabel,
-  slaState,
-  slaStateBadgeClass,
+  sloPostureBadgeClass,
   statusBadgeClass,
   statusLabel,
   transitionActionLabel,
@@ -38,23 +37,6 @@ describe("support-format", () => {
     );
   });
 
-  it("classifies SLA posture and never flags terminal tickets as overdue", () => {
-    const now = Date.parse("2026-06-13T12:00:00Z");
-    const past = "2026-06-13T11:00:00Z";
-    const soon = "2026-06-13T14:00:00Z"; // within 4h
-    const later = "2026-06-14T12:00:00Z"; // > 4h
-
-    expect(slaState(past, "IN_PROGRESS", now)).toBe("overdue");
-    expect(slaState(soon, "IN_PROGRESS", now)).toBe("dueSoon");
-    expect(slaState(later, "IN_PROGRESS", now)).toBe("ok");
-    expect(slaState(null, "OPEN", now)).toBe("none");
-    expect(slaState("not-a-date", "OPEN", now)).toBe("none");
-
-    // A resolved/closed ticket with a past due date is settled, not overdue.
-    expect(slaState(past, "RESOLVED", now)).toBe("ok");
-    expect(slaState(past, "CLOSED", now)).toBe("ok");
-  });
-
   it("maps support badges to semantic tone classes", () => {
     expect(priorityBadgeClass("URGENT")).toBe(
       "border-tone-danger-border bg-tone-danger-bg text-tone-danger-text",
@@ -77,14 +59,14 @@ describe("support-format", () => {
     expect(statusBadgeClass("CLOSED")).toBe(
       "border-tone-neutral-border bg-tone-neutral-bg text-tone-neutral-text",
     );
-    expect(slaStateBadgeClass("overdue")).toBe(
+    // SLO posture chips (internal target, §4-26) share the semantic tone map.
+    expect(sloPostureBadgeClass("overdue")).toBe(
       "border-tone-danger-border bg-tone-danger-bg text-tone-danger-text",
     );
-    expect(slaStateBadgeClass("dueSoon")).toBe(
+    expect(sloPostureBadgeClass("dueSoon")).toBe(
       "border-tone-warning-border bg-tone-warning-bg text-tone-warning-text",
     );
   });
-
 
   it("resolves Korean labels for every enum value", () => {
     expect(statusLabel("ON_HOLD")).toBe(ko.support.ticketStatus.ON_HOLD);

@@ -48,25 +48,30 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "collaboration",
     "inspection",
     "support",
+    "ontology",
+    "workflows",
+    "automate",
     "kpi",
     "intelligence",
     "ops",
+    "forecast",
+    "config-console",
     "reporting",
-    "integrity",
     "equipment",
     "equipment-manage",
     "catalog",
+    "finance",
     "payroll",
     "financial",
-    "org",
-    "sites",
-    "location",
     "employees",
     "leave-management",
     "insurance-assist",
-    "users",
     "policy",
-    "workflows",
+    "integrity",
+    "org",
+    "sites",
+    "location",
+    "users",
     "security",
     "profile",
   ],
@@ -83,26 +88,31 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "collaboration",
     "inspection",
     "support",
+    "ontology",
     "kpi",
     "intelligence",
     "ops",
+    "forecast",
+    "config-console",
     "reporting",
     "equipment",
     "equipment-manage",
     "catalog",
+    "finance",
     "payroll",
     "financial",
-    "org",
-    "sites",
-    "location",
     "employees",
     "leave-management",
     "insurance-assist",
+    "org",
+    "sites",
+    "location",
     "users",
     "security",
     "profile",
   ],
-  // Executive: KPI/intelligence/integrity yes; approvals/daily-plan/users/org/security no.
+  // Executive: ontology/kpi/intelligence/forecast/integrity yes; approvals/
+  // daily-plan/ops/config-console/workflows/automate/users/org/security no.
   // Equipment browse/manage remain visible, but sales catalog conversion stays admin-only.
   [ROLES.EXECUTIVE]: [
     "work-hub",
@@ -114,18 +124,21 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "intake",
     "collaboration",
     "support",
+    "ontology",
     "kpi",
     "intelligence",
+    "forecast",
     "reporting",
-    "integrity",
     "equipment",
     "equipment-manage",
+    "finance",
     "payroll",
     "financial",
-    "location",
     "employees",
     "leave-management",
     "insurance-assist",
+    "integrity",
+    "location",
     "profile",
   ],
   // Mechanic: maintenance operations and personal work surfaces; no mail,
@@ -142,6 +155,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "support",
     "reporting",
     "equipment",
+    "finance",
     "financial",
     "location",
     "profile",
@@ -159,6 +173,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "support",
     "reporting",
     "equipment",
+    "finance",
     "financial",
     "location",
     "profile",
@@ -184,9 +199,11 @@ describe("nav role gating", () => {
       "work-hub",
       "my-attendance",
       "approvals",
-      "messenger",
-      "mail",
     ]);
+
+    // Foundry IA: messenger/mail live in the dedicated communication group.
+    const comms = NAV_GROUPS.find((group) => group.key === "comms");
+    expect(comms?.items.map((item) => item.key)).toEqual(["messenger", "mail"]);
 
     const operations = NAV_GROUPS.find((group) => group.key === "operations");
     const assets = NAV_GROUPS.find((group) => group.key === "assets");
@@ -198,6 +215,49 @@ describe("nav role gating", () => {
       "equipment-manage",
       "catalog",
     ]);
+  });
+
+  it("groups the Foundry platform and analytics surfaces per the console IA", () => {
+    const foundry = NAV_GROUPS.find((group) => group.key === "foundry");
+    const analytics = NAV_GROUPS.find((group) => group.key === "analytics");
+    expect(foundry?.items.map((item) => item.key)).toEqual([
+      "ontology",
+      "workflows",
+      "automate",
+    ]);
+    expect(analytics?.items.map((item) => item.key)).toEqual([
+      "kpi",
+      "intelligence",
+      "ops",
+      "forecast",
+      "config-console",
+      "reporting",
+    ]);
+  });
+
+  it("PBAC-gates the new Foundry/analytics stub surfaces", () => {
+    // ontology + forecast: KPI-read gate (ADMIN/EXECUTIVE/SUPER_ADMIN).
+    for (const key of ["ontology", "forecast"]) {
+      expect(isNavItemVisible(key, [ROLES.ADMIN])).toBe(true);
+      expect(isNavItemVisible(key, [ROLES.EXECUTIVE])).toBe(true);
+      expect(isNavItemVisible(key, [ROLES.SUPER_ADMIN])).toBe(true);
+      expect(isNavItemVisible(key, [ROLES.MECHANIC])).toBe(false);
+      expect(isNavItemVisible(key, [ROLES.MEMBER])).toBe(false);
+    }
+    // automate: RoleManage system-only (SUPER_ADMIN), like the workflow studio.
+    expect(isNavItemVisible("automate", [ROLES.SUPER_ADMIN])).toBe(true);
+    expect(isNavItemVisible("automate", [ROLES.ADMIN])).toBe(false);
+    expect(isNavItemVisible("automate", [ROLES.EXECUTIVE])).toBe(false);
+    expect(
+      isNavItemVisible("automate", [ROLES.MEMBER], undefined, [
+        FEATURES.ROLE_MANAGE,
+      ]),
+    ).toBe(false);
+    // config-console: admin configuration surface.
+    expect(isNavItemVisible("config-console", [ROLES.ADMIN])).toBe(true);
+    expect(isNavItemVisible("config-console", [ROLES.SUPER_ADMIN])).toBe(true);
+    expect(isNavItemVisible("config-console", [ROLES.EXECUTIVE])).toBe(false);
+    expect(isNavItemVisible("config-console", [ROLES.MECHANIC])).toBe(false);
   });
 
   it("hides admin-only pages from every non-admin role", () => {
@@ -251,6 +311,7 @@ describe("nav role gating", () => {
       "integrity",
       "equipment-manage",
       "catalog",
+      "finance",
       "payroll",
       "financial",
       "org",
@@ -490,6 +551,7 @@ describe("nav role gating", () => {
         "support",
         "reporting",
         "equipment",
+        "finance",
         "financial",
         "location",
         "profile",
@@ -515,6 +577,7 @@ describe("nav role gating", () => {
         "support",
         "reporting",
         "equipment",
+        "finance",
         "financial",
         "payroll",
         "location",
