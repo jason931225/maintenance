@@ -691,15 +691,15 @@ private func messengerThreadDisplayTitle(_ thread: MessengerThread) -> String {
     switch thread.kind {
     case .workOrder:
         if let identifier = thread.friendlyWorkOrderIdentifier {
-            return localizedString("messenger_thread_work_order_title_format", identifier)
+            return localizedString("messenger_thread_work_order_format", identifier)
         }
-        return localizedString("messenger_thread_work_order_title")
+        return localizedString("messenger_thread_work_order")
     case .team:
-        return localizedString("messenger_thread_team_title")
+        return localizedString("messenger_thread_team")
     case .dm:
-        return localizedString("messenger_thread_dm_title")
+        return localizedString("messenger_thread_dm")
     case .group:
-        return localizedString("messenger_thread_group_title")
+        return localizedString("messenger_thread_group")
     }
 }
 

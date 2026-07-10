@@ -92,11 +92,11 @@
 "messenger_read_progress_format" = "읽음 %lld/%lld";
 "messenger_member_count_format" = "%lld명";
 "messenger_send_pending" = "오프라인 메시지로 저장되었습니다.";
-"messenger_thread_work_order_title" = "작업 대화방";
-"messenger_thread_work_order_title_format" = "작업 %@";
-"messenger_thread_team_title" = "팀 채널";
-"messenger_thread_dm_title" = "1:1 대화";
-"messenger_thread_group_title" = "그룹 대화";
+"messenger_thread_work_order" = "작업지시 대화";
+"messenger_thread_work_order_format" = "작업지시 %@";
+"messenger_thread_team" = "팀 채널";
+"messenger_thread_dm" = "1:1 대화";
+"messenger_thread_group" = "그룹 대화";
 "messenger_kind_work_order" = "작업";
 "messenger_kind_team" = "팀";
 "messenger_kind_dm" = "1:1";
