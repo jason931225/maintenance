@@ -53,6 +53,7 @@ import {
   addNodeToWorkflow,
   canonicalToReactFlow,
   connectWorkflowNodes,
+  createCanonicalApprovalTemplate,
   createEmptyWorkflowDefinition,
   createLeaveRequestApprovalTemplate,
   isWorkflowDefinitionV1,
@@ -199,13 +200,10 @@ const WORKFLOW_AUTO_RUNTIME_GATE: PolicyGate = {
 function workflowTemplateDefinition(
   template: WorkflowTemplateDescriptor,
 ): Record<string, unknown> {
-  return {
-    schema_version: "workflow.definition.v1",
-    template_key: template.template_key,
-    object_type: template.object_type,
-    trigger: `${template.object_type}.${template.template_key}`,
-    steps: [{ key: "review", type: "approval", source: "approval_line" }],
-  };
+  return createCanonicalApprovalTemplate({
+    name: template.display_name,
+    objectType: template.object_type,
+  });
 }
 
 function equipmentLocationPolicyDefinition(): Record<string, unknown> {
@@ -1883,7 +1881,6 @@ function WorkflowCanvasAuthoringCard({
                           : ko.workflowStudio.canvas.nodeInvalid}
                       </Badge>
                     </div>
-                    <p className="mt-1 text-xs text-steel">{node.data.type}</p>
                     <p className="mt-2 text-sm text-steel">{node.data.summary}</p>
                   </button>
                 ))}
@@ -2031,7 +2028,6 @@ function WorkflowInspector({
         {ko.workflowStudio.canvas.inspector}
       </h3>
       <p className="mt-2 text-sm font-semibold text-ink">{selectedNode.label}</p>
-      <p className="text-xs text-steel">{selectedNode.type}</p>
       {selectedNode.config.type === "task.approval" ? (
         <div className="mt-3 grid gap-3">
           <Field

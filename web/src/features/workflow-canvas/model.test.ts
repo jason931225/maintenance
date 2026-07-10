@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   canonicalToReactFlow,
+  createCanonicalApprovalTemplate,
   createEmptyWorkflowDefinition,
   createLeaveRequestApprovalTemplate,
   createWorkflowNode,
@@ -59,6 +60,39 @@ describe("workflow canvas canonical model", () => {
     });
     expect(moved.canvas.nodes["node-trigger"]).toEqual({ x: 120, y: 160 });
     expect(moved.graph.nodes[0]?.id).toBe("node-trigger");
+  });
+
+  it("builds a canonical approval template whose object-type-bound configs match the target object type", () => {
+    const definition = createCanonicalApprovalTemplate({
+      name: "정비 완료 승인",
+      objectType: "work_order",
+    });
+
+    expect(validateWorkflowDefinition(definition)).toEqual([]);
+    expect(definition.metadata.object_type).toBe("work_order");
+
+    const trigger = definition.graph.nodes.find((node) => node.id === "node-trigger");
+    expect(
+      trigger?.config.type === "trigger.form_submission" &&
+        trigger.config.source.object_type,
+    ).toBe("work_order");
+
+    const form = definition.graph.nodes.find((node) => node.id === "node-form");
+    expect(
+      form?.config.type === "form.input" &&
+        form.config.fields.every(
+          (field) =>
+            field.field_type !== "object_ref" ||
+            field.object_type === "work_order",
+        ),
+    ).toBe(true);
+
+    for (const node of definition.graph.nodes) {
+      if (node.config.type === "action.object_update") {
+        expect(node.config.action_id).toBe("work_order.update_status");
+        expect(node.config.requires_policy).toBe("work_order.update_status");
+      }
+    }
   });
 
   it("reports actionable validation blockers for incomplete visual drafts", () => {
