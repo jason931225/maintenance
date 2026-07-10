@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.58](https://github.com/jason931225/maintenance/compare/v0.1.57...v0.1.58) (2026-07-10)
+
+
+### Features
+
+* **web:** console host serves the console at root ([#436](https://github.com/jason931225/maintenance/issues/436)) ([d266837](https://github.com/jason931225/maintenance/commit/d26683793f4986fde73bd6bd9ef99917deeaa127))
+
 ## [0.1.57](https://github.com/jason931225/maintenance/compare/v0.1.56...v0.1.57) (2026-07-10)
 
 
