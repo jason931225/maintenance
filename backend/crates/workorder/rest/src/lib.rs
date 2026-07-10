@@ -921,6 +921,10 @@ struct EvidenceConfirmResponse {
     stage: AttachmentStage,
     worm_replica_status: WormReplicaStatus,
     retry_count: i32,
+    // The OpenAPI contract types this as a nullable rfc3339 `string`; the bare
+    // OffsetDateTime serde impl emits the numeric component array instead, which
+    // clients (and the drift-checked spec) reject. Serialize it as rfc3339.
+    #[serde(with = "time::serde::rfc3339::option")]
     verified_at: Option<time::OffsetDateTime>,
 }
 
@@ -1831,7 +1835,7 @@ where
         work_order.branch_id,
     )
     .await?;
-    let confirmed = service
+    service
         .confirm_upload(
             media_id,
             principal.user_id,
@@ -1848,7 +1852,14 @@ where
         )
         .await
         .map_err(RestError::from_storage)?;
-    let media = service.evidence_media(media_id).await.unwrap_or(confirmed);
+    // Re-read the row to return the post-replication verified_at. If the media
+    // has vanished (e.g. a concurrent purge between replication and this read),
+    // surface the storage error — never serve the stale pre-replication row,
+    // which would report success with a null verified_at.
+    let media = service
+        .evidence_media(media_id)
+        .await
+        .map_err(RestError::from_storage)?;
 
     Ok(Json(EvidenceConfirmResponse {
         id: media.id,
