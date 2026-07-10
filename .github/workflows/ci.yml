@@ -134,55 +134,75 @@ jobs:
             ${{ runner.os }}-cargo-
 
       - name: Cargo.lock freshness gate
+        if: ${{ !cancelled() }}
         run: cargo tree --locked --workspace --target all >/dev/null
 
       - name: rustfmt check
+        if: ${{ !cancelled() }}
         run: cargo fmt --all -- --check
 
       - name: clippy -D warnings
+        if: ${{ !cancelled() }}
         run: SQLX_OFFLINE=true cargo clippy --all-targets -- -D warnings
 
       - name: cargo test
+        if: ${{ !cancelled() }}
         # SQLX_OFFLINE=true so the query! macros compile against the committed
         # .sqlx cache (the documented contract — see crates/platform/db/src/lib.rs)
         # rather than the unmigrated CI service DB. The #[sqlx::test] runtime
         # tests still use DATABASE_URL to create their own per-test databases.
         # Without this, a Cargo.lock change busts the build cache and the macros
         # re-check online against a schema-less DB ("audit_events does not exist").
-        run: SQLX_OFFLINE=true cargo test
+        # --no-fail-fast runs every test binary so one failing suite does not hide
+        # the rest — the whole run reports all failures.
+        run: SQLX_OFFLINE=true cargo test --no-fail-fast
 
       - name: Layer-boundary gate
+        if: ${{ !cancelled() }}
         run: cargo run -p mnt-gate-layer-boundary
 
       - name: Audit-coverage gate
+        if: ${{ !cancelled() }}
         run: cargo run -p mnt-gate-audit-coverage
 
       - name: Migration-safety gate
+        if: ${{ !cancelled() }}
         run: cargo run -p mnt-gate-migration-safety
 
       - name: Tenant-isolation gate
+        if: ${{ !cancelled() }}
         run: cargo run -p mnt-gate-tenant-isolation
 
       - name: PII-no-logs gate
+        if: ${{ !cancelled() }}
         run: cargo run -p mnt-gate-pii-no-logs
 
       - name: RLS-arming gate
+        if: ${{ !cancelled() }}
         run: cargo run -p mnt-gate-rls-arming
 
       - name: Dev-auth-absence gate
+        if: ${{ !cancelled() }}
         run: cargo run -p mnt-gate-dev-auth-absence
 
       - name: IaC tier-discipline gate
+        if: ${{ !cancelled() }}
         run: cargo run -p mnt-gate-iac-tier
 
       - name: Dev-auth feature build/tests
+        if: ${{ !cancelled() }}
         # `dev-auth` is NOT in default features (proven above) — build/test it
         # explicitly so its code path still compiles and its own tests
         # (including the route-present-under-the-feature session tests) run.
+        # `set -e` would abort on the first failing invocation and hide the rest;
+        # run all three, recording failure, then propagate the real exit code so
+        # one run reports every failing suite (no exit-code masking).
         run: |
-          SQLX_OFFLINE=true cargo test -p mnt-platform-auth-rest --features dev-auth
-          SQLX_OFFLINE=true cargo test -p mnt-app --features dev-auth --test dev_auth_persona_guard_feature
-          SQLX_OFFLINE=true cargo test -p mnt-platform-provisioning --test dev_principal_upsert_race
+          rc=0
+          SQLX_OFFLINE=true cargo test -p mnt-platform-auth-rest --features dev-auth --no-fail-fast || rc=1
+          SQLX_OFFLINE=true cargo test -p mnt-app --features dev-auth --test dev_auth_persona_guard_feature --no-fail-fast || rc=1
+          SQLX_OFFLINE=true cargo test -p mnt-platform-provisioning --test dev_principal_upsert_race --no-fail-fast || rc=1
+          exit $rc
 
   dev-up-smoke:
     name: dev-up.mjs smoke — compose deps + migrate + /readyz + dev-auth e2e
@@ -306,9 +326,11 @@ jobs:
         run: git diff --exit-code -- clients/ts clients/kotlin
 
       - name: TypeScript compile
+        if: ${{ !cancelled() }}
         run: npm run check:ts
 
       - name: Kotlin compile
+        if: ${{ !cancelled() }}
         run: npm run check:kotlin
 
   web:
@@ -329,75 +351,99 @@ jobs:
         run: npm ci
 
       - name: Foundation gate contract
+        if: ${{ !cancelled() }}
         run: npm run check:foundation-gates
 
       - name: Shared text gate unit tests
+        if: ${{ !cancelled() }}
         run: npm run test:text-gate
 
       - name: Enterprise UX parity / no-text-wall gate
+        if: ${{ !cancelled() }}
         run: npm run check:enterprise-ux-parity
 
       - name: Browser persona E2E matrix gate
+        if: ${{ !cancelled() }}
         run: npm run check:browser-persona-matrix
 
       - name: iOS UI-test fail-closed workflow guard
+        if: ${{ !cancelled() }}
         run: npm run check:ios-ui-test-fail-closed
 
       - name: Android E2E fail-closed workflow guard
+        if: ${{ !cancelled() }}
         run: npm run check:android-e2e-fail-closed
 
       - name: G004 identity group org people policy foundation gate
+        if: ${{ !cancelled() }}
         run: npm run check:g004-identity-foundation
 
       - name: G005 workflow approval Work Hub lifecycle gate
+        if: ${{ !cancelled() }}
         run: npm run check:g005-workflow-lifecycle
 
       - name: Workflow runtime spine gate
+        if: ${{ !cancelled() }}
         run: npm run check:workflow-runtime-spine
 
       - name: Workflow runtime M2 strangler dark-landing gate
+        if: ${{ !cancelled() }}
         run: npm run check:workflow-runtime-m2-strangler
 
       - name: Workflow runtime M2 Cedar-guard observe-and-record gate
+        if: ${{ !cancelled() }}
         run: npm run check:workflow-runtime-m2-cedar-guards
 
       - name: Workflow runtime M2 flag-ON runtime gate
+        if: ${{ !cancelled() }}
         run: npm run check:workflow-runtime-m2-runtime
 
       - name: Workflow runtime M2 outbox-drainer transactional-idempotency gate
+        if: ${{ !cancelled() }}
         run: npm run check:workflow-runtime-m2-drainer
 
       - name: G006 asset equipment dispatch lifecycle gate
+        if: ${{ !cancelled() }}
         run: npm run check:g006-asset-dispatch-lifecycle
 
       - name: G007 collaboration mail calendar poll mobile lifecycle gate
+        if: ${{ !cancelled() }}
         run: npm run check:g007-collaboration-mobile-lifecycle
 
       - name: G008 import HR payroll readiness gate
+        if: ${{ !cancelled() }}
         run: npm run check:g008-payroll-readiness
 
       - name: People HR lifecycle maturity gate
+        if: ${{ !cancelled() }}
         run: npm run check:people-hr-maturity
 
       - name: Payroll release-gate contract
+        if: ${{ !cancelled() }}
         run: npm run check:payroll-release-gate
 
       - name: Financial maturity gate
+        if: ${{ !cancelled() }}
         run: npm run check:financial-maturity
 
       - name: CX reporting BI maturity gate
+        if: ${{ !cancelled() }}
         run: npm run check:cx-reporting-maturity
 
       - name: Operations intelligence maturity gate
+        if: ${{ !cancelled() }}
         run: npm run check:operations-intelligence-maturity
 
       - name: Lint (eslint + UI-string gate)
+        if: ${{ !cancelled() }}
         run: npm run lint --workspace @maintenance/web-console
 
       - name: Unit tests
+        if: ${{ !cancelled() }}
         run: npm run test --workspace @maintenance/web-console
 
       - name: Production build
+        if: ${{ !cancelled() }}
         run: npm run build --workspace @maintenance/web-console
 
   api-contract:
@@ -460,9 +506,11 @@ jobs:
         run: npm ci
 
       - name: OpenAPI app-served drift gate
+        if: ${{ !cancelled() }}
         run: npm run check:openapi-app
 
       - name: Generated TypeScript client round-trip
+        if: ${{ !cancelled() }}
         run: npm run test:contract
 
   kubernetes-manifests:
@@ -484,6 +532,7 @@ jobs:
           kubectl version --client=true
 
       - name: Render manifests and NetworkPolicy enforcement preflight
+        if: ${{ !cancelled() }}
         # Generic CI has no production kubeconfig, so the live readback runs in
         # warning mode here. Real deployment validation must set
         # MNT_NETWORKPOLICY_PREFLIGHT=require against the target cluster.
@@ -492,6 +541,7 @@ jobs:
         run: npm run check:k8s
 
       - name: Production hardening contract
+        if: ${{ !cancelled() }}
         run: npm run check:production-hardening
 
   swift-client:
@@ -521,6 +571,7 @@ jobs:
         run: git diff --exit-code -- clients/swift
 
       - name: Swift build
+        if: ${{ !cancelled() }}
         run: npm run check:swift
 
   mobile-parity:
@@ -532,9 +583,11 @@ jobs:
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
 
       - name: Check hardcoded UI strings across clients
+        if: ${{ !cancelled() }}
         run: node scripts/check-i18n.mjs
 
       - name: Check parity checklist and localized string keys
+        if: ${{ !cancelled() }}
         run: |
           node --input-type=module <<'NODE'
           import { readFileSync } from "node:fs";
@@ -679,10 +732,12 @@ jobs:
         run: ./gradlew build -x testReleaseUnitTest -x testDebugUnitTest
 
       - name: Robolectric Compose UI + accessibility tests
+        if: ${{ !cancelled() }}
         working-directory: android
         run: ./gradlew testDebugUnitTest
 
       - name: Roborazzi screenshot verification
+        if: ${{ !cancelled() }}
         working-directory: android
         # Goldens are recorded and committed under android/app/src/test/snapshots.
         # verifyRoborazziDebug is the regression gate; it fails on any pixel diff.
@@ -835,10 +890,12 @@ jobs:
         run: swift build
 
       - name: Swift package tests
+        if: ${{ !cancelled() }}
         working-directory: ios
         run: swift test
 
       - name: Behavior runner
+        if: ${{ !cancelled() }}
         working-directory: ios
         run: swift run MaintenanceFieldCoreBehaviorTests
 
