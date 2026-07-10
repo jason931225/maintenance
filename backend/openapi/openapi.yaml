@@ -423,7 +423,7 @@ paths:
   /api/v1/mobile/work-orders/{workOrderId}/approve:
     post:
       tags:
-        - mobile
+        - work-orders
       operationId: approveMobileWorkOrder
       summary: Approve the next pending approval step from a native mobile client
       description: Mobile-scoped approval route. It requires a fresh passkey step-up envelope bound to this work order before
@@ -10211,7 +10211,7 @@ paths:
   /api/v1/mobile/collaboration/polls/{id}/vote:
     post:
       tags:
-        - mobile
+        - collaboration
       operationId: voteMobileCollaborationPoll
       summary: Submit or replace a native mobile poll vote with passkey step-up
       description: Mobile-scoped poll vote route. It validates poll lifecycle and option ownership only after a fresh passkey

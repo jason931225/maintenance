@@ -32,6 +32,7 @@ import com.maintenance.api.client.model.AssignWorkOrderRequest
 import com.maintenance.api.client.model.CreateOutsourceWorkRequest
 import com.maintenance.api.client.model.CreateWorkOrderRequest
 import com.maintenance.api.client.model.ErrorBody
+import com.maintenance.api.client.model.MobileApproveWorkOrderRequest
 import com.maintenance.api.client.model.OutsourceWorkSummary
 import com.maintenance.api.client.model.P1DispatchSummary
 import com.maintenance.api.client.model.PriorityLevel
@@ -73,6 +74,83 @@ open class WorkOrdersApi(basePath: kotlin.String = defaultBasePath, client: Call
         val defaultBasePath: String by lazy {
             System.getProperties().getProperty(ApiClient.BASE_URL_KEY, "http://localhost")
         }
+    }
+
+    /**
+     * POST /api/v1/mobile/work-orders/{workOrderId}/approve
+     * Approve the next pending approval step from a native mobile client
+     * Mobile-scoped approval route. It requires a fresh passkey step-up envelope bound to this work order before the approval mutation or audit side effect runs.
+     * @param workOrderId
+     * @param mobileApproveWorkOrderRequest
+     * @return WorkOrderSummary
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun approveMobileWorkOrder(workOrderId: java.util.UUID, mobileApproveWorkOrderRequest: MobileApproveWorkOrderRequest) : WorkOrderSummary = withContext(Dispatchers.IO) {
+        val localVarResponse = approveMobileWorkOrderWithHttpInfo(workOrderId = workOrderId, mobileApproveWorkOrderRequest = mobileApproveWorkOrderRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as WorkOrderSummary
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/mobile/work-orders/{workOrderId}/approve
+     * Approve the next pending approval step from a native mobile client
+     * Mobile-scoped approval route. It requires a fresh passkey step-up envelope bound to this work order before the approval mutation or audit side effect runs.
+     * @param workOrderId
+     * @param mobileApproveWorkOrderRequest
+     * @return ApiResponse<WorkOrderSummary?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun approveMobileWorkOrderWithHttpInfo(workOrderId: java.util.UUID, mobileApproveWorkOrderRequest: MobileApproveWorkOrderRequest) : ApiResponse<WorkOrderSummary?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = approveMobileWorkOrderRequestConfig(workOrderId = workOrderId, mobileApproveWorkOrderRequest = mobileApproveWorkOrderRequest)
+
+        return@withContext request<MobileApproveWorkOrderRequest, WorkOrderSummary>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation approveMobileWorkOrder
+     *
+     * @param workOrderId
+     * @param mobileApproveWorkOrderRequest
+     * @return RequestConfig
+     */
+    fun approveMobileWorkOrderRequestConfig(workOrderId: java.util.UUID, mobileApproveWorkOrderRequest: MobileApproveWorkOrderRequest) : RequestConfig<MobileApproveWorkOrderRequest> {
+        val localVariableBody = mobileApproveWorkOrderRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/mobile/work-orders/{workOrderId}/approve".replace("{"+"workOrderId"+"}", encodeURIComponent(workOrderId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
     }
 
     /**

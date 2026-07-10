@@ -39,7 +39,6 @@ src/main/kotlin/com/maintenance/api/client/api/LocationPingsApi.kt
 src/main/kotlin/com/maintenance/api/client/api/MailApi.kt
 src/main/kotlin/com/maintenance/api/client/api/MeApi.kt
 src/main/kotlin/com/maintenance/api/client/api/MessengerApi.kt
-src/main/kotlin/com/maintenance/api/client/api/MobileApi.kt
 src/main/kotlin/com/maintenance/api/client/api/ObjectActionsApi.kt
 src/main/kotlin/com/maintenance/api/client/api/ObjectLinksApi.kt
 src/main/kotlin/com/maintenance/api/client/api/ObjectTypesApi.kt
