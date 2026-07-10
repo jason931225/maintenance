@@ -23,6 +23,34 @@
 -- (the production login role); a superuser session that merely `SET ROLE mnt_rt`
 -- (the sqlx test harness) does NOT inherit them, so this does not perturb tests.
 
+-- ---------------------------------------------------------------------------
+-- Superuser envs SELF-APPLY; the owner-run prod migrate only ASSERTS.
+--
+-- Applying the GUCs requires superuser: `ALTER ROLE mnt_rt SET ...` writes
+-- mnt_rt's cluster-global pg_db_role_setting tuple, and the pg_authid row lock
+-- that serializes concurrent writers (see the race note below) reads a
+-- superuser-only shared catalog. So the apply + lock are gated on
+-- `current_setting('is_superuser')` and split by environment:
+--
+--   * CI, the sqlx test harness, and local dev all migrate AS the postgres
+--     superuser → they take the guarded branch, self-apply both GUCs, and the
+--     FOR UPDATE lock serializes the parallel #[sqlx::test] databases.
+--
+--   * Production migrates AS the non-superuser table owner mnt_app
+--     (deploy/apps/maintenance/base/migrate-job.yaml) — it cannot read
+--     pg_authid nor ALTER a role it does not own, so it SKIPS the apply branch.
+--     There the GUCs are applied out-of-band by a superuser during database
+--     provisioning; the exact statements an operator must run are:
+--
+--         ALTER ROLE mnt_rt SET statement_timeout = '30s';
+--         ALTER ROLE mnt_rt SET idle_in_transaction_session_timeout = '30s';
+--
+-- The post-migration assertion (final DO block) runs UNCONDITIONALLY in every
+-- environment. In owner-run prod it is the F2 enforcement point: if provisioning
+-- did not apply the GUCs, the migration fails loudly rather than silently
+-- leaving mnt_rt unbounded.
+-- ---------------------------------------------------------------------------
+
 -- ALTER ROLE ... SET writes the cluster-global pg_db_role_setting tuple for
 -- mnt_rt (pg_authid/pg_db_role_setting are shared catalogs, not per-database).
 -- When sqlx::test applies every migration into N fresh databases in parallel,
@@ -44,17 +72,31 @@
 -- Postgres instance until this transaction commits (verified empirically:
 -- session B in a different database timed out waiting on the row lock held by
 -- session A in this database). This makes the ALTERs and the post-migration
--- assertion below genuinely race-free — no exception handler needed.
-SELECT rolname FROM pg_authid WHERE rolname = 'mnt_rt' FOR UPDATE;
+-- assertion below genuinely race-free — no exception handler needed. The lock +
+-- ALTERs run inside the DO block below, which executes in the surrounding
+-- migration transaction, so the FOR UPDATE row-lock is held until this migration
+-- commits exactly as a top-level statement would be. PERFORM is the PL/pgSQL
+-- form of a result-discarding SELECT and preserves the FOR UPDATE lock.
+DO $$
+BEGIN
+    IF current_setting('is_superuser') = 'on' THEN
+        PERFORM rolname FROM pg_authid WHERE rolname = 'mnt_rt' FOR UPDATE;
 
-ALTER ROLE mnt_rt SET statement_timeout = '30s';
-ALTER ROLE mnt_rt SET idle_in_transaction_session_timeout = '30s';
+        EXECUTE 'ALTER ROLE mnt_rt SET statement_timeout = ''30s''';
+        EXECUTE 'ALTER ROLE mnt_rt SET idle_in_transaction_session_timeout = ''30s''';
+    END IF;
+END
+$$;
 
 -- Post-migration assertion: confirm both GUCs actually landed on mnt_rt's
--- role-default settings, and fail the migration loudly if not. Safe to assert
--- unconditionally (no retry/tolerance needed) — the FOR UPDATE lock above
--- means no other session can be concurrently writing this row, so a genuine
--- ALTER failure can no longer silently defeat the F2 invariant.
+-- role-default settings, and fail the migration loudly if not. Runs
+-- UNCONDITIONALLY in every environment (superuser envs just self-applied them
+-- above; owner-run prod asserts what provisioning applied — this is the F2
+-- enforcement point). Safe to assert without retry/tolerance — in the superuser
+-- case the FOR UPDATE lock above means no other session can be concurrently
+-- writing this row, so a genuine ALTER failure can no longer silently defeat the
+-- F2 invariant. pg_db_role_setting and pg_roles are readable by non-superusers,
+-- so the owner-run prod migrate can perform this assertion.
 DO $$
 DECLARE
     settings TEXT[];
