@@ -1,20 +1,21 @@
 // Ontology registry + instance REST — GET/POST /api/v1/ontology/object-types,
-// PUT /api/v1/ontology/object-types/{key} (stage v+1 revision), and the
-// instance reads (list / card / as-of / history / traverse).
+// PUT /api/v1/ontology/object-types/{key} (stage v+1 revision), the
+// instance reads (list / card / as-of / history / traverse), the dynamic-layer
+// acting-read, code resolve, and the instance lifecycle commit.
 //
 // Requests are the generated typed client's schemas (CreateObjectTypeDraft) and
 // every call goes through the typed openapi-fetch paths, so URLs, params and
-// bodies are compile-checked. The openapi declares these READ responses as
-// free-form JSON objects; the authoritative wire shape is the backend's serde
-// output (crates/ontology/adapter-postgres ObjectTypeSummary/ObjectTypeDetail/
-// InstanceState/RevisionSummary/TraversalGraph) — same convention as
-// api/ontologyActions.ts. wire-pending: HANDOFF §ontology-response-schemas —
-// openapi.yaml should type these response bodies so the narrowing interfaces
-// below become generated.
+// bodies are compile-checked. The object-type registry reads are still
+// declared free-form in the openapi (no ObjectTypeDetail schema component yet
+// — wire-pending: HANDOFF §ontology-response-schemas); the instance reads
+// (InstanceHead/RevisionSummary/InstanceState/Traversal*) and the
+// acting/resolve/lifecycle payloads DO have real generated schema components
+// (be2-ont-gaps), so those casts narrow to the generated types below instead
+// of hand-duplicated interfaces.
 import type { components } from "@maintenance/api-client-ts";
 
 import type { ConsoleApiClient } from "./client";
-import { ApiCallError } from "./ontologyActions";
+import { ApiCallError, parseGateChain, type GateChain } from "./ontologyActions";
 
 export type CreateObjectTypeDraft =
   components["schemas"]["CreateObjectTypeDraft"];
@@ -45,6 +46,12 @@ export interface ObjectTypeSummaryWire {
   schema_version: number;
   lifecycle_state: WireSchemaLifecycle;
 }
+
+/** ActingRule — one automation or PBAC policy acting on the instance's type (§2 dynamics). */
+export type ActingRuleWire = components["schemas"]["ActingRule"];
+
+/** ResolvedInstance — a code resolved to its identity (run-log/code chip targets). */
+export type ResolvedInstanceWire = components["schemas"]["ResolvedInstance"];
 
 /** PropertyDefSummary. `field_type` is the raw stored §3c tag. */
 export interface PropertyDefWire {
@@ -102,54 +109,18 @@ export interface ObjectTypeDetailWire {
 }
 
 /** RevisionSummary — one fixity-chained ont_instance_revisions row. */
-export interface RevisionWire {
-  id: string;
-  instance_id: string;
-  version: number;
-  attributes: Record<string, unknown>;
-  valid_from: string;
-  valid_to: string | null;
-  action_type_id: string | null;
-  actor: string | null;
-  reason: string | null;
-  prev_hash: string;
-  row_hash: string;
-}
+export type RevisionWire = components["schemas"]["RevisionSummary"];
 
-export interface InstanceHeadWire {
-  id: string;
-  object_type_id: string;
-  title: string;
-  current_revision_id: string | null;
-  lifecycle_state: WireInstanceLifecycle;
-}
+export type InstanceHeadWire = components["schemas"]["InstanceHead"];
 
 /** InstanceState — head + the effective revision. */
-export interface InstanceStateWire {
-  instance: InstanceHeadWire;
-  revision: RevisionWire;
-}
+export type InstanceStateWire = components["schemas"]["InstanceState"];
 
-export interface TraversalNodeWire {
-  instance_id: string;
-  object_type_id: string;
-  title: string;
-  lifecycle_state: WireInstanceLifecycle;
-  depth: number;
-}
+export type TraversalNodeWire = components["schemas"]["TraversalNode"];
 
-export interface TraversalEdgeWire {
-  id: string;
-  link_type_id: string;
-  from_instance_id: string;
-  to_instance_id: string;
-}
+export type TraversalEdgeWire = components["schemas"]["TraversalEdge"];
 
-export interface TraversalGraphWire {
-  root: string;
-  nodes: TraversalNodeWire[];
-  edges: TraversalEdgeWire[];
-}
+export type TraversalGraphWire = components["schemas"]["TraversalGraph"];
 
 function throwing(status: number, error: ErrorBody | undefined): never {
   throw new ApiCallError(status, error);
@@ -295,4 +266,58 @@ export function revisionHashVerified(
     previousRowHash = revision.row_hash;
   }
   return verified;
+}
+
+// ── Dynamic layer + lifecycle commit (be2-ont-gaps) ────────────────────────
+
+/** GET /api/v1/ontology/instances/{id}/acting — automations + policies bound to the instance's type (§2 dynamics). */
+export async function getInstanceActing(
+  api: ConsoleApiClient,
+  id: string,
+): Promise<ActingRuleWire[]> {
+  const { data, error, response } = await api.GET(
+    "/api/v1/ontology/instances/{id}/acting",
+    { params: { path: { id } } },
+  );
+  if (!data) throwing(response.status, error);
+  return data;
+}
+
+/**
+ * GET /api/v1/ontology/resolve?code= — run-log/code chip target lookup.
+ * Deny-by-omission: an unknown or cross-tenant code resolves to `null`
+ * (never thrown), so callers can't distinguish "doesn't exist" from
+ * "not yours" — a 404 renders as unresolved, never as a fabricated title.
+ */
+export async function resolveInstanceCode(
+  api: ConsoleApiClient,
+  code: string,
+): Promise<ResolvedInstanceWire | null> {
+  const { data, error, response } = await api.GET("/api/v1/ontology/resolve", {
+    params: { query: { code } },
+  });
+  if (data) return data;
+  if (response.status === 404) return null;
+  throwing(response.status, error);
+}
+
+export type LifecycleRequestBody = components["schemas"]["LifecycleRequest"];
+
+export interface LifecycleCommitResult {
+  instance: InstanceHeadWire;
+  gates: GateChain;
+}
+
+/** POST /api/v1/ontology/instances/{id}/lifecycle — commit an FSM edge (§3b), gate-chain fail-closed. */
+export async function commitInstanceLifecycle(
+  api: ConsoleApiClient,
+  id: string,
+  body: LifecycleRequestBody,
+): Promise<LifecycleCommitResult> {
+  const { data, error, response } = await api.POST(
+    "/api/v1/ontology/instances/{id}/lifecycle",
+    { params: { path: { id } }, body },
+  );
+  if (!data) throw new ApiCallError(response.status, error);
+  return { instance: data.instance, gates: parseGateChain(data.gates) };
 }

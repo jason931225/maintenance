@@ -2,7 +2,7 @@
 // real action + governance REST (§16 gate chain, §20 override, lifecycle
 // preflight). Composition keeps ObjectCard presentational: the card's action /
 // edit gestures route into the flows below instead of bare host callbacks.
-import { useCallback, useState, type CSSProperties, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from "react";
 
 import {
   executeOntologyAction,
@@ -13,6 +13,11 @@ import {
   type InstanceRevision,
   type OntologyActionRequest,
 } from "../../api/ontologyActions";
+import {
+  commitInstanceLifecycle,
+  getInstanceActing,
+  resolveInstanceCode,
+} from "../../api/ontology";
 import {
   decideGovernanceApproval,
   openGovernanceOverride,
@@ -30,6 +35,7 @@ import { objectCardGovStrings } from "./strings";
 import {
   OBJECT_CARD_ACTIONS,
   type ObjectCardAction,
+  type ObjectCardActingChip,
   type ObjectCardDescriptor,
   type ObjectCardHandlers,
   type ObjectCardRevision,
@@ -259,9 +265,27 @@ export function GovernedObjectCard({
   const [history, setHistory] = useState<ObjectCardRevision[] | null>(null);
   const [lifecycleState, setLifecycleState] =
     useState<ObjectLifecycleState | null>(null);
+  const [acting, setActing] = useState<ObjectCardActingChip[] | null>(null);
 
   const typeId = descriptor.objectType.id;
   const currentState = lifecycleState ?? descriptor.lifecycleState;
+
+  // GET /ontology/instances/{id}/acting — dynamic-layer chips (§2 dynamics).
+  // Fail-closed: a fetch error degrades to no chips, never a stale/fabricated set.
+  useEffect(() => {
+    let cancelled = false;
+    getInstanceActing(api, descriptor.id)
+      .then((rows) => {
+        if (cancelled) return;
+        setActing(rows.map((row) => ({ id: row.id, label: row.label, kind: row.kind })));
+      })
+      .catch(() => {
+        if (!cancelled) setActing([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [api, descriptor.id]);
 
   const actionBody = useCallback(
     (flow: Pick<ActionFlow, "action" | "fourEyesRef" | "checklistAck" | "reason">) => {
@@ -452,20 +476,43 @@ export function GovernedObjectCard({
     }
   }
 
-  function commitTransition(target: ObjectLifecycleState) {
+  async function commitTransition(target: ObjectLifecycleState) {
     // Only reachable when the preflight allowed the edge (fail-closed).
-    // wire-pending: HANDOFF §lifecycle — POST /api/v1/ontology/instances/{id}/lifecycle
-    // does not exist yet (ontology REST has no transition write); the
-    // preflight-allowed transition is handed to the host seam until it lands.
-    handlers?.onLifecycleTransition?.(target);
-    setLifecycleTarget(null);
-    setLifecyclePreflight(null);
+    setLifecycleError(null);
+    try {
+      const result = await commitInstanceLifecycle(api, descriptor.id, {
+        to_state: target,
+      });
+      setLifecycleState(result.instance.lifecycle_state);
+      setLifecycleTarget(null);
+      setLifecyclePreflight(null);
+      // A committed transition appended a revision — refresh the timeline,
+      // same as an action execute, and report the real (not guessed) version.
+      let version: number | undefined;
+      try {
+        const rows = await fetchInstanceHistory(api, descriptor.id);
+        setHistory(toCardRevisions(rows));
+        version = rows[0]?.version;
+      } catch {
+        // Keep the pre-commit timeline; the lifecycle chip already reflects the new state.
+      }
+      onInstanceChange?.({
+        lifecycleState: result.instance.lifecycle_state,
+        version: version ?? 0,
+      });
+      handlers?.onLifecycleTransition?.(target);
+    } catch (error) {
+      setLifecycleError(
+        error instanceof Error ? error.message : S.lifecycle.failed,
+      );
+    }
   }
 
   const view: ObjectCardDescriptor = {
     ...descriptor,
     lifecycleState: currentState,
     history: history ?? descriptor.history,
+    acting: acting ?? descriptor.acting,
   };
 
   const wiredHandlers: ObjectCardHandlers = {
@@ -475,6 +522,21 @@ export function GovernedObjectCard({
     },
     onEdit: (ctx) => {
       void onEdit(ctx);
+    },
+    onResolveCode: async (code) => {
+      try {
+        const resolved = await resolveInstanceCode(api, code);
+        return resolved ? { title: resolved.title } : null;
+      } catch {
+        // fail-closed: a resolve error reads as unresolved, never a fabricated title
+        return null;
+      }
+    },
+    onActingChipClick: (chip) => {
+      // wire-pending: HANDOFF §acting-navigate — no console page routes the
+      // automation/policy catalog by id yet; the host supplies the real
+      // window-open target (Automate / Policy canvas pin) via this seam.
+      handlers?.onActingChipClick?.(chip);
     },
   };
 
@@ -528,7 +590,9 @@ export function GovernedObjectCard({
         onStart={(target) => {
           void startTransition(target);
         }}
-        onCommit={commitTransition}
+        onCommit={(target) => {
+          void commitTransition(target);
+        }}
       />
     </div>
   );

@@ -28,19 +28,31 @@ export function emptyDashboardDoc(screen = "config-console"): DashboardDoc {
 /**
  * The shipped 4-slot preset — 기본값 복원 target. Keys are registry stable
  * keys; a widget over a type absent from the tenant registry honestly renders
- * a zero count (never fabricated rows).
+ * a zero count (never fabricated rows). Slot 2 (trend) needs a concrete
+ * instance to bind, so the default leaves it empty for the editor's
+ * add-widget strip to fill from the loaded registry.
  */
 export function defaultDashboardDoc(): DashboardDoc {
   return {
     version: DASHBOARD_DOC_VERSION,
     screen: "config-console",
     slots: [
-      { id: "slot-1", widget: { kind: "liveCount", objectType: "work_order", groupBy: "priority" } },
-      { id: "slot-2", widget: { kind: "statBar", objectTypes: ["work_order", "approval", "equipment"] } },
-      { id: "slot-3", widget: { kind: "chart", objectType: "approval", field: "kind" } },
+      { id: "slot-1", widget: { kind: "count", bind: { objectType: "work_order", groupBy: "priority" } } },
+      { id: "slot-2", widget: null },
+      { id: "slot-3", widget: { kind: "dist", bind: { objectType: "approval" } } },
       { id: "slot-4", widget: null },
     ],
   };
+}
+
+/** Dedup guard (design delta 96): same kind + bind already occupies a slot. */
+export function widgetKey(widget: WidgetConfig): string {
+  return `${widget.kind}:${JSON.stringify(widget.bind)}`;
+}
+
+export function isDuplicateWidget(doc: DashboardDoc, widget: WidgetConfig): boolean {
+  const key = widgetKey(widget);
+  return doc.slots.some((slot) => slot.widget !== null && widgetKey(slot.widget) === key);
 }
 
 /** Immutable per-slot widget update. */
@@ -59,28 +71,33 @@ export function serializeDashboardDoc(doc: DashboardDoc): string {
   return JSON.stringify(doc, null, 2);
 }
 
-function isStringArray(value: unknown): value is string[] {
-  return Array.isArray(value) && value.every((entry) => typeof entry === "string");
-}
-
 /** Forward-compat widget reader: unknown `kind` or malformed config ⇒ null, never a crash (benchmark §3c). */
 function parseWidget(value: unknown): WidgetConfig | null {
   if (typeof value !== "object" || value === null) return null;
   const raw = value as Record<string, unknown>;
+  const bind = typeof raw.bind === "object" && raw.bind !== null ? (raw.bind as Record<string, unknown>) : {};
   switch (raw.kind) {
-    case "liveCount":
-      if (typeof raw.objectType !== "string") return null;
+    case "count":
+      if (typeof bind.objectType !== "string") return null;
       return {
-        kind: "liveCount",
-        objectType: raw.objectType,
-        ...(typeof raw.groupBy === "string" ? { groupBy: raw.groupBy } : {}),
+        kind: "count",
+        bind: {
+          objectType: bind.objectType,
+          ...(typeof bind.groupBy === "string" ? { groupBy: bind.groupBy } : {}),
+        },
       };
-    case "statBar":
-      if (!isStringArray(raw.objectTypes)) return null;
-      return { kind: "statBar", objectTypes: raw.objectTypes };
-    case "chart":
-      if (typeof raw.objectType !== "string" || typeof raw.field !== "string") return null;
-      return { kind: "chart", objectType: raw.objectType, field: raw.field };
+    case "trend":
+      if (
+        typeof bind.objectType !== "string" ||
+        typeof bind.instanceId !== "string" ||
+        typeof bind.field !== "string"
+      ) {
+        return null;
+      }
+      return { kind: "trend", bind: { objectType: bind.objectType, instanceId: bind.instanceId, field: bind.field } };
+    case "dist":
+      if (typeof bind.objectType !== "string") return null;
+      return { kind: "dist", bind: { objectType: bind.objectType } };
     default:
       return null;
   }
@@ -152,6 +169,23 @@ export function computeCounts(
   return { total: typed.length, groups };
 }
 
+/** dist: instance count grouped by lifecycle_state (§3b), top-4 by count. */
+export function computeDist(
+  rows: readonly OntInstanceRow[],
+  objectType: string,
+): CountResult {
+  const typed = rows.filter((row) => row.objectType === objectType);
+  const counts = new Map<string, number>();
+  for (const row of typed) {
+    counts.set(row.lifecycleState, (counts.get(row.lifecycleState) ?? 0) + 1);
+  }
+  const groups: CountGroup[] = [...counts.entries()]
+    .map(([id, count]) => ({ id, label: id, count }))
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 4);
+  return { total: typed.length, groups };
+}
+
 /** Rows matched by a widget drill click — the payload of the drill pin (§4.7-3). */
 export function drillRows(
   rows: readonly OntInstanceRow[],
@@ -159,6 +193,7 @@ export function drillRows(
 ): OntInstanceRow[] {
   return rows.filter((row) => {
     if (row.objectType !== filter.objectType) return false;
+    if (filter.lifecycleState !== undefined) return row.lifecycleState === filter.lifecycleState;
     if (filter.field === undefined || filter.choiceId === undefined) return true;
     return row.attributes[filter.field] === filter.choiceId;
   });

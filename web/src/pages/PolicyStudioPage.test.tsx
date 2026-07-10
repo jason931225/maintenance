@@ -14,10 +14,12 @@ import {
   vi,
 } from "vitest";
 
+import { clearAuthorizeBulkCache } from "../api/authorizeBulk";
 import { createConsoleApiClient } from "../api/client";
 import { PolicyStudioPage } from "./PolicyStudioPage";
 import { AuthContext } from "../context/auth";
 import type { AuthContextValue, AuthSession } from "../context/auth";
+import { allowAllBulkAuthorize } from "../test/policyGateMock";
 
 const mockStepUpAssertion = {
   ceremony_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
@@ -40,13 +42,17 @@ vi.mock("../auth/webauthn", () => ({
   assertPasskeyStepUp: mockAssertPasskeyStepUp,
 }));
 
-const server = setupServer();
+// PolicyStudioPage renders behind BulkPolicyGateProvider (POST
+// .../policy/authorize/bulk); registered as a base handler so it survives
+// resetHandlers() between tests.
+const server = setupServer(allowAllBulkAuthorize());
 
 beforeAll(() => {
   server.listen({ onUnhandledRequest: "bypass" });
 });
 beforeEach(() => {
   mockAssertPasskeyStepUp.mockResolvedValue(mockStepUpAssertion);
+  clearAuthorizeBulkCache();
   server.use(
     http.get("*/api/v1/users", () =>
       HttpResponse.json({ items: [], limit: 200, offset: 0, total: 0 }),
@@ -319,6 +325,8 @@ const policyAuditEvents = [
 
 const superAdminSession: AuthSession = {
   access_token: "a",
+  user_id: "admin-1",
+  org_id: "11111111-1111-4111-8111-111111111111",
   roles: ["SUPER_ADMIN"],
 };
 

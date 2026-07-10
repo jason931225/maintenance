@@ -292,6 +292,7 @@ const ITEM_ROLE_GATES = new Map<string, readonly Role[]>([
   // matching the backend matrix [D, D, D, D, A, A] and RequireIntegrityRoute.
   // ADMIN is intentionally excluded.
   ["integrity", INTEGRITY_ROLES],
+  ["compliance", ADMIN_ROLES],
 ]);
 
 // Runtime custom-role feature grants are level-flattened for destination
@@ -635,6 +636,15 @@ export const NAV_GROUPS = [
         href: "/integrity",
         labelKey: "nav.integrity",
         Icon: ShieldAlert,
+      },
+      // compliance (obligation/regulation/framework catalog, registry-driven
+      // generic module surface): ADMIN/SUPER_ADMIN, gated further per-action
+      // inside the surface by COMPLIANCE_ACTIONS (console/compliance/complianceModel.ts).
+      {
+        key: "compliance",
+        href: "/modules?screen=compliance",
+        labelKey: "nav.compliance",
+        Icon: ShieldCheck,
       },
     ],
   },

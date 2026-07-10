@@ -1,42 +1,38 @@
-// 레인1 leave 카드 존 — 연차관리 deepened surface (design 다음 #1).
-// Grammar: 1-row drillable stat bar (§4-11 no big-number cards), 내 연차
-// self-service + 신청 생성 (§4-22 add-anything, §4-19 typed enum, fail-closed),
-// 팀 결재함 (decide, SoD: no self-approval), 사용촉진 회차 (근로기준법 §61 FSM,
-// single contextual CTA §4.7-6), 인원별 연차 원장. Every object row is an
-// objDrag source and its code opens the ObjectCard as the right pin (§4.7-3).
-// Personas (§4-25-⑦): 본인/팀장/HR 전담/관리자 — sections deny-by-omission via
-// PolicyGated over LEAVE_ACTIONS.
+// 레인1 leave 카드 존 — 연차관리 REAL-wired surface (design 다음 #1, verdict-R1
+// fixes). Grammar: 1-row drillable stat bar (§4-11), 2-col split ≥1280
+// (roster + decision queue, leave.css), usage bars via console/charts
+// honestScale, 팀 결재함 (decide, SoD: no self-approval + backend 403
+// surfaced), 사용촉진 발송 (근로기준법 §61, real POST /leave/promotions),
+// 인원별 연차 원장. Every roster row is an objDrag source and its code opens
+// the ObjectCard as the right pin (§4.7-3); request rows carry no code yet
+// (no registered object prefix until the AP- submittable binds — no
+// fabricated codes, see model.ts header). Personas (§4-25-⑦):
+// 본인/팀장/HR 전담/관리자 — sections deny-by-omission via PolicyGated.
 
-import { useState, type CSSProperties, type ReactNode } from "react";
+import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
 
-import { leaveManagementKo as legacy } from "../../i18n/hrWorkflows";
+import type { LeaveRequestView, LeaveStatutoryPushView } from "../../api/types";
 import { ko } from "../../i18n/ko";
 import { StatusChip } from "../components";
-import { objectCardWindowEntry, type ObjectCardDescriptor } from "../objectcard";
+import { HonestBar, type ChartDatum } from "../charts";
+import { objectCardWindowEntry } from "../objectcard";
 import { PolicyGated } from "../policy";
 import "../tokens.css";
+import "./leave.css";
 import { objDrag, useOptionalWindowManager } from "../window";
 import {
   dayLabel,
   isHalfDay,
-  isPromotionTarget,
   LEAVE_ACTIONS,
   LEAVE_REASONS,
   leaveStrings,
   ledgerDescriptor,
   ledgerStatus,
-  nowStamp,
   requestDays,
-  requestDescriptor,
-  roundDescriptor,
-  seedRequests,
-  seedRounds,
   tenureStage,
   type LeaveLedgerRow,
   type LeaveReason,
-  type LeaveRequest,
   type LedgerFilter,
-  type PromotionRound,
 } from "./model";
 
 // ── Styles (tokens only, 8px grid via --sp-*, §4-25-⑧) ──────────────────────
@@ -154,6 +150,12 @@ const primaryButtonStyle: CSSProperties = {
   background: "var(--signal)",
 };
 
+const buttonDisabledStyle: CSSProperties = {
+  ...buttonStyle,
+  cursor: "not-allowed",
+  opacity: 0.5,
+};
+
 const formStyle: CSSProperties = {
   display: "flex",
   flexWrap: "wrap",
@@ -238,16 +240,39 @@ const cellNameStyle: CSSProperties = {
   fontWeight: "var(--fw-strong)",
 };
 
+const textareaStyle: CSSProperties = {
+  ...inputStyle,
+  minHeight: 66,
+  padding: "var(--sp-2) var(--sp-3)",
+  width: "100%",
+};
+
 // ── Tones ────────────────────────────────────────────────────────────────────
 
 const requestTone = {
-  submitted: "warn",
-  in_review: "info",
+  pending: "warn",
   approved: "ok",
+  returned: "info",
   rejected: "danger",
 } as const;
 
-const phaseTone = { send: "warn", ack: "info", done: "ok" } as const;
+// ── Errors (backend message surfaced verbatim, §4-10 reason + next action) ──
+
+function errorMessage(error: unknown, fallback: string): string {
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "error" in error &&
+    typeof error.error === "object" &&
+    error.error !== null
+  ) {
+    const inner = (error as { error: { message?: unknown } }).error;
+    if (typeof inner.message === "string" && inner.message.trim().length > 0) {
+      return inner.message;
+    }
+  }
+  return fallback;
+}
 
 // ── Surface ──────────────────────────────────────────────────────────────────
 
@@ -261,139 +286,140 @@ const EMPTY_FORM: RequestForm = { reason: "", startDate: "", endDate: "" };
 
 type SubmitEventLike = { preventDefault: () => void };
 
-export function LeaveConsole({ ledger: ledgerSeed }: { ledger: LeaveLedgerRow[] }) {
+export interface LeaveDecideOutcome {
+  ok: boolean;
+  error?: unknown;
+}
+
+export interface LeavePromotionOutcome {
+  ok: boolean;
+  push?: LeaveStatutoryPushView;
+  error?: unknown;
+}
+
+export interface LeaveConsoleProps {
+  ledger: LeaveLedgerRow[];
+  /** All requests visible to the caller's scope (every status) — server truth. */
+  requests: LeaveRequestView[];
+  /** JWT `sub` — used only for the SoD hint + "내 신청" filter, never for authz. */
+  selfUserId?: string;
+  decide: (requestId: string, decision: "approve" | "reject", comment?: string) => Promise<LeaveDecideOutcome>;
+  pushPromotion: (payload: {
+    targetUserId: string;
+    targetEmployeeId: string;
+    targetName: string;
+    round: 1 | 2;
+    unusedDays: number;
+  }) => Promise<LeavePromotionOutcome>;
+}
+
+export function LeaveConsole({ ledger, requests, selfUserId, decide, pushPromotion }: LeaveConsoleProps) {
   const S = leaveStrings();
   const windowManager = useOptionalWindowManager();
-  const [ledger, setLedger] = useState(ledgerSeed);
-  const [requests, setRequests] = useState<LeaveRequest[]>(() => seedRequests(ledgerSeed));
-  const [rounds, setRounds] = useState<PromotionRound[]>(() => seedRounds(ledgerSeed));
   const [filter, setFilter] = useState<LedgerFilter>("all");
-  const [seq, setSeq] = useState(1);
   const [form, setForm] = useState<RequestForm>(EMPTY_FORM);
   const [formError, setFormError] = useState<string>();
+  const [validated, setValidated] = useState(false);
 
-  // wire-pending: Phase C → 본인 식별은 세션 사용자↔직원 매핑으로 (지금은 첫 행)
-  const self = ledger.at(0);
+  const [decidingId, setDecidingId] = useState<string>();
+  const [decideError, setDecideError] = useState<string>();
+  const [rejectDraftId, setRejectDraftId] = useState<string>();
+  const [rejectComment, setRejectComment] = useState("");
+  const [rejectCommentError, setRejectCommentError] = useState<string>();
 
-  function openCard(descriptor: ObjectCardDescriptor): void {
-    // §4.7-3 default open gesture: detail opens as the right pin.
-    windowManager?.open(objectCardWindowEntry(descriptor));
+  // Session-local §61 push tracking: no GET lists past pushes yet, so this
+  // resets on reload rather than fabricating durable state (model.ts header).
+  const [pushedRounds, setPushedRounds] = useState<Map<string, 1 | 2>>(new Map());
+  const [pushingId, setPushingId] = useState<string>();
+  const [pushError, setPushError] = useState<string>();
+  const [pushResults, setPushResults] = useState<Map<string, LeaveStatutoryPushView>>(new Map());
+
+  function openLedgerCard(row: LeaveLedgerRow): void {
+    windowManager?.open(objectCardWindowEntry(ledgerDescriptor(row)));
   }
 
-  function ledgerOf(employeeId: string): LeaveLedgerRow | undefined {
-    return ledger.find((row) => row.id === employeeId);
-  }
+  const ledgerById = useMemo(() => new Map(ledger.map((row) => [row.id, row])), [ledger]);
 
-  // ── Mutations (state-derived §4-25-⑥; wire-pending: Phase C → leave
-  // mutation REST is MISSING — HANDOFF contract, see model.ts header) ────────
+  // ── Mutations ────────────────────────────────────────────────────────────
 
-  function submitRequest(event: SubmitEventLike): void {
+  function validateRequest(event: SubmitEventLike): void {
     event.preventDefault();
-    if (!self) return;
     const { reason, startDate } = form;
     // §4-19 fail-closed: typed enum 사유 + 기간 are required.
     if (reason === "" || startDate === "" || (!isHalfDay(reason) && form.endDate === "")) {
       setFormError(S.self.required);
+      setValidated(false);
       return;
     }
     const endDate = isHalfDay(reason) ? startDate : form.endDate;
     if (endDate < startDate) {
       setFormError(S.self.invalidRange);
+      setValidated(false);
       return;
     }
-    setRequests((prev) => [
-      {
-        id: `req-${String(1210 + seq)}`,
-        code: `AP-${String(1210 + seq)}`,
-        employeeId: self.id,
-        employeeName: self.name,
-        reason,
-        startDate,
-        endDate,
-        days: requestDays(reason, startDate, endDate),
-        state: "submitted",
-        submittedAt: nowStamp(),
-      },
-      ...prev,
-    ]);
-    setSeq((n) => n + 1);
-    setForm(EMPTY_FORM);
     setFormError(undefined);
+    setValidated(true);
   }
 
-  function withdrawRequest(id: string): void {
-    setRequests((prev) => prev.filter((request) => request.id !== id));
-  }
-
-  function decide(request: LeaveRequest, decision: "approved" | "rejected"): void {
-    setRequests((prev) =>
-      prev.map((item) =>
-        item.id === request.id
-          ? { ...item, state: decision, decidedBy: self?.name ?? "", decidedAt: nowStamp() }
-          : item,
-      ),
-    );
-    if (decision === "approved") {
-      setLedger((prev) =>
-        prev.map((row) =>
-          row.id === request.employeeId
-            ? {
-                ...row,
-                used: row.used + request.days,
-                remaining: Math.max(0, row.remaining - request.days),
-              }
-            : row,
-        ),
-      );
+  async function runDecide(request: LeaveRequestView, decision: "approve" | "reject", comment?: string) {
+    setDecidingId(request.id);
+    setDecideError(undefined);
+    const outcome = await decide(request.id, decision, comment);
+    setDecidingId(undefined);
+    if (!outcome.ok) {
+      setDecideError(errorMessage(outcome.error, S.queue.decideFailed));
+      return;
     }
+    setRejectDraftId(undefined);
+    setRejectComment("");
   }
 
-  function startRound(employeeId: string, employeeName: string, roundNo: 1 | 2): void {
-    setRounds((prev) => [
-      ...prev,
-      {
-        id: `round-${String(300 + seq)}`,
-        code: `R-${String(300 + seq)}`,
-        employeeId,
-        employeeName,
-        round: roundNo,
-        phase: "send",
-        // ponytail: stub 법정기한 — §61 서면촉구 시한 산정은 Phase C 대상 산정 API에서.
-        deadlineDays: roundNo === 1 ? 30 : 14,
-        startedAt: nowStamp(),
-      },
-    ]);
-    setSeq((n) => n + 1);
+  function openReject(requestId: string): void {
+    setRejectDraftId(requestId);
+    setRejectComment("");
+    setRejectCommentError(undefined);
+    setDecideError(undefined);
   }
 
-  function advanceRound(id: string): void {
-    setRounds((prev) =>
-      prev.map((round) => {
-        if (round.id !== id) return round;
-        if (round.phase === "send") return { ...round, phase: "ack", sentAt: nowStamp() };
-        return { ...round, phase: "done", ackedAt: nowStamp() };
-      }),
+  async function confirmReject(request: LeaveRequestView): Promise<void> {
+    const trimmed = rejectComment.trim();
+    if (trimmed === "") {
+      setRejectCommentError(S.queue.commentRequired);
+      return;
+    }
+    setRejectCommentError(undefined);
+    await runDecide(request, "reject", trimmed);
+  }
+
+  function promotionCandidate(row: LeaveLedgerRow): LeaveRequestView | undefined {
+    const candidates = requests.filter((request) => request.subject_employee_id === row.id);
+    if (candidates.length === 0) return undefined;
+    // Most recent filing — the only real (employee, account) pairing on hand;
+    // the backend re-verifies it before any notice is delivered (model.ts).
+    return candidates.reduce((latest, current) =>
+      current.created_at > latest.created_at ? current : latest,
     );
   }
 
-  /** §4.7-6: exactly one contextual CTA per round state. */
-  function roundCta(round: PromotionRound): { label: string; run: () => void } | undefined {
-    if (round.phase === "send") {
-      return { label: S.promotion.send(round.round), run: () => { advanceRound(round.id); } };
+  async function sendPromotion(row: LeaveLedgerRow, round: 1 | 2, targetUserId: string): Promise<void> {
+    setPushingId(row.id);
+    setPushError(undefined);
+    const outcome = await pushPromotion({
+      targetUserId,
+      targetEmployeeId: row.id,
+      targetName: row.name,
+      round,
+      unusedDays: row.remaining,
+    });
+    setPushingId(undefined);
+    if (!outcome.ok) {
+      setPushError(errorMessage(outcome.error, S.promotion.pushFailed));
+      return;
     }
-    if (round.phase === "ack") {
-      return { label: S.promotion.ack, run: () => { advanceRound(round.id); } };
+    setPushedRounds((prev) => new Map(prev).set(row.id, round));
+    if (outcome.push) {
+      setPushResults((prev) => new Map(prev).set(row.id, outcome.push as LeaveStatutoryPushView));
     }
-    if (
-      round.round === 1 &&
-      !rounds.some((item) => item.employeeId === round.employeeId && item.round === 2)
-    ) {
-      return {
-        label: S.promotion.startSecond,
-        run: () => { startRound(round.employeeId, round.employeeName, 2); },
-      };
-    }
-    return undefined;
   }
 
   // ── Derived stats (drill = filter, §4-11) ──────────────────────────────────
@@ -403,7 +429,7 @@ export function LeaveConsole({ ledger: ledgerSeed }: { ledger: LeaveLedgerRow[] 
   const usedSum = activeRows.reduce((sum, row) => sum + row.used, 0);
   const remainingSum = activeRows.reduce((sum, row) => sum + row.remaining, 0);
   const burnRate = accruedSum > 0 ? Math.round((usedSum / accruedSum) * 100) : 0;
-  const promotionTargets = ledger.filter((row) => isPromotionTarget(row));
+  const promotionTargets = ledger.filter((row) => row.tone === "promote");
 
   const stats: { key: string; label: string; value: string; filter: LedgerFilter }[] = [
     { key: "headcount", label: S.stats.headcount, value: S.stats.people(activeRows.length), filter: "all" },
@@ -415,54 +441,78 @@ export function LeaveConsole({ ledger: ledgerSeed }: { ledger: LeaveLedgerRow[] 
   const visibleLedger = ledger
     .filter((row) => {
       if (filter === "unspent") return row.active && row.remaining > 0;
-      if (filter === "promotion") return isPromotionTarget(row);
+      if (filter === "promotion") return row.tone === "promote";
       return true;
     })
     .slice(0, 80);
 
-  const myRequests = self ? requests.filter((request) => request.employeeId === self.id) : [];
-  const pendingRequests = requests.filter(
-    (request) => request.state === "submitted" || request.state === "in_review",
-  );
+  const usageBarData: ChartDatum[] = visibleLedger
+    .slice(0, 15)
+    .map((row) => ({ id: row.id, label: row.name, value: row.remaining }));
 
-  function hasOpenRound(employeeId: string): boolean {
-    return rounds.some((round) => round.employeeId === employeeId && round.phase !== "done");
-  }
+  const myRequests = selfUserId
+    ? requests
+        .filter((request) => request.requester_user_id === selfUserId)
+        .slice()
+        .sort((a, b) => (a.created_at < b.created_at ? 1 : -1))
+    : [];
+  const pendingRequests = requests.filter((request) => request.status === "pending");
 
   // ── Row renderers ──────────────────────────────────────────────────────────
 
-  function objectCodeButton(code: string, title: string, descriptor: () => ObjectCardDescriptor): ReactNode {
-    return (
-      <button
-        type="button"
-        {...objDrag(code, title)}
-        aria-label={S.openObject(code)}
-        title={ko.console.window.dragRefOf(title)}
-        onClick={() => { openCard(descriptor()); }}
-        style={codeButtonStyle}
-      >
-        {code}
-      </button>
-    );
+  function requestPeriod(request: LeaveRequestView): string {
+    return request.start_date === request.end_date
+      ? request.start_date
+      : `${request.start_date} ~ ${request.end_date}`;
   }
 
-  function requestRow(request: LeaveRequest, cta: ReactNode): ReactNode {
-    const title = S.objects.requestTitle(request.employeeName);
-    const period =
-      request.endDate === request.startDate
-        ? request.startDate
-        : `${request.startDate} ~ ${request.endDate}`;
+  function requestRow(request: LeaveRequestView, cta: ReactNode): ReactNode {
+    const employeeName = ledgerById.get(request.subject_employee_id)?.name ?? S.self.unknownEmployee;
+    const showRejectDraft = rejectDraftId === request.id;
     return (
       <li key={request.id} style={rowStyle}>
-        {objectCodeButton(request.code, title, () =>
-          requestDescriptor(request, ledgerOf(request.employeeId)),
-        )}
-        <span style={cellNameStyle}>{request.employeeName}</span>
-        <span style={cellMetaStyle}>{period}</span>
-        <StatusChip tone="neutral">{S.reasons[request.reason]}</StatusChip>
+        <span style={cellNameStyle}>{employeeName}</span>
+        <span style={cellMetaStyle}>{requestPeriod(request)}</span>
+        <StatusChip tone="neutral">{S.leaveType[request.leave_type]}</StatusChip>
+        <span style={cellMetaStyle}>{request.reason}</span>
         <StatusChip tone="info">{dayLabel(request.days)}</StatusChip>
-        <StatusChip tone={requestTone[request.state]}>{S.requestState[request.state]}</StatusChip>
+        <StatusChip tone={requestTone[request.status]}>{S.requestState[request.status]}</StatusChip>
+        {request.decision_comment !== undefined && request.decision_comment !== "" ? (
+          <span style={cellMetaStyle}>{request.decision_comment}</span>
+        ) : null}
         {cta}
+        {showRejectDraft ? (
+          <div style={{ ...formStyle, width: "100%" }}>
+            <label style={{ ...labelStyle, flex: "1 1 240px" }}>
+              {S.queue.commentLabel}
+              <textarea
+                required
+                value={rejectComment}
+                placeholder={S.queue.commentPlaceholder}
+                onChange={(event) => { setRejectComment(event.currentTarget.value); }}
+                style={textareaStyle}
+              />
+            </label>
+            {rejectCommentError !== undefined ? (
+              <StatusChip role="alert" tone="danger">{rejectCommentError}</StatusChip>
+            ) : null}
+            <button
+              type="button"
+              disabled={decidingId === request.id}
+              onClick={() => { void confirmReject(request); }}
+              style={decidingId === request.id ? buttonDisabledStyle : primaryButtonStyle}
+            >
+              {S.queue.reject}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setRejectDraftId(undefined); }}
+              style={buttonStyle}
+            >
+              {S.queue.cancel}
+            </button>
+          </div>
+        ) : null}
       </li>
     );
   }
@@ -471,7 +521,7 @@ export function LeaveConsole({ ledger: ledgerSeed }: { ledger: LeaveLedgerRow[] 
     <div className="console" data-console-module="leave" style={rootStyle}>
       {/* 연차 현황 — 1-row stat bar, every stat drills into the ledger filter */}
       <section aria-labelledby="leave-stats-title" style={cardStyle}>
-        <h2 id="leave-stats-title" style={sectionTitleStyle}>{legacy.overview.title}</h2>
+        <h2 id="leave-stats-title" style={sectionTitleStyle}>{S.overviewTitle}</h2>
         <div role="group" aria-label={S.stats.aria} style={chipRowStyle}>
           {stats.map((stat) => (
             <button
@@ -489,19 +539,15 @@ export function LeaveConsole({ ledger: ledgerSeed }: { ledger: LeaveLedgerRow[] 
         </div>
       </section>
 
-      {/* 본인 persona — own balance, own requests, 신청 생성 (§4-22) */}
-      {self ? (
-        <PolicyGated action={LEAVE_ACTIONS.selfView} resource={{ kind: "leave_self", id: self.id }}>
+      {/* 본인 persona — 내 신청 (server-filtered by requester_user_id, real) */}
+      {selfUserId !== undefined ? (
+        <PolicyGated action={LEAVE_ACTIONS.selfView} resource={{ kind: "leave_self", id: selfUserId }}>
           <section aria-labelledby="leave-self-title" style={cardStyle}>
             <div style={sectionHeadStyle}>
               <h2 id="leave-self-title" style={sectionTitleStyle}>{S.self.title}</h2>
-              <StatusChip tone="neutral">{self.name}</StatusChip>
-              <StatusChip tone="info">{`${legacy.roster.columns.accrued} ${dayLabel(self.accrued)}`}</StatusChip>
-              <StatusChip tone="neutral">{`${legacy.roster.columns.used} ${dayLabel(self.used)}`}</StatusChip>
-              <StatusChip tone="ok">{`${legacy.roster.columns.remaining} ${dayLabel(self.remaining)}`}</StatusChip>
             </div>
             <PolicyGated action={LEAVE_ACTIONS.requestCreate} resource={{ kind: "leave_request" }}>
-              <form aria-label={S.self.formAria} onSubmit={submitRequest} style={formStyle}>
+              <form aria-label={S.self.formAria} onSubmit={validateRequest} style={formStyle}>
                 <label style={labelStyle}>
                   {S.self.reasonLabel}
                   <select
@@ -510,6 +556,7 @@ export function LeaveConsole({ ledger: ledgerSeed }: { ledger: LeaveLedgerRow[] 
                     onChange={(event) => {
                       const reason = event.currentTarget.value as LeaveReason | "";
                       setForm((prev) => ({ ...prev, reason }));
+                      setValidated(false);
                     }}
                     style={inputStyle}
                   >
@@ -528,6 +575,7 @@ export function LeaveConsole({ ledger: ledgerSeed }: { ledger: LeaveLedgerRow[] 
                     onChange={(event) => {
                       const startDate = event.currentTarget.value;
                       setForm((prev) => ({ ...prev, startDate }));
+                      setValidated(false);
                     }}
                     style={inputStyle}
                   />
@@ -542,14 +590,20 @@ export function LeaveConsole({ ledger: ledgerSeed }: { ledger: LeaveLedgerRow[] 
                     onChange={(event) => {
                       const endDate = event.currentTarget.value;
                       setForm((prev) => ({ ...prev, endDate }));
+                      setValidated(false);
                     }}
                     style={inputStyle}
                   />
                 </label>
-                <button type="submit" style={primaryButtonStyle}>{S.self.submit}</button>
-                <a href="/approvals?template=annual-leave" style={linkStyle}>{S.self.formLink}</a>
+                <button type="submit" style={buttonStyle}>{S.self.validate}</button>
+                <a href="/approvals?template=annual-leave" style={validated ? primaryButtonStyle : linkStyle}>
+                  {S.self.formLink}
+                </a>
                 {formError !== undefined ? (
                   <StatusChip role="alert" tone="danger">{formError}</StatusChip>
+                ) : null}
+                {validated ? (
+                  <StatusChip tone="ok">{dayLabel(requestDays(form.reason as LeaveReason, form.startDate, isHalfDay(form.reason) ? form.startDate : form.endDate))}</StatusChip>
                 ) : null}
               </form>
             </PolicyGated>
@@ -557,202 +611,200 @@ export function LeaveConsole({ ledger: ledgerSeed }: { ledger: LeaveLedgerRow[] 
               <StatusChip tone="neutral">{S.self.empty}</StatusChip>
             ) : (
               <ul aria-label={S.self.myRequests} style={listStyle}>
-                {myRequests.map((request) =>
-                  requestRow(
-                    request,
-                    request.state === "submitted" ? (
-                      <PolicyGated
-                        action={LEAVE_ACTIONS.requestWithdraw}
-                        resource={{ kind: "leave_request", id: request.id }}
-                      >
-                        <button
-                          type="button"
-                          aria-label={S.self.withdrawAria(request.code)}
-                          onClick={() => { withdrawRequest(request.id); }}
-                          style={buttonStyle}
-                        >
-                          {S.self.withdraw}
-                        </button>
-                      </PolicyGated>
-                    ) : null,
-                  ),
-                )}
+                {myRequests.map((request) => requestRow(request, null))}
               </ul>
             )}
           </section>
         </PolicyGated>
       ) : null}
 
-      {/* 팀장 persona — pending queue + decide (SoD: 본인 신청은 결재 불가) */}
-      <PolicyGated action={LEAVE_ACTIONS.queueView} resource={{ kind: "leave_queue" }}>
-        <section aria-labelledby="leave-queue-title" style={cardStyle}>
-          <div style={sectionHeadStyle}>
-            <h2 id="leave-queue-title" style={sectionTitleStyle}>{S.queue.title}</h2>
-            <StatusChip tone="warn">{S.count(pendingRequests.length)}</StatusChip>
-          </div>
-          {pendingRequests.length === 0 ? (
-            <StatusChip tone="neutral">{S.queue.empty}</StatusChip>
-          ) : (
-            <ul aria-label={S.queue.aria} style={listStyle}>
-              {pendingRequests.map((request) =>
-                requestRow(
-                  request,
-                  // ponytail: SoD by omission — the decider's own request shows no
-                  // decide buttons (approver ≠ requester, gov_approvals four-eyes).
-                  request.employeeId === self?.id ? null : (
-                    <PolicyGated
-                      action={LEAVE_ACTIONS.requestDecide}
-                      resource={{ kind: "leave_request", id: request.id }}
-                    >
-                      <span style={chipRowStyle}>
-                        <button
-                          type="button"
-                          aria-label={S.queue.decideAria(S.queue.approve, request.code)}
-                          onClick={() => { decide(request, "approved"); }}
-                          style={primaryButtonStyle}
-                        >
-                          {S.queue.approve}
-                        </button>
-                        <button
-                          type="button"
-                          aria-label={S.queue.decideAria(S.queue.reject, request.code)}
-                          onClick={() => { decide(request, "rejected"); }}
-                          style={buttonStyle}
-                        >
-                          {S.queue.reject}
-                        </button>
-                      </span>
-                    </PolicyGated>
-                  ),
-                ),
-              )}
-            </ul>
-          )}
-        </section>
-      </PolicyGated>
+      <div className="leave-split">
+        {/* 관리자/HR persona — 인원별 연차 원장 + usage bars */}
+        <PolicyGated action={LEAVE_ACTIONS.ledgerView} resource={{ kind: "leave_ledger" }}>
+          <section aria-labelledby="leave-ledger-title" style={cardStyle}>
+            <div style={sectionHeadStyle}>
+              <h2 id="leave-ledger-title" style={sectionTitleStyle}>{S.ledger.title}</h2>
+              <StatusChip tone="neutral">{S.count(visibleLedger.length)}</StatusChip>
+            </div>
+            {usageBarData.length > 0 ? (
+              <HonestBar
+                label={S.ledger.usageTitle}
+                data={usageBarData}
+                format={dayLabel}
+                onDrill={(id) => {
+                  const row = ledgerById.get(id);
+                  if (row) openLedgerCard(row);
+                }}
+              />
+            ) : null}
+            <div style={tableWrapStyle}>
+              <table aria-label={S.ledger.listAria} style={tableStyle}>
+                <thead>
+                  <tr>
+                    <th scope="col" style={thStyle}>{S.ledger.columns.employee}</th>
+                    <th scope="col" style={thStyle}>{S.ledger.columns.department}</th>
+                    <th scope="col" style={thStyle}>{S.ledger.columns.tenure}</th>
+                    <th scope="col" style={thStyle}>{S.ledger.columns.accrued}</th>
+                    <th scope="col" style={thStyle}>{S.ledger.columns.used}</th>
+                    <th scope="col" style={thStyle}>{S.ledger.columns.remaining}</th>
+                    <th scope="col" style={thStyle}>{S.ledger.columns.status}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {visibleLedger.map((row) => {
+                    const status = ledgerStatus(row);
+                    const candidate = row.tone === "promote" ? promotionCandidate(row) : undefined;
+                    const alreadyRound = pushedRounds.get(row.id);
+                    const nextRound: 1 | 2 | undefined =
+                      row.tone === "promote" && alreadyRound === undefined
+                        ? 1
+                        : row.tone === "promote" && alreadyRound === 1
+                          ? 2
+                          : undefined;
+                    return (
+                      <tr key={row.id}>
+                        <td style={tdStyle}>
+                          <button
+                            type="button"
+                            {...objDrag(row.code, S.objects.ledgerTitle(row.name))}
+                            aria-label={S.openObject(row.code)}
+                            title={ko.console.window.dragRefOf(S.objects.ledgerTitle(row.name))}
+                            onClick={() => { openLedgerCard(row); }}
+                            style={codeButtonStyle}
+                          >
+                            {row.code}
+                          </button>
+                          <p style={cellNameStyle}>{row.name}</p>
+                          <p style={cellMetaStyle}>{`${row.company} · ${row.employeeNumber}`}</p>
+                        </td>
+                        <td style={tdStyle}>{`${row.orgUnit} / ${row.position}`}</td>
+                        <td style={tdStyle}>
+                          <p style={cellNameStyle}>{tenureStage(row.hireDate)}</p>
+                          <p style={cellMetaStyle}>{row.hireDate ?? "—"}</p>
+                        </td>
+                        <td style={tdStyle}>{dayLabel(row.accrued)}</td>
+                        <td style={tdStyle}>{dayLabel(row.used)}</td>
+                        <td style={tdStyle}>{dayLabel(row.remaining)}</td>
+                        <td style={tdStyle}>
+                          <span style={chipRowStyle}>
+                            <StatusChip tone={status.tone}>{status.label}</StatusChip>
+                            {nextRound !== undefined ? (
+                              <PolicyGated
+                                action={LEAVE_ACTIONS.promotionManage}
+                                resource={{ kind: "leave_ledger", id: row.id }}
+                              >
+                                {candidate ? (
+                                  <button
+                                    type="button"
+                                    disabled={pushingId === row.id}
+                                    aria-label={S.promotion.sendAria(row.name, nextRound)}
+                                    onClick={() => { void sendPromotion(row, nextRound, candidate.requester_user_id); }}
+                                    style={pushingId === row.id ? buttonDisabledStyle : buttonStyle}
+                                  >
+                                    {S.promotion.send(nextRound)}
+                                  </button>
+                                ) : (
+                                  <StatusChip tone="neutral">{S.promotion.noLinkedRequest}</StatusChip>
+                                )}
+                              </PolicyGated>
+                            ) : row.tone === "promote" && alreadyRound === 2 ? (
+                              <StatusChip tone="ok">{S.promotion.done}</StatusChip>
+                            ) : null}
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </section>
+        </PolicyGated>
 
-      {/* HR 전담 persona — 사용촉진 회차 (근로기준법 §61) */}
-      <PolicyGated action={LEAVE_ACTIONS.promotionView} resource={{ kind: "leave_promotion" }}>
-        <section aria-labelledby="leave-promotion-title" style={cardStyle}>
-          <div style={sectionHeadStyle}>
-            <h2 id="leave-promotion-title" style={sectionTitleStyle}>{legacy.notice.title}</h2>
-            <StatusChip tone="purple">{S.promotion.legalBasis}</StatusChip>
-            <StatusChip tone="neutral">{S.count(rounds.length)}</StatusChip>
-          </div>
-          {rounds.length === 0 ? (
-            <StatusChip tone="neutral">{S.promotion.empty}</StatusChip>
-          ) : (
-            <ul aria-label={S.promotion.listAria} style={listStyle}>
-              {rounds.map((round) => {
-                const cta = roundCta(round);
-                return (
-                  <li key={round.id} style={rowStyle}>
-                    {objectCodeButton(
-                      round.code,
-                      S.objects.roundTitle(round.employeeName, round.round),
-                      () => roundDescriptor(round, ledgerOf(round.employeeId)),
-                    )}
-                    <span style={cellNameStyle}>{round.employeeName}</span>
-                    <StatusChip tone="info">{S.promotion.roundChip(round.round)}</StatusChip>
-                    <StatusChip tone={phaseTone[round.phase]}>
-                      {S.promotion.phase[round.phase]}
-                    </StatusChip>
-                    {round.phase !== "done" ? (
-                      <StatusChip tone={round.deadlineDays <= 7 ? "danger" : "neutral"}>
-                        {S.promotion.deadline(round.deadlineDays)}
-                      </StatusChip>
-                    ) : null}
-                    {cta ? (
+        {/* 팀장 persona — pending queue + decide (SoD: 본인 신청은 결재 불가) */}
+        <PolicyGated action={LEAVE_ACTIONS.queueView} resource={{ kind: "leave_queue" }}>
+          <section aria-labelledby="leave-queue-title" style={cardStyle}>
+            <div style={sectionHeadStyle}>
+              <h2 id="leave-queue-title" style={sectionTitleStyle}>{S.queue.title}</h2>
+              <StatusChip tone="warn">{S.count(pendingRequests.length)}</StatusChip>
+            </div>
+            {decideError !== undefined ? (
+              <StatusChip role="alert" tone="danger">{decideError}</StatusChip>
+            ) : null}
+            {pendingRequests.length === 0 ? (
+              <StatusChip tone="neutral">{S.queue.empty}</StatusChip>
+            ) : (
+              <ul aria-label={S.queue.aria} style={listStyle}>
+                {pendingRequests.map((request) => {
+                  const employeeName = ledgerById.get(request.subject_employee_id)?.name ?? S.self.unknownEmployee;
+                  return requestRow(
+                    request,
+                    // ponytail: SoD by omission — the decider's own request shows no
+                    // decide buttons (approver ≠ requester); backend also 403s.
+                    request.requester_user_id === selfUserId ? null : (
                       <PolicyGated
-                        action={LEAVE_ACTIONS.promotionManage}
-                        resource={{ kind: "leave_promotion_round", id: round.id }}
+                        action={LEAVE_ACTIONS.requestDecide}
+                        resource={{ kind: "leave_request", id: request.id }}
                       >
-                        <button
-                          type="button"
-                          aria-label={S.queue.decideAria(cta.label, round.code)}
-                          onClick={cta.run}
-                          style={buttonStyle}
-                        >
-                          {cta.label}
-                        </button>
+                        <span style={chipRowStyle}>
+                          <button
+                            type="button"
+                            disabled={decidingId === request.id}
+                            aria-label={S.queue.decideAria(S.queue.approve, employeeName)}
+                            onClick={() => { void runDecide(request, "approve"); }}
+                            style={decidingId === request.id ? buttonDisabledStyle : primaryButtonStyle}
+                          >
+                            {S.queue.approve}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={decidingId === request.id}
+                            aria-label={S.queue.decideAria(S.queue.reject, employeeName)}
+                            onClick={() => { openReject(request.id); }}
+                            style={decidingId === request.id ? buttonDisabledStyle : buttonStyle}
+                          >
+                            {S.queue.reject}
+                          </button>
+                        </span>
                       </PolicyGated>
-                    ) : null}
+                    ),
+                  );
+                })}
+              </ul>
+            )}
+          </section>
+        </PolicyGated>
+      </div>
+
+      {/* HR 전담 persona — 사용촉진 발송 결과 (근로기준법 §61, 세션 기준) */}
+      {pushResults.size > 0 || pushError !== undefined ? (
+        <PolicyGated action={LEAVE_ACTIONS.promotionView} resource={{ kind: "leave_promotion" }}>
+          <section aria-labelledby="leave-promotion-title" style={cardStyle}>
+            <div style={sectionHeadStyle}>
+              <h2 id="leave-promotion-title" style={sectionTitleStyle}>{S.promotion.title}</h2>
+              <StatusChip tone="purple">{S.promotion.legalBasis}</StatusChip>
+            </div>
+            {pushError !== undefined ? (
+              <StatusChip role="alert" tone="danger">{pushError}</StatusChip>
+            ) : null}
+            <ul aria-label={S.promotion.listAria} style={listStyle}>
+              {[...pushResults.entries()].map(([employeeId, push]) => {
+                const row = ledgerById.get(employeeId);
+                return (
+                  <li key={push.id} style={rowStyle}>
+                    <span style={cellNameStyle}>{row?.name ?? S.self.unknownEmployee}</span>
+                    <StatusChip tone="info">{S.promotion.roundChip(push.round)}</StatusChip>
+                    <StatusChip tone="ok">{S.promotion.pushed}</StatusChip>
+                    <StatusChip tone={push.ap_submission === "submitted" ? "ok" : "neutral"}>
+                      {S.promotion.apStatus[push.ap_submission]}
+                    </StatusChip>
                   </li>
                 );
               })}
             </ul>
-          )}
-        </section>
-      </PolicyGated>
-
-      {/* 관리자/HR persona — 인원별 연차 원장 */}
-      <PolicyGated action={LEAVE_ACTIONS.ledgerView} resource={{ kind: "leave_ledger" }}>
-        <section aria-labelledby="leave-ledger-title" style={cardStyle}>
-          <div style={sectionHeadStyle}>
-            <h2 id="leave-ledger-title" style={sectionTitleStyle}>{legacy.roster.title}</h2>
-            <StatusChip tone="neutral">{S.count(visibleLedger.length)}</StatusChip>
-          </div>
-          <div style={tableWrapStyle}>
-            <table aria-label={S.ledger.listAria} style={tableStyle}>
-              <thead>
-                <tr>
-                  <th scope="col" style={thStyle}>{legacy.roster.columns.employee}</th>
-                  <th scope="col" style={thStyle}>{legacy.roster.columns.department}</th>
-                  <th scope="col" style={thStyle}>{legacy.roster.columns.tenure}</th>
-                  <th scope="col" style={thStyle}>{legacy.roster.columns.accrued}</th>
-                  <th scope="col" style={thStyle}>{legacy.roster.columns.used}</th>
-                  <th scope="col" style={thStyle}>{legacy.roster.columns.remaining}</th>
-                  <th scope="col" style={thStyle}>{legacy.roster.columns.status}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {visibleLedger.map((row) => {
-                  const status = ledgerStatus(row);
-                  return (
-                    <tr key={row.id}>
-                      <td style={tdStyle}>
-                        {objectCodeButton(row.code, S.objects.ledgerTitle(row.name), () =>
-                          ledgerDescriptor(row, requests),
-                        )}
-                        <p style={cellNameStyle}>{row.name}</p>
-                        <p style={cellMetaStyle}>{`${row.company} · ${row.employeeNumber}`}</p>
-                      </td>
-                      <td style={tdStyle}>{`${row.orgUnit} / ${row.position}`}</td>
-                      <td style={tdStyle}>
-                        <p style={cellNameStyle}>{tenureStage(row.hireDate)}</p>
-                        <p style={cellMetaStyle}>{row.hireDate ?? "—"}</p>
-                      </td>
-                      <td style={tdStyle}>{dayLabel(row.accrued)}</td>
-                      <td style={tdStyle}>{dayLabel(row.used)}</td>
-                      <td style={tdStyle}>{dayLabel(row.remaining)}</td>
-                      <td style={tdStyle}>
-                        <span style={chipRowStyle}>
-                          <StatusChip tone={status.tone}>{status.label}</StatusChip>
-                          {isPromotionTarget(row) && !hasOpenRound(row.id) ? (
-                            <PolicyGated
-                              action={LEAVE_ACTIONS.promotionManage}
-                              resource={{ kind: "leave_ledger", id: row.id }}
-                            >
-                              <button
-                                type="button"
-                                aria-label={S.promotion.startAria(row.name)}
-                                onClick={() => { startRound(row.id, row.name, 1); }}
-                                style={buttonStyle}
-                              >
-                                {S.promotion.start}
-                              </button>
-                            </PolicyGated>
-                          ) : null}
-                        </span>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        </section>
-      </PolicyGated>
+          </section>
+        </PolicyGated>
+      ) : null}
     </div>
   );
 }

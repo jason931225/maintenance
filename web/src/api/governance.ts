@@ -11,6 +11,22 @@ import type { components } from "@maintenance/api-client-ts";
 import type { ConsoleApiClient } from "./client";
 import { ApiCallError, parseGateChain, type GateChain } from "./ontologyActions";
 
+export interface GovernanceCreateApprovalRequest {
+  request_ref: string;
+  kind: string;
+  payload_summary?: Record<string, unknown>;
+}
+
+/** gov_approvals row opened (pending) — createGovernanceApproval response. */
+export interface ApprovalPending {
+  id: string;
+  requestRef: string;
+  kind: string;
+  requestedBy: string;
+  payloadSummary: Record<string, unknown>;
+  createdAt: string;
+}
+
 export type GovernanceOpenOverrideRequest =
   components["schemas"]["GovernanceOpenOverrideRequest"];
 export type GovernanceDecideApprovalRequest =
@@ -56,6 +72,26 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function str(value: unknown): string {
   return typeof value === "string" ? value : "";
+}
+
+/** POST /api/v1/governance/approvals — open a pending four-eyes approval request. */
+export async function createGovernanceApproval(
+  api: ConsoleApiClient,
+  body: GovernanceCreateApprovalRequest,
+): Promise<ApprovalPending> {
+  const { data, error, response } = await api.POST("/api/v1/governance/approvals", {
+    body,
+  });
+  if (!data) throw new ApiCallError(response.status, error);
+  const payload: Record<string, unknown> = data;
+  return {
+    id: str(payload.id),
+    requestRef: str(payload.request_ref),
+    kind: str(payload.kind),
+    requestedBy: str(payload.requested_by),
+    payloadSummary: isRecord(payload.payload_summary) ? payload.payload_summary : {},
+    createdAt: str(payload.created_at),
+  };
 }
 
 /** Open a post-draft override (reason + before-snapshot, append-only). */

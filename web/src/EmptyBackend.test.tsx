@@ -233,6 +233,21 @@ const server = setupServer(
   http.get("*/api/v1/inspections/schedules", () =>
     HttpResponse.json({ items: [], limit: 200, offset: 0, total: 0 }),
   ),
+  // SupportPage always mounts SloSettingsCard, which reads the engine's
+  // support_slo_setting object-type + its (empty, cold-start) instance list.
+  http.get("*/api/v1/ontology/object-types/support_slo_setting", () =>
+    HttpResponse.json({
+      object_type: { id: "support-slo-setting-type", key: "support_slo_setting", version: 1 },
+      title_property_key: null,
+      backing_table: null,
+      primary_key_property: null,
+      properties: [],
+      links: [],
+      actions: [],
+      analytics: [],
+    }),
+  ),
+  http.get("*/api/v1/ontology/instances", () => HttpResponse.json([])),
   // Bare-array list endpoints → empty array.
   http.get("*/api/v1/users/me", () => HttpResponse.json(me)),
   http.get("*/api/v1/branches", () => HttpResponse.json([])),

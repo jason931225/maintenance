@@ -11,7 +11,7 @@ import {
 // Type-only guards so the wired-surface koManifests stay in lockstep with their
 // consumers (typos would otherwise fall back to the English defaults silently).
 import type { DashboardStrings } from "../console/dashboard/strings";
-import type { ObjectCardGovStrings } from "../console/objectcard/strings";
+import type { ObjectCardDynStrings, ObjectCardGovStrings } from "../console/objectcard/strings";
 import type { PolicyCanvasWireStrings } from "../console/policycanvas/strings";
 import type { SupportDeskStrings } from "../features/support/support-desk-strings";
 
@@ -98,6 +98,7 @@ export const ko = {
     finance: "재무",
     financial: "구매·정산",
     integrity: "이상 징후 검토",
+    compliance: "컴플라이언스",
     location: "GPS 위치 동의",
     security: "보안 설정",
     users: "사용자 관리",
@@ -1382,12 +1383,18 @@ export const ko = {
         groupByAria: (n: number) => `슬롯 ${String(n)} 구분 필드`,
         groupByNone: "전체 건수",
         statTypesAria: (n: number) => `슬롯 ${String(n)} 개체 유형 선택`,
+        dedupBlocked: "이미 대시보드에 있는 위젯입니다",
       },
       presets: { liveCount: "실시간 건수", statBar: "스탯 바", chart: "차트" },
+      widgetKinds: { count: "건수", trend: "추이", dist: "분포" },
       widget: {
         totalAria: (type: string, count: number) => `${type} 전체 ${String(count)}건 드릴`,
         countAria: (label: string, count: number) => `${label} ${String(count)}건 드릴`,
         chartAria: (type: string) => `${type} 차트`,
+        trendAria: (type: string) => `${type} 추이`,
+        trendLoading: "추이를 불러오는 중",
+        trendError: "추이를 불러오지 못했습니다",
+        trendEmpty: "아직 개정 이력이 없습니다",
       },
       save: { action: "저장", comment: "변경 사유" },
       deploy: {
@@ -1438,6 +1445,12 @@ export const ko = {
       restoreItem: (title: string) => `${title} 복원`,
       dragRef: "참조로 끌기",
       dragRefOf: (title: string) => `${title} 참조로 끌기`,
+    },
+    // ── ko.console.policyGate — BulkPolicyGateProvider fail-closed banner (policygate-bulk lane) ──
+    policyGate: {
+      error: "권한을 확인하지 못했습니다. 확인될 때까지 제어가 숨겨집니다.",
+      retry: "다시 시도",
+      retryAria: "권한 확인 다시 시도",
     },
     rollout: {
       toggle: "새 콘솔 사용",
@@ -1919,6 +1932,135 @@ export const ko = {
           actions: { resolve: "해결 처리" },
           links: { equipment: "대상 장비" },
           analytics: { sloRemaining: "SLO 잔여" },
+        },
+      },
+      // ── generic — registry-driven surface for kinds with no hand-authored module (dynamic-grammar lane) ──
+      generic: {
+        columns: { code: "코드", title: "이름" },
+        emptyBlockedChip: "인스턴스 API 대기",
+        stats: { instances: "등록 인스턴스" },
+      },
+      // ── compliance — obligation/regulation/framework catalog (compliance-ui lane, wire-pending REST) ──
+      compliance: {
+        nav: "컴플라이언스",
+        title: "컴플라이언스",
+        objectName: "컴플라이언스 항목",
+        kinds: {
+          obligation: "의무",
+          regulation: "규제",
+          framework: "프레임워크",
+        },
+        statuses: {
+          draft: "초안",
+          active: "활성",
+          waived: "면제",
+          superseded: "대체됨",
+          archived: "보관",
+          retired: "폐지",
+        },
+        stats: {
+          active: "활성",
+          attention: "주의 필요",
+          frameworks: "프레임워크",
+        },
+        search: {
+          label: "컴플라이언스 검색",
+          placeholder: "제목·위험도·담당자 검색",
+        },
+        columns: {
+          kind: "구분",
+          code: "코드",
+          title: "제목",
+          status: "상태",
+          risk: "위험도",
+          owner: "담당자",
+          effectiveFrom: "시행일",
+          updatedAt: "수정일",
+        },
+        detail: {
+          description: "설명",
+          nextStates: "가능한 다음 상태",
+          terminalState: "종결 상태",
+          obligationType: "의무 유형",
+          scopeKind: "적용 범위",
+          reviewCadence: "검토 주기",
+          nextReviewOn: "다음 검토일",
+          jurisdiction: "관할",
+          regulator: "규제기관",
+          citation: "근거 조문",
+          impactArea: "영향 영역",
+          reviewDueOn: "검토 기한",
+          frameworkKind: "프레임워크 유형",
+          versionLabel: "버전",
+          controlEvidenceMatrix: "통제·증거 매트릭스",
+        },
+        links: {
+          audit: "감사",
+        },
+        coverageLevels: {
+          primary: "주 통제",
+          partial: "부분 통제",
+          supporting: "보조 통제",
+          compensating: "보완 통제",
+        },
+        // wire-pending: W1-FE-compliance-ui — stub sample content, replaced by the
+        // real GET /api/v1/compliance/{obligations,regulations,frameworks} feed.
+        samples: {
+          obligations: {
+            cp0001: {
+              title: "최저임금 고시 준수",
+              description: "매년 고용노동부 최저임금 고시 발표 시 전 사업장 임금 테이블을 갱신한다.",
+              owner: "인사팀장",
+            },
+            cp0002: {
+              title: "주 52시간 근로시간 준수",
+              description: "지점별 주간 실근로시간이 법정 상한을 초과하지 않도록 스케줄을 통제한다.",
+              owner: "인사팀장",
+            },
+            cp0003: {
+              title: "개인정보 처리 동의 관리",
+              description: "위치정보 등 개인정보 수집 전 대상자 동의를 확보하고 철회 요청을 즉시 반영한다.",
+              owner: "컴플라이언스 리드",
+            },
+          },
+          regulations: {
+            rg0001: {
+              title: "최저임금 고시",
+              jurisdiction: "대한민국",
+              regulator: "고용노동부",
+              citation: "최저임금법 제5조",
+              impactArea: "급여",
+              impactSummary: "고시 시급 인상분을 급여 테이블·근로계약서에 반영해야 한다.",
+              owner: "인사팀장",
+            },
+            rg0002: {
+              title: "주 52시간제",
+              jurisdiction: "대한민국",
+              regulator: "고용노동부",
+              citation: "근로기준법 제53조",
+              impactArea: "근태",
+              impactSummary: "연장·휴일 근로 포함 주 52시간 상한을 초과할 수 없다.",
+              owner: "인사팀장",
+            },
+          },
+          frameworks: {
+            fw0001: {
+              title: "ISMS-P 정보보호 관리체계",
+              owner: "컴플라이언스 리드",
+              controls: {
+                c1: { title: "접근권한 정기 검토", objective: "권한 과다부여를 방지하기 위한 분기별 재검토" },
+                c2: { title: "로그 보관", objective: "감사 로그를 1년 이상 변조 불가 형태로 보관" },
+                c3: { title: "침해사고 대응", objective: "탐지 후 초기 대응까지의 절차와 책임자 지정" },
+              },
+            },
+            fw0002: {
+              title: "현장 안전 표준",
+              owner: "컴플라이언스 리드",
+              controls: {
+                c1: { title: "현장 지오펜스 체크인", objective: "작업자 현장 출입을 위치 기반으로 기록" },
+              },
+            },
+          },
         },
       },
     },
@@ -2419,6 +2561,32 @@ export const ko = {
       },
       missingTypeId: "개체 유형 ID 없음 · 거버넌스 액션 비활성",
     } satisfies ObjectCardGovStrings,
+    // ── ko.console.objectcardDyn — dynamic-layer additions (objectcard-dynamics lane) ──
+    objectcardDyn: {
+      relations: {
+        codeNotFound: "해당 코드의 개체를 찾을 수 없습니다",
+        resolveFailed: "코드 확인 실패",
+        resolving: "확인 중",
+      },
+      acting: {
+        navigateAria: (label: string, kind: string) => `${kind} ${label} 열기`,
+      },
+    } satisfies ObjectCardDynStrings,
+    // ── ko.console.forecast — 설비 정비비 투영 (forecast-quant lane) ──
+    forecast: {
+      equipmentSearchLabel: "설비 검색",
+      equipmentSearchHint: "설비번호·고객·현장으로 검색",
+      changeEquipment: "변경",
+      noResults: "검색 결과 없음",
+      horizonGroupLabel: "투영 기간",
+      horizonMonths: (n: number) => `최근 ${String(n)}개월`,
+      whatIfLabel: "예상 변동률 (what-if, %)",
+      seriesTitle: (equipmentNo: string) => `${equipmentNo} 정비비 투영`,
+      fcCodeLabel: "예측 개체",
+      emptyReason: "설비를 선택하면 정비비 이력 기반 투영을 표시합니다",
+      loadErrorReason: "정비비 이력을 불러오지 못했습니다",
+      drillToEquipment: "설비 상세 열기",
+    },
     // Full CanvasStrings shape (console/canvas/strings.ts) — the shared BlockCanvas
     // grammar reused by policy / workflow / automate. Passed as `strings={ko.console.canvas}`.
     canvas: {
@@ -2529,6 +2697,7 @@ export const ko = {
         label: "무결성 화면 전환",
         findings: "이상 징후",
         records: "증거",
+        decisions: "정책 판정",
       },
       records: {
         label: "증거 기록",
@@ -2649,6 +2818,11 @@ export const ko = {
     leave: {
       count: (count: number) => `${String(count)}건`,
       openObject: (code: string) => `${code} 개체 카드 열기`,
+      overviewTitle: "연차 현황",
+      leaveType: {
+        annual: "연차",
+        half_day: "반차",
+      },
       stats: {
         aria: "연차 현황 요약",
         headcount: "재직",
@@ -2663,17 +2837,16 @@ export const ko = {
         title: "내 연차",
         myRequests: "내 신청",
         empty: "신청 내역 없음",
-        formAria: "연차 신청 생성",
+        formAria: "연차 신청 유효성 확인",
         reasonLabel: "사유",
         reasonPlaceholder: "사유 선택",
         startLabel: "시작일",
         endLabel: "종료일",
-        submit: "신청 상신",
-        withdraw: "회수",
-        withdrawAria: (code: string) => `${code} 회수`,
+        validate: "입력값 확인",
         required: "필수 항목 미입력",
         invalidRange: "종료일이 시작일보다 빠름",
-        formLink: "연차신청서",
+        formLink: "연차신청서로 제출",
+        unknownEmployee: "직원 확인 필요",
       },
       reasons: {
         annual: "연차",
@@ -2683,9 +2856,9 @@ export const ko = {
         sick: "병가",
       },
       requestState: {
-        submitted: "신청",
-        in_review: "결재중",
+        pending: "결재 대기",
         approved: "승인",
+        returned: "보류",
         rejected: "반려",
       },
       queue: {
@@ -2694,51 +2867,59 @@ export const ko = {
         empty: "결재 대기 없음",
         approve: "승인",
         reject: "반려",
-        decideAria: (decision: string, code: string) => `${code} ${decision}`,
+        cancel: "취소",
+        commentLabel: "반려 사유",
+        commentPlaceholder: "사유 입력",
+        commentRequired: "반려 사유를 입력하세요",
+        decideAria: (decision: string, employeeName: string) => `${employeeName} 신청 ${decision}`,
+        decideFailed: "결재를 처리하지 못했습니다",
       },
       promotion: {
-        listAria: "사용촉진 회차",
+        title: "사용촉진 발송 이력",
+        listAria: "사용촉진 발송 이력",
         legalBasis: "근로기준법 제61조",
-        empty: "진행 중인 촉진 회차 없음",
         roundChip: (round: number) => `${String(round)}차`,
-        phase: { send: "발송 대기", ack: "수령확인 대기", done: "완료" },
         send: (round: number) => `${String(round)}차 발송`,
-        ack: "수령 확인",
-        startSecond: "2차 촉진 시작",
-        start: "촉진 시작",
-        startAria: (name: string) => `${name} 촉진 시작`,
-        deadline: (days: number) => `법정기한 D-${String(days)}`,
+        sendAria: (name: string, round: number) => `${name} ${String(round)}차 발송`,
+        noLinkedRequest: "연동된 신청 없음",
+        done: "촉진 완료",
+        pushed: "발송 완료",
+        pushFailed: "발송하지 못했습니다",
+        apStatus: {
+          submitted: "AP 상신됨",
+          pending_engine_definition: "AP 연동 대기",
+        },
       },
       ledger: {
+        title: "인원별 연차 원장",
+        usageTitle: "인원별 잔여 연차",
         listAria: "연차 원장 목록",
+        columns: {
+          employee: "직원",
+          department: "부서/직책",
+          tenure: "입사일 기준",
+          accrued: "발생",
+          used: "사용",
+          remaining: "잔여",
+          status: "상태",
+        },
+      },
+      status: {
+        ok: "정상",
+        promote: "사용촉진 대상",
+        low: "잔여 부족",
+        hireDateMissing: "입사일 확인",
+        exited: "퇴사/정산 검토",
       },
       objects: {
-        requestType: "연차 신청",
         ledgerType: "연차 원장",
-        roundType: "사용촉진 회차",
-        requestTitle: (name: string) => `${name} 연차 신청`,
         ledgerTitle: (name: string) => `${name} 연차 원장`,
-        roundTitle: (name: string, round: number) => `${name} ${String(round)}차 사용촉진`,
-        approvalKind: "연차 결재",
-        importActor: "원장 가져오기",
-        hrActor: "HR 전담",
         props: {
-          period: "기간",
-          days: "일수",
-          reason: "사유",
-          requester: "신청자",
           accrued: "발생",
           used: "사용",
           remaining: "잔여",
           hireDate: "입사일",
-          employee: "대상 직원",
-          round: "회차",
-          phase: "상태",
-          deadline: "법정기한",
         },
-        linkSchedule: "근무표",
-        linkLedger: "연차 원장",
-        linkRequest: "연차 신청",
       },
     },
     // ── ko.console.supportdesk — 지원 데스크 목록·핀 (support-desk lane, §4-11) ──
@@ -2800,6 +2981,21 @@ export const ko = {
           ADMIN: "관리자",
         },
         fieldAria: (category: string, field: string) => `${category} ${field}`,
+      },
+      engine: {
+        title: "SLO 설정 (엔진)",
+        ticketTypes: { incident: "장애", request: "요청", change: "변경" },
+        thresholdMinutes: "임계(분)",
+        windowLabel: "적용 시간",
+        windows: { business_hours: "업무시간", calendar: "24x7" },
+        escalationLabel: "에스컬레이션 대상",
+        revisionColumn: "최근 개정",
+        lastRevision: (version: number) => `개정 v${String(version)}`,
+        notSaved: "저장되지 않음",
+        loading: "SLO 설정을 불러오는 중",
+        error: "SLO 설정을 불러오지 못했습니다",
+        commit: "적용 승인 — 개정 커밋",
+        fieldAria: (ticketType: string, field: string) => `${ticketType} ${field}`,
       },
     },
   },
@@ -6227,6 +6423,27 @@ export const ko = {
       conflict: "이미 처리된 항목입니다. 새로고침 후 다시 확인하세요.",
       submitFailed: "검토 처리를 저장하지 못했습니다. 다시 시도하세요.",
       saved: "검토 결과를 저장했습니다.",
+    },
+    // Cedar policy decision feed (GET /api/v1/policy/decisions).
+    decisions: {
+      loadFailed: "정책 판정 기록을 불러오지 못했습니다.",
+      empty: "표시할 정책 판정 기록이 없습니다.",
+      table: {
+        subject: "요청 주체",
+        action: "행동",
+        resource: "대상 자원",
+        effect: "판정",
+        decidedAt: "판정 시각",
+      },
+      effect: {
+        allow: "허용",
+        deny: "거부",
+      },
+      drill: {
+        policy: "적용된 정책",
+        policyNone: "일치한 정책 없음",
+        reason: "판정 사유",
+      },
     },
   },
   support: {

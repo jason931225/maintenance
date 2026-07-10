@@ -10,6 +10,9 @@
 // stage = POST /api/v1/ontology/actions/support_slo_setting.revise/execute
 // decide= POST /api/v1/governance/approvals/{id}/decide (approver ≠ requester)
 
+import type { ConsoleApiClient } from "../../api/client";
+import { getObjectType, listInstances, type InstanceStateWire } from "../../api/ontology";
+import { executeOntologyAction } from "../../api/ontologyActions";
 import type {
   SupportTicketCategory,
   SupportTicketStatus,
@@ -209,4 +212,120 @@ export function sloWindowBreaches(
     if (breached) counts[ticket.category] += 1;
   }
   return counts;
+}
+
+// ---- SLO settings card → real engine instances (be2-config-objects) ----
+// The `support_slo_setting` object type is seeded through the ontology engine
+// (backend/crates/ontology/adapter-postgres/src/seed.rs) with a fixed
+// ticket_type choice (incident/request/change) — a coarser taxonomy than the
+// SupportTicketCategory used for ticket-badge posture above. The settings
+// CARD below wires to the real, persisted 3-bucket schema; ticket-badge
+// posture keeps using the local SupportTicketCategory rules until a follow-up
+// reconciles the two taxonomies (flagged in the lane report, not silently
+// papered over — no fabricated per-category engine data).
+
+export const SUPPORT_SLO_SETTING_KEY = "support_slo_setting";
+
+export type EngineTicketType = "incident" | "request" | "change";
+export const ENGINE_TICKET_TYPES: readonly EngineTicketType[] = [
+  "incident",
+  "request",
+  "change",
+];
+
+export type EngineSloWindow = "business_hours" | "calendar";
+export const ENGINE_SLO_WINDOWS: readonly EngineSloWindow[] = [
+  "business_hours",
+  "calendar",
+];
+
+/** One support_slo_setting instance — real ticket_type/threshold_minutes/window/escalation_target. */
+export interface EngineSloRule {
+  /** null = no instance created yet for this ticket_type (unsaved default). */
+  instanceId: string | null;
+  ticketType: EngineTicketType;
+  thresholdMinutes: number;
+  window: EngineSloWindow;
+  escalationTarget: string;
+  /** Real ont_instance_revisions.version — 0 until the first commit. */
+  version: number;
+}
+
+export type EngineSloRules = Record<EngineTicketType, EngineSloRule>;
+
+function emptyEngineRule(ticketType: EngineTicketType): EngineSloRule {
+  return {
+    instanceId: null,
+    ticketType,
+    thresholdMinutes: 60,
+    window: "business_hours",
+    escalationTarget: "",
+    version: 0,
+  };
+}
+
+function isEngineTicketType(value: unknown): value is EngineTicketType {
+  return value === "incident" || value === "request" || value === "change";
+}
+
+function engineSloRuleOf(state: InstanceStateWire): EngineSloRule | null {
+  const a = state.revision.attributes;
+  if (!isEngineTicketType(a.ticket_type)) return null;
+  return {
+    instanceId: state.instance.id,
+    ticketType: a.ticket_type,
+    thresholdMinutes: typeof a.threshold_minutes === "number" ? a.threshold_minutes : 0,
+    window: a.window === "calendar" ? "calendar" : "business_hours",
+    escalationTarget: typeof a.escalation_target === "string" ? a.escalation_target : "",
+    version: state.revision.version,
+  };
+}
+
+/** list — GET /ontology/instances?type=support_slo_setting (RLS ∧ Cedar server-side). */
+export async function fetchEngineSloRules(
+  api: ConsoleApiClient,
+): Promise<{ objectTypeId: string; rules: EngineSloRules }> {
+  const detail = await getObjectType(api, SUPPORT_SLO_SETTING_KEY);
+  const states = await listInstances(api, detail.object_type.id);
+  const rules: EngineSloRules = {
+    incident: emptyEngineRule("incident"),
+    request: emptyEngineRule("request"),
+    change: emptyEngineRule("change"),
+  };
+  for (const state of states) {
+    const rule = engineSloRuleOf(state);
+    if (rule) rules[rule.ticketType] = rule;
+  }
+  return { objectTypeId: detail.object_type.id, rules };
+}
+
+/**
+ * create/stage — the single audited action path (POST
+ * /ontology/actions/create/execute): creates the ticket-type's first instance
+ * or stages its v+1 revision when `existing.instanceId` is set. The 적용
+ * 승인 click in the card is what calls this — never a hot edit.
+ */
+export async function commitEngineSloRule(
+  api: ConsoleApiClient,
+  objectTypeId: string,
+  existing: EngineSloRule,
+): Promise<EngineSloRule> {
+  const result = await executeOntologyAction(api, "create", {
+    object_type_id: objectTypeId,
+    ...(existing.instanceId ? { instance_id: existing.instanceId } : {}),
+    params: {
+      ticket_type: existing.ticketType,
+      threshold_minutes: existing.thresholdMinutes,
+      window: existing.window,
+      escalation_target: existing.escalationTarget,
+    },
+  });
+  return {
+    instanceId: result.instance.instanceId,
+    ticketType: existing.ticketType,
+    thresholdMinutes: existing.thresholdMinutes,
+    window: existing.window,
+    escalationTarget: existing.escalationTarget,
+    version: result.instance.version,
+  };
 }

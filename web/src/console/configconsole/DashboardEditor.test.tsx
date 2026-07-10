@@ -1,15 +1,18 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
+import type { ConsoleApiClient } from "../../api/client";
 import { ko } from "../../i18n/ko";
 import { DENY_ALL, PolicyGateProvider, type PolicyGate } from "../policy";
-import { CONFIG_CONSOLE_STRINGS as S, seedConfigConsoleStrings } from "./strings";
+import { configConsoleStrings, CONFIG_CONSOLE_STRINGS as S, seedConfigConsoleStrings } from "./strings";
 import type { OntInstanceRow, OntObjectTypeDef } from "./types";
 
 // Seed the real key path before the editor module (which reads it at module
 // scope) is evaluated; post-wire-up this is a no-op.
 seedConfigConsoleStrings(ko);
 const { DashboardEditor } = await import("./DashboardEditor");
+
+const T = configConsoleStrings();
 
 // Mocked API payloads, already mapped through the ontology view-model mappers
 // (ConfigConsolePage.test.tsx covers the transport; here the editor is fed the
@@ -100,27 +103,86 @@ const ROWS: readonly OntInstanceRow[] = [
 
 const allowGate: PolicyGate = { can: () => true };
 
-function renderEditor(gate: PolicyGate = allowGate) {
+/** Real REST shapes (api/ontology.ts + api/ontologyActions.ts + api/governance.ts). */
+function mockApi(): ConsoleApiClient {
+  return {
+    GET: vi.fn((path: string) => {
+      if (path === "/api/v1/ontology/object-types/{key}") {
+        return Promise.resolve({
+          data: {
+            object_type: { id: "console-view-type", stable_key: "console_view", title: "콘솔 뷰", backing_kind: "instance", schema_version: 1, lifecycle_state: "published" },
+            title_property_key: "screen_key",
+            backing_table: null,
+            primary_key_property: null,
+            properties: [],
+            links: [],
+            actions: [],
+            analytics: [],
+          },
+          error: undefined,
+          response: { status: 200 },
+        });
+      }
+      return Promise.resolve({ data: [], error: undefined, response: { status: 200 } });
+    }),
+    POST: vi.fn((path: string) => {
+      if (path === "/api/v1/ontology/actions/{action_key}/execute") {
+        return Promise.resolve({
+          data: {
+            instance: {
+              instance: { id: "cv-1", title: "config-console", lifecycle_state: "active" },
+              revision: { version: 1, attributes: {} },
+            },
+            gates: { allow: true, gates: [] },
+          },
+          error: undefined,
+          response: { status: 200 },
+        });
+      }
+      if (path === "/api/v1/governance/approvals") {
+        return Promise.resolve({
+          data: {
+            id: "appr-1",
+            request_ref: "cv-1",
+            kind: "console_view.deploy",
+            requested_by: "u1",
+            payload_summary: {},
+            created_at: "2026-07-10T00:00:00Z",
+          },
+          error: undefined,
+          response: { status: 201 },
+        });
+      }
+      return Promise.resolve({ data: undefined, error: { error: { code: "unmocked", message: "unmocked" } }, response: { status: 500 } });
+    }),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any as ConsoleApiClient;
+}
+
+function renderEditor(gate: PolicyGate = allowGate, api: ConsoleApiClient = mockApi()) {
   return render(
     <PolicyGateProvider gate={gate}>
-      <DashboardEditor registry={REGISTRY} rows={ROWS} />
+      <DashboardEditor registry={REGISTRY} rows={ROWS} api={api} />
     </PolicyGateProvider>,
   );
 }
 
-describe("DashboardEditor default preset", () => {
-  it("renders live counts computed over the stub ontQuery sample", () => {
+describe("DashboardEditor default preset (count + dist)", () => {
+  it("renders the count widget computed over the real rows", () => {
     renderEditor();
-    // work_order total 6 (live-count slot + stat bar), grouped: 긴급 2 / 보통 3 / 낮음 1.
-    expect(screen.getAllByRole("button", { name: S.widget.totalAria("작업 지시", 6) })).toHaveLength(2);
+    // work_order total 6, grouped: 긴급 2 / 보통 3 / 낮음 1.
+    expect(screen.getByRole("button", { name: S.widget.totalAria("작업 지시", 6) })).toBeTruthy();
     expect(screen.getByRole("button", { name: S.widget.countAria("긴급", 2) })).toBeTruthy();
     expect(screen.getByRole("button", { name: S.widget.countAria("보통", 3) })).toBeTruthy();
     expect(screen.getByRole("button", { name: S.widget.countAria("낮음", 1) })).toBeTruthy();
-    // stat bar totals for the other object types.
-    expect(screen.getByRole("button", { name: S.widget.totalAria("결재", 5) })).toBeTruthy();
-    expect(screen.getByRole("button", { name: S.widget.totalAria("장비", 4) })).toBeTruthy();
-    // chart over approval kind.
+  });
+
+  it("renders the dist widget grouped by real lifecycle_state, never a fabricated field", () => {
+    renderEditor();
+    // approval: 4 active / 1 draft (§3b lifecycle, not a choice field).
     expect(screen.getByRole("list", { name: S.widget.chartAria("결재") })).toBeTruthy();
+    expect(screen.getByRole("button", { name: S.widget.countAria("활성", 4) })).toBeTruthy();
+    expect(screen.getByRole("button", { name: S.widget.countAria("초안", 1) })).toBeTruthy();
   });
 
   it("drill click opens the filtered result panel (inline fallback without a window shell)", () => {
@@ -136,33 +198,48 @@ describe("DashboardEditor default preset", () => {
     expect(screen.queryByRole("article", { name: S.drill.panelTitle })).toBeNull();
   });
 
+  it("dist drill filters by lifecycle_state", () => {
+    renderEditor();
+    fireEvent.click(screen.getByRole("button", { name: S.widget.countAria("초안", 1) }));
+    const panel = screen.getByRole("article", { name: S.drill.panelTitle });
+    const list = within(panel).getByRole("list", { name: S.drill.listAria });
+    expect(within(list).getByText("AP-3133")).toBeTruthy();
+  });
+
   it("opens a drill result as its object card via a keyboard-operable button", () => {
     renderEditor();
     fireEvent.click(screen.getByRole("button", { name: S.widget.countAria("긴급", 2) }));
     const panel = screen.getByRole("article", { name: S.drill.panelTitle });
     fireEvent.click(within(panel).getByRole("button", { name: S.drill.openObject("WO-4101") }));
-    // §4.7-3 right pin degrades to the inline aside without a window shell.
-    // The card is built from the real row: title = instance title, properties
-    // resolve choice ids through the registry.
     const card = screen.getByRole("article", { name: ko.console.objectcard.panel("WO-4101") });
     expect(within(card).getByText("긴급")).toBeTruthy();
   });
 });
 
-describe("DashboardEditor config mode (§4-22 add-anything)", () => {
-  it("adds a widget to the empty slot via the in-place +위젯 path", () => {
+describe("DashboardEditor config mode (§4-22 add-anything, design delta 94+96)", () => {
+  it("the empty slot's add strip offers all 3 kinds and fills a default widget", () => {
     renderEditor();
-    fireEvent.click(screen.getByRole("button", { name: S.slot.addAria(4) }));
-    // adding enters config mode and fills the slot with a default live count.
-    expect(screen.getByRole("button", { name: S.config.toggleAria })).toHaveProperty(
-      "ariaPressed",
-      "true",
-    );
-    const slot = screen.getByRole("region", { name: S.slot.aria(4) });
-    expect(within(slot).getByRole("combobox", { name: S.slot.presetAria(4) })).toBeTruthy();
-    expect(
-      within(slot).getByRole("button", { name: S.widget.totalAria("작업 지시", 6) }),
-    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: S.config.toggleAria }));
+    const slot = screen.getByRole("region", { name: S.slot.aria(2) });
+    const addButtons = within(slot).getAllByRole("button", { name: S.slot.addAria(2) });
+    expect(addButtons.map((button) => button.textContent)).toEqual([
+      T.widgetKinds.count,
+      T.widgetKinds.trend,
+      T.widgetKinds.dist,
+    ]);
+    // dist(work_order) — count(work_order,priority) is already slot-1's widget.
+    fireEvent.click(addButtons[2]);
+    expect(within(slot).getByRole("combobox", { name: S.slot.presetAria(2) })).toBeTruthy();
+  });
+
+  it("the add strip blocks a duplicate kind+bind widget (dedup guard)", () => {
+    renderEditor();
+    fireEvent.click(screen.getByRole("button", { name: S.config.toggleAria }));
+    const slot = screen.getByRole("region", { name: S.slot.aria(2) });
+    // slot-1 already has count(work_order, priority) — the default count add
+    // targets the same first registry type + first choice, so it collides.
+    fireEvent.click(within(slot).getAllByRole("button", { name: S.slot.addAria(2) })[0]);
+    expect(screen.getByText(T.slot.dedupBlocked)).toBeTruthy();
   });
 
   it("retypes a slot via the preset select and removes it via 위젯 제거", () => {
@@ -170,11 +247,11 @@ describe("DashboardEditor config mode (§4-22 add-anything)", () => {
     fireEvent.click(screen.getByRole("button", { name: S.config.toggleAria }));
     const slot = screen.getByRole("region", { name: S.slot.aria(1) });
     fireEvent.change(within(slot).getByRole("combobox", { name: S.slot.presetAria(1) }), {
-      target: { value: "chart" },
+      target: { value: "dist" },
     });
     expect(within(slot).getByRole("list", { name: S.widget.chartAria("작업 지시") })).toBeTruthy();
     fireEvent.click(within(slot).getByRole("button", { name: S.slot.removeAria(1) }));
-    expect(within(slot).getByRole("button", { name: S.slot.addAria(1) })).toBeTruthy();
+    expect(within(slot).getAllByRole("button", { name: S.slot.addAria(1) })).toHaveLength(3);
   });
 
   it("restores the shipped default layout", () => {
@@ -191,9 +268,10 @@ describe("DashboardEditor config mode (§4-22 add-anything)", () => {
   });
 });
 
-describe("DashboardEditor 저장 (personal view, §3.9.0-①)", () => {
-  it("requires the audited change reason before saving, then flags 저장됨", () => {
-    renderEditor();
+describe("DashboardEditor 저장 (personal view → real console_view instance, §3.9.0-①)", () => {
+  it("requires the audited change reason, then persists via ontology actions REST and flags 저장됨", async () => {
+    const api = mockApi();
+    renderEditor(allowGate, api);
     const save = screen.getByRole("button", { name: S.save.action });
     expect(save).toHaveProperty("disabled", true);
     fireEvent.change(screen.getByRole("textbox", { name: S.save.comment }), {
@@ -201,24 +279,28 @@ describe("DashboardEditor 저장 (personal view, §3.9.0-①)", () => {
     });
     expect(save).toHaveProperty("disabled", false);
     fireEvent.click(save);
-    expect(screen.getByText(S.chips.saved)).toBeTruthy();
-    // the audited comment is consumed by the save.
+    expect(await screen.findByText(S.chips.saved)).toBeTruthy();
     expect(screen.getByRole("textbox", { name: S.save.comment })).toHaveProperty("value", "");
+    expect(api.POST).toHaveBeenCalledWith(
+      "/api/v1/ontology/actions/{action_key}/execute",
+      expect.objectContaining({ params: { path: { action_key: "create" } } }),
+    );
   });
 });
 
-describe("DashboardEditor 팀 배포 — 결재 (shared layout deploy)", () => {
-  it("opens the AP- prefill with the serialized doc and flips to 결재 대기 on 상신", () => {
-    renderEditor();
+describe("DashboardEditor 팀 배포 — 결재 (real console_view(team) + governance approval)", () => {
+  it("opens the prefill with the serialized doc and flips to 결재 대기 on 상신", async () => {
+    const api = mockApi();
+    renderEditor(allowGate, api);
     fireEvent.click(screen.getByRole("button", { name: S.deploy.action }));
     const panel = screen.getByRole("article", { name: S.deploy.panelTitle });
     expect(within(panel).getByText(S.deploy.prefillCode)).toBeTruthy();
-    expect(within(panel).getByText(S.deploy.widgetsValue(3))).toBeTruthy();
     const json = within(panel).getByLabelText(S.deploy.docAria).textContent;
     expect(JSON.parse(json)).toMatchObject({ screen: "config-console", version: 1 });
     fireEvent.click(within(panel).getByRole("button", { name: S.deploy.submit }));
     expect(screen.queryByRole("article", { name: S.deploy.panelTitle })).toBeNull();
-    expect(screen.getByText(S.chips.deployPending)).toBeTruthy();
+    expect(await screen.findByText(S.chips.deployPending)).toBeTruthy();
+    expect(api.POST).toHaveBeenCalledWith("/api/v1/governance/approvals", expect.anything());
   });
 });
 
@@ -228,10 +310,8 @@ describe("DashboardEditor deny-by-omission", () => {
     expect(screen.queryByRole("button", { name: S.config.toggleAria })).toBeNull();
     expect(screen.queryByRole("button", { name: S.save.action })).toBeNull();
     expect(screen.queryByRole("button", { name: S.deploy.action })).toBeNull();
-    expect(screen.queryByRole("button", { name: S.slot.addAria(4) })).toBeNull();
+    expect(screen.queryAllByRole("button", { name: S.slot.addAria(2) })).toHaveLength(0);
     // read surfaces stay: the live numbers still render and drill.
-    expect(
-      screen.getAllByRole("button", { name: S.widget.totalAria("작업 지시", 6) }).length,
-    ).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: S.widget.totalAria("작업 지시", 6) })).toBeTruthy();
   });
 });

@@ -12,20 +12,17 @@ import {
   type OntInstanceRow,
   type OntObjectTypeDef,
 } from "../console/configconsole";
-import { PolicyGateProvider, type PolicyGate } from "../console/policy";
+import { BulkPolicyGateProvider } from "../console/policy";
 import { useAuth } from "../context/auth";
 import { ko } from "../i18n/ko";
 
 type ReadState = "loading" | "idle" | "error";
 
-// wire-pending: Phase C — decisions come from /policy/authorize (arch §5c);
-// until then the console surface is gated by this local allow-list.
-const CONFIG_CONSOLE_GATE_ACTIONS: ReadonlySet<string> = new Set(
-  Object.values(CONFIG_CONSOLE_ACTIONS),
+// Deny-by-omission action set, resolved at mount via
+// POST /api/v1/policy/authorize/bulk (arch §5c) — see BulkPolicyGateProvider.
+const CONFIG_CONSOLE_GATE_ACTIONS: readonly string[] = Object.values(
+  CONFIG_CONSOLE_ACTIONS,
 );
-const CONFIG_CONSOLE_GATE: PolicyGate = {
-  can: (action) => CONFIG_CONSOLE_GATE_ACTIONS.has(action),
-};
 
 /**
  * Config Console / dashboard editor (분석 › 구성 콘솔, DESIGN §19): a 4-slot
@@ -84,9 +81,9 @@ export function ConfigConsolePage() {
       ) : readState === "loading" ? (
         <SkeletonTable rows={4} cols={2} />
       ) : (
-        <PolicyGateProvider gate={CONFIG_CONSOLE_GATE}>
-          <DashboardEditor registry={registry} rows={rows} />
-        </PolicyGateProvider>
+        <BulkPolicyGateProvider actions={CONFIG_CONSOLE_GATE_ACTIONS}>
+          <DashboardEditor registry={registry} rows={rows} api={api} />
+        </BulkPolicyGateProvider>
       )}
     </>
   );

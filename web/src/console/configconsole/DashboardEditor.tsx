@@ -1,20 +1,32 @@
 // §19 dashboard/console editor — 4-slot grid over a widget palette. The whole
 // layout is ONE serializable config doc (benchmark §3b) held in state:
-// 저장 = personal view, direct + audited comment (§3.9.0-①);
-// 팀 배포 — 결재 = shared-layout deploy via AP- approval (stub prefill).
+// 저장 = personal view, direct + audited as a console_view instance (§3.9.0-①);
+// 팀 배포 — 결재 = shared-layout deploy, a console_view(team) instance opened
+// as a real POST /api/v1/governance/approvals request (pending until decided
+// elsewhere — never fabricated as approved here).
 import { useState } from "react";
 import type { CSSProperties, ReactNode } from "react";
 
+import type { ConsoleApiClient } from "../../api/client";
+import { getObjectType } from "../../api/ontology";
 import { ko } from "../../i18n/ko";
 import { StatusChip } from "../components";
 import { objectCardWindowEntry } from "../objectcard";
 import { PolicyGated } from "../policy";
 import { objDrag, useOptionalWindowManager } from "../window";
-import { defaultDashboardDoc, drillRows, serializeDashboardDoc, setSlotWidget } from "./doc";
-import type { ConfigConsoleStrings } from "./strings";
+import { CONSOLE_VIEW_KEY, deployConsoleView, saveConsoleView } from "./api";
+import {
+  defaultDashboardDoc,
+  drillRows,
+  isDuplicateWidget,
+  serializeDashboardDoc,
+  setSlotWidget,
+} from "./doc";
+import { configConsoleStrings, type ConfigConsoleStrings } from "./strings";
 import {
   CONFIG_CONSOLE_ACTIONS,
   WIDGET_KINDS,
+  type ConsoleViewRecord,
   type DashboardDoc,
   type DashboardSlot,
   type DrillFilter,
@@ -134,6 +146,15 @@ const objectButtonStyle: CSSProperties = {
   cursor: "pointer",
 };
 
+function numericProps(registry: readonly OntObjectTypeDef[], objectType: string) {
+  return (
+    registry
+      .find((type) => type.key === objectType)
+      ?.properties.filter((prop) => prop.type === "integer" || prop.type === "number" || prop.type === "currency") ??
+    []
+  );
+}
+
 function choiceProps(registry: readonly OntObjectTypeDef[], objectType: string) {
   return (
     registry
@@ -142,49 +163,26 @@ function choiceProps(registry: readonly OntObjectTypeDef[], objectType: string) 
   );
 }
 
-function defaultWidget(registry: readonly OntObjectTypeDef[]): WidgetConfig {
-  const first = registry.at(0);
-  const groupBy = first ? choiceProps(registry, first.key).at(0)?.key : undefined;
-  return {
-    kind: "liveCount",
-    objectType: first?.key ?? "",
-    ...(groupBy !== undefined ? { groupBy } : {}),
-  };
-}
-
-function convertWidget(
-  widget: WidgetConfig,
+/** A default widget for the given kind, seeded from the loaded registry/rows. */
+function defaultWidgetOf(
   kind: WidgetKind,
   registry: readonly OntObjectTypeDef[],
+  rows: readonly OntInstanceRow[],
 ): WidgetConfig {
-  const objectType =
-    widget.kind === "statBar"
-      ? (widget.objectTypes.at(0) ?? registry.at(0)?.key ?? "")
-      : widget.objectType;
-  const firstChoice = choiceProps(registry, objectType).at(0)?.key;
+  const first = registry.at(0);
+  const objectType = first?.key ?? "";
   switch (kind) {
-    case "liveCount":
-      return { kind, objectType, ...(firstChoice !== undefined ? { groupBy: firstChoice } : {}) };
-    case "statBar":
-      return { kind, objectTypes: [objectType] };
-    case "chart":
-      return { kind, objectType, field: firstChoice ?? "" };
-  }
-}
-
-function retargetWidget(
-  widget: WidgetConfig,
-  objectType: string,
-  registry: readonly OntObjectTypeDef[],
-): WidgetConfig {
-  const firstChoice = choiceProps(registry, objectType).at(0)?.key;
-  switch (widget.kind) {
-    case "liveCount":
-      return { ...widget, objectType, ...(firstChoice !== undefined ? { groupBy: firstChoice } : { groupBy: undefined }) };
-    case "statBar":
-      return widget;
-    case "chart":
-      return { ...widget, objectType, field: firstChoice ?? "" };
+    case "count": {
+      const groupBy = choiceProps(registry, objectType).at(0)?.key;
+      return { kind, bind: { objectType, ...(groupBy !== undefined ? { groupBy } : {}) } };
+    }
+    case "dist":
+      return { kind, bind: { objectType } };
+    case "trend": {
+      const row = rows.find((entry) => entry.objectType === objectType) ?? rows.at(0);
+      const field = numericProps(registry, row?.objectType ?? objectType).at(0)?.key ?? "";
+      return { kind, bind: { objectType: row?.objectType ?? objectType, instanceId: row?.id ?? "", field } };
+    }
   }
 }
 
@@ -214,6 +212,9 @@ function DrillPanel({
       <div style={headerRowStyle}>
         <StatusChip tone="neutral">{type?.title ?? filter.objectType}</StatusChip>
         {choice ? <StatusChip tone="info">{choice.name}</StatusChip> : null}
+        {filter.lifecycleState !== undefined ? (
+          <StatusChip tone="info">{OBJECT_CARD_STRINGS.lifecycle[filter.lifecycleState]}</StatusChip>
+        ) : null}
         <StatusChip tone="accent">{S.drill.countChip(matched.length)}</StatusChip>
         {onClose ? (
           <button
@@ -254,10 +255,6 @@ function DrillPanel({
   );
 }
 
-// wire-pending: HANDOFF §4 POST /api/v1/appr — no approvals-create endpoint in
-// the OpenAPI yet (governance only exposes .../approvals/decide), so 상신 stays
-// a prefill stub that flips the 결재 대기 chip; the panel content itself is the
-// real serialized layout doc.
 function DeployPrefillPanel({
   doc,
   onSubmit,
@@ -322,94 +319,114 @@ function SlotConfig({
   slot,
   index,
   registry,
+  rows,
   onChange,
 }: {
   slot: DashboardSlot;
   index: number;
   registry: readonly OntObjectTypeDef[];
+  rows: readonly OntInstanceRow[];
   onChange: (widget: WidgetConfig | null) => void;
 }) {
+  const T = configConsoleStrings();
   const widget = slot.widget;
   if (!widget) return null;
   const n = index + 1;
-  const enumProps =
-    widget.kind === "statBar" ? [] : choiceProps(registry, widget.objectType);
+
+  function retype(kind: WidgetKind) {
+    onChange(defaultWidgetOf(kind, registry, rows));
+  }
+
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--sp-2)", alignItems: "center" }}>
       <select
         aria-label={S.slot.presetAria(n)}
         value={widget.kind}
         style={selectStyle}
-        onChange={(event) => {
-          onChange(convertWidget(widget, event.target.value as WidgetKind, registry));
-        }}
+        onChange={(event) => { retype(event.target.value as WidgetKind); }}
       >
         {WIDGET_KINDS.map((kind) => (
           <option key={kind} value={kind}>
-            {S.presets[kind]}
+            {T.widgetKinds[kind]}
           </option>
         ))}
       </select>
-      {widget.kind === "statBar" ? (
-        <div role="group" aria-label={S.slot.statTypesAria(n)} style={{ display: "flex", flexWrap: "wrap", gap: "var(--sp-2)" }}>
-          {registry.map((type) => {
-            const selected = widget.objectTypes.includes(type.key);
-            return (
-              <button
-                key={type.key}
-                type="button"
-                aria-pressed={selected}
-                style={selected ? primaryButtonStyle : buttonStyle}
-                onClick={() => {
-                  const next = selected
-                    ? widget.objectTypes.filter((key) => key !== type.key)
-                    : [...widget.objectTypes, type.key];
-                  onChange({ ...widget, objectTypes: next });
-                }}
-              >
-                {type.title}
-              </button>
-            );
-          })}
-        </div>
-      ) : (
+      <select
+        aria-label={S.slot.objectTypeAria(n)}
+        value={widget.bind.objectType}
+        style={selectStyle}
+        onChange={(event) => {
+          const objectType = event.target.value;
+          if (widget.kind === "trend") {
+            const row = rows.find((entry) => entry.objectType === objectType);
+            const field = numericProps(registry, objectType).at(0)?.key ?? "";
+            onChange({ kind: "trend", bind: { objectType, instanceId: row?.id ?? "", field } });
+          } else if (widget.kind === "count") {
+            const groupBy = choiceProps(registry, objectType).at(0)?.key;
+            onChange({ kind: "count", bind: { objectType, ...(groupBy !== undefined ? { groupBy } : {}) } });
+          } else {
+            onChange({ kind: "dist", bind: { objectType } });
+          }
+        }}
+      >
+        {registry.map((type) => (
+          <option key={type.key} value={type.key}>
+            {type.title}
+          </option>
+        ))}
+      </select>
+      {widget.kind === "count" ? (
+        <select
+          aria-label={S.slot.groupByAria(n)}
+          value={widget.bind.groupBy ?? ""}
+          style={selectStyle}
+          onChange={(event) => {
+            const key = event.target.value;
+            onChange({ kind: "count", bind: { objectType: widget.bind.objectType, ...(key === "" ? {} : { groupBy: key }) } });
+          }}
+        >
+          <option value="">{S.slot.groupByNone}</option>
+          {choiceProps(registry, widget.bind.objectType).map((prop) => (
+            <option key={prop.key} value={prop.key}>
+              {prop.title}
+            </option>
+          ))}
+        </select>
+      ) : null}
+      {widget.kind === "trend" ? (
         <>
           <select
             aria-label={S.slot.objectTypeAria(n)}
-            value={widget.objectType}
+            value={widget.bind.instanceId}
             style={selectStyle}
             onChange={(event) => {
-              onChange(retargetWidget(widget, event.target.value, registry));
+              onChange({ kind: "trend", bind: { ...widget.bind, instanceId: event.target.value } });
             }}
           >
-            {registry.map((type) => (
-              <option key={type.key} value={type.key}>
-                {type.title}
-              </option>
-            ))}
+            {rows
+              .filter((row) => row.objectType === widget.bind.objectType)
+              .map((row) => (
+                <option key={row.id} value={row.id}>
+                  {row.code}
+                </option>
+              ))}
           </select>
           <select
             aria-label={S.slot.groupByAria(n)}
-            value={widget.kind === "liveCount" ? (widget.groupBy ?? "") : widget.field}
+            value={widget.bind.field}
             style={selectStyle}
             onChange={(event) => {
-              const key = event.target.value;
-              onChange(
-                widget.kind === "liveCount"
-                  ? { ...widget, ...(key === "" ? { groupBy: undefined } : { groupBy: key }) }
-                  : { ...widget, field: key },
-              );
+              onChange({ kind: "trend", bind: { ...widget.bind, field: event.target.value } });
             }}
           >
-            {widget.kind === "liveCount" ? <option value="">{S.slot.groupByNone}</option> : null}
-            {enumProps.map((prop) => (
+            {numericProps(registry, widget.bind.objectType).map((prop) => (
               <option key={prop.key} value={prop.key}>
                 {prop.title}
               </option>
             ))}
           </select>
         </>
-      )}
+      ) : null}
       <button
         type="button"
         aria-label={S.slot.removeAria(n)}
@@ -422,20 +439,72 @@ function SlotConfig({
   );
 }
 
+/** §4-22 add-anything: the empty slot's in-place add strip — all 3 kinds, dedup guarded. */
+function AddWidgetStrip({
+  n,
+  doc,
+  registry,
+  rows,
+  onAdd,
+}: {
+  n: number;
+  doc: DashboardDoc;
+  registry: readonly OntObjectTypeDef[];
+  rows: readonly OntInstanceRow[];
+  onAdd: (widget: WidgetConfig) => void;
+}) {
+  const T = configConsoleStrings();
+  const [blocked, setBlocked] = useState(false);
+  return (
+    <div style={{ display: "grid", gap: "var(--sp-2)" }}>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--sp-2)" }}>
+        {WIDGET_KINDS.map((kind) => (
+          <button
+            key={kind}
+            type="button"
+            aria-label={S.slot.addAria(n)}
+            style={{ ...buttonStyle, justifyContent: "center", minHeight: 64, flex: "1 1 auto" }}
+            onClick={() => {
+              const widget = defaultWidgetOf(kind, registry, rows);
+              if (isDuplicateWidget(doc, widget)) {
+                setBlocked(true);
+                return;
+              }
+              setBlocked(false);
+              onAdd(widget);
+            }}
+          >
+            {T.widgetKinds[kind]}
+          </button>
+        ))}
+      </div>
+      {blocked ? <span role="status" style={{ fontSize: "var(--text-xs)", color: "var(--steel)" }}>{T.slot.dedupBlocked}</span> : null}
+    </div>
+  );
+}
+
 export interface DashboardEditorProps {
   /** GET /api/v1/ontology/object-types* (mapped) — the owning page loads it. */
   registry: readonly OntObjectTypeDef[];
   /** GET /api/v1/ontology/instances?type= rows; a refetch just swaps this prop. */
   rows: readonly OntInstanceRow[];
+  /** console_view persistence (저장/팀 배포) — the owning page's authenticated client. */
+  api: ConsoleApiClient;
+  /** One console_view doc per screen (benchmark §3b). */
+  screenKey?: string;
 }
 
-export function DashboardEditor({ registry, rows }: DashboardEditorProps) {
+export function DashboardEditor({ registry, rows, api, screenKey = "config-console" }: DashboardEditorProps) {
   const windowManager = useOptionalWindowManager();
   const [doc, setDoc] = useState<DashboardDoc>(defaultDashboardDoc);
   const [configMode, setConfigMode] = useState(false);
   const [comment, setComment] = useState("");
   const [savedView, setSavedView] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState(false);
+  const [personalRecord, setPersonalRecord] = useState<ConsoleViewRecord | null>(null);
+  const [objectTypeId, setObjectTypeId] = useState<string | null>(null);
   const [deployPending, setDeployPending] = useState(false);
+  const [deployError, setDeployError] = useState(false);
   const [inlinePanel, setInlinePanel] = useState<ReactNode>(null);
 
   // §4.7-3: detail opens as a right pin; without a window shell (unit tests),
@@ -482,7 +551,7 @@ export function DashboardEditor({ registry, rows }: DashboardEditorProps) {
   };
 
   const handleDrill = (filter: DrillFilter) => {
-    const id = `configconsole-drill-${filter.objectType}-${filter.choiceId ?? "all"}`;
+    const id = `configconsole-drill-${filter.objectType}-${filter.choiceId ?? filter.lifecycleState ?? "all"}`;
     openPanel(id, S.drill.panelTitle, () => (
       <DrillPanel
         filter={filter}
@@ -498,7 +567,18 @@ export function DashboardEditor({ registry, rows }: DashboardEditorProps) {
     const snapshot = doc;
     const id = "configconsole-deploy";
     const submit = () => {
-      setDeployPending(true);
+      setDeployError(false);
+      void (async () => {
+        try {
+          const detail = objectTypeId ?? (await getObjectType(api, CONSOLE_VIEW_KEY)).object_type.id;
+          setObjectTypeId(detail);
+          const teamView = await saveConsoleView(api, detail, null, screenKey, snapshot, "team");
+          await deployConsoleView(api, teamView);
+          setDeployPending(true);
+        } catch {
+          setDeployError(true);
+        }
+      })();
       if (windowManager) windowManager.close(id);
       else setInlinePanel(null);
     };
@@ -512,12 +592,21 @@ export function DashboardEditor({ registry, rows }: DashboardEditorProps) {
   };
 
   const handleSave = () => {
-    // §3.9.0-① personal view: direct save, comment is the audited change reason.
-    // wire-pending: HANDOFF §4 PUT /api/v1/console/views/config-console — no
-    // personal-view persistence endpoint in the OpenAPI yet; the doc saved here
-    // is the real serialized layout (UI-created config, not display data).
-    setSavedView(serializeDashboardDoc(doc));
-    setComment("");
+    // §3.9.0-① personal view: direct save — a real console_view instance, not
+    // a local-only snapshot (create on first save, revise in place after).
+    setSaveError(false);
+    void (async () => {
+      try {
+        const typeId = objectTypeId ?? (await getObjectType(api, CONSOLE_VIEW_KEY)).object_type.id;
+        setObjectTypeId(typeId);
+        const record = await saveConsoleView(api, typeId, personalRecord, screenKey, doc, "personal");
+        setPersonalRecord(record);
+        setSavedView(serializeDashboardDoc(doc));
+        setComment("");
+      } catch {
+        setSaveError(true);
+      }
+    })();
   };
 
   return (
@@ -526,6 +615,11 @@ export function DashboardEditor({ registry, rows }: DashboardEditorProps) {
         <StatusChip tone="neutral">{S.chips.personal}</StatusChip>
         {savedView !== null ? <StatusChip role="status" tone="ok">{S.chips.saved}</StatusChip> : null}
         {deployPending ? <StatusChip role="status" tone="purple">{S.chips.deployPending}</StatusChip> : null}
+        {saveError || deployError ? (
+          <StatusChip role="status" tone="danger">
+            {ko.common.writeFailed}
+          </StatusChip>
+        ) : null}
         <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--sp-2)", marginLeft: "auto", alignItems: "center" }}>
           <PolicyGated action={CONFIG_CONSOLE_ACTIONS.configure}>
             {configMode ? (
@@ -576,25 +670,31 @@ export function DashboardEditor({ registry, rows }: DashboardEditorProps) {
                 slot={slot}
                 index={index}
                 registry={registry}
+                rows={rows}
                 onChange={(widget) => { setDoc((current) => setSlotWidget(current, slot.id, widget)); }}
               />
             ) : null}
             {slot.widget ? (
-              <WidgetBody config={slot.widget} rows={rows} registry={registry} onDrill={handleDrill} />
+              <WidgetBody
+                config={slot.widget}
+                rows={rows}
+                registry={registry}
+                onDrill={handleDrill}
+                api={api}
+                onOpenInstance={handleOpenObject}
+              />
             ) : (
-              // §4-22 add-anything: every empty slot carries its in-place add path.
               <PolicyGated action={CONFIG_CONSOLE_ACTIONS.configure}>
-                <button
-                  type="button"
-                  aria-label={S.slot.addAria(index + 1)}
-                  style={{ ...buttonStyle, justifyContent: "center", minHeight: 64 }}
-                  onClick={() => {
-                    setDoc((current) => setSlotWidget(current, slot.id, defaultWidget(registry)));
+                <AddWidgetStrip
+                  n={index + 1}
+                  doc={doc}
+                  registry={registry}
+                  rows={rows}
+                  onAdd={(widget) => {
+                    setDoc((current) => setSlotWidget(current, slot.id, widget));
                     setConfigMode(true);
                   }}
-                >
-                  {S.slot.add}
-                </button>
+                />
               </PolicyGated>
             )}
           </section>

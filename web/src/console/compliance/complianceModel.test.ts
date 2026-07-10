@@ -1,0 +1,131 @@
+import { describe, expect, it } from "vitest";
+
+import { catalogStats, controlEvidenceLedger, filterRows, kindChip, nextStates, riskChipTone, toRows } from "./complianceModel";
+import { createComplianceCatalogStubs, createFrameworkStubs, createObligationStubs, createRegulationStubs } from "./complianceStubs";
+
+describe("complianceModel", () => {
+  describe("kindChip", () => {
+    it("assigns the 구분 badge code per kind, distinct per catalog object", () => {
+      expect(kindChip("obligation", "cp-1").code).toBe("CP");
+      expect(kindChip("regulation", "rg-1").code).toBe("RG");
+      expect(kindChip("framework", "fw-1").code).toBe("FW");
+    });
+  });
+
+  describe("nextStates — mirrors backend validate_*_status_transition", () => {
+    it("obligation: DRAFT can go active or archived, never waived", () => {
+      const labels = nextStates("obligation", "DRAFT").map((s) => s.labelKey);
+      expect(labels).toEqual(["console.modules.compliance.statuses.active", "console.modules.compliance.statuses.archived"]);
+    });
+
+    it("obligation: ACTIVE can waive, supersede, or archive", () => {
+      const labels = nextStates("obligation", "ACTIVE").map((s) => s.labelKey);
+      expect(labels).toEqual([
+        "console.modules.compliance.statuses.waived",
+        "console.modules.compliance.statuses.superseded",
+        "console.modules.compliance.statuses.archived",
+      ]);
+    });
+
+    it("obligation: WAIVED can resume to active (not a dead end)", () => {
+      const labels = nextStates("obligation", "WAIVED").map((s) => s.labelKey);
+      expect(labels).toContain("console.modules.compliance.statuses.active");
+    });
+
+    it("regulation: SUPERSEDED can only archive (never resumes to active)", () => {
+      const labels = nextStates("regulation", "SUPERSEDED").map((s) => s.labelKey);
+      expect(labels).toEqual(["console.modules.compliance.statuses.archived"]);
+    });
+
+    it("framework: ACTIVE can retire or archive, never go back to draft", () => {
+      const labels = nextStates("framework", "ACTIVE").map((s) => s.labelKey);
+      expect(labels).toEqual(["console.modules.compliance.statuses.retired", "console.modules.compliance.statuses.archived"]);
+    });
+
+    it("ARCHIVED is terminal for every kind", () => {
+      expect(nextStates("obligation", "ARCHIVED")).toEqual([]);
+      expect(nextStates("regulation", "ARCHIVED")).toEqual([]);
+      expect(nextStates("framework", "ARCHIVED")).toEqual([]);
+    });
+  });
+
+  describe("riskChipTone", () => {
+    it("escalates tone with risk severity, CRITICAL reads as the strongest tone", () => {
+      expect(riskChipTone("INFO")).toBe("neutral");
+      expect(riskChipTone("HIGH")).toBe("danger");
+      expect(riskChipTone("CRITICAL")).toBe("purple");
+    });
+  });
+
+  describe("toRows", () => {
+    it("carries the REAL per-kind status onto the row, not a generic placeholder", () => {
+      const [waivedObligation] = toRows(createObligationStubs()).filter((row) => row.code === "CP-0002");
+      expect(waivedObligation.status?.labelKey).toBe("console.modules.compliance.statuses.waived");
+      expect(waivedObligation.status?.tone).toBe("warn");
+    });
+
+    it("populates RG- impact fields in the detail payload", () => {
+      const [regRow] = toRows(createRegulationStubs());
+      expect(regRow.detail?.jurisdiction).toBe("대한민국");
+      expect(regRow.detail?.citation).toBe("최저임금법 제5조");
+      expect(regRow.detail?.impactArea).toBe("급여");
+    });
+
+    it("attaches a control-evidence ledger only to framework rows", () => {
+      const rows = toRows(createComplianceCatalogStubs());
+      const obligationRow = rows.find((row) => row.code === "CP-0001");
+      const frameworkRow = rows.find((row) => row.code === "FW-0001");
+      expect(obligationRow?.detail?.controlEvidenceMatrix).toBeUndefined();
+      expect(frameworkRow?.detail?.controlEvidenceMatrix).toMatchObject({ total: "1/3" });
+    });
+
+    it("every row carries an audit-trail link chip", () => {
+      for (const row of toRows(createComplianceCatalogStubs())) {
+        expect(row.linkChips?.some((chip) => chip.key === "auditTrail")).toBe(true);
+      }
+    });
+  });
+
+  describe("controlEvidenceLedger", () => {
+    it("summarizes accepted-evidence coverage as accepted/total", () => {
+      const [isms] = createFrameworkStubs();
+      const ledger = controlEvidenceLedger(isms);
+      expect(ledger.total).toBe("1/3");
+      expect(ledger.entries).toHaveLength(3);
+      expect(ledger.entries[0]).toMatchObject({ tone: "ok", amount: 3 });
+      expect(ledger.entries[2]).toMatchObject({ tone: "danger", amount: 0 });
+    });
+  });
+
+  describe("filterRows", () => {
+    it("matches by title substring case-insensitively", () => {
+      const rows = toRows(createComplianceCatalogStubs());
+      const matched = filterRows(rows, "안전");
+      expect(matched.map((r) => r.code)).toEqual(["FW-0002"]);
+    });
+
+    it("returns all rows for an empty query", () => {
+      const rows = toRows(createComplianceCatalogStubs());
+      expect(filterRows(rows, "  ")).toHaveLength(rows.length);
+    });
+
+    it("returns nothing for a query matching no row", () => {
+      const rows = toRows(createComplianceCatalogStubs());
+      expect(filterRows(rows, "nonexistent-zzz")).toEqual([]);
+    });
+  });
+
+  describe("catalogStats", () => {
+    it("flags WAIVED obligations and CRITICAL risk items as needing attention", () => {
+      const stats = catalogStats(createComplianceCatalogStubs());
+      // cp-0002 (WAIVED), cp-0002 is also CRITICAL severity, rg-0002 (CRITICAL risk)
+      expect(stats.attention).toBe(2);
+      expect(stats.frameworks).toBe(2);
+    });
+
+    it("counts only rows in the real ACTIVE state", () => {
+      const stats = catalogStats(createComplianceCatalogStubs());
+      expect(stats.active).toBe(4); // cp-0001, cp-0003, rg-0001, fw-0001
+    });
+  });
+});

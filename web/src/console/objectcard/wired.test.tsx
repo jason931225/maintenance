@@ -15,7 +15,11 @@ const T = ko.console.objectcard;
 const S = objectCardGovStrings();
 const allowGate: PolicyGate = { can: () => true };
 
-const server = setupServer();
+// Every mount fetches the dynamic-layer acting chips; default to empty so
+// tests that don't care about §2 dynamics don't need to mock it individually.
+const server = setupServer(
+  http.get("*/api/v1/ontology/instances/:id/acting", () => HttpResponse.json([])),
+);
 
 beforeAll(() => {
   server.listen({ onUnhandledRequest: "error" });
@@ -93,12 +97,20 @@ const historyRows = [
   },
 ];
 
-function renderGoverned(handlers?: ObjectCardHandlers) {
+function renderGoverned(
+  handlers?: ObjectCardHandlers,
+  onInstanceChange?: (update: { lifecycleState: string; version: number }) => void,
+) {
   const api = createConsoleApiClient();
   const descriptor = createObjectCardStub();
   return render(
     <PolicyGateProvider gate={allowGate}>
-      <GovernedObjectCard api={api} descriptor={descriptor} handlers={handlers} />
+      <GovernedObjectCard
+        api={api}
+        descriptor={descriptor}
+        handlers={handlers}
+        onInstanceChange={onInstanceChange}
+      />
     </PolicyGateProvider>,
   );
 }
@@ -356,6 +368,59 @@ describe("GovernedObjectCard §20 override → four-eyes decide", () => {
   });
 });
 
+describe("GovernedObjectCard dynamic layer (acting-read + code resolve)", () => {
+  it("fetches the real acting rules for the instance and renders them as navigable chips", async () => {
+    server.use(
+      http.get("*/api/v1/ontology/instances/wo-2643/acting", () =>
+        HttpResponse.json([
+          { id: "wf-9", label: "wf-audit-review", kind: "automation" },
+          { id: "pol-9", label: "pbac-audit-edit", kind: "policy" },
+        ]),
+      ),
+    );
+    renderGoverned();
+    expect(await screen.findByText("wf-audit-review")).toBeTruthy();
+    expect(screen.getByText("pbac-audit-edit")).toBeTruthy();
+  });
+
+  it("degrades to no chips (fail-closed) when the acting fetch errors", async () => {
+    server.use(
+      http.get("*/api/v1/ontology/instances/wo-2643/acting", () =>
+        HttpResponse.json({ error: { code: "internal", message: "boom" } }, { status: 500 }),
+      ),
+    );
+    renderGoverned();
+    // The stub's own sample chips (wf-1/pol-1) are replaced by the (empty) real fetch.
+    await waitFor(() => {
+      expect(screen.queryByText("wf-wo-review")).toBeNull();
+    });
+  });
+
+  it("resolves a code through the real endpoint for the relation-draw seam", async () => {
+    const onRelationAdd = vi.fn();
+    server.use(
+      http.get("*/api/v1/ontology/resolve", ({ request }) => {
+        const code = new URL(request.url).searchParams.get("code");
+        if (code === "EQ-118") {
+          return HttpResponse.json({ id: "inst-eq118", type: "equipment", title: "5호기 지게차" });
+        }
+        return new HttpResponse(null, { status: 404 });
+      }),
+    );
+    renderGoverned({ onRelationAdd });
+    const input = screen.getByLabelText(T.relations.codeLabel);
+    fireEvent.change(input, { target: { value: "EQ-118" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => {
+      expect(onRelationAdd).toHaveBeenCalledWith({
+        code: "EQ-118",
+        title: "5호기 지게차",
+        linkType: "relates_to",
+      });
+    });
+  });
+});
+
 describe("GovernedObjectCard lifecycle transition preflight", () => {
   const archiveLabel = T.transitionTo(T.lifecycle.archived);
 
@@ -386,9 +451,11 @@ describe("GovernedObjectCard lifecycle transition preflight", () => {
     expect(screen.getAllByRole("button", { name: archiveLabel }).length).toBe(1);
   });
 
-  it("shows pending gates as warnings and commits an allowed transition through the host seam", async () => {
+  it("shows pending gates as warnings and commits an allowed transition through the real endpoint", async () => {
     const onLifecycleTransition = vi.fn();
+    const onInstanceChange = vi.fn();
     let preflightBody: unknown;
+    let commitBody: unknown;
     server.use(
       http.post("*/api/v1/governance/lifecycle/preflight", async ({ request }) => {
         preflightBody = await request.json();
@@ -398,15 +465,40 @@ describe("GovernedObjectCard lifecycle transition preflight", () => {
           outcome: passingChain,
         });
       }),
+      http.post("*/api/v1/ontology/instances/wo-2643/lifecycle", async ({ request }) => {
+        commitBody = await request.json();
+        return HttpResponse.json({
+          instance: {
+            id: "wo-2643",
+            object_type_id: "00000000-0000-4000-8000-00000000ce0c",
+            title: "4호기 유압 점검",
+            current_revision_id: "rev-3",
+            lifecycle_state: "archived",
+          },
+          config: { authority: true, self_checklist: false, four_eyes: false, egress_dlp: false },
+          gates: passingChain,
+        });
+      }),
+      http.get("*/api/v1/ontology/instances/wo-2643/history", () =>
+        HttpResponse.json(historyRows),
+      ),
     );
-    renderGoverned({ onLifecycleTransition });
+    renderGoverned({ onLifecycleTransition }, onInstanceChange);
     fireEvent.click(screen.getByRole("button", { name: archiveLabel }));
 
     await waitFor(() => {
       expect(screen.getAllByRole("button", { name: archiveLabel }).length).toBe(2);
     });
     fireEvent.click(screen.getAllByRole("button", { name: archiveLabel })[1]);
-    expect(onLifecycleTransition).toHaveBeenCalledWith("archived");
+
+    // Real commit: the FSM edge posts to the ontology instance endpoint, not a stub.
+    await waitFor(() => {
+      expect(onLifecycleTransition).toHaveBeenCalledWith("archived");
+    });
+    expect(onInstanceChange).toHaveBeenCalledWith({ lifecycleState: "archived", version: 3 });
+    expect((commitBody as Record<string, unknown>).to_state).toBe("archived");
+    // The lifecycle chip reflects the committed state.
+    expect(screen.getAllByText(T.lifecycle.archived).length).toBeGreaterThan(0);
 
     const body = preflightBody as Record<string, unknown>;
     expect(body.object_type_id).toBe("00000000-0000-4000-8000-00000000ce0c");

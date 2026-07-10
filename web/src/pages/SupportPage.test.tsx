@@ -11,8 +11,11 @@ import type { AuthContextValue, AuthSession } from "../context/auth";
 import { ticketCode } from "../features/support/support-format";
 import { KO_CONSOLE_SUPPORTDESK as D } from "../features/support/supportdesk-ko.test";
 import { KO_CONSOLE_SUPPORTSLO as T } from "../features/support/supportslo-ko.test";
+import { supportSloStringsFilled } from "../features/support/supportslo-strings";
 import { ko } from "../i18n/ko";
 import { SupportPage } from "./SupportPage";
+
+const E = supportSloStringsFilled().engine;
 
 const NOW_ISH_BRANCH = "00000000-0000-4000-8000-000000000001";
 
@@ -97,6 +100,27 @@ const server = setupServer(
     postedComments.push(comment);
     return HttpResponse.json(comment);
   }),
+  // SloSettingsCard → real support_slo_setting engine instances (be2-config-objects).
+  http.get("*/api/v1/ontology/object-types/:key", ({ params }) =>
+    HttpResponse.json({
+      object_type: {
+        id: "slo-type",
+        stable_key: params.key,
+        title: "SLO 설정",
+        backing_kind: "instance",
+        schema_version: 1,
+        lifecycle_state: "published",
+      },
+      title_property_key: "ticket_type",
+      backing_table: null,
+      primary_key_property: null,
+      properties: [],
+      links: [],
+      actions: [],
+      analytics: [],
+    }),
+  ),
+  http.get("*/api/v1/ontology/instances", () => HttpResponse.json([])),
 );
 
 beforeAll(() => {
@@ -163,10 +187,11 @@ describe("SupportPage SLO surface", () => {
       screen.getByText(T.alerts.escalateTo(T.settings.targets.ADMIN)),
     ).toBeVisible();
 
-    // Stat tile is SLO-labelled (never SLA), and the settings card is present.
+    // Stat tile is SLO-labelled (never SLA), and the settings card is present
+    // (engine-wired card — title comes from the English ENGINE_FALLBACK
+    // until ko.console.supportslo.engine is wired).
     expect(screen.getByText(T.urgentOrBreached)).toBeVisible();
-    expect(screen.getByText(T.settings.title)).toBeVisible();
-    expect(screen.getByText(T.settings.scopeChip)).toBeVisible();
+    expect(await screen.findByText(E.title)).toBeVisible();
   });
 
   it("opens the breached ticket from its alert row as the right pin", async () => {

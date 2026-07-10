@@ -1,3 +1,8 @@
+import {
+  objectCodeBodySource,
+  objectCodeGlobalRegex,
+  objectCodePartialRegex,
+} from "../ontology/codeGrammar";
 import type {
   ConsoleMessengerMember,
   ConsoleMessengerMessage,
@@ -30,8 +35,12 @@ export interface ComposerCandidateSources {
   objectCodes: string[];
 }
 
-const OBJECT_CODE_RE = /\b(?:AP|WO|AT|CS|JL|PS|IN|DX|Bid|MT|EV|OT|SR|PAY|EQ|VC|FL|HR|TK|C|R)-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*\b/g;
-const PART_RE = /(@[\p{L}\p{N}_-]+)|\b(?:AP|WO|AT|CS|JL|PS|IN|DX|Bid|MT|EV|OT|SR|PAY|EQ|VC|FL|HR|TK|C|R)-[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*\b/gu;
+// Mention (@name) OR object code, over the shared dynamic code grammar. Built
+// per call so a registry prime (new type prefix) is picked up without a stale
+// module-level regex; regex compile is negligible against the per-message loop.
+function partRegex(): RegExp {
+  return new RegExp(`(@[\\p{L}\\p{N}_-]+)|\\b${objectCodeBodySource()}\\b`, "gu");
+}
 
 export function buildMessageRows(
   messages: ConsoleMessengerMessage[],
@@ -57,7 +66,7 @@ export function renderMessageParts(
 ): MessagePart[] {
   const parts: MessagePart[] = [];
   let cursor = 0;
-  for (const match of body.matchAll(PART_RE)) {
+  for (const match of body.matchAll(partRegex())) {
     const text = match[0];
     const index = match.index;
     if (index > cursor) {
@@ -85,12 +94,13 @@ export function renderMessageParts(
 
 export function extractObjectCodes(messages: ConsoleMessengerMessage[]): string[] {
   const codes = new Set<string>();
+  const codeRe = objectCodeGlobalRegex();
   for (const message of messages) {
-    for (const match of message.body.matchAll(OBJECT_CODE_RE)) {
+    for (const match of message.body.matchAll(codeRe)) {
       codes.add(match[0]);
     }
     if (message.quoted_body) {
-      for (const match of message.quoted_body.matchAll(OBJECT_CODE_RE)) {
+      for (const match of message.quoted_body.matchAll(codeRe)) {
         codes.add(match[0]);
       }
     }
@@ -153,7 +163,7 @@ export function buildComposerCandidates(
         insertText: `#${threadTitle(thread)}`,
       }));
   }
-  if (/^(?:AP|WO|AT|CS|JL|PS|IN|DX|Bid|MT|EV|OT|SR|PAY|EQ|VC|FL|HR|TK|C|R)-[A-Za-z0-9-]*$/.test(token)) {
+  if (objectCodePartialRegex().test(token)) {
     const query = token.toLocaleLowerCase("ko-KR");
     return sources.objectCodes
       .filter((code) => code.toLocaleLowerCase("ko-KR").startsWith(query))

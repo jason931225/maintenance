@@ -1,3 +1,5 @@
+import { objectCodePartialRegex } from "../ontology/codeGrammar";
+
 export type ApprLineState =
   | "pending"
   | "current"
@@ -206,7 +208,6 @@ export type CompletionResult =
       notificationCount: number;
     };
 
-const OBJECT_CODE_RE = /^(?:AP|WO|AT|CS|JL|PS|IN|DX|Bid|MT|EV|OT|SR|PAY|EQ|VC|FL|HR|TK|C|R)-[A-Za-z0-9-]*$/;
 const ATTACHMENT_POLICIES = new Set(["none", "evidence_required", "optional"]);
 
 export function mapSubmittableDefinition(definition: ApprSubmittableDefinition): ApprTemplate {
@@ -338,7 +339,7 @@ export function buildApprComposerCandidates(
         insertText: `#${channel.label}`,
       }));
   }
-  if (OBJECT_CODE_RE.test(token)) {
+  if (objectCodePartialRegex().test(token)) {
     const query = normalize(token);
     return sources.objectCodes
       .filter((code) => normalize(code).startsWith(query))

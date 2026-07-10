@@ -115,6 +115,30 @@ function mockFindings(findings: unknown[]) {
   );
 }
 
+const allowDecision = {
+  id: "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+  decided_at: "2026-06-12T10:00:00Z",
+  subject_ref: "user:김대표",
+  action: "role_manage",
+  resource_type: "policy_role",
+  resource_id: null,
+  effect: "allow",
+  determining_policies: ["policy-role-manage-01"],
+  reason: "principal has role_manage on policy_role",
+};
+
+const denyDecision = {
+  id: "eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee",
+  decided_at: "2026-06-12T11:00:00Z",
+  subject_ref: "user:이기안",
+  action: "role_manage",
+  resource_type: "policy_role",
+  resource_id: "role-42",
+  effect: "deny",
+  determining_policies: [],
+  reason: "no matching permit policy",
+};
+
 describe("IntegrityPage gating", () => {
   it("redirects an ADMIN away from /integrity (EXECUTIVE/SUPER_ADMIN only)", async () => {
     renderApp(
@@ -334,6 +358,78 @@ describe("IntegrityPage triage", () => {
 
     expect(
       await within(dialog).findByText(/이미 처리된 항목입니다/),
+    ).toBeVisible();
+  });
+});
+
+describe("IntegrityPage decisions tab", () => {
+  it("shows the empty state when there are no decisions", async () => {
+    mockFindings([]);
+    server.use(
+      http.get("*/api/v1/policy/decisions", () => HttpResponse.json([])),
+    );
+    const user = userEvent.setup();
+    renderApp("/integrity", makeAuthContext(executiveSession));
+
+    await user.click(
+      await screen.findByRole("button", { name: "정책 판정" }),
+    );
+    expect(
+      await screen.findByText("표시할 정책 판정 기록이 없습니다."),
+    ).toBeVisible();
+  });
+
+  it("renders allow/deny decisions and drills into the matched policy", async () => {
+    mockFindings([]);
+    server.use(
+      http.get("*/api/v1/policy/decisions", () =>
+        HttpResponse.json([denyDecision, allowDecision]),
+      ),
+    );
+    const user = userEvent.setup();
+    renderApp("/integrity", makeAuthContext(executiveSession));
+
+    await user.click(
+      await screen.findByRole("button", { name: "정책 판정" }),
+    );
+
+    expect(await screen.findByText("허용")).toBeVisible();
+    expect(screen.getByText("거부")).toBeVisible();
+    expect(screen.getByText(/user:김대표/)).toBeVisible();
+    expect(screen.getByText(/role-42/)).toBeVisible();
+
+    // Deny-drill: expand the deny row's matched-policy detail.
+    const denyRow = screen.getByText("거부").closest("li");
+    expect(denyRow).not.toBeNull();
+    await user.click(
+      within(denyRow as HTMLLIElement).getByText("적용된 정책"),
+    );
+    expect(
+      within(denyRow as HTMLLIElement).getByText("일치한 정책 없음"),
+    ).toBeVisible();
+    expect(
+      within(denyRow as HTMLLIElement).getByText("no matching permit policy"),
+    ).toBeVisible();
+  });
+
+  it("surfaces the error state when the decision feed fails to load", async () => {
+    mockFindings([]);
+    server.use(
+      http.get("*/api/v1/policy/decisions", () =>
+        HttpResponse.json(
+          { error: { code: "internal", message: "boom" } },
+          { status: 500 },
+        ),
+      ),
+    );
+    const user = userEvent.setup();
+    renderApp("/integrity", makeAuthContext(executiveSession));
+
+    await user.click(
+      await screen.findByRole("button", { name: "정책 판정" }),
+    );
+    expect(
+      await screen.findByText("정책 판정 기록을 불러오지 못했습니다."),
     ).toBeVisible();
   });
 });

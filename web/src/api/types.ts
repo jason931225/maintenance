@@ -514,6 +514,16 @@ export type EmployeeImportDryRun =
   components["schemas"]["EmployeeImportDryRunSummary"];
 export type HrOrgChartResponse = components["schemas"]["HrOrgChartResponse"];
 export type LeaveBalancePage = components["schemas"]["LeaveBalancePage"];
+// ── console/leave (real leave engine — /api/v1/leave/*) ──────────────────────
+export type LeaveRequestView = components["schemas"]["LeaveRequestView"];
+export type LeaveRequestPage = components["schemas"]["LeaveRequestPage"];
+export type LeaveDecideRequest = components["schemas"]["LeaveDecideRequest"];
+export type LeaveRosterEntry = components["schemas"]["LeaveRosterEntry"];
+export type LeaveRosterPage = components["schemas"]["LeaveRosterPage"];
+export type LeavePromotionRequest =
+  components["schemas"]["LeavePromotionRequest"];
+export type LeaveStatutoryPushView =
+  components["schemas"]["LeaveStatutoryPushView"];
 export type AttendanceSummaryPage =
   components["schemas"]["AttendanceSummaryPage"];
 export type CreateEmployeeAttendanceRecordRequest =

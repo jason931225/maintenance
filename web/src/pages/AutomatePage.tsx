@@ -36,10 +36,9 @@ import {
 import { StatusChip } from "../console/components";
 import { fetchOntObjectTypes, type OntObjectTypeDef } from "../console/configconsole";
 import {
-  PolicyGateProvider,
+  BulkPolicyGateProvider,
   PolicyGated,
   usePolicyGate,
-  type PolicyGate,
 } from "../console/policy";
 import { objDrag } from "../console/window";
 import "../console/tokens.css";
@@ -97,13 +96,9 @@ const ACT = {
   editMonitor: "console.automate.monitor.edit",
 } as const;
 
-const ALLOWED_ACTIONS = new Set<string>(Object.values(ACT));
-
-// wire-pending: Phase C — Cedar authorize() decisions replace this allow-list
-// stub (same pattern as WorkflowStudioPage's WORKFLOW_AUTO_RUNTIME_GATE).
-const AUTOMATE_RUNTIME_GATE: PolicyGate = {
-  can: (action) => ALLOWED_ACTIONS.has(action),
-};
+// Deny-by-omission action set, resolved at mount via
+// POST /api/v1/policy/authorize/bulk (arch §5c) — see BulkPolicyGateProvider.
+const AUTOMATE_GATE_ACTIONS: readonly string[] = Object.values(ACT);
 
 // ── View models over the definition payloads ────────────────────────────────
 
@@ -1842,9 +1837,9 @@ export function AutomatePage() {
   return (
     <>
       <PageHeader title={ko.nav.automate} />
-      <PolicyGateProvider gate={AUTOMATE_RUNTIME_GATE}>
+      <BulkPolicyGateProvider actions={AUTOMATE_GATE_ACTIONS}>
         <AutomateHub />
-      </PolicyGateProvider>
+      </BulkPolicyGateProvider>
     </>
   );
 }
