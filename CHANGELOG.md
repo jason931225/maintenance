@@ -1,5 +1,20 @@
 # Changelog
 
+## [0.1.59](https://github.com/jason931225/maintenance/compare/v0.1.58...v0.1.59) (2026-07-10)
+
+
+### Features
+
+* **backend:** W1 engine completion — 10 lanes (C-chain, projected dispatch, semantic backfill, seeds, voucher/GL, quant, notifications, payroll, ingest gates) ([#440](https://github.com/jason931225/maintenance/issues/440)) ([d379f5a](https://github.com/jason931225/maintenance/commit/d379f5a08ff138f0adac5567c780fa6a92248d3e))
+* **web:** W2 console wave 2 — 10 lanes wired (dynamic grammar, leave/evidence/config/finance, policy bulk gate, dynamics, decisions, compliance, forecast) ([#441](https://github.com/jason931225/maintenance/issues/441)) ([ced3ea3](https://github.com/jason931225/maintenance/commit/ced3ea3e005661923ca2b2625a3ab17a49a5212d))
+
+
+### Bug Fixes
+
+* **ci:** cancel superseded runs only for PRs — main pushes run to completion ([#438](https://github.com/jason931225/maintenance/issues/438)) ([f097104](https://github.com/jason931225/maintenance/commit/f0971044f07b97e089e15d5ecff0913cc7763b2e))
+* **db:** make migration 0112 owner-safe — superuser envs self-apply, prod asserts provisioning ([#444](https://github.com/jason931225/maintenance/issues/444)) ([8644710](https://github.com/jason931225/maintenance/commit/864471028b18e529f545d8367df61b4f88eb29ef))
+* **deploy:** resolve mnt-mox PodSecurity rejection — mox cannot run under restricted PSS ([#445](https://github.com/jason931225/maintenance/issues/445)) ([66f0f1a](https://github.com/jason931225/maintenance/commit/66f0f1aca8f253939081a4335d266f17b7852221))
+
 ## [0.1.58](https://github.com/jason931225/maintenance/compare/v0.1.57...v0.1.58) (2026-07-10)
 
 
