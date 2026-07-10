@@ -324,16 +324,20 @@ public actor CoreDataMutationQueueStore: MutationQueueStore {
         if testingFailureMode == .save {
             throw PersistenceStoreError.saveFailed("mutation_queue", "injected")
         }
+        // Read the actor-isolated `testingFailureMode` into a Sendable local *before*
+        // the `performAndWait` block. That block is `@Sendable` (see the CoreData
+        // overlay); referencing `self.testingFailureMode` inside it would capture the
+        // actor, merging `self`'s region with `context` and turning the
+        // `@preconcurrency`-downgraded context capture into a hard Swift 6.1
+        // "sending 'context' risks causing data races" error. Capturing only the
+        // Sendable local keeps the block's captures value-typed.
+        let failureMode = testingFailureMode
         let context = container.viewContext
-        // A throwing, value-returning block binds to `performAndWait<T>(_:) throws`
-        // (block is not `@Sendable`), so the non-Sendable `context` is not captured
-        // by a Sendable closure — which is what triggers Swift 6 "sending 'context'
-        // risks causing data races". The work still runs on the context's queue.
         try context.performAndWait {
             let object = try Self.fetchObject(
                 requestID: mutation.requestID,
                 context: context,
-                testingFailureMode: testingFailureMode
+                testingFailureMode: failureMode
             ) ?? NSManagedObject(
                 entity: Self.entityDescription(in: context),
                 insertInto: context
@@ -353,9 +357,10 @@ public actor CoreDataMutationQueueStore: MutationQueueStore {
     }
 
     public func pending() throws -> [QueuedMutation] {
+        let failureMode = testingFailureMode
         let context = container.viewContext
         return try context.performAndWait {
-            if testingFailureMode == .fetch {
+            if failureMode == .fetch {
                 throw PersistenceStoreError.fetchFailed("mutation_queue", "injected")
             }
             let request = NSFetchRequest<NSManagedObject>(entityName: "QueuedMutationEntity")
@@ -373,12 +378,13 @@ public actor CoreDataMutationQueueStore: MutationQueueStore {
     }
 
     public func get(_ requestID: String) throws -> QueuedMutation? {
+        let failureMode = testingFailureMode
         let context = container.viewContext
         return try context.performAndWait {
             try Self.fetchObject(
                 requestID: requestID,
                 context: context,
-                testingFailureMode: testingFailureMode
+                testingFailureMode: failureMode
             ).flatMap(Self.decodeMutation)
         }
     }
@@ -387,12 +393,13 @@ public actor CoreDataMutationQueueStore: MutationQueueStore {
         if testingFailureMode == .save {
             throw PersistenceStoreError.saveFailed("mutation_queue", "injected")
         }
+        let failureMode = testingFailureMode
         let context = container.viewContext
         try context.performAndWait {
             guard let object = try Self.fetchObject(
                 requestID: requestID,
                 context: context,
-                testingFailureMode: testingFailureMode
+                testingFailureMode: failureMode
             ) else { return }
             object.setValue(SyncState.synced.rawValue, forKey: "syncState")
             object.setValue(nil, forKey: "lastError")
@@ -405,12 +412,13 @@ public actor CoreDataMutationQueueStore: MutationQueueStore {
         if testingFailureMode == .save {
             throw PersistenceStoreError.saveFailed("mutation_queue", "injected")
         }
+        let failureMode = testingFailureMode
         let context = container.viewContext
         try context.performAndWait {
             guard let object = try Self.fetchObject(
                 requestID: requestID,
                 context: context,
-                testingFailureMode: testingFailureMode
+                testingFailureMode: failureMode
             ) else { return }
             object.setValue(SyncState.failed.rawValue, forKey: "syncState")
             object.setValue(message, forKey: "lastError")
