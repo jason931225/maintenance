@@ -28,7 +28,9 @@ import okhttp3.Call
 import okhttp3.HttpUrl
 
 import com.maintenance.api.client.model.AuditChainAttestation
+import com.maintenance.api.client.model.AuditStreamPage
 import com.maintenance.api.client.model.ErrorBody
+import com.maintenance.api.client.model.ListAuditLog200Response
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -121,6 +123,270 @@ open class AuditApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/v1/audit/attestation",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/audit
+     * List branch-scoped audit log records
+     * Returns append-only audit records visible to the caller&#39;s branch scope. Filters are optional and the result is paginated to keep the evidence surface bounded.
+     * @param limit  (optional, default to 50L)
+     * @param offset  (optional, default to 0L)
+     * @param targetType  (optional)
+     * @param actor  (optional)
+     * @return ListAuditLog200Response
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listAuditLog(limit: kotlin.Long? = 50L, offset: kotlin.Long? = 0L, targetType: kotlin.String? = null, actor: java.util.UUID? = null) : ListAuditLog200Response = withContext(Dispatchers.IO) {
+        val localVarResponse = listAuditLogWithHttpInfo(limit = limit, offset = offset, targetType = targetType, actor = actor)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as ListAuditLog200Response
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/audit
+     * List branch-scoped audit log records
+     * Returns append-only audit records visible to the caller&#39;s branch scope. Filters are optional and the result is paginated to keep the evidence surface bounded.
+     * @param limit  (optional, default to 50L)
+     * @param offset  (optional, default to 0L)
+     * @param targetType  (optional)
+     * @param actor  (optional)
+     * @return ApiResponse<ListAuditLog200Response?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listAuditLogWithHttpInfo(limit: kotlin.Long?, offset: kotlin.Long?, targetType: kotlin.String?, actor: java.util.UUID?) : ApiResponse<ListAuditLog200Response?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listAuditLogRequestConfig(limit = limit, offset = offset, targetType = targetType, actor = actor)
+
+        return@withContext request<Unit, ListAuditLog200Response>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listAuditLog
+     *
+     * @param limit  (optional, default to 50L)
+     * @param offset  (optional, default to 0L)
+     * @param targetType  (optional)
+     * @param actor  (optional)
+     * @return RequestConfig
+     */
+    fun listAuditLogRequestConfig(limit: kotlin.Long?, offset: kotlin.Long?, targetType: kotlin.String?, actor: java.util.UUID?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+                if (offset != null) {
+                    put("offset", listOf(offset.toString()))
+                }
+                if (targetType != null) {
+                    put("target_type", listOf(targetType.toString()))
+                }
+                if (actor != null) {
+                    put("actor", listOf(actor.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/audit",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/audit-streams/ceo-covert/access-events
+     * Read the audit-of-access stream for CEO/top-clearance audit reads
+     * Cedar/PBAC clearance-gated access log for reads of the CEO covert audit stream. Successful reads of this stream are themselves audited.
+     * @param limit  (optional, default to 100L)
+     * @param offset  (optional, default to 0L)
+     * @return AuditStreamPage
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listCeoCovertAuditAccessEvents(limit: kotlin.Long? = 100L, offset: kotlin.Long? = 0L) : AuditStreamPage = withContext(Dispatchers.IO) {
+        val localVarResponse = listCeoCovertAuditAccessEventsWithHttpInfo(limit = limit, offset = offset)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as AuditStreamPage
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/audit-streams/ceo-covert/access-events
+     * Read the audit-of-access stream for CEO/top-clearance audit reads
+     * Cedar/PBAC clearance-gated access log for reads of the CEO covert audit stream. Successful reads of this stream are themselves audited.
+     * @param limit  (optional, default to 100L)
+     * @param offset  (optional, default to 0L)
+     * @return ApiResponse<AuditStreamPage?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listCeoCovertAuditAccessEventsWithHttpInfo(limit: kotlin.Long?, offset: kotlin.Long?) : ApiResponse<AuditStreamPage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listCeoCovertAuditAccessEventsRequestConfig(limit = limit, offset = offset)
+
+        return@withContext request<Unit, AuditStreamPage>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listCeoCovertAuditAccessEvents
+     *
+     * @param limit  (optional, default to 100L)
+     * @param offset  (optional, default to 0L)
+     * @return RequestConfig
+     */
+    fun listCeoCovertAuditAccessEventsRequestConfig(limit: kotlin.Long?, offset: kotlin.Long?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+                if (offset != null) {
+                    put("offset", listOf(offset.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/audit-streams/ceo-covert/access-events",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/audit-streams/ceo-covert/events
+     * Read the CEO/top-clearance covert audit stream
+     * Cedar/PBAC clearance-gated stream of CEO/top-clearance-labeled audit events. The backend loads clearance facts under org-scoped RLS and records an audit-of-access event for every successful read.
+     * @param limit  (optional, default to 100L)
+     * @param offset  (optional, default to 0L)
+     * @return AuditStreamPage
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listCeoCovertAuditEvents(limit: kotlin.Long? = 100L, offset: kotlin.Long? = 0L) : AuditStreamPage = withContext(Dispatchers.IO) {
+        val localVarResponse = listCeoCovertAuditEventsWithHttpInfo(limit = limit, offset = offset)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as AuditStreamPage
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/audit-streams/ceo-covert/events
+     * Read the CEO/top-clearance covert audit stream
+     * Cedar/PBAC clearance-gated stream of CEO/top-clearance-labeled audit events. The backend loads clearance facts under org-scoped RLS and records an audit-of-access event for every successful read.
+     * @param limit  (optional, default to 100L)
+     * @param offset  (optional, default to 0L)
+     * @return ApiResponse<AuditStreamPage?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listCeoCovertAuditEventsWithHttpInfo(limit: kotlin.Long?, offset: kotlin.Long?) : ApiResponse<AuditStreamPage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listCeoCovertAuditEventsRequestConfig(limit = limit, offset = offset)
+
+        return@withContext request<Unit, AuditStreamPage>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listCeoCovertAuditEvents
+     *
+     * @param limit  (optional, default to 100L)
+     * @param offset  (optional, default to 0L)
+     * @return RequestConfig
+     */
+    fun listCeoCovertAuditEventsRequestConfig(limit: kotlin.Long?, offset: kotlin.Long?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+                if (offset != null) {
+                    put("offset", listOf(offset.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/audit-streams/ceo-covert/events",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

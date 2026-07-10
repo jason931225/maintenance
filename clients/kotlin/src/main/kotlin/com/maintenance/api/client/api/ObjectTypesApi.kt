@@ -72,8 +72,8 @@ open class ObjectTypesApi(basePath: kotlin.String = defaultBasePath, client: Cal
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun getObjectType(kind: kotlin.String) : ObjectTypeResponse = withContext(Dispatchers.IO) {
-        val localVarResponse = getObjectTypeWithHttpInfo(kind = kind)
+    suspend fun getRegistryObjectType(kind: kotlin.String) : ObjectTypeResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = getRegistryObjectTypeWithHttpInfo(kind = kind)
 
         return@withContext when (localVarResponse.responseType) {
             ResponseType.Success -> (localVarResponse as Success<*>).data as ObjectTypeResponse
@@ -101,8 +101,8 @@ open class ObjectTypesApi(basePath: kotlin.String = defaultBasePath, client: Cal
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun getObjectTypeWithHttpInfo(kind: kotlin.String) : ApiResponse<ObjectTypeResponse?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = getObjectTypeRequestConfig(kind = kind)
+    suspend fun getRegistryObjectTypeWithHttpInfo(kind: kotlin.String) : ApiResponse<ObjectTypeResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getRegistryObjectTypeRequestConfig(kind = kind)
 
         return@withContext request<Unit, ObjectTypeResponse>(
             localVariableConfig
@@ -110,12 +110,12 @@ open class ObjectTypesApi(basePath: kotlin.String = defaultBasePath, client: Cal
     }
 
     /**
-     * To obtain the request config of the operation getObjectType
+     * To obtain the request config of the operation getRegistryObjectType
      *
      * @param kind Object kind slug.
      * @return RequestConfig
      */
-    fun getObjectTypeRequestConfig(kind: kotlin.String) : RequestConfig<Unit> {
+    fun getRegistryObjectTypeRequestConfig(kind: kotlin.String) : RequestConfig<Unit> {
         val localVariableBody = null
         val localVariableQuery: MultiValueMap = mutableMapOf()
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
@@ -144,8 +144,8 @@ open class ObjectTypesApi(basePath: kotlin.String = defaultBasePath, client: Cal
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun listObjectTypes() : kotlin.collections.List<ObjectTypeResponse> = withContext(Dispatchers.IO) {
-        val localVarResponse = listObjectTypesWithHttpInfo()
+    suspend fun listRegistryObjectTypes() : kotlin.collections.List<ObjectTypeResponse> = withContext(Dispatchers.IO) {
+        val localVarResponse = listRegistryObjectTypesWithHttpInfo()
 
         return@withContext when (localVarResponse.responseType) {
             ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.List<ObjectTypeResponse>
@@ -172,8 +172,8 @@ open class ObjectTypesApi(basePath: kotlin.String = defaultBasePath, client: Cal
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun listObjectTypesWithHttpInfo() : ApiResponse<kotlin.collections.List<ObjectTypeResponse>?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = listObjectTypesRequestConfig()
+    suspend fun listRegistryObjectTypesWithHttpInfo() : ApiResponse<kotlin.collections.List<ObjectTypeResponse>?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listRegistryObjectTypesRequestConfig()
 
         return@withContext request<Unit, kotlin.collections.List<ObjectTypeResponse>>(
             localVariableConfig
@@ -181,11 +181,11 @@ open class ObjectTypesApi(basePath: kotlin.String = defaultBasePath, client: Cal
     }
 
     /**
-     * To obtain the request config of the operation listObjectTypes
+     * To obtain the request config of the operation listRegistryObjectTypes
      *
      * @return RequestConfig
      */
-    fun listObjectTypesRequestConfig() : RequestConfig<Unit> {
+    fun listRegistryObjectTypesRequestConfig() : RequestConfig<Unit> {
         val localVariableBody = null
         val localVariableQuery: MultiValueMap = mutableMapOf()
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()

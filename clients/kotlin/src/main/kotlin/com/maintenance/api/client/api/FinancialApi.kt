@@ -35,6 +35,7 @@ import com.maintenance.api.client.model.CostLedgerEntrySummary
 import com.maintenance.api.client.model.CreatePurchaseRequest
 import com.maintenance.api.client.model.CreateRentalQuoteRequest
 import com.maintenance.api.client.model.ErrorBody
+import com.maintenance.api.client.model.FinancialStepUpRequest
 import com.maintenance.api.client.model.PrepareExpenditureRequest
 import com.maintenance.api.client.model.PurchaseAttachmentDownloadResponse
 import com.maintenance.api.client.model.PurchaseAttachmentPresignRequest
@@ -157,6 +158,7 @@ open class FinancialApi(basePath: kotlin.String = defaultBasePath, client: Call.
      * Admin approval for a submitted purchase request
      *
      * @param purchaseRequestId
+     * @param financialStepUpRequest
      * @return PurchaseRequestSummary
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
@@ -166,8 +168,8 @@ open class FinancialApi(basePath: kotlin.String = defaultBasePath, client: Call.
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun approvePurchaseRequestAdmin(purchaseRequestId: java.util.UUID) : PurchaseRequestSummary = withContext(Dispatchers.IO) {
-        val localVarResponse = approvePurchaseRequestAdminWithHttpInfo(purchaseRequestId = purchaseRequestId)
+    suspend fun approvePurchaseRequestAdmin(purchaseRequestId: java.util.UUID, financialStepUpRequest: FinancialStepUpRequest) : PurchaseRequestSummary = withContext(Dispatchers.IO) {
+        val localVarResponse = approvePurchaseRequestAdminWithHttpInfo(purchaseRequestId = purchaseRequestId, financialStepUpRequest = financialStepUpRequest)
 
         return@withContext when (localVarResponse.responseType) {
             ResponseType.Success -> (localVarResponse as Success<*>).data as PurchaseRequestSummary
@@ -189,16 +191,17 @@ open class FinancialApi(basePath: kotlin.String = defaultBasePath, client: Call.
      * Admin approval for a submitted purchase request
      *
      * @param purchaseRequestId
+     * @param financialStepUpRequest
      * @return ApiResponse<PurchaseRequestSummary?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun approvePurchaseRequestAdminWithHttpInfo(purchaseRequestId: java.util.UUID) : ApiResponse<PurchaseRequestSummary?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = approvePurchaseRequestAdminRequestConfig(purchaseRequestId = purchaseRequestId)
+    suspend fun approvePurchaseRequestAdminWithHttpInfo(purchaseRequestId: java.util.UUID, financialStepUpRequest: FinancialStepUpRequest) : ApiResponse<PurchaseRequestSummary?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = approvePurchaseRequestAdminRequestConfig(purchaseRequestId = purchaseRequestId, financialStepUpRequest = financialStepUpRequest)
 
-        return@withContext request<Unit, PurchaseRequestSummary>(
+        return@withContext request<FinancialStepUpRequest, PurchaseRequestSummary>(
             localVariableConfig
         )
     }
@@ -207,12 +210,14 @@ open class FinancialApi(basePath: kotlin.String = defaultBasePath, client: Call.
      * To obtain the request config of the operation approvePurchaseRequestAdmin
      *
      * @param purchaseRequestId
+     * @param financialStepUpRequest
      * @return RequestConfig
      */
-    fun approvePurchaseRequestAdminRequestConfig(purchaseRequestId: java.util.UUID) : RequestConfig<Unit> {
-        val localVariableBody = null
+    fun approvePurchaseRequestAdminRequestConfig(purchaseRequestId: java.util.UUID, financialStepUpRequest: FinancialStepUpRequest) : RequestConfig<FinancialStepUpRequest> {
+        val localVariableBody = financialStepUpRequest
         val localVariableQuery: MultiValueMap = mutableMapOf()
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
         localVariableHeaders["Accept"] = "application/json"
 
         return RequestConfig(
@@ -230,6 +235,7 @@ open class FinancialApi(basePath: kotlin.String = defaultBasePath, client: Call.
      * Executive final approval for above-threshold purchase requests
      *
      * @param purchaseRequestId
+     * @param financialStepUpRequest
      * @return PurchaseRequestSummary
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
@@ -239,8 +245,8 @@ open class FinancialApi(basePath: kotlin.String = defaultBasePath, client: Call.
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun approvePurchaseRequestExecutive(purchaseRequestId: java.util.UUID) : PurchaseRequestSummary = withContext(Dispatchers.IO) {
-        val localVarResponse = approvePurchaseRequestExecutiveWithHttpInfo(purchaseRequestId = purchaseRequestId)
+    suspend fun approvePurchaseRequestExecutive(purchaseRequestId: java.util.UUID, financialStepUpRequest: FinancialStepUpRequest) : PurchaseRequestSummary = withContext(Dispatchers.IO) {
+        val localVarResponse = approvePurchaseRequestExecutiveWithHttpInfo(purchaseRequestId = purchaseRequestId, financialStepUpRequest = financialStepUpRequest)
 
         return@withContext when (localVarResponse.responseType) {
             ResponseType.Success -> (localVarResponse as Success<*>).data as PurchaseRequestSummary
@@ -262,16 +268,17 @@ open class FinancialApi(basePath: kotlin.String = defaultBasePath, client: Call.
      * Executive final approval for above-threshold purchase requests
      *
      * @param purchaseRequestId
+     * @param financialStepUpRequest
      * @return ApiResponse<PurchaseRequestSummary?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun approvePurchaseRequestExecutiveWithHttpInfo(purchaseRequestId: java.util.UUID) : ApiResponse<PurchaseRequestSummary?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = approvePurchaseRequestExecutiveRequestConfig(purchaseRequestId = purchaseRequestId)
+    suspend fun approvePurchaseRequestExecutiveWithHttpInfo(purchaseRequestId: java.util.UUID, financialStepUpRequest: FinancialStepUpRequest) : ApiResponse<PurchaseRequestSummary?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = approvePurchaseRequestExecutiveRequestConfig(purchaseRequestId = purchaseRequestId, financialStepUpRequest = financialStepUpRequest)
 
-        return@withContext request<Unit, PurchaseRequestSummary>(
+        return@withContext request<FinancialStepUpRequest, PurchaseRequestSummary>(
             localVariableConfig
         )
     }
@@ -280,12 +287,14 @@ open class FinancialApi(basePath: kotlin.String = defaultBasePath, client: Call.
      * To obtain the request config of the operation approvePurchaseRequestExecutive
      *
      * @param purchaseRequestId
+     * @param financialStepUpRequest
      * @return RequestConfig
      */
-    fun approvePurchaseRequestExecutiveRequestConfig(purchaseRequestId: java.util.UUID) : RequestConfig<Unit> {
-        val localVariableBody = null
+    fun approvePurchaseRequestExecutiveRequestConfig(purchaseRequestId: java.util.UUID, financialStepUpRequest: FinancialStepUpRequest) : RequestConfig<FinancialStepUpRequest> {
+        val localVariableBody = financialStepUpRequest
         val localVariableQuery: MultiValueMap = mutableMapOf()
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
         localVariableHeaders["Accept"] = "application/json"
 
         return RequestConfig(
@@ -674,6 +683,7 @@ open class FinancialApi(basePath: kotlin.String = defaultBasePath, client: Call.
      * Execute an approved purchase request and feed the amount into the equipment cost ledger
      *
      * @param purchaseRequestId
+     * @param financialStepUpRequest
      * @return PurchaseRequestSummary
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
@@ -683,8 +693,8 @@ open class FinancialApi(basePath: kotlin.String = defaultBasePath, client: Call.
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun executePurchaseRequest(purchaseRequestId: java.util.UUID) : PurchaseRequestSummary = withContext(Dispatchers.IO) {
-        val localVarResponse = executePurchaseRequestWithHttpInfo(purchaseRequestId = purchaseRequestId)
+    suspend fun executePurchaseRequest(purchaseRequestId: java.util.UUID, financialStepUpRequest: FinancialStepUpRequest) : PurchaseRequestSummary = withContext(Dispatchers.IO) {
+        val localVarResponse = executePurchaseRequestWithHttpInfo(purchaseRequestId = purchaseRequestId, financialStepUpRequest = financialStepUpRequest)
 
         return@withContext when (localVarResponse.responseType) {
             ResponseType.Success -> (localVarResponse as Success<*>).data as PurchaseRequestSummary
@@ -706,16 +716,17 @@ open class FinancialApi(basePath: kotlin.String = defaultBasePath, client: Call.
      * Execute an approved purchase request and feed the amount into the equipment cost ledger
      *
      * @param purchaseRequestId
+     * @param financialStepUpRequest
      * @return ApiResponse<PurchaseRequestSummary?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun executePurchaseRequestWithHttpInfo(purchaseRequestId: java.util.UUID) : ApiResponse<PurchaseRequestSummary?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = executePurchaseRequestRequestConfig(purchaseRequestId = purchaseRequestId)
+    suspend fun executePurchaseRequestWithHttpInfo(purchaseRequestId: java.util.UUID, financialStepUpRequest: FinancialStepUpRequest) : ApiResponse<PurchaseRequestSummary?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = executePurchaseRequestRequestConfig(purchaseRequestId = purchaseRequestId, financialStepUpRequest = financialStepUpRequest)
 
-        return@withContext request<Unit, PurchaseRequestSummary>(
+        return@withContext request<FinancialStepUpRequest, PurchaseRequestSummary>(
             localVariableConfig
         )
     }
@@ -724,12 +735,14 @@ open class FinancialApi(basePath: kotlin.String = defaultBasePath, client: Call.
      * To obtain the request config of the operation executePurchaseRequest
      *
      * @param purchaseRequestId
+     * @param financialStepUpRequest
      * @return RequestConfig
      */
-    fun executePurchaseRequestRequestConfig(purchaseRequestId: java.util.UUID) : RequestConfig<Unit> {
-        val localVariableBody = null
+    fun executePurchaseRequestRequestConfig(purchaseRequestId: java.util.UUID, financialStepUpRequest: FinancialStepUpRequest) : RequestConfig<FinancialStepUpRequest> {
+        val localVariableBody = financialStepUpRequest
         val localVariableQuery: MultiValueMap = mutableMapOf()
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
         localVariableHeaders["Accept"] = "application/json"
 
         return RequestConfig(

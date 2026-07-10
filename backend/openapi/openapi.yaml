@@ -84,6 +84,8 @@ paths:
           description: Realtime is unavailable.
   /api/v1/console/telemetry/route:
     post:
+      tags:
+        - console
       operationId: recordConsoleRouteTelemetry
       summary: Record tenant console route-adoption/RUM telemetry
       description: Ingests one cardinality-safe route-selection or RUM event for the authenticated tenant. Org and user are derived
@@ -114,6 +116,8 @@ paths:
           $ref: '#/components/responses/ServiceUnavailable'
   /api/audit:
     get:
+      tags:
+        - audit
       operationId: listAuditLog
       summary: List branch-scoped audit log records
       description: Returns append-only audit records visible to the caller's branch scope. Filters are optional and the result
@@ -418,6 +422,8 @@ paths:
           $ref: '#/components/responses/Conflict'
   /api/v1/mobile/work-orders/{workOrderId}/approve:
     post:
+      tags:
+        - mobile
       operationId: approveMobileWorkOrder
       summary: Approve the next pending approval step from a native mobile client
       description: Mobile-scoped approval route. It requires a fresh passkey step-up envelope bound to this work order before
@@ -1784,6 +1790,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
   /api/v1/hr/readiness-summary:
     get:
+      tags:
+        - hr
       operationId: getHrReadinessSummary
       summary: Read HR data readiness counters
       description: Returns import, payroll, annual-leave, and attendance readiness counters for org-wide HR operators without
@@ -1804,6 +1812,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
   /api/v1/hr/absence-exit-dashboard:
     get:
+      tags:
+        - hr
       operationId: getHrAbsenceExitDashboard
       summary: Read absence-to-exit HR dashboard
       description: Lists absence alerts and exit-case workflow state for HR users who can triage Korean labor-law exit flows.
@@ -1844,6 +1854,8 @@ paths:
           $ref: '#/components/responses/Forbidden'
   /api/v1/hr/exit-cases:
     post:
+      tags:
+        - hr
       operationId: reportEmployeeExitCase
       summary: Report an employee exit case from an absence signal
       description: Creates an audited employee exit case that HR can confirm and prepare for settlement/approval workflows.
@@ -1890,6 +1902,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/hr/exit-cases/{id}/confirm:
     post:
+      tags:
+        - hr
       operationId: confirmEmployeeExitCase
       summary: Confirm an employee exit case for HR/HQ review
       security:
@@ -1937,6 +1951,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/hr/exit-cases/{id}/approval-draft:
     post:
+      tags:
+        - hr
       operationId: draftEmployeeExitApproval
       summary: Draft or submit employee exit approval documents
       security:
@@ -3104,6 +3120,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/audit-streams/ceo-covert/events:
     get:
+      tags:
+        - audit
       operationId: listCeoCovertAuditEvents
       summary: Read the CEO/top-clearance covert audit stream
       description: Cedar/PBAC clearance-gated stream of CEO/top-clearance-labeled audit events. The backend loads clearance
@@ -3143,6 +3161,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/audit-streams/ceo-covert/access-events:
     get:
+      tags:
+        - audit
       operationId: listCeoCovertAuditAccessEvents
       summary: Read the audit-of-access stream for CEO/top-clearance audit reads
       description: Cedar/PBAC clearance-gated access log for reads of the CEO covert audit stream. Successful reads of this
@@ -3334,6 +3354,8 @@ paths:
           $ref: '#/components/responses/TooManyRequests'
   /api/v1/auth/passkey/step-up/start:
     post:
+      tags:
+        - auth
       operationId: startMobilePasskeyStepUp
       summary: Start an authenticated action-bound mobile passkey step-up ceremony
       description: Starts a discoverable WebAuthn ceremony for a signed-in native client and persists the submitted action
@@ -3737,6 +3759,8 @@ paths:
           $ref: '#/components/responses/Unauthorized'
   /api/v1/group-admin/groups:
     get:
+      tags:
+        - group-admin
       operationId: listGroupAdminGroups
       summary: List group-admin managed tenant organizations
       description: Returns only group memberships for which the authenticated actor has GROUP_ADMIN authority. Used before
@@ -3759,6 +3783,8 @@ paths:
           $ref: '#/components/responses/ServiceUnavailable'
   /api/v1/group-admin/tenant-context:
     post:
+      tags:
+        - group-admin
       operationId: startGroupAdminTenantContext
       summary: Start a bounded group-admin tenant context
       description: Mints a short-lived tenant token scoped to a member organization controlled by the actor's group-admin grant.
@@ -3793,6 +3819,8 @@ paths:
           $ref: '#/components/responses/ServiceUnavailable'
   /api/v1/group-admin/tenant-context/exit:
     post:
+      tags:
+        - group-admin
       operationId: exitGroupAdminTenantContext
       summary: End a group-admin tenant context audit trail
       description: Records the group-admin tenant-context stop event for the selected member organization.
@@ -6593,6 +6621,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/console/rollout:
     get:
+      tags:
+        - console
       operationId: getConsoleRollout
       summary: Read the current user's new-console rollout state
       security:
@@ -6654,6 +6684,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/console/rollout/opt-in:
     put:
+      tags:
+        - console
       operationId: updateConsoleRolloutOptIn
       summary: Update the current user's new-console opt-in preference
       security:
@@ -6691,6 +6723,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/console/rollout/org-flag:
     put:
+      tags:
+        - console
       operationId: updateConsoleRolloutOrgFlag
       summary: Update the org-level new-console rollout flag
       security:
@@ -6730,6 +6764,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/console/kill-switch:
     post:
+      tags:
+        - console
       operationId: updateConsoleLegacyKillSwitch
       summary: Force or release org-wide legacy-console routing
       description: Super-admin endpoint that overrides all individual new-console opt-ins and records an audit event.
@@ -6973,6 +7009,8 @@ paths:
                 $ref: '#/components/schemas/ErrorBody'
   /api/v1/users/{id}/activate:
     post:
+      tags:
+        - users
       operationId: activateUser
       summary: Reactivate an archived user
       security:
@@ -7708,6 +7746,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/platform/orgs:
     get:
+      tags:
+        - platform
       operationId: listPlatformOrgs
       summary: List tenant organizations (platform vendor tier)
       description: Lists all tenant organizations through the platform extractor. A tenant token is rejected before the handler
@@ -7730,6 +7770,8 @@ paths:
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
     post:
+      tags:
+        - platform
       operationId: onboardPlatformOrg
       summary: Onboard a new tenant organization (platform vendor tier)
       description: Creates a tenant organization, seeds its first SUPER_ADMIN account, and returns the one-time bootstrap OTP
@@ -7761,6 +7803,8 @@ paths:
           $ref: '#/components/responses/ServiceUnavailable'
   /api/platform/orgs/{id}:
     patch:
+      tags:
+        - platform
       operationId: setPlatformOrgStatus
       summary: Change a tenant lifecycle status (platform vendor tier)
       description: Sets a tenant organization status to ACTIVE, SUSPENDED, or ARCHIVED. Platform token required; every write
@@ -7859,6 +7903,8 @@ paths:
           $ref: '#/components/responses/ServiceUnavailable'
   /api/platform/ops:
     get:
+      tags:
+        - platform
       operationId: getPlatformOps
       summary: Read cross-tenant platform operations health (platform vendor tier)
       description: Returns per-tenant health and usage counts from the sanctioned SECURITY DEFINER platform rollup. Authorized
@@ -7880,6 +7926,8 @@ paths:
           $ref: '#/components/responses/ServiceUnavailable'
   /api/platform/groups:
     get:
+      tags:
+        - platform
       operationId: listPlatformGroups
       summary: List platform groups and member organizations (platform vendor tier)
       description: Lists group identities and their subsidiary organization memberships. Platform token and GroupManage authority
@@ -7902,6 +7950,8 @@ paths:
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
     post:
+      tags:
+        - platform
       operationId: createPlatformGroup
       summary: Create a platform group identity (platform vendor tier)
       description: Creates a group identity that can own multiple tenant organizations. Platform token and GroupManage authority
@@ -7933,6 +7983,8 @@ paths:
           $ref: '#/components/responses/ServiceUnavailable'
   /api/platform/groups/{id}:
     patch:
+      tags:
+        - platform
       operationId: updatePlatformGroup
       summary: Update a platform group identity or lifecycle status
       description: Updates group slug, name, and/or status. Platform token and GroupManage authority required.
@@ -7971,6 +8023,8 @@ paths:
           $ref: '#/components/responses/ServiceUnavailable'
   /api/platform/groups/{id}/accounts:
     get:
+      tags:
+        - platform
       operationId: listPlatformGroupAccounts
       summary: List tenant-anchored accounts with group roles
       description: Lists tenant user accounts that hold one or more grants for the selected platform group. Platform token and
@@ -8001,6 +8055,8 @@ paths:
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
     post:
+      tags:
+        - platform
       operationId: createPlatformGroupAccount
       summary: Create a tenant-anchored user account with a group role
       description: Creates one tenant account in the target organization, grants a group role, and returns the one-time setup
@@ -8040,6 +8096,8 @@ paths:
           $ref: '#/components/responses/ServiceUnavailable'
   /api/platform/groups/{id}/accounts/{user_id}/roles/{group_role}:
     delete:
+      tags:
+        - platform
       operationId: revokePlatformGroupRole
       summary: Revoke one group role from a tenant-anchored account
       description: Removes one group-level role grant from the selected account. Platform token and GroupManage authority required.
@@ -8076,6 +8134,8 @@ paths:
           $ref: '#/components/responses/ServiceUnavailable'
   /api/platform/groups/{id}/organizations/{org_id}:
     put:
+      tags:
+        - platform
       operationId: assignPlatformOrgToGroup
       summary: Assign or move a tenant organization into a platform group
       description: Assigns the tenant organization to the selected group. Platform token and GroupManage authority required;
@@ -8113,6 +8173,8 @@ paths:
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
     delete:
+      tags:
+        - platform
       operationId: removePlatformOrgFromGroup
       summary: Remove a tenant organization from a platform group
       description: Removes the tenant organization from the selected group. Platform token and GroupManage authority required;
@@ -8151,6 +8213,8 @@ paths:
           $ref: '#/components/responses/ServiceUnavailable'
   /api/platform/view-as:
     post:
+      tags:
+        - platform
       operationId: startPlatformViewAs
       summary: Start a read-only platform view-as session for one tenant
       description: Mints a short-lived tenant token pinned to the requested organization and role with view_as/read_only flags.
@@ -8184,6 +8248,8 @@ paths:
           $ref: '#/components/responses/ServiceUnavailable'
   /api/platform/view-as/exit:
     post:
+      tags:
+        - platform
       operationId: exitPlatformViewAs
       summary: End a read-only platform view-as session audit trail
       description: Records the platform.view_as.stop audit event. Called with the operator's real platform token, not the
@@ -8205,6 +8271,8 @@ paths:
           $ref: '#/components/responses/ServiceUnavailable'
   /api/platform/tenant-context:
     post:
+      tags:
+        - platform
       operationId: startPlatformTenantContext
       summary: Start a writable platform-managed tenant context
       description: Mints a short-lived writable tenant token with SUPER_ADMIN for exactly one active tenant. Platform token and
@@ -8238,6 +8306,8 @@ paths:
           $ref: '#/components/responses/ServiceUnavailable'
   /api/platform/tenant-context/exit:
     post:
+      tags:
+        - platform
       operationId: exitPlatformTenantContext
       summary: End a writable platform-managed tenant context audit trail
       description: Records the platform.tenant_context.stop audit event. Called with the operator's real platform token after
@@ -8935,6 +9005,8 @@ paths:
           $ref: '#/components/responses/NotFound'
   /api/v1/workflow-studio/definitions/{id}/run-log:
     get:
+      tags:
+        - workflow-studio
       operationId: listWorkflowRunLog
       summary: List workflow automation run-log entries
       description: Returns the most recent durable runtime rows for this workflow definition, scoped by tenant RLS, for the Workflow Studio timeline.
@@ -8961,6 +9033,8 @@ paths:
           $ref: '#/components/responses/NotFound'
   /api/v1/workflow-studio/definitions/{id}/run:
     post:
+      tags:
+        - workflow-studio
       operationId: triggerWorkflowRun
       summary: Trigger a workflow definition run
       description: Creates an idempotent MANUAL runtime row for an ACTIVE workflow definition and returns the run-log event used by Workflow Studio.
@@ -9124,6 +9198,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/workflow-studio/definitions/{id}/resume:
     post:
+      tags:
+        - workflow-studio
       operationId: resumeWorkflowDefinition
       summary: Resume a paused workflow definition
       security:
@@ -10134,6 +10210,8 @@ paths:
           $ref: '#/components/responses/ValidationError'
   /api/v1/mobile/collaboration/polls/{id}/vote:
     post:
+      tags:
+        - mobile
       operationId: voteMobileCollaborationPoll
       summary: Submit or replace a native mobile poll vote with passkey step-up
       description: Mobile-scoped poll vote route. It validates poll lifecycle and option ownership only after a fresh passkey
