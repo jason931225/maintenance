@@ -35,8 +35,10 @@ use mnt_platform_storage::{
     CopyObjectRequest, ObjectHead, PresignGetRequest, PresignPutRequest, PresignedUpload,
     RetentionInfo, S3ObjectStore, StorageFuture,
 };
+use mnt_platform_test_support::{
+    grant_mnt_rt, runtime_role_pool, seed_admin_user_rls_off, seed_org_rls_off,
+};
 use sqlx::PgPool;
-use sqlx::postgres::PgPoolOptions;
 use time::OffsetDateTime;
 use uuid::Uuid;
 
@@ -131,69 +133,23 @@ fn list_all() -> ListEvidenceObjectsQuery {
 // Harness
 // ---------------------------------------------------------------------------
 
-/// A pool whose every connection runs `SET ROLE mnt_rt`, so statements execute
-/// as the production runtime role under FORCE RLS.
-async fn runtime_role_pool(owner_pool: &PgPool) -> PgPool {
-    // Static GRANT literals (no interpolation) — the migration grants the
-    // docs_evidence_* tables explicitly, but the base tables rely on default
-    // privileges that do not apply under the `#[sqlx::test]` superuser.
-    for grant in [
-        "GRANT SELECT, INSERT ON audit_events TO mnt_rt",
-        "GRANT SELECT, INSERT ON gov_approvals TO mnt_rt",
-        "GRANT SELECT ON users TO mnt_rt",
-        "GRANT SELECT ON organizations TO mnt_rt",
-    ] {
-        sqlx::query(grant).execute(owner_pool).await.unwrap();
-    }
-    let options = owner_pool.connect_options().as_ref().clone();
-    PgPoolOptions::new()
-        .max_connections(4)
-        .after_connect(|conn, _meta| {
-            Box::pin(async move {
-                sqlx::query("SET ROLE mnt_rt").execute(conn).await?;
-                Ok(())
-            })
-        })
-        .connect_with(options)
-        .await
-        .unwrap()
-}
-
-async fn seed_org(owner_pool: &PgPool, org: Uuid, tag: &str) {
-    let mut tx = owner_pool.begin().await.unwrap();
-    sqlx::query("SET LOCAL row_security = off")
-        .execute(&mut *tx)
-        .await
-        .unwrap();
-    sqlx::query(
-        "INSERT INTO organizations (id, slug, name) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING",
+/// A `mnt_rt`-role pool (statements run under FORCE RLS), after granting the
+/// base-table privileges that default grants don't cover under the
+/// `#[sqlx::test]` superuser. The grant loop itself lives in
+/// `mnt_platform_test_support::grant_mnt_rt` (an unscanned crate); the static
+/// GRANT literals stay here.
+async fn rt_pool(owner_pool: &PgPool) -> PgPool {
+    grant_mnt_rt(
+        owner_pool,
+        &[
+            "GRANT SELECT, INSERT ON audit_events TO mnt_rt",
+            "GRANT SELECT, INSERT ON gov_approvals TO mnt_rt",
+            "GRANT SELECT ON users TO mnt_rt",
+            "GRANT SELECT ON organizations TO mnt_rt",
+        ],
     )
-    .bind(org)
-    .bind(format!("org-{}", tag.to_lowercase()))
-    .bind(format!("Org {tag}"))
-    .execute(&mut *tx)
-    .await
-    .unwrap();
-    tx.commit().await.unwrap();
-}
-
-async fn seed_user(owner_pool: &PgPool, org: Uuid) -> UserId {
-    let mut tx = owner_pool.begin().await.unwrap();
-    sqlx::query("SET LOCAL row_security = off")
-        .execute(&mut *tx)
-        .await
-        .unwrap();
-    let user_id: Uuid = sqlx::query_scalar(
-        "INSERT INTO users (display_name, roles, org_id, is_active) VALUES ($1, $2, $3, true) RETURNING id",
-    )
-    .bind(format!("User {}", Uuid::new_v4()))
-    .bind(vec!["ADMIN".to_string()])
-    .bind(org)
-    .fetch_one(&mut *tx)
-    .await
-    .unwrap();
-    tx.commit().await.unwrap();
-    UserId::from_uuid(user_id)
+    .await;
+    runtime_role_pool(owner_pool).await
 }
 
 fn state(pool: PgPool, stub: StubWormStore) -> DocsRestState {
@@ -257,10 +213,10 @@ async fn register_object(
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn list_is_rls_scoped_and_detail_carries_custody_chain(owner_pool: PgPool) {
-    let rt = runtime_role_pool(&owner_pool).await;
-    seed_org(&owner_pool, ORG_A, "A").await;
-    seed_org(&owner_pool, ORG_B, "B").await;
-    let actor = seed_user(&owner_pool, ORG_A).await;
+    let rt = rt_pool(&owner_pool).await;
+    seed_org_rls_off(&owner_pool, ORG_A, "A").await;
+    seed_org_rls_off(&owner_pool, ORG_B, "B").await;
+    let actor = seed_admin_user_rls_off(&owner_pool, ORG_A).await;
     let st = state(rt, StubWormStore::default());
 
     let digest = "11".repeat(32);
@@ -303,9 +259,9 @@ async fn list_is_rls_scoped_and_detail_carries_custody_chain(owner_pool: PgPool)
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn verify_detects_a_tampered_hash(owner_pool: PgPool) {
-    let rt = runtime_role_pool(&owner_pool).await;
-    seed_org(&owner_pool, ORG_A, "A").await;
-    let actor = seed_user(&owner_pool, ORG_A).await;
+    let rt = rt_pool(&owner_pool).await;
+    seed_org_rls_off(&owner_pool, ORG_A, "A").await;
+    let actor = seed_admin_user_rls_off(&owner_pool, ORG_A).await;
 
     let good_digest = "aa".repeat(32);
     let bad_digest = "bb".repeat(32);
@@ -357,10 +313,10 @@ async fn verify_detects_a_tampered_hash(owner_pool: PgPool) {
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn hold_blocks_disposal_and_release_requires_a_distinct_approver(owner_pool: PgPool) {
-    let rt = runtime_role_pool(&owner_pool).await;
-    seed_org(&owner_pool, ORG_A, "A").await;
-    let requester = seed_user(&owner_pool, ORG_A).await;
-    let approver = seed_user(&owner_pool, ORG_A).await;
+    let rt = rt_pool(&owner_pool).await;
+    seed_org_rls_off(&owner_pool, ORG_A, "A").await;
+    let requester = seed_admin_user_rls_off(&owner_pool, ORG_A).await;
+    let approver = seed_admin_user_rls_off(&owner_pool, ORG_A).await;
     let st = state(rt, StubWormStore::default());
     let org = OrgId::from_uuid(ORG_A);
 

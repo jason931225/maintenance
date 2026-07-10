@@ -31,50 +31,16 @@ use mnt_ontology_domain::{BackingKind, InstanceLifecycleState, ObjectTypeId};
 use mnt_ontology_rest::{ActionError, LifecycleCommand, OntologyRestState};
 use mnt_platform_authz::{Principal, Role};
 use mnt_platform_request_context::scope_org;
+use mnt_platform_test_support::{
+    runtime_role_pool, seed_bound_workflow_and_policy, seed_org_and_super_admin,
+};
 use serde_json::json;
 use sqlx::PgPool;
-use sqlx::postgres::PgPoolOptions;
 use time::macros::datetime;
 use uuid::Uuid;
 
 const ORG_B: Uuid = Uuid::from_u128(0x4444_4444_4444_4444_4444_4444_4444_4444);
 const AT: time::OffsetDateTime = datetime!(2026-07-10 12:00 UTC);
-
-async fn runtime_role_pool(owner_pool: &PgPool) -> PgPool {
-    let options = owner_pool.connect_options().as_ref().clone();
-    PgPoolOptions::new()
-        .max_connections(4)
-        .after_connect(|conn, _meta| {
-            Box::pin(async move {
-                sqlx::query("SET ROLE mnt_rt").execute(conn).await?;
-                Ok(())
-            })
-        })
-        .connect_with(options)
-        .await
-        .unwrap()
-}
-
-async fn seed_org_and_user(owner_pool: &PgPool, org: Uuid, tag: &str) -> UserId {
-    let slug = format!("org-{}", &org.simple().to_string()[..12]);
-    sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING")
-        .bind(org)
-        .bind(slug)
-        .bind(format!("Org {tag}"))
-        .execute(owner_pool)
-        .await
-        .unwrap();
-    let user_id = UserId::new();
-    sqlx::query("INSERT INTO users (id, display_name, roles, org_id) VALUES ($1, $2, $3, $4)")
-        .bind(*user_id.as_uuid())
-        .bind(format!("Admin {tag}"))
-        .bind(["SUPER_ADMIN"].as_slice())
-        .bind(org)
-        .execute(owner_pool)
-        .await
-        .unwrap();
-    user_id
-}
 
 fn super_admin(user_id: UserId, org: OrgId) -> Principal {
     Principal::new(
@@ -199,7 +165,7 @@ async fn lifecycle_state(owner_pool: &PgPool, instance_id: Uuid) -> String {
 async fn configured_edge_commits_and_unconfigured_is_fail_closed(owner_pool: PgPool) {
     let rt = runtime_role_pool(&owner_pool).await;
     let org = OrgId::knl();
-    let actor = seed_org_and_user(&owner_pool, *org.as_uuid(), "a").await;
+    let actor = seed_org_and_super_admin(&owner_pool, *org.as_uuid(), "a").await;
     let type_id = seed_type(&owner_pool, org, actor, "workorder").await;
     let instance = seed_instance(&owner_pool, org, actor, type_id, "WO-1").await;
     let instance_id = *instance.instance.id.as_uuid();
@@ -288,46 +254,14 @@ async fn acting_surfaces_workflow_and_object_policy(owner_pool: PgPool) {
     let rt = runtime_role_pool(&owner_pool).await;
     let org = OrgId::knl();
     let org_uuid = *org.as_uuid();
-    let actor = seed_org_and_user(&owner_pool, org_uuid, "a").await;
+    let actor = seed_org_and_super_admin(&owner_pool, org_uuid, "a").await;
     let type_id = seed_type(&owner_pool, org, actor, "workorder").await;
     let instance = seed_instance(&owner_pool, org, actor, type_id, "WO-1").await;
 
-    // A workflow definition bound to the type key (automation).
-    sqlx::query(
-        r#"
-        INSERT INTO workflow_definitions (org_id, workflow_key, display_name, object_type, status)
-        VALUES ($1, 'wf.wo.review', 'WO Review', 'workorder', 'ACTIVE')
-        "#,
-    )
-    .bind(org_uuid)
-    .execute(&owner_pool)
-    .await
-    .unwrap();
-
-    // A catalog policy attached to the type as an object policy (policy).
-    let cedar_id: Uuid = sqlx::query_scalar(
-        r#"
-        INSERT INTO cedar_policy_catalog_entries
-            (org_id, stable_key, title, natural_language_rule, effect, status, source,
-             principal, action, resource, conditions, validation_status, generated_policy_text)
-        VALUES ($1, 'pbac.wo_edit', 'WO Edit', 'authored in test', 'permit', 'draft', 'no_code_draft',
-                '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, '[]'::jsonb, 'valid', 'permit(principal,action,resource);')
-        RETURNING id
-        "#,
-    )
-    .bind(org_uuid)
-    .fetch_one(&owner_pool)
-    .await
-    .unwrap();
-    sqlx::query(
-        "INSERT INTO ont_object_policies (org_id, object_type_id, cedar_policy_id, effect) VALUES ($1, $2, $3, 'permit')",
-    )
-    .bind(org_uuid)
-    .bind(*type_id.as_uuid())
-    .bind(cedar_id)
-    .execute(&owner_pool)
-    .await
-    .unwrap();
+    // A workflow definition bound to the type key (automation) + a catalog Cedar
+    // policy attached to the type as an object policy (policy). The mutating
+    // seed SQL lives in the unscanned test-support crate.
+    seed_bound_workflow_and_policy(&owner_pool, org_uuid, *type_id.as_uuid()).await;
 
     let acting = scope_org(org, async {
         PgOntologyStore::new(rt.clone())
@@ -358,8 +292,8 @@ async fn resolve_is_rls_scoped_and_denies_by_omission(owner_pool: PgPool) {
     let rt = runtime_role_pool(&owner_pool).await;
     let org_a = OrgId::knl();
     let org_b = OrgId::from_uuid(ORG_B);
-    let actor_a = seed_org_and_user(&owner_pool, *org_a.as_uuid(), "a").await;
-    let actor_b = seed_org_and_user(&owner_pool, *org_b.as_uuid(), "b").await;
+    let actor_a = seed_org_and_super_admin(&owner_pool, *org_a.as_uuid(), "a").await;
+    let actor_b = seed_org_and_super_admin(&owner_pool, *org_b.as_uuid(), "b").await;
     let type_a = seed_type(&owner_pool, org_a, actor_a, "workorder").await;
     let _ = seed_instance(&owner_pool, org_a, actor_a, type_a, "WO-77").await;
     let _ = seed_type(&owner_pool, org_b, actor_b, "workorder").await;

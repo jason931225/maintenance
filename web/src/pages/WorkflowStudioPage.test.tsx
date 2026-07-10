@@ -509,14 +509,29 @@ describe("WorkflowStudioPage", () => {
       object_type: "work_order",
       required_approval_line: true,
       required_payment_line: false,
+      // Fixed templates submit the server-canonical authoring graph (schema +
+      // metadata.object_type + trigger/terminal nodes), the exact shape the
+      // backend create validator requires — not a flat {template_key, steps}.
       definition: {
         schema_version: "workflow.definition.v1",
-        template_key: "maintenance_completion_approval",
-        object_type: "work_order",
-        trigger: "work_order.maintenance_completion_approval",
-        steps: [{ key: "review", type: "approval", source: "approval_line" }],
+        metadata: { object_type: "work_order" },
       },
     });
+    const canonicalDefinition = (
+      createRequests[0] as {
+        definition: { graph: { nodes: Array<{ type: string }> } };
+      }
+    ).definition;
+    expect(
+      canonicalDefinition.graph.nodes.some(
+        (node) => node.type === "trigger.form_submission",
+      ),
+    ).toBe(true);
+    expect(
+      canonicalDefinition.graph.nodes.some(
+        (node) => node.type === "task.approval",
+      ),
+    ).toBe(true);
     expect(
       (createRequests[0] as { action_allowlist: unknown[] }).action_allowlist,
     ).toEqual(
@@ -651,9 +666,7 @@ describe("WorkflowStudioPage", () => {
       workflow_key: "work_order.maintenance_completion_approval",
       definition: {
         schema_version: "workflow.definition.v1",
-        template_key: "maintenance_completion_approval",
-        object_type: "work_order",
-        trigger: "work_order.maintenance_completion_approval",
+        metadata: { object_type: "work_order" },
       },
       approval_line: [
         { step_key: "manager", approver_role: "MANAGER", required: true },

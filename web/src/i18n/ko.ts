@@ -4310,6 +4310,9 @@ export const ko = {
         "policy.role.status_update.snapshot": "상태 스냅샷",
         "policy.role_assignment.replace": "배정 교체",
         "policy.role_assignment.replace.snapshot": "배정 스냅샷",
+        "policy.account.activate": "계정 활성화",
+        "policy.account.archive": "계정 보관",
+        "policy.account.update.snapshot": "변경 스냅샷",
       },
       targets: {
         policy_role: "정책 역할",
