@@ -130,6 +130,12 @@
       "routeGroup": "policy",
       "mustContainOwnerGoal": "G004",
       "requiredStory": "policy manager can create/edit/simulate custom PBAC/RBAC/ABAC policies, grant roles after preview/passkey, deny unauthorized grants, and audit actor match"
+    },
+    {
+      "path": "/config-console",
+      "routeGroup": "identity-admin",
+      "mustContainOwnerGoal": "G004",
+      "requiredStory": "admin authors dashboard/module/lifecycle config, publishes it, and verifies the immutable audit actor match within group/org scope"
     }
   ],
   "backendContracts": [

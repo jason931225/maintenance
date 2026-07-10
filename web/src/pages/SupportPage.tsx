@@ -313,7 +313,7 @@ export function SupportPage() {
         }
       />
 
-      <SupportStatStrip
+      <SupportCommandCenter
         stats={supportStats}
         drill={drill}
         onDrill={(key) => {
@@ -403,7 +403,7 @@ export function SupportPage() {
  * the ticket list (aria-pressed marks the active drill). The KPI/보고 links
  * stay as real cross-screen drills.
  */
-function SupportStatStrip({
+function SupportCommandCenter({
   stats,
   drill,
   onDrill,

@@ -266,7 +266,16 @@
     },
     {
       "file": "web/src/pages/MailPage.tsx",
-      "contract": "Mail UI must implement folders, unread filter, safe body rendering, attachments, compose/send/reply/forward, read-state toggles, and platform-operated auto-provisioning/readiness states without SMTP/IMAP server configuration links.",
+      "contract": "Mail route mounts the console mail screen behind a policy gate so folders, compose, and read-state actions are only reachable with MAIL_USE authority, without exposing SMTP/IMAP server configuration links.",
+      "requiredSnippets": [
+        "MailScreen",
+        "PolicyGateProvider",
+        "MAIL_USE"
+      ]
+    },
+    {
+      "file": "web/src/console/mail/api.ts",
+      "contract": "Mail data module issues the typed folders/threads/detail/send/reply/forward/read-state/attachment calls against the platform mail API so the UI never talks to SMTP/IMAP directly.",
       "requiredSnippets": [
         "/api/v1/mail/folders",
         "/api/v1/mail/threads",
@@ -275,10 +284,28 @@
         "/api/v1/mail/reply",
         "/api/v1/mail/forward",
         "/api/v1/mail/threads/{id}/read-state",
-        "/api/v1/mail/attachments/{id}/download",
-        "sanitizeMailHtml",
+        "/api/v1/mail/attachments/{id}/download"
+      ]
+    },
+    {
+      "file": "web/src/console/mail/format.ts",
+      "contract": "Mail compose helpers bound outbound attachment size and normalize picked files into mail attachments so the send path stays within platform limits.",
+      "requiredSnippets": [
         "fileToMailAttachment",
-        "MAX_OUTBOUND_ATTACHMENT_BYTES",
+        "MAX_OUTBOUND_ATTACHMENT_BYTES"
+      ]
+    },
+    {
+      "file": "web/src/lib/mailHtml.ts",
+      "contract": "Mail body rendering sanitizes untrusted HTML before display so message bodies cannot inject active content into the console.",
+      "requiredSnippets": [
+        "sanitizeMailHtml"
+      ]
+    },
+    {
+      "file": "web/src/i18n/ko.ts",
+      "contract": "Mail readiness copy describes platform-operated auto-provisioning steps and the not-configured body so users are never asked to enter SMTP/IMAP server settings.",
+      "requiredSnippets": [
         "notConfiguredSteps",
         "notConfiguredBody"
       ]
