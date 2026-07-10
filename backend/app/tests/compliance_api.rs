@@ -211,6 +211,7 @@ async fn ceo_covert_audit_stream_requires_clearance_and_audits_successful_read(p
     let fixture = TestFixture::new(&pool, "CEO Audit", "CEO Audit Branch").await;
     let sensitive_event_id = seed_ceo_covert_audit_event(&pool, fixture.admin_id).await;
     grant_ceo_covert_clearance(&pool, fixture.admin_id).await;
+    seed_subject_freshness(&pool, fixture.admin_id).await;
     let service = build_router(app_state(pool.clone(), fixture.public_key_pem.clone()).unwrap());
 
     let denied = get(
@@ -246,6 +247,7 @@ async fn ceo_covert_access_log_read_is_clearance_gated_and_audited(pool: PgPool)
     let fixture = TestFixture::new(&pool, "CEO Access", "CEO Access Branch").await;
     seed_ceo_covert_audit_event(&pool, fixture.admin_id).await;
     grant_ceo_covert_clearance(&pool, fixture.admin_id).await;
+    seed_subject_freshness(&pool, fixture.admin_id).await;
     let service = build_router(app_state(pool.clone(), fixture.public_key_pem.clone()).unwrap());
 
     let first_read = get_json(
@@ -406,9 +408,14 @@ fn issue_token(
         read_only: false,
         display_name: None,
         feature_grants: Vec::new(),
-        authz_subject_version: 0,
-        authz_policy_version: 0,
-        session_generation: 0,
+        // Snapshot the DB-current freshness baseline (policy/subject/session all
+        // default to 1 on first insert). The CEO-covert audit stream is a
+        // Cedar-only, server-loaded guard: a zero-stamped token trips the
+        // boundary's `MissingSubjectFreshness` precondition before clearance is
+        // ever consulted (mirrors cedar_parity_shadow / cedar_freshness_mint).
+        authz_subject_version: 1,
+        authz_policy_version: 1,
+        session_generation: 1,
         issued_at: OffsetDateTime::now_utc(),
     })?)
 }
@@ -505,6 +512,36 @@ async fn seed_ceo_covert_audit_event(pool: &PgPool, actor: UserId) -> uuid::Uuid
     tx.commit().await.unwrap();
 
     event_id
+}
+
+/// Establish the DB-current freshness material the Cedar-only audit-stream guard
+/// requires: a per-org `policy_versions` row and a per-(org,user)
+/// `subject_authz_versions` row (both default to version/session 1). Without
+/// this the server-loaded requirement carries no material and the boundary
+/// denies `MissingSubjectFreshness` before clearance is evaluated. Mirrors
+/// `seed_freshness` in cedar_parity_shadow / cedar_freshness_mint.
+async fn seed_subject_freshness(pool: &PgPool, user_id: UserId) {
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("SELECT set_config('app.current_org', $1, true)")
+        .bind(OrgId::knl().as_uuid().to_string())
+        .execute(tx.as_mut())
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO policy_versions (org_id) VALUES ($1) ON CONFLICT (org_id) DO NOTHING")
+        .bind(*OrgId::knl().as_uuid())
+        .execute(tx.as_mut())
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO subject_authz_versions (org_id, user_id) VALUES ($1, $2) \
+         ON CONFLICT (org_id, user_id) DO NOTHING",
+    )
+    .bind(*OrgId::knl().as_uuid())
+    .bind(*user_id.as_uuid())
+    .execute(tx.as_mut())
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
 }
 
 async fn grant_ceo_covert_clearance(pool: &PgPool, user_id: UserId) {
