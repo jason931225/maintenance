@@ -573,7 +573,7 @@ export const NAV_GROUPS = [
     items: [
       {
         key: "finance",
-        href: "/console",
+        href: "/modules",
         labelKey: "nav.finance",
         Icon: Receipt,
       },

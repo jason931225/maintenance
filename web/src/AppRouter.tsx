@@ -511,8 +511,12 @@ export function AppRouter() {
           <Route element={<RequireNavItemRoute itemKey="financial" />}>
             <Route path="/financial" element={<FinancialPage />} />
           </Route>
+          {/* Module engine surface (L-Modules). Lives at /modules — the carbon-
+              copy console owns /console/* (its own viewport, no AppShell), so the
+              module engine must not sit at the exact /console path, which would
+              outrank the /console/* splat in the router and shadow the shell. */}
           <Route element={<RequireNavItemRoute itemKey="finance" />}>
-            <Route path="/console" element={<ConsoleModuleRoute />} />
+            <Route path="/modules" element={<ConsoleModuleRoute />} />
           </Route>
           <Route element={<RequireNavItemRoute itemKey="payroll" />}>
             <Route path="/payroll" element={<PayrollPage />} />

@@ -340,7 +340,7 @@ const assetDataAdapter: ModuleDataAdapter = {
 export const financeModuleScreen: ModuleScreenConfig = {
   id: "finance",
   screen: "finance",
-  route: "/console",
+  route: "/modules",
   navLabelKey: "console.modules.finance.nav",
   titleKey: "console.modules.finance.title",
   objectNameKey: "console.modules.finance.objectName",
@@ -483,7 +483,7 @@ export const financeModuleScreen: ModuleScreenConfig = {
 export const assetModuleScreen: ModuleScreenConfig = {
   id: "asset",
   screen: "asset",
-  route: "/console?screen=asset",
+  route: "/modules?screen=asset",
   navLabelKey: "console.modules.asset.nav",
   titleKey: "console.modules.asset.title",
   objectNameKey: "console.modules.asset.objectName",

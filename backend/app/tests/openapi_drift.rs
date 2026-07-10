@@ -305,9 +305,13 @@ fn openapi_yaml_covers_platform_route_operations() {
 #[test]
 fn platform_route_operation_gate_rejects_missing_contract_entry() {
     let broken_yaml = OPENAPI_YAML.replacen(
-        "    delete:\n      operationId: removePlatformOrgFromGroup",
-        "    x-delete-missing-for-test:\n      operationId: removePlatformOrgFromGroup",
+        "    delete:\n      tags:\n        - platform\n      operationId: removePlatformOrgFromGroup",
+        "    x-delete-missing-for-test:\n      tags:\n        - platform\n      operationId: removePlatformOrgFromGroup",
         1,
+    );
+    assert_ne!(
+        broken_yaml, OPENAPI_YAML,
+        "test fixture anchor no longer matches the OpenAPI YAML; update the replacen target so the DELETE operation is actually removed before asserting the gate detects it"
     );
     let missing = missing_platform_route_operations(&broken_yaml);
 
