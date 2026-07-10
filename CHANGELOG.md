@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.57](https://github.com/jason931225/maintenance/compare/v0.1.56...v0.1.57) (2026-07-10)
+
+
+### Features
+
+* **console:** ontology-first console overhaul M1 — engine spine, wired surfaces, design fidelity ([#432](https://github.com/jason931225/maintenance/issues/432)) ([1c36125](https://github.com/jason931225/maintenance/commit/1c3612523c9206a3f5550fc2bdfc3dd4f2460a6f))
+
+
+### Bug Fixes
+
+* **db:** restore migration 0036 to its applied byte content (unblocks prod deploy) ([#435](https://github.com/jason931225/maintenance/issues/435)) ([85daac8](https://github.com/jason931225/maintenance/commit/85daac8a8015e0d4aeab64681a32885e37082beb))
+
 ## [0.1.56](https://github.com/jason931225/maintenance/compare/v0.1.55...v0.1.56) (2026-07-10)
 
 
