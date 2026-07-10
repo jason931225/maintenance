@@ -141,6 +141,19 @@ export function EmployeesPage() {
   const [lifecycleEmployee, setLifecycleEmployee] =
     useState<EmployeeDirectoryItem>();
 
+  // Guard against committing a load that finishes after unmount: the initial
+  // effect and every post-mutation refetch (onImported/onChanged/refresh) run
+  // several awaited requests, and a stray setState landing after the component
+  // is gone surfaces as a React act warning on console.error — which, if it
+  // fires during a vitest worker teardown, races the rpc close.
+  const mounted = useRef(true);
+  useEffect(
+    () => () => {
+      mounted.current = false;
+    },
+    [],
+  );
+
   const loadEmployees = useCallback(async () => {
     setState("loading");
     const items: EmployeeDirectoryItem[] = [];
@@ -154,6 +167,7 @@ export function EmployeesPage() {
         })
         .catch(() => undefined);
       const data = response?.data;
+      if (!mounted.current) return;
       if (!data) {
         setState("error");
         return;
@@ -181,6 +195,7 @@ export function EmployeesPage() {
       employeeApi.GET("/api/v1/hr/readiness-summary").catch(() => undefined),
     ]);
 
+    if (!mounted.current) return;
     if (
       !orgResponse?.data ||
       !leaveResponse?.data ||
