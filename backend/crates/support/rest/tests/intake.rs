@@ -3,22 +3,42 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use axum::Router;
-use axum::body::Body;
-use http::{Request, StatusCode};
+use axum::body::{Body, to_bytes};
+use http::{Request, StatusCode, header};
+use mnt_kernel_core::{AuditAction, AuditEvent, OrgId, TraceContext, UserId};
+use mnt_platform_auth::{AccessTokenInput, JwtIssuer, JwtSettings, JwtVerifier};
+use mnt_platform_db::{DbError, with_audit};
 use mnt_platform_test_support::runtime_role_pool;
 use mnt_support_adapter_postgres::{MAX_BODY_CHARS, PgSupportStore};
 use mnt_support_rest::{SupportRestState, router};
+use p256::ecdsa::SigningKey;
+use p256::elliptic_curve::rand_core::OsRng;
+use p256::pkcs8::{EncodePrivateKey, EncodePublicKey, LineEnding};
+use serde_json::Value;
 use sqlx::PgPool;
+use time::{Duration, OffsetDateTime};
 use tower::ServiceExt;
 
+const TEST_ISSUER: &str = "mnt-platform-auth";
+const TEST_AUDIENCE: &str = "mnt-api";
+
 async fn build(owner_pool: &PgPool) -> Router {
+    build_with_public_intake_org(owner_pool, OrgId::knl()).await
+}
+
+async fn build_with_public_intake_org(owner_pool: &PgPool, public_intake_org: OrgId) -> Router {
     // No JWT verifier and no push notifier: the intake endpoint is
-    // unauthenticated, and notifications degrade gracefully.
-    router(SupportRestState::new(
-        PgSupportStore::new(runtime_role_pool(owner_pool).await),
-        None,
-        None,
-    ))
+    // unauthenticated, and notifications degrade gracefully. Exercise the app
+    // with the production-like runtime role so FORCE RLS (not a BYPASSRLS test
+    // owner) governs tenant writes/reads at the REST surface.
+    router(
+        SupportRestState::new(
+            PgSupportStore::new(runtime_role_pool(owner_pool).await),
+            None,
+            None,
+        )
+        .with_storefront_org(public_intake_org),
+    )
 }
 
 fn intake_request(ip: &str) -> Request<Body> {
@@ -38,6 +58,143 @@ fn intake_request(ip: &str) -> Request<Body> {
         .header("x-forwarded-for", ip)
         .body(Body::from(body))
         .unwrap()
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn intake_writes_under_configured_public_org(pool: PgPool) {
+    let public_org = OrgId::new();
+    seed_org(&pool, public_org).await;
+    let app = build_with_public_intake_org(&pool, public_org).await;
+
+    let response = app
+        .clone()
+        .oneshot(intake_request("203.0.113.50"))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+    let persisted_org: uuid::Uuid = sqlx::query_scalar(
+        "SELECT org_id FROM support_tickets WHERE origin = 'CUSTOMER' AND title = $1",
+    )
+    .bind("Late delivery")
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+
+    assert_eq!(persisted_org, *public_org.as_uuid());
+    assert_ne!(persisted_org, *OrgId::knl().as_uuid());
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn intake_written_to_configured_org_is_visible_only_to_same_org_staff(pool: PgPool) {
+    let public_org = OrgId::new();
+    let other_org = OrgId::new();
+    seed_org(&pool, public_org).await;
+    seed_org(&pool, other_org).await;
+    let same_org_staff = seed_staff_user(&pool, public_org, "Configured support staff").await;
+    let other_org_staff = seed_staff_user(&pool, other_org, "Other org support staff").await;
+
+    let signing_key = SigningKey::random(&mut OsRng);
+    let private_pem = signing_key.to_pkcs8_pem(LineEnding::LF).unwrap();
+    let public_key_pem = signing_key
+        .verifying_key()
+        .to_public_key_pem(LineEnding::LF)
+        .unwrap();
+    let verifier =
+        JwtVerifier::from_es256_public_pem(jwt_settings(), public_key_pem.as_bytes()).unwrap();
+    let same_org_token = issue_token(
+        private_pem.as_bytes(),
+        public_key_pem.as_bytes(),
+        same_org_staff,
+        public_org,
+    );
+    let other_org_token = issue_token(
+        private_pem.as_bytes(),
+        public_key_pem.as_bytes(),
+        other_org_staff,
+        other_org,
+    );
+
+    // Exercise the app with the production-like runtime role so FORCE RLS, not a
+    // BYPASSRLS test owner, proves tenant visibility at the REST surface.
+    let rt_pool = runtime_role_pool(&pool).await;
+    let app = router(
+        SupportRestState::new(PgSupportStore::new(rt_pool), Some(verifier), None)
+            .with_storefront_org(public_org),
+    );
+
+    let response = app
+        .clone()
+        .oneshot(intake_request("203.0.113.51"))
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::ACCEPTED);
+
+    let same_org = get_json(
+        app.clone(),
+        "/api/v1/support/tickets?include_untriaged=true",
+        &same_org_token,
+    )
+    .await;
+    assert_eq!(same_org.0, StatusCode::OK, "{:?}", same_org.1);
+    assert_eq!(same_org.1["total"].as_i64(), Some(1), "{:?}", same_org.1);
+    let same_org_items = same_org.1["items"]
+        .as_array()
+        .expect("paginated items array");
+    assert_eq!(same_org_items.len(), 1, "{same_org_items:?}");
+    assert_eq!(
+        same_org_items[0]["title"],
+        Value::String("Late delivery".to_owned())
+    );
+    let ticket_id = same_org_items[0]["id"]
+        .as_str()
+        .expect("ticket id from same-org list");
+
+    let same_org_detail = get_json(
+        app.clone(),
+        &format!("/api/v1/support/tickets/{ticket_id}"),
+        &same_org_token,
+    )
+    .await;
+    assert_eq!(same_org_detail.0, StatusCode::OK, "{:?}", same_org_detail.1);
+    assert_eq!(
+        same_org_detail.1["ticket"]["title"],
+        Value::String("Late delivery".to_owned())
+    );
+
+    let other_org_list = get_json(
+        app.clone(),
+        "/api/v1/support/tickets?include_untriaged=true",
+        &other_org_token,
+    )
+    .await;
+    assert_eq!(other_org_list.0, StatusCode::OK, "{:?}", other_org_list.1);
+    assert_eq!(
+        other_org_list.1["total"].as_i64(),
+        Some(0),
+        "{:?}",
+        other_org_list.1
+    );
+    let other_org_items = other_org_list.1["items"]
+        .as_array()
+        .expect("paginated items array");
+    assert!(
+        other_org_items.is_empty(),
+        "other-org staff must not see configured-org intake: {other_org_items:?}"
+    );
+
+    let other_org_detail = get_json(
+        app,
+        &format!("/api/v1/support/tickets/{ticket_id}"),
+        &other_org_token,
+    )
+    .await;
+    assert_eq!(
+        other_org_detail.0,
+        StatusCode::NOT_FOUND,
+        "{:?}",
+        other_org_detail.1
+    );
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
@@ -123,4 +280,117 @@ async fn intake_rejects_over_length_fields_generically(pool: PgPool) {
         assert_eq!(response.status(), StatusCode::BAD_REQUEST);
     })
     .await;
+}
+
+async fn seed_org(pool: &PgPool, org: OrgId) {
+    let event = AuditEvent::new(
+        None,
+        AuditAction::new("test.seed_org").unwrap(),
+        "organization",
+        org.to_string(),
+        TraceContext::generate(),
+        OffsetDateTime::now_utc(),
+    )
+    .with_org(org);
+    with_audit(pool, event, |tx| {
+        Box::pin(async move {
+            sqlx::query(
+                "INSERT INTO organizations (id, slug, name) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING",
+            )
+            .bind(*org.as_uuid())
+            .bind(format!("support-{}", &org.to_string()[..8]))
+            .bind("Configured Support Intake Org")
+            .execute(tx.as_mut())
+            .await
+            .map_err(DbError::Sqlx)?;
+            Ok::<(), DbError>(())
+        })
+    })
+    .await
+    .unwrap();
+}
+
+async fn seed_staff_user(pool: &PgPool, org: OrgId, display_name: &str) -> UserId {
+    let user = UserId::new();
+    let display_name = display_name.to_owned();
+    let event = AuditEvent::new(
+        None,
+        AuditAction::new("test.seed_user").unwrap(),
+        "user",
+        user.to_string(),
+        TraceContext::generate(),
+        OffsetDateTime::now_utc(),
+    )
+    .with_org(org);
+    with_audit(pool, event, |tx| {
+        Box::pin(async move {
+            sqlx::query(
+                "INSERT INTO users (id, display_name, roles, org_id, is_active) VALUES ($1, $2, $3, $4, true)",
+            )
+            .bind(*user.as_uuid())
+            .bind(display_name)
+            .bind(Vec::from(["SUPER_ADMIN".to_owned()]))
+            .bind(*org.as_uuid())
+            .execute(tx.as_mut())
+            .await
+            .map_err(DbError::Sqlx)?;
+            Ok::<(), DbError>(())
+        })
+    })
+    .await
+    .unwrap();
+    user
+}
+
+fn jwt_settings() -> JwtSettings {
+    JwtSettings {
+        issuer: TEST_ISSUER.to_owned(),
+        audience: TEST_AUDIENCE.to_owned(),
+        access_token_ttl: Duration::minutes(15),
+    }
+}
+
+fn issue_token(
+    private_key_pem: &[u8],
+    public_key_pem: &[u8],
+    user_id: UserId,
+    org_id: OrgId,
+) -> String {
+    let issuer =
+        JwtIssuer::from_es256_pem(jwt_settings(), private_key_pem, public_key_pem).unwrap();
+    issuer
+        .issue_access_token(AccessTokenInput {
+            subject: user_id,
+            org_id,
+            roles: vec!["SUPER_ADMIN".to_owned()],
+            branches: Vec::new(),
+            platform: false,
+            view_as: false,
+            read_only: false,
+            display_name: None,
+            feature_grants: Vec::new(),
+            authz_subject_version: 0,
+            authz_policy_version: 0,
+            session_generation: 0,
+            issued_at: OffsetDateTime::now_utc(),
+        })
+        .unwrap()
+}
+
+async fn get_json(service: Router, uri: &str, token: &str) -> (StatusCode, Value) {
+    let request = Request::builder()
+        .method("GET")
+        .uri(uri)
+        .header(header::AUTHORIZATION, format!("Bearer {token}"))
+        .body(Body::empty())
+        .unwrap();
+    let response = service.oneshot(request).await.unwrap();
+    let status = response.status();
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json = if body.is_empty() {
+        Value::Null
+    } else {
+        serde_json::from_slice(&body).unwrap()
+    };
+    (status, json)
 }

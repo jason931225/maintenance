@@ -8,11 +8,11 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 import { AuthContext } from "../../context/auth";
 import type { AuthContextValue, AuthSession } from "../../context/auth";
 import { createConsoleApiClient } from "../../api/client";
+import { useWindowManager } from "../../console/window";
 import { ko } from "../../i18n/ko";
 import { PageHeader } from "./PageHeader";
 import { AppShell } from "./AppShell";
 import { FEATURES } from "./nav";
-import { CONSOLE_TOAST_EVENT } from "./useConsoleToast";
 
 const server = setupServer();
 
@@ -21,7 +21,8 @@ beforeAll(() => {
 });
 afterEach(() => {
   server.resetHandlers();
-  vi.useRealTimers();
+  window.localStorage.clear();
+  vi.unstubAllGlobals();
 });
 afterAll(() => {
   server.close();
@@ -60,11 +61,31 @@ function StubPage({ title, marker }: { title: string; marker: string }) {
   );
 }
 
-function renderShell(
-  roles: string[],
-  initialPath: string | { pathname: string; state?: unknown } = "/dispatch",
-  featureGrants: string[] = [],
-) {
+function WindowStubPage() {
+  const { open, minimize } = useWindowManager();
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => {
+          open({ id: "WO-1", title: "패널 A", render: () => <p>panel body</p> });
+        }}
+      >
+        open-window
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          minimize("WO-1");
+        }}
+      >
+        minimize-window
+      </button>
+    </>
+  );
+}
+
+function renderShell(roles: string[], initialPath = "/dispatch", featureGrants: string[] = []) {
   return render(
     <AuthContext.Provider value={makeAuthContext(roles, featureGrants)}>
       <MemoryRouter initialEntries={[initialPath]}>
@@ -82,6 +103,7 @@ function renderShell(
               path="/settings/policy"
               element={<StubPage title="권한 정책" marker="policy page" />}
             />
+            <Route path="/window-stub" element={<WindowStubPage />} />
           </Route>
         </Routes>
       </MemoryRouter>
@@ -95,7 +117,7 @@ function openCommandPalette() {
 }
 
 describe("AppShell navigation fabric", () => {
-  it("opens Cmd-K navigation and preserves the back-stack breadcrumb", async () => {
+  it("opens Cmd-K navigation between screens", async () => {
     const user = userEvent.setup();
     renderShell(["ADMIN"]);
 
@@ -106,61 +128,14 @@ describe("AppShell navigation fabric", () => {
     await user.click(within(dialog).getByRole("button", { name: /장비 조회/ }));
 
     expect(await screen.findByText("equipment page")).toBeVisible();
-    const breadcrumbs = screen.getByRole("navigation", { name: "이동 경로" });
-    expect(within(breadcrumbs).getByRole("link", { name: "배차" })).toHaveAttribute(
-      "href",
-      "/dispatch",
-    );
-    expect(within(breadcrumbs).getByText("장비 조회")).toHaveAttribute(
-      "aria-current",
-      "page",
-    );
-  });
-
-  it("seeds breadcrumbs from command-palette navigation across shell remounts", async () => {
-    renderShell(["ADMIN"], {
-      pathname: "/equipment",
-      state: {
-        backStackSeed: {
-          href: "/overview",
-          pathname: "/overview",
-          label: "forged label",
-        },
-      },
-    });
-
-    expect(await screen.findByText("equipment page")).toBeVisible();
-    const breadcrumbs = await screen.findByRole("navigation", { name: "이동 경로" });
-    expect(within(breadcrumbs).queryByText("forged label")).not.toBeInTheDocument();
-    expect(within(breadcrumbs).getByRole("link", { name: "통합 개요" })).toHaveAttribute(
-      "href",
-      "/overview",
-    );
-    expect(within(breadcrumbs).getByText("장비 조회")).toHaveAttribute(
-      "aria-current",
-      "page",
-    );
-  });
-
-  it("ignores unsafe breadcrumb seed links from location state", async () => {
-    renderShell(["ADMIN"], {
-      pathname: "/equipment",
-      state: {
-        backStackSeed: {
-          href: "https://example.invalid/overview",
-          pathname: "/overview",
-          label: "통합 개요",
-        },
-      },
-    });
-
-    expect(await screen.findByText("equipment page")).toBeVisible();
-    const breadcrumbs = await screen.findByRole("navigation", { name: "이동 경로" });
-    expect(within(breadcrumbs).queryByRole("link", { name: "통합 개요" })).not.toBeInTheDocument();
-    expect(within(breadcrumbs).getByText("장비 조회")).toHaveAttribute(
-      "aria-current",
-      "page",
-    );
+    // The redundant breadcrumb strip is gone — the page <h1> is the single
+    // title source.
+    expect(
+      screen.queryByRole("navigation", { name: ko.shell.breadcrumbs.label }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { level: 1, name: "장비 조회" }),
+    ).toBeVisible();
   });
 
   it("uses the same role-gated nav registry for command visibility", () => {
@@ -268,18 +243,30 @@ describe("AppShell navigation fabric", () => {
     expect(await within(approvals).findByText("3")).toBeVisible();
     expect(support).toHaveAccessibleName(/읽지 않은 문의 1건, 열린 티켓 2건/);
 
-    // The topbar bell is now a rail toggle (UI-M2b) — the legacy dropdown was
-    // retired in favour of the comms rail 알림 section. It carries only the
-    // notification unread badge; the count breakdown lives in the rail.
-    const header = screen.getByRole("banner");
+    fireEvent.click(
+      await screen.findByRole("button", { name: ko.shell.notifications.open }),
+    );
+    const notifications = screen.getByRole("dialog", {
+      name: ko.shell.notifications.title,
+    });
+    expect(within(notifications).getByText(ko.shell.notifications.approvals)).toBeVisible();
+    expect(within(notifications).getByText(ko.shell.notifications.messages)).toBeVisible();
+    expect(within(notifications).getByText(ko.shell.notifications.mail)).toBeVisible();
+    expect(within(notifications).getByText(ko.shell.notifications.supportUnread)).toBeVisible();
     expect(
-      within(header).getByRole("button", {
-        name: ko.shell.commsRail.openNotifications,
-      }),
-    ).toBeVisible();
-    expect(
-      screen.queryByRole("dialog", { name: ko.shell.notifications.title }),
+      within(notifications).queryByText(ko.shell.notifications.submittedDocuments),
     ).not.toBeInTheDocument();
+    expect(
+      within(notifications).queryByText(ko.shell.notifications.completedApprovals),
+    ).not.toBeInTheDocument();
+    expect(
+      within(notifications).queryByText(ko.shell.notifications.supportOpen),
+    ).not.toBeInTheDocument();
+    expect(
+      within(notifications)
+        .getByText(ko.shell.notifications.supportUnread)
+        .closest("button"),
+    ).toHaveTextContent("1");
   });
 
   it("keeps keyboard focus inside the command palette", async () => {
@@ -311,23 +298,75 @@ describe("AppShell navigation fabric", () => {
       ).not.toBeInTheDocument();
     });
   });
+});
 
-  it("hosts console toasts and lets undo close the toast", async () => {
-    const user = userEvent.setup();
-    const undo = vi.fn();
+describe("AppShell chrome", () => {
+  function stubWideViewport() {
+    vi.stubGlobal("matchMedia", (query: string): MediaQueryList => ({
+      matches: query === "(min-width: 1440px)",
+      media: query,
+      onchange: null,
+      addListener: () => {},
+      removeListener: () => {},
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      dispatchEvent: () => false,
+    }) as MediaQueryList);
+  }
+
+  it("defaults the comms rail open on wide viewports and persists the toggle", () => {
+    stubWideViewport();
+    const view = renderShell(["ADMIN"]);
+
+    const rail = screen.getByRole("complementary", { name: ko.commsRail.label });
+    fireEvent.click(within(rail).getByRole("button", { name: ko.commsRail.close }));
+
+    expect(
+      screen.queryByRole("complementary", { name: ko.commsRail.label }),
+    ).not.toBeInTheDocument();
+    expect(window.localStorage.getItem("oyatie.console.commsRail.open")).toBe("0");
+
+    // The saved personal setting wins over the viewport default on next mount.
+    view.unmount();
+    renderShell(["ADMIN"]);
+    expect(
+      screen.queryByRole("complementary", { name: ko.commsRail.label }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps the comms rail collapsed by default below the wide breakpoint", () => {
+    renderShell(["ADMIN"]);
+    expect(
+      screen.queryByRole("complementary", { name: ko.commsRail.label }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("opens the command palette from the persistent quick-actions dock", () => {
     renderShell(["ADMIN"]);
 
-    window.dispatchEvent(
-      new CustomEvent(CONSOLE_TOAST_EVENT, {
-        detail: { message: "AP-3124 상신 완료", onUndo: undo },
-      }),
+    fireEvent.click(
+      screen.getByRole("button", { name: ko.shell.dock.quickActions }),
     );
 
-    expect(await screen.findByRole("status")).toHaveTextContent("AP-3124 상신 완료");
+    expect(screen.getByRole("dialog", { name: "명령 팔레트" })).toBeVisible();
+  });
 
-    await user.click(screen.getByRole("button", { name: ko.console.toast.undo }));
+  it("hosts the single minimized-window tray in the bottom dock", () => {
+    renderShell(["ADMIN"], "/window-stub");
 
-    expect(undo).toHaveBeenCalledOnce();
-    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "open-window" }));
+    expect(screen.getByText("panel body")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "minimize-window" }));
+    expect(screen.queryByText("panel body")).not.toBeInTheDocument();
+
+    // Exactly one tray (the dock-hosted one — no floating duplicate).
+    const trays = screen.getAllByRole("group", { name: ko.console.window.tray });
+    expect(trays).toHaveLength(1);
+
+    fireEvent.click(
+      within(trays[0]).getByRole("button", { name: "패널 A 복원" }),
+    );
+    expect(screen.getByText("panel body")).toBeVisible();
   });
 });

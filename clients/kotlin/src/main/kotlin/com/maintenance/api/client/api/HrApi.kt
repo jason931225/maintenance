@@ -32,12 +32,15 @@ import com.maintenance.api.client.model.AttendanceImportDryRunSummary
 import com.maintenance.api.client.model.AttendanceImportPreviewResponse
 import com.maintenance.api.client.model.AttendanceImportSummaryPage
 import com.maintenance.api.client.model.AttendanceSummaryPage
+import com.maintenance.api.client.model.ConfirmEmployeeExitCaseRequest
 import com.maintenance.api.client.model.CreateEmployeeAttendanceRecordRequest
+import com.maintenance.api.client.model.DraftEmployeeExitApprovalRequest
 import com.maintenance.api.client.model.EmployeeAttendanceRecord
 import com.maintenance.api.client.model.EmployeeAttendanceRecordPage
 import com.maintenance.api.client.model.ErrorBody
 import com.maintenance.api.client.model.HrOrgChartResponse
 import com.maintenance.api.client.model.LeaveBalancePage
+import com.maintenance.api.client.model.ReportEmployeeExitCaseRequest
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -141,6 +144,83 @@ open class HrApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
     }
 
     /**
+     * POST /api/v1/hr/exit-cases/{id}/confirm
+     * Confirm an employee exit case for HR/HQ review
+     *
+     * @param id
+     * @param confirmEmployeeExitCaseRequest
+     * @return kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun confirmEmployeeExitCase(id: java.util.UUID, confirmEmployeeExitCaseRequest: ConfirmEmployeeExitCaseRequest) : kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement> = withContext(Dispatchers.IO) {
+        val localVarResponse = confirmEmployeeExitCaseWithHttpInfo(id = id, confirmEmployeeExitCaseRequest = confirmEmployeeExitCaseRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/hr/exit-cases/{id}/confirm
+     * Confirm an employee exit case for HR/HQ review
+     *
+     * @param id
+     * @param confirmEmployeeExitCaseRequest
+     * @return ApiResponse<kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun confirmEmployeeExitCaseWithHttpInfo(id: java.util.UUID, confirmEmployeeExitCaseRequest: ConfirmEmployeeExitCaseRequest) : ApiResponse<kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = confirmEmployeeExitCaseRequestConfig(id = id, confirmEmployeeExitCaseRequest = confirmEmployeeExitCaseRequest)
+
+        return@withContext request<ConfirmEmployeeExitCaseRequest, kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation confirmEmployeeExitCase
+     *
+     * @param id
+     * @param confirmEmployeeExitCaseRequest
+     * @return RequestConfig
+     */
+    fun confirmEmployeeExitCaseRequestConfig(id: java.util.UUID, confirmEmployeeExitCaseRequest: ConfirmEmployeeExitCaseRequest) : RequestConfig<ConfirmEmployeeExitCaseRequest> {
+        val localVariableBody = confirmEmployeeExitCaseRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/hr/exit-cases/{id}/confirm".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/v1/hr/attendance-records/me
      * Record the signed-in employee&#39;s attendance transition
      * Appends a mobile/PC attendance fact and an immutable payroll material reference. Payroll calculation remains blocked by the legal gate.
@@ -207,6 +287,83 @@ open class HrApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/v1/hr/attendance-records/me",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/hr/exit-cases/{id}/approval-draft
+     * Draft or submit employee exit approval documents
+     *
+     * @param id
+     * @param draftEmployeeExitApprovalRequest
+     * @return kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun draftEmployeeExitApproval(id: java.util.UUID, draftEmployeeExitApprovalRequest: DraftEmployeeExitApprovalRequest) : kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement> = withContext(Dispatchers.IO) {
+        val localVarResponse = draftEmployeeExitApprovalWithHttpInfo(id = id, draftEmployeeExitApprovalRequest = draftEmployeeExitApprovalRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/hr/exit-cases/{id}/approval-draft
+     * Draft or submit employee exit approval documents
+     *
+     * @param id
+     * @param draftEmployeeExitApprovalRequest
+     * @return ApiResponse<kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun draftEmployeeExitApprovalWithHttpInfo(id: java.util.UUID, draftEmployeeExitApprovalRequest: DraftEmployeeExitApprovalRequest) : ApiResponse<kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = draftEmployeeExitApprovalRequestConfig(id = id, draftEmployeeExitApprovalRequest = draftEmployeeExitApprovalRequest)
+
+        return@withContext request<DraftEmployeeExitApprovalRequest, kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation draftEmployeeExitApproval
+     *
+     * @param id
+     * @param draftEmployeeExitApprovalRequest
+     * @return RequestConfig
+     */
+    fun draftEmployeeExitApprovalRequestConfig(id: java.util.UUID, draftEmployeeExitApprovalRequest: DraftEmployeeExitApprovalRequest) : RequestConfig<DraftEmployeeExitApprovalRequest> {
+        val localVariableBody = draftEmployeeExitApprovalRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/hr/exit-cases/{id}/approval-draft".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -288,6 +445,96 @@ open class HrApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
     }
 
     /**
+     * GET /api/v1/hr/absence-exit-dashboard
+     * Read absence-to-exit HR dashboard
+     * Lists absence alerts and exit-case workflow state for HR users who can triage Korean labor-law exit flows.
+     * @param limit  (optional)
+     * @param offset  (optional)
+     * @param employeeId  (optional)
+     * @return kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun getHrAbsenceExitDashboard(limit: kotlin.Long? = null, offset: kotlin.Long? = null, employeeId: java.util.UUID? = null) : kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement> = withContext(Dispatchers.IO) {
+        val localVarResponse = getHrAbsenceExitDashboardWithHttpInfo(limit = limit, offset = offset, employeeId = employeeId)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/hr/absence-exit-dashboard
+     * Read absence-to-exit HR dashboard
+     * Lists absence alerts and exit-case workflow state for HR users who can triage Korean labor-law exit flows.
+     * @param limit  (optional)
+     * @param offset  (optional)
+     * @param employeeId  (optional)
+     * @return ApiResponse<kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun getHrAbsenceExitDashboardWithHttpInfo(limit: kotlin.Long?, offset: kotlin.Long?, employeeId: java.util.UUID?) : ApiResponse<kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getHrAbsenceExitDashboardRequestConfig(limit = limit, offset = offset, employeeId = employeeId)
+
+        return@withContext request<Unit, kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getHrAbsenceExitDashboard
+     *
+     * @param limit  (optional)
+     * @param offset  (optional)
+     * @param employeeId  (optional)
+     * @return RequestConfig
+     */
+    fun getHrAbsenceExitDashboardRequestConfig(limit: kotlin.Long?, offset: kotlin.Long?, employeeId: java.util.UUID?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+                if (offset != null) {
+                    put("offset", listOf(offset.toString()))
+                }
+                if (employeeId != null) {
+                    put("employee_id", listOf(employeeId.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/hr/absence-exit-dashboard",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * GET /api/v1/hr/org-chart
      * Read the tenant HR organization chart
      * Executive/admin/super-admin read model grouped by company, org unit, and position. Source workbook rows remain preserved in the employee directory.
@@ -350,6 +597,76 @@ open class HrApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/v1/hr/org-chart",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/hr/readiness-summary
+     * Read HR data readiness counters
+     * Returns import, payroll, annual-leave, and attendance readiness counters for org-wide HR operators without exposing raw workbook rows.
+     * @return kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun getHrReadinessSummary() : kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement> = withContext(Dispatchers.IO) {
+        val localVarResponse = getHrReadinessSummaryWithHttpInfo()
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/hr/readiness-summary
+     * Read HR data readiness counters
+     * Returns import, payroll, annual-leave, and attendance readiness counters for org-wide HR operators without exposing raw workbook rows.
+     * @return ApiResponse<kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun getHrReadinessSummaryWithHttpInfo() : ApiResponse<kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getHrReadinessSummaryRequestConfig()
+
+        return@withContext request<Unit, kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getHrReadinessSummary
+     *
+     * @return RequestConfig
+     */
+    fun getHrReadinessSummaryRequestConfig() : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/hr/readiness-summary",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -850,6 +1167,80 @@ open class HrApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/v1/hr/attendance-import/preview",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/hr/exit-cases
+     * Report an employee exit case from an absence signal
+     * Creates an audited employee exit case that HR can confirm and prepare for settlement/approval workflows.
+     * @param reportEmployeeExitCaseRequest
+     * @return kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun reportEmployeeExitCase(reportEmployeeExitCaseRequest: ReportEmployeeExitCaseRequest) : kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement> = withContext(Dispatchers.IO) {
+        val localVarResponse = reportEmployeeExitCaseWithHttpInfo(reportEmployeeExitCaseRequest = reportEmployeeExitCaseRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/hr/exit-cases
+     * Report an employee exit case from an absence signal
+     * Creates an audited employee exit case that HR can confirm and prepare for settlement/approval workflows.
+     * @param reportEmployeeExitCaseRequest
+     * @return ApiResponse<kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun reportEmployeeExitCaseWithHttpInfo(reportEmployeeExitCaseRequest: ReportEmployeeExitCaseRequest) : ApiResponse<kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = reportEmployeeExitCaseRequestConfig(reportEmployeeExitCaseRequest = reportEmployeeExitCaseRequest)
+
+        return@withContext request<ReportEmployeeExitCaseRequest, kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation reportEmployeeExitCase
+     *
+     * @param reportEmployeeExitCaseRequest
+     * @return RequestConfig
+     */
+    fun reportEmployeeExitCaseRequestConfig(reportEmployeeExitCaseRequest: ReportEmployeeExitCaseRequest) : RequestConfig<ReportEmployeeExitCaseRequest> {
+        val localVariableBody = reportEmployeeExitCaseRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/hr/exit-cases",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

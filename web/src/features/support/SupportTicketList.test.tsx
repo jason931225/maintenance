@@ -4,11 +4,17 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { SupportTicketSummary } from "../../api/types";
 import { ko } from "../../i18n/ko";
+import { defaultSloSettings } from "./slo-settings";
 import { SupportTicketList } from "./SupportTicketList";
+import { KO_CONSOLE_SUPPORTSLO } from "./supportslo-ko.test";
+
+const SLO_RULES = defaultSloSettings().active;
 
 const NOW = Date.parse("2026-06-13T12:00:00Z");
 
-function ticket(over: Partial<SupportTicketSummary> = {}): SupportTicketSummary {
+function ticket(
+  over: Partial<SupportTicketSummary> = {},
+): SupportTicketSummary {
   return {
     id: "11111111-1111-4111-8111-111111111111",
     branch_id: "00000000-0000-4000-8000-000000000001",
@@ -31,15 +37,56 @@ function ticket(over: Partial<SupportTicketSummary> = {}): SupportTicketSummary 
 }
 
 describe("SupportTicketList", () => {
-  it("renders tickets with priority/status/overdue badges", () => {
+  it("renders tickets with priority/status/SLO-overdue chips", () => {
     render(
-      <SupportTicketList tickets={[ticket()]} nowMs={NOW} onSelect={vi.fn()} />,
+      <SupportTicketList
+        tickets={[ticket()]}
+        nowMs={NOW}
+        sloRules={SLO_RULES}
+        onSelect={vi.fn()}
+      />,
     );
 
     expect(screen.getByText("290호기 시동 불량")).toBeVisible();
     expect(screen.getByText(ko.support.ticketPriority.HIGH)).toBeVisible();
     expect(screen.getByText(ko.support.ticketStatus.OPEN)).toBeVisible();
-    expect(screen.getByText(ko.support.overdue)).toBeVisible();
+    expect(
+      screen.getByText(KO_CONSOLE_SUPPORTSLO.posture.overdue),
+    ).toBeVisible();
+  });
+
+  it("derives the SLO chip from the ACTIVE setting when no due date is set", () => {
+    // EQUIPMENT_INQUIRY threshold 24h; created 09:00 + 24h is > 4h away → no chip.
+    render(
+      <SupportTicketList
+        tickets={[ticket({ due_at: null })]}
+        nowMs={NOW}
+        sloRules={SLO_RULES}
+        onSelect={vi.fn()}
+      />,
+    );
+    expect(
+      screen.queryByText(KO_CONSOLE_SUPPORTSLO.posture.overdue),
+    ).toBeNull();
+
+    // Tightening the active rule to 1h flips the same ticket to SLO-overdue.
+    render(
+      <SupportTicketList
+        tickets={[ticket({ due_at: null })]}
+        nowMs={NOW}
+        sloRules={{
+          ...SLO_RULES,
+          EQUIPMENT_INQUIRY: {
+            ...SLO_RULES.EQUIPMENT_INQUIRY,
+            thresholdHours: 1,
+          },
+        }}
+        onSelect={vi.fn()}
+      />,
+    );
+    expect(
+      screen.getByText(KO_CONSOLE_SUPPORTSLO.posture.overdue),
+    ).toBeVisible();
   });
 
   it("renders the assignee by display name and the real total", () => {
@@ -47,6 +94,7 @@ describe("SupportTicketList", () => {
       <SupportTicketList
         tickets={[ticket()]}
         nowMs={NOW}
+        sloRules={SLO_RULES}
         onSelect={vi.fn()}
         total={42}
       />,
@@ -66,6 +114,7 @@ describe("SupportTicketList", () => {
       <SupportTicketList
         tickets={[ticket({ assignee_user_id: null, assignee_name: null })]}
         nowMs={NOW}
+        sloRules={SLO_RULES}
         onSelect={vi.fn()}
       />,
     );
@@ -73,7 +122,14 @@ describe("SupportTicketList", () => {
   });
 
   it("shows the empty state when there are no tickets", () => {
-    render(<SupportTicketList tickets={[]} nowMs={NOW} onSelect={vi.fn()} />);
+    render(
+      <SupportTicketList
+        tickets={[]}
+        nowMs={NOW}
+        sloRules={SLO_RULES}
+        onSelect={vi.fn()}
+      />,
+    );
     expect(screen.getByText(ko.support.empty)).toBeVisible();
   });
 
@@ -81,7 +137,12 @@ describe("SupportTicketList", () => {
     const user = userEvent.setup();
     const onSelect = vi.fn();
     render(
-      <SupportTicketList tickets={[ticket()]} nowMs={NOW} onSelect={onSelect} />,
+      <SupportTicketList
+        tickets={[ticket()]}
+        nowMs={NOW}
+        sloRules={SLO_RULES}
+        onSelect={onSelect}
+      />,
     );
 
     await user.click(screen.getByText("290호기 시동 불량"));
@@ -90,15 +151,35 @@ describe("SupportTicketList", () => {
     );
   });
 
-  it("does not flag a resolved ticket as overdue", () => {
+  it("carries a SUP- object-code chip that is a drag source", () => {
+    render(
+      <SupportTicketList
+        tickets={[ticket()]}
+        nowMs={NOW}
+        sloRules={SLO_RULES}
+        onSelect={vi.fn()}
+      />,
+    );
+
+    // ticketCode derives SUP-1111 from the API id (§4-25-⑥, §4-20 grammar).
+    const chip = screen.getByText("SUP-1111");
+    expect(chip).toBeVisible();
+    expect(chip).toHaveAttribute("draggable", "true");
+    expect(chip).toHaveAttribute("data-obj-code", "SUP-1111");
+  });
+
+  it("does not flag a resolved ticket as SLO-overdue", () => {
     render(
       <SupportTicketList
         tickets={[ticket({ status: "RESOLVED" })]}
         nowMs={NOW}
+        sloRules={SLO_RULES}
         onSelect={vi.fn()}
       />,
     );
-    expect(screen.queryByText(ko.support.overdue)).toBeNull();
+    expect(
+      screen.queryByText(KO_CONSOLE_SUPPORTSLO.posture.overdue),
+    ).toBeNull();
   });
 
   it("shows '더 보기' only when hasMore and calls onLoadMore", async () => {
@@ -108,17 +189,21 @@ describe("SupportTicketList", () => {
       <SupportTicketList
         tickets={[ticket()]}
         nowMs={NOW}
+        sloRules={SLO_RULES}
         onSelect={vi.fn()}
         onLoadMore={onLoadMore}
       />,
     );
     // hasMore defaults false → no button.
-    expect(screen.queryByRole("button", { name: ko.support.loadMore })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: ko.support.loadMore }),
+    ).toBeNull();
 
     rerender(
       <SupportTicketList
         tickets={[ticket()]}
         nowMs={NOW}
+        sloRules={SLO_RULES}
         onSelect={vi.fn()}
         hasMore
         onLoadMore={onLoadMore}

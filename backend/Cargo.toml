@@ -8,10 +8,15 @@ resolver = "3"
 members = [
   "app",
   "crates/kernel/*",
+  "crates/benefit/*",
   "crates/compliance/*",
+  "crates/docs/*",
   "crates/financial/*",
+  "crates/governance/*",
   "crates/identity/*",
   "crates/inspection/*",
+  "crates/inventory/*",
+  "crates/ontology/*",
   "crates/registry/*",
   "crates/reporting/*",
   "crates/sales/*",
@@ -25,6 +30,7 @@ members = [
   "crates/todos/*",
   "crates/comms/*",
   "crates/payroll/*",
+  "crates/policy/*",
   "crates/erp/*",
   "crates/platform/*",
   "ci/gates/*",
@@ -163,11 +169,18 @@ webpki-roots = "1.0.8"
 futures = { version = "0.3.32", default-features = false, features = ["std"] }
 
 mnt-kernel-core = { path = "crates/kernel/core" }
+mnt-benefit-domain = { path = "crates/benefit/domain" }
+mnt-benefit-application = { path = "crates/benefit/application" }
+mnt-benefit-adapter-postgres = { path = "crates/benefit/adapter-postgres" }
 mnt-compliance-domain = { path = "crates/compliance/domain" }
 mnt-compliance-application = { path = "crates/compliance/application" }
 mnt-compliance-adapter-postgres = { path = "crates/compliance/adapter-postgres" }
 mnt-compliance-rest = { path = "crates/compliance/rest" }
 mnt-integrity = { path = "crates/compliance/integrity" }
+mnt-docs-domain = { path = "crates/docs/domain" }
+mnt-docs-application = { path = "crates/docs/application" }
+mnt-docs-adapter-postgres = { path = "crates/docs/adapter-postgres" }
+mnt-docs-rest = { path = "crates/docs/rest" }
 mnt-financial-domain = { path = "crates/financial/domain" }
 mnt-financial-application = { path = "crates/financial/application" }
 mnt-financial-adapter-postgres = { path = "crates/financial/adapter-postgres" }
@@ -180,6 +193,9 @@ mnt-inspection-domain = { path = "crates/inspection/domain" }
 mnt-inspection-application = { path = "crates/inspection/application" }
 mnt-inspection-adapter-postgres = { path = "crates/inspection/adapter-postgres" }
 mnt-inspection-rest = { path = "crates/inspection/rest" }
+mnt-inventory-domain = { path = "crates/inventory/domain" }
+mnt-inventory-application = { path = "crates/inventory/application" }
+mnt-inventory-adapter-postgres = { path = "crates/inventory/adapter-postgres" }
 mnt-support-domain = { path = "crates/support/domain" }
 mnt-support-application = { path = "crates/support/application" }
 mnt-support-adapter-postgres = { path = "crates/support/adapter-postgres" }
@@ -233,6 +249,9 @@ mnt-comms-adapter-mox = { path = "crates/comms/adapter-mox" }
 mnt-comms-mailbox = { path = "crates/comms/mailbox" }
 mnt-comms-rest = { path = "crates/comms/rest" }
 mnt-payroll-domain = { path = "crates/payroll/domain" }
+mnt-policy-domain = { path = "crates/policy/domain" }
+mnt-policy-application = { path = "crates/policy/application" }
+mnt-policy-adapter-postgres = { path = "crates/policy/adapter-postgres" }
 mnt-erp-domain = { path = "crates/erp/domain" }
 mnt-dispatch-domain = { path = "crates/dispatch/domain" }
 mnt-dispatch-application = { path = "crates/dispatch/application" }
@@ -243,6 +262,15 @@ mnt-platform-db = { path = "crates/platform/db" }
 mnt-platform-auth = { path = "crates/platform/auth" }
 mnt-platform-auth-rest = { path = "crates/platform/auth-rest" }
 mnt-platform-authz = { path = "crates/platform/authz" }
+mnt-platform-authz-rest = { path = "crates/platform/authz-rest" }
+mnt-ontology-domain = { path = "crates/ontology/domain" }
+mnt-ontology-application = { path = "crates/ontology/application" }
+mnt-ontology-adapter-postgres = { path = "crates/ontology/adapter-postgres" }
+mnt-ontology-rest = { path = "crates/ontology/rest" }
+mnt-governance-domain = { path = "crates/governance/domain" }
+mnt-governance-application = { path = "crates/governance/application" }
+mnt-governance-adapter-postgres = { path = "crates/governance/adapter-postgres" }
+mnt-governance-rest = { path = "crates/governance/rest" }
 mnt-platform-request-context = { path = "crates/platform/request-context" }
 mnt-platform-realtime = { path = "crates/platform/realtime" }
 mnt-platform-excel = { path = "crates/platform/excel" }

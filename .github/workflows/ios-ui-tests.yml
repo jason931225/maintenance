@@ -46,12 +46,14 @@ jobs:
   ios-ui-tests:
     name: iOS — XCUITest + accessibility audit (Simulator)
     runs-on: macos-15
+    timeout-minutes: 45
 
     env:
       # Identity (no hardcoded guess). MNT_IOS_BUNDLE_ID is a repo variable that
       # mirrors the registered app id behind MNT_IOS_APP_IDS in
-      # deploy/apps/maintenance/base/configmap.yaml; until it is registered the
-      # xcconfig placeholder is used (unsigned Simulator build only).
+      # deploy/apps/maintenance/base/configmap.yaml. When that repo variable is
+      # absent, the xcconfig repo default is used for the unsigned Simulator test
+      # build only; this does not prove release signing/provisioning readiness.
       MNT_IOS_BUNDLE_ID: ${{ vars.MNT_IOS_BUNDLE_ID || 'com.maintenance.field' }}
       MNT_IOS_TEAM_ID: ${{ vars.MNT_IOS_TEAM_ID || '98Q89GFZWP' }}
       # Real-backend session source for the no-fakes seeding. The suite skips
@@ -67,10 +69,10 @@ jobs:
       # resolves the granted group at runtime (see RealSessionSeed.resolvedAccessGroup).
       MNT_IOS_KEYCHAIN_GROUP: ${{ vars.MNT_IOS_KEYCHAIN_GROUP }}
       # Anti-false-green: require the real post-login suite to actually run (not
-      # all-skip) on pushes where secrets are available. PreflightUITests FAILS
-      # (not skips) if the real session source / shared keychain group is missing
-      # when this is "1". Only enforce when the session secrets are present.
-      MNT_UITEST_REQUIRE_REAL: ${{ (github.event_name == 'push' && secrets.MNT_UITEST_BASE_URL != '') && '1' || '0' }}
+      # all-skip) on protected refs and pushes. This is a trust-context decision,
+      # not a function of whether secrets happen to be present; missing required
+      # inputs fail closed in the run step below instead of downgrading the gate.
+      MNT_UITEST_REQUIRE_REAL: ${{ (github.event_name == 'push' || github.ref_protected) && '1' || '0' }}
       # Accessibility-audit strictness. BOOTSTRAP = "0": the SwiftUI views have
       # not yet been observed under a real Simulator audit, so the first runs
       # record findings as result-bundle attachments (to triage + fix the views)
@@ -156,8 +158,34 @@ jobs:
           echo "Verified xctestrun points UI tests at MaintenanceFieldApp.app"
 
           TEST_SELECTION_ARGS=()
-          if [[ -z "${MNT_UITEST_BASE_URL}" || ( -z "${MNT_UITEST_REFRESH_TOKEN}" && -z "${MNT_UITEST_OTP}" ) ]]; then
-            echo "No real UI-test session source is configured; skipping real-session-dependent UI tests."
+          HAS_REAL_SESSION_SOURCE=0
+          if [[ -n "${MNT_UITEST_BASE_URL:-}" && ( -n "${MNT_UITEST_REFRESH_TOKEN:-}" || -n "${MNT_UITEST_OTP:-}" ) ]]; then
+            HAS_REAL_SESSION_SOURCE=1
+          fi
+
+          if [[ "${MNT_UITEST_REQUIRE_REAL:-0}" == "1" && "$HAS_REAL_SESSION_SOURCE" != "1" ]]; then
+            echo "::error title=Required iOS UI-test real-session inputs are missing::Protected/push iOS UI-test runs require MNT_UITEST_BASE_URL plus MNT_UITEST_REFRESH_TOKEN or MNT_UITEST_OTP; refusing an all-skip false green."
+            if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+              {
+                echo "### iOS UI-test real-session gate"
+                echo "- Gate: required"
+                echo "- Result: failed closed before session-dependent tests could be skipped"
+                echo "- Required inputs: MNT_UITEST_BASE_URL plus MNT_UITEST_REFRESH_TOKEN or MNT_UITEST_OTP"
+              } >> "$GITHUB_STEP_SUMMARY"
+            fi
+            exit 1
+          fi
+
+          if [[ "$HAS_REAL_SESSION_SOURCE" != "1" ]]; then
+            echo "::notice title=Optional iOS UI-test real-session gate skipped::No real UI-test session source is configured in this optional context; skipping session-dependent UI tests."
+            if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
+              {
+                echo "### iOS UI-test real-session gate"
+                echo "- Gate: optional/skipped"
+                echo "- Reason: MNT_UITEST_BASE_URL plus MNT_UITEST_REFRESH_TOKEN or MNT_UITEST_OTP were not available in this non-required context"
+                echo "- Required contexts still fail closed before skip selection"
+              } >> "$GITHUB_STEP_SUMMARY"
+            fi
             TEST_SELECTION_ARGS+=(
               "-skip-testing:MaintenanceFieldUITests/AccessibilityAuditUITests"
               "-skip-testing:MaintenanceFieldUITests/CameraCaptureUITests"
@@ -165,6 +193,8 @@ jobs:
               "-skip-testing:MaintenanceFieldUITests/LoginValidationUITests/testInvalidUserIDSurfacesRealValidationCopy"
               "-skip-testing:MaintenanceFieldUITests/MessengerUITests"
             )
+          else
+            echo "Real UI-test session source configured; running session-dependent UI tests."
           fi
 
           xcodebuild test-without-building \

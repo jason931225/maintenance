@@ -68,8 +68,8 @@ requireIncludes(
   "reporting export records successful session history",
 );
 requireIncludes(
-  "web/src/features/kpi/KpiDashboard.tsx",
-  "ExecutiveInsightRail",
+  "web/src/console/dashboard/DashboardScreen.tsx",
+  "to={stat.to}",
   "KPI dashboard links executive drilldowns",
 );
 requireIncludes(
@@ -98,7 +98,7 @@ for (const path of [
   "web/src/features/support/SupportTicketDetail.tsx",
   "web/src/pages/ReportingPage.tsx",
   "web/src/features/reporting/ReportingExport.tsx",
-  "web/src/features/kpi/KpiDashboard.tsx",
+  "web/src/console/dashboard/DashboardScreen.tsx",
   "web/src/features/kpi/WallBoard.tsx",
 ]) {
   requireNotIncludes(path, "데모", `${path} has no demo copy`);

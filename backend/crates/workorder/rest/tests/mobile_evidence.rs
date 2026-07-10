@@ -6,8 +6,9 @@ use std::sync::{Arc, Mutex};
 
 use axum::body::{Body, to_bytes};
 use http::{Request, StatusCode, header};
-use mnt_kernel_core::{BranchId, OrgId, UserId};
+use mnt_kernel_core::{AuditAction, AuditEvent, BranchId, OrgId, TraceContext, UserId};
 use mnt_platform_auth::{AccessTokenInput, JwtIssuer, JwtSettings, JwtVerifier};
+use mnt_platform_db::{DbError, with_audit};
 use mnt_platform_jobs::{BoxFuture, JobId, JobQueue, JobQueueError, JobRequest};
 use mnt_platform_storage::{
     CopyObjectRequest, EvidenceService, ObjectHead, PresignGetRequest, PresignPutRequest,
@@ -21,6 +22,7 @@ use p256::elliptic_curve::rand_core::OsRng;
 use p256::pkcs8::{EncodePrivateKey, EncodePublicKey, LineEnding};
 use serde_json::{Value, json};
 use sqlx::PgPool;
+use time::format_description::well_known::Rfc3339;
 use time::{Duration, OffsetDateTime};
 use tower::ServiceExt;
 
@@ -193,7 +195,25 @@ async fn evidence_presign_confirm_flow_is_authorized_and_audited(pool: PgPool) {
         )
         .await;
         assert_eq!(confirm.status, StatusCode::OK, "{:?}", confirm.json);
+        assert_eq!(confirm.json["stage"], "AFTER");
         assert_eq!(confirm.json["worm_replica_status"], "VERIFIED");
+        let response_verified_at =
+            OffsetDateTime::parse(confirm.json["verified_at"].as_str().unwrap(), &Rfc3339).unwrap();
+
+        let (stored_stage, stored_worm_replica_status, stored_verified_at): (
+            String,
+            String,
+            Option<OffsetDateTime>,
+        ) = sqlx::query_as(
+            "SELECT stage, worm_replica_status, verified_at FROM evidence_media WHERE id = $1",
+        )
+        .bind(uuid::Uuid::parse_str(evidence_id).unwrap())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(stored_stage, "AFTER");
+        assert_eq!(stored_worm_replica_status, "VERIFIED");
+        assert_eq!(stored_verified_at, Some(response_verified_at));
 
         let audit_rows: Vec<(String, Option<uuid::Uuid>)> = sqlx::query_as(
             "SELECT action, org_id FROM audit_events WHERE target_id = $1 ORDER BY occurred_at, created_at",
@@ -225,6 +245,92 @@ async fn evidence_presign_confirm_flow_is_authorized_and_audited(pool: PgPool) {
                 .await
                 .unwrap();
         assert!(confirmed_at.is_some());
+    })
+    .await;
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn evidence_confirm_fails_when_post_replication_media_reload_fails(pool: PgPool) {
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let signing_key = SigningKey::random(&mut OsRng);
+        let private_pem = signing_key.to_pkcs8_pem(LineEnding::LF).unwrap();
+        let public_key_pem = signing_key
+            .verifying_key()
+            .to_public_key_pem(LineEnding::LF)
+            .unwrap();
+        let branch_id = seed_branch(&pool, "Reload Failure Region", "Reload Failure Branch").await;
+        let mechanic = UserId::new();
+        let receptionist = UserId::new();
+        seed_user_with_branch(&pool, mechanic, "MECHANIC", branch_id).await;
+        seed_user_with_branch(&pool, receptionist, "RECEPTIONIST", branch_id).await;
+        let equipment_id = seed_equipment(&pool, branch_id, "293").await;
+        let work_order_id =
+            seed_assigned_work_order(&pool, branch_id, equipment_id, receptionist, mechanic).await;
+        let token = issue_token(
+            private_pem.as_bytes(),
+            public_key_pem.as_bytes(),
+            mechanic,
+            vec!["MECHANIC".to_owned()],
+            vec![branch_id],
+        )
+        .unwrap();
+        let verifier = JwtVerifier::from_es256_public_pem(
+            JwtSettings {
+                issuer: TEST_ISSUER.to_owned(),
+                audience: TEST_AUDIENCE.to_owned(),
+                access_token_ttl: Duration::minutes(15),
+            },
+            public_key_pem.as_bytes(),
+        )
+        .unwrap();
+        let evidence = EvidenceService::new(
+            pool.clone(),
+            StaticObjectStore,
+            "primary".to_owned(),
+            "replica".to_owned(),
+        );
+        let service = mobile_router(MobileRestState::new(
+            pool.clone(),
+            PgWorkOrderStore::new(pool.clone()),
+            Some(verifier),
+            Some(evidence),
+        ));
+
+        let presign = post_json(
+            service.clone(),
+            "/api/v1/evidence/presign",
+            &token,
+            json!({
+                "work_order_id": work_order_id,
+                "stage": "AFTER",
+                "content_type": "image/jpeg",
+                "size_bytes": 1024
+            }),
+        )
+        .await;
+        assert_eq!(presign.status, StatusCode::OK, "{:?}", presign.json);
+        let evidence_id = presign.json["id"].as_str().unwrap().to_owned();
+        install_post_replication_reload_failure(&pool).await;
+
+        let confirm = post_json(
+            service,
+            &format!("/api/v1/evidence/{evidence_id}/confirm"),
+            &token,
+            json!({}),
+        )
+        .await;
+        assert_eq!(confirm.status, StatusCode::NOT_FOUND, "{:?}", confirm.json);
+        assert_eq!(confirm.json["error"]["code"], "not_found");
+
+        let actions: Vec<String> = sqlx::query_scalar(
+            "SELECT action FROM audit_events WHERE target_id = $1 ORDER BY occurred_at, created_at",
+        )
+        .bind(&evidence_id)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert!(actions.contains(&"evidence.confirm".to_owned()));
+        assert!(actions.contains(&"evidence.verify".to_owned()));
     })
     .await;
 }
@@ -376,6 +482,63 @@ fn issue_token(
         session_generation: 0,
         issued_at: OffsetDateTime::now_utc(),
     })?)
+}
+
+async fn install_post_replication_reload_failure(pool: &PgPool) {
+    let event = AuditEvent::new(
+        None,
+        AuditAction::new("test.install_reload_failure").unwrap(),
+        "test_trigger",
+        "test_delete_evidence_after_replication",
+        TraceContext::generate(),
+        OffsetDateTime::now_utc(),
+    )
+    .with_org(OrgId::knl());
+    with_audit(pool, event, |tx| {
+        Box::pin(async move {
+            sqlx::query(
+                r#"
+                CREATE OR REPLACE FUNCTION test_delete_evidence_after_replication()
+                RETURNS trigger
+                LANGUAGE plpgsql
+                AS $$
+                BEGIN
+                    DELETE FROM evidence_media WHERE id = NEW.id;
+                    RETURN NULL;
+                END;
+                $$
+                "#,
+            )
+            .execute(tx.as_mut())
+            .await
+            .map_err(DbError::Sqlx)?;
+            sqlx::query(
+                "DROP TRIGGER IF EXISTS test_delete_evidence_after_replication ON evidence_media",
+            )
+            .execute(tx.as_mut())
+            .await
+            .map_err(DbError::Sqlx)?;
+            sqlx::query(
+                r#"
+                CREATE CONSTRAINT TRIGGER test_delete_evidence_after_replication
+                AFTER UPDATE ON evidence_media
+                DEFERRABLE INITIALLY DEFERRED
+                FOR EACH ROW
+                WHEN (
+                    OLD.worm_replica_status IS DISTINCT FROM NEW.worm_replica_status
+                    AND NEW.worm_replica_status = 'VERIFIED'
+                )
+                EXECUTE FUNCTION test_delete_evidence_after_replication()
+                "#,
+            )
+            .execute(tx.as_mut())
+            .await
+            .map_err(DbError::Sqlx)?;
+            Ok::<(), DbError>(())
+        })
+    })
+    .await
+    .unwrap();
 }
 
 async fn get_json(service: axum::Router, uri: &str, token: &str) -> JsonResponse {

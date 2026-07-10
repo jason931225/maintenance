@@ -46,15 +46,19 @@ impl IntegrityRestState {
 // Router
 // ---------------------------------------------------------------------------
 
+pub const INTEGRITY_FINDINGS_PATH: &str = "/api/v1/integrity/findings";
+pub const INTEGRITY_FINDING_TRIAGE_PATH_TEMPLATE: &str = "/api/v1/integrity/findings/{id}/triage";
+pub const INTEGRITY_ROUTE_PATHS: &[&str] = &[
+    INTEGRITY_FINDINGS_PATH,
+    INTEGRITY_FINDING_TRIAGE_PATH_TEMPLATE,
+];
+
 pub fn router(state: IntegrityRestState) -> Router {
     let verifier = state.jwt_verifier.clone();
     let pool = state.store.pool().clone();
     let router = Router::new()
-        .route("/api/v1/integrity/findings", get(list_findings))
-        .route(
-            "/api/v1/integrity/findings/{id}/triage",
-            post(triage_finding),
-        )
+        .route(INTEGRITY_FINDINGS_PATH, get(list_findings))
+        .route(INTEGRITY_FINDING_TRIAGE_PATH_TEMPLATE, post(triage_finding))
         .with_state(state);
     mnt_platform_request_context::with_request_context(router, verifier, pool)
 }

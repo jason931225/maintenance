@@ -51,6 +51,29 @@ pub enum KpiMetric {
     P1AcceptanceRate,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum KpiWorkOrderStatus {
+    FinalCompleted,
+    Other,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum KpiPriorityLevel {
+    P1,
+    P2,
+    P3,
+    Other,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum KpiWorkResultType {
+    RevisitRequired,
+    Other,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UnavailableMetric {
     pub metric: KpiMetric,
@@ -116,9 +139,9 @@ pub struct KpiInputRecord {
     pub branch_id: BranchId,
     pub region_id: RegionId,
     pub technician_id: Option<UserId>,
-    pub status: String,
-    pub priority: String,
-    pub result_type: String,
+    pub status: KpiWorkOrderStatus,
+    pub priority: KpiPriorityLevel,
+    pub result_type: KpiWorkResultType,
     pub delay_reason: Option<String>,
     pub created_at: Timestamp,
     pub first_in_progress_at: Option<Timestamp>,
@@ -286,7 +309,7 @@ impl KpiRollupBuilder {
             self.response_count += 1;
         }
 
-        if record.result_type == "REVISIT_REQUIRED" {
+        if record.result_type == KpiWorkResultType::RevisitRequired {
             self.revisit_count += 1;
         }
 
@@ -307,7 +330,7 @@ impl KpiRollupBuilder {
         }
 
         self.completed_count += 1;
-        self.weighted_completed_points += priority_weight(&record.priority);
+        self.weighted_completed_points += priority_weight(record.priority);
         if record.approved_at >= record.created_at {
             self.completion_seconds_total +=
                 (record.approved_at - record.created_at).whole_seconds() as i128;
@@ -372,15 +395,15 @@ impl KpiRollupBuilder {
 }
 
 fn is_completed(record: &KpiInputRecord) -> bool {
-    record.status == "FINAL_COMPLETED"
+    record.status == KpiWorkOrderStatus::FinalCompleted
 }
 
-fn priority_weight(priority: &str) -> u32 {
+const fn priority_weight(priority: KpiPriorityLevel) -> u32 {
     match priority {
-        "P1" => 3,
-        "P2" => 2,
-        "P3" => 1,
-        _ => 0,
+        KpiPriorityLevel::P1 => 3,
+        KpiPriorityLevel::P2 => 2,
+        KpiPriorityLevel::P3 => 1,
+        KpiPriorityLevel::Other => 0,
     }
 }
 
@@ -653,6 +676,82 @@ pub struct OpsSummary {
     pub pending_approvals: u32,
     /// Support tickets not yet resolved/closed (OPEN + IN_PROGRESS + ON_HOLD).
     pub open_support_tickets: u32,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use time::macros::datetime;
+
+    fn id(value: u128) -> uuid::Uuid {
+        uuid::Uuid::from_u128(value)
+    }
+
+    fn record(
+        work_order_id: uuid::Uuid,
+        status: KpiWorkOrderStatus,
+        priority: KpiPriorityLevel,
+        result_type: KpiWorkResultType,
+    ) -> KpiInputRecord {
+        KpiInputRecord {
+            work_order_id,
+            branch_id: BranchId::from_uuid(id(0xb1)),
+            region_id: RegionId::from_uuid(id(0xc1)),
+            technician_id: Some(UserId::from_uuid(id(0xd1))),
+            status,
+            priority,
+            result_type,
+            delay_reason: None,
+            created_at: datetime!(2026-07-01 09:00 UTC),
+            first_in_progress_at: Some(datetime!(2026-07-01 10:00 UTC)),
+            approved_at: datetime!(2026-07-01 12:00 UTC),
+            target_due_at: Some(datetime!(2026-07-01 13:00 UTC)),
+        }
+    }
+
+    #[test]
+    fn kpi_rollups_use_typed_work_order_values_without_changing_known_aggregates() {
+        let period = Period {
+            start: datetime!(2026-07-01 00:00 UTC),
+            end: datetime!(2026-07-02 00:00 UTC),
+        };
+        let records = vec![
+            record(
+                id(1),
+                KpiWorkOrderStatus::FinalCompleted,
+                KpiPriorityLevel::P1,
+                KpiWorkResultType::Other,
+            ),
+            record(
+                id(2),
+                KpiWorkOrderStatus::FinalCompleted,
+                KpiPriorityLevel::P2,
+                KpiWorkResultType::Other,
+            ),
+            record(
+                id(3),
+                KpiWorkOrderStatus::Other,
+                KpiPriorityLevel::P3,
+                KpiWorkResultType::Other,
+            ),
+            record(
+                id(4),
+                KpiWorkOrderStatus::FinalCompleted,
+                KpiPriorityLevel::P3,
+                KpiWorkResultType::RevisitRequired,
+            ),
+        ];
+
+        let report =
+            calculate_kpi_report(period, KpiScope::Company, &records, &[], &[], Vec::new());
+        let company = report.rollup(&KpiRollupScope::Company).unwrap();
+
+        assert_eq!(company.approved_report_count, 4);
+        assert_eq!(company.completed_count, 3);
+        assert_eq!(company.weighted_completed_points, 6);
+        assert_eq!(company.revisit_rate_bps, 2_500);
+        assert_eq!(company.target_due_compliance_bps, Some(10_000));
+    }
 }
 
 #[cfg(test)]

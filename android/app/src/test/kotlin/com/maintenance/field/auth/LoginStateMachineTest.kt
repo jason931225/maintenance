@@ -70,4 +70,50 @@ class LoginStateMachineTest {
 
         assertEquals(LoginState.SignedOut(messageKey = "login_failed"), state)
     }
+
+    @Test
+    fun deviceRegistrationFailureAfterPasskeyVerificationKeepsAuthenticatedRetryPendingState() {
+        val state = LoginStateMachine().reduce(
+            LoginState.RegisteringDevice(
+                accessToken = "access.jwt",
+                refreshToken = "refresh-token",
+                deviceId = "device-a",
+                platform = DevicePlatform.ANDROID,
+                appVersion = "0.1.0",
+            ),
+            LoginEvent.DeviceRegistrationFailed(lastErrorClass = "IOException"),
+        )
+
+        val authenticated = assertIs<LoginState.Authenticated>(state)
+        assertEquals("access.jwt", authenticated.accessToken)
+        assertEquals("refresh-token", authenticated.refreshToken)
+        val retry = assertIs<DeviceRegistrationState.RetryPending>(authenticated.deviceRegistration)
+        assertEquals("device-a", retry.deviceId)
+        assertEquals(DevicePlatform.ANDROID, retry.platform)
+        assertEquals("0.1.0", retry.appVersion)
+        assertEquals("IOException", retry.lastErrorClass)
+        assertEquals(DEVICE_REGISTRATION_RETRY_PENDING_MESSAGE_KEY, retry.messageKey)
+    }
+
+    @Test
+    fun successfulDeviceRegistrationRetryClearsPendingRegistrationStatus() {
+        val state = LoginStateMachine().reduce(
+            LoginState.Authenticated(
+                accessToken = "access.jwt",
+                refreshToken = "refresh-token",
+                deviceRegistration = DeviceRegistrationState.RetryPending(
+                    deviceId = "device-a",
+                    platform = DevicePlatform.ANDROID,
+                    appVersion = "0.1.0",
+                    lastErrorClass = "IOException",
+                ),
+            ),
+            LoginEvent.DeviceRegistered(
+                serverDeviceId = UUID.fromString("00000000-0000-0000-0000-000000000903"),
+            ),
+        )
+
+        val authenticated = assertIs<LoginState.Authenticated>(state)
+        assertEquals(DeviceRegistrationState.Registered, authenticated.deviceRegistration)
+    }
 }

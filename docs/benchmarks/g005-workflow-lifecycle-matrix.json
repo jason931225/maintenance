@@ -40,6 +40,12 @@
       "routeGroup": "planned-work",
       "mustContainOwnerGoal": "G005",
       "requiredStory": "mechanic planned work starts from received work order, requests manager review, records review memo, and reaches final confirmation without bypassing approval lifecycle"
+    },
+    {
+      "path": "/automate",
+      "routeGroup": "workflow-builder",
+      "mustContainOwnerGoal": "G005",
+      "requiredStory": "SUPER_ADMIN builds a workflow or schedule automation, runs it, and verifies the run record with comment/evidence and immutable audit actor match within policy scope"
     }
   ],
   "dependencyRoutes": [

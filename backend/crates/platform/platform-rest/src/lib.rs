@@ -27,12 +27,13 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, put};
 use axum::{Extension, Json, Router};
+use mnt_kernel_core::{OrgId, UserId};
 use mnt_platform_auth::{JwtIssuer, JwtVerifier};
 use mnt_platform_authz::{PlatformFeature, PlatformPrincipal};
 use mnt_platform_provisioning::{
     GroupAccountOnboarding, GroupAccountSummary, GroupMemberSummary, GroupSummary,
-    OrganizationSummary, PlatformProvisioner, ProvisioningError, TenantHealth, TenantOnboarding,
-    TenantRemovalOutcome,
+    OrganizationSummary, PlatformProvisioner, ProvisioningError, RouteAdoptionMetric, TenantHealth,
+    TenantOnboarding, TenantRemovalOutcome,
 };
 use serde::{Deserialize, Serialize};
 use sqlx::PgPool;
@@ -50,6 +51,122 @@ pub const PLATFORM_GROUP_ORG_PATH_TEMPLATE: &str =
     "/api/platform/groups/{id}/organizations/{org_id}";
 pub const PLATFORM_OPS_PATH: &str = "/api/platform/ops";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct PlatformRouteOperation {
+    pub method: &'static str,
+    pub path: &'static str,
+}
+
+pub const PLATFORM_ROUTE_PATHS: &[&str] = &[
+    PLATFORM_ORGS_PATH,
+    PLATFORM_ORG_PATH_TEMPLATE,
+    PLATFORM_GROUPS_PATH,
+    PLATFORM_GROUP_PATH_TEMPLATE,
+    PLATFORM_GROUP_ACCOUNTS_PATH_TEMPLATE,
+    PLATFORM_GROUP_ACCOUNT_ROLE_PATH_TEMPLATE,
+    PLATFORM_GROUP_ORG_PATH_TEMPLATE,
+    PLATFORM_OPS_PATH,
+    PLATFORM_VIEW_AS_START_PATH,
+    PLATFORM_VIEW_AS_EXIT_PATH,
+    PLATFORM_TENANT_CONTEXT_START_PATH,
+    PLATFORM_TENANT_CONTEXT_EXIT_PATH,
+];
+
+/// Path+method inventory for the platform contract drift gate.
+///
+/// `PLATFORM_ROUTE_PATHS` keeps the legacy mounted-path coverage check green, but
+/// it cannot detect a new method on an already-documented path. Keep this list in
+/// lockstep with `router` and `view_as::routes`; `backend/app/tests/openapi_drift.rs`
+/// fails CI when any `/api/platform/*` operation here is missing from OpenAPI.
+pub const PLATFORM_ROUTE_OPERATIONS: &[PlatformRouteOperation] = &[
+    PlatformRouteOperation {
+        method: "GET",
+        path: PLATFORM_ORGS_PATH,
+    },
+    PlatformRouteOperation {
+        method: "POST",
+        path: PLATFORM_ORGS_PATH,
+    },
+    PlatformRouteOperation {
+        method: "PATCH",
+        path: PLATFORM_ORG_PATH_TEMPLATE,
+    },
+    PlatformRouteOperation {
+        method: "DELETE",
+        path: PLATFORM_ORG_PATH_TEMPLATE,
+    },
+    PlatformRouteOperation {
+        method: "GET",
+        path: PLATFORM_GROUPS_PATH,
+    },
+    PlatformRouteOperation {
+        method: "POST",
+        path: PLATFORM_GROUPS_PATH,
+    },
+    PlatformRouteOperation {
+        method: "PATCH",
+        path: PLATFORM_GROUP_PATH_TEMPLATE,
+    },
+    PlatformRouteOperation {
+        method: "GET",
+        path: PLATFORM_GROUP_ACCOUNTS_PATH_TEMPLATE,
+    },
+    PlatformRouteOperation {
+        method: "POST",
+        path: PLATFORM_GROUP_ACCOUNTS_PATH_TEMPLATE,
+    },
+    PlatformRouteOperation {
+        method: "DELETE",
+        path: PLATFORM_GROUP_ACCOUNT_ROLE_PATH_TEMPLATE,
+    },
+    PlatformRouteOperation {
+        method: "PUT",
+        path: PLATFORM_GROUP_ORG_PATH_TEMPLATE,
+    },
+    PlatformRouteOperation {
+        method: "DELETE",
+        path: PLATFORM_GROUP_ORG_PATH_TEMPLATE,
+    },
+    PlatformRouteOperation {
+        method: "GET",
+        path: PLATFORM_OPS_PATH,
+    },
+    PlatformRouteOperation {
+        method: "POST",
+        path: PLATFORM_VIEW_AS_START_PATH,
+    },
+    PlatformRouteOperation {
+        method: "POST",
+        path: PLATFORM_VIEW_AS_EXIT_PATH,
+    },
+    PlatformRouteOperation {
+        method: "POST",
+        path: PLATFORM_TENANT_CONTEXT_START_PATH,
+    },
+    PlatformRouteOperation {
+        method: "POST",
+        path: PLATFORM_TENANT_CONTEXT_EXIT_PATH,
+    },
+];
+
+/// Injected port that provisions a NEW tenant's governed-config object catalog
+/// (§4-26 SLO settings, §19 console views) THROUGH the ontology engine, scoped to
+/// the new org. Modeled as a boxed async callback so the platform tier does NOT
+/// depend on the ontology ADAPTER (the layer boundary forbids `platform → adapter`);
+/// the App composition root (`mnt-app`) supplies the concrete engine-backed impl,
+/// and the wiring test supplies its own. `None` skips seeding (e.g. tests that only
+/// exercise onboarding shell behavior).
+pub type TenantConfigSeeder = std::sync::Arc<
+    dyn Fn(
+            OrgId,
+            UserId,
+            OffsetDateTime,
+        )
+            -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), String>> + Send>>
+        + Send
+        + Sync,
+>;
+
 #[derive(Clone)]
 pub struct PlatformRestState {
     pool: PgPool,
@@ -59,6 +176,9 @@ pub struct PlatformRestState {
     /// `None` disables those START endpoints (503), so token issuance is opt-in.
     view_as_issuer: Option<JwtIssuer>,
     provisioner: PlatformProvisioner,
+    /// Engine-backed catalog seeder run once per new tenant on onboarding. `None`
+    /// leaves onboarding to create only the shell (org + admin + OTP).
+    tenant_config_seeder: Option<TenantConfigSeeder>,
 }
 
 impl PlatformRestState {
@@ -73,7 +193,17 @@ impl PlatformRestState {
             jwt_verifier,
             view_as_issuer: None,
             provisioner,
+            tenant_config_seeder: None,
         }
+    }
+
+    /// Install the engine-backed governed-config catalog seeder run for each newly
+    /// onboarded tenant. Supplied by the App tier so the platform tier stays free
+    /// of an ontology-adapter dependency.
+    #[must_use]
+    pub fn with_tenant_config_seeder(mut self, seeder: Option<TenantConfigSeeder>) -> Self {
+        self.tenant_config_seeder = seeder;
+        self
     }
 
     /// Install the JWT issuer used by platform START paths that mint tenant
@@ -334,7 +464,7 @@ struct UpdateOrgRequest {
     status: String,
 }
 
-/// Query params for `DELETE /platform/orgs/{id}`.
+/// Query params for `DELETE /api/platform/orgs/{id}`.
 #[derive(Debug, Deserialize)]
 struct DeleteOrgQuery {
     /// Opt-in FORCE removal: when true, take the DESTRUCTIVE path that erases the
@@ -359,6 +489,32 @@ struct TenantHealthResponse {
     open_work_orders: i64,
     #[serde(with = "time::serde::rfc3339::option")]
     last_activity_at: Option<OffsetDateTime>,
+    route_adoption: Vec<RouteAdoptionMetricResponse>,
+    zero_legacy_release_cycles: i64,
+}
+
+#[derive(Debug, Serialize)]
+struct RouteAdoptionMetricResponse {
+    release_cycle: String,
+    console_route_events: i64,
+    legacy_route_events: i64,
+    rum_error_events: i64,
+    rum_perf_p95_ms: Option<i64>,
+    #[serde(with = "time::serde::rfc3339")]
+    last_event_at: OffsetDateTime,
+}
+
+impl From<RouteAdoptionMetric> for RouteAdoptionMetricResponse {
+    fn from(metric: RouteAdoptionMetric) -> Self {
+        Self {
+            release_cycle: metric.release_cycle,
+            console_route_events: metric.console_route_events,
+            legacy_route_events: metric.legacy_route_events,
+            rum_error_events: metric.rum_error_events,
+            rum_perf_p95_ms: metric.rum_perf_p95_ms,
+            last_event_at: metric.last_event_at,
+        }
+    }
 }
 
 impl From<TenantHealth> for TenantHealthResponse {
@@ -376,6 +532,12 @@ impl From<TenantHealth> for TenantHealthResponse {
             active_work_orders: h.active_work_orders,
             open_work_orders: h.open_work_orders,
             last_activity_at: h.last_activity_at,
+            route_adoption: h
+                .route_adoption
+                .into_iter()
+                .map(RouteAdoptionMetricResponse::from)
+                .collect(),
+            zero_legacy_release_cycles: h.zero_legacy_release_cycles,
         }
     }
 }
@@ -389,7 +551,7 @@ struct PlatformOpsResponse {
 // Handlers
 // ---------------------------------------------------------------------------
 
-/// POST /platform/orgs â onboard a NEW tenant (the only place org rows are
+/// POST /api/platform/orgs — onboard a NEW tenant (the only place org rows are
 /// created by the app), seed its first SUPER_ADMIN, and return a one-time OTP.
 async fn create_org(
     State(state): State<PlatformRestState>,
@@ -412,6 +574,36 @@ async fn create_org(
         .await
         .map_err(PlatformError::from_provisioning)?;
 
+    // Provision the standard governed-config object catalog (§4-26 SLO settings,
+    // §19 console views) for the new tenant THROUGH the ontology engine (the
+    // App-injected seeder), scoped to its freshly-created org so the registry
+    // writes pass FORCE-RLS. The engine uses its own connection, so this runs
+    // after the onboarding tx commits; a rare seeding failure surfaces as a 500
+    // rather than silently leaving a tenant without its config catalog.
+    // The seed's registry rows are `created_by` the actor, whose `(id, org_id)`
+    // must reference a user IN the new org (FORCE-RLS + FK), so the actor is the
+    // freshly-seeded tenant admin — never the platform principal (a sentinel-org
+    // user that would fail the tenant-scoped FK).
+    // ponytail: not atomic with org creation (separate engine connection) — the
+    // org row persists if this fails. Acceptable for a rare admin action; make the
+    // seed tx-scoped only if half-provisioned tenants become an operational problem.
+    if let Some(seeder) = &state.tenant_config_seeder {
+        seeder(
+            OrgId::from_uuid(onboarding.organization.id),
+            UserId::from_uuid(onboarding.admin_user_id),
+            OffsetDateTime::now_utc(),
+        )
+        .await
+        .map_err(|err| {
+            tracing::error!(error = %err, "seeding governed config object types for new tenant failed");
+            PlatformError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal",
+                "internal server error",
+            )
+        })?;
+    }
+
     Ok((
         StatusCode::CREATED,
         Json(OnboardingResponse::from(onboarding)),
@@ -419,7 +611,7 @@ async fn create_org(
         .into_response())
 }
 
-/// GET /platform/orgs â list all tenants (cross-tenant, audited read).
+/// GET /api/platform/orgs — list all tenants (cross-tenant, audited read).
 async fn list_orgs(
     State(state): State<PlatformRestState>,
     Extension(principal): Extension<PlatformPrincipal>,
@@ -444,7 +636,7 @@ async fn list_orgs(
     Ok(Json(items).into_response())
 }
 
-/// GET /platform/groups — list all top-level groups and their member org identities.
+/// GET /api/platform/groups — list all top-level groups and their member org identities.
 async fn list_groups(
     State(state): State<PlatformRestState>,
     Extension(principal): Extension<PlatformPrincipal>,
@@ -467,7 +659,7 @@ async fn list_groups(
     Ok(Json(items).into_response())
 }
 
-/// POST /platform/groups — create a group identity (not a tenant).
+/// POST /api/platform/groups — create a group identity (not a tenant).
 async fn create_group(
     State(state): State<PlatformRestState>,
     Extension(principal): Extension<PlatformPrincipal>,
@@ -492,7 +684,7 @@ async fn create_group(
     Ok((StatusCode::CREATED, Json(GroupResponse::from(group))).into_response())
 }
 
-/// PATCH /platform/groups/{id} — update group identity/status.
+/// PATCH /api/platform/groups/{id} — update group identity/status.
 async fn update_group(
     State(state): State<PlatformRestState>,
     Extension(principal): Extension<PlatformPrincipal>,
@@ -520,7 +712,7 @@ async fn update_group(
     Ok(Json(GroupResponse::from(group)).into_response())
 }
 
-/// GET /platform/groups/{id}/accounts — list tenant-anchored group accounts.
+/// GET /api/platform/groups/{id}/accounts — list tenant-anchored group accounts.
 async fn list_group_accounts(
     State(state): State<PlatformRestState>,
     Extension(principal): Extension<PlatformPrincipal>,
@@ -548,7 +740,7 @@ async fn list_group_accounts(
     Ok(Json(items).into_response())
 }
 
-/// POST /platform/groups/{id}/accounts — create a tenant-anchored group account.
+/// POST /api/platform/groups/{id}/accounts — create a tenant-anchored group account.
 async fn create_group_account(
     State(state): State<PlatformRestState>,
     Extension(principal): Extension<PlatformPrincipal>,
@@ -586,7 +778,7 @@ async fn create_group_account(
         .into_response())
 }
 
-/// DELETE /platform/groups/{id}/accounts/{user_id}/roles/{group_role}.
+/// DELETE /api/platform/groups/{id}/accounts/{user_id}/roles/{group_role}.
 async fn revoke_group_role(
     State(state): State<PlatformRestState>,
     Extension(principal): Extension<PlatformPrincipal>,
@@ -612,7 +804,7 @@ async fn revoke_group_role(
     Ok(StatusCode::NO_CONTENT.into_response())
 }
 
-/// PUT /platform/groups/{id}/organizations/{org_id} — assign/move org into group.
+/// PUT /api/platform/groups/{id}/organizations/{org_id} — assign/move org into group.
 async fn assign_org_to_group(
     State(state): State<PlatformRestState>,
     Extension(principal): Extension<PlatformPrincipal>,
@@ -637,7 +829,7 @@ async fn assign_org_to_group(
     Ok(Json(OrgResponse::from(org)).into_response())
 }
 
-/// DELETE /platform/groups/{id}/organizations/{org_id} — remove org from group.
+/// DELETE /api/platform/groups/{id}/organizations/{org_id} — remove org from group.
 async fn remove_org_from_group(
     State(state): State<PlatformRestState>,
     Extension(principal): Extension<PlatformPrincipal>,
@@ -662,7 +854,7 @@ async fn remove_org_from_group(
     Ok(Json(OrgResponse::from(org)).into_response())
 }
 
-/// GET /platform/ops â cross-tenant ops health rollup (audited platform read).
+/// GET /api/platform/ops — cross-tenant ops health rollup (audited platform read).
 ///
 /// Aggregates per-tenant health/usage numbers for EVERY tenant via the
 /// SECURITY DEFINER `platform_org_health()` function â the only sanctioned
@@ -690,7 +882,7 @@ async fn ops_dashboard(
     Ok(Json(PlatformOpsResponse { tenants }).into_response())
 }
 
-/// PATCH /platform/orgs/{id} â suspend / reactivate a tenant (audited).
+/// PATCH /api/platform/orgs/{id} — suspend / reactivate a tenant (audited).
 async fn update_org(
     State(state): State<PlatformRestState>,
     Extension(principal): Extension<PlatformPrincipal>,
@@ -716,7 +908,7 @@ async fn update_org(
     Ok(Json(OrgResponse::from(org)).into_response())
 }
 
-/// DELETE /platform/orgs/{id}[?delete_data=true] â remove a tenant.
+/// DELETE /api/platform/orgs/{id}[?delete_data=true] — remove a tenant.
 ///
 /// Platform-super-admin (vendor tier) ONLY â identical gate to `update_org`; a
 /// tenant's own admin can never reach this (the platform extractor rejects a

@@ -1,17 +1,20 @@
+export { ObjectCard, ObjectCardModal, objectCardWindowEntry, type ObjectCardProps } from "./ObjectCard";
+export { GovernedObjectCard, type GovernedObjectCardProps } from "./wired";
+export { objectCardGovStrings, type ObjectCardGovStrings } from "./strings";
+export { createObjectCardStub } from "./stub";
 export {
-  ObjectCard,
-  ObjectCardView,
-  type ObjectCardProps,
-  type ObjectCardViewProps,
-} from "./ObjectCard";
-export {
-  useObjectCard,
   OBJECT_CARD_ACTIONS,
-  type ObjectCardState,
-  type AuditEntry,
-  type ObjectHead,
-  type ObjectLifecycle,
-  type ObjectLinkResponse,
-} from "./useObjectCard";
-export { ObjectCardDemo, type ObjectCardDemoProps, type ObjectCardDemoState } from "./ObjectCardDemo";
-export { linkTargetFromCode, slugLabel, slugTone } from "./kinds";
+  type LinkCardinality,
+  type ObjectCardAction,
+  type ObjectCardActingChip,
+  type ObjectCardApproval,
+  type ObjectCardDescriptor,
+  type ObjectCardHandlers,
+  type ObjectCardLifecycleStep,
+  type ObjectCardProperty,
+  type ObjectCardRelation,
+  type ObjectCardRelationDraft,
+  type ObjectCardRevision,
+  type ObjectLifecycleState,
+  type StatusTone,
+} from "./types";

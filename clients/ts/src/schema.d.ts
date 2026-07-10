@@ -98,6 +98,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/console/telemetry/route": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record tenant console route-adoption/RUM telemetry
+         * @description Ingests one cardinality-safe route-selection or RUM event for the authenticated tenant. Org and user are derived from the bearer token; clients must not send raw URLs, query strings, secrets, or row-level payloads. Platform operators read only per-org aggregates through `GET /api/platform/ops`.
+         */
+        post: operations["recordConsoleRouteTelemetry"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/audit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List branch-scoped audit log records
+         * @description Returns append-only audit records visible to the caller's branch scope. Filters are optional and the result is paginated to keep the evidence surface bounded.
+         */
+        get: operations["listAuditLog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/approval-items": {
         parameters: {
             query?: never;
@@ -232,6 +272,26 @@ export interface paths {
         put?: never;
         /** Approve the next pending non-mechanic approval step */
         post: operations["approveWorkOrder"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/mobile/work-orders/{workOrderId}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve the next pending approval step from a native mobile client
+         * @description Mobile-scoped approval route. It requires a fresh passkey step-up envelope bound to this work order before the approval mutation or audit side effect runs.
+         */
+        post: operations["approveMobileWorkOrder"];
         delete?: never;
         options?: never;
         head?: never;
@@ -809,6 +869,100 @@ export interface paths {
         get: operations["listHrAttendanceSummary"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/hr/readiness-summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read HR data readiness counters
+         * @description Returns import, payroll, annual-leave, and attendance readiness counters for org-wide HR operators without exposing raw workbook rows.
+         */
+        get: operations["getHrReadinessSummary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/hr/absence-exit-dashboard": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read absence-to-exit HR dashboard
+         * @description Lists absence alerts and exit-case workflow state for HR users who can triage Korean labor-law exit flows.
+         */
+        get: operations["getHrAbsenceExitDashboard"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/hr/exit-cases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Report an employee exit case from an absence signal
+         * @description Creates an audited employee exit case that HR can confirm and prepare for settlement/approval workflows.
+         */
+        post: operations["reportEmployeeExitCase"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/hr/exit-cases/{id}/confirm": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Confirm an employee exit case for HR/HQ review */
+        post: operations["confirmEmployeeExitCase"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/hr/exit-cases/{id}/approval-draft": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Draft or submit employee exit approval documents */
+        post: operations["draftEmployeeExitApproval"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1405,6 +1559,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/audit-streams/ceo-covert/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the CEO/top-clearance covert audit stream
+         * @description Cedar/PBAC clearance-gated stream of CEO/top-clearance-labeled audit events. The backend loads clearance facts under org-scoped RLS and records an audit-of-access event for every successful read.
+         */
+        get: operations["listCeoCovertAuditEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/audit-streams/ceo-covert/access-events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the audit-of-access stream for CEO/top-clearance audit reads
+         * @description Cedar/PBAC clearance-gated access log for reads of the CEO covert audit stream. Successful reads of this stream are themselves audited.
+         */
+        get: operations["listCeoCovertAuditAccessEvents"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/location-consents/ledger.csv": {
         parameters: {
             query?: never;
@@ -1594,6 +1788,26 @@ export interface paths {
                 429: components["responses"]["TooManyRequests"];
             };
         };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/auth/passkey/step-up/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start an authenticated action-bound mobile passkey step-up ceremony
+         * @description Starts a discoverable WebAuthn ceremony for a signed-in native client and persists the submitted action binding beside the ceremony. The resulting assertion may authorize only the bound approval or poll-vote action.
+         */
+        post: operations["startMobilePasskeyStepUp"];
         delete?: never;
         options?: never;
         head?: never;
@@ -2110,6 +2324,66 @@ export interface paths {
                 401: components["responses"]["Unauthorized"];
             };
         };
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/group-admin/groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List group-admin managed tenant organizations
+         * @description Returns only group memberships for which the authenticated actor has GROUP_ADMIN authority. Used before minting a bounded tenant context for a member organization.
+         */
+        get: operations["listGroupAdminGroups"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/group-admin/tenant-context": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start a bounded group-admin tenant context
+         * @description Mints a short-lived tenant token scoped to a member organization controlled by the actor's group-admin grant.
+         */
+        post: operations["startGroupAdminTenantContext"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/group-admin/tenant-context/exit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * End a group-admin tenant context audit trail
+         * @description Records the group-admin tenant-context stop event for the selected member organization.
+         */
+        post: operations["exitGroupAdminTenantContext"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3494,6 +3768,77 @@ export interface paths {
         patch: operations["updateCurrentUser"];
         trace?: never;
     };
+    "/api/v1/console/rollout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read the current user's new-console rollout state */
+        get: operations["getConsoleRollout"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/console/rollout/opt-in": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update the current user's new-console opt-in preference */
+        put: operations["updateConsoleRolloutOptIn"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/console/rollout/org-flag": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Update the org-level new-console rollout flag */
+        put: operations["updateConsoleRolloutOrgFlag"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/console/kill-switch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Force or release org-wide legacy-console routing
+         * @description Super-admin endpoint that overrides all individual new-console opt-ins and records an audit event.
+         */
+        post: operations["updateConsoleLegacyKillSwitch"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/me/workspace": {
         parameters: {
             query?: never;
@@ -3567,6 +3912,23 @@ export interface paths {
         put?: never;
         /** Deactivate (soft-disable) a user */
         post: operations["deactivateUser"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/users/{id}/activate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Reactivate an archived user */
+        post: operations["activateUser"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3863,6 +4225,30 @@ export interface paths {
         patch: operations["updateInquiryStatus"];
         trace?: never;
     };
+    "/api/platform/orgs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List tenant organizations (platform vendor tier)
+         * @description Lists all tenant organizations through the platform extractor. A tenant token is rejected before the handler runs; reads are authorized with TenantList and audited as a cross-tenant platform read.
+         */
+        get: operations["listPlatformOrgs"];
+        put?: never;
+        /**
+         * Onboard a new tenant organization (platform vendor tier)
+         * @description Creates a tenant organization, seeds its first SUPER_ADMIN account, and returns the one-time bootstrap OTP exactly once. Platform token required; tenant tokens are rejected before the handler runs.
+         */
+        post: operations["onboardPlatformOrg"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/platform/orgs/{id}": {
         parameters: {
             query?: never;
@@ -3886,6 +4272,222 @@ export interface paths {
          *     Both paths delete in one transaction and preserve the tenant's immutable audit trail (re-homed to the platform sentinel).
          */
         delete: operations["removePlatformOrg"];
+        options?: never;
+        head?: never;
+        /**
+         * Change a tenant lifecycle status (platform vendor tier)
+         * @description Sets a tenant organization status to ACTIVE, SUSPENDED, or ARCHIVED. Platform token required; every write is cross-tenant and audited to the target organization.
+         */
+        patch: operations["setPlatformOrgStatus"];
+        trace?: never;
+    };
+    "/api/platform/ops": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read cross-tenant platform operations health (platform vendor tier)
+         * @description Returns per-tenant health and usage counts from the sanctioned SECURITY DEFINER platform rollup. Authorized with TenantHealthRead and audited as a platform read; no row-level tenant data is returned.
+         */
+        get: operations["getPlatformOps"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/groups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List platform groups and member organizations (platform vendor tier)
+         * @description Lists group identities and their subsidiary organization memberships. Platform token and GroupManage authority required.
+         */
+        get: operations["listPlatformGroups"];
+        put?: never;
+        /**
+         * Create a platform group identity (platform vendor tier)
+         * @description Creates a group identity that can own multiple tenant organizations. Platform token and GroupManage authority required.
+         */
+        post: operations["createPlatformGroup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/groups/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update a platform group identity or lifecycle status
+         * @description Updates group slug, name, and/or status. Platform token and GroupManage authority required.
+         */
+        patch: operations["updatePlatformGroup"];
+        trace?: never;
+    };
+    "/api/platform/groups/{id}/accounts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List tenant-anchored accounts with group roles
+         * @description Lists tenant user accounts that hold one or more grants for the selected platform group. Platform token and GroupManage authority required.
+         */
+        get: operations["listPlatformGroupAccounts"];
+        put?: never;
+        /**
+         * Create a tenant-anchored user account with a group role
+         * @description Creates one tenant account in the target organization, grants a group role, and returns the one-time setup OTP exactly once. Tenant roles default to MEMBER and group_role defaults to GROUP_ADMIN when omitted.
+         */
+        post: operations["createPlatformGroupAccount"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/groups/{id}/accounts/{user_id}/roles/{group_role}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Revoke one group role from a tenant-anchored account
+         * @description Removes one group-level role grant from the selected account. Platform token and GroupManage authority required.
+         */
+        delete: operations["revokePlatformGroupRole"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/groups/{id}/organizations/{org_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Assign or move a tenant organization into a platform group
+         * @description Assigns the tenant organization to the selected group. Platform token and GroupManage authority required; the write is audited to the target organization.
+         */
+        put: operations["assignPlatformOrgToGroup"];
+        post?: never;
+        /**
+         * Remove a tenant organization from a platform group
+         * @description Removes the tenant organization from the selected group. Platform token and GroupManage authority required; the write is audited to the target organization.
+         */
+        delete: operations["removePlatformOrgFromGroup"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/view-as": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start a read-only platform view-as session for one tenant
+         * @description Mints a short-lived tenant token pinned to the requested organization and role with view_as/read_only flags. Platform token and TenantHealthRead authority required; the operator identity comes from the verified bearer token.
+         */
+        post: operations["startPlatformViewAs"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/view-as/exit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * End a read-only platform view-as session audit trail
+         * @description Records the platform.view_as.stop audit event. Called with the operator's real platform token, not the impersonation token.
+         */
+        post: operations["exitPlatformViewAs"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/tenant-context": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Start a writable platform-managed tenant context
+         * @description Mints a short-lived writable tenant token with SUPER_ADMIN for exactly one active tenant. Platform token and TenantManage authority required; the operator identity comes from the verified bearer token and the start is audited.
+         */
+        post: operations["startPlatformTenantContext"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/platform/tenant-context/exit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * End a writable platform-managed tenant context audit trail
+         * @description Records the platform.tenant_context.stop audit event. Called with the operator's real platform token after restoring the platform session.
+         */
+        post: operations["exitPlatformTenantContext"];
+        delete?: never;
         options?: never;
         head?: never;
         patch?: never;
@@ -4260,6 +4862,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workflow-studio/definitions/{id}/run-log": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List workflow automation run-log entries
+         * @description Returns the most recent durable runtime rows for this workflow definition, scoped by tenant RLS, for the Workflow Studio timeline.
+         */
+        get: operations["listWorkflowRunLog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow-studio/definitions/{id}/run": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Trigger a workflow definition run
+         * @description Creates an idempotent MANUAL runtime row for an ACTIVE workflow definition and returns the run-log event used by Workflow Studio.
+         */
+        post: operations["triggerWorkflowRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workflow-studio/definitions/{id}/simulate": {
         parameters: {
             query?: never;
@@ -4311,6 +4953,23 @@ export interface paths {
         put?: never;
         /** Pause an active workflow definition */
         post: operations["pauseWorkflowDefinition"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workflow-studio/definitions/{id}/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Resume a paused workflow definition */
+        post: operations["resumeWorkflowDefinition"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4773,6 +5432,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/mobile/collaboration/polls/{id}/vote": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Submit or replace a native mobile poll vote with passkey step-up
+         * @description Mobile-scoped poll vote route. It validates poll lifecycle and option ownership only after a fresh passkey step-up envelope is verified for this poll vote.
+         */
+        post: operations["voteMobileCollaborationPoll"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/object-links": {
         parameters: {
             query?: never;
@@ -4888,7 +5567,7 @@ export interface paths {
          * List the object-type registry with caller-visible instance counts
          * @description Returns every seeded object kind (kind, code_prefix, label, lifecycle status) plus active_count — the number of instances of that kind visible to the caller. The count respects the SAME per-kind visibility as resolveObject: org via forced RLS (no cross-org counting), narrowed by the caller's branch scope and the domain feature gate; a kind the caller cannot read counts 0. Type proposal/transition flows are out of scope for this slice (read surface + status only).
          */
-        get: operations["listObjectTypes"];
+        get: operations["listRegistryObjectTypes"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4908,7 +5587,7 @@ export interface paths {
          * Fetch one object type with its caller-visible instance count
          * @description Returns a single object type by kind slug (404 if unknown), with the same caller-visible active_count as listObjectTypes.
          */
-        get: operations["getObjectType"];
+        get: operations["getRegistryObjectType"];
         put?: never;
         post?: never;
         delete?: never;
@@ -5078,6 +5757,583 @@ export interface paths {
         };
         /** Return a short-lived download URL for a confirmed purchase attachment */
         get: operations["downloadPurchaseRequestAttachment"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ontology/object-types": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List ontology object types
+         * @description Lists the tenant's registry object types (Cedar-filtered) with their current schema version and lifecycle state.
+         */
+        get: operations["listObjectTypes"];
+        put?: never;
+        /**
+         * Create a draft object type
+         * @description Creates a DRAFT object type schema (with its property/link/action/analytic children). Publishing is a governed, separate lifecycle step; this only stages a draft.
+         */
+        post: operations["createObjectType"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ontology/object-types/{key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get an object type definition
+         * @description Returns the object type definition plus its property/link/action/analytic children. An optional version pins an immutable, content-addressed published schema version; absent returns the head.
+         */
+        get: operations["getObjectType"];
+        /**
+         * Stage an object type schema revision
+         * @description Stages a version+1 revision of an object type schema (draft-staged, governed publish). Immutable published versions are preserved for rollback and as-of schema reads.
+         */
+        put: operations["stageObjectTypeRevision"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ontology/instances": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List object instances of a type
+         * @description Lists current-state instances of one object type (RLS-scoped, Cedar residual-filtered). The type is the object-type version id whose head instances to list.
+         */
+        get: operations["listOntologyInstances"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ontology/instances/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get an object instance card
+         * @description Returns one instance's current (or as-of) state. Property policies null forbidden fields (deny-by-omission).
+         */
+        get: operations["getOntologyInstance"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ontology/instances/{id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List an instance's revision history
+         * @description Returns the append-only, fixity-chained revision timeline for one instance (hash-verified).
+         */
+        get: operations["listOntologyInstanceHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ontology/instances/{id}/traverse": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Traverse the object graph around an instance
+         * @description Search-around graph traversal from one instance over ontology links, depth-bounded, returning a node/edge payload.
+         */
+        get: operations["traverseOntologyInstance"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ontology/actions/{action_key}/preflight": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preflight an object action's gate chain
+         * @description Runs the ordered §16 gate chain (authority / self-checklist / four-eyes / egress) for an action and returns each gate's status WITHOUT committing anything.
+         */
+        post: operations["preflightOntologyAction"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ontology/actions/{action_key}/execute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Execute an object action (single mutation path)
+         * @description Re-evaluates the §16 gate chain inside the writeback transaction (TOCTOU-safe), then dispatches an instance-revision (append fixity-chained revision) or a projected use-case. Humans and automation use this same path.
+         */
+        post: operations["executeOntologyAction"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/governance/overrides": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Open a post-draft override
+         * @description Opens a governance override (reason + before-value snapshot) for editing a non-draft object, recorded append-only.
+         */
+        post: operations["openGovernanceOverride"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/governance/approvals/decide": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Decide a four-eyes approval
+         * @description Records a four-eyes approval decision; the approver must differ from the requester (self-approval is rejected).
+         */
+        post: operations["decideGovernanceApproval"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/governance/lifecycle/transitions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Configure a lifecycle transition's requirements
+         * @description Configures the reason / four-eyes / checklist requirements for one object-type lifecycle edge.
+         */
+        post: operations["configureLifecycleTransition"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/governance/lifecycle/preflight": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preflight a lifecycle transition
+         * @description Evaluates the gate chain for a lifecycle edge WITHOUT committing. An unconfigured edge is fail-closed (denied).
+         */
+        post: operations["preflightLifecycleTransition"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/policy/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Cedar policy catalog entries
+         * @description Lists the tenant's Cedar policy catalog entries (enforced / shadow / draft / …), optionally filtered by status.
+         */
+        get: operations["listPolicyCatalog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/policy/drafts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List no-code policy drafts
+         * @description Lists the tenant's no-code Cedar policy drafts and their review status.
+         */
+        get: operations["listPolicyDrafts"];
+        put?: never;
+        /**
+         * Create a no-code policy draft
+         * @description Creates a no-code policy draft; the blocks are normalized and compiled to Cedar text. A draft can never create a live or shadow enforcement row.
+         */
+        post: operations["createPolicyDraft"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/policy/drafts/{draft_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get a policy draft */
+        get: operations["getPolicyDraft"];
+        /**
+         * Update a policy draft
+         * @description Edits a per-user draft (re-normalized and re-compiled to Cedar text). Cannot promote a draft to shadow/enforced.
+         */
+        put: operations["updatePolicyDraft"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/policy/drafts/{draft_id}/validate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Strict-validate a policy draft
+         * @description Strict-validates the draft's generated Cedar against the authoring schema and returns any errors. Does not activate anything.
+         */
+        post: operations["validatePolicyDraft"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/policy/drafts/{draft_id}/submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Submit a policy draft for review
+         * @description Moves a validated draft to review_pending (validation must be valid).
+         */
+        post: operations["submitPolicyDraft"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/policy/drafts/{draft_id}/review": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Four-eyes review a policy draft
+         * @description Records a four-eyes review decision (reviewer must differ from the author) moving the draft to approved_for_promotion or rejected.
+         */
+        post: operations["reviewPolicyDraft"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/policy/simulate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Simulate a Cedar policy decision
+         * @description Evaluates a point decision (with an optional what-if draft overlay) and returns Allow/Deny plus matched policies and diagnostics. Deny-by-omission is the default.
+         */
+        post: operations["simulatePolicyDecision"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/policy/authorize": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Live Cedar authorization decision
+         * @description The live point decision (the same fail-closed evaluator the guardrail gate calls), optionally scoped to one object type or property's attached policies.
+         */
+        post: operations["authorizePolicyDecision"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/evidence/objects": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List EV objects (RLS-scoped) with filters. */
+        get: operations["listEvidenceObjects"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/evidence/objects/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getEvidenceObject"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/evidence/objects/{id}/verify": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Recompute WORM fixity for every copy; audited. */
+        post: operations["verifyEvidenceObject"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/evidence/objects/{id}/hold": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Apply or release a legal hold (release is four-eyes gated). */
+        post: operations["holdEvidenceObject"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/governance/approvals": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Open a pending four-eyes approval request */
+        post: operations["createGovernanceApproval"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ontology/instances/{id}/lifecycle": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["commitInstanceLifecycle"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ontology/instances/{id}/acting": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listInstanceActing"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/ontology/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["resolveInstanceByCode"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/policy/authorize/bulk": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["authorizeBulk"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/policy/decisions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listPolicyDecisions"];
         put?: never;
         post?: never;
         delete?: never;
@@ -5271,6 +6527,23 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @enum {string} */
+        ConsoleRouteTelemetryEventKind: "route_selection" | "rum_error" | "rum_perf";
+        /** @enum {string} */
+        ConsoleRouteSurface: "console" | "legacy";
+        ConsoleRouteTelemetryRequest: {
+            event_kind: components["schemas"]["ConsoleRouteTelemetryEventKind"];
+            route_surface: components["schemas"]["ConsoleRouteSurface"];
+            /** @description Cardinality-safe route template; never include raw URL parameters, queries, or fragments. */
+            route_path: string;
+            release_cycle: string;
+            /** Format: int32 */
+            duration_ms?: number | null;
+            error_name?: string | null;
+        };
+        ConsoleRouteTelemetryAccepted: {
+            accepted: boolean;
+        };
         /** @description Compact, kind-agnostic head for any object. exists=false means the object is absent OR outside the caller's scope (indistinguishable, by design). Carries no route/URL — objectRegistry (frontend) is the sole kind->URL authority. */
         ObjectHead: {
             kind: string;
@@ -5493,12 +6766,181 @@ export interface components {
         VotePollRequest: {
             selected_option_ids: components["schemas"]["Uuid"][];
         };
+        MobileVotePollRequest: {
+            selected_option_ids: components["schemas"]["Uuid"][];
+            step_up: components["schemas"]["MobilePasskeyStepUpEnvelope"];
+        };
         /** Format: uuid */
         Uuid: string;
         /** Format: date-time */
         Timestamp: string;
         /** Format: date */
         Date: string;
+        /** @enum {string} */
+        PlatformOrgStatus: "ACTIVE" | "SUSPENDED" | "ARCHIVED";
+        /** @enum {string} */
+        PlatformTenantRole: "SUPER_ADMIN" | "ADMIN" | "MECHANIC" | "RECEPTIONIST" | "EXECUTIVE" | "MEMBER";
+        /** @enum {string} */
+        PlatformGroupRole: "GROUP_ADMIN" | "GROUP_VIEWER" | "GROUP_FINANCE";
+        /** @enum {string} */
+        PlatformAccountStatus: "ACTIVE" | "PENDING_SETUP" | "DEACTIVATED";
+        PlatformOrg: {
+            id: components["schemas"]["Uuid"];
+            slug: string;
+            name: string;
+            status: components["schemas"]["PlatformOrgStatus"];
+            /** Format: uuid */
+            group_id: string | null;
+            group_slug: string | null;
+            group_name: string | null;
+            created_at: components["schemas"]["Timestamp"];
+            updated_at: components["schemas"]["Timestamp"];
+        };
+        CreatePlatformOrgRequest: {
+            slug: string;
+            name: string;
+        };
+        UpdatePlatformOrgRequest: {
+            status: components["schemas"]["PlatformOrgStatus"];
+        };
+        PlatformOrgOnboardingResponse: {
+            org: components["schemas"]["PlatformOrg"];
+            admin_user_id: components["schemas"]["Uuid"];
+            /** @description One-time bootstrap OTP returned exactly once; deliver out-of-band and never log it. */
+            otp: string;
+            admin_otp_expires_at: components["schemas"]["Timestamp"];
+        };
+        PlatformGroupMember: {
+            id: components["schemas"]["Uuid"];
+            slug: string;
+            name: string;
+            status: components["schemas"]["PlatformOrgStatus"];
+        };
+        PlatformGroup: {
+            id: components["schemas"]["Uuid"];
+            slug: string;
+            name: string;
+            status: components["schemas"]["PlatformOrgStatus"];
+            /** Format: int64 */
+            member_count: number;
+            members: components["schemas"]["PlatformGroupMember"][];
+            created_at: components["schemas"]["Timestamp"];
+            updated_at: components["schemas"]["Timestamp"];
+        };
+        CreatePlatformGroupRequest: {
+            slug: string;
+            name: string;
+        };
+        UpdatePlatformGroupRequest: {
+            slug?: string;
+            name?: string;
+            status?: components["schemas"]["PlatformOrgStatus"];
+        };
+        PlatformGroupAccount: {
+            user_id: components["schemas"]["Uuid"];
+            display_name: string;
+            phone: string | null;
+            tenant_roles: components["schemas"]["PlatformTenantRole"][];
+            is_active: boolean;
+            has_passkey: boolean;
+            account_status: components["schemas"]["PlatformAccountStatus"];
+            org_id: components["schemas"]["Uuid"];
+            org_slug: string;
+            org_name: string;
+            group_roles: components["schemas"]["PlatformGroupRole"][];
+            created_at: components["schemas"]["Timestamp"];
+        };
+        CreatePlatformGroupAccountRequest: {
+            org_id: components["schemas"]["Uuid"];
+            display_name: string;
+            phone?: string;
+            /**
+             * @default [
+             *       "MEMBER"
+             *     ]
+             */
+            tenant_roles: components["schemas"]["PlatformTenantRole"][];
+            /** @default GROUP_ADMIN */
+            group_role: components["schemas"]["PlatformGroupRole"];
+        };
+        CreatePlatformGroupAccountResponse: {
+            account: components["schemas"]["PlatformGroupAccount"];
+            /** @description One-time setup OTP returned exactly once; deliver out-of-band and never log it. */
+            otp: string;
+            otp_expires_at: components["schemas"]["Timestamp"];
+        };
+        PlatformTenantHealth: {
+            id: components["schemas"]["Uuid"];
+            slug: string;
+            name: string;
+            status: components["schemas"]["PlatformOrgStatus"];
+            /** Format: uuid */
+            group_id: string | null;
+            group_slug: string | null;
+            group_name: string | null;
+            /** Format: int64 */
+            user_count: number;
+            /** Format: int64 */
+            active_user_count: number;
+            /** Format: int64 */
+            active_work_orders: number;
+            /** Format: int64 */
+            open_work_orders: number;
+            /** Format: date-time */
+            last_activity_at: string | null;
+            /** @description Per-release console-vs-legacy route adoption and RUM rollup for ramp decisions. */
+            route_adoption: components["schemas"]["RouteAdoptionMetric"][];
+            /**
+             * Format: int64
+             * @description Count of release cycles with console route traffic and zero legacy route-selection events.
+             */
+            zero_legacy_release_cycles: number;
+        };
+        RouteAdoptionMetric: {
+            release_cycle: string;
+            /** Format: int64 */
+            console_route_events: number;
+            /** Format: int64 */
+            legacy_route_events: number;
+            /** Format: int64 */
+            rum_error_events: number;
+            /** Format: int64 */
+            rum_perf_p95_ms: number | null;
+            /** Format: date-time */
+            last_event_at: string;
+        };
+        PlatformOpsResponse: {
+            tenants: components["schemas"]["PlatformTenantHealth"][];
+        };
+        PlatformViewAsStartRequest: {
+            org_id: components["schemas"]["Uuid"];
+            role: components["schemas"]["PlatformTenantRole"];
+        };
+        PlatformViewAsStartResponse: {
+            access_token: string;
+            /** @enum {string} */
+            token_type: "Bearer";
+            acting_org_id: components["schemas"]["Uuid"];
+            acting_org_name: string;
+            acting_role: components["schemas"]["PlatformTenantRole"];
+            expires_at: components["schemas"]["Timestamp"];
+        };
+        PlatformTenantContextStartRequest: {
+            org_id: components["schemas"]["Uuid"];
+        };
+        PlatformTenantContextStartResponse: {
+            access_token: string;
+            /** @enum {string} */
+            token_type: "Bearer";
+            acting_org_id: components["schemas"]["Uuid"];
+            acting_org_name: string;
+            /** @enum {string} */
+            acting_role: "SUPER_ADMIN";
+            expires_at: components["schemas"]["Timestamp"];
+        };
+        PlatformExitResponse: {
+            ended: boolean;
+        };
         /** @enum {string} */
         PriorityLevel: "P1" | "P2" | "P3" | "OUTSOURCE" | "UNSET";
         /** @enum {string} */
@@ -5710,6 +7152,10 @@ export interface components {
         };
         ApproveWorkOrderRequest: {
             comment: string;
+        };
+        MobileApproveWorkOrderRequest: {
+            comment: string;
+            step_up: components["schemas"]["MobilePasskeyStepUpEnvelope"];
         };
         RejectWorkOrderRequest: {
             memo: string;
@@ -6051,6 +7497,41 @@ export interface components {
         };
         WorkflowDefinitionHistoryResponse: {
             items: components["schemas"]["WorkflowDefinitionEventResponse"][];
+        };
+        WorkflowRunLogResponse: {
+            items: components["schemas"]["WorkflowRunResponse"][];
+        };
+        WorkflowRunResponse: {
+            id: components["schemas"]["Uuid"];
+            /** @example RUN-9AF31C */
+            code: string;
+            definition_id: components["schemas"]["Uuid"];
+            /** Format: int32 */
+            definition_version: number;
+            /** @enum {string} */
+            trigger_type: "MANUAL" | "SCHEDULE" | "WEBHOOK" | "SYSTEM";
+            /** @enum {string} */
+            status: "STARTING" | "RUNNING" | "WAITING" | "SUCCEEDED" | "FAILED" | "CANCELLED";
+            actor_display_name: string | null;
+            summary: string;
+            error_message: string | null;
+            generated_objects: string[];
+            /** Format: date-time */
+            started_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: date-time */
+            completed_at: string | null;
+            /** Format: date-time */
+            failed_at: string | null;
+        };
+        TriggerWorkflowRunRequest: {
+            /**
+             * @default MANUAL
+             * @enum {string}
+             */
+            trigger_type: "MANUAL" | "SCHEDULE" | "WEBHOOK" | "SYSTEM";
+            idempotency_key?: string | null;
         };
         WorkflowDefinitionEventResponse: {
             id: components["schemas"]["Uuid"];
@@ -7263,6 +8744,40 @@ export interface components {
             /** Format: int64 */
             total: number;
         };
+        /** @enum {string} */
+        AuditStreamReadKind: "events" | "access_events";
+        AuditStreamRecord: {
+            id: string;
+            /** Format: uuid */
+            actor: string | null;
+            action: string;
+            target_type: string;
+            target_id: string;
+            sensitivity: string;
+            before_snap: {
+                [key: string]: unknown;
+            } | null;
+            after_snap: {
+                [key: string]: unknown;
+            } | null;
+            trace_id: string;
+            span_id: string;
+            occurred_at: components["schemas"]["Timestamp"];
+            created_at: components["schemas"]["Timestamp"];
+        };
+        AuditStreamPage: {
+            items: components["schemas"]["AuditStreamRecord"][];
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            offset: number;
+            /** Format: int64 */
+            total: number;
+            /** @enum {string} */
+            stream_key: "ceo_covert_audit";
+            read_kind: components["schemas"]["AuditStreamReadKind"];
+            access_audit_id: string;
+        };
         /** @description Optional overrides for the authenticated session user's passkey registration (username/display_name default to the user's stored profile when omitted), plus the step-up assertion required to ADD a passkey when the user already has one. A user with zero passkeys (initial enrollment) omits `step_up`; an already-enrolled user MUST supply a fresh `step_up` assertion of an existing passkey (user verification required), or register/start returns 401 — so a stolen session cannot silently add a credential. */
         PasskeyRegisterStartRequest: {
             username?: string;
@@ -7275,6 +8790,34 @@ export interface components {
             credential: {
                 [key: string]: unknown;
             };
+        };
+        /** @enum {string} */
+        MobileStepUpActionKind: "APPROVAL_DECISION" | "POLL_VOTE";
+        MobilePasskeyStepUpBinding: {
+            action_kind: components["schemas"]["MobileStepUpActionKind"];
+            object_id: components["schemas"]["Uuid"];
+            /** @enum {string} */
+            reason_key: "operations_passkey_approval_decision" | "operations_passkey_poll_vote";
+            /**
+             * Format: int32
+             * @description Null for an immediate online action; 1-based for queued replay attempts.
+             */
+            replay_attempt: number | null;
+        };
+        MobilePasskeyStepUpStartRequest: {
+            binding: components["schemas"]["MobilePasskeyStepUpBinding"];
+        };
+        MobilePasskeyStepUpStartResponse: {
+            ceremony_id: components["schemas"]["Uuid"];
+            challenge: {
+                [key: string]: unknown;
+            };
+            expires_at: components["schemas"]["Timestamp"];
+            binding: components["schemas"]["MobilePasskeyStepUpBinding"];
+        };
+        MobilePasskeyStepUpEnvelope: {
+            binding: components["schemas"]["MobilePasskeyStepUpBinding"];
+            assertion: components["schemas"]["PasskeyStepUpAssertion"];
         };
         /** @description Apple App Site Association document authorizing the native iOS app's passkeys for the RP domain. */
         AppleAppSiteAssociation: {
@@ -7966,9 +9509,15 @@ export interface components {
             postal_code: string | null;
             province: string | null;
             city: string | null;
-            /** Format: double */
+            /**
+             * Format: double
+             * @description Admin-entered WGS84 latitude in degrees; null means the site is not pinned.
+             */
             latitude: number | null;
-            /** Format: double */
+            /**
+             * Format: double
+             * @description Admin-entered WGS84 longitude in degrees; null means the site is not pinned.
+             */
             longitude: number | null;
             /**
              * Format: double
@@ -8012,9 +9561,15 @@ export interface components {
             province?: string | null;
             city?: string | null;
             postal_code?: string | null;
-            /** Format: double */
+            /**
+             * Format: double
+             * @description Optional admin-authored WGS84 latitude in degrees. Must be supplied together with longitude.
+             */
             latitude?: number | null;
-            /** Format: double */
+            /**
+             * Format: double
+             * @description Optional admin-authored WGS84 longitude in degrees. Must be supplied together with latitude.
+             */
             longitude?: number | null;
             /**
              * Format: double
@@ -8037,9 +9592,15 @@ export interface components {
             province: string | null;
             city: string | null;
             postal_code: string | null;
-            /** Format: double */
+            /**
+             * Format: double
+             * @description Admin-authored WGS84 latitude in degrees, or null when unpinned.
+             */
             latitude: number | null;
-            /** Format: double */
+            /**
+             * Format: double
+             * @description Admin-authored WGS84 longitude in degrees, or null when unpinned.
+             */
             longitude: number | null;
             /** Format: double */
             geofence_radius_m: number | null;
@@ -8053,9 +9614,15 @@ export interface components {
             province?: string | null;
             city?: string | null;
             postal_code?: string | null;
-            /** Format: double */
+            /**
+             * Format: double
+             * @description Nullable admin-authored WGS84 latitude in degrees. Include with longitude to set or clear the pair.
+             */
             latitude?: number | null;
-            /** Format: double */
+            /**
+             * Format: double
+             * @description Nullable admin-authored WGS84 longitude in degrees. Include with latitude to set or clear the pair.
+             */
             longitude?: number | null;
             /**
              * Format: double
@@ -8443,11 +10010,17 @@ export interface components {
             created_at: components["schemas"]["Timestamp"];
             updated_at: components["schemas"]["Timestamp"];
         };
+        /** @description Fresh passkey step-up evidence required before sensitive financial state transitions. */
+        FinancialStepUpRequest: {
+            step_up: components["schemas"]["PasskeyStepUpAssertion"];
+        };
         PrepareExpenditureRequest: {
             expenditure_no: string;
+            step_up: components["schemas"]["PasskeyStepUpAssertion"];
         };
         RejectPurchaseRequest: {
             memo: string;
+            step_up: components["schemas"]["PasskeyStepUpAssertion"];
         };
         RestartPurchaseRequest: {
             /** Format: uuid */
@@ -8533,10 +10106,10 @@ export interface components {
         /** @enum {string} */
         Team: "MAINTENANCE" | "PREVENTION" | "MANAGEMENT" | "RECEPTION";
         /**
-         * @description Derived account-setup state for the console roster. ACTIVE only once the user has enrolled a passkey (can sign in); PENDING_SETUP when created / OTP-issued but not yet enrolled; DEACTIVATED when soft-disabled.
+         * @description Derived account-setup state for the console roster. ACTIVE only once the user has enrolled a passkey (can sign in); PENDING_SETUP when created / OTP-issued but not yet enrolled; ARCHIVED when soft-disabled.
          * @enum {string}
          */
-        AccountStatus: "ACTIVE" | "PENDING_SETUP" | "DEACTIVATED";
+        AccountStatus: "ACTIVE" | "PENDING_SETUP" | "ARCHIVED";
         PolicyPermissionResponse: {
             feature_key: string;
             /** @enum {string} */
@@ -8714,6 +10287,14 @@ export interface components {
             /** @description True when the requested saved assignment set contains at least one ACTIVE custom role that will produce runtime-effective feature grants for the target user's live branch scope. DRAFT/RETIRED roles, unsupported conditions, invalid branch values, and reserved elevated/scope-widening features remain fail-closed. */
             effective: boolean;
             system_roles: string[];
+            /** @description System-role set currently persisted on the target before this preview. */
+            current_system_roles: string[];
+            /** @description Replacement system-role set covered by the preview receipt. Defaults to the current system roles when omitted. */
+            requested_system_roles: string[];
+            /** @description Branch membership set currently persisted on the target before this preview. */
+            current_branch_ids: components["schemas"]["Uuid"][];
+            /** @description Replacement branch membership set covered by the preview receipt. Defaults to the current branch ids when omitted. */
+            requested_branch_ids: components["schemas"]["Uuid"][];
             current_role_ids: components["schemas"]["Uuid"][];
             requested_role_ids: components["schemas"]["Uuid"][];
             delta: components["schemas"]["PolicyRoleAssignmentDeltaResponse"];
@@ -8723,9 +10304,14 @@ export interface components {
             /** @description Preview-level warnings. Includes deterministic custom-role runtime warning codes when any requested role is planning/audit-only. */
             warnings: string[];
         };
-        /** @description Custom-role assignment replacement. The preview endpoint accepts `role_ids` only. The mutating replacement endpoint also requires `preview_acknowledged: true`, the server-issued `preview_receipt_id` from a current impact preview for the same actor/user/role set, plus a fresh passkey `step_up` assertion server-side so the audit trail binds the sensitive policy write to the human actor. ACTIVE custom-role assignments become runtime-effective on the next request when their grants and conditions pass the fail-closed runtime evaluator. */
+        /** @description Policy assignment/account-scope preview and custom-role assignment replacement. The preview endpoint accepts `role_ids` plus optional `system_roles` and `branch_ids` for account/person mutation previews. The mutating custom-role replacement endpoint also requires `preview_acknowledged: true`, the server-issued `preview_receipt_id` from a current impact preview for the same actor/user/role set, plus a fresh passkey `step_up` assertion server-side so the audit trail binds the sensitive policy write to the human actor. ACTIVE custom-role assignments become runtime-effective on the next request when their grants and conditions pass the fail-closed runtime evaluator. */
         ReplacePolicyRoleAssignmentsRequest: {
+            /** @description Custom-role replacement set. For account/person role-or-scope previews, omit this field to preserve the target's current custom-role assignments; send an explicit empty array to preview removing all custom roles. */
             role_ids?: components["schemas"]["Uuid"][];
+            /** @description Optional replacement system-role set for account/person mutation previews. Ignored by the custom-role assignment save endpoint. */
+            system_roles?: string[];
+            /** @description Optional replacement branch membership set for account/person mutation previews. Ignored by the custom-role assignment save endpoint. */
+            branch_ids?: components["schemas"]["Uuid"][];
             /** @description Must be true for the mutating replacement endpoint after the caller reviewed the assignment impact preview. The preview endpoint ignores this field. Omitted values are treated as false by the server. */
             preview_acknowledged?: boolean;
             preview_receipt_id?: components["schemas"]["Uuid"];
@@ -8809,6 +10395,9 @@ export interface components {
             team?: components["schemas"]["Team"];
             roles?: string[];
             branch_ids?: components["schemas"]["Uuid"][];
+            /** @description Required when `roles` or `branch_ids` is present; confirms the caller reviewed the policy assignment/account-scope preview. */
+            preview_acknowledged?: boolean;
+            preview_receipt_id?: components["schemas"]["Uuid"];
         };
         UpdateSelfProfileRequest: {
             display_name?: string;
@@ -9347,6 +10936,602 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /** @description Draft object-type schema (registry backbone) with its property/link/action/analytic children. */
+        CreateObjectTypeDraft: {
+            stable_key: string;
+            title: string;
+            title_property_key?: string;
+            /** @enum {string} */
+            backing_kind: "projected" | "instance";
+            backing_table?: string;
+            primary_key_property?: string;
+            properties?: {
+                [key: string]: unknown;
+            }[];
+            links?: {
+                [key: string]: unknown;
+            }[];
+            actions?: {
+                [key: string]: unknown;
+            }[];
+            analytics?: {
+                [key: string]: unknown;
+            }[];
+        };
+        /** @description An object-action preflight/execute request. `params` is validated against the action type's typed param schema. */
+        OntologyActionRequest: {
+            object_type_id: components["schemas"]["Uuid"];
+            instance_id?: components["schemas"]["Uuid"];
+            title?: string;
+            params?: {
+                [key: string]: unknown;
+            };
+            reason?: string;
+            valid_from?: components["schemas"]["Timestamp"];
+            checklist_all_acknowledged?: boolean;
+            four_eyes_request_ref?: components["schemas"]["Uuid"];
+        };
+        GovernanceOpenOverrideRequest: {
+            target_type: string;
+            target_id: components["schemas"]["Uuid"];
+            reason: string;
+            before_snapshot: {
+                [key: string]: unknown;
+            };
+        };
+        GovernanceDecideApprovalRequest: {
+            request_ref: components["schemas"]["Uuid"];
+            kind: string;
+            requested_by: components["schemas"]["Uuid"];
+            /** @enum {string} */
+            decision: "approved" | "rejected";
+        };
+        GovernanceConfigureTransitionRequest: {
+            object_type_id: components["schemas"]["Uuid"];
+            from_state: components["schemas"]["LifecycleState"];
+            to_state: components["schemas"]["LifecycleState"];
+            requires_reason?: boolean;
+            requires_four_eyes?: boolean;
+            requires_checklist?: boolean;
+        };
+        GovernanceLifecyclePreflightRequest: {
+            object_type_id: components["schemas"]["Uuid"];
+            from_state: components["schemas"]["LifecycleState"];
+            to_state: components["schemas"]["LifecycleState"];
+            authority_allow?: boolean;
+            checklist_all_acknowledged?: boolean;
+            four_eyes_request_ref?: components["schemas"]["Uuid"];
+            egress_cleared?: boolean;
+        };
+        /**
+         * @description Instance lifecycle state. Dispose is terminal; there is no hard delete.
+         * @enum {string}
+         */
+        LifecycleState: "DRAFT" | "ACTIVE" | "LOCKED" | "ARCHIVED" | "DISPOSED";
+        PolicyCreateDraftRequest: {
+            draft_key: string;
+            title: string;
+            author_note?: string;
+            blocks: components["schemas"]["PolicyNoCodeBlocks"];
+        };
+        PolicyUpdateDraftRequest: {
+            title?: string;
+            author_note?: string;
+            blocks: components["schemas"]["PolicyNoCodeBlocks"];
+        };
+        PolicyReviewRequest: {
+            /** @enum {string} */
+            decision: "approve" | "reject";
+            note?: string;
+        };
+        /** @description One authored policy - one effect, one action, one resource type, and a set of AND-ed conditions. */
+        PolicyNoCodeBlocks: {
+            /** @enum {string} */
+            effect: "permit" | "forbid";
+            action: string;
+            resource_type: string;
+            conditions?: components["schemas"]["PolicyNoCodeCondition"][];
+        };
+        PolicyNoCodeCondition: {
+            attr: string;
+            /** @enum {string} */
+            op: "eq" | "ne" | "contains";
+            /** @description Tagged right-hand side: {kind: literal|subject_attr|bool, value: ...}. */
+            value: {
+                [key: string]: unknown;
+            };
+        };
+        PolicySimulateRequest: {
+            request: components["schemas"]["PolicySimRequest"];
+            include_draft_id?: components["schemas"]["Uuid"];
+        };
+        PolicyAuthorizeRequest: {
+            request: components["schemas"]["PolicySimRequest"];
+            object_type_id?: components["schemas"]["Uuid"];
+            property_def_id?: components["schemas"]["Uuid"];
+        };
+        PolicySimRequest: {
+            subject: components["schemas"]["PolicySimSubject"];
+            action: string;
+            resource: components["schemas"]["PolicySimResource"];
+            purpose?: string;
+            field?: string;
+        };
+        PolicySimSubject: {
+            org: components["schemas"]["Uuid"];
+            user_id: string;
+            roles?: string[];
+            clearance_keys?: string[];
+        };
+        PolicySimResource: {
+            org: components["schemas"]["Uuid"];
+            resource_type: string;
+            resource_id?: string;
+            owner?: string;
+            branch?: string;
+            legal_hold?: boolean;
+        };
+        MessengerPresence: {
+            user_id: components["schemas"]["Uuid"];
+            display_name: string | null;
+            /** Format: date-time */
+            last_activity_at: string | null;
+            status: components["schemas"]["MessengerPresenceStatus"];
+        };
+        MessengerPresenceListResponse: {
+            items: components["schemas"]["MessengerPresence"][];
+        };
+        /** @enum {string} */
+        EvidenceSourceType: "record_archive" | "inbox_doc" | "mail_attachment" | "ingest_job" | "work_order_evidence_media" | "external_document";
+        /** @enum {string} */
+        EvidenceClassification: "General" | "Internal" | "Sensitive" | "Confidential" | "Secret";
+        /** @enum {string} */
+        AdmissibilityStatus: "ADMISSIBLE" | "REVIEW_NEEDED" | "BLOCKED" | "INADMISSIBLE";
+        /** @enum {string} */
+        LegalHoldState: "CLEAR" | "ACTIVE";
+        /** @enum {string} */
+        LegalHoldStatus: "ACTIVE" | "RELEASED";
+        /** @enum {string} */
+        CustodyStage: "REGISTERED" | "HASH_RECORDED" | "TSA_SUBMITTED" | "TSA_VERIFIED" | "WORM_REPLICATED" | "CUSTODY_TRANSFERRED" | "UNDER_REVIEW" | "ADMISSIBILITY_EVALUATED" | "LEGAL_HOLD_APPLIED" | "LEGAL_HOLD_RELEASED" | "EXPORTED" | "ARCHIVED" | "DISPOSAL_REQUESTED" | "DISPOSED";
+        /** @enum {string} */
+        EvidenceCopyKind: "ORIGINAL" | "DERIVATIVE";
+        /** @enum {string} */
+        WormStorageStatus: "PENDING" | "VERIFIED" | "FAILED";
+        /** @enum {string} */
+        TsaProofStatus: "MISSING" | "PENDING" | "VERIFIED" | "FAILED" | "REVOKED" | "EXPIRED_CA";
+        EvidenceSourceRef: {
+            source_type: components["schemas"]["EvidenceSourceType"];
+            source_id: string;
+            source_code?: string | null;
+        };
+        EvidenceStorageRef: {
+            provider: string;
+            object_id: string;
+            key_ref?: string | null;
+            version_id?: string | null;
+        };
+        EvidenceObjectView: {
+            /** Format: uuid */
+            id: string;
+            code: string;
+            title: string;
+            description?: string | null;
+            source: components["schemas"]["EvidenceSourceRef"];
+            classification: components["schemas"]["EvidenceClassification"];
+            /** Format: uuid */
+            record_owner_user_id?: string | null;
+            current_custody_stage: components["schemas"]["CustodyStage"];
+            legal_hold_state: components["schemas"]["LegalHoldState"];
+            admissibility_status: components["schemas"]["AdmissibilityStatus"];
+            admissibility_reasons: string[];
+            admissibility_inputs: {
+                [key: string]: unknown;
+            };
+            /** Format: uuid */
+            created_by: string;
+            /** Format: uuid */
+            updated_by: string;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+            /** Format: date-time */
+            disposed_at?: string | null;
+        };
+        EvidenceObjectPage: {
+            items: components["schemas"]["EvidenceObjectView"][];
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            offset: number;
+            /** Format: int64 */
+            total: number;
+        };
+        EvidenceCopyView: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            evidence_object_id: string;
+            copy_kind: components["schemas"]["EvidenceCopyKind"];
+            /** @enum {string|null} */
+            derivative_kind?: "REDACTED" | "THUMBNAIL" | "TRANSCODED" | "EXCERPT" | "EXPORT_MANIFEST" | "NORMALIZED_TEXT" | "OTHER" | null;
+            /** Format: uuid */
+            parent_copy_id?: string | null;
+            storage: components["schemas"]["EvidenceStorageRef"];
+            /** Format: uuid */
+            source_evidence_media_id?: string | null;
+            digest_sha256: string;
+            content_type: string;
+            /** Format: int64 */
+            size_bytes: number;
+            worm_status: components["schemas"]["WormStorageStatus"];
+            /** Format: date-time */
+            verified_at?: string | null;
+            /** Format: uuid */
+            created_by: string;
+            /** Format: date-time */
+            created_at: string;
+        };
+        /** @description Nullable/absent until an RFC-3161 TSA lane exists (FUTURE — not faked). */
+        TimestampAuthorityProofView: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            copy_id: string;
+            status: components["schemas"]["TsaProofStatus"];
+            provider: string;
+            policy_oid?: string | null;
+            serial_number?: string | null;
+            hash_algorithm: string;
+            message_imprint_sha256?: string | null;
+            /** Format: date-time */
+            generated_at?: string | null;
+            /** Format: int64 */
+            accuracy_millis?: number | null;
+            ordering?: boolean | null;
+            tsa_cert_fingerprint_sha256?: string | null;
+            token_digest_sha256?: string | null;
+            token_storage?: components["schemas"]["EvidenceStorageRef"] | null;
+            /** Format: date-time */
+            verified_at?: string | null;
+            failure_reason?: string | null;
+            /** Format: uuid */
+            created_by: string;
+            /** Format: date-time */
+            created_at: string;
+        };
+        CustodyEventView: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            evidence_object_id: string;
+            stage: components["schemas"]["CustodyStage"];
+            /** Format: uuid */
+            actor_user_id: string;
+            from_custodian?: {
+                [key: string]: unknown;
+            } | null;
+            to_custodian?: {
+                [key: string]: unknown;
+            } | null;
+            location_label?: string | null;
+            reason: string;
+            source_ref?: components["schemas"]["EvidenceSourceRef"] | null;
+            /** Format: uuid */
+            audit_event_id?: string | null;
+            /** Format: uuid */
+            previous_event_id?: string | null;
+            event_digest_sha256: string;
+            /** Format: date-time */
+            occurred_at: string;
+            /** Format: date-time */
+            created_at: string;
+        };
+        LegalHoldRecordView: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            evidence_object_id: string;
+            status: components["schemas"]["LegalHoldStatus"];
+            case_ref: string;
+            basis: string;
+            reason: string;
+            /** Format: uuid */
+            applied_by: string;
+            /** Format: date-time */
+            applied_at: string;
+            /** Format: uuid */
+            released_by?: string | null;
+            /** Format: date-time */
+            released_at?: string | null;
+            release_reason?: string | null;
+            /** Format: uuid */
+            audit_event_id?: string | null;
+        };
+        EvidenceExportView: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            evidence_object_id: string;
+            manifest_digest_sha256: string;
+            signature_algorithm: string;
+            signature_ref?: string | null;
+            export_reason: string;
+            /** Format: uuid */
+            exported_by: string;
+            /** Format: date-time */
+            exported_at: string;
+        };
+        EvidenceObjectDetail: {
+            object: components["schemas"]["EvidenceObjectView"];
+            copies: components["schemas"]["EvidenceCopyView"][];
+            tsa_proofs: components["schemas"]["TimestampAuthorityProofView"][];
+            custody_history: components["schemas"]["CustodyEventView"][];
+            legal_holds: components["schemas"]["LegalHoldRecordView"][];
+            exports: components["schemas"]["EvidenceExportView"][];
+        };
+        /** @enum {string} */
+        FixityStatus: "MATCH" | "MISMATCH" | "CHECKSUM_UNAVAILABLE" | "STORAGE_ERROR";
+        /** @enum {string} */
+        VerifyOutcome: "VERIFIED" | "MISMATCH" | "INDETERMINATE";
+        CopyVerification: {
+            /** Format: uuid */
+            copy_id: string;
+            copy_kind: components["schemas"]["EvidenceCopyKind"];
+            recorded_digest_sha256: string;
+            storage_checksum_sha256?: string | null;
+            /** Format: int64 */
+            recorded_size_bytes: number;
+            /** Format: int64 */
+            storage_size_bytes?: number | null;
+            status: components["schemas"]["FixityStatus"];
+        };
+        EvidenceVerifyReport: {
+            /** Format: uuid */
+            evidence_object_id: string;
+            /** Format: date-time */
+            verified_at: string;
+            outcome: components["schemas"]["VerifyOutcome"];
+            copies: components["schemas"]["CopyVerification"][];
+        };
+        EvidenceHoldRequest: {
+            /** @enum {string} */
+            op: "apply";
+            case_ref: string;
+            basis: string;
+            reason: string;
+        } | {
+            /** @enum {string} */
+            op: "release";
+            /** Format: uuid */
+            hold_id: string;
+            reason: string;
+            /** Format: uuid */
+            four_eyes_request_ref: string;
+        };
+        CreateLeaveRequest: {
+            /** @enum {string} */
+            leave_type: "ANNUAL" | "HALF_DAY_AM" | "HALF_DAY_PM" | "SICK" | "FAMILY_EVENT" | "PUBLIC_DUTY" | "UNPAID" | "OTHER";
+            /** @enum {string} */
+            reason: "PERSONAL" | "FAMILY_EVENT" | "MEDICAL" | "BEREAVEMENT" | "CHILDCARE" | "CIVIC_DUTY" | "OTHER";
+            /** Format: date */
+            start_date: string;
+            /** Format: date */
+            end_date: string;
+            note?: string | null;
+        };
+        DecideLeaveRequest: {
+            /** @enum {string} */
+            decision: "APPROVE" | "REJECT";
+            note?: string | null;
+        };
+        LeaveRequest: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            employee_id: string;
+            employee_name?: string | null;
+            /** Format: uuid */
+            branch_id?: string | null;
+            leave_type: string;
+            reason: string;
+            /** Format: date */
+            start_date: string;
+            /** Format: date */
+            end_date: string;
+            note?: string | null;
+            /** @enum {string} */
+            status: "DRAFT" | "SUBMITTED" | "APPROVED" | "REJECTED";
+            /** Format: uuid */
+            requested_by: string;
+            /** Format: date-time */
+            requested_at: string;
+            /** Format: uuid */
+            decided_by?: string | null;
+            /** Format: date-time */
+            decided_at?: string | null;
+            decision_note?: string | null;
+        };
+        MyLeaveBalance: {
+            /** Format: uuid */
+            employee_id: string;
+            leave_accrued?: string | null;
+            leave_used?: string | null;
+            leave_remaining?: string | null;
+        };
+        MyLeaveOverview: {
+            balance: components["schemas"]["MyLeaveBalance"];
+            requests: components["schemas"]["LeaveRequest"][];
+        };
+        CreateLeavePromotion: {
+            /** @enum {integer} */
+            round_no: 1 | 2;
+            reference_year: number;
+            min_remaining_days?: number | null;
+            note?: string | null;
+        };
+        LeavePromotion: {
+            /** Format: uuid */
+            id: string;
+            round_no: number;
+            reference_year: number;
+            threshold_days: string;
+            /** @enum {string} */
+            status: "DRAFT" | "SENT" | "COMPLETED";
+            note?: string | null;
+            /** Format: uuid */
+            created_by: string;
+            /** Format: date-time */
+            sent_at?: string | null;
+            target_count: number;
+            confirmed_count: number;
+        };
+        InstanceHead: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            object_type_id: string;
+            title: string;
+            /** Format: uuid */
+            current_revision_id?: string | null;
+            lifecycle_state: components["schemas"]["InstanceLifecycleState"];
+        };
+        RevisionSummary: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            instance_id: string;
+            /** Format: int64 */
+            version: number;
+            attributes: {
+                [key: string]: unknown;
+            };
+            /** Format: date-time */
+            valid_from: string;
+            /** Format: date-time */
+            valid_to?: string | null;
+            /** Format: uuid */
+            action_type_id?: string | null;
+            /** Format: uuid */
+            actor?: string | null;
+            reason?: string | null;
+            prev_hash: string;
+            row_hash: string;
+        };
+        InstanceState: {
+            instance: components["schemas"]["InstanceHead"];
+            revision: components["schemas"]["RevisionSummary"];
+        };
+        TraversalNode: {
+            /** Format: uuid */
+            instance_id: string;
+            /** Format: uuid */
+            object_type_id: string;
+            title: string;
+            lifecycle_state: components["schemas"]["InstanceLifecycleState"];
+            /** Format: int32 */
+            depth: number;
+        };
+        TraversalEdge: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            link_type_id: string;
+            /** Format: uuid */
+            from_instance_id: string;
+            /** Format: uuid */
+            to_instance_id: string;
+        };
+        TraversalGraph: {
+            /** Format: uuid */
+            root: string;
+            nodes: components["schemas"]["TraversalNode"][];
+            edges: components["schemas"]["TraversalEdge"][];
+        };
+        ObjectTypeSummary: {
+            /** Format: uuid */
+            id: string;
+            stable_key: string;
+            title: string;
+            /** @enum {string} */
+            backing_kind: "instance" | "projected";
+            /** Format: int64 */
+            schema_version: number;
+            /** @enum {string} */
+            lifecycle_state: "draft" | "review_pending" | "published" | "superseded" | "retired";
+        };
+        /** @enum {string} */
+        InstanceLifecycleState: "draft" | "active" | "locked" | "archived" | "disposed";
+        LifecycleRequest: {
+            to_state: components["schemas"]["InstanceLifecycleState"];
+            reason?: string | null;
+            checklist_all_acknowledged?: boolean | null;
+            /** Format: uuid */
+            four_eyes_request_ref?: string | null;
+        };
+        GateChainConfig: {
+            authority: boolean;
+            self_checklist: boolean;
+            four_eyes: boolean;
+            egress_dlp: boolean;
+        };
+        GateChainOutcome: {
+            allow: boolean;
+            gates: {
+                [key: string]: unknown;
+            }[];
+        };
+        LifecycleOutcome: {
+            instance: components["schemas"]["InstanceHead"];
+            config: components["schemas"]["GateChainConfig"];
+            gates: components["schemas"]["GateChainOutcome"];
+        };
+        ActingRule: {
+            /** Format: uuid */
+            id: string;
+            label: string;
+            /** @enum {string} */
+            kind: "automation" | "policy";
+        };
+        ResolvedInstance: {
+            /** Format: uuid */
+            id: string;
+            type: string;
+            title: string;
+        };
+        BulkAuthorizeBody: {
+            subject: components["schemas"]["PolicySimSubject"];
+            checks: {
+                action: string;
+                resource: components["schemas"]["PolicySimResource"];
+                purpose?: string | null;
+                field?: string | null;
+            }[];
+        };
+        BulkDecisionResponse: {
+            decisions: components["schemas"]["SimulationOutcome"][];
+        };
+        SimulationOutcome: {
+            /** @enum {string} */
+            effect: "allow" | "deny";
+            determining_policies: string[];
+            errors: string[];
+            reason: string;
+        };
+        DecisionLogRow: {
+            /** Format: uuid */
+            id: string;
+            /** Format: date-time */
+            decided_at: string;
+            subject_ref: string;
+            action: string;
+            resource_type: string;
+            resource_id?: string | null;
+            /** @enum {string} */
+            effect: "allow" | "deny";
+            determining_policies: string[];
+            reason: string;
+        };
         EquipmentVersion: {
             /** Format: int32 */
             version: number;
@@ -9500,6 +11685,15 @@ export interface components {
         };
         /** @description State conflict or illegal transition. */
         Conflict: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorBody"];
+            };
+        };
+        /** @description A required passkey step-up or other precondition is missing. */
+        PreconditionRequired: {
             headers: {
                 [name: string]: unknown;
             };
@@ -9679,6 +11873,71 @@ export interface operations {
                 };
                 content?: never;
             };
+        };
+    };
+    recordConsoleRouteTelemetry: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ConsoleRouteTelemetryRequest"];
+            };
+        };
+        responses: {
+            /** @description Telemetry event accepted. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ConsoleRouteTelemetryAccepted"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    listAuditLog: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+                target_type?: string;
+                actor?: components["schemas"]["Uuid"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paginated audit records. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: {
+                            [key: string]: unknown;
+                        }[];
+                        /** Format: int64 */
+                        limit: number;
+                        /** Format: int64 */
+                        offset: number;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            503: components["responses"]["ServiceUnavailable"];
         };
     };
     listApprovalItems: {
@@ -9915,6 +12174,37 @@ export interface operations {
                 };
             };
             409: components["responses"]["Conflict"];
+        };
+    };
+    approveMobileWorkOrder: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workOrderId: components["parameters"]["WorkOrderId"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MobileApproveWorkOrderRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated work-order approval state. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkOrderSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            428: components["responses"]["PreconditionRequired"];
         };
     };
     requestTargetChange: {
@@ -11033,6 +13323,176 @@ export interface operations {
             403: components["responses"]["Forbidden"];
         };
     };
+    getHrReadinessSummary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description HR readiness counters. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    getHrAbsenceExitDashboard: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+                employee_id?: components["schemas"]["Uuid"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Absence and exit-case dashboard data. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    reportEmployeeExitCase: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    employee_id: components["schemas"]["Uuid"];
+                    branch_id?: components["schemas"]["Uuid"];
+                    absence_alert_id?: components["schemas"]["Uuid"];
+                    effective_exit_date: string;
+                    site_manager_note: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Employee exit case created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    confirmEmployeeExitCase: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    decision?: string;
+                    /** @default false */
+                    hq_confirmation?: boolean;
+                    note?: string;
+                    settlement_input?: {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+        responses: {
+            /** @description Employee exit case after confirmation. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    draftEmployeeExitApproval: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @default false */
+                    submit?: boolean;
+                    note?: string;
+                    settlement_input?: {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+        responses: {
+            /** @description Employee exit case with generated approval payloads. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
     previewAttendanceImport: {
         parameters: {
             query?: never;
@@ -12067,6 +14527,58 @@ export interface operations {
             422: components["responses"]["ValidationError"];
         };
     };
+    listCeoCovertAuditEvents: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paged covert audit events, plus the audit-of-access event id created by this read. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditStreamPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    listCeoCovertAuditAccessEvents: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paged audit-stream access events, plus the audit-of-access event id created by this read. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AuditStreamPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
     exportLocationConsentLedgerCsv: {
         parameters: {
             query?: {
@@ -12093,6 +14605,33 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    startMobilePasskeyStepUp: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MobilePasskeyStepUpStartRequest"];
+            };
+        };
+        responses: {
+            /** @description Action-bound authentication ceremony challenge. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MobilePasskeyStepUpStartResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            422: components["responses"]["ValidationError"];
+            429: components["responses"]["TooManyRequests"];
         };
     };
     startDeviceLogin: {
@@ -12251,6 +14790,95 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
+        };
+    };
+    listGroupAdminGroups: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Group-admin visible groups and member organizations. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    startGroupAdminTenantContext: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    org_id: components["schemas"]["Uuid"];
+                };
+            };
+        };
+        responses: {
+            /** @description Tenant context token for the selected group member organization. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    exitGroupAdminTenantContext: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    org_id: components["schemas"]["Uuid"];
+                };
+            };
+        };
+        responses: {
+            /** @description Group-admin tenant context ended. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        ended: boolean;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["ServiceUnavailable"];
         };
     };
     listMessengerMembers: {
@@ -13176,7 +15804,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FinancialStepUpRequest"];
+            };
+        };
         responses: {
             /** @description Admin-approved purchase request. */
             200: {
@@ -13190,6 +15822,8 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            428: components["responses"]["PreconditionRequired"];
         };
     };
     preparePurchaseExpenditure: {
@@ -13219,6 +15853,8 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            428: components["responses"]["PreconditionRequired"];
         };
     };
     approvePurchaseRequestExecutive: {
@@ -13230,7 +15866,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FinancialStepUpRequest"];
+            };
+        };
         responses: {
             /** @description Purchase request ready to execute. */
             200: {
@@ -13244,6 +15884,8 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            428: components["responses"]["PreconditionRequired"];
         };
     };
     rejectPurchaseRequest: {
@@ -13273,6 +15915,8 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            428: components["responses"]["PreconditionRequired"];
         };
     };
     restartPurchaseRequest: {
@@ -13314,7 +15958,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FinancialStepUpRequest"];
+            };
+        };
         responses: {
             /** @description Executed purchase request. */
             200: {
@@ -13328,6 +15976,8 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            428: components["responses"]["PreconditionRequired"];
         };
     };
     startP1Dispatch: {
@@ -14844,6 +17494,175 @@ export interface operations {
             };
         };
     };
+    getConsoleRollout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Console rollout status. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        flag_key: string;
+                        org_enabled: boolean;
+                        org_rollout_enabled: boolean;
+                        user_opted_in: boolean;
+                        legacy_kill_switch_enabled: boolean;
+                        kill_switch_active: boolean;
+                        effective_new_console: boolean;
+                        /** @enum {string} */
+                        effective_route: "legacy" | "new_console";
+                        /** @enum {string} */
+                        effective_route_for_opted_in_user: "legacy" | "new_console";
+                        /** @enum {string} */
+                        effective_route_for_opted_out_user: "legacy";
+                        overrides_individual_toggles: boolean;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    updateConsoleRolloutOptIn: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    opt_in: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Updated console rollout status. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    updateConsoleRolloutOrgFlag: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    enabled: boolean;
+                    rollout_note?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Updated console rollout status. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    updateConsoleLegacyKillSwitch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    enabled: boolean;
+                    reason?: string;
+                    rollout_note?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Updated console rollout status after applying the kill switch. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     getCurrentUserWorkspace: {
         parameters: {
             query?: never;
@@ -15024,6 +17843,41 @@ export interface operations {
         requestBody?: never;
         responses: {
             /** @description Deactivated user. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UserSummary"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    activateUser: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Reactivated user. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -15676,6 +18530,58 @@ export interface operations {
             422: components["responses"]["ValidationError"];
         };
     };
+    listPlatformOrgs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Tenant organizations visible to the platform operator. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformOrg"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    onboardPlatformOrg: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreatePlatformOrgRequest"];
+            };
+        };
+        responses: {
+            /** @description Tenant onboarding succeeded; deliver the OTP out-of-band and do not log it. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformOrgOnboardingResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
     removePlatformOrg: {
         parameters: {
             query?: {
@@ -15709,15 +18615,394 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
-            /** @description JWT verification is not configured. */
-            503: {
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    setPlatformOrgStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdatePlatformOrgRequest"];
+            };
+        };
+        responses: {
+            /** @description The updated tenant organization. */
+            200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ErrorBody"];
+                    "application/json": components["schemas"]["PlatformOrg"];
                 };
             };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    getPlatformOps: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Platform operations dashboard rollup. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformOpsResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    listPlatformGroups: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Platform groups with member organization identities. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformGroup"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    createPlatformGroup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreatePlatformGroupRequest"];
+            };
+        };
+        responses: {
+            /** @description The created platform group. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformGroup"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    updatePlatformGroup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdatePlatformGroupRequest"];
+            };
+        };
+        responses: {
+            /** @description The updated platform group. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformGroup"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    listPlatformGroupAccounts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Group account summaries. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformGroupAccount"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    createPlatformGroupAccount: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreatePlatformGroupAccountRequest"];
+            };
+        };
+        responses: {
+            /** @description The created group account plus one-time setup OTP. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreatePlatformGroupAccountResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    revokePlatformGroupRole: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+                user_id: components["schemas"]["Uuid"];
+                group_role: components["schemas"]["PlatformGroupRole"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The group role grant was revoked. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    assignPlatformOrgToGroup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+                org_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The tenant organization after group assignment. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformOrg"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    removePlatformOrgFromGroup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+                org_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The tenant organization after group removal. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformOrg"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    startPlatformViewAs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlatformViewAsStartRequest"];
+            };
+        };
+        responses: {
+            /** @description The short-lived read-only tenant token and banner context. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformViewAsStartResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    exitPlatformViewAs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The exit audit acknowledgement. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformExitResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    startPlatformTenantContext: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PlatformTenantContextStartRequest"];
+            };
+        };
+        responses: {
+            /** @description The short-lived writable tenant token and banner context. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformTenantContextStartResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    exitPlatformTenantContext: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The exit audit acknowledgement. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PlatformExitResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            503: components["responses"]["ServiceUnavailable"];
         };
     };
     listIntegrityFindings: {
@@ -16294,6 +19579,62 @@ export interface operations {
             404: components["responses"]["NotFound"];
         };
     };
+    listWorkflowRunLog: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Workflow runtime run log. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowRunLogResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    triggerWorkflowRun: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TriggerWorkflowRunRequest"];
+            };
+        };
+        responses: {
+            /** @description Workflow run trigger accepted. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowRunResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
     simulateWorkflowDefinition: {
         parameters: {
             query?: never;
@@ -16380,6 +19721,45 @@ export interface operations {
         };
         responses: {
             /** @description Paused workflow definition. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkflowDefinitionResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+            /** @description Fresh passkey step-up is required. */
+            428: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    resumeWorkflowDefinition: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkflowStepUpRequest"];
+            };
+        };
+        responses: {
+            /** @description Resumed workflow definition. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -17213,6 +20593,37 @@ export interface operations {
             422: components["responses"]["ValidationError"];
         };
     };
+    voteMobileCollaborationPoll: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MobileVotePollRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated poll with aggregate counts and caller vote state. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PollResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+            428: components["responses"]["PreconditionRequired"];
+        };
+    };
     listObjectLinks: {
         parameters: {
             query: {
@@ -17379,7 +20790,7 @@ export interface operations {
             403: components["responses"]["Forbidden"];
         };
     };
-    listObjectTypes: {
+    listRegistryObjectTypes: {
         parameters: {
             query?: never;
             header?: never;
@@ -17401,7 +20812,7 @@ export interface operations {
             403: components["responses"]["Forbidden"];
         };
     };
-    getObjectType: {
+    getRegistryObjectType: {
         parameters: {
             query?: never;
             header?: never;
@@ -17688,6 +21099,1091 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    listObjectTypes: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Object type summaries for the caller's tenant. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    }[];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    createObjectType: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateObjectTypeDraft"];
+            };
+        };
+        responses: {
+            /** @description Draft object type created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    getObjectType: {
+        parameters: {
+            query?: {
+                version?: number;
+            };
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Object type definition. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    stageObjectTypeRevision: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateObjectTypeDraft"];
+            };
+        };
+        responses: {
+            /** @description Staged schema revision. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    listOntologyInstances: {
+        parameters: {
+            query: {
+                type: components["schemas"]["Uuid"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Instance states for the object type. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    }[];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    getOntologyInstance: {
+        parameters: {
+            query?: {
+                /** @description RFC3339 instant for a bi-temporal as-of read; absent = current head. */
+                as_of?: components["schemas"]["Timestamp"];
+            };
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Instance state. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    listOntologyInstanceHistory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Revision history for the instance. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    }[];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    traverseOntologyInstance: {
+        parameters: {
+            query?: {
+                link_type?: components["schemas"]["Uuid"];
+                depth?: number;
+            };
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Traversal node/edge graph. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    preflightOntologyAction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                action_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OntologyActionRequest"];
+            };
+        };
+        responses: {
+            /** @description Gate-chain preflight status. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    executeOntologyAction: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                action_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["OntologyActionRequest"];
+            };
+        };
+        responses: {
+            /** @description Action executed; the mutation and its audit row committed atomically. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            /** @description A projected-use-case dispatch is not wired yet. */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    openGovernanceOverride: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GovernanceOpenOverrideRequest"];
+            };
+        };
+        responses: {
+            /** @description Override opened. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    decideGovernanceApproval: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GovernanceDecideApprovalRequest"];
+            };
+        };
+        responses: {
+            /** @description Approval decision recorded. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    configureLifecycleTransition: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GovernanceConfigureTransitionRequest"];
+            };
+        };
+        responses: {
+            /** @description Transition requirements configured. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    preflightLifecycleTransition: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["GovernanceLifecyclePreflightRequest"];
+            };
+        };
+        responses: {
+            /** @description Lifecycle gate-chain preflight status. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    listPolicyCatalog: {
+        parameters: {
+            query?: {
+                status?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Catalog entries for the caller's tenant. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    }[];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    listPolicyDrafts: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Policy drafts for the caller's tenant. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    }[];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    createPolicyDraft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicyCreateDraftRequest"];
+            };
+        };
+        responses: {
+            /** @description Draft created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    getPolicyDraft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                draft_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The policy draft. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    updatePolicyDraft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                draft_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicyUpdateDraftRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated draft. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    validatePolicyDraft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                draft_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Validation result. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    submitPolicyDraft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                draft_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Draft submitted for review. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    reviewPolicyDraft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                draft_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicyReviewRequest"];
+            };
+        };
+        responses: {
+            /** @description Review decision recorded. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    simulatePolicyDecision: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicySimulateRequest"];
+            };
+        };
+        responses: {
+            /** @description Simulation outcome. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    authorizePolicyDecision: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PolicyAuthorizeRequest"];
+            };
+        };
+        responses: {
+            /** @description Authorization outcome. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    listEvidenceObjects: {
+        parameters: {
+            query?: {
+                q?: string;
+                source_type?: components["schemas"]["EvidenceSourceType"];
+                source_id?: string;
+                admissibility_status?: components["schemas"]["AdmissibilityStatus"];
+                legal_hold_state?: components["schemas"]["LegalHoldState"];
+                custody_stage?: components["schemas"]["CustodyStage"];
+                classification?: components["schemas"]["EvidenceClassification"];
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of EV objects. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvidenceObjectPage"];
+                };
+            };
+        };
+    };
+    getEvidenceObject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Full EV object detail. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvidenceObjectDetail"];
+                };
+            };
+            /** @description Not found (or cross-tenant, hidden by RLS). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    verifyEvidenceObject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Fixity report (outcome + per-copy verdict). */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvidenceVerifyReport"];
+                };
+            };
+            /** @description Not found. */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Object storage not configured — fixity cannot be checked. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    holdEvidenceObject: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EvidenceHoldRequest"];
+            };
+        };
+        responses: {
+            /** @description Hold released. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LegalHoldRecordView"];
+                };
+            };
+            /** @description Hold applied. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LegalHoldRecordView"];
+                };
+            };
+            /** @description Release requires a distinct-approver four-eyes approval (code four_eyes_required). */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    createGovernanceApproval: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: uuid */
+                    request_ref: string;
+                    kind: string;
+                    payload_summary?: {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+        };
+        responses: {
+            /** @description Pending approval request created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        /** Format: uuid */
+                        id: string;
+                        /** Format: uuid */
+                        request_ref: string;
+                        kind: string;
+                        /** Format: uuid */
+                        requested_by: string;
+                        payload_summary: {
+                            [key: string]: unknown;
+                        };
+                        /** Format: date-time */
+                        created_at: string;
+                    };
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description A request already exists for this ref */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Validation error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    commitInstanceLifecycle: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LifecycleRequest"];
+            };
+        };
+        responses: {
+            /** @description committed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LifecycleOutcome"];
+                };
+            };
+            /** @description gate denied / unconfigured edge */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description instance not found (RLS-scoped) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description illegal FSM edge or concurrent state change */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listInstanceActing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description automation rules + policies acting on the object type */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActingRule"][];
+                };
+            };
+            /** @description instance not found (RLS-scoped) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    resolveInstanceByCode: {
+        parameters: {
+            query: {
+                code: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description resolved */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ResolvedInstance"];
+                };
+            };
+            /** @description no instance resolves that code (deny-by-omission — also cross-tenant) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    authorizeBulk: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BulkAuthorizeBody"];
+            };
+        };
+        responses: {
+            /** @description per-check decisions (index-aligned with checks) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BulkDecisionResponse"];
+                };
+            };
+        };
+    };
+    listPolicyDecisions: {
+        parameters: {
+            query?: {
+                since?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description recent decisions, newest first, capped at 200 */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DecisionLogRow"][];
+                };
+            };
         };
     };
     listPeriodLocks: {

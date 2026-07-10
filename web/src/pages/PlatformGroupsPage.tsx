@@ -19,6 +19,7 @@ import type {
   PlatformGroupAccount,
   PlatformGroupRole,
   PlatformOrg,
+  PlatformTenantRole,
 } from "../api/platform";
 import { PageError } from "../components/states/PageError";
 import { SkeletonTable } from "../components/states/Skeleton";
@@ -37,17 +38,17 @@ import {
 import { ko } from "../i18n/ko";
 
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{1,38}[a-z0-9]$/;
-const GROUP_ROLE_OPTIONS: PlatformGroupRole[] = [
+const GROUP_ROLE_OPTIONS = [
   "GROUP_ADMIN",
   "GROUP_VIEWER",
   "GROUP_FINANCE",
-];
+] as const satisfies readonly PlatformGroupRole[];
 const TENANT_ROLE_OPTIONS = [
   "MEMBER",
   "ADMIN",
   "EXECUTIVE",
   "SUPER_ADMIN",
-] as const;
+] as const satisfies readonly PlatformTenantRole[];
 type TenantRoleOption = (typeof TENANT_ROLE_OPTIONS)[number];
 
 type ReadState = "idle" | "loading" | "error";
@@ -196,7 +197,7 @@ export function PlatformGroupsPage() {
       orgId: string;
       displayName: string;
       phone?: string;
-      tenantRole: string;
+      tenantRole: TenantRoleOption;
       groupRole: PlatformGroupRole;
     },
   ): Promise<CreatePlatformGroupAccountResponse | undefined> {
@@ -423,7 +424,7 @@ function GroupCard({
     orgId: string;
     displayName: string;
     phone?: string;
-    tenantRole: string;
+    tenantRole: TenantRoleOption;
     groupRole: PlatformGroupRole;
   }) => Promise<CreatePlatformGroupAccountResponse | undefined>;
   onRevoke: (account: PlatformGroupAccount, role: PlatformGroupRole) => void;

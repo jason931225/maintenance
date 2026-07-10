@@ -87,11 +87,14 @@ Current iOS repo state has three separate readiness levels:
    Simulator XCUITest/accessibility checks. That generated `.xcodeproj` is a CI
    artifact and is not committed.
 3. **TestFlight/archive:** the release workflow has an iOS/TestFlight lane, but
-   it requires App Store Connect credentials, manual signing assets,
+   it does not currently create the XcodeGen project before fastlane runs and it
+   requires App Store Connect credentials, manual signing assets,
    `IOS_APP_IDENTIFIER`, `IOS_SCHEME`, and either `IOS_XCODE_PROJECT` or
    `IOS_XCODE_WORKSPACE` pointing at an archive-capable path that exists in the
-   release checkout. Until those inputs and a signed archive/export have been
-   proven, TestFlight and production go-live are blocked.
+   release checkout. Until those inputs point at an archive-capable project or
+   workspace and a signed archive/export has been proven, TestFlight and
+   production go-live are blocked.
+
 
 The workflow derives `IOS_PROVISIONING_PROFILE_NAME` from the uploaded provisioning profile and passes it to fastlane export options. If you run the `ios release` lane locally, set `IOS_PROVISIONING_PROFILE_NAME` to that profile's `Name` value.
 

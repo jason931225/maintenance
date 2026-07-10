@@ -6,6 +6,7 @@ import pretendard400Url from "@fontsource/pretendard/files/pretendard-latin-400-
 import { AuthProvider } from "./context/auth";
 import { AppRouter } from "./AppRouter";
 import { ErrorBoundary } from "./components/ErrorBoundary";
+import { RouteTelemetry } from "./telemetry/routeTelemetry";
 import "./styles.css";
 
 // Preload the default body weight so first paint isn't blocked on its request.
@@ -28,6 +29,7 @@ createRoot(root).render(
     <ErrorBoundary>
       <BrowserRouter>
         <AuthProvider>
+          <RouteTelemetry />
           <AppRouter />
         </AuthProvider>
       </BrowserRouter>

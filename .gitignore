@@ -9,6 +9,10 @@ dist/
 .cache/
 *.tsbuildinfo
 
+# Python helper outputs
+__pycache__/
+*.py[cod]
+
 # Swift / Gradle build outputs
 **/.build/
 **/.swiftpm/
@@ -34,3 +38,22 @@ clients/kotlin/**/build/
 **/.omc/project-memory.json
 .claude/worktrees/
 ops/.dev-secrets/
+
+# Linked git worktrees (77+ lane worktrees — gitlinks must never be committed)
+/.worktrees/
+# Local agent/session tooling (not project source)
+.omc/handoffs/
+.omc/*.tmp.*
+.omc/.project-memory.json.tmp.*
+.hermes/
+.agents/
+.claude/skills/
+skills-lock.json
+
+# Talos generated custody artifacts
+_talos/
+_talos-*/
+deploy/talos/_out/
+deploy/talos/**/secrets.yaml
+deploy/talos/**/talosconfig
+*.kubeconfig

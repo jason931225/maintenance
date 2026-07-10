@@ -40,6 +40,39 @@ async fn completed_count_uses_approval_period_priority_weights_and_exclusions(po
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn query_kpis_rejects_unknown_work_order_status(pool: PgPool) {
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let seeded = seed_golden_dataset(&pool).await;
+        set_work_order_status_raw(&pool, seeded.p1_completed, "DONE-ish").await;
+
+        assert_kpi_enum_error_mentions(&pool, seeded.p1_completed, "status", "DONE-ish").await;
+    })
+    .await;
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn query_kpis_rejects_unknown_work_order_priority(pool: PgPool) {
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let seeded = seed_golden_dataset(&pool).await;
+        set_work_order_priority_raw(&pool, seeded.p1_completed, "P0").await;
+
+        assert_kpi_enum_error_mentions(&pool, seeded.p1_completed, "priority", "P0").await;
+    })
+    .await;
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn query_kpis_rejects_unknown_work_order_result_type(pool: PgPool) {
+    mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
+        let seeded = seed_golden_dataset(&pool).await;
+        set_work_order_result_type_raw(&pool, seeded.p1_completed, "PARTIAL").await;
+
+        assert_kpi_enum_error_mentions(&pool, seeded.p1_completed, "result_type", "PARTIAL").await;
+    })
+    .await;
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn average_response_speed_uses_first_in_progress_status_history(pool: PgPool) {
     mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
         seed_golden_dataset(&pool).await;
@@ -435,6 +468,12 @@ async fn rollups_respect_branch_scope_across_two_branches(pool: PgPool) {
 }
 
 async fn company_report(pool: &PgPool) -> mnt_reporting_domain::KpiReport {
+    company_report_result(pool).await.unwrap()
+}
+
+async fn company_report_result(
+    pool: &PgPool,
+) -> Result<mnt_reporting_domain::KpiReport, mnt_reporting_application::KpiQueryError> {
     let repo = PgKpiRepository::new(pool.clone());
     repo.query_kpis(KpiQuery {
         period: period(),
@@ -442,7 +481,77 @@ async fn company_report(pool: &PgPool) -> mnt_reporting_domain::KpiReport {
         branch_scope: BranchScope::All,
     })
     .await
-    .unwrap()
+}
+
+async fn assert_kpi_enum_error_mentions(
+    pool: &PgPool,
+    work_order_id: uuid::Uuid,
+    field: &str,
+    value: &str,
+) {
+    let error = company_report_result(pool).await.unwrap_err();
+    let message = error.to_string();
+
+    assert!(
+        message.contains(&work_order_id.to_string()),
+        "expected {message:?} to mention work order {work_order_id}"
+    );
+    assert!(
+        message.contains(field),
+        "expected {message:?} to mention enum field {field:?}"
+    );
+    assert!(
+        message.contains(value),
+        "expected {message:?} to mention raw value {value:?}"
+    );
+}
+
+async fn set_work_order_status_raw(pool: &PgPool, work_order_id: uuid::Uuid, value: &str) {
+    sqlx::query("ALTER TABLE work_orders DROP CONSTRAINT IF EXISTS work_orders_status_check")
+        .execute(pool)
+        .await
+        .unwrap();
+    let rows = sqlx::query("UPDATE work_orders SET status = $1 WHERE id = $2")
+        .bind(value)
+        .bind(work_order_id)
+        .execute(pool)
+        .await
+        .unwrap()
+        .rows_affected();
+
+    assert_eq!(rows, 1);
+}
+
+async fn set_work_order_priority_raw(pool: &PgPool, work_order_id: uuid::Uuid, value: &str) {
+    sqlx::query("ALTER TABLE work_orders DROP CONSTRAINT IF EXISTS work_orders_priority_check")
+        .execute(pool)
+        .await
+        .unwrap();
+    let rows = sqlx::query("UPDATE work_orders SET priority = $1 WHERE id = $2")
+        .bind(value)
+        .bind(work_order_id)
+        .execute(pool)
+        .await
+        .unwrap()
+        .rows_affected();
+
+    assert_eq!(rows, 1);
+}
+
+async fn set_work_order_result_type_raw(pool: &PgPool, work_order_id: uuid::Uuid, value: &str) {
+    sqlx::query("ALTER TABLE work_orders DROP CONSTRAINT IF EXISTS work_orders_result_type_check")
+        .execute(pool)
+        .await
+        .unwrap();
+    let rows = sqlx::query("UPDATE work_orders SET result_type = $1 WHERE id = $2")
+        .bind(value)
+        .bind(work_order_id)
+        .execute(pool)
+        .await
+        .unwrap()
+        .rows_affected();
+
+    assert_eq!(rows, 1);
 }
 
 const fn period() -> Period {

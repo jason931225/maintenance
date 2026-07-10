@@ -1,504 +1,874 @@
-import { useState, type CSSProperties, type ReactNode } from "react";
+/* eslint-disable react-refresh/only-export-components */
+import { useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 
 import { ko } from "../../i18n/ko";
-import { safeLabel } from "../../lib/utils";
-import type { ConsoleApiClient } from "../../api/client";
+import { StatusChip } from "../components";
 import { PolicyGated, usePolicyGate } from "../policy";
-import { slugLabel, slugTone } from "./kinds";
 import {
-  useObjectCard,
+  objDrag,
+  parseObjectRefText,
+  useObjectDrop,
+  type WindowEntry,
+} from "../window";
+import "../tokens.css";
+import {
   OBJECT_CARD_ACTIONS,
-  type AuditEntry,
-  type ObjectCardState,
-  type ObjectLinkResponse,
-} from "./useObjectCard";
+  type LinkCardinality,
+  type ObjectCardAction,
+  type ObjectCardActingChip,
+  type ObjectCardApproval,
+  type ObjectCardDescriptor,
+  type ObjectCardHandlers,
+  type ObjectCardLifecycleStep,
+  type ObjectCardProperty,
+  type ObjectCardRelation,
+  type ObjectCardRevision,
+  type ObjectLifecycleState,
+  type StatusTone,
+} from "./types";
 
-export interface ObjectCardProps {
-  target: { kind: string; id: string };
-  api: ConsoleApiClient;
-  /** Bearer token for the app-level `/api/audit` timeline read (layer 2). */
-  bearerToken?: string;
-  /** Navigate to a related object (explore re-center / open). */
-  onOpenObject?: (target: { kind: string; id: string }) => void;
-}
+const T = ko.console.objectcard;
 
-const t = ko.console.objectCard;
+const lifecycleTone: Record<ObjectLifecycleState, StatusTone> = {
+  draft: "neutral",
+  active: "ok",
+  locked: "warn",
+  archived: "info",
+  disposed: "danger",
+};
 
-// --- shared shapes (§4-18: one chip, one kv, drawn once) --------------------
+const actingTone: Record<ObjectCardActingChip["kind"], StatusTone> = {
+  automation: "accent",
+  policy: "purple",
+  series: "info",
+};
 
-const card: CSSProperties = {
-  boxSizing: "border-box",
-  width: "100%",
-  maxWidth: 420,
+const approvalTone: Record<ObjectCardApproval["decision"], StatusTone> = {
+  pending: "warn",
+  approved: "ok",
+  rejected: "danger",
+};
+
+const rootStyle: CSSProperties = {
+  display: "grid",
+  gap: "var(--sp-5)",
+  padding: "var(--sp-5)",
   background: "var(--surface)",
-  border: "1px solid var(--border)",
-  borderRadius: "var(--radius-card)",
-  boxShadow: "var(--shadow)",
   color: "var(--ink)",
   fontFamily: "var(--font-sans)",
-  overflow: "hidden",
 };
 
-const layerLabel: CSSProperties = {
-  fontSize: "var(--text-micro)",
+const headerStyle: CSSProperties = {
+  display: "grid",
+  gap: "var(--sp-2)",
+};
+
+const headerTopStyle: CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "var(--sp-2)",
+};
+
+const titleStyle: CSSProperties = {
+  margin: 0,
+  color: "var(--ink)",
+  fontSize: "var(--text-h1)",
   fontWeight: "var(--fw-strong)",
-  letterSpacing: "var(--tracking-label)",
-  color: "var(--faint)",
-  textTransform: "uppercase",
+  letterSpacing: "var(--tracking-tight)",
 };
 
-const mono: CSSProperties = {
+const monoStyle: CSSProperties = {
+  color: "var(--faint)",
   fontFamily: "var(--font-mono)",
   fontSize: "var(--text-xs)",
   fontWeight: "var(--fw-strong)",
-  color: "var(--steel)",
 };
 
-function KindChip({ kind }: { kind: string }) {
-  const tone = slugTone(kind);
-  return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        padding: "0 var(--sp-2)",
-        height: "1.5em",
-        borderRadius: "var(--radius-chip)",
-        border: `1px solid ${tone.bd}`,
-        background: tone.bg,
-        color: tone.tx,
-        fontSize: "var(--text-xs)",
-        fontWeight: "var(--fw-medium)",
-        lineHeight: 1,
-      }}
-    >
-      {slugLabel(kind)}
-    </span>
-  );
-}
+const chipRowStyle: CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  gap: "var(--sp-2)",
+  alignItems: "center",
+};
 
-function Layer({ label, children }: { label: string; children: ReactNode }) {
+const layerStyle: CSSProperties = {
+  display: "grid",
+  gap: "var(--sp-4)",
+};
+
+const layerHeadingStyle: CSSProperties = {
+  margin: 0,
+  color: "var(--faint)",
+  fontSize: "var(--text-xs)",
+  fontWeight: "var(--fw-strong)",
+  letterSpacing: "var(--tracking-label)",
+  textTransform: "uppercase",
+};
+
+const sectionStyle: CSSProperties = {
+  display: "grid",
+  gap: "var(--sp-3)",
+  padding: "var(--sp-4)",
+  border: "1px solid var(--border)",
+  borderRadius: "var(--radius-card)",
+  background: "var(--surface)",
+  boxShadow: "var(--shadow)",
+};
+
+const sectionHeaderStyle: CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "var(--sp-2)",
+};
+
+const sectionTitleStyle: CSSProperties = {
+  margin: 0,
+  color: "var(--ink)",
+  fontSize: "var(--text-card-title)",
+  fontWeight: "var(--fw-strong)",
+};
+
+const propertyRowStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "minmax(0, 1fr) auto",
+  alignItems: "center",
+  gap: "var(--sp-2)",
+  padding: "var(--sp-2) 0",
+  borderBottom: "1px solid var(--border-soft)",
+};
+
+const propertyNameStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "var(--sp-2)",
+  color: "var(--steel)",
+  fontSize: "var(--text-sm)",
+  fontWeight: "var(--fw-strong)",
+};
+
+const propertyValueStyle: CSSProperties = {
+  color: "var(--ink)",
+  fontSize: "var(--text-body)",
+  fontWeight: "var(--fw-medium)",
+  textAlign: "right",
+  wordBreak: "break-word",
+};
+
+const listStyle: CSSProperties = {
+  display: "grid",
+  gap: "var(--sp-2)",
+  margin: 0,
+  padding: 0,
+  listStyle: "none",
+};
+
+const relationRowStyle: CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  alignItems: "center",
+  justifyContent: "space-between",
+  gap: "var(--sp-2)",
+  padding: "var(--sp-3)",
+  border: "1px solid var(--border-soft)",
+  borderRadius: "var(--radius-md)",
+  background: "var(--muted)",
+};
+
+const stepperStyle: CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  alignItems: "center",
+  gap: "var(--sp-2)",
+};
+
+const timelineListStyle: CSSProperties = {
+  display: "grid",
+  gap: "var(--sp-3)",
+  margin: 0,
+  padding: 0,
+  listStyle: "none",
+};
+
+const timelineItemStyle: CSSProperties = {
+  position: "relative",
+  display: "grid",
+  gap: "var(--sp-2)",
+  padding: "var(--sp-3)",
+  paddingInlineStart: "calc(var(--sp-6) + var(--sp-2))",
+  border: "1px solid var(--border-soft)",
+  borderRadius: "var(--radius-md)",
+  background: "var(--surface)",
+};
+
+const timelineDotStyle: CSSProperties = {
+  position: "absolute",
+  insetBlockStart: "var(--sp-4)",
+  insetInlineStart: "var(--sp-4)",
+  width: 10,
+  height: 10,
+  borderRadius: "var(--radius-pill)",
+  border: "2px solid var(--timeline-dot-bd)",
+  background: "var(--timeline-dot-bg)",
+};
+
+const metaStyle: CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  alignItems: "center",
+  gap: "var(--sp-2)",
+  color: "var(--faint)",
+  fontSize: "var(--text-xs)",
+  fontWeight: "var(--fw-medium)",
+};
+
+const buttonStyle: CSSProperties = {
+  minHeight: 44,
+  borderRadius: "var(--radius-md)",
+  border: "1px solid var(--border)",
+  background: "var(--surface)",
+  color: "var(--ink)",
+  padding: "0 var(--sp-4)",
+  fontSize: "var(--text-sm)",
+  fontWeight: "var(--fw-strong)",
+  cursor: "pointer",
+};
+
+const primaryButtonStyle: CSSProperties = {
+  ...buttonStyle,
+  borderColor: "var(--signal)",
+  background: "var(--signal)",
+  color: "var(--ink)",
+};
+
+const removeButtonStyle: CSSProperties = {
+  ...buttonStyle,
+  minHeight: 44,
+  padding: "0 var(--sp-3)",
+  borderColor: "var(--danger-bd)",
+  background: "var(--danger-bg)",
+  color: "var(--danger-tx)",
+  fontSize: "var(--text-xs)",
+};
+
+const inputStyle: CSSProperties = {
+  minHeight: 44,
+  minWidth: 0,
+  borderRadius: "var(--radius-md)",
+  border: "1px solid var(--border)",
+  background: "var(--surface)",
+  color: "var(--ink)",
+  padding: "0 var(--sp-3)",
+  fontFamily: "var(--font-sans)",
+  fontSize: "var(--text-sm)",
+  fontWeight: "var(--fw-body)",
+};
+
+const fieldStyle: CSSProperties = {
+  display: "grid",
+  gap: "var(--sp-1)",
+  color: "var(--steel)",
+  fontSize: "var(--text-xs)",
+  fontWeight: "var(--fw-strong)",
+};
+
+const dropZoneStyle: CSSProperties = {
+  display: "grid",
+  gap: "var(--sp-2)",
+  padding: "var(--sp-4)",
+  border: "1px dashed var(--canvas-grid-bd)",
+  borderRadius: "var(--radius-md)",
+  background: "var(--canvas-grid-bg)",
+  color: "var(--faint)",
+  fontSize: "var(--text-xs)",
+  fontWeight: "var(--fw-medium)",
+  textAlign: "center",
+};
+
+const bannerStyle: CSSProperties = {
+  display: "grid",
+  gap: "var(--sp-3)",
+  padding: "var(--sp-4)",
+  border: "1px solid var(--warn-bd)",
+  borderRadius: "var(--radius-md)",
+  background: "var(--warn-bg)",
+  color: "var(--warn-tx)",
+};
+
+const textareaStyle: CSSProperties = {
+  ...inputStyle,
+  minHeight: 60,
+  padding: "var(--sp-2) var(--sp-3)",
+  resize: "vertical",
+};
+
+function Section({
+  title,
+  count,
+  children,
+  labelledById,
+}: {
+  title: string;
+  count?: number;
+  children: ReactNode;
+  labelledById: string;
+}) {
   return (
-    <section
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: "var(--sp-2)",
-        padding: "var(--sp-3) var(--sp-4)",
-        borderTop: "1px solid var(--border-soft)",
-      }}
-    >
-      <span style={layerLabel}>{label}</span>
+    <section aria-labelledby={labelledById} style={sectionStyle}>
+      <div style={sectionHeaderStyle}>
+        <h3 id={labelledById} style={sectionTitleStyle}>
+          {title}
+        </h3>
+        {count !== undefined ? <StatusChip tone="neutral">{T.count(count)}</StatusChip> : null}
+      </div>
       {children}
     </section>
   );
 }
 
-function KvRow({ k, children }: { k: string; children: ReactNode }) {
+// ── Semantic layer ────────────────────────────────────────────────────────
+
+function PropertyList({ properties }: { properties: ObjectCardProperty[] }) {
+  const gate = usePolicyGate();
+  // Deny-by-omission: a property in the property-policy set renders only when the
+  // subject may read it (arch §5b); a server-nulled value is likewise omitted.
+  const visible = properties.filter((property) => {
+    if (property.value === null) return false;
+    if (property.inPropertyPolicy) {
+      return gate.can(OBJECT_CARD_ACTIONS.propertyRead, { kind: "property", id: property.key });
+    }
+    return true;
+  });
+  if (visible.length === 0) return null;
   return (
-    <div style={{ display: "grid", gridTemplateColumns: "72px 1fr", gap: "var(--sp-3)", alignItems: "baseline" }}>
-      <span style={{ fontSize: "var(--text-xs)", color: "var(--faint)" }}>{k}</span>
-      <span style={{ fontSize: "var(--text-sm)", color: "var(--ink)", minWidth: 0, wordBreak: "break-word" }}>
-        {children}
-      </span>
-    </div>
+    <Section title={T.sections.properties} count={visible.length} labelledById="object-card-properties">
+      <div style={listStyle}>
+        {visible.map((property) => (
+          <div key={property.key} style={propertyRowStyle}>
+            <span style={propertyNameStyle}>
+              {property.title}
+              <StatusChip tone="neutral" ariaLabel={T.typeBadge(property.type)}>
+                {property.type}
+              </StatusChip>
+            </span>
+            <span style={propertyValueStyle}>{property.value}</span>
+          </div>
+        ))}
+      </div>
+    </Section>
   );
 }
 
-// --- layer 2: lifecycle chip + audit timeline -------------------------------
+function cardinalityLabel(cardinality: LinkCardinality): string {
+  return T.relations.cardinality[cardinality];
+}
 
-function LifecycleChip({ state, legalHold }: { state: string; legalHold: boolean }) {
+function RelationList({
+  relations,
+  onRemove,
+}: {
+  relations: ObjectCardRelation[];
+  onRemove?: (linkId: string) => void;
+}) {
+  if (relations.length === 0) return null;
   return (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: "var(--sp-2)" }}>
-      <span
-        style={{
-          display: "inline-flex",
-          alignItems: "center",
-          padding: "0 var(--sp-2)",
-          height: "1.5em",
-          borderRadius: "var(--radius-pill)",
-          border: "1px solid var(--accent-bd)",
-          background: "var(--accent-bg)",
-          color: "var(--accent-tx)",
-          fontSize: "var(--text-xs)",
-          fontWeight: "var(--fw-strong)",
-          lineHeight: 1,
-        }}
-      >
-        {state}
-      </span>
-      {legalHold ? (
-        <span
-          style={{
-            padding: "0 var(--sp-2)",
-            height: "1.5em",
-            display: "inline-flex",
-            alignItems: "center",
-            borderRadius: "var(--radius-pill)",
-            border: "1px solid var(--danger-bd)",
-            background: "var(--danger-bg)",
-            color: "var(--danger-tx)",
-            fontSize: "var(--text-xs)",
-            fontWeight: "var(--fw-medium)",
-            lineHeight: 1,
-          }}
-        >
-          {t.lifecycle.legalHold}
-        </span>
-      ) : null}
-    </span>
+    <ul aria-label={T.sections.relations} style={listStyle}>
+      {relations.map((relation) => {
+        const farLabel = `${relation.code} ${relation.title}`;
+        return (
+          <li key={relation.linkId} style={relationRowStyle}>
+            <span
+              {...objDrag(relation.code, relation.title)}
+              title={ko.console.window.dragRefOf(relation.title)}
+              style={chipRowStyle}
+            >
+              <StatusChip
+                tone="neutral"
+                ariaLabel={T.relations.directionAria[relation.direction]}
+              >
+                {T.relations.direction[relation.direction]}
+              </StatusChip>
+              <StatusChip tone="info">{relation.linkType}</StatusChip>
+              <StatusChip tone="accent">{cardinalityLabel(relation.cardinality)}</StatusChip>
+              <span style={monoStyle}>{relation.code}</span>
+              <span style={{ color: "var(--ink)", fontSize: "var(--text-sm)", fontWeight: "var(--fw-strong)" }}>
+                {relation.title}
+              </span>
+            </span>
+            <PolicyGated
+              action={OBJECT_CARD_ACTIONS.linkDelete}
+              resource={{ kind: "object_link", id: relation.linkId }}
+            >
+              <button
+                type="button"
+                aria-label={T.relations.removeAria(farLabel)}
+                data-window-control="true"
+                onClick={() => onRemove?.(relation.linkId)}
+                style={removeButtonStyle}
+              >
+                {T.relations.remove}
+              </button>
+            </PolicyGated>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 
-function AuditTimeline({ entries }: { entries: AuditEntry[] }) {
-  if (entries.length === 0) {
-    return <span style={{ fontSize: "var(--text-xs)", color: "var(--faint)" }}>{t.audit.empty}</span>;
+function RelationDraw({
+  objectId,
+  onAdd,
+}: {
+  objectId: string;
+  onAdd: (draft: { code: string; title: string; linkType: string }) => void;
+}) {
+  const [code, setCode] = useState("");
+  const [linkType, setLinkType] = useState("relates_to");
+  const [error, setError] = useState<string | null>(null);
+
+  function commit(rawCode: string, title?: string): void {
+    const ref = parseObjectRefText(rawCode);
+    if (!ref) {
+      setError(T.relations.invalidCode);
+      return;
+    }
+    setError(null);
+    onAdd({ code: ref.code, title: title ?? ref.title, linkType: linkType.trim() || "relates_to" });
+    setCode("");
   }
+
+  // Reuse window/objDrag drop grammar: dropping an object chip draws the edge.
+  const drop = useObjectDrop({ onRef: (ref) => { commit(ref.code, ref.title); } });
+
+  function onKeyDown(event: KeyboardEvent<HTMLInputElement>): void {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    commit(code);
+  }
+
   return (
-    <ol style={{ listStyle: "none", margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: "var(--sp-2)" }}>
-      {entries.map((e) => (
-        <li key={e.id} style={{ display: "flex", justifyContent: "space-between", gap: "var(--sp-3)", alignItems: "baseline" }}>
-          <span style={{ fontSize: "var(--text-xs)", color: "var(--ink)", ...mono }}>{e.action}</span>
-          <time
-            dateTime={e.occurred_at}
-            style={{ fontSize: "var(--text-micro)", color: "var(--faint)", whiteSpace: "nowrap" }}
+    <PolicyGated action={OBJECT_CARD_ACTIONS.linkCreate} resource={{ kind: "object", id: objectId }}>
+      <div style={{ display: "grid", gap: "var(--sp-3)" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr) auto", gap: "var(--sp-2)", alignItems: "end" }}>
+          <label style={fieldStyle}>
+            {T.relations.codeLabel}
+            <input
+              aria-label={T.relations.codeLabel}
+              value={code}
+              placeholder={T.relations.codePlaceholder}
+              onChange={(event) => { setCode(event.target.value); }}
+              onKeyDown={onKeyDown}
+              style={inputStyle}
+            />
+          </label>
+          <label style={fieldStyle}>
+            {T.relations.linkTypeLabel}
+            <input
+              aria-label={T.relations.linkTypeLabel}
+              value={linkType}
+              onChange={(event) => { setLinkType(event.target.value); }}
+              style={inputStyle}
+            />
+          </label>
+          <button
+            type="button"
+            data-window-control="true"
+            onClick={() => { commit(code); }}
+            style={primaryButtonStyle}
           >
-            {e.occurred_at.slice(0, 10)}
-          </time>
+            {T.relations.add}
+          </button>
+        </div>
+        <div {...drop} style={dropZoneStyle}>
+          {T.relations.dropHint}
+        </div>
+        {error ? (
+          <StatusChip tone="danger" role="alert">
+            {error}
+          </StatusChip>
+        ) : null}
+      </div>
+    </PolicyGated>
+  );
+}
+
+// ── Kinetic layer ─────────────────────────────────────────────────────────
+
+function LifecycleStepper({ steps }: { steps: ObjectCardLifecycleStep[] }) {
+  if (steps.length === 0) return null;
+  return (
+    <ol aria-label={T.sections.lifecycle} style={{ ...stepperStyle, margin: 0, padding: 0, listStyle: "none" }}>
+      {steps.map((step) => (
+        <li key={step.state} aria-current={step.current ? "step" : undefined}>
+          <StatusChip
+            tone={step.current || step.reached ? lifecycleTone[step.state] : "neutral"}
+            ariaLabel={T.lifecycleAria(T.lifecycle[step.state])}
+          >
+            {T.lifecycle[step.state]}
+          </StatusChip>
         </li>
       ))}
     </ol>
   );
 }
 
-// --- layer 3: relations ------------------------------------------------------
-
-function RelationChip({
-  edge,
-  farKind,
-  farId,
-  target,
-  onOpen,
-  onRemove,
-}: {
-  edge: ObjectLinkResponse;
-  farKind: string;
-  farId: string;
-  target: { kind: string; id: string };
-  onOpen?: (t: { kind: string; id: string }) => void;
-  onRemove: (linkId: string) => Promise<boolean>;
-}) {
-  const gate = usePolicyGate();
-  const [pending, setPending] = useState(false);
-  const [failed, setFailed] = useState(false);
-  const canOpen = gate.can(OBJECT_CARD_ACTIONS.view, { kind: farKind, id: farId });
-  const label = `${slugLabel(farKind)} ${farId}`;
-  const inner = (
-    <span style={{ display: "inline-flex", alignItems: "center", gap: "var(--sp-1)" }} title={safeLabel(edge.link_type)}>
-      <KindChip kind={farKind} />
-      <span style={mono}>{farId}</span>
-    </span>
-  );
+function HistoryTimeline({ history }: { history: ObjectCardRevision[] }) {
+  if (history.length === 0) return null;
   return (
-    <span
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        gap: "var(--sp-1)",
-        padding: "var(--sp-1) var(--sp-2)",
-        borderRadius: "var(--radius-chip)",
-        border: "1px solid var(--border)",
-        background: "var(--muted)",
-      }}
-    >
-      {canOpen && onOpen ? (
-        <button
-          type="button"
-          onClick={() => {
-            onOpen({ kind: farKind, id: farId });
-          }}
-          aria-label={t.relation.open.replace("{label}", label)}
-          style={{ border: "none", background: "transparent", padding: 0, cursor: "pointer", color: "inherit" }}
-        >
-          {inner}
-        </button>
-      ) : (
-        inner
-      )}
-      <PolicyGated action={OBJECT_CARD_ACTIONS.linkDelete} resource={target}>
-        <button
-          type="button"
-          onClick={() => {
-            if (pending) return;
-            setPending(true);
-            setFailed(false);
-            void onRemove(edge.id)
-              .then((ok) => {
-                setFailed(!ok);
-              })
-              .catch(() => {
-                setFailed(true);
-              })
-              .finally(() => {
-                setPending(false);
-              });
-          }}
-          disabled={pending}
-          aria-label={t.relation.remove.replace("{label}", label)}
-          aria-describedby={failed ? `${edge.id}-remove-error` : undefined}
-          style={{
-            border: "none",
-            background: "transparent",
-            padding: 0,
-            cursor: pending ? "wait" : "pointer",
-            color: "var(--faint)",
-            fontSize: "var(--text-sm)",
-            lineHeight: 1,
-          }}
-        >
-          {pending ? "…" : "×"}
-        </button>
-        {failed ? (
-          <span id={`${edge.id}-remove-error`} role="status" style={{ fontSize: "var(--text-micro)", color: "var(--danger-tx)" }}>
-            {t.relation.removeFailed}
-          </span>
-        ) : null}
-      </PolicyGated>
-    </span>
+    <ol aria-label={T.sections.history} style={timelineListStyle}>
+      {history.map((revision) => (
+        <li key={revision.version} style={timelineItemStyle}>
+          <span aria-hidden="true" style={timelineDotStyle} />
+          <div style={metaStyle}>
+            <StatusChip tone="info">{T.version(revision.version)}</StatusChip>
+            <StatusChip
+              tone={revision.hashVerified ? "ok" : "danger"}
+              role={revision.hashVerified ? "status" : "alert"}
+            >
+              {revision.hashVerified ? T.history.hashVerified : T.history.hashUnverified}
+            </StatusChip>
+            {revision.action ? <StatusChip tone="neutral">{revision.action}</StatusChip> : null}
+            <span>{T.history.entry(revision.at, revision.actor)}</span>
+          </div>
+          {revision.reason ? (
+            <p style={{ margin: 0, color: "var(--steel)", fontSize: "var(--text-sm)", fontWeight: "var(--fw-medium)" }}>
+              {revision.reason}
+            </p>
+          ) : null}
+        </li>
+      ))}
+    </ol>
   );
 }
 
-function RelationGroup({
-  label,
-  edges,
-  farEnd,
-  target,
-  onOpen,
-  onRemove,
-}: {
-  label: string;
-  edges: ObjectLinkResponse[];
-  farEnd: (edge: ObjectLinkResponse) => { kind: string; id: string };
-  target: { kind: string; id: string };
-  onOpen?: (t: { kind: string; id: string }) => void;
-  onRemove: (linkId: string) => Promise<boolean>;
-}) {
-  if (edges.length === 0) return null;
+function ApprovalLine({ approvals }: { approvals: ObjectCardApproval[] }) {
+  if (approvals.length === 0) return null;
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: "var(--sp-2)" }}>
-      <span style={{ fontSize: "var(--text-micro)", color: "var(--faint)" }}>{label}</span>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--sp-2)" }}>
-        {edges.map((edge) => {
-          const far = farEnd(edge);
-          return (
-            <RelationChip
-              key={edge.id}
-              edge={edge}
-              farKind={far.kind}
-              farId={far.id}
-              target={target}
-              onOpen={onOpen}
-              onRemove={onRemove}
-            />
-          );
-        })}
-      </div>
+    <ul aria-label={T.sections.approvals} style={listStyle}>
+      {approvals.map((approval) => (
+        <li key={approval.id} style={relationRowStyle}>
+          <span style={chipRowStyle}>
+            <StatusChip tone="neutral">{approval.kind}</StatusChip>
+            <span style={{ color: "var(--ink)", fontSize: "var(--text-sm)", fontWeight: "var(--fw-medium)" }}>
+              {T.approval.line(approval.requestedBy, approval.approver)}
+            </span>
+          </span>
+          <StatusChip
+            tone={approvalTone[approval.decision]}
+            role={approval.decision === "rejected" ? "alert" : "status"}
+          >
+            {T.approval[approval.decision]}
+          </StatusChip>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+// ── Dynamic layer ─────────────────────────────────────────────────────────
+
+function ActingChips({ acting }: { acting: ObjectCardActingChip[] }) {
+  if (acting.length === 0) return null;
+  return (
+    <div aria-label={T.sections.acting} style={chipRowStyle}>
+      {acting.map((chip) => (
+        <StatusChip key={chip.id} tone={actingTone[chip.kind]} ariaLabel={T.acting[chip.kind]}>
+          {chip.label}
+        </StatusChip>
+      ))}
     </div>
   );
 }
 
-function AddRelation({ onAdd }: { onAdd: (code: string) => Promise<boolean> }) {
-  const [code, setCode] = useState("");
-  const [rejected, setRejected] = useState(false);
-  const [pending, setPending] = useState(false);
-  const submit = async () => {
-    const value = code.trim();
-    if (!value || pending) return;
-    setPending(true);
-    const ok = await onAdd(value)
-      .catch(() => false)
-      .finally(() => {
-        setPending(false);
-      });
-    if (ok) {
-      setCode("");
-      setRejected(false);
-    } else {
-      // Deny-by-omission: an unlinkable code leaves the input as-is; mark the
-      // field invalid rather than fabricating a link.
-      setRejected(true);
+function ActionBar({
+  objectId,
+  actions,
+  onAction,
+}: {
+  objectId: string;
+  actions: ObjectCardAction[];
+  onAction?: (action: ObjectCardAction, ctx: { reason?: string }) => void;
+}) {
+  if (actions.length === 0) return null;
+  return (
+    <div style={chipRowStyle}>
+      {actions.map((action) => (
+        <PolicyGated
+          key={action.key}
+          action={OBJECT_CARD_ACTIONS.actionExecute}
+          resource={{ kind: "object_action", id: `${objectId}:${action.key}` }}
+        >
+          <button
+            type="button"
+            aria-label={T.actionAria(action.title)}
+            data-window-control="true"
+            onClick={() => onAction?.(action, {})}
+            style={action.tone === "danger" ? removeButtonStyle : buttonStyle}
+          >
+            {action.title}
+          </button>
+        </PolicyGated>
+      ))}
+    </div>
+  );
+}
+
+// ── §20 override / direct-edit path ──────────────────────────────────────
+
+function EditBar({
+  lifecycleState,
+  objectId,
+  onEdit,
+}: {
+  lifecycleState: ObjectLifecycleState;
+  objectId: string;
+  onEdit?: (ctx: { mode: "direct" | "override"; reason?: string }) => void;
+}) {
+  const isDraft = lifecycleState === "draft";
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  function submit(): void {
+    if (isDraft) {
+      onEdit?.({ mode: "direct" });
+      setOpen(false);
+      return;
     }
-  };
+    if (reason.trim().length === 0) {
+      setError(T.edit.reasonRequired);
+      return;
+    }
+    setError(null);
+    onEdit?.({ mode: "override", reason: reason.trim() });
+    setOpen(false);
+    setReason("");
+  }
+
   return (
-    <label style={{ display: "flex", alignItems: "center", gap: "var(--sp-2)" }}>
-      <span style={{ fontSize: "var(--text-micro)", color: "var(--faint)" }}>{t.relation.addLabel}</span>
-      <input
-        value={code}
-        onChange={(e) => {
-          setCode(e.target.value);
-          setRejected(false);
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && !pending) {
-            e.preventDefault();
-            void submit();
-          }
-        }}
-        aria-invalid={rejected}
-        placeholder={t.relation.addPlaceholder}
-        style={{
-          flex: 1,
-          minWidth: 0,
-          padding: "var(--sp-1) var(--sp-2)",
-          fontFamily: "var(--font-mono)",
-          fontSize: "var(--text-xs)",
-          color: "var(--ink)",
-          background: "var(--canvas)",
-          border: `1px solid ${rejected ? "var(--danger-bd)" : "var(--border)"}`,
-          borderRadius: "var(--radius-sm)",
-        }}
-      />
-      <button
-        type="button"
-        disabled={pending}
-        onClick={() => {
-          void submit();
-        }}
-        style={{
-          padding: "var(--sp-1) var(--sp-3)",
-          fontSize: "var(--text-xs)",
-          fontWeight: "var(--fw-medium)",
-          color: "var(--surface)",
-          background: "var(--signal)",
-          border: "1px solid var(--signal-deep)",
-          borderRadius: "var(--radius-sm)",
-          cursor: pending ? "wait" : "pointer",
-        }}
-      >
-        {pending ? "…" : t.relation.add}
-      </button>
-    </label>
+    <PolicyGated action={OBJECT_CARD_ACTIONS.edit} resource={{ kind: "object", id: objectId }}>
+      <div style={{ display: "grid", gap: "var(--sp-3)" }}>
+        <button
+          type="button"
+          data-window-control="true"
+          aria-expanded={open}
+          onClick={() => { setOpen((current) => !current); }}
+          style={buttonStyle}
+        >
+          {isDraft ? T.edit.direct : T.edit.override}
+        </button>
+        {open ? (
+          isDraft ? (
+            <div style={{ display: "grid", gap: "var(--sp-2)" }}>
+              <StatusChip tone="info">{T.edit.directNote}</StatusChip>
+              <div style={chipRowStyle}>
+                <button type="button" data-window-control="true" onClick={submit} style={primaryButtonStyle}>
+                  {T.edit.apply}
+                </button>
+                <button type="button" data-window-control="true" onClick={() => { setOpen(false); }} style={buttonStyle}>
+                  {T.edit.cancel}
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div role="group" aria-label={T.edit.override} style={bannerStyle}>
+              <StatusChip tone="warn">{T.edit.fourEyes}</StatusChip>
+              <label style={fieldStyle}>
+                {T.edit.reasonLabel}
+                <textarea
+                  aria-label={T.edit.reasonLabel}
+                  value={reason}
+                  placeholder={T.edit.reasonPlaceholder}
+                  onChange={(event) => { setReason(event.target.value); }}
+                  style={textareaStyle}
+                />
+              </label>
+              {error ? (
+                <StatusChip tone="danger" role="alert">
+                  {error}
+                </StatusChip>
+              ) : null}
+              <div style={chipRowStyle}>
+                <button type="button" data-window-control="true" onClick={submit} style={primaryButtonStyle}>
+                  {T.edit.apply}
+                </button>
+                <button type="button" data-window-control="true" onClick={() => { setOpen(false); }} style={buttonStyle}>
+                  {T.edit.cancel}
+                </button>
+              </div>
+            </div>
+          )
+        ) : null}
+      </div>
+    </PolicyGated>
   );
 }
 
-/**
- * The console's ONE object card (charter P0.6, §4-18: one component, three
- * layers, no per-domain fork). Rides the shared object substrate:
- *   layer 1 의미  — attributes from GET /api/objects/{kind}/{id} (resolveObject);
- *   layer 2 동작  — lifecycle chip (GET /api/v1/lifecycles/...) + audit timeline
- *                   (GET /api/audit?target_id=...);
- *   layer 3 역학  — relations from GET /api/v1/object-links (both ends) with
- *                   real add (POST, bare-code) / remove (DELETE) mutations.
- * Deny-by-omission: an object that does not resolve renders NOTHING; each layer
- * degrades independently when its own read is denied. Every affordance routes
- * through the shared policy gate (PolicyGated / usePolicyGate).
- *
- * ponytail: layer 3 renders only the concrete object-link relations that exist
- * on the backend today. The automation/policy/series (SR-/AN-) dynamics chips
- * from the digest need BE-AUTO/BE-LC; per the charter no decorative ribbons
- * ship ahead of that backend — they join here once those charters land.
- */
-export function ObjectCard({ target, api, bearerToken, onOpenObject }: ObjectCardProps) {
-  const { state, addRelation, removeRelation } = useObjectCard(api, bearerToken, target);
-  return (
-    <ObjectCardView
-      state={state}
-      target={target}
-      onOpenObject={onOpenObject}
-      onAddRelation={addRelation}
-      onRemoveRelation={removeRelation}
-    />
-  );
+// ── The card ──────────────────────────────────────────────────────────────
+
+export interface ObjectCardProps {
+  descriptor: ObjectCardDescriptor;
+  handlers?: ObjectCardHandlers;
 }
 
-export interface ObjectCardViewProps {
-  state: ObjectCardState;
-  target: { kind: string; id: string };
-  onOpenObject?: (target: { kind: string; id: string }) => void;
-  onAddRelation: (code: string) => Promise<boolean>;
-  onRemoveRelation: (linkId: string) => Promise<boolean>;
-}
-
-/**
- * Pure presentational card (§4-18: the one shape). `ObjectCard` wires the data
- * hook to it; the fidelity demo and pure-render tests feed it static state so a
- * screenshot/assertion is deterministic (no backend, no async settle).
- */
-export function ObjectCardView({
-  state,
-  target,
-  onOpenObject,
-  onAddRelation,
-  onRemoveRelation,
-}: ObjectCardViewProps) {
-  // Deny-by-omission / not-yet-loaded: no card.
-  if (state.status !== "resolved" || !state.head) return null;
-  const { head, lifecycle, audit, links } = state;
-
-  const hasBehavior = lifecycle !== null || audit !== null;
-
+export function ObjectCard({ descriptor, handlers }: ObjectCardProps) {
+  const editChip = descriptor.lifecycleState === "draft" ? T.edit.direct : T.edit.override;
   return (
-    <article className="console" data-console-root data-objectcard style={card}>
-      <header style={{ display: "flex", flexDirection: "column", gap: "var(--sp-2)", padding: "var(--sp-4)" }}>
-        <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-2)", flexWrap: "wrap" }}>
-          <KindChip kind={head.kind} />
-          {head.code ? <span style={mono}>{head.code}</span> : null}
+    <article aria-label={T.panel(descriptor.title)} style={rootStyle}>
+      <header style={headerStyle}>
+        <div style={headerTopStyle}>
+          <h2 style={titleStyle}>{descriptor.title}</h2>
+          <span {...objDrag(descriptor.code, descriptor.title)} title={ko.console.window.dragRefOf(descriptor.title)} style={monoStyle}>
+            {descriptor.code}
+          </span>
         </div>
-        <h2 style={{ margin: 0, fontSize: "var(--text-card-title)", fontWeight: "var(--fw-strong)", color: "var(--ink)" }}>
-          {safeLabel(head.title, head.code ?? head.id)}
-        </h2>
+        <div style={chipRowStyle}>
+          <StatusChip tone="neutral" ariaLabel={T.typeBadge(descriptor.objectType.title)}>
+            {descriptor.objectType.title}
+          </StatusChip>
+          <StatusChip
+            tone={lifecycleTone[descriptor.lifecycleState]}
+            ariaLabel={T.lifecycleAria(T.lifecycle[descriptor.lifecycleState])}
+          >
+            {T.lifecycle[descriptor.lifecycleState]}
+          </StatusChip>
+          {descriptor.schemaVersion !== undefined ? (
+            <StatusChip tone="info">{T.schema(descriptor.schemaVersion)}</StatusChip>
+          ) : null}
+          <PolicyGated action={OBJECT_CARD_ACTIONS.edit} resource={{ kind: "object", id: descriptor.id }}>
+            <StatusChip tone="accent">{editChip}</StatusChip>
+          </PolicyGated>
+        </div>
       </header>
 
-      {/* Layer 1 — 의미 */}
-      <Layer label={t.layer.meaning}>
-        <KvRow k={t.field.kind}>{slugLabel(head.kind)}</KvRow>
-        {head.code ? (
-          <KvRow k={t.field.code}>
-            <span style={mono}>{head.code}</span>
-          </KvRow>
+      {/* Semantic */}
+      <div style={layerStyle}>
+        <h3 style={layerHeadingStyle}>{T.layers.semantic}</h3>
+        <PropertyList properties={descriptor.properties} />
+        <Section title={T.sections.relations} count={descriptor.relations.length} labelledById="object-card-relations">
+          <RelationList relations={descriptor.relations} onRemove={handlers?.onRelationRemove} />
+        </Section>
+        <Section title={T.sections.relationDraw} labelledById="object-card-relation-draw">
+          <RelationDraw
+            objectId={descriptor.id}
+            onAdd={(draft) => handlers?.onRelationAdd?.(draft)}
+          />
+        </Section>
+      </div>
+
+      {/* Kinetic */}
+      <div style={layerStyle}>
+        <h3 style={layerHeadingStyle}>{T.layers.kinetic}</h3>
+        <Section title={T.sections.lifecycle} labelledById="object-card-lifecycle">
+          <LifecycleStepper steps={descriptor.lifecycle} />
+          <EditBar
+            lifecycleState={descriptor.lifecycleState}
+            objectId={descriptor.id}
+            onEdit={handlers?.onEdit}
+          />
+        </Section>
+        {descriptor.history.length > 0 ? (
+          <Section title={T.sections.history} count={descriptor.history.length} labelledById="object-card-history">
+            <HistoryTimeline history={descriptor.history} />
+          </Section>
         ) : null}
-        {head.status ? <KvRow k={t.field.status}>{head.status}</KvRow> : null}
-      </Layer>
+        {descriptor.approvals && descriptor.approvals.length > 0 ? (
+          <Section title={T.sections.approvals} count={descriptor.approvals.length} labelledById="object-card-approvals">
+            <ApprovalLine approvals={descriptor.approvals} />
+          </Section>
+        ) : null}
+      </div>
 
-      {/* Layer 2 — 동작 (lifecycle + audit) */}
-      {hasBehavior ? (
-        <Layer label={t.layer.behavior}>
-          {lifecycle ? <LifecycleChip state={lifecycle.currentState} legalHold={lifecycle.legalHold} /> : null}
-          {audit ? <AuditTimeline entries={audit} /> : null}
-        </Layer>
-      ) : null}
-
-      {/* Layer 3 — 역학 (relations). Null means the read was denied/failed, so
-          deny-by-omission hides the layer instead of pretending it is empty. */}
-      {links ? (
-        <Layer label={t.layer.dynamics}>
-          {links.outgoing.length === 0 && links.incoming.length === 0 ? (
-            <span style={{ fontSize: "var(--text-xs)", color: "var(--faint)" }}>{t.relation.empty}</span>
-          ) : (
-            <>
-              <RelationGroup
-                label={t.relation.outgoing}
-                edges={links.outgoing}
-                farEnd={(edge) => ({ kind: edge.dst_kind, id: edge.dst_id })}
-                target={target}
-                onOpen={onOpenObject}
-                onRemove={onRemoveRelation}
-              />
-              <RelationGroup
-                label={t.relation.incoming}
-                edges={links.incoming}
-                farEnd={(edge) => ({ kind: edge.src_kind, id: edge.src_id })}
-                target={target}
-                onOpen={onOpenObject}
-                onRemove={onRemoveRelation}
-              />
-            </>
-          )}
-          <PolicyGated action={OBJECT_CARD_ACTIONS.linkCreate} resource={target}>
-            <AddRelation onAdd={onAddRelation} />
-          </PolicyGated>
-        </Layer>
-      ) : null}
+      {/* Dynamic */}
+      <div style={layerStyle}>
+        <h3 style={layerHeadingStyle}>{T.layers.dynamic}</h3>
+        {descriptor.acting && descriptor.acting.length > 0 ? (
+          <Section title={T.sections.acting} labelledById="object-card-acting">
+            <ActingChips acting={descriptor.acting} />
+          </Section>
+        ) : null}
+        {descriptor.actions.length > 0 ? (
+          <Section title={T.sections.actions} count={descriptor.actions.length} labelledById="object-card-actions">
+            <ActionBar objectId={descriptor.id} actions={descriptor.actions} onAction={handlers?.onAction} />
+          </Section>
+        ) : null}
+      </div>
     </article>
+  );
+}
+
+/**
+ * §4.7-3 default open gesture: turn a descriptor into a WindowEntry so a click
+ * opens the card as the right pin — `windowManager.open(objectCardWindowEntry(d, h))`.
+ */
+export function objectCardWindowEntry(
+  descriptor: ObjectCardDescriptor,
+  handlers?: ObjectCardHandlers,
+): WindowEntry {
+  return {
+    id: descriptor.id,
+    title: descriptor.title,
+    code: descriptor.code,
+    render: () => <ObjectCard descriptor={descriptor} handlers={handlers} />,
+  };
+}
+
+const modalOverlayStyle: CSSProperties = {
+  position: "fixed",
+  inset: 0,
+  display: "grid",
+  placeItems: "start center",
+  padding: "var(--sp-6)",
+  overflowY: "auto",
+  background: "color-mix(in srgb, var(--canvas) 86%, transparent)",
+  zIndex: 60,
+};
+
+const modalPanelStyle: CSSProperties = {
+  width: "min(100%, 620px)",
+  borderRadius: "var(--radius-card)",
+  border: "1px solid var(--border)",
+  background: "var(--surface)",
+  boxShadow: "var(--shadow-pop)",
+};
+
+/** Same surface as a centered modal (Escape / backdrop closes). */
+export function ObjectCardModal({
+  descriptor,
+  handlers,
+  onClose,
+}: ObjectCardProps & { onClose: () => void }) {
+  return (
+    <div
+      className="console"
+      role="dialog"
+      aria-modal="true"
+      aria-label={T.dialog(descriptor.title)}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") onClose();
+      }}
+      onClick={onClose}
+      style={modalOverlayStyle}
+    >
+      <div style={modalPanelStyle} onClick={(event) => { event.stopPropagation(); }}>
+        <div style={{ display: "flex", justifyContent: "flex-end", padding: "var(--sp-3) var(--sp-3) 0" }}>
+          <button
+            type="button"
+            data-window-control="true"
+            aria-label={ko.console.window.close}
+            autoFocus
+            onClick={onClose}
+            style={buttonStyle}
+          >
+            {ko.console.window.close}
+          </button>
+        </div>
+        <ObjectCard descriptor={descriptor} handlers={handlers} />
+      </div>
+    </div>
   );
 }

@@ -143,6 +143,11 @@ const EquipmentManagePage = lazy(() =>
     default: m.EquipmentManagePage,
   })),
 );
+const ConsoleModuleRoute = lazy(() =>
+  import("./console/modules").then((m) => ({
+    default: m.ConsoleModuleRoute,
+  })),
+);
 const FinancialPage = lazy(() =>
   import("./pages/FinancialPage").then((m) => ({ default: m.FinancialPage })),
 );
@@ -231,6 +236,24 @@ const CatalogAdminPage = lazy(() =>
 );
 const IntegrityPage = lazy(() =>
   import("./pages/IntegrityPage").then((m) => ({ default: m.IntegrityPage })),
+);
+// Foundry / analytics surfaces reshaped in the console overhaul (Phase A). The
+// ontology workspace wraps the object explorer; ontology / automate /
+// config-console are REST-wired (Phase C wave 1); forecast is a wire-pending
+// stub that reserves its route + nav slot.
+const OntologyPage = lazy(() =>
+  import("./pages/OntologyPage").then((m) => ({ default: m.OntologyPage })),
+);
+const AutomatePage = lazy(() =>
+  import("./pages/AutomatePage").then((m) => ({ default: m.AutomatePage })),
+);
+const ForecastPage = lazy(() =>
+  import("./pages/ForecastPage").then((m) => ({ default: m.ForecastPage })),
+);
+const ConfigConsolePage = lazy(() =>
+  import("./pages/ConfigConsolePage").then((m) => ({
+    default: m.ConfigConsolePage,
+  })),
 );
 
 export function AppRouter() {
@@ -440,6 +463,22 @@ export function AppRouter() {
           <Route element={<RequireNavItemRoute itemKey="reporting" />}>
             <Route path="/reporting" element={<ReportingPage />} />
           </Route>
+          {/* Foundry / analytics surfaces (Phase A). Each is PBAC-gated by its
+              nav registry entry via RequireNavItemRoute — ontology/forecast on
+              the KPI-read gate, automate on the RoleManage (SUPER_ADMIN) gate,
+              config-console on the admin gate. */}
+          <Route element={<RequireNavItemRoute itemKey="ontology" />}>
+            <Route path="/ontology" element={<OntologyPage />} />
+          </Route>
+          <Route element={<RequireNavItemRoute itemKey="automate" />}>
+            <Route path="/automate" element={<AutomatePage />} />
+          </Route>
+          <Route element={<RequireNavItemRoute itemKey="forecast" />}>
+            <Route path="/forecast" element={<ForecastPage />} />
+          </Route>
+          <Route element={<RequireNavItemRoute itemKey="config-console" />}>
+            <Route path="/config-console" element={<ConfigConsolePage />} />
+          </Route>
           <Route element={<RequireNavItemRoute itemKey="messenger" />}>
             <Route path="/messenger" element={<MessengerPage />} />
           </Route>
@@ -471,6 +510,13 @@ export function AppRouter() {
           </Route>
           <Route element={<RequireNavItemRoute itemKey="financial" />}>
             <Route path="/financial" element={<FinancialPage />} />
+          </Route>
+          {/* Module engine surface (L-Modules). Lives at /modules — the carbon-
+              copy console owns /console/* (its own viewport, no AppShell), so the
+              module engine must not sit at the exact /console path, which would
+              outrank the /console/* splat in the router and shadow the shell. */}
+          <Route element={<RequireNavItemRoute itemKey="finance" />}>
+            <Route path="/modules" element={<ConsoleModuleRoute />} />
           </Route>
           <Route element={<RequireNavItemRoute itemKey="payroll" />}>
             <Route path="/payroll" element={<PayrollPage />} />

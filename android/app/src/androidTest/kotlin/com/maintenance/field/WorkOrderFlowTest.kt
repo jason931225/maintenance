@@ -11,6 +11,8 @@ import org.junit.Assume.assumeTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.io.IOException
+import java.util.Properties
 
 /**
  * Instrumented post-login E2E against the REAL backend — CI-only (needs an emulator).
@@ -18,23 +20,25 @@ import org.junit.runner.RunWith
  * No-fakes session design:
  *  - A real session is obtained from the REAL backend at run start. A test user whose
  *    passkey was registered through the automatable web ceremony refreshes its token via
- *    POST /api/v1/auth/refresh; the resulting access+refresh pair is injected through the
- *    `FIELD_E2E_ACCESS_TOKEN` / `FIELD_E2E_REFRESH_TOKEN` instrumentation arguments
- *    (wired by the CI job — see .github/workflows/ci.yml android-instrumented).
+ *    POST /api/v1/auth/refresh; the resulting access+refresh pair is written to a
+ *    permission-restricted temporary androidTest asset fixture by the CI job (see
+ *    .github/workflows/ci.yml android-instrumented), not GitHub outputs or raw Gradle CLI
+ *    arguments.
  *  - The test seeds those real tokens into the app's REAL [SessionTokenStore]
- *    (SharedPreferences "field_session") BEFORE launching [MainActivity]. The app's normal
- *    boot path then calls auth.hasSession() and restores the session — exactly as it does
- *    after an on-device passkey login. There is NO test-only code path in the app and NO
- *    fake auth repository / fake gateway.
+ *    BEFORE launching [MainActivity]. The store persists them through the same encrypted
+ *    Android session path used after passkey login. The app's normal boot path then calls
+ *    auth.hasSession() and restores the session — exactly as it does after an on-device
+ *    passkey login. There is NO test-only code path in the app and NO fake auth repository /
+ *    fake gateway.
  *
  * When the tokens are absent (e.g. a local run with no backend) the test is SKIPPED via
  * JUnit Assume rather than passing vacuously.
  */
 @RunWith(AndroidJUnit4::class)
 class WorkOrderFlowTest {
-    private val arguments = InstrumentationRegistry.getArguments()
-    private val accessToken: String? = arguments.getString("FIELD_E2E_ACCESS_TOKEN")
-    private val refreshToken: String? = arguments.getString("FIELD_E2E_REFRESH_TOKEN")
+    private val sessionTokens = loadE2eSessionTokens()
+    private val accessToken: String? = sessionTokens?.accessToken
+    private val refreshToken: String? = sessionTokens?.refreshToken
 
     private val sessionStore =
         SessionTokenStore(ApplicationProvider.getApplicationContext())
@@ -77,6 +81,32 @@ class WorkOrderFlowTest {
             // backend fixtures for the test user and are exercised in CI where the staging
             // backend is reachable. They are intentionally kept here behind the real session
             // so the flow compiles and runs end-to-end on the emulator.
+        }
+    }
+
+    private data class E2eSessionTokens(
+        val accessToken: String,
+        val refreshToken: String,
+    )
+
+    private fun loadE2eSessionTokens(): E2eSessionTokens? {
+        val properties = Properties()
+        try {
+            InstrumentationRegistry.getInstrumentation()
+                .context
+                .assets
+                .open("field-e2e-session.properties")
+                .use { properties.load(it) }
+        } catch (_: IOException) {
+            return null
+        }
+
+        val access = properties.getProperty("FIELD_E2E_ACCESS_TOKEN")?.takeIf { it.isNotBlank() }
+        val refresh = properties.getProperty("FIELD_E2E_REFRESH_TOKEN")?.takeIf { it.isNotBlank() }
+        return if (access != null && refresh != null) {
+            E2eSessionTokens(access, refresh)
+        } else {
+            null
         }
     }
 }

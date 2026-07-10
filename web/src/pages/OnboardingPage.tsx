@@ -195,8 +195,9 @@ export function OnboardingPage() {
       return;
     }
     handoffRedirectTokenRef.current = undefined;
+    clearPasskeySetup();
     void navigate(onboardingDestination(session), { replace: true });
-  }, [navigate, session]);
+  }, [clearPasskeySetup, navigate, session]);
 
   const busy = pending || consentLoading || consentPending;
   const canAcceptConsent = privacyChecked && termsChecked && !consentPending;

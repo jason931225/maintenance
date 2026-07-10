@@ -20,8 +20,9 @@ use mnt_kernel_core::{
 };
 use mnt_platform_auth::{
     AccessClaims, AccessTokenInput, JwtIssuer, JwtSettings, JwtVerifier,
-    PasskeyAuthenticationCredential, PasskeyRegistrationCredential, PasskeyRegistrationStart,
-    PasskeyService, RefreshTokenStore, RefreshTokenUseError, WebauthnSettings,
+    MobilePasskeyStepUpBinding, PasskeyAuthenticationCredential, PasskeyRegistrationCredential,
+    PasskeyRegistrationStart, PasskeyService, RefreshTokenStore, RefreshTokenUseError,
+    WebauthnSettings,
 };
 use mnt_platform_authz::{
     Action, Feature, Principal, Role, authorize, resolve_branch_scope_in_org,
@@ -30,7 +31,7 @@ use mnt_platform_authz::{
 use mnt_platform_db::{
     DbError, read_subject_authz_freshness, with_audit, with_audits, with_org_conn,
 };
-use mnt_platform_email::{EmailSender, StubEmailSender};
+use mnt_platform_email::{DisabledEmailSender, EmailSender};
 use mnt_platform_group::GroupMemberOrg;
 use mnt_platform_provisioning::{BootstrapCredentialStore, ProvisioningError};
 use serde::{Deserialize, Serialize};
@@ -63,6 +64,7 @@ pub const PASSKEY_REGISTER_START_PATH: &str = "/api/v1/auth/passkey/register/sta
 pub const PASSKEY_REGISTER_FINISH_PATH: &str = "/api/v1/auth/passkey/register/finish";
 pub const PASSKEY_LOGIN_START_PATH: &str = "/api/v1/auth/passkey/login/start";
 pub const PASSKEY_LOGIN_FINISH_PATH: &str = "/api/v1/auth/passkey/login/finish";
+pub const PASSKEY_STEP_UP_START_PATH: &str = "/api/v1/auth/passkey/step-up/start";
 pub const OTP_REDEEM_PATH: &str = "/api/v1/auth/otp/redeem";
 pub const ADMIN_OTP_ISSUE_PATH: &str = "/api/v1/auth/admin/otp/issue";
 pub const ADMIN_CREDENTIAL_RESET_PATH: &str = "/api/v1/auth/admin/credential-reset";
@@ -90,6 +92,7 @@ pub const AUTH_ROUTE_PATHS: &[&str] = &[
     PASSKEY_REGISTER_FINISH_PATH,
     PASSKEY_LOGIN_START_PATH,
     PASSKEY_LOGIN_FINISH_PATH,
+    PASSKEY_STEP_UP_START_PATH,
     OTP_REDEEM_PATH,
     ADMIN_OTP_ISSUE_PATH,
     ADMIN_CREDENTIAL_RESET_PATH,
@@ -104,6 +107,9 @@ pub const AUTH_ROUTE_PATHS: &[&str] = &[
     PRIVACY_CONSENT_ACCEPT_PATH,
     TOKEN_REFRESH_PATH,
     LOGOUT_PATH,
+    GROUP_ADMIN_GROUPS_PATH,
+    GROUP_ADMIN_TENANT_CONTEXT_PATH,
+    GROUP_ADMIN_TENANT_CONTEXT_EXIT_PATH,
 ];
 
 /// Default lifetime for an open-signup OTP. A self-service code is a bearer
@@ -207,8 +213,8 @@ struct AuthServices {
     refresh_family_absolute_ttl: Duration,
     cookie_secure: bool,
     /// Outbound OTP email sender for open self-service signup (#38). Always
-    /// present: a real SMTP sender when `MNT_EMAIL_*` is configured, otherwise a
-    /// `StubEmailSender` that logs the OTP (so dev/e2e read it from the logs).
+    /// present: live SMTP, an explicitly configured non-prod stub, or a disabled
+    /// fail-closed sender that never logs OTPs.
     email_sender: Arc<dyn EmailSender>,
 }
 
@@ -261,9 +267,9 @@ impl AuthRestState {
                 refresh_token_ttl: config.refresh_token_ttl,
                 refresh_family_absolute_ttl: config.refresh_family_absolute_ttl,
                 cookie_secure: config.cookie_secure,
-                // Stub by default; the composition root swaps in the live SMTP
-                // sender via `with_email_sender` when `MNT_EMAIL_*` is configured.
-                email_sender: Arc::new(StubEmailSender),
+                // Fail closed by default; the composition root installs live SMTP
+                // or an explicit non-prod logging stub via `with_email_sender`.
+                email_sender: Arc::new(DisabledEmailSender),
             }),
             trusted_proxy_count: config.trusted_proxy_count.max(1),
         })
@@ -297,6 +303,7 @@ pub fn router(state: AuthRestState) -> Router {
         .route(PASSKEY_REGISTER_FINISH_PATH, post(finish_registration))
         .route(PASSKEY_LOGIN_START_PATH, post(start_login))
         .route(PASSKEY_LOGIN_FINISH_PATH, post(finish_login))
+        .route(PASSKEY_STEP_UP_START_PATH, post(start_mobile_step_up))
         .route(OTP_REDEEM_PATH, post(redeem_otp))
         .route(ADMIN_OTP_ISSUE_PATH, post(issue_admin_otp))
         .route(ADMIN_CREDENTIAL_RESET_PATH, post(admin_credential_reset))
@@ -375,6 +382,20 @@ struct LoginStartResponse {
     challenge: serde_json::Value,
     #[serde(with = "time::serde::rfc3339")]
     expires_at: OffsetDateTime,
+}
+
+#[derive(Debug, Deserialize)]
+struct MobilePasskeyStepUpStartRequest {
+    binding: MobilePasskeyStepUpBinding,
+}
+
+#[derive(Debug, Serialize)]
+struct MobilePasskeyStepUpStartResponse {
+    ceremony_id: Uuid,
+    challenge: serde_json::Value,
+    #[serde(with = "time::serde::rfc3339")]
+    expires_at: OffsetDateTime,
+    binding: MobilePasskeyStepUpBinding,
 }
 
 #[derive(Debug, Deserialize)]
@@ -699,6 +720,14 @@ impl RestError {
         }
     }
 
+    fn validation(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::UNPROCESSABLE_ENTITY,
+            code: "validation",
+            message: message.into(),
+        }
+    }
+
     fn bad_gateway(message: impl Into<String>) -> Self {
         Self {
             status: StatusCode::BAD_GATEWAY,
@@ -949,6 +978,37 @@ async fn start_login(
         challenge: serde_json::to_value(ceremony.challenge)
             .map_err(|err| RestError::internal(err.to_string()))?,
         expires_at: ceremony.expires_at,
+    }))
+}
+
+/// Start an authenticated, action-bound mobile passkey step-up ceremony.
+///
+/// The ordinary login start route is pre-auth and intentionally usernameless; it
+/// cannot bind a challenge to the approval/poll mutation a native app is about to
+/// submit. This route verifies the bearer token first, stores the binding beside
+/// the WebAuthn ceremony, and echoes the same binding back for generated clients.
+async fn start_mobile_step_up(
+    State(state): State<AuthRestState>,
+    headers: HeaderMap,
+    Json(body): Json<MobilePasskeyStepUpStartRequest>,
+) -> Result<Json<MobilePasskeyStepUpStartResponse>, RestError> {
+    let services = state.services()?;
+    let (user_id, _org_id) = authenticated_user_context(services, &headers)?;
+    body.binding
+        .validate()
+        .map_err(|err| RestError::validation(err.to_string()))?;
+    let ceremony = services
+        .passkeys
+        .start_mobile_step_up(&state.pool, user_id, body.binding.clone())
+        .await
+        .map_err(|err| RestError::unauthorized(err.to_string()))?;
+
+    Ok(Json(MobilePasskeyStepUpStartResponse {
+        ceremony_id: ceremony.ceremony_id,
+        challenge: serde_json::to_value(ceremony.challenge)
+            .map_err(|err| RestError::internal(err.to_string()))?,
+        expires_at: ceremony.expires_at,
+        binding: body.binding,
     }))
 }
 
@@ -2561,7 +2621,7 @@ fn issue_access_token(
         roles: user.roles.clone(),
         branches: user.branches.clone(),
         // A user homed in the platform sentinel org is the PLATFORM admin:
-        // mint a platform token so it can reach `/platform/*` (and is rejected
+        // mint a platform token so it can reach `/api/platform/*` (and is rejected
         // on tenant `/api/*`). Every real tenant user gets `false`.
         platform: user.org_id == OrgId::platform(),
         // The ordinary refresh path never mints an impersonation token.

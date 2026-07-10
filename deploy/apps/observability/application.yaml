@@ -1,0 +1,29 @@
+# Dark Argo CD Application for ADR-0022 self-hosted observability.
+# Do not move this file under deploy/argocd/apps/ until a later founder/operator
+# activation lane intentionally wires observability into the live app-of-apps root.
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: maintenance-observability-dark
+  namespace: argocd
+  annotations:
+    argocd.argoproj.io/sync-wave: "2"
+    maintenance.nousresearch.com/dark-stage: "true"
+    maintenance.nousresearch.com/context: "onprem"
+    maintenance.nousresearch.com/activation-boundary: "DARK: not referenced by deploy/argocd/apps; manual apply/sync only after founder/operator approval"
+spec:
+  project: maintenance-observability-dark
+  source:
+    repoURL: https://github.com/jason931225/maintenance.git
+    targetRevision: main
+    path: deploy/apps/observability/manifests
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: maintenance-observability
+  syncPolicy:
+    # No automated sync by design: applying this Application stages Argo visibility
+    # only. A later operator-approved on-prem cutover must sync it manually.
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - ApplyOutOfSyncOnly=true

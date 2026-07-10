@@ -9,14 +9,15 @@
 mod org;
 
 pub use org::{
-    AccountStatus, BranchSummary, CreateBranchCommand, CreatePolicyAssignmentPreviewReceiptCommand,
-    CreatePolicyRoleCommand, CreateRegionCommand, CreateUserCommand, DeactivateBranchCommand,
-    DeactivateRegionCommand, DeactivateUserCommand, EmployeeLinkStatus,
-    PolicyAssignmentPreviewReceiptSummary, PolicyAuditEventSummary, PolicyRoleAssignmentSummary,
-    PolicyRoleCondition, PolicyRolePermission, PolicyRoleSummary, PolicyVersionSummary,
-    RegionSummary, ReplacePolicyRoleAssignmentsCommand, UpdateBranchCommand,
+    AccountStatus, ActivateUserCommand, BranchSummary, CreateBranchCommand,
+    CreatePolicyAssignmentPreviewReceiptCommand, CreatePolicyRoleCommand, CreateRegionCommand,
+    CreateUserCommand, DeactivateBranchCommand, DeactivateRegionCommand, DeactivateUserCommand,
+    EmployeeLinkStatus, PolicyAssignmentPreviewReceiptSummary, PolicyAuditEventSummary,
+    PolicyRoleAssignmentSummary, PolicyRoleCondition, PolicyRolePermission, PolicyRoleSummary,
+    PolicyVersionSummary, RegionSummary, ReplacePolicyRoleAssignmentsCommand, UpdateBranchCommand,
     UpdatePolicyRoleCommand, UpdatePolicyRoleStatusCommand, UpdateRegionCommand,
     UpdateSelfProfileCommand, UpdateUserCommand, UserListQuery, UserPage, UserSummary,
-    account_status_for, branch_audit_event, policy_role_assignment_audit_event,
-    policy_role_audit_event, region_audit_event, user_audit_event,
+    account_status_for, branch_audit_event, policy_account_audit_event,
+    policy_role_assignment_audit_event, policy_role_audit_event, region_audit_event,
+    user_audit_event,
 };

@@ -39,6 +39,8 @@ import com.maintenance.api.client.model.DeviceLoginStartResponse
 import com.maintenance.api.client.model.EnrollHandoffRequest
 import com.maintenance.api.client.model.EnrollHandoffResponse
 import com.maintenance.api.client.model.ErrorBody
+import com.maintenance.api.client.model.MobilePasskeyStepUpStartRequest
+import com.maintenance.api.client.model.MobilePasskeyStepUpStartResponse
 import com.maintenance.api.client.model.OtpRedeemRequest
 import com.maintenance.api.client.model.OtpRedeemResponse
 import com.maintenance.api.client.model.PasskeyLoginFinishRequest
@@ -1460,6 +1462,80 @@ open class AuthApi(basePath: kotlin.String = defaultBasePath, client: Call.Facto
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = false,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/auth/passkey/step-up/start
+     * Start an authenticated action-bound mobile passkey step-up ceremony
+     * Starts a discoverable WebAuthn ceremony for a signed-in native client and persists the submitted action binding beside the ceremony. The resulting assertion may authorize only the bound approval or poll-vote action.
+     * @param mobilePasskeyStepUpStartRequest
+     * @return MobilePasskeyStepUpStartResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun startMobilePasskeyStepUp(mobilePasskeyStepUpStartRequest: MobilePasskeyStepUpStartRequest) : MobilePasskeyStepUpStartResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = startMobilePasskeyStepUpWithHttpInfo(mobilePasskeyStepUpStartRequest = mobilePasskeyStepUpStartRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as MobilePasskeyStepUpStartResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/auth/passkey/step-up/start
+     * Start an authenticated action-bound mobile passkey step-up ceremony
+     * Starts a discoverable WebAuthn ceremony for a signed-in native client and persists the submitted action binding beside the ceremony. The resulting assertion may authorize only the bound approval or poll-vote action.
+     * @param mobilePasskeyStepUpStartRequest
+     * @return ApiResponse<MobilePasskeyStepUpStartResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun startMobilePasskeyStepUpWithHttpInfo(mobilePasskeyStepUpStartRequest: MobilePasskeyStepUpStartRequest) : ApiResponse<MobilePasskeyStepUpStartResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = startMobilePasskeyStepUpRequestConfig(mobilePasskeyStepUpStartRequest = mobilePasskeyStepUpStartRequest)
+
+        return@withContext request<MobilePasskeyStepUpStartRequest, MobilePasskeyStepUpStartResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation startMobilePasskeyStepUp
+     *
+     * @param mobilePasskeyStepUpStartRequest
+     * @return RequestConfig
+     */
+    fun startMobilePasskeyStepUpRequestConfig(mobilePasskeyStepUpStartRequest: MobilePasskeyStepUpStartRequest) : RequestConfig<MobilePasskeyStepUpStartRequest> {
+        val localVariableBody = mobilePasskeyStepUpStartRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/auth/passkey/step-up/start",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
             body = localVariableBody
         )
     }

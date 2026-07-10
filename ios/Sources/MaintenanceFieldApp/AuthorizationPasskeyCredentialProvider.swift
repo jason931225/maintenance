@@ -22,7 +22,7 @@ final class AuthorizationPasskeyCredentialProvider: NSObject, PasskeyCredentialP
     func credentialAssertion(
         challengeJSON: String
     ) async throws -> Components.Schemas.PasskeyLoginFinishRequest.CredentialPayload {
-        let challenge = Self.challengeData(from: challengeJSON)
+        let challenge = try PasskeyChallengeParser.challengeData(from: challengeJSON)
         let platformProvider = ASAuthorizationPlatformPublicKeyCredentialProvider(
             relyingPartyIdentifier: relyingPartyIdentifier
         )
@@ -42,17 +42,6 @@ final class AuthorizationPasskeyCredentialProvider: NSObject, PasskeyCredentialP
             activeController = controller
             controller.performRequests()
         }
-    }
-
-    private static func challengeData(from challengeJSON: String) -> Data {
-        guard
-            let data = challengeJSON.data(using: .utf8),
-            let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-            let challenge = object["challenge"] as? String
-        else {
-            return Data(challengeJSON.utf8)
-        }
-        return Data(base64URLEncoded: challenge) ?? Data(challenge.utf8)
     }
 
     private func finish(with result: Result<Components.Schemas.PasskeyLoginFinishRequest.CredentialPayload, Error>) {
@@ -142,17 +131,6 @@ private enum PasskeyBridgeError: Error {
 }
 
 private extension Data {
-    init?(base64URLEncoded value: String) {
-        var base64 = value
-            .replacingOccurrences(of: "-", with: "+")
-            .replacingOccurrences(of: "_", with: "/")
-        let padding = base64.count % 4
-        if padding > 0 {
-            base64 += String(repeating: "=", count: 4 - padding)
-        }
-        self.init(base64Encoded: base64)
-    }
-
     func base64URLEncodedStringWithoutPadding() -> String {
         base64EncodedString()
             .replacingOccurrences(of: "+", with: "-")

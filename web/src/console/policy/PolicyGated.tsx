@@ -1,4 +1,4 @@
-import { type ReactNode } from "react";
+import type { ReactNode } from "react";
 
 import {
   DENY_ALL,
@@ -7,7 +7,7 @@ import {
   type PolicyDecider,
   type PolicyGate,
   type PolicyResource,
-} from "./usePolicyGate";
+} from "./PolicyGateContext";
 
 export function PolicyGateProvider({
   gate,
@@ -19,13 +19,16 @@ export function PolicyGateProvider({
   children: ReactNode;
 }) {
   const value = gate ?? (decide ? { can: decide } : DENY_ALL);
-  return <PolicyGateContext.Provider value={value}>{children}</PolicyGateContext.Provider>;
+  return (
+    <PolicyGateContext.Provider value={value}>
+      {children}
+    </PolicyGateContext.Provider>
+  );
 }
 
 /**
- * Renders its children only when the current gate permits `action` on
- * `resource`; otherwise renders nothing (deny-by-omission — never a disabled or
- * greyed affordance).
+ * Deny-by-omission render gate for console affordances. Unauthorized controls are
+ * absent, not disabled or explained.
  */
 export function PolicyGated({
   action,

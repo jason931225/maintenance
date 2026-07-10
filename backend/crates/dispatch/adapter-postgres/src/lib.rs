@@ -143,13 +143,15 @@ impl PgDispatchStore {
                 }
                 insert_dispatch_row(
                     tx,
-                    dispatch,
-                    branch_id,
-                    actor,
-                    incident,
-                    include_region,
-                    occurred_at,
-                    org_uuid,
+                    InsertDispatchRow {
+                        dispatch,
+                        branch_id,
+                        actor,
+                        incident,
+                        include_region,
+                        occurred_at,
+                        org_uuid,
+                    },
                 )
                 .await?;
                 insert_dispatch_targets(
@@ -810,15 +812,15 @@ impl PgDispatchStore {
         trace: TraceContext,
         occurred_at: OffsetDateTime,
     ) -> Result<bool, PgDispatchError> {
-        self.update_alert_status(
+        self.update_alert_status(AlertStatusUpdate {
             alert_id,
-            Some(lease_token),
-            "SENT",
+            lease_token: Some(lease_token),
+            status: "SENT",
             provider_message_id,
-            None,
+            failure_reason: None,
             trace,
             occurred_at,
-        )
+        })
         .await
     }
 
@@ -830,15 +832,15 @@ impl PgDispatchStore {
         trace: TraceContext,
         occurred_at: OffsetDateTime,
     ) -> Result<bool, PgDispatchError> {
-        self.update_alert_status(
+        self.update_alert_status(AlertStatusUpdate {
             alert_id,
-            Some(lease_token),
-            "FAILED",
-            None,
-            Some(failure_reason),
+            lease_token: Some(lease_token),
+            status: "FAILED",
+            provider_message_id: None,
+            failure_reason: Some(failure_reason),
             trace,
             occurred_at,
-        )
+        })
         .await
     }
 
@@ -853,29 +855,31 @@ impl PgDispatchStore {
         trace: TraceContext,
         occurred_at: OffsetDateTime,
     ) -> Result<bool, PgDispatchError> {
-        self.update_alert_status(
+        self.update_alert_status(AlertStatusUpdate {
             alert_id,
             lease_token,
-            "SKIPPED",
-            None,
-            Some(reason),
+            status: "SKIPPED",
+            provider_message_id: None,
+            failure_reason: Some(reason),
             trace,
             occurred_at,
-        )
+        })
         .await
     }
 
-    #[allow(clippy::too_many_arguments)]
     async fn update_alert_status(
         &self,
-        alert_id: P1DispatchAlertId,
-        lease_token: Option<uuid::Uuid>,
-        status: &'static str,
-        provider_message_id: Option<String>,
-        failure_reason: Option<String>,
-        trace: TraceContext,
-        occurred_at: OffsetDateTime,
+        update: AlertStatusUpdate,
     ) -> Result<bool, PgDispatchError> {
+        let AlertStatusUpdate {
+            alert_id,
+            lease_token,
+            status,
+            provider_message_id,
+            failure_reason,
+            trace,
+            occurred_at,
+        } = update;
         let org = current_org().map_err(KernelError::from)?;
         let row = with_org_conn::<_, _, PgDispatchError>(&self.pool, org, move |tx| {
             Box::pin(async move {
@@ -994,6 +998,36 @@ struct DispatchHead {
     accepted_count: i64,
 }
 
+struct AlertStatusUpdate {
+    alert_id: P1DispatchAlertId,
+    lease_token: Option<uuid::Uuid>,
+    status: &'static str,
+    provider_message_id: Option<String>,
+    failure_reason: Option<String>,
+    trace: TraceContext,
+    occurred_at: OffsetDateTime,
+}
+
+struct InsertDispatchRow {
+    dispatch: P1Dispatch,
+    branch_id: BranchId,
+    actor: UserId,
+    incident: Option<IncidentLocationInput>,
+    include_region: bool,
+    occurred_at: OffsetDateTime,
+    org_uuid: uuid::Uuid,
+}
+
+struct ApprovalStepInsert<'a> {
+    work_order_id: WorkOrderId,
+    step_order: i16,
+    role: ApprovalRole,
+    approver_id: Option<UserId>,
+    status: &'a str,
+    requested_at: Option<OffsetDateTime>,
+    org_uuid: uuid::Uuid,
+}
+
 fn validate_incident(input: IncidentLocationInput) -> Result<IncidentLocationInput, KernelError> {
     GeoPoint::new(input.latitude, input.longitude)?;
     Ok(input)
@@ -1068,17 +1102,19 @@ fn work_order_head_from_row(row: &sqlx::postgres::PgRow) -> Result<WorkOrderHead
     })
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn insert_dispatch_row(
     tx: &mut Transaction<'_, Postgres>,
-    dispatch: P1Dispatch,
-    branch_id: BranchId,
-    actor: UserId,
-    incident: Option<IncidentLocationInput>,
-    include_region: bool,
-    occurred_at: OffsetDateTime,
-    org_uuid: uuid::Uuid,
+    row: InsertDispatchRow,
 ) -> Result<(), PgDispatchError> {
+    let InsertDispatchRow {
+        dispatch,
+        branch_id,
+        actor,
+        incident,
+        include_region,
+        occurred_at,
+        org_uuid,
+    } = row;
     sqlx::query(
         r#"
         INSERT INTO p1_dispatches (
@@ -1606,35 +1642,41 @@ async fn assign_work_order_tx(
     .await?;
     insert_approval_step(
         tx,
-        work_order_id,
-        1,
-        ApprovalRole::Mechanic,
-        Some(mechanic_id),
-        "PENDING",
-        Some(occurred_at),
-        org_uuid,
+        ApprovalStepInsert {
+            work_order_id,
+            step_order: 1,
+            role: ApprovalRole::Mechanic,
+            approver_id: Some(mechanic_id),
+            status: "PENDING",
+            requested_at: Some(occurred_at),
+            org_uuid,
+        },
     )
     .await?;
     insert_approval_step(
         tx,
-        work_order_id,
-        2,
-        ApprovalRole::Admin,
-        None,
-        "NOT_STARTED",
-        None,
-        org_uuid,
+        ApprovalStepInsert {
+            work_order_id,
+            step_order: 2,
+            role: ApprovalRole::Admin,
+            approver_id: None,
+            status: "NOT_STARTED",
+            requested_at: None,
+            org_uuid,
+        },
     )
     .await?;
     insert_approval_step(
         tx,
-        work_order_id,
-        3,
-        ApprovalRole::Executive,
-        None,
-        "NOT_STARTED",
-        None,
-        org_uuid,
+        ApprovalStepInsert {
+            work_order_id,
+            step_order: 3,
+            role: ApprovalRole::Executive,
+            approver_id: None,
+            status: "NOT_STARTED",
+            requested_at: None,
+            org_uuid,
+        },
     )
     .await?;
     sqlx::query("UPDATE work_orders SET status = 'ASSIGNED', updated_at = $2 WHERE id = $1")
@@ -1669,17 +1711,19 @@ async fn assign_work_order_tx(
     Ok(())
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn insert_approval_step(
     tx: &mut Transaction<'_, Postgres>,
-    work_order_id: WorkOrderId,
-    step_order: i16,
-    role: ApprovalRole,
-    approver_id: Option<UserId>,
-    status: &str,
-    requested_at: Option<OffsetDateTime>,
-    org_uuid: uuid::Uuid,
+    step: ApprovalStepInsert<'_>,
 ) -> Result<(), PgDispatchError> {
+    let ApprovalStepInsert {
+        work_order_id,
+        step_order,
+        role,
+        approver_id,
+        status,
+        requested_at,
+        org_uuid,
+    } = step;
     sqlx::query(
         r#"
         INSERT INTO work_order_approval_steps (

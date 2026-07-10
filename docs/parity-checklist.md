@@ -65,6 +65,57 @@ Each ADR-0009 release must attach evidence for every applicable row below. Local
 
 ## Tool availability and evidence recording
 
+- `cd ios && swift build` passed with Apple Swift 6.3.2 Command Line Tools.
+- `cd ios && swift test` passed. This CLT installation has neither importable `XCTest` nor built-in `Testing`, so the SwiftPM test target is build-only.
+- `cd ios && swift run MaintenanceFieldCoreBehaviorTests` passed and executes the Android-mirroring auth, mapper, and offline queue assertions.
+
+## Readiness states
+
+- **SwiftPM build/test:** The main CI `ios-app` job builds the Swift package and
+  runs `swift test` plus `swift run MaintenanceFieldCoreBehaviorTests`. This is
+  package-level build and behavior-test readiness only.
+- **XcodeGen/XCUITest workflow:** `.github/workflows/ios-ui-tests.yml` installs
+  XcodeGen, generates `ios/MaintenanceField.xcodeproj` from `ios/project.yml`,
+  resolves packages, and runs Simulator-bound XCUITest/accessibility-audit tests.
+  The generated project is a CI artifact, not a committed Xcode project or
+  TestFlight packaging guarantee. Real-session coverage requires the
+  `MNT_UITEST_BASE_URL` secret plus one of `MNT_UITEST_REFRESH_TOKEN` or
+  `MNT_UITEST_OTP`, and the Simulator build must be entitled to the shared
+  Keychain group used for session seeding (`MNT_IOS_KEYCHAIN_GROUP` is only an
+  optional explicit override). Protected branch/required push contexts must set
+  `MNT_UITEST_REQUIRE_REAL=1` and fail closed when those inputs or entitlements
+  are missing; fork PRs or explicitly optional runs may skip session-dependent
+  tests with truthful optional/skipped output and must not be cited as real
+  post-login parity evidence.
+- **Android Gradle Managed Device post-login E2E:** `.github/workflows/ci.yml`
+  runs the `android-instrumented` job on Linux/KVM and executes
+  `./gradlew fieldApi34DebugAndroidTest`. Required real-session contexts need
+  `FIELD_E2E_BASE_URL` plus `FIELD_E2E_SEED_REFRESH_TOKEN`; CI exchanges the
+  seed refresh token for a fresh access/refresh pair, masks the values, and
+  hands them to `WorkOrderFlowTest` through the runner-local
+  `FIELD_E2E_SESSION_ASSETS_DIR` androidTest asset fixture rather than GitHub
+  outputs or raw Gradle CLI arguments. Protected branch/required push contexts
+  must fail closed when those inputs or the refresh/fixture handoff are missing.
+  Fork PRs or explicitly optional runs may skip via JUnit `Assume` only with
+  truthful optional/skipped output and must not be cited as real Android
+  post-login parity evidence.
+- **Signing/capability validation:** `ios/Config/App.xcconfig` defaults the app
+  identity to `com.maintenance.field` under Team `98Q89GFZWP` and ad-hoc signs
+  the Simulator build so keychain-sharing entitlements can be exercised in tests.
+  Associated Domains, distribution certificates/profiles, App Store Connect app
+  registration, and production provisioning still need validation on a signed
+  device/archive build.
+- **TestFlight packaging:** The mobile release workflow and fastlane lane have an
+  iOS/TestFlight path, but upload is not ready unless App Store Connect secrets,
+  distribution signing material, `IOS_APP_IDENTIFIER`, `IOS_SCHEME`, and either
+  `IOS_XCODE_PROJECT` or `IOS_XCODE_WORKSPACE` are present and point at an
+  archive-capable project/workspace. The current XcodeGen UI-test project does
+  not by itself prove archive/export or TestFlight readiness.
+- **Production go-live:** A green SwiftPM build/test or XCUITest run is not
+  production readiness. Go-live still requires the registered bundle ID, enabled
+  capabilities, signing/provisioning assets, TestFlight/internal pilot evidence,
+  release secrets, and operator approval captured in the release checklist.
+- Generated evidence presign headers are currently emitted by the Swift OpenAPI generator as untyped `OpenAPIArrayContainer` values; the iOS repository performs presign, PUT, and confirm, but schema tightening is needed before typed header replay can be asserted in unit tests.
 - Use a clean worktree for parity edits. Do not modify generated clients in this lane; route generated drift to the contract/Swift/Kotlin cards.
 - Local Command Line Tools can run SwiftPM package evidence (`swift build`, `swift test`, behavior runner). XCUITest, Simulator signing/entitlements, and accessibility audit evidence come from `.github/workflows/ios-ui-tests.yml` or a full local Xcode install.
 - Android Gradle unit/UI/screenshot evidence requires Java 21 and the Android SDK. Instrumented GMD evidence additionally requires KVM/emulator support; otherwise record CI evidence or the exact local platform constraint.

@@ -941,6 +941,23 @@ pub struct TenantHealth {
     pub active_work_orders: i64,
     pub open_work_orders: i64,
     pub last_activity_at: Option<OffsetDateTime>,
+    pub route_adoption: Vec<RouteAdoptionMetric>,
+    pub zero_legacy_release_cycles: i64,
+}
+
+/// Per-release route-adoption/RUM rollup for one tenant.
+///
+/// A release cycle with `legacy_route_events = 0` and `console_route_events > 0`
+/// counts toward the D5 endgame evidence. Two consecutive release cycles with no
+/// legacy route traffic are enough to consider retiring the legacy lane.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct RouteAdoptionMetric {
+    pub release_cycle: String,
+    pub console_route_events: i64,
+    pub legacy_route_events: i64,
+    pub rum_error_events: i64,
+    pub rum_perf_p95_ms: Option<i64>,
+    pub last_event_at: OffsetDateTime,
 }
 
 /// Outcome of onboarding a new tenant: the created org plus the ONE-TIME OTP for
@@ -1171,25 +1188,57 @@ impl PlatformProvisioner {
         .fetch_all(tx.as_mut())
         .await?;
 
-        let health = rows
-            .into_iter()
-            .map(|row| {
-                Ok(TenantHealth {
-                    id: row.try_get("id")?,
-                    slug: row.try_get("slug")?,
-                    name: row.try_get("name")?,
-                    status: row.try_get("status")?,
-                    group_id: row.try_get("group_id")?,
-                    group_slug: row.try_get("group_slug")?,
-                    group_name: row.try_get("group_name")?,
-                    user_count: row.try_get("user_count")?,
-                    active_user_count: row.try_get("active_user_count")?,
-                    active_work_orders: row.try_get("active_work_orders")?,
-                    open_work_orders: row.try_get("open_work_orders")?,
-                    last_activity_at: row.try_get("last_activity_at")?,
-                })
-            })
-            .collect::<Result<Vec<_>, ProvisioningError>>()?;
+        let adoption_rows = sqlx::query(
+            r#"
+            SELECT
+                org_id, release_cycle, console_route_events, legacy_route_events,
+                rum_error_events, rum_perf_p95_ms, last_event_at
+            FROM platform_console_route_adoption()
+            "#,
+        )
+        .fetch_all(tx.as_mut())
+        .await?;
+
+        let mut adoption_by_org: BTreeMap<Uuid, Vec<RouteAdoptionMetric>> = BTreeMap::new();
+        for row in adoption_rows {
+            adoption_by_org
+                .entry(row.try_get("org_id")?)
+                .or_default()
+                .push(RouteAdoptionMetric {
+                    release_cycle: row.try_get("release_cycle")?,
+                    console_route_events: row.try_get("console_route_events")?,
+                    legacy_route_events: row.try_get("legacy_route_events")?,
+                    rum_error_events: row.try_get("rum_error_events")?,
+                    rum_perf_p95_ms: row.try_get("rum_perf_p95_ms")?,
+                    last_event_at: row.try_get("last_event_at")?,
+                });
+        }
+
+        let mut health = Vec::with_capacity(rows.len());
+        for row in rows {
+            let id: Uuid = row.try_get("id")?;
+            let route_adoption = adoption_by_org.remove(&id).unwrap_or_default();
+            let zero_legacy_release_cycles = route_adoption
+                .iter()
+                .filter(|metric| metric.console_route_events > 0 && metric.legacy_route_events == 0)
+                .count() as i64;
+            health.push(TenantHealth {
+                id,
+                slug: row.try_get("slug")?,
+                name: row.try_get("name")?,
+                status: row.try_get("status")?,
+                group_id: row.try_get("group_id")?,
+                group_slug: row.try_get("group_slug")?,
+                group_name: row.try_get("group_name")?,
+                user_count: row.try_get("user_count")?,
+                active_user_count: row.try_get("active_user_count")?,
+                active_work_orders: row.try_get("active_work_orders")?,
+                open_work_orders: row.try_get("open_work_orders")?,
+                last_activity_at: row.try_get("last_activity_at")?,
+                route_adoption,
+                zero_legacy_release_cycles,
+            });
+        }
 
         // Audited cross-tenant read (PLATFORM-tier; org_id = NULL).
         let event = AuditEvent::new(

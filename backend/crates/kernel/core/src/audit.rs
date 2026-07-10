@@ -61,6 +61,23 @@ impl std::fmt::Display for AuditAction {
     }
 }
 
+/// Nullable request context captured beside an audit event when available.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AuditRequestContext {
+    pub ip: Option<String>,
+    pub user_agent: Option<String>,
+    pub auth_method: Option<String>,
+    pub device: Option<String>,
+}
+
+/// Nullable classification metadata captured beside an audit event when available.
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AuditClassification {
+    pub badges: Option<Vec<String>>,
+    pub anomaly: Option<bool>,
+    pub reason: Option<String>,
+}
+
 /// One append-only audit record.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct AuditEvent {
@@ -83,6 +100,10 @@ pub struct AuditEvent {
     pub before: Option<serde_json::Value>,
     /// State snapshot after the mutation, if meaningful.
     pub after: Option<serde_json::Value>,
+    #[serde(default)]
+    pub request_context: AuditRequestContext,
+    #[serde(default)]
+    pub classification: AuditClassification,
     pub trace: TraceContext,
     pub occurred_at: Timestamp,
 }
@@ -109,6 +130,8 @@ impl AuditEvent {
             org_id: None,
             before: None,
             after: None,
+            request_context: AuditRequestContext::default(),
+            classification: AuditClassification::default(),
             trace,
             occurred_at,
         }
@@ -137,6 +160,18 @@ impl AuditEvent {
     ) -> Self {
         self.before = before;
         self.after = after;
+        self
+    }
+
+    #[must_use]
+    pub fn with_request_context(mut self, context: AuditRequestContext) -> Self {
+        self.request_context = context;
+        self
+    }
+
+    #[must_use]
+    pub fn with_classification(mut self, classification: AuditClassification) -> Self {
+        self.classification = classification;
         self
     }
 }
@@ -197,6 +232,45 @@ mod tests {
         );
         let json = serde_json::to_string(&event).unwrap();
         let back: AuditEvent = serde_json::from_str(&json).unwrap();
+        assert_eq!(event, back);
+    }
+
+    #[test]
+    fn audit_event_serde_roundtrip_with_request_context_and_classification() {
+        let event = AuditEvent::new(
+            Some(UserId::new()),
+            AuditAction::new("audit.read").unwrap(),
+            "audit_log",
+            "query",
+            TraceContext::generate(),
+            time::macros::datetime!(2026-07-09 00:00:00 UTC),
+        )
+        .with_request_context(AuditRequestContext {
+            ip: Some("203.0.113.9".to_owned()),
+            user_agent: Some("Maintenance Console/1.0".to_owned()),
+            auth_method: Some("passkey".to_owned()),
+            device: Some("desktop-web".to_owned()),
+        })
+        .with_classification(AuditClassification {
+            badges: Some(vec!["민감정보".to_owned(), "대외비".to_owned()]),
+            anomaly: Some(true),
+            reason: Some("manager override".to_owned()),
+        });
+
+        let json = serde_json::to_string(&event).unwrap();
+        let back: AuditEvent = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(back.request_context.ip.as_deref(), Some("203.0.113.9"));
+        assert_eq!(back.request_context.auth_method.as_deref(), Some("passkey"));
+        assert_eq!(
+            back.classification.badges.as_deref(),
+            Some(&["민감정보".to_owned(), "대외비".to_owned()][..])
+        );
+        assert_eq!(back.classification.anomaly, Some(true));
+        assert_eq!(
+            back.classification.reason.as_deref(),
+            Some("manager override")
+        );
         assert_eq!(event, back);
     }
 

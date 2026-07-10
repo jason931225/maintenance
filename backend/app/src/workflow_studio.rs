@@ -28,6 +28,7 @@ use mnt_workflow_runtime_adapter_postgres::{
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sqlx::{PgPool, Postgres, Row, Transaction};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::str::FromStr;
 use time::OffsetDateTime;
 use uuid::Uuid;
@@ -40,20 +41,26 @@ pub const WORKFLOW_STUDIO_DEFINITION_PATH_TEMPLATE: &str =
     "/api/v1/workflow-studio/definitions/{id}";
 pub const WORKFLOW_STUDIO_DEFINITION_HISTORY_PATH_TEMPLATE: &str =
     "/api/v1/workflow-studio/definitions/{id}/history";
+pub const WORKFLOW_STUDIO_DEFINITION_RUN_LOG_PATH_TEMPLATE: &str =
+    "/api/v1/workflow-studio/definitions/{id}/run-log";
+pub const WORKFLOW_STUDIO_DEFINITION_RUN_PATH_TEMPLATE: &str =
+    "/api/v1/workflow-studio/definitions/{id}/run";
 pub const WORKFLOW_STUDIO_DEFINITION_SIMULATE_PATH_TEMPLATE: &str =
     "/api/v1/workflow-studio/definitions/{id}/simulate";
 pub const WORKFLOW_STUDIO_DEFINITION_PUBLISH_PATH_TEMPLATE: &str =
     "/api/v1/workflow-studio/definitions/{id}/publish";
+pub const WORKFLOW_STUDIO_DEFINITION_APPROVE_REVISION_PATH_TEMPLATE: &str =
+    "/api/v1/workflow-studio/definitions/{id}/revisions/{rev}/approve";
+pub const WORKFLOW_STUDIO_DEFINITION_WITHDRAW_REVISION_PATH_TEMPLATE: &str =
+    "/api/v1/workflow-studio/definitions/{id}/revisions/{rev}/withdraw";
 pub const WORKFLOW_STUDIO_DEFINITION_PAUSE_PATH_TEMPLATE: &str =
     "/api/v1/workflow-studio/definitions/{id}/pause";
+pub const WORKFLOW_STUDIO_DEFINITION_RESUME_PATH_TEMPLATE: &str =
+    "/api/v1/workflow-studio/definitions/{id}/resume";
 pub const WORKFLOW_STUDIO_DEFINITION_ROLLBACK_PATH_TEMPLATE: &str =
     "/api/v1/workflow-studio/definitions/{id}/rollback";
 pub const WORKFLOW_STUDIO_DEFINITION_CLONE_PATH_TEMPLATE: &str =
     "/api/v1/workflow-studio/definitions/{id}/clone";
-pub const WORKFLOW_STUDIO_DEFINITION_REVISION_APPROVE_PATH_TEMPLATE: &str =
-    "/api/v1/workflow-studio/definitions/{id}/revisions/{rev}/approve";
-pub const WORKFLOW_STUDIO_DEFINITION_REVISION_WITHDRAW_PATH_TEMPLATE: &str =
-    "/api/v1/workflow-studio/definitions/{id}/revisions/{rev}/withdraw";
 pub const WORKFLOW_STUDIO_DEFINITIONS_BY_OBJECT_KIND_PATH_TEMPLATE: &str =
     "/api/v1/workflow-studio/definitions/by-object-kind/{kind}";
 pub const WORKFLOW_STUDIO_TRIGGER_BINDINGS_PATH: &str = "/api/v1/workflow-studio/trigger-bindings";
@@ -76,6 +83,39 @@ pub const WORKFLOW_RUN_PATH_TEMPLATE: &str = "/api/v1/workflow-runs/{run_id}";
 pub const WORKFLOW_TASKS_PATH: &str = "/api/v1/workflow-tasks";
 pub const WORKFLOW_TASK_CLAIM_PATH_TEMPLATE: &str = "/api/v1/workflow-tasks/{task_id}/claim";
 pub const WORKFLOW_TASK_DECIDE_PATH_TEMPLATE: &str = "/api/v1/workflow-tasks/{task_id}/decide";
+pub const WORKFLOW_STUDIO_ROUTE_PATHS: &[&str] = &[
+    WORKFLOW_STUDIO_CATALOG_PATH,
+    WORKFLOW_STUDIO_DEFINITIONS_PATH,
+    WORKFLOW_STUDIO_DEFINITION_PATH_TEMPLATE,
+    WORKFLOW_STUDIO_DEFINITION_HISTORY_PATH_TEMPLATE,
+    WORKFLOW_STUDIO_DEFINITION_RUN_LOG_PATH_TEMPLATE,
+    WORKFLOW_STUDIO_DEFINITION_RUN_PATH_TEMPLATE,
+    WORKFLOW_STUDIO_DEFINITION_SIMULATE_PATH_TEMPLATE,
+    WORKFLOW_STUDIO_DEFINITION_PUBLISH_PATH_TEMPLATE,
+    WORKFLOW_STUDIO_DEFINITION_APPROVE_REVISION_PATH_TEMPLATE,
+    WORKFLOW_STUDIO_DEFINITION_WITHDRAW_REVISION_PATH_TEMPLATE,
+    WORKFLOW_STUDIO_DEFINITION_PAUSE_PATH_TEMPLATE,
+    WORKFLOW_STUDIO_DEFINITION_RESUME_PATH_TEMPLATE,
+    WORKFLOW_STUDIO_DEFINITION_ROLLBACK_PATH_TEMPLATE,
+    WORKFLOW_STUDIO_DEFINITION_CLONE_PATH_TEMPLATE,
+    WORKFLOW_STUDIO_SUBMITTABLE_DEFINITIONS_PATH,
+    WORKFLOW_STUDIO_DEFINITIONS_BY_OBJECT_KIND_PATH_TEMPLATE,
+    WORKFLOW_STUDIO_TRIGGER_BINDINGS_PATH,
+    WORKFLOW_STUDIO_TRIGGER_BINDING_ENABLE_PATH_TEMPLATE,
+    WORKFLOW_STUDIO_TRIGGER_BINDING_DISABLE_PATH_TEMPLATE,
+    WORKFLOW_STUDIO_SCHEDULES_PATH,
+    WORKFLOW_STUDIO_SCHEDULE_PATH_TEMPLATE,
+    WORKFLOW_STUDIO_SCHEDULE_PREVIEW_PATH,
+    WORKFLOW_STUDIO_SCHEDULE_RUNS_PATH_TEMPLATE,
+    WORKFLOW_RUNS_PATH,
+    WORKFLOW_RUNS_MINE_PATH,
+    WORKFLOW_RUN_PATH_TEMPLATE,
+    WORKFLOW_RUN_POST_FINALIZATION_REJECTION_PATH_TEMPLATE,
+    WORKFLOW_TASKS_PATH,
+    WORKFLOW_TASK_CLAIM_PATH_TEMPLATE,
+    WORKFLOW_TASK_DECIDE_PATH_TEMPLATE,
+    WORKFLOW_TASK_FINALIZE_PATH_TEMPLATE,
+];
 
 const WORKFLOW_STUDIO_REQUESTS_TOTAL: &str = "workflow_studio_requests_total";
 const WORKFLOW_DEFINITION_SCHEMA_VERSION: &str = "workflow.definition.v1";
@@ -286,6 +326,14 @@ pub fn router(state: WorkflowStudioState) -> Router {
             get(list_definition_history),
         )
         .route(
+            WORKFLOW_STUDIO_DEFINITION_RUN_LOG_PATH_TEMPLATE,
+            get(list_definition_run_log),
+        )
+        .route(
+            WORKFLOW_STUDIO_DEFINITION_RUN_PATH_TEMPLATE,
+            post(trigger_definition_run),
+        )
+        .route(
             WORKFLOW_STUDIO_DEFINITION_SIMULATE_PATH_TEMPLATE,
             post(simulate_definition),
         )
@@ -294,8 +342,20 @@ pub fn router(state: WorkflowStudioState) -> Router {
             post(publish_definition),
         )
         .route(
+            WORKFLOW_STUDIO_DEFINITION_APPROVE_REVISION_PATH_TEMPLATE,
+            post(approve_revision),
+        )
+        .route(
+            WORKFLOW_STUDIO_DEFINITION_WITHDRAW_REVISION_PATH_TEMPLATE,
+            post(withdraw_revision),
+        )
+        .route(
             WORKFLOW_STUDIO_DEFINITION_PAUSE_PATH_TEMPLATE,
             post(pause_definition),
+        )
+        .route(
+            WORKFLOW_STUDIO_DEFINITION_RESUME_PATH_TEMPLATE,
+            post(resume_definition),
         )
         .route(
             WORKFLOW_STUDIO_DEFINITION_ROLLBACK_PATH_TEMPLATE,
@@ -304,14 +364,6 @@ pub fn router(state: WorkflowStudioState) -> Router {
         .route(
             WORKFLOW_STUDIO_DEFINITION_CLONE_PATH_TEMPLATE,
             post(clone_definition),
-        )
-        .route(
-            WORKFLOW_STUDIO_DEFINITION_REVISION_APPROVE_PATH_TEMPLATE,
-            post(approve_revision),
-        )
-        .route(
-            WORKFLOW_STUDIO_DEFINITION_REVISION_WITHDRAW_PATH_TEMPLATE,
-            post(withdraw_revision),
         )
         .route(
             WORKFLOW_STUDIO_DEFINITIONS_BY_OBJECT_KIND_PATH_TEMPLATE,
@@ -432,6 +484,33 @@ struct WorkflowDefinitionHistoryResponse {
     items: Vec<WorkflowDefinitionEventResponse>,
 }
 
+#[derive(Debug, Serialize)]
+struct WorkflowRunLogResponse {
+    items: Vec<WorkflowRunResponse>,
+}
+
+#[derive(Debug, Serialize)]
+struct WorkflowRunResponse {
+    id: Uuid,
+    code: String,
+    definition_id: Uuid,
+    definition_version: i32,
+    trigger_type: String,
+    status: String,
+    actor_display_name: Option<String>,
+    summary: String,
+    error_message: Option<String>,
+    generated_objects: Vec<String>,
+    #[serde(with = "time::serde::rfc3339")]
+    started_at: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
+    updated_at: OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339::option")]
+    completed_at: Option<OffsetDateTime>,
+    #[serde(with = "time::serde::rfc3339::option")]
+    failed_at: Option<OffsetDateTime>,
+}
+
 #[derive(Debug, Serialize, Clone)]
 struct WorkflowDefinitionResponse {
     id: Uuid,
@@ -472,6 +551,14 @@ struct WorkflowDefinitionEventResponse {
     summary: String,
     #[serde(with = "time::serde::rfc3339")]
     created_at: OffsetDateTime,
+}
+
+#[derive(Debug, Deserialize)]
+struct TriggerWorkflowRunRequest {
+    #[serde(default = "default_workflow_run_trigger_type")]
+    trigger_type: String,
+    #[serde(default)]
+    idempotency_key: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -3012,6 +3099,139 @@ async fn list_definition_history(
     Ok(Json(WorkflowDefinitionHistoryResponse { items }))
 }
 
+async fn list_definition_run_log(
+    State(state): State<WorkflowStudioState>,
+    Extension(principal): Extension<Principal>,
+    Path(id): Path<Uuid>,
+) -> Result<Json<WorkflowRunLogResponse>, WorkflowStudioError> {
+    authorize_workflow_manage(&principal)?;
+    let org = principal.org_id;
+    let items = with_org_conn::<_, _, WorkflowStudioError>(&state.pool, org, move |tx| {
+        Box::pin(async move {
+            ensure_definition_exists(tx, id).await?;
+            let rows = sqlx::query(workflow_run_log_sql())
+                .bind(id)
+                .fetch_all(tx.as_mut())
+                .await?;
+            rows.into_iter().map(run_response_from_row).collect()
+        })
+    })
+    .await?;
+    record_workflow_studio_request("run_log", "success");
+    Ok(Json(WorkflowRunLogResponse { items }))
+}
+
+async fn trigger_definition_run(
+    State(state): State<WorkflowStudioState>,
+    Extension(principal): Extension<Principal>,
+    Path(id): Path<Uuid>,
+    Json(body): Json<TriggerWorkflowRunRequest>,
+) -> Result<Json<WorkflowRunResponse>, WorkflowStudioError> {
+    authorize_workflow_manage(&principal)?;
+    let trigger_type = normalize_workflow_run_trigger_type(&body.trigger_type)?;
+    let run_id = Uuid::new_v4();
+    let actor = principal.user_id;
+    let org = principal.org_id;
+    let idempotency_key =
+        normalize_workflow_run_idempotency_key(body.idempotency_key, id, &trigger_type, run_id)?;
+    let trace = TraceContext::generate();
+    let trace_id = trace.trace_id().to_owned();
+    let event = AuditEvent::new(
+        Some(actor),
+        AuditAction::new("workflow_run.trigger")?,
+        "workflow_run",
+        run_id.to_string(),
+        trace,
+        OffsetDateTime::now_utc(),
+    )
+    .with_org(org)
+    .with_snapshots(
+        None,
+        Some(json!({
+            "definition_id": id,
+            "trigger_type": &trigger_type,
+            "status": "RUNNING"
+        })),
+    );
+
+    let response = with_audit::<_, _, WorkflowStudioError>(&state.pool, event, move |tx| {
+        Box::pin(async move {
+            let current = load_latest_version(tx, id, false).await?;
+            let Some(active_version) = current.active_version else {
+                return Err(WorkflowStudioError::from(KernelError::conflict(
+                    "workflow definition must be active before it can run",
+                )));
+            };
+            if current.status != "ACTIVE" {
+                return Err(WorkflowStudioError::from(KernelError::conflict(
+                    "workflow definition must be active before it can run",
+                )));
+            }
+            if let Some(existing) = load_run_by_idempotency_key(tx, &idempotency_key).await? {
+                return Ok(existing);
+            }
+
+            let row = sqlx::query(
+                r#"
+                WITH inserted AS (
+                    INSERT INTO workflow_runs (
+                        id, org_id, definition_id, definition_version, status,
+                        trigger_type, idempotency_key, correlation_id, trace_id,
+                        input_payload, context_payload, initiated_by
+                    ) VALUES (
+                        $1, $2, $3, $4, 'RUNNING', $5, $6, $7, $8, $9, $10, $11
+                    )
+                    RETURNING id, definition_id, definition_version, trigger_type, status,
+                        initiated_by, output_payload, error_payload, started_at, updated_at,
+                        completed_at, failed_at
+                )
+                SELECT
+                    i.id,
+                    concat('RUN-', upper(substr(replace(i.id::text, '-', ''), 1, 6))) AS code,
+                    i.definition_id,
+                    i.definition_version,
+                    i.trigger_type,
+                    i.status,
+                    u.display_name AS actor_display_name,
+                    CASE i.trigger_type
+                        WHEN 'SCHEDULE' THEN '예약 실행 시작'
+                        ELSE '수동 실행 시작'
+                    END AS summary,
+                    COALESCE(i.error_payload->>'message', i.error_payload->>'error') AS error_message,
+                    COALESCE(i.output_payload->'generated_objects', '[]'::jsonb) AS generated_objects,
+                    i.started_at,
+                    i.updated_at,
+                    i.completed_at,
+                    i.failed_at
+                FROM inserted i
+                LEFT JOIN users u ON u.id = i.initiated_by
+                "#,
+            )
+            .bind(run_id)
+            .bind(*org.as_uuid())
+            .bind(id)
+            .bind(active_version)
+            .bind(&trigger_type)
+            .bind(&idempotency_key)
+            .bind(format!("workflow-studio:{run_id}"))
+            .bind(trace_id)
+            .bind(json!({ "trigger_type": trigger_type, "source": "workflow_studio" }))
+            .bind(json!({
+                "workflow_key": current.workflow_key,
+                "display_name": current.display_name,
+                "object_type": current.object_type
+            }))
+            .bind(*actor.as_uuid())
+            .fetch_one(tx.as_mut())
+            .await?;
+            run_response_from_row(row)
+        })
+    })
+    .await?;
+    record_workflow_studio_request("trigger_run", "success");
+    Ok(Json(response))
+}
+
 async fn simulate_definition(
     State(state): State<WorkflowStudioState>,
     Extension(principal): Extension<Principal>,
@@ -3025,7 +3245,7 @@ async fn simulate_definition(
         Box::pin(async move {
             let mut row = load_latest_version(tx, id, false).await?;
             if let Some(definition) = body.definition {
-                row.definition = validate_definition_object(definition)?;
+                row.definition = validate_definition_for_object_type(definition, &row.object_type)?;
             }
             if let Some(approval_line) = body.approval_line {
                 row.approval_line = approval_line;
@@ -3530,6 +3750,38 @@ async fn pause_definition(
     .map(Json)
 }
 
+async fn resume_definition(
+    State(state): State<WorkflowStudioState>,
+    Extension(principal): Extension<Principal>,
+    Path(id): Path<Uuid>,
+    Json(body): Json<WorkflowStepUpRequest>,
+) -> Result<Json<WorkflowDefinitionResponse>, WorkflowStudioError> {
+    authorize_workflow_manage(&principal)?;
+    verify_workflow_step_up(&state, &principal, body.step_up).await?;
+    mutate_definition(
+        &state,
+        principal,
+        id,
+        "workflow_definition.resume",
+        "재개",
+        |row| {
+            if row.status != "PAUSED" {
+                return Err(WorkflowStudioError::validation(
+                    "only PAUSED workflow definitions can be resumed",
+                ));
+            }
+            Ok((
+                "ACTIVE",
+                "RESUMED",
+                row.latest_version + 1,
+                row.active_version,
+            ))
+        },
+    )
+    .await
+    .map(Json)
+}
+
 async fn rollback_definition(
     State(state): State<WorkflowStudioState>,
     Extension(principal): Extension<Principal>,
@@ -3583,6 +3835,7 @@ async fn clone_definition(
         Box::pin(async move {
             let source = load_latest_version(tx, id, true).await?;
             ensure_not_retired(&source)?;
+            validate_definition_for_object_type(source.definition.clone(), &source.object_type)?;
             let workflow_key = match body.workflow_key {
                 Some(value) => normalize_workflow_key(&value)?,
                 None => format!(
@@ -3794,6 +4047,7 @@ async fn mutate_definition_with_source_version(
             let current = load_latest_version(tx, definition_id, true).await?;
             ensure_not_retired(&current)?;
             let source = load_specific_version(tx, definition_id, target_version).await?;
+            validate_definition_for_object_type(source.definition.clone(), &source.object_type)?;
             let before = snapshot_from_row(&current);
             let new_version = current.latest_version + 1;
             let source_for_insert = WorkflowVersionRow {
@@ -4152,13 +4406,150 @@ fn row_to_version(row: sqlx::postgres::PgRow) -> Result<WorkflowVersionRow, Work
     })
 }
 
+fn run_response_from_row(
+    row: sqlx::postgres::PgRow,
+) -> Result<WorkflowRunResponse, WorkflowStudioError> {
+    Ok(WorkflowRunResponse {
+        id: row.try_get("id")?,
+        code: row.try_get("code")?,
+        definition_id: row.try_get("definition_id")?,
+        definition_version: row.try_get("definition_version")?,
+        trigger_type: row.try_get("trigger_type")?,
+        status: row.try_get("status")?,
+        actor_display_name: row.try_get("actor_display_name")?,
+        summary: row.try_get("summary")?,
+        error_message: row.try_get("error_message")?,
+        generated_objects: json_string_array(row.try_get("generated_objects")?),
+        started_at: row.try_get("started_at")?,
+        updated_at: row.try_get("updated_at")?,
+        completed_at: row.try_get("completed_at")?,
+        failed_at: row.try_get("failed_at")?,
+    })
+}
+
+async fn load_run_by_idempotency_key(
+    tx: &mut Transaction<'_, Postgres>,
+    idempotency_key: &str,
+) -> Result<Option<WorkflowRunResponse>, WorkflowStudioError> {
+    sqlx::query(workflow_run_by_idempotency_key_sql())
+        .bind(idempotency_key)
+        .fetch_optional(tx.as_mut())
+        .await?
+        .map(run_response_from_row)
+        .transpose()
+}
+
+fn workflow_run_log_sql() -> &'static str {
+    r#"
+    SELECT
+        r.id,
+        concat('RUN-', upper(substr(replace(r.id::text, '-', ''), 1, 6))) AS code,
+        r.definition_id,
+        r.definition_version,
+        r.trigger_type,
+        r.status,
+        u.display_name AS actor_display_name,
+        CASE r.status
+            WHEN 'SUCCEEDED' THEN '실행 완료'
+            WHEN 'FAILED' THEN '실행 실패'
+            WHEN 'CANCELLED' THEN '실행 취소'
+            WHEN 'WAITING' THEN '승인/작업 대기'
+            ELSE CASE r.trigger_type
+                WHEN 'SCHEDULE' THEN '예약 실행 시작'
+                ELSE '수동 실행 시작'
+            END
+        END AS summary,
+        COALESCE(r.error_payload->>'message', r.error_payload->>'error') AS error_message,
+        COALESCE(r.output_payload->'generated_objects', '[]'::jsonb) AS generated_objects,
+        r.started_at,
+        r.updated_at,
+        r.completed_at,
+        r.failed_at
+    FROM workflow_runs r
+    LEFT JOIN users u ON u.id = r.initiated_by
+    WHERE r.definition_id = $1
+    ORDER BY COALESCE(r.completed_at, r.failed_at, r.updated_at, r.started_at) DESC, r.id DESC
+    LIMIT 25
+    "#
+}
+
+fn workflow_run_by_idempotency_key_sql() -> &'static str {
+    r#"
+    SELECT
+        r.id,
+        concat('RUN-', upper(substr(replace(r.id::text, '-', ''), 1, 6))) AS code,
+        r.definition_id,
+        r.definition_version,
+        r.trigger_type,
+        r.status,
+        u.display_name AS actor_display_name,
+        CASE r.status
+            WHEN 'SUCCEEDED' THEN '실행 완료'
+            WHEN 'FAILED' THEN '실행 실패'
+            WHEN 'CANCELLED' THEN '실행 취소'
+            WHEN 'WAITING' THEN '승인/작업 대기'
+            ELSE CASE r.trigger_type
+                WHEN 'SCHEDULE' THEN '예약 실행 시작'
+                ELSE '수동 실행 시작'
+            END
+        END AS summary,
+        COALESCE(r.error_payload->>'message', r.error_payload->>'error') AS error_message,
+        COALESCE(r.output_payload->'generated_objects', '[]'::jsonb) AS generated_objects,
+        r.started_at,
+        r.updated_at,
+        r.completed_at,
+        r.failed_at
+    FROM workflow_runs r
+    LEFT JOIN users u ON u.id = r.initiated_by
+    WHERE r.idempotency_key = $1
+    LIMIT 1
+    "#
+}
+
+fn default_workflow_run_trigger_type() -> String {
+    "MANUAL".to_owned()
+}
+
+fn normalize_workflow_run_trigger_type(value: &str) -> Result<String, WorkflowStudioError> {
+    let normalized = value.trim().to_ascii_uppercase();
+    match normalized.as_str() {
+        "MANUAL" | "SCHEDULE" | "WEBHOOK" | "SYSTEM" => Ok(normalized),
+        _ => Err(WorkflowStudioError::validation(
+            "workflow run trigger_type must be MANUAL, SCHEDULE, WEBHOOK, or SYSTEM",
+        )),
+    }
+}
+
+fn normalize_workflow_run_idempotency_key(
+    value: Option<String>,
+    definition_id: Uuid,
+    trigger_type: &str,
+    run_id: Uuid,
+) -> Result<String, WorkflowStudioError> {
+    match value {
+        Some(raw) => {
+            let trimmed = raw.trim();
+            if trimmed.is_empty() || trimmed.len() > 160 {
+                return Err(WorkflowStudioError::validation(
+                    "workflow run idempotency_key must be 1..160 characters",
+                ));
+            }
+            Ok(trimmed.to_owned())
+        }
+        None => Ok(format!(
+            "workflow-studio:{definition_id}:{trigger_type}:{}",
+            run_id.simple()
+        )),
+    }
+}
+
 fn normalize_create_request(
     body: CreateWorkflowDefinitionRequest,
 ) -> Result<CreateWorkflowDefinitionRequest, WorkflowStudioError> {
     let workflow_key = normalize_workflow_key(&body.workflow_key)?;
     let display_name = normalize_display_name(&body.display_name)?;
     let object_type = normalize_object_type(&body.object_type)?;
-    let definition = validate_definition_object(body.definition)?;
+    let definition = validate_definition_for_object_type(body.definition, &object_type)?;
     validate_action_allowlist(&body.action_allowlist)?;
     validate_notification_rules(&body.notification_rules)?;
     Ok(CreateWorkflowDefinitionRequest {
@@ -4208,7 +4599,7 @@ fn normalize_update_request(
         .transpose()?;
     let definition = body
         .definition
-        .map(validate_definition_object)
+        .map(validate_definition_for_optional_object_type)
         .transpose()?;
     if let Some(action_allowlist) = &body.action_allowlist {
         validate_action_allowlist(action_allowlist)?;
@@ -4258,6 +4649,7 @@ fn apply_draft_update(
     if let Some(required_payment_line) = update.required_payment_line {
         next.required_payment_line = required_payment_line;
     }
+    validate_definition_for_object_type(next.definition.clone(), &next.object_type)?;
     Ok(next)
 }
 
@@ -4303,6 +4695,16 @@ fn ensure_not_retired(row: &WorkflowVersionRow) -> Result<(), WorkflowStudioErro
         )
     } else {
         Ok(())
+    }
+}
+
+fn keep_live_status(current: &WorkflowVersionRow) -> &'static str {
+    if current.active_version.is_none() {
+        return "DRAFT";
+    }
+    match current.status.as_str() {
+        "PAUSED" => "PAUSED",
+        _ => "ACTIVE",
     }
 }
 
@@ -4352,6 +4754,35 @@ fn normalize_display_name(raw: &str) -> Result<String, WorkflowStudioError> {
             "display_name must be 1 to 120 characters",
         ))
     }
+}
+
+#[derive(Debug, Clone)]
+struct WorkflowGraphNodeInfo {
+    id: String,
+    node_type: String,
+    input_ports: Vec<WorkflowPortInfo>,
+    output_ports: Vec<WorkflowPortInfo>,
+}
+
+#[derive(Debug, Clone)]
+struct WorkflowPortInfo {
+    key: String,
+    port_type: String,
+    required: bool,
+    cardinality_one: bool,
+}
+
+fn validate_definition_for_object_type(
+    value: Value,
+    object_type: &str,
+) -> Result<Value, WorkflowStudioError> {
+    validate_definition_with_expected_object_type(value, Some(object_type))
+}
+
+fn validate_definition_for_optional_object_type(
+    value: Value,
+) -> Result<Value, WorkflowStudioError> {
+    validate_definition_with_expected_object_type(value, None)
 }
 
 #[allow(dead_code)]
@@ -4416,6 +4847,13 @@ fn build_approval_execution_definition(template_key: &str) -> Result<Value, Work
 }
 
 fn validate_definition_object(value: Value) -> Result<Value, WorkflowStudioError> {
+    validate_definition_for_optional_object_type(value)
+}
+
+fn validate_definition_with_expected_object_type(
+    value: Value,
+    expected_object_type: Option<&str>,
+) -> Result<Value, WorkflowStudioError> {
     let Some(object) = value.as_object() else {
         return Err(WorkflowStudioError::validation(
             "definition must be a JSON object",
@@ -4441,7 +4879,862 @@ fn validate_definition_object(value: Value) -> Result<Value, WorkflowStudioError
     if let Some(policy_decision) = object.get("policy_decision") {
         validate_policy_decision(policy_decision)?;
     }
-    Ok(value)
+
+    let findings = validate_canonical_workflow_definition(&value, expected_object_type);
+    if findings.is_empty() {
+        Ok(value)
+    } else {
+        Err(WorkflowStudioError::validation(
+            format_workflow_definition_findings(&findings),
+        ))
+    }
+}
+
+fn validate_canonical_workflow_definition(
+    value: &Value,
+    expected_object_type: Option<&str>,
+) -> Vec<WorkflowSimulationFinding> {
+    let mut findings = Vec::new();
+    let Some(definition) = value.as_object() else {
+        push_workflow_definition_finding(
+            &mut findings,
+            "definition_object",
+            "definition must be a JSON object",
+        );
+        return findings;
+    };
+
+    if definition.get("schema_version").and_then(Value::as_str)
+        != Some(WORKFLOW_DEFINITION_SCHEMA_VERSION)
+    {
+        push_workflow_definition_finding(
+            &mut findings,
+            "schema_version",
+            "definition schema_version must be workflow.definition.v1",
+        );
+    }
+
+    let metadata = definition.get("metadata").and_then(Value::as_object);
+    let metadata_object_type = metadata
+        .and_then(|metadata| metadata.get("object_type"))
+        .and_then(Value::as_str);
+    match (expected_object_type, metadata_object_type) {
+        (Some(expected), Some(actual)) if actual == expected => {}
+        (Some(_), Some(_)) => push_workflow_definition_finding(
+            &mut findings,
+            "object_type_mismatch",
+            "definition metadata object_type must match the workflow object type",
+        ),
+        (Some(_), None) => push_workflow_definition_finding(
+            &mut findings,
+            "object_type_mismatch",
+            "definition metadata must include object_type matching the workflow object type",
+        ),
+        (None, Some(_)) => {}
+        (None, None) => push_workflow_definition_finding(
+            &mut findings,
+            "object_type_mismatch",
+            "definition metadata must include object_type",
+        ),
+    }
+    let graph_object_type = expected_object_type.or(metadata_object_type);
+
+    let Some(graph) = definition.get("graph").and_then(Value::as_object) else {
+        push_workflow_definition_finding(
+            &mut findings,
+            "graph_object",
+            "definition graph must be a JSON object",
+        );
+        return findings;
+    };
+    let Some(nodes) = graph.get("nodes").and_then(Value::as_array) else {
+        push_workflow_definition_finding(
+            &mut findings,
+            "nodes_array",
+            "definition graph.nodes must be an array",
+        );
+        return findings;
+    };
+    let Some(edges) = graph.get("edges").and_then(Value::as_array) else {
+        push_workflow_definition_finding(
+            &mut findings,
+            "edges_array",
+            "definition graph.edges must be an array",
+        );
+        return findings;
+    };
+
+    let mut parsed_nodes = Vec::with_capacity(nodes.len());
+    let mut ids = HashSet::new();
+    let mut keys = HashSet::new();
+    for node in nodes {
+        let Some(node_object) = node.as_object() else {
+            push_workflow_definition_finding(
+                &mut findings,
+                "node_object",
+                "workflow nodes must be JSON objects",
+            );
+            continue;
+        };
+        let id = non_empty_string(node, "id");
+        let key = non_empty_string(node, "key");
+        let node_type = non_empty_string(node, "type");
+        let (Some(id), Some(key), Some(node_type)) = (id, key, node_type) else {
+            push_workflow_definition_finding(
+                &mut findings,
+                "node_identity",
+                "workflow nodes require non-empty id, key, and type",
+            );
+            continue;
+        };
+
+        if !ids.insert(id.to_owned()) {
+            push_workflow_definition_finding(
+                &mut findings,
+                "duplicate_node_id",
+                "workflow node ids must be unique",
+            );
+        }
+        if !keys.insert(key.to_owned()) {
+            push_workflow_definition_finding(
+                &mut findings,
+                "duplicate_node_key",
+                "workflow node keys must be unique",
+            );
+        }
+        if !is_allowed_workflow_node_type(node_type) {
+            push_workflow_definition_finding(
+                &mut findings,
+                "unknown_node_type",
+                "workflow node type is not server-owned or allowlisted",
+            );
+        }
+
+        let input_ports = parse_workflow_ports(node, "input_ports", "input", &mut findings);
+        let output_ports = parse_workflow_ports(node, "output_ports", "output", &mut findings);
+        validate_node_config(node_object, node_type, graph_object_type, &mut findings);
+        parsed_nodes.push(WorkflowGraphNodeInfo {
+            id: id.to_owned(),
+            node_type: node_type.to_owned(),
+            input_ports,
+            output_ports,
+        });
+    }
+
+    let trigger_count = parsed_nodes
+        .iter()
+        .filter(|node| node.node_type == "trigger.form_submission")
+        .count();
+    if trigger_count == 0 {
+        push_workflow_definition_finding(
+            &mut findings,
+            "missing_trigger",
+            "exactly one workflow trigger is required",
+        );
+    } else if trigger_count > 1 {
+        push_workflow_definition_finding(
+            &mut findings,
+            "too_many_triggers",
+            "only one workflow trigger is allowed",
+        );
+    }
+    if !parsed_nodes
+        .iter()
+        .any(|node| node.node_type == "end.state")
+    {
+        push_workflow_definition_finding(
+            &mut findings,
+            "missing_terminal",
+            "at least one terminal end.state node is required",
+        );
+    }
+
+    validate_workflow_edges(&parsed_nodes, edges, &mut findings);
+    findings
+}
+
+fn validate_workflow_edges(
+    nodes: &[WorkflowGraphNodeInfo],
+    edges: &[Value],
+    findings: &mut Vec<WorkflowSimulationFinding>,
+) {
+    let nodes_by_id: HashMap<&str, &WorkflowGraphNodeInfo> =
+        nodes.iter().map(|node| (node.id.as_str(), node)).collect();
+    let mut inbound_counts: HashMap<(String, String), usize> = HashMap::new();
+    let mut outbound_counts: HashMap<(String, String), usize> = HashMap::new();
+    let mut adjacency: HashMap<String, Vec<String>> = HashMap::new();
+
+    for edge in edges {
+        if !edge.is_object() {
+            push_workflow_definition_finding(
+                findings,
+                "edge_object",
+                "workflow edges must be JSON objects",
+            );
+            continue;
+        }
+        let from_node_id = non_empty_string(edge, "from_node_id");
+        let from_port = non_empty_string(edge, "from_port");
+        let to_node_id = non_empty_string(edge, "to_node_id");
+        let to_port = non_empty_string(edge, "to_port");
+        let (Some(from_node_id), Some(from_port), Some(to_node_id), Some(to_port)) =
+            (from_node_id, from_port, to_node_id, to_port)
+        else {
+            push_workflow_definition_finding(
+                findings,
+                "invalid_edge_endpoint",
+                "edge endpoints must reference existing node ids and port keys",
+            );
+            continue;
+        };
+
+        let Some(from_node) = nodes_by_id.get(from_node_id) else {
+            push_workflow_definition_finding(
+                findings,
+                "invalid_edge_endpoint",
+                "edge source node is not present in the graph",
+            );
+            continue;
+        };
+        let Some(to_node) = nodes_by_id.get(to_node_id) else {
+            push_workflow_definition_finding(
+                findings,
+                "invalid_edge_endpoint",
+                "edge target node is not present in the graph",
+            );
+            continue;
+        };
+        let source_port = from_node
+            .output_ports
+            .iter()
+            .find(|port| port.key == from_port);
+        let target_port = to_node.input_ports.iter().find(|port| port.key == to_port);
+        let (Some(source_port), Some(target_port)) = (source_port, target_port) else {
+            push_workflow_definition_finding(
+                findings,
+                "invalid_edge_endpoint",
+                "edge references a missing input or output port",
+            );
+            continue;
+        };
+        if !workflow_ports_compatible(&source_port.port_type, &target_port.port_type) {
+            push_workflow_definition_finding(
+                findings,
+                "incompatible_ports",
+                "edge connects incompatible workflow port types",
+            );
+        }
+
+        *outbound_counts
+            .entry((from_node_id.to_owned(), from_port.to_owned()))
+            .or_insert(0) += 1;
+        *inbound_counts
+            .entry((to_node_id.to_owned(), to_port.to_owned()))
+            .or_insert(0) += 1;
+        adjacency
+            .entry(from_node_id.to_owned())
+            .or_default()
+            .push(to_node_id.to_owned());
+    }
+
+    for node in nodes {
+        for port in &node.input_ports {
+            let count = inbound_counts
+                .get(&(node.id.clone(), port.key.clone()))
+                .copied()
+                .unwrap_or(0);
+            if port.required && count == 0 {
+                push_workflow_definition_finding(
+                    findings,
+                    "unconnected_input",
+                    "required input ports must have an incoming edge",
+                );
+            }
+            if port.cardinality_one && count > 1 {
+                push_workflow_definition_finding(
+                    findings,
+                    "too_many_input_edges",
+                    "single-cardinality input ports can only be connected once",
+                );
+            }
+        }
+        for port in &node.output_ports {
+            let count = outbound_counts
+                .get(&(node.id.clone(), port.key.clone()))
+                .copied()
+                .unwrap_or(0);
+            if port.required && count == 0 {
+                push_workflow_definition_finding(
+                    findings,
+                    "unconnected_output",
+                    "required output ports must have an outgoing edge",
+                );
+            }
+            if port.cardinality_one && count > 1 {
+                push_workflow_definition_finding(
+                    findings,
+                    "too_many_output_edges",
+                    "single-cardinality output ports can only be connected once",
+                );
+            }
+        }
+    }
+
+    let trigger_nodes: Vec<&WorkflowGraphNodeInfo> = nodes
+        .iter()
+        .filter(|node| node.node_type == "trigger.form_submission")
+        .collect();
+    if let [trigger] = trigger_nodes.as_slice() {
+        let reachable = reachable_workflow_node_ids(&trigger.id, &adjacency);
+        for node in nodes {
+            if !reachable.contains(&node.id) {
+                push_workflow_definition_finding(
+                    findings,
+                    "unreachable_node",
+                    "all workflow nodes must be reachable from the trigger",
+                );
+            }
+        }
+    }
+}
+
+fn validate_node_config(
+    node: &serde_json::Map<String, Value>,
+    node_type: &str,
+    object_type: Option<&str>,
+    findings: &mut Vec<WorkflowSimulationFinding>,
+) {
+    let Some(config) = node.get("config").and_then(Value::as_object) else {
+        push_workflow_definition_finding(
+            findings,
+            "node_config",
+            "workflow nodes require a config object",
+        );
+        return;
+    };
+    if config.get("type").and_then(Value::as_str) != Some(node_type) {
+        push_workflow_definition_finding(
+            findings,
+            "config_type_mismatch",
+            "node config type must match node type",
+        );
+    }
+
+    match node_type {
+        "trigger.form_submission" => {
+            validate_trigger_form_submission_config(config, object_type, findings);
+        }
+        "form.input" => {
+            validate_form_input_config(config, object_type, findings);
+        }
+        "task.approval" => {
+            let fallback_role = config
+                .get("assignee_rule")
+                .and_then(Value::as_object)
+                .and_then(|rule| rule.get("fallback_role"))
+                .and_then(Value::as_str)
+                .is_some_and(|value| !value.trim().is_empty());
+            if !fallback_role {
+                push_workflow_definition_finding(
+                    findings,
+                    "missing_approval_fallback",
+                    "approval task nodes require a fallback role",
+                );
+            }
+        }
+        "condition.branch" => {
+            validate_condition_branch_config(node, config, findings);
+        }
+        "action.object_update" => {
+            validate_object_update_config(config, object_type, findings);
+        }
+        "action.notification" => {
+            let connector_key = config.get("connector_key").and_then(Value::as_str);
+            let action_key = config.get("action_key").and_then(Value::as_str);
+            match (connector_key, action_key) {
+                (Some(connector_key), Some(action_key))
+                    if connector_allows(connector_key, action_key) => {}
+                _ => push_workflow_definition_finding(
+                    findings,
+                    "connector_action_not_allowlisted",
+                    "notification connector action is not in the server-owned allowlist",
+                ),
+            }
+        }
+        "action.audit_append" => {
+            let has_event_key = has_non_empty_config_string(config, "event_key");
+            if !has_event_key {
+                push_workflow_definition_finding(
+                    findings,
+                    "missing_audit_event",
+                    "audit append nodes require an event_key",
+                );
+            }
+        }
+        "end.state" => {
+            let has_status = has_non_empty_config_string(config, "status");
+            if !has_status {
+                push_workflow_definition_finding(
+                    findings,
+                    "missing_end_status",
+                    "terminal nodes require a status",
+                );
+            }
+        }
+        _ => {}
+    }
+}
+
+fn validate_trigger_form_submission_config(
+    config: &serde_json::Map<String, Value>,
+    object_type: Option<&str>,
+    findings: &mut Vec<WorkflowSimulationFinding>,
+) {
+    let source = config.get("source").and_then(Value::as_object);
+    let source_object_type = source
+        .and_then(|source| source.get("object_type"))
+        .and_then(Value::as_str);
+    let source_event = source
+        .and_then(|source| source.get("event"))
+        .and_then(Value::as_str);
+    let source_scope = source
+        .and_then(|source| source.get("scope"))
+        .and_then(Value::as_str);
+
+    if source_object_type.is_none()
+        || source_event != Some("submitted")
+        || source_scope != Some("org")
+    {
+        push_workflow_definition_finding(
+            findings,
+            "trigger_source",
+            "trigger nodes require server-owned submitted/org source metadata",
+        );
+    }
+    if let (Some(expected), Some(actual)) = (object_type, source_object_type)
+        && actual != expected
+    {
+        push_workflow_definition_finding(
+            findings,
+            "object_type_mismatch",
+            "trigger source object_type must match the workflow object type",
+        );
+    }
+}
+
+fn validate_form_input_config(
+    config: &serde_json::Map<String, Value>,
+    object_type: Option<&str>,
+    findings: &mut Vec<WorkflowSimulationFinding>,
+) {
+    let Some(fields) = config.get("fields").and_then(Value::as_array) else {
+        push_workflow_definition_finding(
+            findings,
+            "missing_form_fields",
+            "form input nodes require at least one field",
+        );
+        return;
+    };
+    if fields.is_empty() {
+        push_workflow_definition_finding(
+            findings,
+            "missing_form_fields",
+            "form input nodes require at least one field",
+        );
+        return;
+    }
+
+    for field in fields {
+        let Some(field) = field.as_object() else {
+            push_workflow_definition_finding(
+                findings,
+                "invalid_form_field",
+                "form fields must be JSON objects",
+            );
+            continue;
+        };
+        if field.get("field_type").and_then(Value::as_str) == Some("object_ref") {
+            let field_object_type = field.get("object_type").and_then(Value::as_str);
+            if let (Some(expected), Some(actual)) = (object_type, field_object_type)
+                && actual != expected
+            {
+                push_workflow_definition_finding(
+                    findings,
+                    "object_type_mismatch",
+                    "form object_ref fields must match the workflow object type",
+                );
+            } else if field_object_type.is_none() {
+                push_workflow_definition_finding(
+                    findings,
+                    "object_type_mismatch",
+                    "form object_ref fields require object_type",
+                );
+            }
+        }
+    }
+}
+
+fn validate_condition_branch_config(
+    node: &serde_json::Map<String, Value>,
+    config: &serde_json::Map<String, Value>,
+    findings: &mut Vec<WorkflowSimulationFinding>,
+) {
+    validate_condition_expression(config.get("expression"), findings);
+
+    let declared_branch_ports = declared_branch_output_ports(node);
+    let Some(branches) = config.get("branches").and_then(Value::as_array) else {
+        push_workflow_definition_finding(
+            findings,
+            "missing_condition_branches",
+            "condition nodes require at least two branches",
+        );
+        return;
+    };
+    if branches.len() < 2 {
+        push_workflow_definition_finding(
+            findings,
+            "missing_condition_branches",
+            "condition nodes require at least two branches",
+        );
+    }
+
+    let mut branch_ports = HashSet::new();
+    for branch in branches {
+        let Some(branch) = branch.as_object() else {
+            push_workflow_definition_finding(
+                findings,
+                "invalid_condition_branch",
+                "condition branches must be JSON objects",
+            );
+            continue;
+        };
+        let port = branch.get("port").and_then(Value::as_str);
+        let label = branch.get("label").and_then(Value::as_str);
+        let when = branch.get("when").and_then(Value::as_str);
+        let valid = port.is_some_and(|port| {
+            !port.trim().is_empty()
+                && branch_ports.insert(port.to_owned())
+                && declared_branch_ports.contains(port)
+        }) && label.is_some_and(|label| !label.trim().is_empty())
+            && matches!(when, Some("true" | "false"));
+        if !valid {
+            push_workflow_definition_finding(
+                findings,
+                "invalid_condition_branch",
+                "condition branch ports must be declared server-owned true/false output ports",
+            );
+        }
+    }
+
+    if declared_branch_ports.len() != branch_ports.len()
+        || declared_branch_ports
+            .iter()
+            .any(|port| !branch_ports.contains(port))
+    {
+        push_workflow_definition_finding(
+            findings,
+            "invalid_condition_branch",
+            "condition branch config must declare exactly the server-owned branch output ports",
+        );
+    }
+
+    let default_port = config.get("default_port").and_then(Value::as_str);
+    if default_port.is_none_or(|port| {
+        port.trim().is_empty()
+            || !branch_ports.contains(port)
+            || !declared_branch_ports.contains(port)
+    }) {
+        push_workflow_definition_finding(
+            findings,
+            "invalid_condition_default",
+            "condition default_port must reference a declared branch port",
+        );
+    }
+}
+
+fn validate_condition_expression(
+    expression: Option<&Value>,
+    findings: &mut Vec<WorkflowSimulationFinding>,
+) {
+    let Some(expression) = expression.and_then(Value::as_object) else {
+        push_workflow_definition_finding(
+            findings,
+            "invalid_condition_expression",
+            "condition expression must be a server-owned expression object",
+        );
+        return;
+    };
+    let op = expression.get("op").and_then(Value::as_str);
+    let left_ref = expression
+        .get("left")
+        .and_then(Value::as_object)
+        .and_then(|left| left.get("ref"))
+        .and_then(Value::as_str);
+    let right = expression.get("right");
+    if !matches!(
+        op,
+        Some("equals" | "not_equals" | "in" | "not_in" | "exists")
+    ) || left_ref != Some("approval.result")
+        || right.is_none_or(|right| !(right.is_string() || right.is_boolean() || right.is_number()))
+    {
+        push_workflow_definition_finding(
+            findings,
+            "invalid_condition_expression",
+            "condition expression must use the server-owned approval.result grammar",
+        );
+    }
+}
+
+fn validate_object_update_config(
+    config: &serde_json::Map<String, Value>,
+    object_type: Option<&str>,
+    findings: &mut Vec<WorkflowSimulationFinding>,
+) {
+    let action_id = config.get("action_id").and_then(Value::as_str);
+    let requires_policy = config.get("requires_policy").and_then(Value::as_str);
+    if let Some(object_type) = object_type {
+        let expected_action = format!("{object_type}.update_status");
+        if action_id != Some(expected_action.as_str())
+            || requires_policy != Some(expected_action.as_str())
+        {
+            push_workflow_definition_finding(
+                findings,
+                "object_action_not_allowlisted",
+                "object update action and policy must match the server-owned workflow action allowlist",
+            );
+        }
+    } else if action_id.is_none() || requires_policy.is_none() {
+        push_workflow_definition_finding(
+            findings,
+            "object_action_not_allowlisted",
+            "object update action and policy are required",
+        );
+    }
+
+    let target_from = config
+        .get("target")
+        .and_then(Value::as_object)
+        .and_then(|target| target.get("from"))
+        .and_then(Value::as_str);
+    if target_from != Some("trigger.object_ref") {
+        push_workflow_definition_finding(
+            findings,
+            "invalid_object_update_target",
+            "object update target must be the server-owned trigger.object_ref handle",
+        );
+    }
+
+    validate_object_update_input(config.get("input"), findings);
+}
+
+fn validate_object_update_input(
+    input: Option<&Value>,
+    findings: &mut Vec<WorkflowSimulationFinding>,
+) {
+    let Some(input) = input.and_then(Value::as_object) else {
+        push_workflow_definition_finding(
+            findings,
+            "invalid_object_update_input",
+            "object update input must be a server-owned status update mapping",
+        );
+        return;
+    };
+    let status = input.get("status").and_then(Value::as_str);
+    let updated_by = input_value_from_handle(input.get("updated_by"));
+    let updated_at = input_value_from_handle(input.get("updated_at"));
+    if input.len() != 3
+        || !matches!(
+            status,
+            Some("approved" | "rejected" | "cancelled" | "completed" | "failed")
+        )
+        || updated_by != Some("approval.actor_id")
+        || updated_at != Some("system.now")
+    {
+        push_workflow_definition_finding(
+            findings,
+            "invalid_object_update_input",
+            "object update input may only map status plus approval.actor_id/system.now handles",
+        );
+    }
+}
+
+fn input_value_from_handle(value: Option<&Value>) -> Option<&str> {
+    value
+        .and_then(Value::as_object)
+        .and_then(|object| object.get("from"))
+        .and_then(Value::as_str)
+}
+
+fn declared_branch_output_ports(node: &serde_json::Map<String, Value>) -> HashSet<String> {
+    node.get("output_ports")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|port| {
+            let port = port.as_object()?;
+            let key = port.get("key")?.as_str()?;
+            let direction = port.get("direction").and_then(Value::as_str);
+            let port_type = port.get("type").and_then(Value::as_str);
+            (direction == Some("output") && port_type == Some("flow.branch"))
+                .then(|| key.to_owned())
+        })
+        .collect()
+}
+
+fn parse_workflow_ports(
+    node: &Value,
+    field: &'static str,
+    direction: &'static str,
+    findings: &mut Vec<WorkflowSimulationFinding>,
+) -> Vec<WorkflowPortInfo> {
+    let Some(ports) = node.get(field).and_then(Value::as_array) else {
+        push_workflow_definition_finding(
+            findings,
+            "ports_array",
+            "workflow node ports must be arrays",
+        );
+        return Vec::new();
+    };
+    let mut parsed = Vec::with_capacity(ports.len());
+    for port in ports {
+        let Some(port_object) = port.as_object() else {
+            push_workflow_definition_finding(
+                findings,
+                "invalid_port",
+                "workflow ports must be JSON objects",
+            );
+            continue;
+        };
+        let key = non_empty_string(port, "key");
+        let port_direction = port_object.get("direction").and_then(Value::as_str);
+        let port_type = port_object.get("type").and_then(Value::as_str);
+        let cardinality = port_object.get("cardinality").and_then(Value::as_str);
+        let (Some(key), Some(port_type), Some(cardinality)) = (key, port_type, cardinality) else {
+            push_workflow_definition_finding(
+                findings,
+                "invalid_port",
+                "workflow ports require key, direction, allowed type, and cardinality",
+            );
+            continue;
+        };
+        if port_direction != Some(direction)
+            || !is_allowed_workflow_port_type(port_type)
+            || !matches!(cardinality, "one" | "many")
+        {
+            push_workflow_definition_finding(
+                findings,
+                "invalid_port",
+                "workflow ports require key, direction, allowed type, and cardinality",
+            );
+            continue;
+        }
+        parsed.push(WorkflowPortInfo {
+            key: key.to_owned(),
+            port_type: port_type.to_owned(),
+            required: port_object
+                .get("required")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            cardinality_one: cardinality == "one",
+        });
+    }
+    parsed
+}
+
+fn has_non_empty_config_string(config: &serde_json::Map<String, Value>, field: &str) -> bool {
+    config
+        .get(field)
+        .and_then(Value::as_str)
+        .is_some_and(|value| !value.trim().is_empty())
+}
+
+fn non_empty_string<'a>(value: &'a Value, field: &str) -> Option<&'a str> {
+    value
+        .get(field)
+        .and_then(Value::as_str)
+        .filter(|value| !value.trim().is_empty())
+}
+
+fn is_allowed_workflow_node_type(node_type: &str) -> bool {
+    matches!(
+        node_type,
+        "trigger.form_submission"
+            | "form.input"
+            | "task.approval"
+            | "condition.branch"
+            | "action.object_update"
+            | "action.notification"
+            | "action.audit_append"
+            | "end.state"
+    )
+}
+
+fn is_allowed_workflow_port_type(port_type: &str) -> bool {
+    matches!(
+        port_type,
+        "flow.start"
+            | "flow.next"
+            | "flow.branch"
+            | "flow.terminal"
+            | "data.form_payload"
+            | "data.approval_result"
+            | "data.object_ref"
+            | "data.audit_event"
+    )
+}
+
+fn workflow_ports_compatible(output: &str, input: &str) -> bool {
+    output == input
+        || (input == "flow.terminal"
+            && matches!(output, "flow.next" | "flow.branch" | "flow.terminal"))
+        || (input == "flow.next" && output == "flow.branch")
+}
+
+fn reachable_workflow_node_ids(
+    start_node_id: &str,
+    adjacency: &HashMap<String, Vec<String>>,
+) -> HashSet<String> {
+    let mut reachable = HashSet::new();
+    let mut queue = VecDeque::from([start_node_id.to_owned()]);
+    while let Some(node_id) = queue.pop_front() {
+        if !reachable.insert(node_id.clone()) {
+            continue;
+        }
+        if let Some(next_nodes) = adjacency.get(&node_id) {
+            queue.extend(next_nodes.iter().cloned());
+        }
+    }
+    reachable
+}
+
+fn push_workflow_definition_finding(
+    findings: &mut Vec<WorkflowSimulationFinding>,
+    code: &'static str,
+    message: &'static str,
+) {
+    findings.push(WorkflowSimulationFinding {
+        severity: "blocker".to_owned(),
+        code: code.to_owned(),
+        message: message.to_owned(),
+    });
+}
+
+fn format_workflow_definition_findings(findings: &[WorkflowSimulationFinding]) -> String {
+    let mut parts: Vec<String> = findings
+        .iter()
+        .take(8)
+        .map(|finding| format!("{}: {}", finding.code, finding.message))
+        .collect();
+    if findings.len() > parts.len() {
+        parts.push(format!(
+            "{} more validation blockers",
+            findings.len() - parts.len()
+        ));
+    }
+    format!(
+        "workflow.definition.v1 graph validation failed: {}",
+        parts.join("; ")
+    )
 }
 
 /// Validate a `wf.exec.v1` executable definition's node graph (design §3/§template).
@@ -4480,9 +5773,9 @@ fn validate_execution_graph(
                 let connector_key = required_string(node, "connector_key")?;
                 let action_key = required_string(node, "action_key")?;
                 if !connector_allows(connector_key, action_key) {
-                    return Err(WorkflowStudioError::validation(format!(
-                        "execution node job action {connector_key}.{action_key} is not in the Workflow Studio connector allowlist"
-                    )));
+                    return Err(WorkflowStudioError::validation(
+                        "execution node job action is not in the Workflow Studio connector allowlist",
+                    ));
                 }
             }
             "condition" => {
@@ -4496,10 +5789,22 @@ fn validate_execution_graph(
                     .map_err(WorkflowStudioError::from)?;
                 condition_keys.push(node_key);
             }
-            other => {
-                return Err(WorkflowStudioError::validation(format!(
-                    "unsupported execution node_type {other}"
-                )));
+            "guard.checklist_attestation" => {
+                validate_execution_checklist_guard(node)?;
+            }
+            "guard.four_eyes_peer_review" => {
+                validate_execution_four_eyes_guard(node)?;
+            }
+            "guard.segregation_of_duties" => {
+                validate_execution_sod_guard(node)?;
+            }
+            "guard.egress_policy" => {
+                validate_execution_egress_guard(node)?;
+            }
+            _ => {
+                return Err(WorkflowStudioError::validation(
+                    "unsupported execution node_type",
+                ));
             }
         }
     }
@@ -4548,18 +5853,274 @@ fn validate_execution_graph(
     Ok(())
 }
 
-/// The definition status to keep when editing/staging a revision: a live
-/// definition (ACTIVE/PAUSED, i.e. it has an active_version) keeps its status so
-/// the active version keeps serving; a never-published one stays DRAFT.
-fn keep_live_status(current: &WorkflowVersionRow) -> &'static str {
-    if current.active_version.is_none() {
-        return "DRAFT";
+fn validate_execution_checklist_guard(
+    node: &serde_json::Map<String, Value>,
+) -> Result<(), WorkflowStudioError> {
+    let config = execution_guard_config(node)?;
+    ensure_allowed_guard_fields(
+        config,
+        &[
+            "label",
+            "required_policy",
+            "audit_event_key",
+            "assignee_role_key",
+            "items",
+            "approve_requires_all_required",
+            "reject_requires_memo",
+            "step_up_required",
+            "passkey_purpose",
+            "due_after",
+            "redaction",
+            "on_missing_fact",
+        ],
+    )?;
+    required_string(config, "label")?;
+    validate_optional_feature_key(config.get("required_policy"))?;
+    validate_optional_audit_event_key(config.get("audit_event_key"))?;
+    let items = required_array(config, "items")?;
+    if items.is_empty() || items.len() > 50 {
+        return Err(WorkflowStudioError::validation(
+            "checklist guardrail requires 1..=50 items",
+        ));
     }
-    match current.status.as_str() {
-        "PAUSED" => "PAUSED",
-        // ACTIVE (and any live status) keeps serving.
-        _ => "ACTIVE",
+    for item in items {
+        let item = item.as_object().ok_or_else(|| {
+            WorkflowStudioError::validation("checklist guardrail items must be objects")
+        })?;
+        ensure_allowed_guard_fields(
+            item,
+            &[
+                "key",
+                "label",
+                "kind",
+                "required",
+                "min_count",
+                "source_ref",
+            ],
+        )?;
+        required_string(item, "key")?;
+        required_string(item, "label")?;
+        match required_string(item, "kind")? {
+            "checkbox" | "text" | "evidence_ref" | "object_ref" | "policy_ack" => {}
+            _ => {
+                return Err(WorkflowStudioError::validation(
+                    "checklist guardrail item kind is not server-owned",
+                ));
+            }
+        }
     }
+    Ok(())
+}
+
+fn validate_execution_four_eyes_guard(
+    node: &serde_json::Map<String, Value>,
+) -> Result<(), WorkflowStudioError> {
+    let config = execution_guard_config(node)?;
+    ensure_allowed_guard_fields(
+        config,
+        &[
+            "label",
+            "required_policy",
+            "audit_event_key",
+            "assignee_role_key",
+            "subject_actor_refs",
+            "min_reviewers",
+            "forbid_same_actor",
+            "allow_org_lead_exemption",
+            "allow_super_admin_exemption",
+            "exemption_requires_memo",
+            "step_up_required",
+            "reject_requires_memo",
+            "passkey_purpose",
+            "due_after",
+            "redaction",
+            "on_missing_fact",
+        ],
+    )?;
+    required_string(config, "label")?;
+    validate_optional_feature_key(config.get("required_policy"))?;
+    validate_optional_audit_event_key(config.get("audit_event_key"))?;
+    let subject_actor_refs = required_array(config, "subject_actor_refs")?;
+    if subject_actor_refs.is_empty()
+        || subject_actor_refs
+            .iter()
+            .any(|value| value.as_str().is_none_or(str::is_empty))
+    {
+        return Err(WorkflowStudioError::validation(
+            "four-eyes guardrail requires non-empty subject_actor_refs",
+        ));
+    }
+    if let Some(min_reviewers) = config.get("min_reviewers").and_then(Value::as_u64)
+        && !(1..=4).contains(&min_reviewers)
+    {
+        return Err(WorkflowStudioError::validation(
+            "four-eyes guardrail min_reviewers must be 1..=4",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_execution_sod_guard(
+    node: &serde_json::Map<String, Value>,
+) -> Result<(), WorkflowStudioError> {
+    let config = execution_guard_config(node)?;
+    ensure_allowed_guard_fields(
+        config,
+        &[
+            "label",
+            "policy_key",
+            "audit_event_key",
+            "actor_under_test_ref",
+            "blocked_actor_refs",
+            "blocked_role_refs",
+            "scope",
+            "mode",
+            "exemptions",
+            "exemption_requires_memo",
+            "on_missing_fact",
+        ],
+    )?;
+    required_string(config, "label")?;
+    required_string(config, "policy_key")?;
+    validate_optional_audit_event_key(config.get("audit_event_key"))?;
+    let blocked_actor_refs = required_array(config, "blocked_actor_refs")?;
+    if blocked_actor_refs.is_empty()
+        || blocked_actor_refs
+            .iter()
+            .any(|value| value.as_str().is_none_or(str::is_empty))
+    {
+        return Err(WorkflowStudioError::validation(
+            "SoD guardrail requires non-empty blocked_actor_refs",
+        ));
+    }
+    if let Some(mode) = config.get("mode").and_then(Value::as_str)
+        && !matches!(mode, "hard_block" | "allow_with_governance_finding")
+    {
+        return Err(WorkflowStudioError::validation(
+            "SoD guardrail mode is not server-owned",
+        ));
+    }
+    Ok(())
+}
+
+fn validate_execution_egress_guard(
+    node: &serde_json::Map<String, Value>,
+) -> Result<(), WorkflowStudioError> {
+    let config = execution_guard_config(node)?;
+    ensure_allowed_guard_fields(
+        config,
+        &[
+            "label",
+            "egress_kind",
+            "channel",
+            "required_policy",
+            "audit_event_key",
+            "manual_review_role_key",
+            "external_recipient_policy",
+            "step_up_required",
+            "passkey_purpose",
+            "classification_ref",
+            "data_classes",
+            "lifecycle_requirements",
+            "on_missing_fact",
+        ],
+    )?;
+    required_string(config, "label")?;
+    let egress_kind = required_string(config, "egress_kind")?;
+    if !matches!(
+        egress_kind,
+        "mail" | "export" | "webhook" | "job" | "document_download"
+    ) {
+        return Err(WorkflowStudioError::validation(
+            "egress guardrail kind is not server-owned",
+        ));
+    }
+    required_string(config, "channel")?;
+    validate_optional_feature_key(config.get("required_policy"))?;
+    validate_optional_audit_event_key(config.get("audit_event_key"))?;
+    if matches!(egress_kind, "mail" | "export" | "document_download") {
+        required_string(config, "classification_ref")?;
+    }
+    if let Some(policy) = config
+        .get("external_recipient_policy")
+        .and_then(Value::as_str)
+        && !matches!(policy, "block" | "allow_if_approved" | "manual_review")
+    {
+        return Err(WorkflowStudioError::validation(
+            "egress guardrail external_recipient_policy is not server-owned",
+        ));
+    }
+    Ok(())
+}
+
+fn execution_guard_config(
+    node: &serde_json::Map<String, Value>,
+) -> Result<&serde_json::Map<String, Value>, WorkflowStudioError> {
+    if let Some(config) = node.get("config") {
+        for key in node.keys() {
+            if !matches!(key.as_str(), "node_key" | "node_type" | "config") {
+                return Err(WorkflowStudioError::validation(
+                    "guardrail execution node contains an unsupported top-level field",
+                ));
+            }
+        }
+        return config.as_object().ok_or_else(|| {
+            WorkflowStudioError::validation("guardrail execution node config must be an object")
+        });
+    }
+    Ok(node)
+}
+
+fn ensure_allowed_guard_fields(
+    config: &serde_json::Map<String, Value>,
+    allowed: &[&str],
+) -> Result<(), WorkflowStudioError> {
+    let allowed: HashSet<&str> = allowed.iter().copied().collect();
+    for key in config.keys() {
+        if matches!(key.as_str(), "node_key" | "node_type" | "config") {
+            continue;
+        }
+        if !allowed.contains(key.as_str()) {
+            return Err(WorkflowStudioError::validation(
+                "guardrail execution config contains an unsupported field",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn required_array<'a>(
+    object: &'a serde_json::Map<String, Value>,
+    key: &'static str,
+) -> Result<&'a Vec<Value>, WorkflowStudioError> {
+    object.get(key).and_then(Value::as_array).ok_or_else(|| {
+        WorkflowStudioError::validation(format!("guardrail config {key} array is required"))
+    })
+}
+
+fn validate_optional_feature_key(value: Option<&Value>) -> Result<(), WorkflowStudioError> {
+    if let Some(value) = value {
+        let policy = value.as_str().ok_or_else(|| {
+            WorkflowStudioError::validation("guardrail required_policy must be a Feature key")
+        })?;
+        Feature::from_str(policy).map_err(WorkflowStudioError::from)?;
+    }
+    Ok(())
+}
+
+fn validate_optional_audit_event_key(value: Option<&Value>) -> Result<(), WorkflowStudioError> {
+    if let Some(value) = value {
+        let action = value.as_str().ok_or_else(|| {
+            WorkflowStudioError::validation("guardrail audit_event_key must be a string")
+        })?;
+        AuditAction::new(action).map_err(WorkflowStudioError::from)?;
+        if !action.starts_with("workflow_guardrail.") {
+            return Err(WorkflowStudioError::validation(
+                "guardrail audit_event_key must use the workflow_guardrail namespace",
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// The `object_kinds` chain declared on a definition (the ontology kinds its
@@ -4750,9 +6311,9 @@ fn validate_action_allowlist(actions: &[Value]) -> Result<(), WorkflowStudioErro
                 WorkflowStudioError::validation("action_allowlist entries require action_key")
             })?;
         if !connector_allows(connector_key, action_key) {
-            return Err(WorkflowStudioError::validation(format!(
-                "action {connector_key}.{action_key} is not in the Workflow Studio connector allowlist"
-            )));
+            return Err(WorkflowStudioError::validation(
+                "action_allowlist entry is not in the Workflow Studio connector allowlist",
+            ));
         }
     }
     Ok(())
@@ -4769,9 +6330,9 @@ fn validate_notification_rules(rules: &[Value]) -> Result<(), WorkflowStudioErro
             && !connector_allows("internal.notifications", action_key)
             && !connector_allows("internal.mail", action_key)
         {
-            return Err(WorkflowStudioError::validation(format!(
-                "notification action {action_key} is not allowlisted"
-            )));
+            return Err(WorkflowStudioError::validation(
+                "notification action is not allowlisted",
+            ));
         }
     }
     Ok(())
@@ -4820,14 +6381,39 @@ fn validation_findings(row: &WorkflowVersionRow) -> Vec<WorkflowSimulationFindin
             message: error.message,
         });
     }
-    if row.definition.get("policy_decision").is_some()
-        && let Err(error) = validate_definition_object(row.definition.clone())
+    if row.definition.get("schema_version").and_then(Value::as_str)
+        == Some(WORKFLOW_EXEC_SCHEMA_VERSION)
     {
-        findings.push(WorkflowSimulationFinding {
-            severity: "blocker".to_owned(),
-            code: "invalid_policy_decision".to_owned(),
-            message: error.message,
-        });
+        if let Err(error) = validate_definition_object(row.definition.clone()) {
+            findings.push(WorkflowSimulationFinding {
+                severity: "blocker".to_owned(),
+                code: "invalid_execution_definition".to_owned(),
+                message: error.message,
+            });
+        }
+    } else {
+        findings.extend(validate_canonical_workflow_definition(
+            &row.definition,
+            Some(&row.object_type),
+        ));
+        if row.definition.get("cedar_policy").is_some()
+            || row.definition.get("cedar_policy_text").is_some()
+        {
+            findings.push(WorkflowSimulationFinding {
+                severity: "blocker".to_owned(),
+                code: "arbitrary_policy_text".to_owned(),
+                message: "Workflow Studio policy decisions must use policy_decision templates, not arbitrary Cedar text".to_owned(),
+            });
+        }
+        if let Some(policy_decision) = row.definition.get("policy_decision")
+            && let Err(error) = validate_policy_decision(policy_decision)
+        {
+            findings.push(WorkflowSimulationFinding {
+                severity: "blocker".to_owned(),
+                code: "invalid_policy_decision".to_owned(),
+                message: error.message,
+            });
+        }
     }
     findings
 }
@@ -4837,6 +6423,15 @@ fn validate_publishable(row: &WorkflowVersionRow) -> Vec<WorkflowSimulationFindi
         .into_iter()
         .filter(|finding| finding.severity == "blocker")
         .collect()
+}
+
+#[cfg(test)]
+fn format_publish_findings(findings: Vec<WorkflowSimulationFinding>) -> String {
+    findings
+        .into_iter()
+        .map(|finding| format!("{}: {}", finding.code, finding.message))
+        .collect::<Vec<_>>()
+        .join("; ")
 }
 
 fn simulation_for(row: &WorkflowVersionRow) -> WorkflowSimulationResponse {
@@ -5741,6 +7336,16 @@ fn json_array(value: Value) -> Vec<Value> {
     }
 }
 
+fn json_string_array(value: Value) -> Vec<String> {
+    match value {
+        Value::Array(values) => values
+            .into_iter()
+            .filter_map(|value| value.as_str().map(ToOwned::to_owned))
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
 fn empty_object() -> Value {
     json!({})
 }
@@ -5899,6 +7504,8 @@ mod tests {
             err.message
                 .contains("not in the Workflow Studio connector allowlist")
         );
+        assert!(!err.message.contains("external.random"));
+        assert!(!err.message.contains("post_secret"));
         Ok(())
     }
 
@@ -6173,6 +7780,73 @@ mod tests {
         };
         assert_eq!(err.status, StatusCode::UNPROCESSABLE_ENTITY);
         assert!(err.message.contains("connector allowlist"));
+        assert!(!err.message.contains("external.random"));
+        Ok(())
+    }
+
+    #[test]
+    fn execution_graph_accepts_guardrail_control_point_nodes() -> Result<(), String> {
+        let definition = json!({
+            "schema_version": WORKFLOW_EXEC_SCHEMA_VERSION,
+            "workflow_key": "work_order.guarded_completion",
+            "object_type": "work_order",
+            "nodes": [
+                {
+                    "node_key": "guard.checklist.ops_attestation",
+                    "node_type": "guard.checklist_attestation",
+                    "label": "Operations attestation",
+                    "required_policy": "completion_review",
+                    "assignee_role_key": "operations.manager",
+                    "items": [{
+                        "key": "evidence_uploaded",
+                        "label": "Evidence uploaded",
+                        "kind": "evidence_ref",
+                        "required": true,
+                        "min_count": 1
+                    }]
+                },
+                {
+                    "node_key": "guard.four_eyes.peer_review",
+                    "node_type": "guard.four_eyes_peer_review",
+                    "label": "Peer review",
+                    "required_policy": "completion_review",
+                    "assignee_role_key": "operations.manager",
+                    "subject_actor_refs": ["run.initiated_by"],
+                    "min_reviewers": 1
+                },
+                {
+                    "node_key": "guard.sod.purchase_approval",
+                    "node_type": "guard.segregation_of_duties",
+                    "label": "Purchase approver must differ",
+                    "policy_key": "purchase.self_approval",
+                    "actor_under_test_ref": "run.current_actor",
+                    "blocked_actor_refs": ["object.requested_by"],
+                    "mode": "hard_block"
+                },
+                {
+                    "node_key": "guard.egress.mail",
+                    "node_type": "guard.egress_policy",
+                    "label": "Mail egress gate",
+                    "egress_kind": "mail",
+                    "channel": "internal.mail",
+                    "required_policy": "mail_use",
+                    "classification_ref": "mail.thread.classification",
+                    "external_recipient_policy": "block"
+                }
+            ],
+            "edges": []
+        });
+
+        validate_definition_object(definition.clone()).map_err(|err| err.message)?;
+
+        let mut invalid = definition;
+        invalid["nodes"][0]["browser_supplied_org_id"] = json!("must-not-be-accepted");
+        let err = match validate_definition_object(invalid) {
+            Ok(_) => return Err("browser-supplied guardrail fields must fail closed".to_owned()),
+            Err(err) => err,
+        };
+        assert_eq!(err.status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert!(err.message.contains("unsupported field"));
         Ok(())
     }
 
@@ -6215,10 +7889,249 @@ mod tests {
         );
     }
 
+    #[test]
+    fn create_rejects_invalid_canonical_workflow_graphs() -> Result<(), String> {
+        let mut missing_schema = canonical_workflow_definition("leave_request");
+        missing_schema
+            .as_object_mut()
+            .ok_or_else(|| "definition fixture must be an object".to_owned())?
+            .remove("schema_version");
+
+        let mut object_type_mismatch = canonical_workflow_definition("leave_request");
+        object_type_mismatch["metadata"]["object_type"] = json!("work_order");
+
+        let mut missing_trigger = canonical_workflow_definition("leave_request");
+        missing_trigger["graph"]["nodes"]
+            .as_array_mut()
+            .ok_or_else(|| "nodes fixture must be an array".to_owned())?
+            .retain(|node| node["type"] != "trigger.form_submission");
+
+        let mut missing_terminal = canonical_workflow_definition("leave_request");
+        missing_terminal["graph"]["nodes"]
+            .as_array_mut()
+            .ok_or_else(|| "nodes fixture must be an array".to_owned())?
+            .retain(|node| node["type"] != "end.state");
+
+        let mut duplicate_node_id = canonical_workflow_definition("leave_request");
+        duplicate_node_id["graph"]["nodes"][1]["id"] = json!("node-trigger");
+
+        let mut invalid_edge_endpoint = canonical_workflow_definition("leave_request");
+        invalid_edge_endpoint["graph"]["edges"][0]["to_node_id"] = json!("node-missing");
+
+        let mut unknown_node_type = canonical_workflow_definition("leave_request");
+        unknown_node_type["graph"]["nodes"][1]["type"] = json!("action.raw_http");
+        unknown_node_type["graph"]["nodes"][1]["config"]["type"] = json!("action.raw_http");
+
+        let mut unknown_connector_action = canonical_workflow_definition("leave_request");
+        unknown_connector_action["graph"]["nodes"][5]["config"]["action_key"] =
+            json!("post_secret");
+
+        let cases = [
+            ("schema_version", missing_schema),
+            ("object_type_mismatch", object_type_mismatch),
+            ("missing_trigger", missing_trigger),
+            ("missing_terminal", missing_terminal),
+            ("duplicate_node_id", duplicate_node_id),
+            ("invalid_edge_endpoint", invalid_edge_endpoint),
+            ("unknown_node_type", unknown_node_type),
+            ("connector_action_not_allowlisted", unknown_connector_action),
+        ];
+
+        for (expected_code, definition) in cases {
+            let err = match normalize_create_request(create_request(definition, "leave_request")) {
+                Ok(_) => return Err("invalid canonical workflow graph must fail closed".to_owned()),
+                Err(err) => err,
+            };
+            assert_eq!(err.status, StatusCode::UNPROCESSABLE_ENTITY);
+            assert!(
+                err.message.contains(expected_code),
+                "expected validation message to contain {expected_code}, got {}",
+                err.message
+            );
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn create_rejects_unsafe_condition_branch_config() -> Result<(), String> {
+        let mut invalid_expression_op = canonical_workflow_definition("leave_request");
+        invalid_expression_op["graph"]["nodes"][3]["config"]["expression"]["op"] =
+            json!("browser_script");
+
+        let mut invalid_expression_ref = canonical_workflow_definition("leave_request");
+        invalid_expression_ref["graph"]["nodes"][3]["config"]["expression"]["left"]["ref"] =
+            json!("trigger.raw_table");
+
+        let mut invalid_branch_when = canonical_workflow_definition("leave_request");
+        invalid_branch_when["graph"]["nodes"][3]["config"]["branches"][0]["when"] =
+            json!("javascript:approved");
+
+        let mut invalid_default_port = canonical_workflow_definition("leave_request");
+        invalid_default_port["graph"]["nodes"][3]["config"]["default_port"] =
+            json!("trigger.raw_table");
+
+        let mut undeclared_branch_port = canonical_workflow_definition("leave_request");
+        undeclared_branch_port["graph"]["nodes"][3]["output_ports"]
+            .as_array_mut()
+            .ok_or_else(|| "branch output ports fixture must be an array".to_owned())?
+            .push(json!({
+                "key": "browser_defined",
+                "direction": "output",
+                "type": "flow.branch",
+                "required": false,
+                "cardinality": "one",
+                "label": "Browser-defined"
+            }));
+
+        let cases = [
+            ("invalid_condition_expression", invalid_expression_op),
+            ("invalid_condition_expression", invalid_expression_ref),
+            ("invalid_condition_branch", invalid_branch_when),
+            ("invalid_condition_default", invalid_default_port),
+            ("invalid_condition_branch", undeclared_branch_port),
+        ];
+
+        for (expected_code, definition) in cases {
+            let err = match normalize_create_request(create_request(definition, "leave_request")) {
+                Ok(_) => return Err("unsafe condition.branch config must fail closed".to_owned()),
+                Err(err) => err,
+            };
+            assert_eq!(err.status, StatusCode::UNPROCESSABLE_ENTITY);
+            assert!(
+                err.message.contains(expected_code),
+                "expected validation message to contain {expected_code}, got {}",
+                err.message
+            );
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn create_rejects_browser_defined_object_scope_and_update_handles() -> Result<(), String> {
+        let mut trigger_object_mismatch = canonical_workflow_definition("leave_request");
+        trigger_object_mismatch["graph"]["nodes"][0]["config"]["source"]["object_type"] =
+            json!("raw_table");
+
+        let mut trigger_scope_escape = canonical_workflow_definition("leave_request");
+        trigger_scope_escape["graph"]["nodes"][0]["config"]["source"]["scope"] = json!("browser");
+
+        let mut form_object_mismatch = canonical_workflow_definition("leave_request");
+        form_object_mismatch["graph"]["nodes"][1]["config"]["fields"][0]["object_type"] =
+            json!("raw_table");
+
+        let mut raw_action_id = canonical_workflow_definition("leave_request");
+        raw_action_id["graph"]["nodes"][4]["config"]["action_id"] = json!("raw_table.update");
+
+        let mut raw_policy = canonical_workflow_definition("leave_request");
+        raw_policy["graph"]["nodes"][4]["config"]["requires_policy"] = json!("raw_table.update");
+
+        let mut raw_target = canonical_workflow_definition("leave_request");
+        raw_target["graph"]["nodes"][4]["config"]["target"]["from"] = json!("trigger.raw_table");
+
+        let mut raw_input_handle = canonical_workflow_definition("leave_request");
+        raw_input_handle["graph"]["nodes"][4]["config"]["input"]["updated_by"]["from"] =
+            json!("form.browser_actor");
+
+        let cases = [
+            ("object_type_mismatch", trigger_object_mismatch),
+            ("trigger_source", trigger_scope_escape),
+            ("object_type_mismatch", form_object_mismatch),
+            ("object_action_not_allowlisted", raw_action_id),
+            ("object_action_not_allowlisted", raw_policy),
+            ("invalid_object_update_target", raw_target),
+            ("invalid_object_update_input", raw_input_handle),
+        ];
+
+        for (expected_code, definition) in cases {
+            let err = match normalize_create_request(create_request(definition, "leave_request")) {
+                Ok(_) => {
+                    return Err("browser-defined object/action scope must fail closed".to_owned());
+                }
+                Err(err) => err,
+            };
+            assert_eq!(err.status, StatusCode::UNPROCESSABLE_ENTITY);
+            assert!(
+                err.message.contains(expected_code),
+                "expected validation message to contain {expected_code}, got {}",
+                err.message
+            );
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn accepts_leave_and_catalog_canonical_workflow_templates() -> Result<(), String> {
+        let mut object_types = vec!["leave_request"];
+        object_types.extend(
+            WORKFLOW_TEMPLATES
+                .iter()
+                .map(|template| template.object_type),
+        );
+
+        for object_type in object_types {
+            normalize_create_request(create_request(
+                canonical_workflow_definition(object_type),
+                object_type,
+            ))
+            .map_err(|err| err.message)?;
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn publish_validation_blocks_invalid_canonical_workflow_graphs() {
+        let mut invalid_definition = canonical_workflow_definition("leave_request");
+        invalid_definition["graph"]["edges"][0]["to_port"] = json!("missing_port");
+        let row = workflow_row(invalid_definition, "leave_request");
+
+        let findings = validate_publishable(&row);
+
+        assert!(
+            findings
+                .iter()
+                .any(|finding| finding.code == "invalid_edge_endpoint"),
+            "expected invalid_edge_endpoint blocker, got {findings:?}"
+        );
+    }
+
+    #[test]
+    fn publish_validation_messages_include_stable_codes() {
+        let mut invalid_definition = canonical_workflow_definition("leave_request");
+        invalid_definition["graph"]["edges"][0]["to_port"] = json!("missing_port");
+        let row = workflow_row(invalid_definition, "leave_request");
+
+        let message = format_publish_findings(validate_publishable(&row));
+
+        assert!(message.contains("invalid_edge_endpoint:"));
+        assert!(!message.contains("node-trigger"));
+        assert!(!message.contains("missing_port"));
+    }
+
+    #[test]
+    fn publish_validation_messages_hide_action_allowlist_payload_values() {
+        let mut row = workflow_row(
+            canonical_workflow_definition("leave_request"),
+            "leave_request",
+        );
+        row.action_allowlist = vec![json!({
+            "connector_key": "external.random",
+            "action_key": "post_secret"
+        })];
+
+        let message = format_publish_findings(validate_publishable(&row));
+
+        assert!(message.contains("invalid_action_allowlist:"));
+        assert!(!message.contains("external.random"));
+        assert!(!message.contains("post_secret"));
+    }
+
     fn policy_decision_definition() -> Value {
-        json!({
-            "schema_version": "workflow.definition.v1",
-            "policy_decision": {
+        let mut definition = canonical_workflow_definition("equipment");
+        definition["policy_decision"] = json!({
                 "template_key": "equipment_location_access",
                 "effect": "allow",
                 "action": "maintenance:StartWorkOrder",
@@ -6237,8 +8150,253 @@ mod tests {
                     "passkey_step_up": true,
                     "audit_event": "workflow_definition.publish"
                 }
-            }
+        });
+        definition
+    }
+
+    fn create_request(definition: Value, object_type: &str) -> CreateWorkflowDefinitionRequest {
+        CreateWorkflowDefinitionRequest {
+            workflow_key: format!("{object_type}.approval"),
+            display_name: format!("{object_type} approval"),
+            object_type: object_type.to_owned(),
+            definition,
+            approval_line: vec![],
+            payment_line: vec![],
+            notification_rules: vec![],
+            action_allowlist: vec![json!({
+                "connector_key": "internal.notifications",
+                "action_key": "send_push"
+            })],
+            required_approval_line: false,
+            required_payment_line: false,
+        }
+    }
+
+    fn workflow_row(definition: Value, object_type: &str) -> WorkflowVersionRow {
+        WorkflowVersionRow {
+            definition_id: Uuid::new_v4(),
+            workflow_key: format!("{object_type}.approval"),
+            display_name: format!("{object_type} approval"),
+            object_type: object_type.to_owned(),
+            status: "DRAFT".to_owned(),
+            latest_version: 1,
+            active_version: None,
+            definition,
+            approval_line: vec![],
+            payment_line: vec![],
+            notification_rules: vec![],
+            action_allowlist: vec![json!({
+                "connector_key": "internal.notifications",
+                "action_key": "send_push"
+            })],
+            required_approval_line: false,
+            required_payment_line: false,
+            pending_version: None,
+            pending_staged_by: None,
+            created_at: OffsetDateTime::UNIX_EPOCH,
+            updated_at: OffsetDateTime::UNIX_EPOCH,
+        }
+    }
+
+    fn canonical_workflow_definition(object_type: &str) -> Value {
+        json!({
+            "schema_version": "workflow.definition.v1",
+            "metadata": {
+                "name": format!("{object_type} approval"),
+                "description": "Server validation fixture for a canonical no-code workflow.",
+                "owner_scope": { "type": "org" },
+                "object_type": object_type,
+                "sensitivity": "summary_only",
+                "tags": [object_type, "approval"],
+                "locale": "ko-KR"
+            },
+            "graph": {
+                "nodes": [
+                    node("node-trigger", &format!("trigger.{object_type}.submitted"), "trigger.form_submission", "Submitted", vec![], vec![output_port("submitted", "flow.next", "Submitted")], json!({
+                        "type": "trigger.form_submission",
+                        "source": { "object_type": object_type, "event": "submitted", "scope": "org" },
+                        "actor": { "required_policy": format!("{object_type}.submit") },
+                        "idempotency": { "key_template": format!("{object_type}:{{object_id}}:submitted:{{version}}") }
+                    })),
+                    node("node-form", &format!("form.{object_type}"), "form.input", "Review form", vec![input_port("in", "flow.next", "In")], vec![output_port("completed", "flow.next", "Completed")], json!({
+                        "type": "form.input",
+                        "fields": [{
+                            "key": format!("{object_type}_id"),
+                            "label": "Request",
+                            "field_type": "object_ref",
+                            "object_type": object_type,
+                            "required": true,
+                            "sensitivity": "summary_only"
+                        }],
+                        "submit_label": "Submit"
+                    })),
+                    node("node-approval", &format!("task.{object_type}.approval"), "task.approval", "Approval", vec![input_port("in", "flow.next", "In")], vec![output_port("decision", "flow.next", "Decision")], json!({
+                        "type": "task.approval",
+                        "assignee_rule": { "kind": "role", "subject_field": format!("{object_type}_id"), "fallback_role": "operations.manager" },
+                        "decision_options": ["approve", "reject", "request_change"],
+                        "requires_comment_on": ["reject"],
+                        "requires_evidence": false,
+                        "prevent_self_approval": true,
+                        "sla": { "duration": "P2D", "escalate_to": "operations.director" },
+                        "requires_passkey_step_up": false,
+                        "policy": [format!("approval_request.approve.{object_type}")]
+                    })),
+                    node("node-condition", &format!("condition.{object_type}.approval_result"), "condition.branch", "Approval result", vec![input_port("in", "flow.next", "Decision")], vec![branch_port("approved", "Approved"), branch_port("rejected", "Rejected")], json!({
+                        "type": "condition.branch",
+                        "expression": { "op": "equals", "left": { "ref": "approval.result" }, "right": "approved" },
+                        "branches": [
+                            { "port": "approved", "label": "Approved", "when": "true" },
+                            { "port": "rejected", "label": "Rejected", "when": "false" }
+                        ],
+                        "default_port": "rejected"
+                    })),
+                    action_update_node(object_type, "approved"),
+                    notification_node(object_type, "approved"),
+                    audit_node(object_type, "approved"),
+                    end_node("approved"),
+                    action_update_node(object_type, "rejected"),
+                    notification_node(object_type, "rejected"),
+                    audit_node(object_type, "rejected"),
+                    end_node("rejected")
+                ],
+                "edges": [
+                    edge("edge-trigger-form", "node-trigger", "submitted", "node-form", "in", "control"),
+                    edge("edge-form-approval", "node-form", "completed", "node-approval", "in", "control"),
+                    edge("edge-approval-condition", "node-approval", "decision", "node-condition", "in", "control"),
+                    edge("edge-condition-approved-update", "node-condition", "approved", "node-approved-update", "in", "decision"),
+                    edge("edge-approved-update-notify", "node-approved-update", "done", "node-approved-notify", "in", "control"),
+                    edge("edge-approved-notify-audit", "node-approved-notify", "done", "node-approved-audit", "in", "control"),
+                    edge("edge-approved-audit-end", "node-approved-audit", "done", "node-end-approved", "in", "control"),
+                    edge("edge-condition-rejected-update", "node-condition", "rejected", "node-rejected-update", "in", "decision"),
+                    edge("edge-rejected-update-notify", "node-rejected-update", "done", "node-rejected-notify", "in", "control"),
+                    edge("edge-rejected-notify-audit", "node-rejected-notify", "done", "node-rejected-audit", "in", "control"),
+                    edge("edge-rejected-audit-end", "node-rejected-audit", "done", "node-end-rejected", "in", "control")
+                ],
+                "variables": [],
+                "simulation_cases": [{ "key": "happy_path", "label": "Happy path" }]
+            },
+            "canvas": { "layout_version": "workflow.canvas.v1", "nodes": {}, "viewport": { "x": 0, "y": 0, "zoom": 1 } },
+            "validation": { "last_result": "valid", "last_validated_at": null, "compiler_version": null }
         })
+    }
+
+    fn action_update_node(object_type: &str, status: &str) -> Value {
+        node(
+            &format!("node-{status}-update"),
+            &format!("action.{object_type}.{status}_status"),
+            "action.object_update",
+            &format!("Set status {status}"),
+            vec![input_port("in", "flow.next", "In")],
+            vec![output_port("done", "flow.next", "Done")],
+            json!({
+                "type": "action.object_update",
+                "action_id": format!("{object_type}.update_status"),
+                "target": { "from": "trigger.object_ref" },
+                "input": { "status": status, "updated_by": { "from": "approval.actor_id" }, "updated_at": { "from": "system.now" } },
+                "idempotency": { "key_template": format!("{{run_id}}:{{node_key}}:{object_type}.update_status.{status}") },
+                "requires_policy": format!("{object_type}.update_status")
+            }),
+        )
+    }
+
+    fn notification_node(object_type: &str, status: &str) -> Value {
+        node(
+            &format!("node-{status}-notify"),
+            &format!("action.{object_type}.notify_{status}"),
+            "action.notification",
+            &format!("Notify {status}"),
+            vec![input_port("in", "flow.next", "In")],
+            vec![output_port("done", "flow.next", "Done")],
+            json!({
+                "type": "action.notification",
+                "connector_key": "internal.notifications",
+                "action_key": "send_push",
+                "recipient": { "kind": "requester" },
+                "template_key": format!("{object_type}.{status}"),
+                "redaction": "summary_only",
+                "link": { "object_ref": "trigger.object_ref" }
+            }),
+        )
+    }
+
+    fn audit_node(object_type: &str, status: &str) -> Value {
+        node(
+            &format!("node-{status}-audit"),
+            &format!("action.{object_type}.audit_{status}"),
+            "action.audit_append",
+            &format!("Audit {status}"),
+            vec![input_port("in", "flow.next", "In")],
+            vec![output_port("done", "flow.next", "Done")],
+            json!({
+                "type": "action.audit_append",
+                "event_key": format!("{object_type}.workflow.{status}"),
+                "summary_template": format!("{object_type} workflow completed with {status}."),
+                "redaction": "summary_only"
+            }),
+        )
+    }
+
+    fn end_node(status: &str) -> Value {
+        node(
+            &format!("node-end-{status}"),
+            &format!("end.{status}"),
+            "end.state",
+            &format!("{status} end"),
+            vec![input_port("in", "flow.terminal", "In")],
+            vec![],
+            json!({ "type": "end.state", "status": status }),
+        )
+    }
+
+    fn node(
+        id: &str,
+        key: &str,
+        node_type: &str,
+        label: &str,
+        input_ports: Vec<Value>,
+        output_ports: Vec<Value>,
+        config: Value,
+    ) -> Value {
+        json!({
+            "id": id,
+            "key": key,
+            "type": node_type,
+            "label": label,
+            "version": 1,
+            "input_ports": input_ports,
+            "output_ports": output_ports,
+            "config": config,
+            "policy": [],
+            "data_sensitivity": "summary_only",
+            "execution": {}
+        })
+    }
+
+    fn input_port(key: &str, port_type: &str, label: &str) -> Value {
+        port(key, "input", port_type, label)
+    }
+
+    fn output_port(key: &str, port_type: &str, label: &str) -> Value {
+        port(key, "output", port_type, label)
+    }
+
+    fn branch_port(key: &str, label: &str) -> Value {
+        port(key, "output", "flow.branch", label)
+    }
+
+    fn port(key: &str, direction: &str, port_type: &str, label: &str) -> Value {
+        json!({ "key": key, "direction": direction, "type": port_type, "required": true, "cardinality": "one", "label": label })
+    }
+
+    fn edge(
+        id: &str,
+        from_node_id: &str,
+        from_port: &str,
+        to_node_id: &str,
+        to_port: &str,
+        kind: &str,
+    ) -> Value {
+        json!({ "id": id, "from_node_id": from_node_id, "from_port": from_port, "to_node_id": to_node_id, "to_port": to_port, "kind": kind })
     }
 
     fn policy_row(definition: Value) -> WorkflowVersionRow {
@@ -6337,7 +8495,7 @@ mod tests {
 
         assert_eq!(simulation.decision, "blocked");
         assert!(simulation.findings.iter().any(|finding| {
-            finding.code == "invalid_policy_decision" && finding.message.contains("schema_version")
+            finding.code == "schema_version" && finding.message.contains("schema_version")
         }));
         assert!(
             simulation
@@ -6349,7 +8507,7 @@ mod tests {
 
     #[test]
     fn simulation_surfaces_non_blocking_findings() {
-        let mut row = policy_row(json!({}));
+        let mut row = policy_row(policy_decision_definition());
         row.action_allowlist = vec![];
 
         let simulation = simulation_for(&row);

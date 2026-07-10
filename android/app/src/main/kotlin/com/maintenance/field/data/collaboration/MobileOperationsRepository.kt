@@ -7,6 +7,10 @@ import com.maintenance.api.client.model.DeviceRegistrationResponse
 import com.maintenance.api.client.model.LocationPingRequest
 import com.maintenance.api.client.model.MailFolderView
 import com.maintenance.api.client.model.MailThreadView
+import com.maintenance.api.client.model.MobilePasskeyStepUpBinding
+import com.maintenance.api.client.model.MobilePasskeyStepUpEnvelope
+import com.maintenance.api.client.model.MobilePasskeyStepUpStartResponse
+import com.maintenance.api.client.model.MobileStepUpActionKind
 import com.maintenance.api.client.model.PasskeyStepUpAssertion
 import com.maintenance.api.client.model.PollResponse
 import com.maintenance.api.client.model.PollStatus
@@ -18,7 +22,13 @@ import java.util.UUID
 interface MobileOperationsGateway {
     suspend fun listApprovalItems(limit: Long, offset: Long): ApprovalItemsPage
 
-    suspend fun approveWorkOrder(workOrderId: UUID, comment: String)
+    suspend fun startMobilePasskeyStepUp(binding: MobilePasskeyStepUpBinding): MobilePasskeyStepUpStartResponse
+
+    suspend fun approveWorkOrder(
+        workOrderId: UUID,
+        comment: String,
+        stepUp: MobilePasskeyStepUpEnvelope,
+    )
 
     suspend fun listMailFolders(): List<MailFolderView>
 
@@ -40,7 +50,11 @@ interface MobileOperationsGateway {
 
     suspend fun listPolls(status: PollStatus?, limit: Long): List<PollResponse>
 
-    suspend fun votePoll(pollId: UUID, selectedOptionIds: List<UUID>): PollResponse
+    suspend fun votePoll(
+        pollId: UUID,
+        selectedOptionIds: List<UUID>,
+        stepUp: MobilePasskeyStepUpEnvelope,
+    ): PollResponse
 
     suspend fun registerAndroidDevice(
         deviceId: String,
@@ -60,14 +74,8 @@ enum class MobileSensitiveActionKind {
     ON_DUTY_PING,
 }
 
-data class MobilePasskeyStepUpEnvelope(
-    val actionKind: MobileSensitiveActionKind,
-    val objectId: UUID?,
-    val reasonKey: String,
-    val assertion: PasskeyStepUpAssertion?,
-) {
-    val requiresFreshPasskey: Boolean get() = assertion == null
-}
+private const val OPERATIONS_PASSKEY_APPROVAL_DECISION = "operations_passkey_approval_decision"
+private const val OPERATIONS_PASSKEY_POLL_VOTE = "operations_passkey_poll_vote"
 
 data class MobileOperationsSnapshot(
     val approvals: ApprovalItemsPage,
@@ -233,10 +241,12 @@ data class MobileQueuedSensitiveAction(
     val objectId: UUID?,
     val reasonKey: String,
     val comment: String? = null,
+    val selectedOptionIds: List<UUID> = emptyList(),
     val deviceId: String? = null,
     val appVersion: String? = null,
     val pushToken: String? = null,
     val locationPing: LocationPingRequest? = null,
+    val nextReplayAttempt: Int = 1,
     val createdAt: OffsetDateTime,
     val status: MobileQueuedActionStatus,
     val lastError: String? = null,
@@ -423,9 +433,9 @@ data class MobilePollRow(
 
 class MobileOperationsRepository(
     private val gateway: MobileOperationsGateway,
-    private val cache: MobileOperationsCacheStore = InMemoryMobileOperationsCacheStore(),
-    private val notificationStore: MobileNotificationStore = InMemoryMobileNotificationStore(),
-    private val sensitiveActionStore: MobileSensitiveActionStore = InMemoryMobileSensitiveActionStore(),
+    private val cache: MobileOperationsCacheStore,
+    private val notificationStore: MobileNotificationStore,
+    private val sensitiveActionStore: MobileSensitiveActionStore,
     private val requestIdFactory: () -> String = { UUID.randomUUID().toString() },
     private val clock: FieldClock = SystemFieldClock,
 ) {
@@ -472,17 +482,54 @@ class MobileOperationsRepository(
         return MobileOperationsOverview(updated, MobileOperationsSnapshotOrigin.LIVE)
     }
 
-    suspend fun votePoll(pollId: UUID, selectedOptionIds: List<UUID>): PollResponse {
-        val updatedPoll = gateway.votePoll(pollId = pollId, selectedOptionIds = selectedOptionIds)
-        cache.loadSnapshot()?.let { cached ->
-            cache.saveSnapshot(
-                cached.copy(
-                    polls = cached.polls.map { poll -> if (poll.id == pollId) updatedPoll else poll },
-                    refreshedAt = clock.now(),
-                ),
+    suspend fun votePoll(
+        pollId: UUID,
+        selectedOptionIds: List<UUID>,
+        stepUp: MobilePasskeyStepUpEnvelope?,
+    ): MobileQueuedSensitiveAction? {
+        require(selectedOptionIds.isNotEmpty()) { "poll vote requires at least one option" }
+        if (stepUp == null) {
+            return queuePollVote(
+                pollId = pollId,
+                selectedOptionIds = selectedOptionIds,
             )
         }
-        return updatedPoll
+
+        validateStepUpEnvelope(
+            envelope = stepUp,
+            expectedBinding = stepUpBinding(
+                actionKind = MobileSensitiveActionKind.POLL_VOTE,
+                objectId = pollId,
+                replayAttempt = null,
+            ),
+        )
+
+        return try {
+            val updatedPoll = gateway.votePoll(
+                pollId = pollId,
+                selectedOptionIds = selectedOptionIds,
+                stepUp = stepUp,
+            )
+            runCatching {
+                cache.loadSnapshot()?.let { cached ->
+                    cache.saveSnapshot(
+                        cached.copy(
+                            polls = cached.polls.map { poll -> if (poll.id == pollId) updatedPoll else poll },
+                            refreshedAt = clock.now(),
+                        ),
+                    )
+                }
+            }
+            null
+        } catch (error: Exception) {
+            queuePollVote(
+                pollId = pollId,
+                selectedOptionIds = selectedOptionIds,
+                status = MobileQueuedActionStatus.READY_FOR_REPLAY,
+                nextReplayAttempt = 1,
+                lastError = error.toString(),
+            )
+        }
     }
 
     suspend fun registerPushDevice(
@@ -531,42 +578,80 @@ class MobileOperationsRepository(
     suspend fun approveWorkOrder(
         approval: MobileApprovalRow,
         comment: String,
-        stepUpAssertion: PasskeyStepUpAssertion?,
+        stepUp: MobilePasskeyStepUpEnvelope?,
     ): MobileQueuedSensitiveAction? {
-        if (!approval.canExecuteOnMobile || stepUpAssertion == null) {
+        require(approval.canExecuteOnMobile) { "approval source cannot execute on mobile" }
+        if (stepUp == null) {
             return queueApprovalDecision(approval = approval, comment = comment)
         }
-        return try {
-            gateway.approveWorkOrder(workOrderId = approval.sourceId, comment = comment.trim())
-            cache.saveSnapshot(refreshOverview().snapshot)
-            null
-        } catch (error: Exception) {
-            MobileQueuedSensitiveAction(
-                id = requestIdFactory(),
+
+        validateStepUpEnvelope(
+            envelope = stepUp,
+            expectedBinding = stepUpBinding(
                 actionKind = MobileSensitiveActionKind.APPROVAL_DECISION,
                 objectId = approval.sourceId,
-                reasonKey = "operations_passkey_approval_decision",
+                replayAttempt = null,
+            ),
+        )
+
+        return try {
+            gateway.approveWorkOrder(
+                workOrderId = approval.sourceId,
                 comment = comment.trim(),
-                createdAt = clock.now(),
+                stepUp = stepUp,
+            )
+            runCatching { cache.saveSnapshot(refreshOverview().snapshot) }
+            null
+        } catch (error: Exception) {
+            queueApprovalDecision(
+                approval = approval,
+                comment = comment,
                 status = MobileQueuedActionStatus.READY_FOR_REPLAY,
+                nextReplayAttempt = 1,
                 lastError = error.toString(),
-            ).also { sensitiveActionStore.upsert(it) }
+            )
         }
     }
 
     suspend fun queueApprovalDecision(
         approval: MobileApprovalRow,
         comment: String,
+        status: MobileQueuedActionStatus = MobileQueuedActionStatus.WAITING_FOR_PASSKEY,
+        nextReplayAttempt: Int = 1,
+        lastError: String? = null,
     ): MobileQueuedSensitiveAction =
         MobileQueuedSensitiveAction(
             id = requestIdFactory(),
             actionKind = MobileSensitiveActionKind.APPROVAL_DECISION,
             objectId = approval.sourceId,
-            reasonKey = "operations_passkey_approval_decision",
+            reasonKey = OPERATIONS_PASSKEY_APPROVAL_DECISION,
             comment = comment.trim(),
+            nextReplayAttempt = nextReplayAttempt,
             createdAt = clock.now(),
-            status = MobileQueuedActionStatus.WAITING_FOR_PASSKEY,
+            status = status,
+            lastError = lastError,
         ).also { sensitiveActionStore.upsert(it) }
+
+    suspend fun queuePollVote(
+        pollId: UUID,
+        selectedOptionIds: List<UUID>,
+        status: MobileQueuedActionStatus = MobileQueuedActionStatus.WAITING_FOR_PASSKEY,
+        nextReplayAttempt: Int = 1,
+        lastError: String? = null,
+    ): MobileQueuedSensitiveAction {
+        require(selectedOptionIds.isNotEmpty()) { "poll vote requires at least one option" }
+        return MobileQueuedSensitiveAction(
+            id = requestIdFactory(),
+            actionKind = MobileSensitiveActionKind.POLL_VOTE,
+            objectId = pollId,
+            reasonKey = OPERATIONS_PASSKEY_POLL_VOTE,
+            selectedOptionIds = selectedOptionIds,
+            nextReplayAttempt = nextReplayAttempt,
+            createdAt = clock.now(),
+            status = status,
+            lastError = lastError,
+        ).also { sensitiveActionStore.upsert(it) }
+    }
 
     suspend fun recordOnDutyPing(
         state: com.maintenance.field.data.location.GpsCollectionState,
@@ -614,46 +699,88 @@ class MobileOperationsRepository(
     suspend fun sensitiveActionQueueSummary(): MobileSensitiveActionQueueSummary =
         MobileSensitiveActionQueueSummary(sensitiveActionStore.pending())
 
-    suspend fun replaySensitiveActions(stepUpAssertion: PasskeyStepUpAssertion?): MobileReplaySummary {
+    suspend fun replaySensitiveActions(
+        stepUpProvider: suspend (MobileQueuedSensitiveAction, MobilePasskeyStepUpBinding) -> MobilePasskeyStepUpEnvelope?,
+    ): MobileReplaySummary {
         var attempted = 0
         var submitted = 0
         var failed = 0
         var waiting = 0
 
         sensitiveActionStore.pending()
-            .filter { it.status == MobileQueuedActionStatus.READY_FOR_REPLAY }
+            .filter {
+                it.status == MobileQueuedActionStatus.READY_FOR_REPLAY ||
+                    it.status == MobileQueuedActionStatus.WAITING_FOR_PASSKEY
+            }
             .forEach { action ->
+                if (!action.requiresPasskey && action.status != MobileQueuedActionStatus.READY_FOR_REPLAY) {
+                    return@forEach
+                }
+
                 attempted += 1
-                try {
-                    when (action.actionKind) {
-                        MobileSensitiveActionKind.DEVICE_REGISTRATION -> {
-                            gateway.registerAndroidDevice(
-                                deviceId = requireNotNull(action.deviceId),
-                                appVersion = requireNotNull(action.appVersion),
-                                pushToken = requireNotNull(action.pushToken),
-                            )
-                        }
-                        MobileSensitiveActionKind.APPROVAL_DECISION -> {
-                            if (stepUpAssertion == null) {
-                                waiting += 1
-                                return@forEach
-                            }
-                            gateway.approveWorkOrder(
-                                workOrderId = requireNotNull(action.objectId),
-                                comment = action.comment.orEmpty(),
-                            )
-                        }
-                        MobileSensitiveActionKind.ON_DUTY_PING -> {
-                            gateway.recordLocationPing(requireNotNull(action.locationPing))
-                        }
-                        MobileSensitiveActionKind.MAIL_SEND,
-                        MobileSensitiveActionKind.POLL_VOTE,
-                        MobileSensitiveActionKind.WORKFLOW_STEP_UP,
-                        -> {
-                            waiting += 1
-                            return@forEach
-                        }
+                if (action.requiresPasskey) {
+                    val expectedBinding = try {
+                        stepUpBinding(
+                            actionKind = action.actionKind,
+                            objectId = requireNotNull(action.objectId),
+                            replayAttempt = action.nextReplayAttempt,
+                        )
+                    } catch (error: Exception) {
+                        sensitiveActionStore.upsert(
+                            action.copy(
+                                status = MobileQueuedActionStatus.WAITING_FOR_PASSKEY,
+                                lastError = error.toString(),
+                            ),
+                        )
+                        waiting += 1
+                        return@forEach
                     }
+
+                    val stepUp = try {
+                        stepUpProvider(action, expectedBinding)?.also {
+                            validateStepUpEnvelope(it, expectedBinding)
+                        }
+                    } catch (error: Exception) {
+                        sensitiveActionStore.upsert(
+                            action.copy(
+                                status = MobileQueuedActionStatus.WAITING_FOR_PASSKEY,
+                                lastError = error.toString(),
+                            ),
+                        )
+                        waiting += 1
+                        return@forEach
+                    }
+
+                    if (stepUp == null) {
+                        sensitiveActionStore.upsert(
+                            action.copy(
+                                status = MobileQueuedActionStatus.WAITING_FOR_PASSKEY,
+                                lastError = null,
+                            ),
+                        )
+                        waiting += 1
+                        return@forEach
+                    }
+
+                    try {
+                        submitPasskeyProtectedAction(action = action, stepUp = stepUp)
+                        sensitiveActionStore.markSubmitted(action.id)
+                        submitted += 1
+                    } catch (error: Exception) {
+                        sensitiveActionStore.upsert(
+                            action.copy(
+                                status = MobileQueuedActionStatus.READY_FOR_REPLAY,
+                                nextReplayAttempt = action.nextReplayAttempt + 1,
+                                lastError = error.toString(),
+                            ),
+                        )
+                        failed += 1
+                    }
+                    return@forEach
+                }
+
+                try {
+                    replayNonPasskeyAction(action)
                     sensitiveActionStore.markSubmitted(action.id)
                     submitted += 1
                 } catch (error: Exception) {
@@ -669,15 +796,76 @@ class MobileOperationsRepository(
         )
     }
 
-    fun stepUpEnvelope(
+    fun stepUpBinding(
         actionKind: MobileSensitiveActionKind,
-        objectId: UUID?,
-        reasonKey: String,
-        assertion: PasskeyStepUpAssertion? = null,
-    ): MobilePasskeyStepUpEnvelope = MobilePasskeyStepUpEnvelope(
-        actionKind = actionKind,
-        objectId = objectId,
-        reasonKey = reasonKey,
-        assertion = assertion,
-    )
+        objectId: UUID,
+        replayAttempt: Int? = null,
+    ): MobilePasskeyStepUpBinding {
+        require(replayAttempt == null || replayAttempt >= 1) { "replay attempt must be 1-based" }
+        val generatedActionKind = when (actionKind) {
+            MobileSensitiveActionKind.APPROVAL_DECISION -> MobileStepUpActionKind.APPROVAL_DECISION
+            MobileSensitiveActionKind.POLL_VOTE -> MobileStepUpActionKind.POLL_VOTE
+            else -> error("unsupported mobile passkey step-up action: $actionKind")
+        }
+        val reasonKey = when (actionKind) {
+            MobileSensitiveActionKind.APPROVAL_DECISION ->
+                MobilePasskeyStepUpBinding.ReasonKey.OPERATIONS_PASSKEY_APPROVAL_DECISION
+            MobileSensitiveActionKind.POLL_VOTE ->
+                MobilePasskeyStepUpBinding.ReasonKey.OPERATIONS_PASSKEY_POLL_VOTE
+            else -> error("unsupported mobile passkey step-up action: $actionKind")
+        }
+        return MobilePasskeyStepUpBinding(
+            actionKind = generatedActionKind,
+            objectId = objectId,
+            reasonKey = reasonKey,
+            replayAttempt = replayAttempt,
+        )
+    }
+
+    private suspend fun submitPasskeyProtectedAction(
+        action: MobileQueuedSensitiveAction,
+        stepUp: MobilePasskeyStepUpEnvelope,
+    ) {
+        when (action.actionKind) {
+            MobileSensitiveActionKind.APPROVAL_DECISION -> gateway.approveWorkOrder(
+                workOrderId = requireNotNull(action.objectId),
+                comment = action.comment.orEmpty(),
+                stepUp = stepUp,
+            )
+            MobileSensitiveActionKind.POLL_VOTE -> gateway.votePoll(
+                pollId = requireNotNull(action.objectId),
+                selectedOptionIds = action.selectedOptionIds,
+                stepUp = stepUp,
+            )
+            else -> error("unsupported mobile passkey replay action: ${action.actionKind}")
+        }
+    }
+
+    private suspend fun replayNonPasskeyAction(action: MobileQueuedSensitiveAction) {
+        when (action.actionKind) {
+            MobileSensitiveActionKind.DEVICE_REGISTRATION -> {
+                gateway.registerAndroidDevice(
+                    deviceId = requireNotNull(action.deviceId),
+                    appVersion = requireNotNull(action.appVersion),
+                    pushToken = requireNotNull(action.pushToken),
+                )
+            }
+            MobileSensitiveActionKind.ON_DUTY_PING -> {
+                gateway.recordLocationPing(requireNotNull(action.locationPing))
+            }
+            else -> error("unsupported non-passkey replay action: ${action.actionKind}")
+        }
+    }
+
+    private fun validateStepUpEnvelope(
+        envelope: MobilePasskeyStepUpEnvelope,
+        expectedBinding: MobilePasskeyStepUpBinding,
+    ) {
+        require(envelope.binding == expectedBinding) { "passkey step-up binding mismatch" }
+        validateFreshStepUpAssertion(envelope.assertion)
+    }
+
+    private fun validateFreshStepUpAssertion(assertion: PasskeyStepUpAssertion) {
+        require(assertion.ceremonyId != UUID(0L, 0L)) { "passkey step-up ceremony id is required" }
+    }
 }

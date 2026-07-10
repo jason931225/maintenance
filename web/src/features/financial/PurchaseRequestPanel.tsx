@@ -8,6 +8,7 @@ import type {
   PurchaseRequestSummary,
   PurchaseStatus,
 } from "../../api/types";
+import { assertPasskeyStepUp } from "../../auth/webauthn";
 import { hasAnyRole } from "../../components/shell/nav";
 import { Badge } from "../../components/ui/badge";
 import { Button } from "../../components/ui/button";
@@ -39,6 +40,8 @@ type WriteState = "idle" | "saving" | "error";
 type Dialog = "expenditure" | "reject" | "restart" | "execute" | undefined;
 type PurchaseTypeValue = CreatePurchaseRequest["purchase_type"];
 type Density = "compact" | "comfortable";
+type ActionResponse = { data?: PurchaseRequestSummary; error?: unknown };
+type FinancialStepUpProof = Awaited<ReturnType<typeof assertPasskeyStepUp>>;
 
 interface PurchaseLineForm {
   id: string;
@@ -164,12 +167,30 @@ function errorMessage(error: unknown, fallback: string = ko.financial.purchase.c
     typeof error.error === "object" &&
     error.error !== null
   ) {
-    const inner = (error as { error: { message?: unknown } }).error;
+    const inner = (error as { error: { code?: unknown; message?: unknown } }).error;
     if (typeof inner.message === "string" && inner.message.trim().length > 0) {
       return inner.message;
     }
+    if (inner.code === "passkey_step_up_required") {
+      return ko.financial.purchase.stepUpRequired;
+    }
+    if (inner.code === "passkey_step_up_failed") {
+      return ko.financial.purchase.stepUpFailed;
+    }
   }
   return fallback;
+}
+
+function stepUpFailureMessage(error: unknown): string {
+  if (error instanceof Error) {
+    if (error.name === "AbortError" || error.name === "NotAllowedError") {
+      return ko.financial.purchase.stepUpCancelled;
+    }
+    if (error.message.includes("WebAuthn is unavailable")) {
+      return ko.financial.purchase.stepUpUnavailable;
+    }
+  }
+  return ko.financial.purchase.stepUpFailed;
 }
 function parsePurchasePreferences(value: unknown): PurchasePreferences {
   if (typeof value === "object" && value !== null) {
@@ -447,24 +468,50 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
     if (message) setNotice(message);
   }
 
+  function applyActionResponse(response: ActionResponse, failureMessage: string) {
+    if (response.error) {
+      setActionState("error");
+      setActionError(errorMessage(response.error, failureMessage));
+      return;
+    }
+    if (!response.data) throw new Error("action response missing data");
+    applyResult(response.data);
+    setActionState("idle");
+    setDialog(undefined);
+    setDialogValue("");
+  }
+
   async function runAction(
-    fn: () => Promise<{ data?: PurchaseRequestSummary; error?: unknown }>,
+    fn: () => Promise<ActionResponse>,
     failureMessage: string,
   ) {
     setActionState("saving");
     setActionError(undefined);
     try {
-      const response = await fn();
-      if (response.error) {
-        setActionState("error");
-        setActionError(errorMessage(response.error, failureMessage));
-        return;
-      }
-      if (!response.data) throw new Error("action response missing data");
-      applyResult(response.data);
-      setActionState("idle");
-      setDialog(undefined);
-      setDialogValue("");
+      applyActionResponse(await fn(), failureMessage);
+    } catch {
+      setActionState("error");
+      setActionError(failureMessage);
+    }
+  }
+
+  async function runStepUpAction(
+    fn: (stepUp: FinancialStepUpProof) => Promise<ActionResponse>,
+    failureMessage: string,
+  ) {
+    setActionState("saving");
+    setActionError(undefined);
+    let stepUp: FinancialStepUpProof;
+    try {
+      stepUp = await assertPasskeyStepUp(api);
+    } catch (error) {
+      setActionState("error");
+      setActionError(stepUpFailureMessage(error));
+      return;
+    }
+
+    try {
+      applyActionResponse(await fn(stepUp), failureMessage);
     } catch {
       setActionState("error");
       setActionError(failureMessage);
@@ -860,21 +907,27 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
             );
           }}
           onApproveAdmin={() => {
-            void runAction(
-              () =>
+            void runStepUpAction(
+              (stepUp) =>
                 api.POST(
                   "/api/v1/financial/purchase-requests/{purchaseRequestId}/approve-admin",
-                  { params: { path: { purchaseRequestId: selected.id } } },
+                  {
+                    params: { path: { purchaseRequestId: selected.id } },
+                    body: { step_up: stepUp },
+                  },
                 ),
               ko.financial.purchase.approveAdminFailed,
             );
           }}
           onApproveExecutive={() => {
-            void runAction(
-              () =>
+            void runStepUpAction(
+              (stepUp) =>
                 api.POST(
                   "/api/v1/financial/purchase-requests/{purchaseRequestId}/approve-executive",
-                  { params: { path: { purchaseRequestId: selected.id } } },
+                  {
+                    params: { path: { purchaseRequestId: selected.id } },
+                    body: { step_up: stepUp },
+                  },
                 ),
               ko.financial.purchase.approveExecutiveFailed,
             );
@@ -895,13 +948,16 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
           error={actionError}
           onCancel={closeDialog}
           onConfirm={() => {
-            void runAction(
-              () =>
+            void runStepUpAction(
+              (stepUp) =>
                 api.POST(
                   "/api/v1/financial/purchase-requests/{purchaseRequestId}/prepare-expenditure",
                   {
                     params: { path: { purchaseRequestId: selected.id } },
-                    body: { expenditure_no: dialogValue.trim() },
+                    body: {
+                      expenditure_no: dialogValue.trim(),
+                      step_up: stepUp,
+                    },
                   },
                 ),
               ko.financial.purchase.expenditure.failed,
@@ -924,13 +980,13 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
           error={actionError}
           onCancel={closeDialog}
           onConfirm={() => {
-            void runAction(
-              () =>
+            void runStepUpAction(
+              (stepUp) =>
                 api.POST(
                   "/api/v1/financial/purchase-requests/{purchaseRequestId}/reject",
                   {
                     params: { path: { purchaseRequestId: selected.id } },
-                    body: { memo: dialogValue.trim() },
+                    body: { memo: dialogValue.trim(), step_up: stepUp },
                   },
                 ),
               ko.financial.purchase.rejectFailed,
@@ -985,11 +1041,14 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
           error={actionError}
           onCancel={closeDialog}
           onConfirm={() => {
-            void runAction(
-              () =>
+            void runStepUpAction(
+              (stepUp) =>
                 api.POST(
                   "/api/v1/financial/purchase-requests/{purchaseRequestId}/execute",
-                  { params: { path: { purchaseRequestId: selected.id } } },
+                  {
+                    params: { path: { purchaseRequestId: selected.id } },
+                    body: { step_up: stepUp },
+                  },
                 ),
               ko.financial.purchase.executeFailed,
             );

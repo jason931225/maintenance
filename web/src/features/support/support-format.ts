@@ -8,6 +8,13 @@ import type {
 import { ko } from "../../i18n/ko";
 import { formatKoreanDateTime } from "../../lib/datetime";
 import { toneBadgeClass } from "../../lib/semantic";
+import { supportDeskStrings } from "./support-desk-strings";
+import {
+  sloDeadlineMs,
+  sloPosture,
+  type SloPosture,
+  type SloRules,
+} from "./slo-settings";
 
 export const SUPPORT_STATUSES: SupportTicketStatus[] = [
   "OPEN",
@@ -136,30 +143,14 @@ export function transitionActionLabel(
   }
 }
 
-export type SlaState = "overdue" | "dueSoon" | "ok" | "none";
-
 /**
- * Classify a ticket's SLA posture from its due date. Terminal tickets
- * (RESOLVED/CLOSED) never show as overdue. `dueSoon` fires within `soonMs`
- * (default 4h) of the deadline.
+ * Tailwind classes for support SLO posture chips (internal ops target — the
+ * posture itself derives from the ACTIVE SLO setting in `slo-settings.ts`;
+ * §4-26 keeps these distinct from contractual SLA badges).
  */
-export function slaState(
-  dueAt: string | null,
-  status: SupportTicketStatus,
-  nowMs: number,
-  soonMs = 4 * 60 * 60 * 1000,
-): SlaState {
-  if (!dueAt) return "none";
-  if (status === "RESOLVED" || status === "CLOSED") return "ok";
-  const dueMs = Date.parse(dueAt);
-  if (Number.isNaN(dueMs)) return "none";
-  if (dueMs <= nowMs) return "overdue";
-  if (dueMs - nowMs <= soonMs) return "dueSoon";
-  return "ok";
-}
-
-/** Tailwind classes for support SLA badges, backed by the shared tone map. */
-export function slaStateBadgeClass(state: Exclude<SlaState, "ok" | "none">): string {
+export function sloPostureBadgeClass(
+  state: Exclude<SloPosture, "ok" | "none">,
+): string {
   switch (state) {
     case "overdue":
       return toneBadgeClass("danger");
@@ -172,4 +163,48 @@ export function slaStateBadgeClass(state: Exclude<SlaState, "ok" | "none">): str
 export function formatDateTime(value: string | null): string {
   if (!value) return ko.common.notSet;
   return formatKoreanDateTime(value);
+}
+
+/**
+ * SUP- object code derived from the ticket's API id (§4-25-⑥; same derivation
+ * pattern as the leave console's JL- codes). Alnum-only so the code is safe in
+ * the §4-20 drag-reference token grammar.
+ */
+export function ticketCode(id: string): string {
+  const cleaned = id.replaceAll(/[^0-9A-Za-z]/gu, "");
+  return `SUP-${cleaned.slice(0, 4).toUpperCase()}`;
+}
+
+const HOUR_MS = 60 * 60 * 1000;
+
+/**
+ * SLO timer chip for an actionable ticket: time to/past the deadline derived
+ * from the ACTIVE setting (§4-25-⑥). Null for settled tickets or unparseable
+ * dates — the chip is omitted rather than showing a dead timer.
+ */
+export function sloTimerChip(
+  ticket: Pick<
+    SupportTicketSummary,
+    "category" | "status" | "created_at" | "due_at" | "resolved_at" | "closed_at"
+  >,
+  rules: SloRules,
+  nowMs: number,
+): { className: string; label: string } | null {
+  if (!isActionableSupportTicket(ticket)) return null;
+  const deadline = sloDeadlineMs(ticket, rules);
+  if (Number.isNaN(deadline)) return null;
+  const D = supportDeskStrings();
+  const distance = Math.abs(deadline - nowMs);
+  const time = D.duration(
+    Math.floor(distance / HOUR_MS),
+    Math.floor((distance % HOUR_MS) / 60_000),
+  );
+  const posture = sloPosture(ticket, rules, nowMs);
+  if (posture === "overdue") {
+    return { className: toneBadgeClass("danger"), label: D.sloOverdueBy(time) };
+  }
+  return {
+    className: toneBadgeClass(posture === "dueSoon" ? "warning" : "neutral"),
+    label: D.sloRemaining(time),
+  };
 }

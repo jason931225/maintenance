@@ -14,7 +14,7 @@ use std::sync::OnceLock;
 use std::time::Duration;
 
 use axum::body::Body;
-use axum::extract::{Query, State};
+use axum::extract::{MatchedPath, Query, State};
 use axum::http::{HeaderMap, Request, Response, StatusCode, header};
 use axum::middleware::Next;
 use axum::response::IntoResponse;
@@ -30,8 +30,12 @@ use mnt_dispatch_adapter_postgres::PgDispatchStore;
 use mnt_dispatch_domain::DispatchTimerConfig;
 use mnt_dispatch_rest::DispatchRestState;
 use mnt_dispatch_worker::{AlimtalkEscalationPolicy, DispatchWorker};
+use mnt_docs_adapter_postgres::PgDocsStore;
+use mnt_docs_rest::DocsRestState;
 use mnt_financial_adapter_postgres::PgFinancialStore;
 use mnt_financial_rest::FinancialRestState;
+use mnt_governance_adapter_postgres::PgGovernanceStore;
+use mnt_governance_rest::GovernanceRestState;
 use mnt_identity_adapter_postgres::PgOrgStore;
 use mnt_identity_rest::IdentityRestState;
 use mnt_inbox_adapter_postgres::PgInboxStore;
@@ -47,6 +51,9 @@ use mnt_messenger_adapter_postgres::PgMessengerStore;
 use mnt_messenger_rest::MessengerRestState;
 use mnt_notifications_adapter_postgres::PgNotificationStore;
 use mnt_notifications_rest::NotificationRestState;
+use mnt_ontology_adapter_postgres::PgOntologyStore;
+use mnt_ontology_adapter_postgres::instances::PgInstanceStore;
+use mnt_ontology_rest::OntologyRestState;
 use mnt_platform_audit_chain::{
     ChainReport, InMemoryEd25519Signer, SealConfig, SealSigner, verify_org_chain,
 };
@@ -57,8 +64,12 @@ use mnt_platform_auth::{
 };
 use mnt_platform_auth_rest::{AuthRestConfig, AuthRestState};
 use mnt_platform_authz::{Action, Feature, Principal, Role, authorize, authorize_org_wide};
+use mnt_platform_authz_rest::{CedarPolicyRestState, PgCedarPolicyStore};
 use mnt_platform_db::{DbError, with_audit};
-use mnt_platform_email::{EmailSender, LettreSmtpSender, SmtpEmailConfig, StubEmailSender};
+use mnt_platform_email::{
+    DisabledEmailSender, EmailSender, LettreSmtpSender, SmtpEmailConfig, StubEmailMode,
+    StubEmailSender,
+};
 use mnt_platform_jobs::{
     ApalisPostgresJobQueue, BoxFuture, JobQueue, JobQueueError, PlatformJob, PlatformJobHandler,
     run_apalis_worker_until_shutdown,
@@ -74,7 +85,8 @@ use mnt_platform_realtime::{
 };
 use mnt_platform_rest::PlatformRestState;
 use mnt_platform_storage::{
-    EvidenceService, FfmpegMediaProcessor, S3StorageConfig, SeaweedS3Storage, StorageError,
+    EvidenceService, FfmpegMediaProcessor, S3ObjectStore, S3StorageConfig, SeaweedS3Storage,
+    StorageError,
 };
 use mnt_registry_adapter_postgres::PgRegistryStore;
 use mnt_registry_rest::RegistryRestState;
@@ -108,6 +120,7 @@ use url::Url;
 pub mod action_inbox;
 pub mod cedar_parity;
 mod collaboration;
+mod console_telemetry;
 mod hr;
 pub mod lifecycle;
 mod mail_sync;
@@ -137,6 +150,7 @@ const DEFAULT_DISPATCH_GPS_FRESHNESS_SECS: u64 = 15 * 60;
 const DEFAULT_FCM_TOKEN_URI: &str = "https://oauth2.googleapis.com/token";
 const DEFAULT_FCM_SCOPE: &str = "https://www.googleapis.com/auth/firebase.messaging";
 const DEFAULT_SOLAPI_BASE_URL: &str = "https://api.solapi.com";
+const EMAIL_STUB_MODE_ENV: &str = "MNT_EMAIL_STUB_MODE";
 const DEFAULT_AUDIT_LIMIT: i64 = 50;
 const MAX_AUDIT_LIMIT: i64 = 200;
 /// Global request-body cap. Modest by design: the JSON APIs here carry small
@@ -148,6 +162,117 @@ const MAX_REQUEST_BODY_BYTES: usize = 2 * 1024 * 1024;
 /// `MNT_REQUEST_TIMEOUT_SECS` (see `AppConfig::request_timeout`).
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
 const OPENAPI_YAML: &str = include_str!("../../openapi/openapi.yaml");
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ConfiguredRouteSurface {
+    pub name: &'static str,
+    pub paths: &'static [&'static str],
+}
+
+pub const AUDIT_ROUTE_PATH: &str = "/api/audit";
+pub const AUDIT_ROUTE_PATHS: &[&str] = &[AUDIT_ROUTE_PATH];
+pub const CONFIGURED_ROUTE_SURFACES: &[ConfiguredRouteSurface] = &[
+    ConfiguredRouteSurface {
+        name: "audit",
+        paths: AUDIT_ROUTE_PATHS,
+    },
+    ConfiguredRouteSurface {
+        name: "dispatch",
+        paths: mnt_dispatch_rest::DISPATCH_ROUTE_PATHS,
+    },
+    ConfiguredRouteSurface {
+        name: "financial",
+        paths: mnt_financial_rest::FINANCIAL_ROUTE_PATHS,
+    },
+    ConfiguredRouteSurface {
+        name: "inspection",
+        paths: mnt_inspection_rest::INSPECTION_ROUTE_PATHS,
+    },
+    ConfiguredRouteSurface {
+        name: "support",
+        paths: mnt_support_rest::SUPPORT_ROUTE_PATHS,
+    },
+    ConfiguredRouteSurface {
+        name: "identity",
+        paths: mnt_identity_rest::IDENTITY_ROUTE_PATHS,
+    },
+    ConfiguredRouteSurface {
+        name: "compliance",
+        paths: mnt_compliance_rest::COMPLIANCE_ROUTE_PATHS,
+    },
+    ConfiguredRouteSurface {
+        name: "integrity",
+        paths: mnt_integrity::INTEGRITY_ROUTE_PATHS,
+    },
+    ConfiguredRouteSurface {
+        name: "registry",
+        paths: mnt_registry_rest::REGISTRY_ROUTE_PATHS,
+    },
+    ConfiguredRouteSurface {
+        name: "hr",
+        paths: hr::HR_ROUTE_PATHS,
+    },
+    ConfiguredRouteSurface {
+        name: "workflow-studio",
+        paths: workflow_studio::WORKFLOW_STUDIO_ROUTE_PATHS,
+    },
+    ConfiguredRouteSurface {
+        name: "collaboration",
+        paths: collaboration::COLLABORATION_ROUTE_PATHS,
+    },
+    ConfiguredRouteSurface {
+        name: "sales",
+        paths: mnt_sales_rest::SALES_ROUTE_PATHS,
+    },
+    ConfiguredRouteSurface {
+        name: "reporting",
+        paths: mnt_reporting_rest::KPI_ROUTE_PATHS,
+    },
+    ConfiguredRouteSurface {
+        name: "workorder",
+        paths: mnt_workorder_rest::WORKORDER_ROUTE_PATHS,
+    },
+    ConfiguredRouteSurface {
+        name: "workorder-mobile",
+        paths: mnt_workorder_rest::MOBILE_ROUTE_PATHS,
+    },
+    ConfiguredRouteSurface {
+        name: "messenger",
+        paths: mnt_messenger_rest::MESSENGER_ROUTE_PATHS,
+    },
+    ConfiguredRouteSurface {
+        name: "comms",
+        paths: mnt_comms_rest::COMMS_ROUTE_PATHS,
+    },
+    ConfiguredRouteSurface {
+        name: "platform",
+        paths: mnt_platform_rest::PLATFORM_ROUTE_PATHS,
+    },
+    ConfiguredRouteSurface {
+        name: "auth",
+        paths: mnt_platform_auth_rest::AUTH_ROUTE_PATHS,
+    },
+    ConfiguredRouteSurface {
+        name: "realtime",
+        paths: mnt_platform_realtime::WS_ROUTE_PATHS,
+    },
+    ConfiguredRouteSurface {
+        name: "ontology",
+        paths: mnt_ontology_rest::ONTOLOGY_ROUTE_PATHS,
+    },
+    ConfiguredRouteSurface {
+        name: "governance",
+        paths: mnt_governance_rest::GOVERNANCE_ROUTE_PATHS,
+    },
+    ConfiguredRouteSurface {
+        name: "policy",
+        paths: mnt_platform_authz_rest::CEDAR_POLICY_ROUTE_PATHS,
+    },
+    ConfiguredRouteSurface {
+        name: "evidence",
+        paths: mnt_docs_rest::EVIDENCE_ROUTE_PATHS,
+    },
+];
 
 /// Embedded schema migrations, compiled into the binary at build time from the
 /// canonical `mnt-platform-db` migration directory (the same `0001..NNNN_*.sql`
@@ -213,10 +338,14 @@ pub struct AppConfig {
     pub fcm: Option<FcmConfig>,
     pub solapi: Option<SolapiConfig>,
     pub solapi_disabled_reason: Option<String>,
-    /// Outbound SMTP relay for transactional email (open-signup OTP). `None`
-    /// when no `MNT_EMAIL_*` vars are set; the app then uses the stub sender that
-    /// logs the OTP instead of relaying it (so it boots without an email relay).
+    /// Outbound SMTP relay for transactional email (open-signup OTP). `Some`
+    /// only when the live `MNT_EMAIL_*` SMTP group is complete and valid.
     pub email: Option<SmtpEmailConfig>,
+    /// Explicit non-production mode that allows `StubEmailSender` to log OTPs
+    /// instead of sending mail (`MNT_EMAIL_STUB_MODE=local|dev|development|test|e2e`).
+    /// `None` means missing SMTP fails closed at send time and partial SMTP
+    /// configuration fails during config parsing.
+    pub email_stub_mode: Option<StubEmailMode>,
     pub shutdown_timeout: Duration,
     /// Per-request timeout applied to every non-streaming route
     /// (`MNT_REQUEST_TIMEOUT_SECS`, default 30s). Deliberately NOT applied to
@@ -263,11 +392,12 @@ pub struct AppConfig {
     /// the real signer lands; the attestation REST endpoint (PR-2) reads
     /// whatever the worker has sealed regardless of this flag.
     pub audit_chain_seal_enabled: bool,
-    /// The tenant that owns the PUBLIC sales storefront (`STOREFRONT_ORG_ID`).
-    /// `None` defaults to KNL's org in the sales router. Set it to the storefront
-    /// tenant's real `organizations.id` when that tenant was re-minted via the
-    /// console with a random uuid, so a public inquiry lands in the SAME org the
-    /// staff inquiry inbox reads under (#19.21) instead of the `0x…a1` sentinel.
+    /// The tenant that owns the PUBLIC storefront/CX channel
+    /// (`STOREFRONT_ORG_ID`). `None` keeps the legacy KNL default for public
+    /// sales/support intake routes. Set it to the storefront tenant's real
+    /// `organizations.id` when that tenant was re-minted via the console with a
+    /// random uuid, so public inquiry/intake writes land in the SAME org the
+    /// staff inbox reads under (#19.21/#398) instead of the `0x…a1` sentinel.
     pub storefront_org: Option<OrgId>,
     /// In-console office editor (ONLYOFFICE DocumentServer) integration. `None`
     /// unless all of `MNT_OFFICE_JWT_SECRET` / `MNT_OFFICE_CALLBACK_BASE_URL` /
@@ -419,7 +549,8 @@ impl AppConfig {
         };
         let fcm = fcm_config_from_vars(&vars)?;
         let (solapi, solapi_disabled_reason) = solapi_config_from_vars(&vars)?;
-        let email = email_config_from_vars(&vars)?;
+        let email_stub_mode = email_stub_mode_from_vars(&vars)?;
+        let email = email_config_from_vars(&vars, email_stub_mode)?;
         let shutdown_timeout = match vars.get("MNT_SHUTDOWN_TIMEOUT_SECS") {
             Some(raw) => raw.parse::<u64>().map(Duration::from_secs).map_err(|err| {
                 AppError::Config(format!("invalid MNT_SHUTDOWN_TIMEOUT_SECS: {err}"))
@@ -480,6 +611,7 @@ impl AppConfig {
             solapi,
             solapi_disabled_reason,
             email,
+            email_stub_mode,
             shutdown_timeout,
             request_timeout,
             coldstart_otp,
@@ -730,25 +862,33 @@ fn solapi_config_from_vars(
     Ok((Some(config), None))
 }
 
+/// Parse the single explicit policy that allows OTP-logging stub email.
+///
+/// The var is deliberately not boolean: operators must spell out a non-production
+/// intent (`local`, `dev`, `development`, `test`, or `e2e`) and `production`/`true` are
+/// rejected rather than accidentally enabling OTP logs.
+fn email_stub_mode_from_vars(
+    vars: &HashMap<String, String>,
+) -> Result<Option<StubEmailMode>, AppError> {
+    match non_empty(vars.get(EMAIL_STUB_MODE_ENV)) {
+        Some(raw) => raw
+            .parse::<StubEmailMode>()
+            .map(Some)
+            .map_err(|err| AppError::Config(format!("invalid {EMAIL_STUB_MODE_ENV}: {err}"))),
+        None => Ok(None),
+    }
+}
+
 /// Parse the outbound SMTP email relay config from the environment.
 ///
-/// Returns `Ok(None)` (→ stub OTP sender) in TWO cases, so the app always boots:
-///
-///   1. The whole `MNT_EMAIL_*` group is unset (no relay configured at all).
-///   2. The group is PARTIALLY set but the SMTP credentials — the secret parts,
-///      `MNT_EMAIL_SMTP_USERNAME` / `MNT_EMAIL_SMTP_PASSWORD` — are missing or
-///      empty. This is the prod crashloop footgun: a ConfigMap supplies the
-///      non-secret `host`/`port`/`from` while the Secret holding the creds is
-///      not yet provisioned. Rather than hard-erroring and crashlooping, we log
-///      a WARN and degrade to the stub sender (OTP logged, not relayed).
-///
-/// A `Some(config)` (→ live `LettreSmtpSender`) is returned ONLY when the
-/// credentials are present AND the remaining required fields (host, port,
-/// from-address, from-name) are present and valid. With the secrets in hand, a
-/// missing non-secret field is a genuine operator misconfiguration and still
-/// hard-errors (it is not the missing-Secret crashloop this guards against).
+/// `Ok(None)` means there is no live SMTP config. The composition root may use a
+/// `StubEmailSender` only when `stub_mode` is `Some`; otherwise the email sender
+/// fails closed without logging OTPs. Any partial `MNT_EMAIL_*` group is accepted
+/// only in explicit stub mode, because production ConfigMap+missing-Secret paths
+/// must not reach the OTP-logging stub.
 fn email_config_from_vars(
     vars: &HashMap<String, String>,
+    stub_mode: Option<StubEmailMode>,
 ) -> Result<Option<SmtpEmailConfig>, AppError> {
     let host = non_empty(vars.get("MNT_EMAIL_SMTP_HOST"));
     let port_raw = non_empty(vars.get("MNT_EMAIL_SMTP_PORT"));
@@ -765,14 +905,30 @@ fn email_config_from_vars(
     if !configured {
         return Ok(None);
     }
-    // The secret parts gate live SMTP. If either is missing/empty while the rest
-    // is set, fall back to the stub instead of crashlooping — the app must boot
-    // regardless of partial email config (a not-yet-provisioned Secret).
-    if username.is_none() || password.is_none() {
-        tracing::warn!(
-            "MNT_EMAIL_* partially set but SMTP credentials missing — using stub sender (OTP logged, not sent)"
-        );
-        return Ok(None);
+    let missing_fields = [
+        ("MNT_EMAIL_SMTP_HOST", host.is_none()),
+        ("MNT_EMAIL_SMTP_PORT", port_raw.is_none()),
+        ("MNT_EMAIL_SMTP_USERNAME", username.is_none()),
+        ("MNT_EMAIL_SMTP_PASSWORD", password.is_none()),
+        ("MNT_EMAIL_FROM", from_address.is_none()),
+        ("MNT_EMAIL_FROM_NAME", from_name.is_none()),
+    ]
+    .into_iter()
+    .filter_map(|(name, missing)| missing.then_some(name))
+    .collect::<Vec<_>>();
+    if !missing_fields.is_empty() {
+        if let Some(mode) = stub_mode {
+            tracing::warn!(
+                email_stub_mode = %mode,
+                missing = %missing_fields.join(", "),
+                "MNT_EMAIL_* partially configured; explicit non-production stub mode enabled, so OTP email uses the logging stub"
+            );
+            return Ok(None);
+        }
+        return Err(AppError::Config(format!(
+            "MNT_EMAIL_* is partially configured: missing {}; complete all SMTP fields for production startup or set {EMAIL_STUB_MODE_ENV}=local|dev|development|test|e2e only for explicit non-production stub OTP logging",
+            missing_fields.join(", ")
+        )));
     }
     let required = |value: Option<String>, name: &'static str| {
         value
@@ -854,11 +1010,17 @@ pub struct AppState {
     evidence_storage: Option<EvidenceService<SeaweedS3Storage>>,
     /// Object store + bucket backing the public storefront media-serve route.
     sales_media_storage: Option<(SeaweedS3Storage, String)>,
+    /// WORM object store + replica (compliance-locked) bucket the evidence
+    /// fixity check HEADs. `None` when object storage is unconfigured — the
+    /// evidence `verify` endpoint then 503s rather than green-lighting an
+    /// unverifiable object.
+    worm_evidence_storage: Option<(SeaweedS3Storage, String)>,
     dispatch_job_queue: Option<Arc<dyn JobQueue>>,
     push_notifier: Option<Arc<dyn PushNotifier>>,
     /// Outbound email sender for the open-signup OTP (#38). Always present: a
-    /// `LettreSmtpSender` when `MNT_EMAIL_*` is configured, otherwise a
-    /// `StubEmailSender` that logs the OTP instead of relaying it.
+    /// `LettreSmtpSender` when live SMTP is configured, an explicitly-enabled
+    /// non-prod `StubEmailSender` when `MNT_EMAIL_STUB_MODE` is set, otherwise a
+    /// fail-closed sender that never logs OTPs.
     email_sender: Arc<dyn EmailSender>,
     realtime_hub: Option<Arc<PgRealtimeHub>>,
     realtime_bridge: Option<PostgresBridgeHandle>,
@@ -901,12 +1063,24 @@ impl AppState {
             .as_ref()
             .map(policy_step_up_from_auth_config)
             .transpose()?;
+        let email_sender: Arc<dyn EmailSender> = match config.email.clone() {
+            Some(email_config) => Arc::new(
+                LettreSmtpSender::new(email_config)
+                    .map_err(|err| AppError::Config(format!("invalid email config: {err}")))?,
+            ),
+            None => match config.email_stub_mode {
+                Some(mode) => Arc::new(StubEmailSender::new(mode)),
+                None => Arc::new(DisabledEmailSender),
+            },
+        };
         let auth_rest = match &database {
             DatabaseDependency::Postgres(pool) => match &config.auth_rest {
                 Some(auth_config) => Some(
-                    AuthRestState::new(pool.clone(), auth_config.clone()).map_err(|err| {
-                        AppError::Config(format!("invalid auth REST config: {err}"))
-                    })?,
+                    AuthRestState::new(pool.clone(), auth_config.clone())
+                        .map_err(|err| {
+                            AppError::Config(format!("invalid auth REST config: {err}"))
+                        })?
+                        .with_email_sender(email_sender.clone()),
                 ),
                 None => Some(AuthRestState::disabled(pool.clone())),
             },
@@ -917,6 +1091,7 @@ impl AppState {
                 AppError::Internal(format!("audit-chain attestation signer init failed: {err}"))
             })?);
         let realtime_hub = realtime_hub_from_database(&database);
+
         Ok(Self {
             config,
             database,
@@ -926,9 +1101,10 @@ impl AppState {
             auth_rest,
             evidence_storage: None,
             sales_media_storage: None,
+            worm_evidence_storage: None,
             dispatch_job_queue: None,
             push_notifier: None,
-            email_sender: Arc::new(StubEmailSender),
+            email_sender,
             realtime_hub,
             realtime_bridge: None,
             mail_cipher: None,
@@ -975,6 +1151,8 @@ impl AppState {
                 .map_err(AppError::Storage)?;
             state.sales_media_storage =
                 Some((object_store.clone(), storage_config.primary_bucket.clone()));
+            state.worm_evidence_storage =
+                Some((object_store.clone(), storage_config.replica_bucket.clone()));
             state.evidence_storage = Some(EvidenceService::new(
                 pool.clone(),
                 object_store,
@@ -1013,9 +1191,15 @@ impl AppState {
             let sender = LettreSmtpSender::new(email_config)
                 .map_err(|err| AppError::Config(format!("invalid email config: {err}")))?;
             state.email_sender = Arc::new(sender);
+        } else if let Some(mode) = config.email_stub_mode {
+            state.email_sender = Arc::new(StubEmailSender::new(mode));
+            tracing::warn!(
+                email_stub_mode = %mode,
+                "MNT_EMAIL_STUB_MODE enabled: outbound OTP email uses the logging stub (non-production only)"
+            );
         } else {
-            tracing::info!(
-                "MNT_EMAIL_* unset: outbound OTP email uses the stub sender (logs only)"
+            tracing::warn!(
+                "MNT_EMAIL_* unset and MNT_EMAIL_STUB_MODE disabled: outbound OTP email fails closed without logging OTPs"
             );
         }
         // Hand the resolved OTP email sender to the auth REST layer so its
@@ -1082,8 +1266,8 @@ impl AppState {
         &self.config
     }
 
-    /// Outbound OTP email sender. Always present (stub when `MNT_EMAIL_*` is
-    /// unset). Exposed for the open-signup endpoint landing in #38.
+    /// Outbound OTP email sender. Always present: live SMTP, explicit non-prod
+    /// logging stub, or fail-closed disabled sender.
     #[must_use]
     pub fn email_sender(&self) -> Arc<dyn EmailSender> {
         self.email_sender.clone()
@@ -1169,6 +1353,13 @@ struct AuditRecord {
     branch_id: Option<uuid::Uuid>,
     before_snap: Option<serde_json::Value>,
     after_snap: Option<serde_json::Value>,
+    ip: Option<String>,
+    user_agent: Option<String>,
+    auth_method: Option<String>,
+    device: Option<String>,
+    classification_badges: Option<Vec<String>>,
+    anomaly: Option<bool>,
+    reason: Option<String>,
     trace_id: String,
     span_id: String,
     occurred_at: time::OffsetDateTime,
@@ -1203,6 +1394,7 @@ struct ErrorPayload {
 /// (`http_server_request_duration_seconds_bucket`,
 /// `http_server_request_duration_seconds_count`) resolve against it directly.
 const HTTP_DURATION_METRIC: &str = "http_server_request_duration_seconds";
+const HTTP_ROUTE_UNMATCHED: &str = "/_unmatched";
 
 /// Latency histogram boundaries in SECONDS. Chosen to bracket the 500ms p99 SLO
 /// objective with resolution on either side.
@@ -1236,25 +1428,57 @@ pub fn install_metrics_recorder() -> Result<PrometheusHandle, AppError> {
     }
 }
 
+/// Cardinality-safe route label for request metrics/traces.
+///
+/// ADR-0022 points at oyatie's `oya-http-wide-event-middleware-infrastructure`
+/// as reusable source material, but that crate depends on oyatie-only tenancy and
+/// hyperscaler metrics kernels. This app already owns the portable OTLP exporter
+/// and Prometheus recorder in this module, so this lane intentionally copies the
+/// discipline rather than wiring the oyatie crate directly: use axum's matched
+/// route template (`MatchedPath`) as the route label, never the raw URI path or
+/// query string. The sentinel keeps unmatched/error paths bounded too.
+fn cardinality_safe_http_route<B>(request: &Request<B>) -> &str {
+    request
+        .extensions()
+        .get::<MatchedPath>()
+        .map(MatchedPath::as_str)
+        .unwrap_or(HTTP_ROUTE_UNMATCHED)
+}
+
 /// Middleware: time each request and record its duration (seconds) into the
 /// `http_server_request_duration_seconds` histogram, labelled with the service
-/// name and response status code. Labels are deliberately low-cardinality (no
-/// path/method) so the series count stays bounded. A no-op until the recorder is
-/// installed.
+/// name, method, response status code, and MATCHED ROUTE TEMPLATE. Labels stay
+/// bounded because `http_route` comes from axum's `MatchedPath` extension (e.g.
+/// `/api/work-orders/{id}`) or the static `/_unmatched` sentinel — never from the
+/// raw URL path or query string. A no-op until the recorder is installed.
 async fn track_http_metrics(
     State(state): State<AppState>,
     request: Request<Body>,
     next: Next,
 ) -> Response<Body> {
     let start = std::time::Instant::now();
+    let method = request.method().as_str().to_owned();
+    let http_route = cardinality_safe_http_route(&request).to_owned();
     let response = next.run(request).await;
     let status = response.status().as_u16();
+    let elapsed = start.elapsed();
+    let service_name = state.config.service_name.clone();
     metrics::histogram!(
         HTTP_DURATION_METRIC,
-        "service_name" => state.config.service_name.clone(),
+        "service_name" => service_name.clone(),
+        "http_request_method" => method.clone(),
+        "http_route" => http_route.clone(),
         "http_response_status_code" => status.to_string(),
     )
-    .record(start.elapsed().as_secs_f64());
+    .record(elapsed.as_secs_f64());
+    tracing::info!(
+        service_name = %service_name,
+        http_request_method = %method,
+        http_route = %http_route,
+        http_response_status_code = status,
+        latency_ms = elapsed.as_millis(),
+        "http request wide event"
+    );
     response
 }
 
@@ -1279,10 +1503,13 @@ async fn render_metrics() -> Response<Body> {
 
 /// Wrap a fully-merged router with request metrics and expose `/metrics`. Applied
 /// last so every route (base + all domain routers) is measured; `/metrics` is
-/// added afterwards so it does not measure itself.
+/// added afterwards so it does not measure itself. Use `Router::layer` rather
+/// than `route_layer` so the default 404 fallback is measured too; axum still
+/// inserts `MatchedPath` before calling matched route endpoints, while unmatched
+/// fallback requests use the bounded sentinel.
 fn with_metrics(router: Router, state: &AppState) -> Router {
     router
-        .route_layer(axum::middleware::from_fn_with_state(
+        .layer(axum::middleware::from_fn_with_state(
             state.clone(),
             track_http_metrics,
         ))
@@ -1308,12 +1535,11 @@ fn http_trace_layer() -> TraceLayer<
             tracing::info_span!(
                 "http.request",
                 method = %request.method(),
-                // Path ONLY â never the query string. A query can carry PII (a
-                // search term, a name, a phone), and the pii-no-logs gate is a
-                // literal scanner that cannot catch a runtime query value, so we
-                // drop it at the source. The path identifies the route, which is
-                // what tracing needs.
-                path = %request.uri().path(),
+                // Matched route template ONLY — never the raw path or query
+                // string. A raw path can carry object IDs and a query can carry
+                // PII (a search term, a name, a phone). `MatchedPath` gives the
+                // stable template label the OTel/LGTM backend can safely index.
+                http_route = %cardinality_safe_http_route(request),
                 version = ?request.version(),
                 trace_id = tracing::field::Empty,
                 span_id = tracing::field::Empty,
@@ -1324,8 +1550,8 @@ fn http_trace_layer() -> TraceLayer<
             tracing::info!(
                 trace_id = %trace_id,
                 method = %request.method(),
-                // Path only â drop the query string (potential PII); see make_span_with.
-                path = %request.uri().path(),
+                // Matched route template only; see make_span_with.
+                http_route = %cardinality_safe_http_route(request),
                 "http request started"
             );
         })
@@ -1340,6 +1566,30 @@ fn http_trace_layer() -> TraceLayer<
                 );
             },
         )
+}
+
+/// Build the engine-backed governed-config catalog seeder injected into the
+/// platform router. Runs once per newly onboarded tenant: it opens a
+/// `PgOntologyStore` on the app pool and drives the standard config object types
+/// (SLO settings, console views) through the engine, scoped to the new org so the
+/// registry writes pass FORCE-RLS. Lives here (App tier) because the platform tier
+/// must not depend on the ontology adapter (layer boundary).
+fn tenant_config_seeder(pool: PgPool) -> mnt_platform_rest::TenantConfigSeeder {
+    Arc::new(move |org, actor, at| {
+        let pool = pool.clone();
+        Box::pin(async move {
+            let store = PgOntologyStore::new(pool);
+            mnt_platform_request_context::scope_org(
+                org,
+                mnt_ontology_adapter_postgres::seed::seed_governed_config_object_types(
+                    &store, actor, at,
+                ),
+            )
+            .await
+            .map(|_| ())
+            .map_err(|err| err.to_string())
+        })
+    })
 }
 
 pub fn build_router(state: AppState) -> Router {
@@ -1386,6 +1636,12 @@ pub fn build_router(state: AppState) -> Router {
             let support_store = PgSupportStore::new(pool.clone());
             let sales_store = PgSalesStore::new(pool.clone());
             let org_store = PgOrgStore::new(pool.clone());
+            // Ontology / governance / policy-studio engine stores (each rest
+            // router self-arms `app.current_org`, like every domain router).
+            let ontology_registry_store = PgOntologyStore::new(pool.clone());
+            let ontology_instance_store = PgInstanceStore::new(pool.clone());
+            let governance_store = PgGovernanceStore::new(pool.clone());
+            let cedar_policy_store = PgCedarPolicyStore::new(pool.clone());
             let work_order_store = PgWorkOrderStore::new(pool.clone())
                 .with_created_listener(Arc::new(messenger_store.clone()));
             // Authenticated domain routers (tenant-scoped data). Each domain
@@ -1397,13 +1653,19 @@ pub fn build_router(state: AppState) -> Router {
             // `.merge()`), the established pattern for app-level audit REST.
             let audit_router = mnt_platform_request_context::with_request_context(
                 Router::new()
-                    .route("/api/audit", get(audit_log))
+                    .route(AUDIT_ROUTE_PATH, get(audit_log))
                     .route("/api/v1/audit/attestation", get(audit_attestation))
                     .with_state(state.clone()),
                 state.jwt_verifier.clone(),
                 pool.clone(),
             );
             let domain_router = audit_router
+                .merge(console_telemetry::router(
+                    console_telemetry::ConsoleTelemetryState::new(
+                        pool.clone(),
+                        state.jwt_verifier.clone(),
+                    ),
+                ))
                 .merge(mnt_dispatch_rest::router(DispatchRestState::new(
                     dispatch_store,
                     state.jwt_verifier.clone(),
@@ -1413,20 +1675,25 @@ pub fn build_router(state: AppState) -> Router {
                 )))
                 .merge(mnt_financial_rest::router(
                     FinancialRestState::new(financial_store, state.jwt_verifier.clone())
+                        .with_passkey_step_up(state.policy_step_up.clone())
                         .with_purchase_attachment_storage(state.sales_media_storage.clone()),
                 ))
                 .merge(mnt_inspection_rest::router(InspectionRestState::new(
                     inspection_store,
                     state.jwt_verifier.clone(),
                 )))
-                .merge(mnt_support_rest::router(
-                    SupportRestState::new(
+                .merge(mnt_support_rest::router({
+                    let mut support_state = SupportRestState::new(
                         support_store,
                         state.jwt_verifier.clone(),
                         state.push_notifier.clone(),
                     )
-                    .with_trusted_proxy_count(state.config.trusted_proxy_count),
-                ))
+                    .with_trusted_proxy_count(state.config.trusted_proxy_count);
+                    if let Some(storefront_org) = state.config.storefront_org {
+                        support_state = support_state.with_storefront_org(storefront_org);
+                    }
+                    support_state
+                }))
                 .merge(mnt_identity_rest::router(
                     IdentityRestState::new(org_store, state.jwt_verifier.clone())
                         .with_passkey_step_up(state.policy_step_up.clone()),
@@ -1458,7 +1725,8 @@ pub fn build_router(state: AppState) -> Router {
                     collaboration::CollaborationState::new(
                         pool.clone(),
                         state.jwt_verifier.clone(),
-                    ),
+                    )
+                    .with_passkey_step_up(state.policy_step_up.clone()),
                 ))
                 .merge(action_inbox::router(action_inbox::ActionInboxState::new(
                     pool.clone(),
@@ -1520,10 +1788,34 @@ pub fn build_router(state: AppState) -> Router {
                         state.jwt_verifier.clone(),
                         state.evidence_storage.clone(),
                     )
+                    .with_passkey_step_up(state.policy_step_up.clone())
+                    .with_workflow_runtime(Some(
+                        mnt_workflow_runtime_adapter_postgres::PgWorkflowRuntimeStore::new(
+                            pool.clone(),
+                        ),
+                    ))
                     .with_job_queue(state.dispatch_job_queue.clone()),
                 ))
                 .merge(mnt_messenger_rest::router(MessengerRestState::new(
                     messenger_store,
+                    state.jwt_verifier.clone(),
+                )))
+                // Evidence-objects console surface (custody / fixity-verify /
+                // legal-hold). The fixity check HEADs the WORM (replica) bucket;
+                // when object storage is unconfigured the store is `None` and
+                // `verify` 503s rather than green-lighting an unverifiable object.
+                .merge(mnt_docs_rest::router(DocsRestState::new(
+                    PgDocsStore::new(pool.clone()),
+                    governance_store.clone(),
+                    state
+                        .worm_evidence_storage
+                        .as_ref()
+                        .map(|(store, _)| Arc::new(store.clone()) as Arc<dyn S3ObjectStore>),
+                    state
+                        .worm_evidence_storage
+                        .as_ref()
+                        .map(|(_, bucket)| bucket.clone())
+                        .unwrap_or_default(),
                     state.jwt_verifier.clone(),
                 )))
                 .merge(mnt_notifications_rest::router(NotificationRestState::new(
@@ -1571,7 +1863,24 @@ pub fn build_router(state: AppState) -> Router {
                     .with_attachments(mail_attachment_store(&state))
                     .with_mox_transport(state.config.mail_mox_base_url.clone())
                     .with_mox_webhook_secret(state.config.mail_mox_webhook_secret.clone()),
-                ));
+                ))
+                // Ontology / governance / Policy-Studio engine surfaces.
+                // `ontology` self-applies four-eyes/governance gate chains; its
+                // action-execute path is the single mutation surface (§16).
+                .merge(mnt_ontology_rest::router(OntologyRestState::new(
+                    ontology_registry_store,
+                    ontology_instance_store,
+                    governance_store.clone(),
+                    state.jwt_verifier.clone(),
+                )))
+                .merge(mnt_governance_rest::router(GovernanceRestState::new(
+                    governance_store,
+                    state.jwt_verifier.clone(),
+                )))
+                .merge(mnt_platform_authz_rest::router(CedarPolicyRestState::new(
+                    cedar_policy_store,
+                    state.jwt_verifier.clone(),
+                )));
             // READ-ONLY WALL for PLATFORM "view as": wrap the WHOLE tenant
             // domain router so any request carrying a `view_as` token may use
             // ONLY GET/HEAD — every other method is rejected 403 `view_as_read_only`
@@ -1605,7 +1914,8 @@ pub fn build_router(state: AppState) -> Router {
                     state.jwt_verifier.clone(),
                     PlatformProvisioner::new(state.config.coldstart_otp_ttl),
                 )
-                .with_view_as_issuer(state.view_as_issuer.clone()),
+                .with_view_as_issuer(state.view_as_issuer.clone())
+                .with_tenant_config_seeder(Some(tenant_config_seeder(pool.clone()))),
             );
             // Everything EXCEPT the realtime WS upgrade: base health/openapi
             // routes, the tenant domain routers, the platform tier, and the
@@ -2030,7 +2340,10 @@ async fn fetch_audit_records(
         r#"
         SELECT
             id, actor, action, target_type, target_id, branch_id,
-            before_snap, after_snap, trace_id::text AS trace_id,
+            before_snap, after_snap,
+            ip, user_agent, auth_method, device,
+            classification_badges, anomaly, reason,
+            trace_id::text AS trace_id,
             span_id::text AS span_id, occurred_at
         FROM audit_events
         WHERE
@@ -2738,6 +3051,139 @@ impl From<DbError> for AppError {
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod wide_event_middleware_tests {
+    use axum::body::{Body, to_bytes};
+    use axum::routing::get;
+    use http::Request;
+    use tower::ServiceExt;
+
+    use super::{AppConfig, AppRole, AppState, DatabaseDependency, install_metrics_recorder};
+
+    #[tokio::test]
+    async fn http_metrics_label_matched_route_template_not_raw_path() {
+        install_metrics_recorder().expect("metrics recorder installs once");
+        let config = AppConfig::from_pairs([
+            ("MNT_APP_ROLE", AppRole::Api.to_string()),
+            ("MNT_HTTP_ADDR", "127.0.0.1:0".to_owned()),
+            ("MNT_SERVICE_NAME", "mnt-wide-event-test".to_owned()),
+        ])
+        .expect("valid app config");
+        let state = AppState::new(config, DatabaseDependency::NotConfigured)
+            .expect("test state builds without database");
+        let app = super::with_metrics(
+            axum::Router::new()
+                .route("/__wide_event/widgets/{widget_id}", get(|| async { "ok" }))
+                .with_state(state.clone()),
+            &state,
+        );
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/__wide_event/widgets/widget-123?search=secret")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert!(response.status().is_success());
+
+        let metrics = app
+            .oneshot(
+                Request::builder()
+                    .uri("/metrics")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let text = String::from_utf8(
+            to_bytes(metrics.into_body(), usize::MAX)
+                .await
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap();
+
+        assert!(
+            text.contains("service_name=\"mnt-wide-event-test\"")
+                && text.contains("http_route=\"/__wide_event/widgets/{widget_id}\""),
+            "wide-event metrics must label the matched route template, not the raw request path; got:\n{text}"
+        );
+        assert!(
+            !text.contains("widget-123") && !text.contains("search=secret"),
+            "wide-event metrics must not leak raw path params or query strings; got:\n{text}"
+        );
+    }
+
+    #[tokio::test]
+    async fn http_metrics_label_unmatched_route_sentinel_not_raw_path() {
+        install_metrics_recorder().expect("metrics recorder installs once");
+        let config = AppConfig::from_pairs([
+            ("MNT_APP_ROLE", AppRole::Api.to_string()),
+            ("MNT_HTTP_ADDR", "127.0.0.1:0".to_owned()),
+            (
+                "MNT_SERVICE_NAME",
+                "mnt-wide-event-unmatched-test".to_owned(),
+            ),
+        ])
+        .expect("valid app config");
+        let state = AppState::new(config, DatabaseDependency::NotConfigured)
+            .expect("test state builds without database");
+        let app = super::with_metrics(
+            axum::Router::new()
+                .route("/__wide_event/known", get(|| async { "ok" }))
+                .with_state(state.clone()),
+            &state,
+        );
+
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .uri("/__wide_event/missing/account-999?token=secret")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(response.status(), http::StatusCode::NOT_FOUND);
+
+        let metrics = app
+            .oneshot(
+                Request::builder()
+                    .uri("/metrics")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        let text = String::from_utf8(
+            to_bytes(metrics.into_body(), usize::MAX)
+                .await
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap();
+
+        assert!(
+            text.contains("service_name=\"mnt-wide-event-unmatched-test\"")
+                && text.contains("http_route=\"/_unmatched\"")
+                && text.contains("http_response_status_code=\"404\""),
+            "unmatched wide-event metrics must use the bounded sentinel; got:\n{text}"
+        );
+        assert!(
+            !text.contains("/__wide_event/missing")
+                && !text.contains("account-999")
+                && !text.contains("token=secret"),
+            "unmatched wide-event metrics must not leak raw paths or query strings; got:\n{text}"
+        );
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod audit_attestation_auth_tests {
     use std::collections::BTreeSet;
 
@@ -2922,13 +3368,18 @@ mod email_config_tests {
     //! Guards `email_config_from_vars` robustness. The regression being
     //! prevented: a partially-set `MNT_EMAIL_*` group (ConfigMap supplies
     //! host/port/from, but the Secret with the SMTP creds is not yet
-    //! provisioned) used to hard-error and crashloop `mnt-app` in prod. It must
-    //! instead degrade to the stub sender so the app boots. Mirrors the email
-    //! crate's `SmtpEmailConfig` tests but exercises the env-parsing layer.
+    //! provisioned) must not silently degrade to the OTP-logging stub in
+    //! production. Stub OTP logging is allowed only behind an explicit
+    //! development/e2e/test policy.
 
     use std::collections::HashMap;
 
-    use super::email_config_from_vars;
+    use mnt_platform_email::StubEmailMode;
+
+    use super::{
+        AppConfig, AppState, DatabaseDependency, EMAIL_STUB_MODE_ENV, email_config_from_vars,
+        email_stub_mode_from_vars,
+    };
 
     /// The full, well-formed `MNT_EMAIL_*` set that yields a live SMTP config.
     fn full_email_vars() -> HashMap<String, String> {
@@ -2945,15 +3396,22 @@ mod email_config_tests {
         .collect()
     }
 
+    fn app_pairs() -> Vec<(&'static str, String)> {
+        vec![
+            ("MNT_APP_ROLE", "api".to_owned()),
+            ("MNT_HTTP_ADDR", "127.0.0.1:0".to_owned()),
+        ]
+    }
+
     #[test]
     fn unset_group_yields_no_config() {
         let vars = HashMap::new();
-        assert!(email_config_from_vars(&vars).unwrap().is_none());
+        assert!(email_config_from_vars(&vars, None).unwrap().is_none());
     }
 
     #[test]
     fn fully_set_group_yields_live_config() {
-        let config = email_config_from_vars(&full_email_vars())
+        let config = email_config_from_vars(&full_email_vars(), None)
             .unwrap()
             .expect("fully-configured email group should yield Some(config)");
         assert_eq!(config.host, "smtp.example.com");
@@ -2963,44 +3421,113 @@ mod email_config_tests {
     }
 
     #[test]
-    fn partial_config_missing_username_falls_back_to_stub() {
+    fn partial_config_missing_username_without_stub_mode_errors() {
         // ConfigMap set host/port/from, but the Secret (username) is absent.
-        // This must NOT error — it degrades to the stub sender (None).
+        // In production this must fail closed instead of reaching the OTP-logging stub.
         let mut vars = full_email_vars();
         vars.remove("MNT_EMAIL_SMTP_USERNAME");
         assert!(
-            email_config_from_vars(&vars).unwrap().is_none(),
-            "missing SMTP username must fall back to stub, not error"
+            email_config_from_vars(&vars, None).is_err(),
+            "missing SMTP username must fail closed unless explicit stub mode is enabled"
         );
     }
 
     #[test]
-    fn partial_config_missing_password_falls_back_to_stub() {
+    fn partial_config_missing_username_with_stub_mode_falls_back_to_stub() {
+        let mut vars = full_email_vars();
+        vars.remove("MNT_EMAIL_SMTP_USERNAME");
+        assert!(
+            email_config_from_vars(&vars, Some(StubEmailMode::E2e))
+                .unwrap()
+                .is_none(),
+            "explicit e2e stub mode may fall back to the logging stub"
+        );
+    }
+
+    #[test]
+    fn partial_config_missing_password_without_stub_mode_errors() {
         let mut vars = full_email_vars();
         vars.remove("MNT_EMAIL_SMTP_PASSWORD");
         assert!(
-            email_config_from_vars(&vars).unwrap().is_none(),
-            "missing SMTP password must fall back to stub, not error"
+            email_config_from_vars(&vars, None).is_err(),
+            "missing SMTP password must fail closed unless explicit stub mode is enabled"
         );
     }
 
     #[test]
-    fn empty_credentials_fall_back_to_stub() {
+    fn empty_credentials_without_stub_mode_error() {
         // Empty (not absent) creds — e.g. a Secret mounted with blank values —
-        // are treated the same as missing and fall back to the stub.
+        // are treated the same as missing and must fail closed outside stub mode.
         let mut vars = full_email_vars();
         vars.insert("MNT_EMAIL_SMTP_USERNAME".to_owned(), "   ".to_owned());
         vars.insert("MNT_EMAIL_SMTP_PASSWORD".to_owned(), String::new());
-        assert!(email_config_from_vars(&vars).unwrap().is_none());
+        assert!(email_config_from_vars(&vars, None).is_err());
     }
 
-    /// Exhaustively prove the crashloop footgun is closed: ANY permutation of the
-    /// `MNT_EMAIL_*` group that is set WITHOUT both SMTP credentials must degrade
-    /// to the stub (`Ok(None)`), never error. This is the prod scenario — a
-    /// ConfigMap supplies some non-secret fields while the credential Secret is
-    /// not yet provisioned — across every subset of the non-secret fields.
     #[test]
-    fn every_partial_config_without_credentials_falls_back_to_stub() {
+    fn email_stub_mode_env_accepts_only_explicit_non_production_modes() {
+        let vars: HashMap<String, String> = [(EMAIL_STUB_MODE_ENV, "e2e")]
+            .into_iter()
+            .map(|(k, v)| (k.to_owned(), v.to_owned()))
+            .collect();
+        assert_eq!(
+            email_stub_mode_from_vars(&vars).unwrap(),
+            Some(StubEmailMode::E2e)
+        );
+
+        let vars: HashMap<String, String> = [(EMAIL_STUB_MODE_ENV, "production")]
+            .into_iter()
+            .map(|(k, v)| (k.to_owned(), v.to_owned()))
+            .collect();
+        assert!(email_stub_mode_from_vars(&vars).is_err());
+    }
+
+    #[tokio::test]
+    async fn app_state_without_smtp_or_stub_mode_fails_closed_without_logging_otp() {
+        let config = AppConfig::from_pairs(app_pairs()).unwrap();
+        let state = AppState::new(config, DatabaseDependency::NotConfigured).unwrap();
+
+        let result = state
+            .email_sender()
+            .send_otp(
+                "ops@example.com",
+                "123456",
+                std::time::Duration::from_secs(300),
+            )
+            .await;
+
+        assert!(
+            result.is_err_and(|err| err.to_string().contains("disabled")),
+            "without explicit stub mode, missing SMTP must fail closed instead of logging the OTP"
+        );
+    }
+
+    #[tokio::test]
+    async fn app_state_with_explicit_stub_mode_allows_nonprod_otp_logging_stub() {
+        let mut pairs = app_pairs();
+        pairs.push((EMAIL_STUB_MODE_ENV, "e2e".to_owned()));
+        let config = AppConfig::from_pairs(pairs).unwrap();
+        let state = AppState::new(config, DatabaseDependency::NotConfigured).unwrap();
+
+        let result = state
+            .email_sender()
+            .send_otp(
+                "ops@example.com",
+                "123456",
+                std::time::Duration::from_secs(300),
+            )
+            .await;
+
+        assert!(result.is_ok());
+    }
+
+    /// Exhaustively prove the OTP-log leak footgun is closed: ANY permutation of
+    /// the `MNT_EMAIL_*` group that is set WITHOUT both SMTP credentials must
+    /// error outside explicit stub mode. This is the prod scenario — a ConfigMap
+    /// supplies some non-secret fields while the credential Secret is not yet
+    /// provisioned — across every subset of the non-secret fields.
+    #[test]
+    fn every_partial_config_without_credentials_errors_without_stub_mode() {
         const NON_SECRET_KEYS: [(&str, &str); 4] = [
             ("MNT_EMAIL_SMTP_HOST", "smtp.example.com"),
             ("MNT_EMAIL_SMTP_PORT", "587"),
@@ -3009,7 +3536,8 @@ mod email_config_tests {
         ];
         // All 16 subsets of the 4 non-secret fields, crossed with the 3 broken
         // credential states (no username, no password, neither). The empty subset
-        // with no creds is the all-unset case (also Ok(None)).
+        // with no creds is the all-unset case and remains Ok(None); every other
+        // configured subset must fail closed.
         for mask in 0u8..(1 << NON_SECRET_KEYS.len()) {
             for creds in [
                 &[("MNT_EMAIL_SMTP_USERNAME", "ocid1.user.oc1..example")][..],
@@ -3025,10 +3553,14 @@ mod email_config_tests {
                 for (key, value) in creds {
                     vars.insert((*key).to_owned(), (*value).to_owned());
                 }
+                if vars.is_empty() {
+                    assert!(email_config_from_vars(&vars, None).unwrap().is_none());
+                    continue;
+                }
                 assert!(
-                    email_config_from_vars(&vars).unwrap().is_none(),
-                    "partial config (mask={mask:#06b}, creds={creds:?}) must fall \
-                     back to the stub sender, not error or build a live config"
+                    email_config_from_vars(&vars, None).is_err(),
+                    "partial config (mask={mask:#06b}, creds={creds:?}) must fail \
+                     closed unless explicit stub mode is enabled"
                 );
             }
         }
@@ -3041,21 +3573,21 @@ mod email_config_tests {
         // crashloop this guard targets).
         let mut vars = full_email_vars();
         vars.remove("MNT_EMAIL_SMTP_HOST");
-        assert!(email_config_from_vars(&vars).is_err());
+        assert!(email_config_from_vars(&vars, None).is_err());
     }
 
     #[test]
     fn creds_present_but_missing_port_still_errors() {
         let mut vars = full_email_vars();
         vars.remove("MNT_EMAIL_SMTP_PORT");
-        assert!(email_config_from_vars(&vars).is_err());
+        assert!(email_config_from_vars(&vars, None).is_err());
     }
 
     #[test]
     fn creds_present_but_missing_from_still_errors() {
         let mut vars = full_email_vars();
         vars.remove("MNT_EMAIL_FROM");
-        assert!(email_config_from_vars(&vars).is_err());
+        assert!(email_config_from_vars(&vars, None).is_err());
     }
 
     #[test]
@@ -3063,18 +3595,14 @@ mod email_config_tests {
         // A non-numeric port is an operator typo, not a missing Secret — error.
         let mut vars = full_email_vars();
         vars.insert("MNT_EMAIL_SMTP_PORT".to_owned(), "not-a-port".to_owned());
-        assert!(email_config_from_vars(&vars).is_err());
+        assert!(email_config_from_vars(&vars, None).is_err());
     }
 
     #[test]
-    fn credentials_only_without_relay_fields_falls_back_to_stub() {
-        // Only the secrets are set (no host/port/from) — there is no relay to
-        // talk to, so degrade to the stub rather than error. The `username` and
-        // `password` guard fires only when one is missing; with both present but
-        // the relay fields absent, `required(host, ...)` would error, so assert
-        // the documented behavior explicitly: this errors (operator must supply
-        // the relay fields once creds exist). Kept as a guard against regressions
-        // that would silently send to an empty relay.
+    fn credentials_only_without_relay_fields_errors() {
+        // Only the secrets are set (no host/port/from). The operator must supply
+        // the relay fields once creds exist; silently sending nowhere or using the
+        // stub would hide a broken production delivery path.
         let vars: HashMap<String, String> = [
             ("MNT_EMAIL_SMTP_USERNAME", "ocid1.user.oc1..example"),
             ("MNT_EMAIL_SMTP_PASSWORD", "secret"),
@@ -3082,6 +3610,6 @@ mod email_config_tests {
         .into_iter()
         .map(|(k, v)| (k.to_owned(), v.to_owned()))
         .collect();
-        assert!(email_config_from_vars(&vars).is_err());
+        assert!(email_config_from_vars(&vars, None).is_err());
     }
 }

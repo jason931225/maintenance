@@ -36,6 +36,12 @@ pub use engine::{
     AuditContext, NodeStepOutcome, ProcessNodeRequest, StartRunRequest, process_node, start_run,
 };
 pub use graph::{DriveOutcome, ExecGraph, drive_from, simulate_path};
-pub use interpreter::{HumanTaskSemantic, NodeKind, NodeOutcome, NodeSpec, interpret_node};
+pub use interpreter::{
+    CHECKLIST_ATTESTATION_NODE_TYPE, ChecklistAttestationSpec, ChecklistItemKind,
+    ChecklistItemSpec, EGRESS_POLICY_NODE_TYPE, EgressExternalRecipientPolicy, EgressKind,
+    EgressPolicySpec, FOUR_EYES_PEER_REVIEW_NODE_TYPE, FourEyesPeerReviewSpec, HumanTaskSemantic,
+    NodeKind, NodeOutcome, NodeSpec, OnMissingFact, SEGREGATION_OF_DUTIES_NODE_TYPE,
+    SegregationOfDutiesSpec, SodMode, interpret_node,
+};
 pub use predicate::{CmpOp, Predicate};
 pub use trigger::{TriggeredStart, start_bound_run};

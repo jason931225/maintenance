@@ -10,6 +10,7 @@ val androidKeystorePath = providers.environmentVariable("ANDROID_KEYSTORE_PATH")
 val androidKeystorePassword = providers.environmentVariable("ANDROID_KEYSTORE_PASSWORD")
 val androidKeyAlias = providers.environmentVariable("ANDROID_KEY_ALIAS")
 val androidKeyPassword = providers.environmentVariable("ANDROID_KEY_PASSWORD")
+val fieldE2eSessionAssetsDir = providers.environmentVariable("FIELD_E2E_SESSION_ASSETS_DIR")
 val androidReleaseSigningReady = listOf(
     androidKeystorePath,
     androidKeystorePassword,
@@ -31,6 +32,14 @@ android {
         // Default/debug target: the host loopback as seen from the Android emulator.
         // Overridden per build type below (release points at production).
         buildConfigField("String", "API_BASE_URL", "\"http://10.0.2.2:8080\"")
+    }
+
+    sourceSets {
+        getByName("androidTest") {
+            fieldE2eSessionAssetsDir.orNull
+                ?.takeIf { it.isNotBlank() }
+                ?.let { assets.srcDir(it) }
+        }
     }
 
     buildFeatures {

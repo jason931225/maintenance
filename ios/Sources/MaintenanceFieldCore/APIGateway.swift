@@ -7,23 +7,49 @@ import OpenAPIURLSession
 public enum MaintenanceGatewayError: Error, Sendable, CustomStringConvertible {
     case unexpectedResponse(String)
     case invalidUploadURL(String)
+    case apiResponse(operation: String, statusCode: Int)
+    case temporaryServerFailure(statusCode: Int, message: String)
 
     public var description: String {
         switch self {
         case let .unexpectedResponse(message): message
         case let .invalidUploadURL(url): "Invalid upload URL: \(url)"
+        case let .apiResponse(operation, statusCode): "\(operation) returned HTTP \(statusCode)"
+        case let .temporaryServerFailure(statusCode, message): "Temporary server failure HTTP \(statusCode): \(message)"
         }
+    }
+
+    public var isRetryable: Bool {
+        switch self {
+        case let .temporaryServerFailure(statusCode, _):
+            Self.isRetryableHTTPStatus(statusCode)
+        case .unexpectedResponse, .invalidUploadURL, .apiResponse:
+            false
+        }
+    }
+
+    public static func isRetryableHTTPStatus(_ statusCode: Int) -> Bool {
+        statusCode == 408 || statusCode == 429 || (500..<600).contains(statusCode)
     }
 }
 
-public protocol MaintenanceAPIGateway: SyncGateway, MessengerGateway, MobileOperationsGateway {
+public protocol PasskeyAuthGateway: Sendable {
+    func startPasskeyLogin() async throws -> Components.Schemas.PasskeyLoginStartResponse
+    func finishPasskeyLogin(ceremonyID: Components.Schemas.Uuid, credential: Components.Schemas.PasskeyLoginFinishRequest.CredentialPayload) async throws -> Components.Schemas.TokenPairResponse
+    func registerDevice(deviceID: String, appVersion: String) async throws -> Components.Schemas.DeviceRegistrationResponse
+}
+
+public protocol PasskeyStepUpGateway: Sendable {
+    func startMobilePasskeyStepUp(
+        binding: Components.Schemas.MobilePasskeyStepUpBinding
+    ) async throws -> Components.Schemas.MobilePasskeyStepUpStartResponse
+}
+
+public protocol MaintenanceAPIGateway: SyncGateway, MessengerGateway, MobileOperationsGateway, PasskeyStepUpGateway {
     func listTodayWorkOrders() async throws -> [TechnicianWorkOrder]
     func getWorkOrderDetail(id: Components.Schemas.Uuid) async throws -> TechnicianWorkOrder
     func startWorkOrder(id: Components.Schemas.Uuid) async throws
     func submitReport(id: Components.Schemas.Uuid, draft: ReportDraft) async throws
-    func startPasskeyLogin() async throws -> Components.Schemas.PasskeyLoginStartResponse
-    func finishPasskeyLogin(ceremonyID: Components.Schemas.Uuid, credential: Components.Schemas.PasskeyLoginFinishRequest.CredentialPayload) async throws -> Components.Schemas.TokenPairResponse
-    func registerDevice(deviceID: String, appVersion: String) async throws -> Components.Schemas.DeviceRegistrationResponse
     func presignEvidence(_ request: Components.Schemas.EvidencePresignRequest) async throws -> Components.Schemas.EvidencePresignResponse
     func confirmEvidence(evidenceID: Components.Schemas.Uuid) async throws -> Components.Schemas.EvidenceConfirmResponse
     func getLocationConsentStatus() async throws -> Components.Schemas.LocationConsentStatus
@@ -34,7 +60,7 @@ public protocol MaintenanceAPIGateway: SyncGateway, MessengerGateway, MobileOper
     func recordLocationPing(_ request: Components.Schemas.LocationPingRequest) async throws
 }
 
-public struct GeneratedMaintenanceAPIGateway: MaintenanceAPIGateway {
+public struct GeneratedMaintenanceAPIGateway: MaintenanceAPIGateway, PasskeyAuthGateway {
     private let client: any APIProtocol
 
     public init(client: any APIProtocol) {
@@ -75,7 +101,12 @@ public struct GeneratedMaintenanceAPIGateway: MaintenanceAPIGateway {
         let output = try await client.startWorkOrder(
             path: Operations.StartWorkOrder.Input.Path(workOrderId: id)
         )
-        _ = try output.ok.body.json
+        switch output {
+        case let .ok(response):
+            _ = try response.body.json
+        case let .undocumented(statusCode, _):
+            throw MaintenanceGatewayError.apiResponse(operation: "startWorkOrder", statusCode: statusCode)
+        }
     }
 
     public func submitReport(id: Components.Schemas.Uuid, draft: ReportDraft) async throws {
@@ -83,7 +114,12 @@ public struct GeneratedMaintenanceAPIGateway: MaintenanceAPIGateway {
             path: Operations.SubmitWorkOrderReport.Input.Path(workOrderId: id),
             body: .json(draft.toSubmitReportRequest())
         )
-        _ = try output.ok.body.json
+        switch output {
+        case let .ok(response):
+            _ = try response.body.json
+        case let .undocumented(statusCode, _):
+            throw MaintenanceGatewayError.apiResponse(operation: "submitWorkOrderReport", statusCode: statusCode)
+        }
     }
 
     public func replay(
@@ -118,6 +154,15 @@ public struct GeneratedMaintenanceAPIGateway: MaintenanceAPIGateway {
         try await registerDevice(deviceID: deviceID, appVersion: appVersion, pushToken: nil)
     }
 
+    public func startMobilePasskeyStepUp(
+        binding: Components.Schemas.MobilePasskeyStepUpBinding
+    ) async throws -> Components.Schemas.MobilePasskeyStepUpStartResponse {
+        let output = try await client.startMobilePasskeyStepUp(
+            body: .json(Components.Schemas.MobilePasskeyStepUpStartRequest(binding: binding))
+        )
+        return try output.ok.body.json
+    }
+
     public func registerDevice(
         deviceID: String,
         appVersion: String,
@@ -137,10 +182,14 @@ public struct GeneratedMaintenanceAPIGateway: MaintenanceAPIGateway {
         return try output.ok.body.json
     }
 
-    public func approveWorkOrder(workOrderID: Components.Schemas.Uuid, comment: String) async throws {
-        let output = try await client.approveWorkOrder(
-            path: Operations.ApproveWorkOrder.Input.Path(workOrderId: workOrderID),
-            body: .json(Components.Schemas.ApproveWorkOrderRequest(comment: comment))
+    public func approveWorkOrder(
+        workOrderID: Components.Schemas.Uuid,
+        comment: String,
+        stepUp: Components.Schemas.MobilePasskeyStepUpEnvelope
+    ) async throws {
+        let output = try await client.approveMobileWorkOrder(
+            path: Operations.ApproveMobileWorkOrder.Input.Path(workOrderId: workOrderID),
+            body: .json(Components.Schemas.MobileApproveWorkOrderRequest(comment: comment, stepUp: stepUp))
         )
         _ = try output.ok.body.json
     }
@@ -200,25 +249,52 @@ public struct GeneratedMaintenanceAPIGateway: MaintenanceAPIGateway {
 
     public func votePoll(
         pollID: Components.Schemas.Uuid,
-        selectedOptionIDs: [Components.Schemas.Uuid]
+        selectedOptionIDs: [Components.Schemas.Uuid],
+        stepUp: Components.Schemas.MobilePasskeyStepUpEnvelope
     ) async throws -> Components.Schemas.PollResponse {
-        let output = try await client.voteCollaborationPoll(
-            path: Operations.VoteCollaborationPoll.Input.Path(id: pollID),
-            body: .json(Components.Schemas.VotePollRequest(selectedOptionIds: selectedOptionIDs))
+        let output = try await client.voteMobileCollaborationPoll(
+            path: Operations.VoteMobileCollaborationPoll.Input.Path(id: pollID),
+            body: .json(Components.Schemas.MobileVotePollRequest(selectedOptionIds: selectedOptionIDs, stepUp: stepUp))
         )
         return try output.ok.body.json
     }
 
     public func presignEvidence(_ request: Components.Schemas.EvidencePresignRequest) async throws -> Components.Schemas.EvidencePresignResponse {
         let output = try await client.presignEvidenceUpload(body: .json(request))
-        return try output.ok.body.json
+        switch output {
+        case let .ok(response):
+            return try response.body.json
+        case let .serviceUnavailable(response):
+            let message = (try? response.body.json.error.message) ?? "evidence presign returned HTTP 503"
+            throw MaintenanceGatewayError.temporaryServerFailure(statusCode: 503, message: message)
+        case let .undocumented(statusCode, _) where MaintenanceGatewayError.isRetryableHTTPStatus(statusCode):
+            throw MaintenanceGatewayError.temporaryServerFailure(
+                statusCode: statusCode,
+                message: "evidence presign returned HTTP \(statusCode)"
+            )
+        default:
+            throw MaintenanceGatewayError.unexpectedResponse("evidence presign returned \(String(describing: output))")
+        }
     }
 
     public func confirmEvidence(evidenceID: Components.Schemas.Uuid) async throws -> Components.Schemas.EvidenceConfirmResponse {
         let output = try await client.confirmEvidenceUpload(
             path: Operations.ConfirmEvidenceUpload.Input.Path(evidenceId: evidenceID)
         )
-        return try output.ok.body.json
+        switch output {
+        case let .ok(response):
+            return try response.body.json
+        case let .serviceUnavailable(response):
+            let message = (try? response.body.json.error.message) ?? "evidence confirm returned HTTP 503"
+            throw MaintenanceGatewayError.temporaryServerFailure(statusCode: 503, message: message)
+        case let .undocumented(statusCode, _) where MaintenanceGatewayError.isRetryableHTTPStatus(statusCode):
+            throw MaintenanceGatewayError.temporaryServerFailure(
+                statusCode: statusCode,
+                message: "evidence confirm returned HTTP \(statusCode)"
+            )
+        default:
+            throw MaintenanceGatewayError.unexpectedResponse("evidence confirm returned \(String(describing: output))")
+        }
     }
 
     public func listThreads(limit: Int64 = 50) async throws -> [MessengerThread] {

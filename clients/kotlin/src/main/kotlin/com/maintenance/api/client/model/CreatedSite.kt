@@ -39,8 +39,8 @@ import kotlinx.serialization.Contextual
  * @param province
  * @param city
  * @param postalCode
- * @param latitude
- * @param longitude
+ * @param latitude Admin-authored WGS84 latitude in degrees, or null when unpinned.
+ * @param longitude Admin-authored WGS84 longitude in degrees, or null when unpinned.
  * @param geofenceRadiusM
  * @param contactName
  * @param contactPhone
@@ -74,9 +74,11 @@ data class CreatedSite (
     @SerialName(value = "postal_code")
     val postalCode: kotlin.String?,
 
+    /* Admin-authored WGS84 latitude in degrees, or null when unpinned. */
     @SerialName(value = "latitude")
     val latitude: kotlin.Double?,
 
+    /* Admin-authored WGS84 longitude in degrees, or null when unpinned. */
     @SerialName(value = "longitude")
     val longitude: kotlin.Double?,
 

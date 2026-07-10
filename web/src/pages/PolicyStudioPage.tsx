@@ -27,6 +27,11 @@ import { PageError } from "../components/states/PageError";
 import { SkeletonTable } from "../components/states/Skeleton";
 import { PageHeader } from "../components/shell/PageHeader";
 import { RefreshButton } from "../components/shell/RefreshButton";
+import { PolicyGateProvider, type PolicyGate } from "../console/policy";
+import {
+  POLICY_CANVAS_ACTIONS,
+  PolicyCanvasScreen,
+} from "../console/policycanvas";
 import { useAuth } from "../context/auth";
 import { roleLabel, teamLabel } from "../features/org/org-format";
 import { ko } from "../i18n/ko";
@@ -91,8 +96,19 @@ const CONDITION_OPERATORS: PolicyConditionOperator[] = [
   "in",
 ];
 
+// wire-pending: HANDOFF §5c — POST /api/v1/policy/authorize is wired in
+// api/policyCedar.ts (authorizePolicy), but PolicyGate.can is a synchronous
+// render gate; the studio surface is already role_manage-gated server-side,
+// so canvas authoring affordances stay granted here until the async live-gate
+// seam lands.
+const POLICY_CANVAS_AUTHOR_GATE: PolicyGate = {
+  can: (action) =>
+    action === POLICY_CANVAS_ACTIONS.author ||
+    action === POLICY_CANVAS_ACTIONS.approve,
+};
+
 export function PolicyStudioPage() {
-  const { api } = useAuth();
+  const { api, session } = useAuth();
   const [features, setFeatures] = useState<PolicyFeatureResponse[]>([]);
   const [catalog, setCatalog] = useState<PolicyRoleCatalogResponse>();
   const [auditEvents, setAuditEvents] = useState<PolicyAuditEventResponse[]>(
@@ -822,6 +838,17 @@ export function PolicyStudioPage() {
           </Card>
         </aside>
       </div>
+
+      <section className="mt-4 min-w-0">
+        <PolicyGateProvider gate={POLICY_CANVAS_AUTHOR_GATE}>
+          <PolicyCanvasScreen
+            api={api}
+            orgId={session?.org_id ?? ""}
+            strings={ko.console.policycanvas}
+            canvasStrings={ko.console.canvas}
+          />
+        </PolicyGateProvider>
+      </section>
     </>
   );
 }

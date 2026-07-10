@@ -12,6 +12,16 @@ signed off with evidence filed under `docs/evidence/` or `/ops`.
 Owners: **Eng** = engineering (this repo) · **운영** = operator/ops (production
 infra + secrets) · **경영/법무** = business/legal (filings, approvals).
 
+Deployment-context shorthand used below:
+
+- **`oci-guest`** — the existing OCI Always Free / Ampere A1 posture. It is a
+  supported pilot target, but it is single-node and must not be described as
+  automatic failover.
+- **`on-prem` / bare-metal HA** — the ADR-0022 additive target. It is supported
+  only after operator-provisioned multi-node Talos, worker/storage failure
+  domains, replicated storage, VIP ingress, portable secrets, and failover /
+  restore drills are activated and evidenced.
+
 ---
 
 ## 1. Code & CI readiness — Eng
@@ -23,12 +33,19 @@ infra + secrets) · **경영/법무** = business/legal (filings, approvals).
   round-trip, i18n + parity, iOS build + behavior tests. See
   [CI-GATES.md](CI-GATES.md).
 - [x] **Supply-chain CI shipped** — Eng. `image-release.yml` builds the
-  `mnt-app` + `mnt-web` linux/arm64 images for the OCI A1 target reproducibly
-  (digest-pinned bases, `SOURCE_DATE_EPOCH`), with SBOM + SLSA provenance, a
+  `mnt-app` + `mnt-web` linux/arm64 images reproducibly for the current
+  `oci-guest` A1 target (digest-pinned bases, `SOURCE_DATE_EPOCH`), with SBOM +
+  SLSA provenance, a
   **blocking Trivy HIGH/CRITICAL scan before keyless cosign signing**, then
-  auto-bumps the prod overlay to immutable digests. `security.yml` (Trivy
-  fs/IaC + cargo-audit + npm audit) runs on a schedule; `release-please.yml`
-  enforces SemVer; Actions are SHA-pinned; Renovate keeps bases/deps current.
+  auto-bumps the prod overlay to immutable digests as desired GitOps state. That
+  bump alone is not a live deployment or rollout-verification claim; the default
+  `scripts/deploy.sh` verification path must still prove Argo sync, workload
+  health, pod digests, and endpoints before deployment completion is recorded.
+  `security.yml` (Trivy fs/IaC + cargo-audit + npm audit) runs on a schedule;
+  `release-please.yml` enforces SemVer; Actions are SHA-pinned; Renovate keeps
+  bases/deps current.
+  An `on-prem`/bare-metal cutover must either use arm64 nodes or extend the image
+  matrix to the selected node architecture before production traffic moves.
 - [x] **Admission verification audit path** — Eng. The sigstore
   policy-controller audit component lives under
   `deploy/apps/maintenance/components/admission-audit/` and is checked by
@@ -79,33 +96,58 @@ infra + secrets) · **경영/법무** = business/legal (filings, approvals).
 
 ## 3. Infrastructure & deployment — 운영
 
-- [ ] **OCI Compute (Ampere A1) provisioned** and access provided — 운영. Two
-  deploy paths are ready: the Compose stack (`ops/`) for a single VM, or the
-  GitOps Kubernetes path in [`deploy/`](../deploy/README.md) (single-node Talos +
-  Argo CD + Argo Rollouts blue/green + CloudNativePG PITR + cert-manager/Traefik),
-  sized for the OCI **Always Free** tier (ap-chuncheon-1). Note the free-tier
-  caveat: custom-image import needs a PAYG account (stays $0 within Always-Free
-  shapes) — see [`deploy/talos/README.md`](../deploy/talos/README.md).
-- [x] **Deploy automation built + validated** — Eng. `deploy/` is kustomize/
-  kubeconform-clean (30/30, CRDs included), the Talos machine config is
-  `talosctl validate --mode cloud`-valid, all upstream operator refs resolve, and
-  the `mnt-web` image builds + serves. Blue/green Rollouts smoke-gate the preview
-  before cutover (automatic rollback on failure); Argo CD self-heals.
-- [x] **Compose prod stack boots clean** — Eng (verified in M0: 6 services
-  healthy, HTTPS healthz/readyz 200, SeaweedFS with zero host ports).
-- [ ] **Production TLS certificates** (Traefik) issued for the real hostname — 운영.
-- [ ] **Secrets installed** per [`docs/release/SECRETS.md`](release/SECRETS.md):
-  JWT signing keys, DB credentials, SeaweedFS keys, FCM/APNs, Kakao Alimtalk,
-  object-storage replica — 운영. No secret is committed; all are injected via
-  environment/secret store.
-- [x] **Backup + PITR DR drilled** — Eng. `ops/backup/backup.sh`; full
-  backup→scratch-restore cycle and a PITR-to-arbitrary-timestamp drill verified
-  (RPO ≤ 5 min / RTO ≤ 1 h policy); VM-down rehearsal logged
-  ([`docs/evidence/vm_down_*.log`](evidence/)). Re-run the restore drill against
-  the real VM before go-live and file the evidence.
+- [ ] **Production deployment context selected and provisioned** — 운영. Choose
+  one launch context and file the evidence:
+  - `oci-guest`: OCI Compute Ampere A1 access in ap-chuncheon-1. Two deploy paths
+    are ready: the Compose stack (`ops/`) for a single VM, or the GitOps
+    Kubernetes path in [`deploy/`](../deploy/README.md) (single-node Talos + Argo
+    CD + Argo Rollouts blue/green + CloudNativePG PITR + cert-manager/Traefik),
+    sized for the OCI **Always Free** tier. The free-tier caveat remains:
+    custom-image import needs a PAYG account (stays $0 within Always-Free shapes)
+    — see [`deploy/talos/README.md`](../deploy/talos/README.md). This context is
+    not automatic node/database failover.
+  - `on-prem` / bare-metal HA: ADR-0022 substrate evidence for three Talos
+    control-plane nodes with etcd quorum, enough dedicated worker/storage nodes,
+    Cilium or equivalent enforced networking, VIP ingress, replicated storage,
+    CNPG `instances: 3`, portable secrets, and successful failover / restore
+    drills. DARK manifests/docs are not sufficient go-live evidence until this
+    context is activated by the operator.
+- [x] **Deploy automation built + validated for current paths** — Eng. `deploy/`
+  is kustomize/kubeconform-clean (30/30, CRDs included), the `oci-guest` Talos
+  machine config is `talosctl validate --mode cloud`-valid, all upstream operator
+  refs resolve, and the `mnt-web` image builds + serves. Blue/green Rollouts
+  smoke-gate the preview before cutover (automatic rollback on application
+  failure); Argo CD self-heals. `on-prem` dark artifacts have separate render,
+  scheduling, and failover gates before they become production evidence.
+  This is artifact/runbook readiness, not a blanket assertion that the latest
+  commit is deployed. A live deployment entry for go-live must attach fresh
+  default `scripts/deploy.sh` evidence; if only `--digest-bump-only` was run, the
+  checklist entry remains a desired-state bump awaiting a cluster-access operator.
+- [x] **Compose prod stack boots clean** — Eng (single-VM / `oci-guest`-compatible
+  path verified in M0: 6 services healthy, HTTPS healthz/readyz 200, SeaweedFS
+  with zero host ports).
+- [ ] **Production TLS certificates** (Traefik or selected ingress) issued for
+  the real hostname in the selected deployment context — 운영.
+- [ ] **Secrets installed for the selected context** per
+  [`docs/release/SECRETS.md`](release/SECRETS.md): JWT signing keys, DB
+  credentials, SeaweedFS keys, FCM/APNs, Kakao Alimtalk, object-storage replica —
+  운영. No secret is committed; all are injected via environment/secret store. For
+  `oci-guest`, follow the current OCI Vault / out-of-band bootstrap posture. For
+  `on-prem`, use the ADR-0022 OpenBao + External Secrets posture before claiming
+  portable HA secrets management.
+- [x] **Backup + PITR DR drilled for the current single-node path** — Eng.
+  `ops/backup/backup.sh`; full backup→scratch-restore cycle and a
+  PITR-to-arbitrary-timestamp drill verified (RPO ≤ 5 min / RTO ≤ 1 h policy);
+  VM-down rehearsal logged ([`docs/evidence/vm_down_*.log`](evidence/)). For
+  `oci-guest`, re-run the restore drill against the real VM before go-live and
+  file the evidence. For `on-prem`, do not claim HA/DR until CNPG three-instance
+  failover, replicated storage recovery, object-store/second-site restore, and a
+  node-loss drill are filed for that context.
 - [x] **WORM evidence interlock proven** on fresh SeaweedFS
   ([`docs/evidence/t1.4-seaweedfs-worm.md`](evidence/t1.4-seaweedfs-worm.md));
-  configure the offsite WORM replica (AWS ap-northeast-2 / Naver Cloud) — 운영.
+  configure the context-appropriate offsite WORM replica — for `oci-guest`, a
+  cloud object-store replica (AWS ap-northeast-2 / Naver Cloud); for `on-prem`, a
+  second physical site or equivalent independent S3-compatible/WORM target — 운영.
 
 ## 4. Observability — 운영 + Eng
 
@@ -155,12 +197,14 @@ infra + secrets) · **경영/법무** = business/legal (filings, approvals).
 ## Go / No-Go
 
 **GO** requires: §1 fully green (Eng — met at the launch commit); §2 KCC 신고 +
-privacy policy done (경영/법무); §3 VM + TLS + secrets + a real-VM restore drill
-(운영); §4 dashboards live (운영); §5 a signed pilot build on devices (운영); §6
-templates submitted (경영/법무); §7 pilot roster + branch data seeded (운영).
+privacy policy done (경영/법무); §3 selected deployment context provisioned + TLS +
+secrets + context-appropriate restore/failover evidence (운영); §4 dashboards live
+(운영); §5 a signed pilot build on devices (운영); §6 templates submitted
+(경영/법무); §7 pilot roster + branch data seeded (운영).
 
-**Current state:** the **build is launch-ready** — every Eng item is green and
-reproducible at the launch commit. The remaining items are operator/business
-actions (production access, secrets, legal filings) that the codebase cannot
-perform on its own; each is owned and tracked above. Pilot go-live is **pending
-those operator actions**, not pending further engineering.
+**Current state:** the **build is launch-ready for the existing pilot path** —
+every Eng item is green and reproducible at the launch commit. The remaining
+items are operator/business actions (selected substrate access, secrets, legal
+filings, and context-specific restore/failover evidence) that the codebase cannot
+perform on its own; each is owned and tracked above. `on-prem` HA go-live remains
+pending ADR-0022 substrate activation evidence, not just docs or DARK manifests.

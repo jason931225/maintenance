@@ -42,6 +42,7 @@
     <string name="back">뒤로</string>
     <string name="loading">처리 중</string>
     <string name="login_failed">로그인에 실패했습니다.</string>
+    <string name="device_registration_retry_pending">로그인은 완료되었습니다. 네트워크 복구 후 기기 등록을 다시 시도합니다.</string>
     <string name="operation_failed">처리에 실패했습니다.</string>
     <string name="offline_queued">오프라인 작업으로 저장되었습니다.</string>
     <string name="report_submitted">보고가 제출되었습니다.</string>
@@ -117,6 +118,11 @@
     <string name="messenger_read_progress_format">읽음 %1$d/%2$d</string>
     <string name="messenger_member_count_format">%1$d명</string>
     <string name="messenger_send_pending">오프라인 메시지로 저장되었습니다.</string>
+    <string name="messenger_thread_work_order_format">작업지시 %1$s</string>
+    <string name="messenger_thread_work_order">작업지시 대화</string>
+    <string name="messenger_thread_team">팀 채널</string>
+    <string name="messenger_thread_dm">1:1 대화</string>
+    <string name="messenger_thread_group">그룹 대화</string>
     <string name="messenger_kind_work_order">작업</string>
     <string name="messenger_kind_team">팀</string>
     <string name="messenger_kind_dm">1:1</string>

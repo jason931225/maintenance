@@ -1,6 +1,6 @@
 import { test, expect, loginAsLanding } from "../fixtures/roles";
 
-test("ADMIN-21 command palette, breadcrumb, and equipment object link work in browser", async ({
+test("ADMIN-21 command palette and equipment object link work in browser", async ({
   page,
 }) => {
   await loginAsLanding(page, "ADMIN");
@@ -17,15 +17,11 @@ test("ADMIN-21 command palette, breadcrumb, and equipment object link work in br
   await palette.getByRole("button", { name: /장비 조회/ }).click();
 
   await expect(page).toHaveURL(/\/equipment$/, { timeout: 10_000 });
+  // Location is the page <h1> now — the redundant breadcrumb strip was removed in
+  // the shell rebuild (see components/shell/AppShell.test.tsx).
   await expect(
     page.getByRole("heading", { name: "장비 조회", level: 1 }),
   ).toBeVisible({ timeout: 10_000 });
-
-  const breadcrumbs = page.getByRole("navigation", { name: "이동 경로" });
-  await expect(
-    breadcrumbs.getByRole("link", { name: "통합 개요" }),
-  ).toBeVisible({ timeout: 5_000 });
-  await expect(breadcrumbs.getByText("장비 조회")).toBeVisible();
 
   const detailLink = page
     .getByRole("link", { name: /^(보기|수정):/ })

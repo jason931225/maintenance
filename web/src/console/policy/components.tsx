@@ -15,7 +15,7 @@ export type PolicyQueryDecider = (query: PolicyQuery) => boolean;
 
 function resourceKey(resource?: PolicyResource): string | undefined {
   if (!resource) return undefined;
-  return typeof resource === "string" ? resource : `${resource.kind}:${resource.id}`;
+  return typeof resource === "string" ? resource : `${resource.kind ?? ""}:${resource.id ?? ""}`;
 }
 
 export function PolicyProvider({

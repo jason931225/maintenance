@@ -1,5 +1,6 @@
 import {
   chmodSync,
+  cpSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -19,6 +20,7 @@ const root = fileURLToPath(new URL("..", import.meta.url));
 const outputDir = resolve(root, "clients/kotlin");
 const inputSpec = resolve(root, "backend/openapi/openapi.yaml");
 const config = resolve(root, "clients/kotlin-generator-config.yaml");
+const templateDir = resolve(root, "clients/kotlin-generator-templates");
 const stagingRoot = resolve(root, ".cache/generated-clients");
 
 function run(command, args, options = {}) {
@@ -198,6 +200,21 @@ function replaceDirectoryFromStaging(stagingDir, targetDir) {
   }
 }
 
+const repoOwnedKotlinClientPaths = ["src/test"];
+
+function preserveRepoOwnedKotlinClientFiles(sourceDir, stagingDir) {
+  for (const relativePath of repoOwnedKotlinClientPaths) {
+    const source = resolve(sourceDir, relativePath);
+    if (!existsSync(source)) {
+      continue;
+    }
+
+    const destination = resolve(stagingDir, relativePath);
+    mkdirSync(resolve(destination, ".."), { recursive: true });
+    cpSync(source, destination, { recursive: true, force: true });
+  }
+}
+
 const forceDocker = process.env.OPENAPI_GENERATOR_USE_DOCKER === "1";
 const javaAvailable = hasJava();
 
@@ -229,6 +246,8 @@ const generatorArgs = [
   stagingDir,
   "-c",
   config,
+  "-t",
+  templateDir,
   "--global-property",
   "apiTests=false,modelTests=false,apiDocs=false,modelDocs=false",
 ];
@@ -250,6 +269,8 @@ try {
       dockerPath(stagingDir),
       "-c",
       dockerPath(config),
+      "-t",
+      dockerPath(templateDir),
       "--global-property",
       "apiTests=false,modelTests=false,apiDocs=false,modelDocs=false",
     ]);
@@ -260,6 +281,10 @@ try {
   if (!existsSync(resolve(stagingDir, "build.gradle"))) {
     throw new Error("Kotlin client generation did not produce clients/kotlin/build.gradle");
   }
+
+  // The generated client source stays generator-owned, but contract tests and
+  // fixtures under src/test are repo-owned gates and must survive regeneration.
+  preserveRepoOwnedKotlinClientFiles(outputDir, stagingDir);
 
   // Guardrail: keep the client split into per-domain Api classes. openapi-generator
   // only emits DefaultApi.kt when an operation carries no `tags:` — that is exactly

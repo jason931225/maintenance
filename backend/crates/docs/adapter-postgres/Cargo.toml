@@ -1,0 +1,25 @@
+[package]
+name = "mnt-docs-adapter-postgres"
+version = "0.1.0"
+description = "Postgres adapter for tenant-scoped docs/evidence EV objects."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+mnt-kernel-core = { workspace = true }
+mnt-docs-domain = { workspace = true }
+mnt-docs-application = { workspace = true }
+mnt-platform-db = { workspace = true }
+mnt-platform-request-context = { workspace = true }
+hex = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+uuid = { workspace = true }
+
+[lints]
+workspace = true

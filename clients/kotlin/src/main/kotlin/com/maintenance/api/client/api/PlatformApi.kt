@@ -27,7 +27,24 @@ import java.io.IOException
 import okhttp3.Call
 import okhttp3.HttpUrl
 
+import com.maintenance.api.client.model.CreatePlatformGroupAccountRequest
+import com.maintenance.api.client.model.CreatePlatformGroupAccountResponse
+import com.maintenance.api.client.model.CreatePlatformGroupRequest
+import com.maintenance.api.client.model.CreatePlatformOrgRequest
 import com.maintenance.api.client.model.ErrorBody
+import com.maintenance.api.client.model.PlatformExitResponse
+import com.maintenance.api.client.model.PlatformGroup
+import com.maintenance.api.client.model.PlatformGroupAccount
+import com.maintenance.api.client.model.PlatformGroupRole
+import com.maintenance.api.client.model.PlatformOpsResponse
+import com.maintenance.api.client.model.PlatformOrg
+import com.maintenance.api.client.model.PlatformOrgOnboardingResponse
+import com.maintenance.api.client.model.PlatformTenantContextStartRequest
+import com.maintenance.api.client.model.PlatformTenantContextStartResponse
+import com.maintenance.api.client.model.PlatformViewAsStartRequest
+import com.maintenance.api.client.model.PlatformViewAsStartResponse
+import com.maintenance.api.client.model.UpdatePlatformGroupRequest
+import com.maintenance.api.client.model.UpdatePlatformOrgRequest
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -55,6 +72,730 @@ open class PlatformApi(basePath: kotlin.String = defaultBasePath, client: Call.F
         val defaultBasePath: String by lazy {
             System.getProperties().getProperty(ApiClient.BASE_URL_KEY, "http://localhost")
         }
+    }
+
+    /**
+     * PUT /api/platform/groups/{id}/organizations/{org_id}
+     * Assign or move a tenant organization into a platform group
+     * Assigns the tenant organization to the selected group. Platform token and GroupManage authority required; the write is audited to the target organization.
+     * @param id
+     * @param orgId
+     * @return PlatformOrg
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun assignPlatformOrgToGroup(id: java.util.UUID, orgId: java.util.UUID) : PlatformOrg = withContext(Dispatchers.IO) {
+        val localVarResponse = assignPlatformOrgToGroupWithHttpInfo(id = id, orgId = orgId)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PlatformOrg
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * PUT /api/platform/groups/{id}/organizations/{org_id}
+     * Assign or move a tenant organization into a platform group
+     * Assigns the tenant organization to the selected group. Platform token and GroupManage authority required; the write is audited to the target organization.
+     * @param id
+     * @param orgId
+     * @return ApiResponse<PlatformOrg?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun assignPlatformOrgToGroupWithHttpInfo(id: java.util.UUID, orgId: java.util.UUID) : ApiResponse<PlatformOrg?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = assignPlatformOrgToGroupRequestConfig(id = id, orgId = orgId)
+
+        return@withContext request<Unit, PlatformOrg>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation assignPlatformOrgToGroup
+     *
+     * @param id
+     * @param orgId
+     * @return RequestConfig
+     */
+    fun assignPlatformOrgToGroupRequestConfig(id: java.util.UUID, orgId: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.PUT,
+            path = "/api/platform/groups/{id}/organizations/{org_id}".replace("{"+"id"+"}", encodeURIComponent(id.toString())).replace("{"+"org_id"+"}", encodeURIComponent(orgId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/platform/groups
+     * Create a platform group identity (platform vendor tier)
+     * Creates a group identity that can own multiple tenant organizations. Platform token and GroupManage authority required.
+     * @param createPlatformGroupRequest
+     * @return PlatformGroup
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun createPlatformGroup(createPlatformGroupRequest: CreatePlatformGroupRequest) : PlatformGroup = withContext(Dispatchers.IO) {
+        val localVarResponse = createPlatformGroupWithHttpInfo(createPlatformGroupRequest = createPlatformGroupRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PlatformGroup
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/platform/groups
+     * Create a platform group identity (platform vendor tier)
+     * Creates a group identity that can own multiple tenant organizations. Platform token and GroupManage authority required.
+     * @param createPlatformGroupRequest
+     * @return ApiResponse<PlatformGroup?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun createPlatformGroupWithHttpInfo(createPlatformGroupRequest: CreatePlatformGroupRequest) : ApiResponse<PlatformGroup?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = createPlatformGroupRequestConfig(createPlatformGroupRequest = createPlatformGroupRequest)
+
+        return@withContext request<CreatePlatformGroupRequest, PlatformGroup>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation createPlatformGroup
+     *
+     * @param createPlatformGroupRequest
+     * @return RequestConfig
+     */
+    fun createPlatformGroupRequestConfig(createPlatformGroupRequest: CreatePlatformGroupRequest) : RequestConfig<CreatePlatformGroupRequest> {
+        val localVariableBody = createPlatformGroupRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/platform/groups",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/platform/groups/{id}/accounts
+     * Create a tenant-anchored user account with a group role
+     * Creates one tenant account in the target organization, grants a group role, and returns the one-time setup OTP exactly once. Tenant roles default to MEMBER and group_role defaults to GROUP_ADMIN when omitted.
+     * @param id
+     * @param createPlatformGroupAccountRequest
+     * @return CreatePlatformGroupAccountResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun createPlatformGroupAccount(id: java.util.UUID, createPlatformGroupAccountRequest: CreatePlatformGroupAccountRequest) : CreatePlatformGroupAccountResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = createPlatformGroupAccountWithHttpInfo(id = id, createPlatformGroupAccountRequest = createPlatformGroupAccountRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as CreatePlatformGroupAccountResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/platform/groups/{id}/accounts
+     * Create a tenant-anchored user account with a group role
+     * Creates one tenant account in the target organization, grants a group role, and returns the one-time setup OTP exactly once. Tenant roles default to MEMBER and group_role defaults to GROUP_ADMIN when omitted.
+     * @param id
+     * @param createPlatformGroupAccountRequest
+     * @return ApiResponse<CreatePlatformGroupAccountResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun createPlatformGroupAccountWithHttpInfo(id: java.util.UUID, createPlatformGroupAccountRequest: CreatePlatformGroupAccountRequest) : ApiResponse<CreatePlatformGroupAccountResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = createPlatformGroupAccountRequestConfig(id = id, createPlatformGroupAccountRequest = createPlatformGroupAccountRequest)
+
+        return@withContext request<CreatePlatformGroupAccountRequest, CreatePlatformGroupAccountResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation createPlatformGroupAccount
+     *
+     * @param id
+     * @param createPlatformGroupAccountRequest
+     * @return RequestConfig
+     */
+    fun createPlatformGroupAccountRequestConfig(id: java.util.UUID, createPlatformGroupAccountRequest: CreatePlatformGroupAccountRequest) : RequestConfig<CreatePlatformGroupAccountRequest> {
+        val localVariableBody = createPlatformGroupAccountRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/platform/groups/{id}/accounts".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/platform/tenant-context/exit
+     * End a writable platform-managed tenant context audit trail
+     * Records the platform.tenant_context.stop audit event. Called with the operator&#39;s real platform token after restoring the platform session.
+     * @return PlatformExitResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun exitPlatformTenantContext() : PlatformExitResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = exitPlatformTenantContextWithHttpInfo()
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PlatformExitResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/platform/tenant-context/exit
+     * End a writable platform-managed tenant context audit trail
+     * Records the platform.tenant_context.stop audit event. Called with the operator&#39;s real platform token after restoring the platform session.
+     * @return ApiResponse<PlatformExitResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun exitPlatformTenantContextWithHttpInfo() : ApiResponse<PlatformExitResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = exitPlatformTenantContextRequestConfig()
+
+        return@withContext request<Unit, PlatformExitResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation exitPlatformTenantContext
+     *
+     * @return RequestConfig
+     */
+    fun exitPlatformTenantContextRequestConfig() : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/platform/tenant-context/exit",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/platform/view-as/exit
+     * End a read-only platform view-as session audit trail
+     * Records the platform.view_as.stop audit event. Called with the operator&#39;s real platform token, not the impersonation token.
+     * @return PlatformExitResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun exitPlatformViewAs() : PlatformExitResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = exitPlatformViewAsWithHttpInfo()
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PlatformExitResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/platform/view-as/exit
+     * End a read-only platform view-as session audit trail
+     * Records the platform.view_as.stop audit event. Called with the operator&#39;s real platform token, not the impersonation token.
+     * @return ApiResponse<PlatformExitResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun exitPlatformViewAsWithHttpInfo() : ApiResponse<PlatformExitResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = exitPlatformViewAsRequestConfig()
+
+        return@withContext request<Unit, PlatformExitResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation exitPlatformViewAs
+     *
+     * @return RequestConfig
+     */
+    fun exitPlatformViewAsRequestConfig() : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/platform/view-as/exit",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/platform/ops
+     * Read cross-tenant platform operations health (platform vendor tier)
+     * Returns per-tenant health and usage counts from the sanctioned SECURITY DEFINER platform rollup. Authorized with TenantHealthRead and audited as a platform read; no row-level tenant data is returned.
+     * @return PlatformOpsResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun getPlatformOps() : PlatformOpsResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = getPlatformOpsWithHttpInfo()
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PlatformOpsResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/platform/ops
+     * Read cross-tenant platform operations health (platform vendor tier)
+     * Returns per-tenant health and usage counts from the sanctioned SECURITY DEFINER platform rollup. Authorized with TenantHealthRead and audited as a platform read; no row-level tenant data is returned.
+     * @return ApiResponse<PlatformOpsResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun getPlatformOpsWithHttpInfo() : ApiResponse<PlatformOpsResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getPlatformOpsRequestConfig()
+
+        return@withContext request<Unit, PlatformOpsResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getPlatformOps
+     *
+     * @return RequestConfig
+     */
+    fun getPlatformOpsRequestConfig() : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/platform/ops",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/platform/groups/{id}/accounts
+     * List tenant-anchored accounts with group roles
+     * Lists tenant user accounts that hold one or more grants for the selected platform group. Platform token and GroupManage authority required.
+     * @param id
+     * @return kotlin.collections.List<PlatformGroupAccount>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listPlatformGroupAccounts(id: java.util.UUID) : kotlin.collections.List<PlatformGroupAccount> = withContext(Dispatchers.IO) {
+        val localVarResponse = listPlatformGroupAccountsWithHttpInfo(id = id)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.List<PlatformGroupAccount>
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/platform/groups/{id}/accounts
+     * List tenant-anchored accounts with group roles
+     * Lists tenant user accounts that hold one or more grants for the selected platform group. Platform token and GroupManage authority required.
+     * @param id
+     * @return ApiResponse<kotlin.collections.List<PlatformGroupAccount>?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listPlatformGroupAccountsWithHttpInfo(id: java.util.UUID) : ApiResponse<kotlin.collections.List<PlatformGroupAccount>?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listPlatformGroupAccountsRequestConfig(id = id)
+
+        return@withContext request<Unit, kotlin.collections.List<PlatformGroupAccount>>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listPlatformGroupAccounts
+     *
+     * @param id
+     * @return RequestConfig
+     */
+    fun listPlatformGroupAccountsRequestConfig(id: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/platform/groups/{id}/accounts".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/platform/groups
+     * List platform groups and member organizations (platform vendor tier)
+     * Lists group identities and their subsidiary organization memberships. Platform token and GroupManage authority required.
+     * @return kotlin.collections.List<PlatformGroup>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listPlatformGroups() : kotlin.collections.List<PlatformGroup> = withContext(Dispatchers.IO) {
+        val localVarResponse = listPlatformGroupsWithHttpInfo()
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.List<PlatformGroup>
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/platform/groups
+     * List platform groups and member organizations (platform vendor tier)
+     * Lists group identities and their subsidiary organization memberships. Platform token and GroupManage authority required.
+     * @return ApiResponse<kotlin.collections.List<PlatformGroup>?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listPlatformGroupsWithHttpInfo() : ApiResponse<kotlin.collections.List<PlatformGroup>?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listPlatformGroupsRequestConfig()
+
+        return@withContext request<Unit, kotlin.collections.List<PlatformGroup>>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listPlatformGroups
+     *
+     * @return RequestConfig
+     */
+    fun listPlatformGroupsRequestConfig() : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/platform/groups",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/platform/orgs
+     * List tenant organizations (platform vendor tier)
+     * Lists all tenant organizations through the platform extractor. A tenant token is rejected before the handler runs; reads are authorized with TenantList and audited as a cross-tenant platform read.
+     * @return kotlin.collections.List<PlatformOrg>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listPlatformOrgs() : kotlin.collections.List<PlatformOrg> = withContext(Dispatchers.IO) {
+        val localVarResponse = listPlatformOrgsWithHttpInfo()
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.List<PlatformOrg>
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/platform/orgs
+     * List tenant organizations (platform vendor tier)
+     * Lists all tenant organizations through the platform extractor. A tenant token is rejected before the handler runs; reads are authorized with TenantList and audited as a cross-tenant platform read.
+     * @return ApiResponse<kotlin.collections.List<PlatformOrg>?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listPlatformOrgsWithHttpInfo() : ApiResponse<kotlin.collections.List<PlatformOrg>?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listPlatformOrgsRequestConfig()
+
+        return@withContext request<Unit, kotlin.collections.List<PlatformOrg>>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listPlatformOrgs
+     *
+     * @return RequestConfig
+     */
+    fun listPlatformOrgsRequestConfig() : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/platform/orgs",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/platform/orgs
+     * Onboard a new tenant organization (platform vendor tier)
+     * Creates a tenant organization, seeds its first SUPER_ADMIN account, and returns the one-time bootstrap OTP exactly once. Platform token required; tenant tokens are rejected before the handler runs.
+     * @param createPlatformOrgRequest
+     * @return PlatformOrgOnboardingResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun onboardPlatformOrg(createPlatformOrgRequest: CreatePlatformOrgRequest) : PlatformOrgOnboardingResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = onboardPlatformOrgWithHttpInfo(createPlatformOrgRequest = createPlatformOrgRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PlatformOrgOnboardingResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/platform/orgs
+     * Onboard a new tenant organization (platform vendor tier)
+     * Creates a tenant organization, seeds its first SUPER_ADMIN account, and returns the one-time bootstrap OTP exactly once. Platform token required; tenant tokens are rejected before the handler runs.
+     * @param createPlatformOrgRequest
+     * @return ApiResponse<PlatformOrgOnboardingResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun onboardPlatformOrgWithHttpInfo(createPlatformOrgRequest: CreatePlatformOrgRequest) : ApiResponse<PlatformOrgOnboardingResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = onboardPlatformOrgRequestConfig(createPlatformOrgRequest = createPlatformOrgRequest)
+
+        return@withContext request<CreatePlatformOrgRequest, PlatformOrgOnboardingResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation onboardPlatformOrg
+     *
+     * @param createPlatformOrgRequest
+     * @return RequestConfig
+     */
+    fun onboardPlatformOrgRequestConfig(createPlatformOrgRequest: CreatePlatformOrgRequest) : RequestConfig<CreatePlatformOrgRequest> {
+        val localVariableBody = createPlatformOrgRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/platform/orgs",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
     }
 
     /**
@@ -129,6 +870,461 @@ open class PlatformApi(basePath: kotlin.String = defaultBasePath, client: Call.F
         return RequestConfig(
             method = RequestMethod.DELETE,
             path = "/api/platform/orgs/{id}".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * DELETE /api/platform/groups/{id}/organizations/{org_id}
+     * Remove a tenant organization from a platform group
+     * Removes the tenant organization from the selected group. Platform token and GroupManage authority required; the write is audited to the target organization.
+     * @param id
+     * @param orgId
+     * @return PlatformOrg
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun removePlatformOrgFromGroup(id: java.util.UUID, orgId: java.util.UUID) : PlatformOrg = withContext(Dispatchers.IO) {
+        val localVarResponse = removePlatformOrgFromGroupWithHttpInfo(id = id, orgId = orgId)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PlatformOrg
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * DELETE /api/platform/groups/{id}/organizations/{org_id}
+     * Remove a tenant organization from a platform group
+     * Removes the tenant organization from the selected group. Platform token and GroupManage authority required; the write is audited to the target organization.
+     * @param id
+     * @param orgId
+     * @return ApiResponse<PlatformOrg?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun removePlatformOrgFromGroupWithHttpInfo(id: java.util.UUID, orgId: java.util.UUID) : ApiResponse<PlatformOrg?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = removePlatformOrgFromGroupRequestConfig(id = id, orgId = orgId)
+
+        return@withContext request<Unit, PlatformOrg>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation removePlatformOrgFromGroup
+     *
+     * @param id
+     * @param orgId
+     * @return RequestConfig
+     */
+    fun removePlatformOrgFromGroupRequestConfig(id: java.util.UUID, orgId: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.DELETE,
+            path = "/api/platform/groups/{id}/organizations/{org_id}".replace("{"+"id"+"}", encodeURIComponent(id.toString())).replace("{"+"org_id"+"}", encodeURIComponent(orgId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * DELETE /api/platform/groups/{id}/accounts/{user_id}/roles/{group_role}
+     * Revoke one group role from a tenant-anchored account
+     * Removes one group-level role grant from the selected account. Platform token and GroupManage authority required.
+     * @param id
+     * @param userId
+     * @param groupRole
+     * @return void
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun revokePlatformGroupRole(id: java.util.UUID, userId: java.util.UUID, groupRole: PlatformGroupRole) : Unit = withContext(Dispatchers.IO) {
+        val localVarResponse = revokePlatformGroupRoleWithHttpInfo(id = id, userId = userId, groupRole = groupRole)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> Unit
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * DELETE /api/platform/groups/{id}/accounts/{user_id}/roles/{group_role}
+     * Revoke one group role from a tenant-anchored account
+     * Removes one group-level role grant from the selected account. Platform token and GroupManage authority required.
+     * @param id
+     * @param userId
+     * @param groupRole
+     * @return ApiResponse<Unit?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun revokePlatformGroupRoleWithHttpInfo(id: java.util.UUID, userId: java.util.UUID, groupRole: PlatformGroupRole) : ApiResponse<Unit?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = revokePlatformGroupRoleRequestConfig(id = id, userId = userId, groupRole = groupRole)
+
+        return@withContext request<Unit, Unit>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation revokePlatformGroupRole
+     *
+     * @param id
+     * @param userId
+     * @param groupRole
+     * @return RequestConfig
+     */
+    fun revokePlatformGroupRoleRequestConfig(id: java.util.UUID, userId: java.util.UUID, groupRole: PlatformGroupRole) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.DELETE,
+            path = "/api/platform/groups/{id}/accounts/{user_id}/roles/{group_role}".replace("{"+"id"+"}", encodeURIComponent(id.toString())).replace("{"+"user_id"+"}", encodeURIComponent(userId.toString())).replace("{"+"group_role"+"}", encodeURIComponent(groupRole.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * PATCH /api/platform/orgs/{id}
+     * Change a tenant lifecycle status (platform vendor tier)
+     * Sets a tenant organization status to ACTIVE, SUSPENDED, or ARCHIVED. Platform token required; every write is cross-tenant and audited to the target organization.
+     * @param id
+     * @param updatePlatformOrgRequest
+     * @return PlatformOrg
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun setPlatformOrgStatus(id: java.util.UUID, updatePlatformOrgRequest: UpdatePlatformOrgRequest) : PlatformOrg = withContext(Dispatchers.IO) {
+        val localVarResponse = setPlatformOrgStatusWithHttpInfo(id = id, updatePlatformOrgRequest = updatePlatformOrgRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PlatformOrg
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * PATCH /api/platform/orgs/{id}
+     * Change a tenant lifecycle status (platform vendor tier)
+     * Sets a tenant organization status to ACTIVE, SUSPENDED, or ARCHIVED. Platform token required; every write is cross-tenant and audited to the target organization.
+     * @param id
+     * @param updatePlatformOrgRequest
+     * @return ApiResponse<PlatformOrg?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun setPlatformOrgStatusWithHttpInfo(id: java.util.UUID, updatePlatformOrgRequest: UpdatePlatformOrgRequest) : ApiResponse<PlatformOrg?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = setPlatformOrgStatusRequestConfig(id = id, updatePlatformOrgRequest = updatePlatformOrgRequest)
+
+        return@withContext request<UpdatePlatformOrgRequest, PlatformOrg>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation setPlatformOrgStatus
+     *
+     * @param id
+     * @param updatePlatformOrgRequest
+     * @return RequestConfig
+     */
+    fun setPlatformOrgStatusRequestConfig(id: java.util.UUID, updatePlatformOrgRequest: UpdatePlatformOrgRequest) : RequestConfig<UpdatePlatformOrgRequest> {
+        val localVariableBody = updatePlatformOrgRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.PATCH,
+            path = "/api/platform/orgs/{id}".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/platform/tenant-context
+     * Start a writable platform-managed tenant context
+     * Mints a short-lived writable tenant token with SUPER_ADMIN for exactly one active tenant. Platform token and TenantManage authority required; the operator identity comes from the verified bearer token and the start is audited.
+     * @param platformTenantContextStartRequest
+     * @return PlatformTenantContextStartResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun startPlatformTenantContext(platformTenantContextStartRequest: PlatformTenantContextStartRequest) : PlatformTenantContextStartResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = startPlatformTenantContextWithHttpInfo(platformTenantContextStartRequest = platformTenantContextStartRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PlatformTenantContextStartResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/platform/tenant-context
+     * Start a writable platform-managed tenant context
+     * Mints a short-lived writable tenant token with SUPER_ADMIN for exactly one active tenant. Platform token and TenantManage authority required; the operator identity comes from the verified bearer token and the start is audited.
+     * @param platformTenantContextStartRequest
+     * @return ApiResponse<PlatformTenantContextStartResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun startPlatformTenantContextWithHttpInfo(platformTenantContextStartRequest: PlatformTenantContextStartRequest) : ApiResponse<PlatformTenantContextStartResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = startPlatformTenantContextRequestConfig(platformTenantContextStartRequest = platformTenantContextStartRequest)
+
+        return@withContext request<PlatformTenantContextStartRequest, PlatformTenantContextStartResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation startPlatformTenantContext
+     *
+     * @param platformTenantContextStartRequest
+     * @return RequestConfig
+     */
+    fun startPlatformTenantContextRequestConfig(platformTenantContextStartRequest: PlatformTenantContextStartRequest) : RequestConfig<PlatformTenantContextStartRequest> {
+        val localVariableBody = platformTenantContextStartRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/platform/tenant-context",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/platform/view-as
+     * Start a read-only platform view-as session for one tenant
+     * Mints a short-lived tenant token pinned to the requested organization and role with view_as/read_only flags. Platform token and TenantHealthRead authority required; the operator identity comes from the verified bearer token.
+     * @param platformViewAsStartRequest
+     * @return PlatformViewAsStartResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun startPlatformViewAs(platformViewAsStartRequest: PlatformViewAsStartRequest) : PlatformViewAsStartResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = startPlatformViewAsWithHttpInfo(platformViewAsStartRequest = platformViewAsStartRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PlatformViewAsStartResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/platform/view-as
+     * Start a read-only platform view-as session for one tenant
+     * Mints a short-lived tenant token pinned to the requested organization and role with view_as/read_only flags. Platform token and TenantHealthRead authority required; the operator identity comes from the verified bearer token.
+     * @param platformViewAsStartRequest
+     * @return ApiResponse<PlatformViewAsStartResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun startPlatformViewAsWithHttpInfo(platformViewAsStartRequest: PlatformViewAsStartRequest) : ApiResponse<PlatformViewAsStartResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = startPlatformViewAsRequestConfig(platformViewAsStartRequest = platformViewAsStartRequest)
+
+        return@withContext request<PlatformViewAsStartRequest, PlatformViewAsStartResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation startPlatformViewAs
+     *
+     * @param platformViewAsStartRequest
+     * @return RequestConfig
+     */
+    fun startPlatformViewAsRequestConfig(platformViewAsStartRequest: PlatformViewAsStartRequest) : RequestConfig<PlatformViewAsStartRequest> {
+        val localVariableBody = platformViewAsStartRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/platform/view-as",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * PATCH /api/platform/groups/{id}
+     * Update a platform group identity or lifecycle status
+     * Updates group slug, name, and/or status. Platform token and GroupManage authority required.
+     * @param id
+     * @param updatePlatformGroupRequest
+     * @return PlatformGroup
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun updatePlatformGroup(id: java.util.UUID, updatePlatformGroupRequest: UpdatePlatformGroupRequest) : PlatformGroup = withContext(Dispatchers.IO) {
+        val localVarResponse = updatePlatformGroupWithHttpInfo(id = id, updatePlatformGroupRequest = updatePlatformGroupRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PlatformGroup
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * PATCH /api/platform/groups/{id}
+     * Update a platform group identity or lifecycle status
+     * Updates group slug, name, and/or status. Platform token and GroupManage authority required.
+     * @param id
+     * @param updatePlatformGroupRequest
+     * @return ApiResponse<PlatformGroup?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun updatePlatformGroupWithHttpInfo(id: java.util.UUID, updatePlatformGroupRequest: UpdatePlatformGroupRequest) : ApiResponse<PlatformGroup?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = updatePlatformGroupRequestConfig(id = id, updatePlatformGroupRequest = updatePlatformGroupRequest)
+
+        return@withContext request<UpdatePlatformGroupRequest, PlatformGroup>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation updatePlatformGroup
+     *
+     * @param id
+     * @param updatePlatformGroupRequest
+     * @return RequestConfig
+     */
+    fun updatePlatformGroupRequestConfig(id: java.util.UUID, updatePlatformGroupRequest: UpdatePlatformGroupRequest) : RequestConfig<UpdatePlatformGroupRequest> {
+        val localVariableBody = updatePlatformGroupRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.PATCH,
+            path = "/api/platform/groups/{id}".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

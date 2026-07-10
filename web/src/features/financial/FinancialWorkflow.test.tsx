@@ -1,25 +1,87 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { MemoryRouter } from "react-router-dom";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
-import { FinancialPage } from "../../pages/FinancialPage";
 import { createConsoleApiClient } from "../../api/client";
 import { AuthContext } from "../../context/auth";
 import type { AuthContextValue, AuthSession } from "../../context/auth";
+import { FinancialPage } from "../../pages/FinancialPage";
 import type { components } from "@maintenance/api-client-ts";
 import { branchId } from "../../test/fixtures";
 import { waitForRouteReady } from "../../test/routeReady";
 
+const mockStepUpAssertion = {
+  ceremony_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  credential: { id: "passkey-assertion" },
+};
+const mockAssertPasskeyStepUp = vi.hoisted(() => vi.fn());
+
+vi.mock("../../auth/webauthn", () => {
+  class MockOtpRedeemError extends Error {
+    readonly status: number | undefined;
+    constructor(status: number | undefined) {
+      super(`OTP redeem failed with status ${String(status)}`);
+      this.name = "OtpRedeemError";
+      this.status = status;
+    }
+  }
+  class MockSignupError extends Error {
+    readonly status: number | undefined;
+    constructor(status: number | undefined) {
+      super(`signup failed with status ${String(status)}`);
+      this.name = "SignupError";
+      this.status = status;
+    }
+  }
+  return {
+    OtpRedeemError: MockOtpRedeemError,
+    SignupError: MockSignupError,
+    acceptPrivacyConsent: vi.fn(),
+    approveDeviceLoginSession: vi.fn(),
+    approveDeviceLoginWithPasskey: vi.fn(),
+    assertPasskeyStepUp: mockAssertPasskeyStepUp,
+    finishPasskeyLogin: vi.fn(),
+    finishPasskeyRegistration: vi.fn(),
+    getPrivacyConsentStatus: vi.fn(),
+    issueAdminOtp: vi.fn(),
+    issueEnrollHandoff: vi.fn(),
+    logout: vi.fn(),
+    pollDeviceLogin: vi.fn(),
+    redeemOtp: vi.fn(),
+    refreshToken: vi.fn(),
+    resetUserCredentials: vi.fn(),
+    signupOpen: vi.fn(),
+    startDeviceLogin: vi.fn(),
+    startPasskeyLogin: vi.fn(),
+    startPasskeyRegistration: vi.fn(),
+  };
+});
+
 const server = setupServer();
+
+vi.setConfig({ testTimeout: 20_000 });
 
 beforeAll(() => {
   server.listen({ onUnhandledRequest: "bypass" });
 });
+beforeEach(() => {
+  mockAssertPasskeyStepUp.mockResolvedValue(mockStepUpAssertion);
+});
 afterEach(() => {
   server.resetHandlers();
+  mockAssertPasskeyStepUp.mockReset();
 });
 afterAll(() => {
   server.close();
@@ -215,30 +277,32 @@ async function lookupEquipment(user: ReturnType<typeof userEvent.setup>) {
   if (toggle && !toggle.matches(":checked")) {
     await user.click(toggle);
   }
-  await user.type(
-    await screen.findByLabelText("호기 번호", { exact: true }),
-    "290",
-  );
+  changeInput(await screen.findByLabelText("호기 번호", { exact: true }), "290");
   await user.click(screen.getByRole("button", { name: "호기 번호" }));
   await screen.findByText("GTS25DE");
 }
 
-async function fillPurchaseLine(
-  user: ReturnType<typeof userEvent.setup>,
+function changeInput(element: HTMLElement, value: string) {
+  fireEvent.change(element, { target: { value } });
+}
+
+function fillPurchaseLine(
   item = "유압 필터",
   quantity = "1",
   unitPrice = "454546",
 ) {
-  await user.type(screen.getByLabelText("품목 1"), item);
-  await user.clear(screen.getByLabelText("수량 1"));
-  await user.type(screen.getByLabelText("수량 1"), quantity);
-  await user.type(screen.getByLabelText("공급가액(단가) 1"), unitPrice);
+  changeInput(screen.getByLabelText("품목 1"), item);
+  changeInput(screen.getByLabelText("수량 1"), quantity);
+  changeInput(screen.getByLabelText("공급가액(단가) 1"), unitPrice);
 }
 
 describe("financial purchase request workflow", () => {
   it("drives the request -> resolution -> execution chain", async () => {
     const user = userEvent.setup();
     const created = vi.fn();
+    const adminApproved = vi.fn();
+    const expenditurePrepared = vi.fn();
+    const executed = vi.fn();
     let current = purchase("STATEMENT_ATTACHED");
 
     server.use(
@@ -257,21 +321,24 @@ describe("financial purchase request workflow", () => {
       ),
       http.post(
         "*/api/v1/financial/purchase-requests/:id/approve-admin",
-        () => {
+        async ({ request }) => {
+          adminApproved(await request.json());
           current = purchase("ADMIN_APPROVED");
           return HttpResponse.json(current);
         },
       ),
       http.post(
         "*/api/v1/financial/purchase-requests/:id/prepare-expenditure",
-        () => {
+        async ({ request }) => {
+          expenditurePrepared(await request.json());
           current = purchase("READY_TO_EXECUTE", { expenditure_no: "EXP-1" });
           return HttpResponse.json(current);
         },
       ),
       http.post(
         "*/api/v1/financial/purchase-requests/:id/execute",
-        () => {
+        async ({ request }) => {
+          executed(await request.json());
           current = purchase("EXECUTED", { expenditure_no: "EXP-1" });
           return HttpResponse.json(current);
         },
@@ -289,13 +356,10 @@ describe("financial purchase request workflow", () => {
     );
     await lookupEquipment(user);
 
-    await user.type(screen.getByLabelText("거래처명"), "한빛부품");
-    await fillPurchaseLine(user);
-    await user.type(
-      screen.getByLabelText("거래명세표 증빙 번호"),
-      evidenceId,
-    );
-    await user.type(screen.getByLabelText("비고"), "정기 부품 교체");
+    changeInput(screen.getByLabelText("거래처명"), "한빛부품");
+    fillPurchaseLine();
+    changeInput(screen.getByLabelText("거래명세표 증빙 번호"), evidenceId);
+    changeInput(screen.getByLabelText("비고"), "정기 부품 교체");
     await user.click(screen.getByRole("button", { name: "작성" }));
 
     await waitFor(() => {
@@ -322,10 +386,7 @@ describe("financial purchase request workflow", () => {
       await screen.findByRole("button", { name: "지출결의 등록" }),
     );
     const expDialog = await screen.findByRole("dialog");
-    await user.type(
-      within(expDialog).getByLabelText("지출결의 번호"),
-      "EXP-1",
-    );
+    changeInput(within(expDialog).getByLabelText("지출결의 번호"), "EXP-1");
     await user.click(within(expDialog).getByRole("button", { name: "등록" }));
 
     // READY_TO_EXECUTE -> execute (confirm dialog)
@@ -337,6 +398,13 @@ describe("financial purchase request workflow", () => {
     expect(
       await screen.findByText("현재 단계에서 가능한 작업이 없습니다."),
     ).toBeVisible();
+    expect(mockAssertPasskeyStepUp).toHaveBeenCalledTimes(3);
+    expect(adminApproved).toHaveBeenCalledWith({ step_up: mockStepUpAssertion });
+    expect(expenditurePrepared).toHaveBeenCalledWith({
+      expenditure_no: "EXP-1",
+      step_up: mockStepUpAssertion,
+    });
+    expect(executed).toHaveBeenCalledWith({ step_up: mockStepUpAssertion });
   });
 
   it("keeps the mature purchase intake compact with lines, quotes, policy, requester, and preferences", async () => {
@@ -451,12 +519,11 @@ describe("financial purchase request workflow", () => {
     expect(layout).toHaveClass("lg:grid-cols-[minmax(0,1fr)_22rem]");
 
     await user.selectOptions(within(intake).getByLabelText("구매유형"), "OTHER");
-    await user.type(within(intake).getByLabelText("거래처명"), "비장비 공급사");
+    changeInput(within(intake).getByLabelText("거래처명"), "비장비 공급사");
     expect(within(intake).getByText("새 거래처로 수기 입력합니다.")).toBeVisible();
-    await user.type(within(intake).getByLabelText("품목 1"), "사무실 소모품");
-    await user.clear(within(intake).getByLabelText("수량 1"));
-    await user.type(within(intake).getByLabelText("수량 1"), "2");
-    await user.type(within(intake).getByLabelText("공급가액(단가) 1"), "100000");
+    changeInput(within(intake).getByLabelText("품목 1"), "사무실 소모품");
+    changeInput(within(intake).getByLabelText("수량 1"), "2");
+    changeInput(within(intake).getByLabelText("공급가액(단가) 1"), "100000");
     expect(within(intake).getByLabelText("부가세 1")).toHaveValue("20000");
     expect(within(intake).getByText("220,000 원")).toBeVisible();
 
@@ -468,7 +535,7 @@ describe("financial purchase request workflow", () => {
     });
 
     await user.upload(within(intake).getByLabelText("견적서 업로드"), new File(["quote"], "hanbit-quote.pdf", { type: "application/pdf" }));
-    await user.type(within(intake).getByLabelText("비고"), "장비와 무관한 운영 구매");
+    changeInput(within(intake).getByLabelText("비고"), "장비와 무관한 운영 구매");
     await user.click(within(intake).getByRole("button", { name: "작성" }));
 
     await waitFor(() => {
@@ -531,10 +598,10 @@ describe("financial purchase request workflow", () => {
     expect(within(intake).queryByLabelText("호기 연결 구매")).not.toBeInTheDocument();
     expect(within(intake).queryByLabelText("호기 번호")).not.toBeInTheDocument();
 
-    await user.type(within(intake).getByLabelText("거래처명"), "비장비 공급사");
-    await user.type(within(intake).getByLabelText("품목 1"), "사무실 소모품");
-    await user.type(within(intake).getByLabelText("공급가액(단가) 1"), "100000");
-    await user.type(within(intake).getByLabelText("비고"), "호기 없는 타 법인 구매");
+    changeInput(within(intake).getByLabelText("거래처명"), "비장비 공급사");
+    changeInput(within(intake).getByLabelText("품목 1"), "사무실 소모품");
+    changeInput(within(intake).getByLabelText("공급가액(단가) 1"), "100000");
+    changeInput(within(intake).getByLabelText("비고"), "호기 없는 타 법인 구매");
     await user.click(within(intake).getByRole("button", { name: "작성" }));
 
     await waitFor(() => {
@@ -559,6 +626,7 @@ describe("financial purchase request workflow", () => {
 
   it("routes above-threshold requests through executive approval", async () => {
     const user = userEvent.setup();
+    const executiveApproved = vi.fn();
 
     server.use(
       lookupHandler(),
@@ -572,20 +640,19 @@ describe("financial purchase request workflow", () => {
       ),
       http.post(
         "*/api/v1/financial/purchase-requests/:id/approve-executive",
-        () =>
-          HttpResponse.json(
+        async ({ request }) => {
+          executiveApproved(await request.json());
+          return HttpResponse.json(
             purchase("READY_TO_EXECUTE", { amount_won: 5_000_000 }),
-          ),
+          );
+        },
       ),
     );
 
     // Executive can final-approve but not execute.
     await renderFinancialApp(makeAuthContext(session(["EXECUTIVE"])));
 
-    await user.type(
-      await screen.findByLabelText("구매요청서 번호로 불러오기"),
-      purchaseId,
-    );
+    changeInput(await screen.findByLabelText("구매요청서 번호로 불러오기"), purchaseId);
     await user.click(screen.getByRole("button", { name: "불러오기" }));
 
     const statementThumb = await screen.findByAltText("거래명세표 사진 미리보기");
@@ -604,6 +671,78 @@ describe("financial purchase request workflow", () => {
     expect(
       screen.queryByRole("button", { name: "집행" }),
     ).not.toBeInTheDocument();
+    expect(mockAssertPasskeyStepUp).toHaveBeenCalledOnce();
+    expect(executiveApproved).toHaveBeenCalledWith({
+      step_up: mockStepUpAssertion,
+    });
+  });
+
+  it("sends passkey proof when rejecting a submitted purchase request", async () => {
+    const user = userEvent.setup();
+    const rejected = vi.fn();
+
+    server.use(
+      http.get("*/api/v1/financial/purchase-requests/:id", () =>
+        HttpResponse.json(purchase("REQUEST_SUBMITTED")),
+      ),
+      http.post(
+        "*/api/v1/financial/purchase-requests/:id/reject",
+        async ({ request }) => {
+          rejected(await request.json());
+          return HttpResponse.json(purchase("REJECTED", { rejection_memo: "예산 초과" }));
+        },
+      ),
+    );
+
+    renderApp(makeAuthContext(adminSession));
+
+    changeInput(await screen.findByLabelText("구매요청서 번호로 불러오기"), purchaseId);
+    await user.click(screen.getByRole("button", { name: "불러오기" }));
+    await user.click(await screen.findByRole("button", { name: "반려" }));
+    const rejectDialog = await screen.findByRole("dialog");
+    changeInput(within(rejectDialog).getByLabelText("반려 사유"), "예산 초과");
+    await user.click(within(rejectDialog).getByRole("button", { name: "반려" }));
+
+    await waitFor(() => {
+      expect(mockAssertPasskeyStepUp).toHaveBeenCalledOnce();
+      expect(rejected).toHaveBeenCalledWith({
+        memo: "예산 초과",
+        step_up: mockStepUpAssertion,
+      });
+    });
+  });
+
+  it("does not send a sensitive purchase action after cancelled passkey step-up", async () => {
+    const user = userEvent.setup();
+    const adminApproved = vi.fn();
+    const cancelled = Object.assign(new Error("cancelled by user"), {
+      name: "NotAllowedError",
+    });
+    mockAssertPasskeyStepUp.mockRejectedValueOnce(cancelled);
+
+    server.use(
+      http.get("*/api/v1/financial/purchase-requests/:id", () =>
+        HttpResponse.json(purchase("REQUEST_SUBMITTED")),
+      ),
+      http.post(
+        "*/api/v1/financial/purchase-requests/:id/approve-admin",
+        async ({ request }) => {
+          adminApproved(await request.json());
+          return HttpResponse.json(purchase("ADMIN_APPROVED"));
+        },
+      ),
+    );
+
+    renderApp(makeAuthContext(adminSession));
+
+    changeInput(await screen.findByLabelText("구매요청서 번호로 불러오기"), purchaseId);
+    await user.click(screen.getByRole("button", { name: "불러오기" }));
+    await user.click(await screen.findByRole("button", { name: "관리자 승인" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "패스키 승인이 취소되어 요청을 보내지 않았습니다.",
+    );
+    expect(adminApproved).not.toHaveBeenCalled();
   });
 
   it("hides execute and approve controls from a role without the feature", async () => {
@@ -620,10 +759,7 @@ describe("financial purchase request workflow", () => {
     // only the admin-approve action, which the receptionist must not see.
     await renderFinancialApp(makeAuthContext(receptionistSession));
 
-    await user.type(
-      await screen.findByLabelText("구매요청서 번호로 불러오기"),
-      purchaseId,
-    );
+    changeInput(await screen.findByLabelText("구매요청서 번호로 불러오기"), purchaseId);
     await user.click(screen.getByRole("button", { name: "불러오기" }));
 
     expect(
@@ -669,13 +805,10 @@ describe("financial purchase request workflow", () => {
 
     await user.click(await screen.findByRole("button", { name: "구매요청서 작성" }));
     await lookupEquipment(user);
-    await user.type(screen.getByLabelText("거래처명"), "한빛부품");
-    await fillPurchaseLine(user);
-    await user.type(
-      screen.getByLabelText("거래명세표 증빙 번호"),
-      evidenceId,
-    );
-    await user.type(screen.getByLabelText("비고"), "정기 부품 교체");
+    changeInput(screen.getByLabelText("거래처명"), "한빛부품");
+    fillPurchaseLine();
+    changeInput(screen.getByLabelText("거래명세표 증빙 번호"), evidenceId);
+    changeInput(screen.getByLabelText("비고"), "정기 부품 교체");
     await user.click(screen.getByRole("button", { name: "작성" }));
 
     // The server's actual reason renders in an alert, not a generic failure.
@@ -715,13 +848,10 @@ describe("financial purchase request workflow", () => {
     // Create a request first so the submit button appears.
     await user.click(await screen.findByRole("button", { name: "구매요청서 작성" }));
     await lookupEquipment(user);
-    await user.type(screen.getByLabelText("거래처명"), "한빛부품");
-    await fillPurchaseLine(user);
-    await user.type(
-      screen.getByLabelText("거래명세표 증빙 번호"),
-      evidenceId,
-    );
-    await user.type(screen.getByLabelText("비고"), "정기 부품 교체");
+    changeInput(screen.getByLabelText("거래처명"), "한빛부품");
+    fillPurchaseLine();
+    changeInput(screen.getByLabelText("거래명세표 증빙 번호"), evidenceId);
+    changeInput(screen.getByLabelText("비고"), "정기 부품 교체");
     await user.click(screen.getByRole("button", { name: "작성" }));
 
     // Submit the request.

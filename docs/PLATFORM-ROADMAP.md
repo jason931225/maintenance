@@ -63,5 +63,7 @@ filler, online-centric** (phone is a last resort). Korean-first, multi-tenant (R
   **public customer support-request** (`/support/new`).
 - Stale specs to update: `landing.spec.ts` (tests removed #10 page — replace with the new
   homepage), `mech-01-02-dispatch.spec.ts` (a "현장 담당자" text assertion).
-- Live deploy of the web changes needs a `mnt-web` image rebuild → digest bump → Argo sync
-  (see `deploy/OPS-RUNBOOK.md`).
+- Live deploy of the web changes needs a `mnt-web` image rebuild plus the default
+  verified `scripts/deploy.sh` path (digest bump + Argo sync + rollout/pod digest
+  + endpoint evidence); bump-only mode is not a deployed/verified claim. See
+  `deploy/OPS-RUNBOOK.md`.

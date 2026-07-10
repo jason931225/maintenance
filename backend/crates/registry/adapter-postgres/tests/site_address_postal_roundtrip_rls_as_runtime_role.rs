@@ -117,10 +117,11 @@ fn occurred_at() -> time::OffsetDateTime {
 }
 
 // ===========================================================================
-// create → update → by-location read: address + postal_code survive end-to-end.
+// create → update → by-location read: address, postal_code, and coordinates
+// survive end-to-end, and coordinates can be cleared back to NULL.
 // ===========================================================================
 #[sqlx::test(migrations = "../../platform/db/migrations")]
-async fn site_address_and_postal_code_round_trip_as_runtime_role(owner_pool: PgPool) {
+async fn site_address_postal_code_and_coordinates_round_trip_as_runtime_role(owner_pool: PgPool) {
     let rt_pool = runtime_role_pool(&owner_pool).await;
     let org_a = OrgId::knl();
     let org_uuid = *org_a.as_uuid();
@@ -130,7 +131,7 @@ async fn site_address_and_postal_code_round_trip_as_runtime_role(owner_pool: PgP
     let admin = seed_user(&owner_pool, org_uuid, "ADMIN", branch_id).await;
     let customer = seed_customer(&owner_pool, org_uuid, branch_id, "한울로지스").await;
 
-    let group = scope_org(org_a, async {
+    let (group, cleared_group) = scope_org(org_a, async {
         let store = PgRegistryStore::new(rt_pool.clone());
 
         // (a) Create the site WITH an address + postal_code.
@@ -165,9 +166,9 @@ async fn site_address_and_postal_code_round_trip_as_runtime_role(owner_pool: PgP
             "create_site must return the supplied postal_code"
         );
 
-        // (b) Update the site with a DIFFERENT address + postal_code (the operator
-        // re-saves the form). Both fields are present as `Some(Some(_))`, mirroring
-        // the SiteGeographyPanel PATCH body.
+        // (b) Update the site with a DIFFERENT address + postal_code + coordinate
+        // pair (the operator re-saves the form). Fields are present as
+        // `Some(Some(_))`, mirroring the SiteGeographyPanel PATCH body.
         store
             .update_site(UpdateSiteCommand {
                 actor: admin,
@@ -175,6 +176,8 @@ async fn site_address_and_postal_code_round_trip_as_runtime_role(owner_pool: PgP
                 fields: UpdateSiteFields {
                     address: Some(Some("서울특별시 중구 세종대로 110".to_owned())),
                     postal_code: Some(Some("04524".to_owned())),
+                    latitude: Some(Some(37.5665)),
+                    longitude: Some(Some(126.9780)),
                     ..UpdateSiteFields::default()
                 },
                 branch_scope: BranchScope::All,
@@ -185,8 +188,9 @@ async fn site_address_and_postal_code_round_trip_as_runtime_role(owner_pool: PgP
             .expect("update_site must succeed as mnt_rt under org-A's armed GUC");
 
         // (c) Read the site back via the by-location aggregation the panel seeds
-        // its form from, and confirm the UPDATED address + postal_code survive.
-        store
+        // its form from, and confirm the UPDATED address + postal_code +
+        // coordinates survive.
+        let group = store
             .equipment_by_location(EquipmentByLocationQuery {
                 branch_scope: BranchScope::All,
             })
@@ -194,7 +198,37 @@ async fn site_address_and_postal_code_round_trip_as_runtime_role(owner_pool: PgP
             .expect("equipment_by_location must succeed as mnt_rt under org-A's armed GUC")
             .into_iter()
             .find(|g| g.site_id == site.id)
-            .expect("the created site must be returned by the by-location read")
+            .expect("the created site must be returned by the by-location read");
+
+        // (d) Clear the coordinate pair with explicit null/null semantics while
+        // leaving address/postal_code untouched.
+        store
+            .update_site(UpdateSiteCommand {
+                actor: admin,
+                site_id: site.id,
+                fields: UpdateSiteFields {
+                    latitude: Some(None),
+                    longitude: Some(None),
+                    ..UpdateSiteFields::default()
+                },
+                branch_scope: BranchScope::All,
+                trace: TraceContext::generate(),
+                occurred_at: occurred_at(),
+            })
+            .await
+            .expect("coordinate clear must succeed as mnt_rt under org-A's armed GUC");
+
+        let cleared_group = store
+            .equipment_by_location(EquipmentByLocationQuery {
+                branch_scope: BranchScope::All,
+            })
+            .await
+            .expect("equipment_by_location must succeed after coordinate clear")
+            .into_iter()
+            .find(|g| g.site_id == site.id)
+            .expect("the cleared site must still be returned by the by-location read");
+
+        (group, cleared_group)
     })
     .await;
 
@@ -208,18 +242,44 @@ async fn site_address_and_postal_code_round_trip_as_runtime_role(owner_pool: PgP
         Some("04524"),
         "the updated postal_code must round-trip on the by-location read (issue #19.4)"
     );
+    assert_eq!(
+        group.latitude,
+        Some(37.5665),
+        "the updated latitude must round-trip on the by-location read"
+    );
+    assert_eq!(
+        group.longitude,
+        Some(126.9780),
+        "the updated longitude must round-trip on the by-location read"
+    );
+    assert_eq!(
+        cleared_group.latitude, None,
+        "explicit null clears latitude"
+    );
+    assert_eq!(
+        cleared_group.longitude, None,
+        "explicit null clears longitude"
+    );
 
     // And it is genuinely persisted in the row (owner pool sees all), not just
     // echoed by the read mapping.
-    let (stored_address, stored_postal): (Option<String>, Option<String>) =
-        sqlx::query_as("SELECT address, postal_code FROM registry_sites WHERE id = $1")
-            .bind(*group.site_id.as_uuid())
-            .fetch_one(&owner_pool)
-            .await
-            .unwrap();
+    let (stored_address, stored_postal, stored_latitude, stored_longitude): (
+        Option<String>,
+        Option<String>,
+        Option<f64>,
+        Option<f64>,
+    ) = sqlx::query_as(
+        "SELECT address, postal_code, latitude, longitude FROM registry_sites WHERE id = $1",
+    )
+    .bind(*group.site_id.as_uuid())
+    .fetch_one(&owner_pool)
+    .await
+    .unwrap();
     assert_eq!(
         stored_address.as_deref(),
         Some("서울특별시 중구 세종대로 110")
     );
     assert_eq!(stored_postal.as_deref(), Some("04524"));
+    assert_eq!(stored_latitude, None);
+    assert_eq!(stored_longitude, None);
 }

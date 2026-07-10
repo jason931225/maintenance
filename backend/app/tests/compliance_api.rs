@@ -206,8 +206,89 @@ async fn admin_can_read_and_export_consent_ledger(pool: PgPool) {
     assert!(!csv.body.contains("37.5665"));
 }
 
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn ceo_covert_audit_stream_requires_clearance_and_audits_successful_read(pool: PgPool) {
+    let fixture = TestFixture::new(&pool, "CEO Audit", "CEO Audit Branch").await;
+    let sensitive_event_id = seed_ceo_covert_audit_event(&pool, fixture.admin_id).await;
+    grant_ceo_covert_clearance(&pool, fixture.admin_id).await;
+    seed_subject_freshness(&pool, fixture.admin_id).await;
+    let service = build_router(app_state(pool.clone(), fixture.public_key_pem.clone()).unwrap());
+
+    let denied = get(
+        service.clone(),
+        "/api/v1/audit-streams/ceo-covert/events",
+        &fixture.mechanic_token,
+    )
+    .await;
+    assert_eq!(denied.status, StatusCode::FORBIDDEN, "{}", denied.body);
+    assert_eq!(audit_count(&pool, "audit_stream.ceo_read").await, 0);
+
+    let allowed = get_json(
+        service,
+        "/api/v1/audit-streams/ceo-covert/events?limit=10&offset=0",
+        &fixture.admin_token,
+    )
+    .await;
+    assert_eq!(allowed.status, StatusCode::OK, "{:?}", allowed.json);
+    assert_eq!(allowed.json["stream_key"], "ceo_covert_audit");
+    assert_eq!(allowed.json["read_kind"], "events");
+    assert_eq!(allowed.json["total"], 1);
+    assert_eq!(
+        allowed.json["items"][0]["id"],
+        sensitive_event_id.to_string()
+    );
+    assert_eq!(allowed.json["items"][0]["sensitivity"], "CEO_COVERT");
+    assert_eq!(allowed.json["access_audit_id"].as_str().unwrap().len(), 36);
+    assert_eq!(audit_count(&pool, "audit_stream.ceo_read").await, 1);
+}
+
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn ceo_covert_access_log_read_is_clearance_gated_and_audited(pool: PgPool) {
+    let fixture = TestFixture::new(&pool, "CEO Access", "CEO Access Branch").await;
+    seed_ceo_covert_audit_event(&pool, fixture.admin_id).await;
+    grant_ceo_covert_clearance(&pool, fixture.admin_id).await;
+    seed_subject_freshness(&pool, fixture.admin_id).await;
+    let service = build_router(app_state(pool.clone(), fixture.public_key_pem.clone()).unwrap());
+
+    let first_read = get_json(
+        service.clone(),
+        "/api/v1/audit-streams/ceo-covert/events",
+        &fixture.admin_token,
+    )
+    .await;
+    assert_eq!(first_read.status, StatusCode::OK, "{:?}", first_read.json);
+    assert_eq!(audit_count(&pool, "audit_stream.ceo_read").await, 1);
+
+    let denied = get(
+        service.clone(),
+        "/api/v1/audit-streams/ceo-covert/access-events",
+        &fixture.mechanic_token,
+    )
+    .await;
+    assert_eq!(denied.status, StatusCode::FORBIDDEN, "{}", denied.body);
+    assert_eq!(audit_count(&pool, "audit_stream.access_log_read").await, 0);
+
+    let access_log = get_json(
+        service,
+        "/api/v1/audit-streams/ceo-covert/access-events?limit=10&offset=0",
+        &fixture.admin_token,
+    )
+    .await;
+    assert_eq!(access_log.status, StatusCode::OK, "{:?}", access_log.json);
+    assert_eq!(access_log.json["stream_key"], "ceo_covert_audit");
+    assert_eq!(access_log.json["read_kind"], "access_events");
+    assert_eq!(access_log.json["total"], 1);
+    assert_eq!(
+        access_log.json["items"][0]["action"],
+        "audit_stream.ceo_read"
+    );
+    assert_eq!(access_log.json["items"][0]["target_id"], "ceo_covert_audit");
+    assert_eq!(audit_count(&pool, "audit_stream.access_log_read").await, 1);
+}
+
 struct TestFixture {
     branch_id: BranchId,
+    admin_id: UserId,
     public_key_pem: String,
     mechanic_token: String,
     admin_token: String,
@@ -245,6 +326,7 @@ impl TestFixture {
 
         Self {
             branch_id,
+            admin_id: admin,
             public_key_pem,
             mechanic_token,
             admin_token,
@@ -326,9 +408,14 @@ fn issue_token(
         read_only: false,
         display_name: None,
         feature_grants: Vec::new(),
-        authz_subject_version: 0,
-        authz_policy_version: 0,
-        session_generation: 0,
+        // Snapshot the DB-current freshness baseline (policy/subject/session all
+        // default to 1 on first insert). The CEO-covert audit stream is a
+        // Cedar-only, server-loaded guard: a zero-stamped token trips the
+        // boundary's `MissingSubjectFreshness` precondition before clearance is
+        // ever consulted (mirrors cedar_parity_shadow / cedar_freshness_mint).
+        authz_subject_version: 1,
+        authz_policy_version: 1,
+        session_generation: 1,
         issued_at: OffsetDateTime::now_utc(),
     })?)
 }
@@ -381,6 +468,104 @@ async fn seed_user_with_branch(pool: &PgPool, user_id: UserId, role: &str, branc
         .execute(pool)
         .await
         .unwrap();
+}
+
+async fn seed_ceo_covert_audit_event(pool: &PgPool, actor: UserId) -> uuid::Uuid {
+    let event_id = uuid::Uuid::new_v4();
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("SELECT set_config('app.current_org', $1, true)")
+        .bind(OrgId::knl().as_uuid().to_string())
+        .execute(tx.as_mut())
+        .await
+        .unwrap();
+    sqlx::query(
+        r#"
+        INSERT INTO audit_events (
+            id, actor, action, target_type, target_id, branch_id,
+            before_snap, after_snap, trace_id, span_id, occurred_at, org_id
+        ) VALUES (
+            $1, $2, 'executive.case_review', 'executive_case', $3, NULL,
+            NULL, $4, 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', 'bbbbbbbbbbbbbbbb', now(), $5
+        )
+        "#,
+    )
+    .bind(event_id)
+    .bind(*actor.as_uuid())
+    .bind(event_id.to_string())
+    .bind(json!({ "classification": "CEO_COVERT", "decision": "approved" }))
+    .bind(*OrgId::knl().as_uuid())
+    .execute(tx.as_mut())
+    .await
+    .unwrap();
+
+    sqlx::query(
+        r#"
+        INSERT INTO audit_stream_event_labels (org_id, audit_event_id, stream_key, sensitivity)
+        VALUES ($1, $2, 'ceo_covert_audit', 'CEO_COVERT')
+        "#,
+    )
+    .bind(*OrgId::knl().as_uuid())
+    .bind(event_id)
+    .execute(tx.as_mut())
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+
+    event_id
+}
+
+/// Establish the DB-current freshness material the Cedar-only audit-stream guard
+/// requires: a per-org `policy_versions` row and a per-(org,user)
+/// `subject_authz_versions` row (both default to version/session 1). Without
+/// this the server-loaded requirement carries no material and the boundary
+/// denies `MissingSubjectFreshness` before clearance is evaluated. Mirrors
+/// `seed_freshness` in cedar_parity_shadow / cedar_freshness_mint.
+async fn seed_subject_freshness(pool: &PgPool, user_id: UserId) {
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("SELECT set_config('app.current_org', $1, true)")
+        .bind(OrgId::knl().as_uuid().to_string())
+        .execute(tx.as_mut())
+        .await
+        .unwrap();
+    sqlx::query("INSERT INTO policy_versions (org_id) VALUES ($1) ON CONFLICT (org_id) DO NOTHING")
+        .bind(*OrgId::knl().as_uuid())
+        .execute(tx.as_mut())
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO subject_authz_versions (org_id, user_id) VALUES ($1, $2) \
+         ON CONFLICT (org_id, user_id) DO NOTHING",
+    )
+    .bind(*OrgId::knl().as_uuid())
+    .bind(*user_id.as_uuid())
+    .execute(tx.as_mut())
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+}
+
+async fn grant_ceo_covert_clearance(pool: &PgPool, user_id: UserId) {
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("SELECT set_config('app.current_org', $1, true)")
+        .bind(OrgId::knl().as_uuid().to_string())
+        .execute(tx.as_mut())
+        .await
+        .unwrap();
+    sqlx::query(
+        r#"
+        INSERT INTO clearance_assignments (
+            org_id, user_id, clearance_key, stream_key, status, granted_by, grant_reason
+        ) VALUES (
+            $1, $2, 'audit.ceo_covert.read', 'ceo_covert_audit', 'ACTIVE', $2, 'integration test clearance'
+        )
+        "#,
+    )
+    .bind(*OrgId::knl().as_uuid())
+    .bind(*user_id.as_uuid())
+    .execute(tx.as_mut())
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
 }
 
 async fn audit_count(pool: &PgPool, action: &str) -> i64 {

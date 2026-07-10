@@ -1,6 +1,7 @@
 //! Financial REST API.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
+use axum::body::Bytes;
 use axum::extract::{Path, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
@@ -12,26 +13,28 @@ use mnt_financial_application::{
     CreatePurchaseRequestCommand, CreateRentalQuoteCommand, ExecutePurchaseCommand,
     FinancialConfigSnapshot, PrepareExpenditureCommand, PreparePurchaseAttachmentUploadCommand,
     PurchaseApprovalCommand, PurchaseRequestLineInput, PurchaseRestartCommand,
-    PurchaseSubmitCommand, PurchaseType, RejectPurchaseCommand,
+    PurchaseSubmitCommand, PurchaseType, RejectPurchaseCommand, financial_audit_event,
 };
 use mnt_financial_domain::{MoneyInput, RentalQuoteInput, compute_rental_quote};
 use mnt_kernel_core::{
     BranchId, EquipmentId, ErrorKind, EvidenceId, KernelError, PurchaseRequestId, QuoteId,
     TraceContext, WorkOrderId,
 };
-use mnt_platform_auth::JwtVerifier;
+use mnt_platform_auth::{AuthError, JwtVerifier, PasskeyAuthenticationCredential, PasskeyService};
 use mnt_platform_authz::{Action, Feature, Principal, authorize};
-use mnt_platform_db::DbError;
+use mnt_platform_db::{DbError, with_audit};
 use mnt_platform_storage::{
     PresignGetRequest, PresignPutRequest, PresignedUpload, S3ObjectStore, SeaweedS3Storage,
 };
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct FinancialRestState {
     store: PgFinancialStore,
     jwt_verifier: Option<JwtVerifier>,
+    passkey_step_up: Option<PasskeyService>,
     purchase_attachment_storage: Option<(SeaweedS3Storage, String)>,
 }
 
@@ -41,8 +44,15 @@ impl FinancialRestState {
         Self {
             store,
             jwt_verifier,
+            passkey_step_up: None,
             purchase_attachment_storage: None,
         }
+    }
+
+    #[must_use]
+    pub fn with_passkey_step_up(mut self, passkey_step_up: Option<PasskeyService>) -> Self {
+        self.passkey_step_up = passkey_step_up;
+        self
     }
 
     #[must_use]
@@ -55,81 +65,130 @@ impl FinancialRestState {
     }
 }
 
+pub const FINANCIAL_RENTAL_QUOTES_COMPUTE_PATH: &str = "/api/v1/financial/rental-quotes/compute";
+pub const FINANCIAL_RENTAL_QUOTES_PATH: &str = "/api/v1/financial/rental-quotes";
+pub const FINANCIAL_RENTAL_QUOTE_PATH_TEMPLATE: &str = "/api/v1/financial/rental-quotes/{quote_id}";
+pub const FINANCIAL_EQUIPMENT_COST_LEDGER_PATH_TEMPLATE: &str =
+    "/api/v1/financial/equipment/{equipment_id}/cost-ledger";
+pub const FINANCIAL_EQUIPMENT_LIFECYCLE_COST_PATH_TEMPLATE: &str =
+    "/api/v1/financial/equipment/{equipment_id}/lifecycle-cost";
+pub const FINANCIAL_EQUIPMENT_COST_LEDGER_MANUAL_PATH_TEMPLATE: &str =
+    "/api/v1/financial/equipment/{equipment_id}/cost-ledger/manual";
+pub const FINANCIAL_PURCHASE_REQUESTS_PATH: &str = "/api/v1/financial/purchase-requests";
+pub const FINANCIAL_PURCHASE_REQUEST_PREFERENCES_PATH: &str =
+    "/api/v1/financial/purchase-requests/preferences";
+pub const FINANCIAL_PURCHASE_ATTACHMENT_PRESIGN_PATH: &str =
+    "/api/v1/financial/purchase-requests/attachments/presign";
+pub const FINANCIAL_PURCHASE_ATTACHMENT_CONFIRM_PATH_TEMPLATE: &str =
+    "/api/v1/financial/purchase-requests/attachments/{attachment_id}/confirm";
+pub const FINANCIAL_PURCHASE_REQUEST_PATH_TEMPLATE: &str =
+    "/api/v1/financial/purchase-requests/{purchase_request_id}";
+pub const FINANCIAL_PURCHASE_ATTACHMENT_DOWNLOAD_PATH_TEMPLATE: &str = "/api/v1/financial/purchase-requests/{purchase_request_id}/attachments/{attachment_id}/download";
+pub const FINANCIAL_PURCHASE_REQUEST_SUBMIT_PATH_TEMPLATE: &str =
+    "/api/v1/financial/purchase-requests/{purchase_request_id}/submit";
+pub const FINANCIAL_PURCHASE_REQUEST_APPROVE_ADMIN_PATH_TEMPLATE: &str =
+    "/api/v1/financial/purchase-requests/{purchase_request_id}/approve-admin";
+pub const FINANCIAL_PURCHASE_REQUEST_PREPARE_EXPENDITURE_PATH_TEMPLATE: &str =
+    "/api/v1/financial/purchase-requests/{purchase_request_id}/prepare-expenditure";
+pub const FINANCIAL_PURCHASE_REQUEST_APPROVE_EXECUTIVE_PATH_TEMPLATE: &str =
+    "/api/v1/financial/purchase-requests/{purchase_request_id}/approve-executive";
+pub const FINANCIAL_PURCHASE_REQUEST_REJECT_PATH_TEMPLATE: &str =
+    "/api/v1/financial/purchase-requests/{purchase_request_id}/reject";
+pub const FINANCIAL_PURCHASE_REQUEST_RESTART_PATH_TEMPLATE: &str =
+    "/api/v1/financial/purchase-requests/{purchase_request_id}/restart";
+pub const FINANCIAL_PURCHASE_REQUEST_EXECUTE_PATH_TEMPLATE: &str =
+    "/api/v1/financial/purchase-requests/{purchase_request_id}/execute";
+pub const FINANCIAL_ROUTE_PATHS: &[&str] = &[
+    FINANCIAL_RENTAL_QUOTES_COMPUTE_PATH,
+    FINANCIAL_RENTAL_QUOTES_PATH,
+    FINANCIAL_RENTAL_QUOTE_PATH_TEMPLATE,
+    FINANCIAL_EQUIPMENT_COST_LEDGER_PATH_TEMPLATE,
+    FINANCIAL_EQUIPMENT_LIFECYCLE_COST_PATH_TEMPLATE,
+    FINANCIAL_EQUIPMENT_COST_LEDGER_MANUAL_PATH_TEMPLATE,
+    FINANCIAL_PURCHASE_REQUESTS_PATH,
+    FINANCIAL_PURCHASE_REQUEST_PREFERENCES_PATH,
+    FINANCIAL_PURCHASE_ATTACHMENT_PRESIGN_PATH,
+    FINANCIAL_PURCHASE_ATTACHMENT_CONFIRM_PATH_TEMPLATE,
+    FINANCIAL_PURCHASE_REQUEST_PATH_TEMPLATE,
+    FINANCIAL_PURCHASE_ATTACHMENT_DOWNLOAD_PATH_TEMPLATE,
+    FINANCIAL_PURCHASE_REQUEST_SUBMIT_PATH_TEMPLATE,
+    FINANCIAL_PURCHASE_REQUEST_APPROVE_ADMIN_PATH_TEMPLATE,
+    FINANCIAL_PURCHASE_REQUEST_PREPARE_EXPENDITURE_PATH_TEMPLATE,
+    FINANCIAL_PURCHASE_REQUEST_APPROVE_EXECUTIVE_PATH_TEMPLATE,
+    FINANCIAL_PURCHASE_REQUEST_REJECT_PATH_TEMPLATE,
+    FINANCIAL_PURCHASE_REQUEST_RESTART_PATH_TEMPLATE,
+    FINANCIAL_PURCHASE_REQUEST_EXECUTE_PATH_TEMPLATE,
+];
+
 pub fn router(state: FinancialRestState) -> Router {
     let verifier = state.jwt_verifier.clone();
     let pool = state.store.pool().clone();
     let router = Router::new()
+        .route(FINANCIAL_RENTAL_QUOTES_COMPUTE_PATH, post(compute_quote))
+        .route(FINANCIAL_RENTAL_QUOTES_PATH, post(create_rental_quote))
+        .route(FINANCIAL_RENTAL_QUOTE_PATH_TEMPLATE, get(get_rental_quote))
         .route(
-            "/api/v1/financial/rental-quotes/compute",
-            post(compute_quote),
-        )
-        .route("/api/v1/financial/rental-quotes", post(create_rental_quote))
-        .route(
-            "/api/v1/financial/rental-quotes/{quote_id}",
-            get(get_rental_quote),
-        )
-        .route(
-            "/api/v1/financial/equipment/{equipment_id}/cost-ledger",
+            FINANCIAL_EQUIPMENT_COST_LEDGER_PATH_TEMPLATE,
             get(list_cost_ledger),
         )
         .route(
-            "/api/v1/financial/equipment/{equipment_id}/lifecycle-cost",
+            FINANCIAL_EQUIPMENT_LIFECYCLE_COST_PATH_TEMPLATE,
             get(get_lifecycle_cost),
         )
         .route(
-            "/api/v1/financial/equipment/{equipment_id}/cost-ledger/manual",
+            FINANCIAL_EQUIPMENT_COST_LEDGER_MANUAL_PATH_TEMPLATE,
             post(append_manual_cost_ledger),
         )
         .route(
-            "/api/v1/financial/purchase-requests",
+            FINANCIAL_PURCHASE_REQUESTS_PATH,
             post(create_purchase_request),
         )
         .route(
-            "/api/v1/financial/purchase-requests/preferences",
+            FINANCIAL_PURCHASE_REQUEST_PREFERENCES_PATH,
             get(get_purchase_preferences).put(save_purchase_preferences),
         )
         .route(
-            "/api/v1/financial/purchase-requests/attachments/presign",
+            FINANCIAL_PURCHASE_ATTACHMENT_PRESIGN_PATH,
             post(presign_purchase_attachment),
         )
         .route(
-            "/api/v1/financial/purchase-requests/attachments/{attachment_id}/confirm",
+            FINANCIAL_PURCHASE_ATTACHMENT_CONFIRM_PATH_TEMPLATE,
             post(confirm_purchase_attachment),
         )
         .route(
-            "/api/v1/financial/purchase-requests/{purchase_request_id}",
+            FINANCIAL_PURCHASE_REQUEST_PATH_TEMPLATE,
             get(get_purchase_request),
         )
         .route(
-            "/api/v1/financial/purchase-requests/{purchase_request_id}/attachments/{attachment_id}/download",
+            FINANCIAL_PURCHASE_ATTACHMENT_DOWNLOAD_PATH_TEMPLATE,
             get(download_purchase_attachment),
         )
         .route(
-            "/api/v1/financial/purchase-requests/{purchase_request_id}/submit",
+            FINANCIAL_PURCHASE_REQUEST_SUBMIT_PATH_TEMPLATE,
             post(submit_purchase_request),
         )
         .route(
-            "/api/v1/financial/purchase-requests/{purchase_request_id}/approve-admin",
+            FINANCIAL_PURCHASE_REQUEST_APPROVE_ADMIN_PATH_TEMPLATE,
             post(approve_purchase_admin),
         )
         .route(
-            "/api/v1/financial/purchase-requests/{purchase_request_id}/prepare-expenditure",
+            FINANCIAL_PURCHASE_REQUEST_PREPARE_EXPENDITURE_PATH_TEMPLATE,
             post(prepare_expenditure),
         )
         .route(
-            "/api/v1/financial/purchase-requests/{purchase_request_id}/approve-executive",
+            FINANCIAL_PURCHASE_REQUEST_APPROVE_EXECUTIVE_PATH_TEMPLATE,
             post(approve_purchase_executive),
         )
         .route(
-            "/api/v1/financial/purchase-requests/{purchase_request_id}/reject",
+            FINANCIAL_PURCHASE_REQUEST_REJECT_PATH_TEMPLATE,
             post(reject_purchase_request),
         )
         .route(
-            "/api/v1/financial/purchase-requests/{purchase_request_id}/restart",
+            FINANCIAL_PURCHASE_REQUEST_RESTART_PATH_TEMPLATE,
             post(restart_purchase_request),
         )
         .route(
-            "/api/v1/financial/purchase-requests/{purchase_request_id}/execute",
+            FINANCIAL_PURCHASE_REQUEST_EXECUTE_PATH_TEMPLATE,
             post(execute_purchase),
         )
         .with_state(state);
@@ -208,14 +267,32 @@ struct SavePurchasePreferencesRequest {
     preferences: serde_json::Value,
 }
 
-#[derive(Debug, Deserialize)]
-struct PrepareExpenditureRequest {
-    expenditure_no: String,
+#[derive(Debug, Deserialize, Default)]
+struct FinancialStepUpRequest {
+    #[serde(default)]
+    step_up: Option<PasskeyStepUpAssertionRequest>,
 }
 
 #[derive(Debug, Deserialize)]
+struct PasskeyStepUpAssertionRequest {
+    ceremony_id: uuid::Uuid,
+    credential: PasskeyAuthenticationCredential,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct PrepareExpenditureRequest {
+    #[serde(default)]
+    expenditure_no: String,
+    #[serde(default)]
+    step_up: Option<PasskeyStepUpAssertionRequest>,
+}
+
+#[derive(Debug, Deserialize, Default)]
 struct RejectPurchaseRequest {
+    #[serde(default)]
     memo: String,
+    #[serde(default)]
+    step_up: Option<PasskeyStepUpAssertionRequest>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -636,13 +713,24 @@ async fn approve_purchase_admin(
     State(state): State<FinancialRestState>,
     headers: HeaderMap,
     Path(purchase_request_id): Path<uuid::Uuid>,
+    body: Bytes,
 ) -> Result<impl IntoResponse, RestError> {
+    let body: FinancialStepUpRequest = decode_financial_request(body)?;
     let purchase_request_id = PurchaseRequestId::from_uuid(purchase_request_id);
-    let (_, principal) = authorize_for_purchase(
+    let (purchase, principal) = authorize_for_purchase(
         &state,
         &headers,
         purchase_request_id,
         Action::new(Feature::PurchaseRequestApprove),
+    )
+    .await?;
+    verify_financial_step_up(
+        &state,
+        &principal,
+        purchase.branch_id,
+        purchase_request_id,
+        FinancialStepUpAction::AdminApprove,
+        body.step_up,
     )
     .await?;
     let purchase = state
@@ -662,14 +750,27 @@ async fn prepare_expenditure(
     State(state): State<FinancialRestState>,
     headers: HeaderMap,
     Path(purchase_request_id): Path<uuid::Uuid>,
-    Json(body): Json<PrepareExpenditureRequest>,
+    body: Bytes,
 ) -> Result<impl IntoResponse, RestError> {
+    let body: PrepareExpenditureRequest = decode_financial_request(body)?;
     let purchase_request_id = PurchaseRequestId::from_uuid(purchase_request_id);
-    let (_, principal) = authorize_for_purchase(
+    let (purchase, principal) = authorize_for_purchase(
         &state,
         &headers,
         purchase_request_id,
         Action::new(Feature::PurchaseRequestCreate),
+    )
+    .await?;
+    if body.step_up.is_some() && body.expenditure_no.trim().is_empty() {
+        return Err(RestError::validation("expenditure number is required"));
+    }
+    verify_financial_step_up(
+        &state,
+        &principal,
+        purchase.branch_id,
+        purchase_request_id,
+        FinancialStepUpAction::PrepareExpenditure,
+        body.step_up,
     )
     .await?;
     let purchase = state
@@ -690,13 +791,24 @@ async fn approve_purchase_executive(
     State(state): State<FinancialRestState>,
     headers: HeaderMap,
     Path(purchase_request_id): Path<uuid::Uuid>,
+    body: Bytes,
 ) -> Result<impl IntoResponse, RestError> {
+    let body: FinancialStepUpRequest = decode_financial_request(body)?;
     let purchase_request_id = PurchaseRequestId::from_uuid(purchase_request_id);
-    let (_, principal) = authorize_for_purchase(
+    let (purchase, principal) = authorize_for_purchase(
         &state,
         &headers,
         purchase_request_id,
         Action::new(Feature::PurchaseFinalApprove),
+    )
+    .await?;
+    verify_financial_step_up(
+        &state,
+        &principal,
+        purchase.branch_id,
+        purchase_request_id,
+        FinancialStepUpAction::ExecutiveApprove,
+        body.step_up,
     )
     .await?;
     let purchase = state
@@ -716,8 +828,9 @@ async fn reject_purchase_request(
     State(state): State<FinancialRestState>,
     headers: HeaderMap,
     Path(purchase_request_id): Path<uuid::Uuid>,
-    Json(body): Json<RejectPurchaseRequest>,
+    body: Bytes,
 ) -> Result<impl IntoResponse, RestError> {
+    let body: RejectPurchaseRequest = decode_financial_request(body)?;
     let purchase_request_id = PurchaseRequestId::from_uuid(purchase_request_id);
     let (purchase, principal) =
         authorize_for_purchase_read(&state, &headers, purchase_request_id).await?;
@@ -729,6 +842,18 @@ async fn reject_purchase_request(
             Action::new(Feature::PurchaseFinalApprove),
         ],
     )?;
+    if body.step_up.is_some() && body.memo.trim().is_empty() {
+        return Err(RestError::validation("reject memo is required"));
+    }
+    verify_financial_step_up(
+        &state,
+        &principal,
+        purchase.branch_id,
+        purchase_request_id,
+        FinancialStepUpAction::Reject,
+        body.step_up,
+    )
+    .await?;
     let purchase = state
         .store
         .reject_purchase_request(RejectPurchaseCommand {
@@ -779,13 +904,24 @@ async fn execute_purchase(
     State(state): State<FinancialRestState>,
     headers: HeaderMap,
     Path(purchase_request_id): Path<uuid::Uuid>,
+    body: Bytes,
 ) -> Result<impl IntoResponse, RestError> {
+    let body: FinancialStepUpRequest = decode_financial_request(body)?;
     let purchase_request_id = PurchaseRequestId::from_uuid(purchase_request_id);
-    let (_, principal) = authorize_for_purchase(
+    let (purchase, principal) = authorize_for_purchase(
         &state,
         &headers,
         purchase_request_id,
         Action::new(Feature::PurchaseExecute),
+    )
+    .await?;
+    verify_financial_step_up(
+        &state,
+        &principal,
+        purchase.branch_id,
+        purchase_request_id,
+        FinancialStepUpAction::Execute,
+        body.step_up,
     )
     .await?;
     let purchase = state
@@ -847,6 +983,226 @@ fn validate_purchase_attachment_content_type(content_type: &str) -> Result<(), K
             "purchase quote attachments must be PDF or image files",
         ))
     }
+}
+
+fn decode_financial_request<T>(body: Bytes) -> Result<T, RestError>
+where
+    T: DeserializeOwned + Default,
+{
+    if body.is_empty() || body.iter().all(u8::is_ascii_whitespace) {
+        return Ok(T::default());
+    }
+    serde_json::from_slice(&body)
+        .map_err(|_| RestError::validation("request body must be valid JSON"))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FinancialStepUpAction {
+    AdminApprove,
+    PrepareExpenditure,
+    ExecutiveApprove,
+    Reject,
+    Execute,
+}
+
+impl FinancialStepUpAction {
+    const fn audit_action(self) -> &'static str {
+        match self {
+            Self::AdminApprove => "purchase.admin.approve",
+            Self::PrepareExpenditure => "purchase.expenditure.prepare",
+            Self::ExecutiveApprove => "purchase.executive.approve",
+            Self::Reject => "purchase.reject",
+            Self::Execute => "purchase.execute",
+        }
+    }
+
+    const fn required_message(self) -> &'static str {
+        match self {
+            Self::AdminApprove => "admin purchase approval requires a fresh passkey step-up",
+            Self::PrepareExpenditure => {
+                "purchase expenditure preparation requires a fresh passkey step-up"
+            }
+            Self::ExecutiveApprove => {
+                "executive purchase approval requires a fresh passkey step-up"
+            }
+            Self::Reject => "purchase rejection requires a fresh passkey step-up",
+            Self::Execute => "purchase execution requires a fresh passkey step-up",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct FinancialStepUpFailure {
+    code: &'static str,
+    reason: &'static str,
+}
+
+async fn verify_financial_step_up(
+    state: &FinancialRestState,
+    principal: &Principal,
+    branch_id: BranchId,
+    purchase_request_id: PurchaseRequestId,
+    action: FinancialStepUpAction,
+    step_up: Option<PasskeyStepUpAssertionRequest>,
+) -> Result<(), RestError> {
+    let Some(step_up) = step_up else {
+        let error =
+            RestError::precondition_required("passkey_step_up_required", action.required_message());
+        record_financial_step_up_failure(
+            state,
+            principal,
+            branch_id,
+            purchase_request_id,
+            action,
+            error.code(),
+            "missing",
+        )
+        .await?;
+        return Err(error);
+    };
+
+    let Some(verifier) = state.passkey_step_up.as_ref() else {
+        let error = RestError::unavailable("passkey step-up is not configured for financial API");
+        record_financial_step_up_failure(
+            state,
+            principal,
+            branch_id,
+            purchase_request_id,
+            action,
+            "passkey_step_up_unconfigured",
+            "unconfigured",
+        )
+        .await?;
+        return Err(error);
+    };
+
+    if let Err(err) = verifier
+        .verify_step_up_for_user(
+            state.store.pool(),
+            step_up.ceremony_id,
+            step_up.credential,
+            *principal.user_id.as_uuid(),
+        )
+        .await
+    {
+        let Some(failure_reason) = financial_step_up_denial_reason(&err) else {
+            return Err(rest_error_from_step_up_dependency(err));
+        };
+        tracing::warn!(
+            action = action.audit_action(),
+            purchase_request_id = %purchase_request_id,
+            "financial passkey step-up rejected"
+        );
+        let error =
+            RestError::passkey_step_up_failed("passkey_step_up_failed", "passkey step-up failed");
+        record_financial_step_up_failure(
+            state,
+            principal,
+            branch_id,
+            purchase_request_id,
+            action,
+            error.code(),
+            failure_reason,
+        )
+        .await?;
+        return Err(error);
+    }
+
+    Ok(())
+}
+
+fn financial_step_up_denial_reason(error: &AuthError) -> Option<&'static str> {
+    match error {
+        AuthError::Webauthn(_) | AuthError::InvalidStoredData(_) => Some("invalid_or_expired"),
+        AuthError::Sqlx(_)
+        | AuthError::Db(_)
+        | AuthError::Serde(_)
+        | AuthError::Jwt(_)
+        | AuthError::Kernel(_)
+        | AuthError::Refresh(_) => None,
+    }
+}
+
+fn rest_error_from_step_up_dependency(error: AuthError) -> RestError {
+    match error {
+        AuthError::Sqlx(err) => RestError::from_db(DbError::Sqlx(err)),
+        AuthError::Db(err) => RestError::from_db(err),
+        AuthError::Kernel(err) => RestError::from_kernel(err),
+        AuthError::Serde(err) => {
+            tracing::error!(error = %err, "passkey step-up verification state is invalid");
+            RestError::internal("passkey step-up verification failed")
+        }
+        AuthError::Jwt(err) => {
+            tracing::error!(error = %err, "unexpected JWT error during passkey step-up verification");
+            RestError::internal("passkey step-up verification failed")
+        }
+        AuthError::Refresh(err) => {
+            tracing::error!(error = %err, "unexpected refresh-token error during passkey step-up verification");
+            RestError::internal("passkey step-up verification failed")
+        }
+        AuthError::Webauthn(_) | AuthError::InvalidStoredData(_) => {
+            RestError::passkey_step_up_failed("passkey_step_up_failed", "passkey step-up failed")
+        }
+    }
+}
+
+async fn record_financial_step_up_failure(
+    state: &FinancialRestState,
+    principal: &Principal,
+    branch_id: BranchId,
+    purchase_request_id: PurchaseRequestId,
+    action: FinancialStepUpAction,
+    failure_code: &'static str,
+    failure_reason: &'static str,
+) -> Result<(), RestError> {
+    let org =
+        mnt_platform_request_context::current_org().map_err(rest_error_from_request_context)?;
+    let event = financial_step_up_failure_event(
+        principal.user_id,
+        branch_id,
+        purchase_request_id,
+        action,
+        FinancialStepUpFailure {
+            code: failure_code,
+            reason: failure_reason,
+        },
+        TraceContext::generate(),
+        time::OffsetDateTime::now_utc(),
+    )?
+    .with_org(org);
+    with_audit::<_, (), RestError>(state.store.pool(), event, |_tx| {
+        Box::pin(async move { Ok(()) })
+    })
+    .await
+}
+
+fn financial_step_up_failure_event(
+    actor: mnt_kernel_core::UserId,
+    branch_id: BranchId,
+    purchase_request_id: PurchaseRequestId,
+    action: FinancialStepUpAction,
+    failure: FinancialStepUpFailure,
+    trace: TraceContext,
+    occurred_at: time::OffsetDateTime,
+) -> Result<mnt_kernel_core::AuditEvent, RestError> {
+    Ok(financial_audit_event(
+        "purchase.step_up.denied",
+        actor,
+        branch_id,
+        "financial_purchase_request",
+        purchase_request_id,
+        trace,
+        occurred_at,
+    )?
+    .with_snapshots(
+        None,
+        Some(serde_json::json!({
+            "required_action": action.audit_action(),
+            "failure_code": failure.code,
+            "failure_reason": failure.reason,
+            "step_up_verified": false,
+        })),
+    ))
 }
 
 async fn authorize_for_purchase(
@@ -950,6 +1306,7 @@ fn rest_error_from_request_context(
 struct RestError {
     status: StatusCode,
     kind: ErrorKind,
+    code_override: Option<&'static str>,
     message: String,
 }
 
@@ -958,6 +1315,34 @@ impl RestError {
         Self {
             status: StatusCode::UNAUTHORIZED,
             kind: ErrorKind::Forbidden,
+            code_override: None,
+            message: message.into(),
+        }
+    }
+
+    fn validation(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::UNPROCESSABLE_ENTITY,
+            kind: ErrorKind::Validation,
+            code_override: None,
+            message: message.into(),
+        }
+    }
+
+    fn precondition_required(code: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::PRECONDITION_REQUIRED,
+            kind: ErrorKind::Validation,
+            code_override: Some(code),
+            message: message.into(),
+        }
+    }
+
+    fn passkey_step_up_failed(code: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::UNAUTHORIZED,
+            kind: ErrorKind::Forbidden,
+            code_override: Some(code),
             message: message.into(),
         }
     }
@@ -966,6 +1351,7 @@ impl RestError {
         Self {
             status: StatusCode::SERVICE_UNAVAILABLE,
             kind: ErrorKind::Internal,
+            code_override: None,
             message: message.into(),
         }
     }
@@ -974,6 +1360,7 @@ impl RestError {
         Self {
             status: StatusCode::INTERNAL_SERVER_ERROR,
             kind: ErrorKind::Internal,
+            code_override: None,
             message: message.into(),
         }
     }
@@ -982,6 +1369,7 @@ impl RestError {
         Self {
             status: status_for_error_kind(error.kind),
             kind: error.kind,
+            code_override: None,
             message: error.message,
         }
     }
@@ -1022,6 +1410,9 @@ impl RestError {
     }
 
     fn code(&self) -> &'static str {
+        if let Some(code) = self.code_override {
+            return code;
+        }
         match self.kind {
             ErrorKind::Validation => "validation",
             ErrorKind::NotFound => "not_found",
@@ -1030,6 +1421,18 @@ impl RestError {
             ErrorKind::InvalidTransition => "invalid_transition",
             ErrorKind::Internal => "internal",
         }
+    }
+}
+
+impl From<DbError> for RestError {
+    fn from(value: DbError) -> Self {
+        Self::from_db(value)
+    }
+}
+
+impl From<KernelError> for RestError {
+    fn from(value: KernelError) -> Self {
+        Self::from_kernel(value)
     }
 }
 
@@ -1055,5 +1458,72 @@ fn status_for_error_kind(kind: ErrorKind) -> StatusCode {
         ErrorKind::Forbidden => StatusCode::FORBIDDEN,
         ErrorKind::Conflict | ErrorKind::InvalidTransition => StatusCode::CONFLICT,
         ErrorKind::Internal => StatusCode::INTERNAL_SERVER_ERROR,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn empty_sensitive_financial_body_is_decoded_as_missing_step_up() {
+        let body: FinancialStepUpRequest = decode_financial_request(Bytes::new()).unwrap();
+        assert!(body.step_up.is_none());
+    }
+
+    #[test]
+    fn missing_step_up_error_uses_precondition_required_code() {
+        let err = RestError::precondition_required(
+            "passkey_step_up_required",
+            "financial action requires a fresh passkey step-up",
+        );
+        assert_eq!(err.status, StatusCode::PRECONDITION_REQUIRED);
+        assert_eq!(err.code(), "passkey_step_up_required");
+    }
+
+    #[test]
+    fn denied_step_up_audit_event_contains_no_assertion_material() {
+        let actor = mnt_kernel_core::UserId::new();
+        let branch = BranchId::new();
+        let purchase_request_id = PurchaseRequestId::new();
+        let event = financial_step_up_failure_event(
+            actor,
+            branch,
+            purchase_request_id,
+            FinancialStepUpAction::Execute,
+            FinancialStepUpFailure {
+                code: "passkey_step_up_failed",
+                reason: "invalid_or_expired",
+            },
+            TraceContext::generate(),
+            time::OffsetDateTime::now_utc(),
+        )
+        .unwrap();
+
+        assert_eq!(event.action.as_str(), "purchase.step_up.denied");
+        assert_eq!(event.target_type, "financial_purchase_request");
+        assert_eq!(event.target_id, purchase_request_id.to_string());
+        let after = event.after.expect("denial audit snapshot");
+        assert_eq!(after["required_action"], "purchase.execute");
+        assert_eq!(after["failure_code"], "passkey_step_up_failed");
+        assert_eq!(after["failure_reason"], "invalid_or_expired");
+        assert!(after.get("credential").is_none());
+        assert!(after.get("assertion").is_none());
+        assert!(after.get("ceremony_id").is_none());
+    }
+
+    #[test]
+    fn step_up_dependency_error_is_not_reported_as_credential_denial() {
+        let err = serde_json::from_str::<serde_json::Value>("{").unwrap_err();
+        let rest_error = rest_error_from_step_up_dependency(AuthError::Serde(err));
+
+        assert_eq!(rest_error.status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(rest_error.code(), "internal");
+        assert_eq!(
+            financial_step_up_denial_reason(&AuthError::InvalidStoredData(
+                "ceremony not found or already consumed".to_owned()
+            )),
+            Some("invalid_or_expired")
+        );
     }
 }

@@ -261,7 +261,7 @@ describe("GroupAdminPage", () => {
     ).toBeVisible();
 
     await user.click(
-      screen.getByRole("button", { name: "코스 개인/부서 업무 바로가기" }),
+      screen.getByRole("button", { name: "코스 커뮤니케이션 바로가기" }),
     );
     expect(
       await screen.findByRole("button", { name: "코스 메일함" }),

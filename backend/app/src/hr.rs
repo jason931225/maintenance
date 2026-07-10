@@ -50,6 +50,29 @@ pub const HR_EXIT_CASES_PATH: &str = "/api/v1/hr/exit-cases";
 pub const HR_EXIT_CASE_CONFIRM_PATH_TEMPLATE: &str = "/api/v1/hr/exit-cases/{id}/confirm";
 pub const HR_EXIT_CASE_APPROVAL_DRAFT_PATH_TEMPLATE: &str =
     "/api/v1/hr/exit-cases/{id}/approval-draft";
+pub const HR_ROUTE_PATHS: &[&str] = &[
+    EMPLOYEES_PATH,
+    EMPLOYEES_IMPORT_PATH,
+    EMPLOYEES_IMPORT_PREVIEW_PATH,
+    EMPLOYEES_IMPORT_DRY_RUN_PATH_TEMPLATE,
+    EMPLOYEES_IMPORT_APPLY_PATH_TEMPLATE,
+    EMPLOYEES_EXPORT_CSV_PATH,
+    EMPLOYEE_LIFECYCLE_EVENTS_PATH_TEMPLATE,
+    HR_ORG_CHART_PATH,
+    HR_LEAVE_BALANCES_PATH,
+    HR_ATTENDANCE_SUMMARY_PATH,
+    HR_READINESS_SUMMARY_PATH,
+    HR_ATTENDANCE_IMPORT_PREVIEW_PATH,
+    HR_ATTENDANCE_IMPORT_DRY_RUN_PATH_TEMPLATE,
+    HR_ATTENDANCE_IMPORT_APPLY_PATH_TEMPLATE,
+    HR_ATTENDANCE_IMPORT_SUMMARY_PATH,
+    HR_MY_ATTENDANCE_RECORDS_PATH,
+    HR_ATTENDANCE_RECORDS_PATH,
+    HR_ABSENCE_EXIT_DASHBOARD_PATH,
+    HR_EXIT_CASES_PATH,
+    HR_EXIT_CASE_CONFIRM_PATH_TEMPLATE,
+    HR_EXIT_CASE_APPROVAL_DRAFT_PATH_TEMPLATE,
+];
 const MAX_IMPORT_BYTES: usize = 16 * 1024 * 1024;
 const MAX_IMPORT_HEADER_SCAN_ROWS: usize = 25;
 const DEFAULT_LIMIT: i64 = 500;
@@ -7558,6 +7581,7 @@ fn error_code(kind: ErrorKind) -> &'static str {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod tests {
     use super::*;
     use calamine::Range;

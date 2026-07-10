@@ -12,6 +12,9 @@ import kotlinx.serialization.json.jsonObject
 
 interface PasskeyCredentialClient {
     suspend fun getLoginCredential(context: Context, challengeJson: String): Map<String, JsonElement>
+
+    suspend fun getStepUpCredential(context: Context, challengeJson: String): Map<String, JsonElement> =
+        getLoginCredential(context, challengeJson)
 }
 
 class CredentialManagerPasskeyClient : PasskeyCredentialClient {

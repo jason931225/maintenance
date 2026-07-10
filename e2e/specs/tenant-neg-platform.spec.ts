@@ -15,7 +15,7 @@ import type { Page } from "@playwright/test";
  * This mirrors the AUTH-07b negative pattern (a platform session bounced OFF a
  * tenant route) in the opposite direction: a tenant session bounced OFF the
  * platform console. The backend independently rejects a tenant bearer on
- * `/platform/*` with 403 (covered by PLAT-04); this spec is the browser-side
+ * `/api/platform/*` with 403 (covered by PLAT-04); this spec is the browser-side
  * routing guard.
  */
 

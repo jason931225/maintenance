@@ -177,11 +177,46 @@ pub async fn process_node<P: WorkflowRuntimePort + ?Sized>(
         })
     };
 
-    let (node_output, node_error, emissions, waiting_task) = match outcome {
-        NodeOutcome::Succeeded { output, emissions } => (Some(output), None, emissions, None),
-        NodeOutcome::Waiting { task } => (None, None, Vec::new(), Some(task)),
-        NodeOutcome::Failed { error } => (None, Some(error), Vec::new(), None),
-    };
+    let (node_output, node_error, emissions, waiting_task, selected_port, guardrail_audit_actions) =
+        match outcome {
+            NodeOutcome::Succeeded {
+                output,
+                emissions,
+                selected_port,
+                audit_actions,
+            } => (
+                Some(with_selected_port(output, selected_port.as_deref())),
+                None,
+                emissions,
+                None,
+                selected_port,
+                audit_actions,
+            ),
+            NodeOutcome::Waiting {
+                task,
+                selected_port,
+                audit_actions,
+            } => (
+                None,
+                None,
+                Vec::new(),
+                Some(task),
+                selected_port,
+                audit_actions,
+            ),
+            NodeOutcome::Failed {
+                error,
+                selected_port,
+                audit_actions,
+            } => (
+                None,
+                Some(with_selected_port(error, selected_port.as_deref())),
+                Vec::new(),
+                None,
+                selected_port,
+                audit_actions,
+            ),
+        };
 
     let new_node = NewNodeRun {
         id: request.node_run_id,
@@ -201,10 +236,22 @@ pub async fn process_node<P: WorkflowRuntimePort + ?Sized>(
         node_final_status,
     )?;
 
-    // The node's own audit row plus any Cedar/PBAC shadow audit rows the caller's
-    // guard produced for this transition (design §D) — one atomic `with_audits` txn.
-    let mut audit_events = Vec::with_capacity(1 + request.guard_audits.len());
+    // The node's own audit row plus guardrail-specific audit rows and any
+    // Cedar/PBAC shadow audit rows the caller's guard produced for this transition
+    // (design §D) — one atomic `with_audits` txn.
+    let mut audit_events =
+        Vec::with_capacity(1 + guardrail_audit_actions.len() + request.guard_audits.len());
     audit_events.push(node_audit);
+    for action in guardrail_audit_actions {
+        audit_events.push(guardrail_audit_event(
+            &action,
+            audit,
+            request.node_run_id,
+            request.org_id,
+            node_final_status,
+            selected_port.as_deref(),
+        )?);
+    }
     audit_events.extend(request.guard_audits);
 
     let commit = NodeStepCommit {
@@ -265,6 +312,50 @@ fn node_audit_event(
         Some(json!({ "status": NodeStatus::Pending.as_db_str() })),
         Some(json!({ "status": final_status.as_db_str() })),
     ))
+}
+
+fn guardrail_audit_event(
+    action: &str,
+    audit: &AuditContext,
+    node_run_id: Uuid,
+    org: OrgId,
+    final_status: NodeStatus,
+    selected_port: Option<&str>,
+) -> Result<AuditEvent, KernelError> {
+    Ok(AuditEvent::new(
+        audit.actor,
+        AuditAction::new(action)?,
+        "workflow_guardrail",
+        node_run_id.to_string(),
+        audit.trace.clone(),
+        audit.occurred_at,
+    )
+    .with_org(org)
+    .with_snapshots(
+        None,
+        Some(json!({
+            "node_run_id": node_run_id,
+            "status": final_status.as_db_str(),
+            "selected_port": selected_port,
+        })),
+    ))
+}
+
+fn with_selected_port(payload: Value, selected_port: Option<&str>) -> Value {
+    let Some(selected_port) = selected_port else {
+        return payload;
+    };
+    match payload {
+        Value::Object(mut map) => {
+            map.entry("selected_port".to_owned())
+                .or_insert_with(|| json!(selected_port));
+            Value::Object(map)
+        }
+        other => json!({
+            "selected_port": selected_port,
+            "payload": other,
+        }),
+    }
 }
 
 #[cfg(test)]

@@ -153,17 +153,24 @@ async fn insert_audit_event_tx(
     let occurred_at = event.occurred_at;
     let trace_id = event.trace.trace_id();
     let span_id = event.trace.span_id();
+    let request_context = &event.request_context;
+    let classification = &event.classification;
+    let classification_badges = classification.badges.as_deref();
 
     sqlx::query!(
         r#"
         INSERT INTO audit_events (
             id, actor, action, target_type, target_id,
             branch_id, before_snap, after_snap,
-            trace_id, span_id, occurred_at, org_id
+            trace_id, span_id, occurred_at, org_id,
+            ip, user_agent, auth_method, device,
+            classification_badges, anomaly, reason
         ) VALUES (
             $1, $2, $3, $4, $5,
             $6, $7, $8,
-            $9, $10, $11, $12
+            $9, $10, $11, $12,
+            $13, $14, $15, $16,
+            $17, $18, $19
         )
         "#,
         event_id_uuid,
@@ -178,6 +185,13 @@ async fn insert_audit_event_tx(
         span_id,
         occurred_at,
         org_uuid,
+        request_context.ip.as_deref(),
+        request_context.user_agent.as_deref(),
+        request_context.auth_method.as_deref(),
+        request_context.device.as_deref(),
+        classification_badges,
+        classification.anomaly,
+        classification.reason.as_deref(),
     )
     .execute(tx.as_mut())
     .await
@@ -323,7 +337,10 @@ pub async fn read_subject_authz_freshness(
 
 #[cfg(test)]
 mod tests {
-    use mnt_kernel_core::{AuditAction, AuditEvent, BranchId, OrgId, TraceContext, UserId};
+    use mnt_kernel_core::{
+        AuditAction, AuditClassification, AuditEvent, AuditRequestContext, BranchId, OrgId,
+        TraceContext, UserId,
+    };
     use sqlx::{PgPool, Row};
     use time::OffsetDateTime;
 
@@ -475,7 +492,18 @@ mod tests {
             OffsetDateTime::now_utc(),
         )
         .with_branch(mnt_kernel_core::BranchId::from_uuid(branch_id))
-        .with_snapshots(Some(before_snap.clone()), Some(after_snap.clone()));
+        .with_snapshots(Some(before_snap.clone()), Some(after_snap.clone()))
+        .with_request_context(AuditRequestContext {
+            ip: Some("203.0.113.9".to_owned()),
+            user_agent: Some("Maintenance Console/1.0".to_owned()),
+            auth_method: Some("passkey".to_owned()),
+            device: Some("desktop-web".to_owned()),
+        })
+        .with_classification(AuditClassification {
+            badges: Some(vec!["민감정보".to_owned(), "대외비".to_owned()]),
+            anomaly: Some(true),
+            reason: Some("manager override".to_owned()),
+        });
 
         let event_id = *event.id.as_uuid();
 
@@ -516,6 +544,35 @@ mod tests {
         assert_eq!(row.after_snap.unwrap(), after_snap);
         assert_eq!(row.trace_id.len(), 32);
         assert_eq!(row.span_id.len(), 16);
+
+        let row = sqlx::query(
+            r#"
+            SELECT ip, user_agent, auth_method, device,
+                   classification_badges, anomaly, reason
+            FROM audit_events WHERE id = $1
+            "#,
+        )
+        .bind(event_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        let ip: Option<String> = row.try_get("ip").unwrap();
+        let user_agent: Option<String> = row.try_get("user_agent").unwrap();
+        let auth_method: Option<String> = row.try_get("auth_method").unwrap();
+        let device: Option<String> = row.try_get("device").unwrap();
+        let badges: Option<Vec<String>> = row.try_get("classification_badges").unwrap();
+        let anomaly: Option<bool> = row.try_get("anomaly").unwrap();
+        let reason: Option<String> = row.try_get("reason").unwrap();
+        assert_eq!(ip.as_deref(), Some("203.0.113.9"));
+        assert_eq!(user_agent.as_deref(), Some("Maintenance Console/1.0"));
+        assert_eq!(auth_method.as_deref(), Some("passkey"));
+        assert_eq!(device.as_deref(), Some("desktop-web"));
+        assert_eq!(
+            badges.as_deref(),
+            Some(&["민감정보".to_owned(), "대외비".to_owned()][..])
+        );
+        assert_eq!(anomaly, Some(true));
+        assert_eq!(reason.as_deref(), Some("manager override"));
     }
 
     // -----------------------------------------------------------------------

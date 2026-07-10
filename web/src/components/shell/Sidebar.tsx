@@ -1,19 +1,20 @@
 import { ChevronsLeft, ChevronsRight } from "lucide-react";
-import { useEffect, useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { NavLink } from "react-router-dom";
 
+import type { components } from "@maintenance/api-client-ts";
 import type { AuthSession } from "../../context/auth";
+import { useAuth } from "../../context/auth";
 import { ko } from "../../i18n/ko";
+import { NOTIFICATION_COUNTS_INVALIDATED } from "../../lib/notification-events";
 import { cn } from "../../lib/utils";
-import { consoleIcons } from "../console/icons";
-import { NAV_GROUPS, isNavItemVisible } from "./nav";
+import {
+  FEATURES,
+  hasAnyFeatureGrant,
+  NAV_GROUPS,
+  isNavItemVisible,
+} from "./nav";
 import { navGroupLabel, navItemLabel } from "./nav-labels";
-import { useCommsStore } from "../../features/comms/store";
-
-// ponytail: the brand tile reuses the existing "overview" console icon as the
-// app mark instead of a per-tenant logo upload pipeline — swap for real
-// tenant branding when a milestone asks for it.
-const BrandMark = consoleIcons.overview;
 
 interface SidebarProps {
   collapsed: boolean;
@@ -22,6 +23,8 @@ interface SidebarProps {
   onMobileClose: () => void;
   session: AuthSession | undefined;
 }
+
+type SupportTicketSummary = components["schemas"]["SupportTicketSummary"];
 
 interface NavBadge {
   primary: number;
@@ -45,6 +48,12 @@ function navBadgeAria(template: string, label: string, count: number): string {
   return template.replace("{label}", label).replace("{count}", String(count));
 }
 
+function isOpenSupportTicket(ticket: Pick<SupportTicketSummary, "status">): boolean {
+  return ticket.status === "OPEN" || ticket.status === "IN_PROGRESS" || ticket.status === "ON_HOLD";
+}
+
+const MAIL_BADGE_FEATURES = [FEATURES.MAIL_USE] as const;
+
 export function Sidebar({
   collapsed,
   mobileOpen,
@@ -52,86 +61,24 @@ export function Sidebar({
   onMobileClose,
   session,
 }: SidebarProps) {
-  const panelRef = useRef<HTMLElement>(null);
+  const { api } = useAuth();
   const roles = session?.roles;
   const groupRoles = session?.group_roles;
   const featureGrants = session?.feature_grants;
+  const [counts, setCounts] = useState<NavCounts>({});
+  const panelRef = useRef<HTMLElement>(null);
 
-  // Badge counts come from the shared comms store (fetched once by the comms
-  // rail runtime) instead of the sidebar re-fetching them itself.
-  const approvals = useCommsStore((s) => s.counts.approvals);
-  const messengerUnread = useCommsStore((s) => s.counts.messenger);
-  const mailUnread = useCommsStore((s) => s.counts.mail);
-  const supportOpen = useCommsStore((s) => s.counts.supportOpen);
-  const supportUnread = useCommsStore((s) => s.counts.supportUnread);
-
-  const counts = useMemo<NavCounts>(() => {
-    const next: NavCounts = {};
-    if (approvals > 0) {
-      next.approvals = {
-        primary: approvals,
-        tone: "attention",
-        ariaLabel: navBadgeAria(
-          ko.shell.navBadges.pendingApprovals,
-          navItemLabel("approvals"),
-          approvals,
-        ),
-      };
-    }
-    if (messengerUnread > 0) {
-      next.messenger = {
-        primary: messengerUnread,
-        tone: "attention",
-        ariaLabel: navBadgeAria(
-          ko.shell.navBadges.unreadMessages,
-          navItemLabel("messenger"),
-          messengerUnread,
-        ),
-      };
-    }
-    if (mailUnread > 0) {
-      next.mail = {
-        primary: mailUnread,
-        tone: "attention",
-        ariaLabel: navBadgeAria(
-          ko.shell.navBadges.unreadMail,
-          navItemLabel("mail"),
-          mailUnread,
-        ),
-      };
-    }
-    if (supportOpen > 0 || supportUnread > 0) {
-      next.support = {
-        primary: supportUnread,
-        secondary: supportOpen,
-        tone: supportUnread > 0 ? "attention" : "neutral",
-        ariaLabel: ko.shell.navBadges.supportSummary
-          .replace("{unread}", String(supportUnread))
-          .replace("{open}", String(supportOpen)),
-        secondaryLabel: ko.shell.navBadges.openShort,
-      };
-    }
-    return next;
-  }, [approvals, messengerUnread, mailUnread, supportOpen, supportUnread]);
-
-  const filteredGroups = useMemo(
-    () =>
-      NAV_GROUPS.map((group) => ({
-        ...group,
-        items: group.items.filter((item) =>
-          isNavItemVisible(item.key, roles, groupRoles, featureGrants),
-        ),
-      })).filter((group) => group.items.length > 0),
-    [featureGrants, groupRoles, roles],
-  );
-
+  // Mobile drawer is a modal dialog (role/aria-modal set below): trap focus
+  // while open and restore it on close. The rebuilt shell dropped this; without
+  // it the 320px drawer is an unlabeled complementary and fails the a11y guard.
   useEffect(() => {
     if (!mobileOpen) return undefined;
-
     const panel = panelRef.current;
-    const previouslyFocused = document.activeElement;
     if (!panel) return undefined;
+    // Alias after the guard so the closures below see a non-null type (TS does
+    // not carry linear null-narrowing of a nullable-typed const into closures).
     const panelEl = panel;
+    const previouslyFocused = document.activeElement;
 
     const focusableSelector = [
       "a[href]",
@@ -146,14 +93,9 @@ export function Sidebar({
       return Array.from(
         panelEl.querySelectorAll<HTMLElement>(focusableSelector),
       ).filter((element) => {
-        // getClientRects() is empty when the element OR any ancestor is
-        // display:none — unlike getComputedStyle(element).display, which only
-        // sees the element's own value. This excludes the desktop-only collapse
-        // toggle (its wrapper is `hidden lg:block`, so display:none at the
-        // mobile drawer width); otherwise it was wrongly picked as the trap's
-        // last stop and Shift+Tab focused an unrendered button instead of the
-        // last nav link. visibility is inherited, so the element's own computed
-        // value already reflects an ancestor's visibility:hidden.
+        // getClientRects() is empty when the element or an ancestor is
+        // display:none (e.g. the desktop-only collapse toggle inside the mobile
+        // drawer) — excludes it from the trap's last stop.
         if (element.getClientRects().length === 0) return false;
         return window.getComputedStyle(element).visibility !== "hidden";
       });
@@ -198,12 +140,138 @@ export function Sidebar({
     };
   }, [mobileOpen]);
 
+  const filteredGroups = useMemo(
+    () =>
+      NAV_GROUPS.map((group) => ({
+        ...group,
+        items: group.items.filter((item) =>
+          isNavItemVisible(item.key, roles, groupRoles, featureGrants),
+        ),
+      })).filter((group) => group.items.length > 0),
+    [featureGrants, groupRoles, roles],
+  );
+  const visibleItemKeys = useMemo(
+    () => new Set(filteredGroups.flatMap((group) => group.items.map((item) => item.key))),
+    [filteredGroups],
+  );
+  const canLoadMailBadge = hasAnyFeatureGrant(featureGrants, MAIL_BADGE_FEATURES);
+
+
+  useEffect(() => {
+    let ignore = false;
+    async function loadCounts() {
+      const next: NavCounts = {};
+      await Promise.all([
+        visibleItemKeys.has("approvals")
+          ? api
+              .GET("/api/approval-items", { params: { query: { limit: 100, offset: 0 } } })
+              .then((response) => {
+                const count = response.data?.total ?? response.data?.items.length ?? 0;
+                if (count > 0) {
+                  next.approvals = {
+                    primary: count,
+                    tone: "attention",
+                    ariaLabel: navBadgeAria(
+                      ko.shell.navBadges.pendingApprovals,
+                      navItemLabel("approvals"),
+                      count,
+                    ),
+                  };
+                }
+              })
+              .catch(() => undefined)
+          : Promise.resolve(),
+        visibleItemKeys.has("messenger")
+          ? api
+              .GET("/api/messenger/threads", { params: { query: { limit: 100 } } })
+              .then((response) => {
+                const count =
+                  response.data?.items.reduce(
+                    (sum, thread) => sum + Math.max(0, thread.unread_count),
+                    0,
+                  ) ?? 0;
+                if (count > 0) {
+                  next.messenger = {
+                    primary: count,
+                    tone: "attention",
+                    ariaLabel: navBadgeAria(
+                      ko.shell.navBadges.unreadMessages,
+                      navItemLabel("messenger"),
+                      count,
+                    ),
+                  };
+                }
+              })
+              .catch(() => undefined)
+          : Promise.resolve(),
+        visibleItemKeys.has("mail") && canLoadMailBadge
+          ? api
+              .GET("/api/v1/mail/folders")
+              .then((response) => {
+                const count =
+                  response.data?.reduce(
+                    (sum, folder) => sum + Math.max(0, folder.unread_count),
+                    0,
+                  ) ?? 0;
+                if (count > 0) {
+                  next.mail = {
+                    primary: count,
+                    tone: "attention",
+                    ariaLabel: navBadgeAria(
+                      ko.shell.navBadges.unreadMail,
+                      navItemLabel("mail"),
+                      count,
+                    ),
+                  };
+                }
+              })
+              .catch(() => undefined)
+          : Promise.resolve(),
+        visibleItemKeys.has("support")
+          ? api
+              .GET("/api/v1/support/tickets", {
+                params: { query: { include_untriaged: true, limit: 100 } },
+              })
+              .then((response) => {
+                const tickets = response.data?.items ?? [];
+                const open = tickets.filter(isOpenSupportTicket).length;
+                const customerUnread = tickets.filter(
+                  (ticket) => ticket.origin === "CUSTOMER" && isOpenSupportTicket(ticket),
+                ).length;
+                if (open > 0 || customerUnread > 0) {
+                  next.support = {
+                    primary: customerUnread,
+                    secondary: open,
+                    tone: customerUnread > 0 ? "attention" : "neutral",
+                    ariaLabel: ko.shell.navBadges.supportSummary
+                      .replace("{unread}", String(customerUnread))
+                      .replace("{open}", String(open)),
+                    secondaryLabel: ko.shell.navBadges.openShort,
+                  };
+                }
+              })
+              .catch(() => undefined)
+          : Promise.resolve(),
+      ]);
+      if (!ignore) setCounts(next);
+    }
+    void loadCounts();
+    function reloadCounts() {
+      void loadCounts();
+    }
+    window.addEventListener(NOTIFICATION_COUNTS_INVALIDATED, reloadCounts);
+    return () => {
+      ignore = true;
+      window.removeEventListener(NOTIFICATION_COUNTS_INVALIDATED, reloadCounts);
+    };
+  }, [api, canLoadMailBadge, visibleItemKeys]);
+
   return (
     <>
       {/* Mobile backdrop */}
       {mobileOpen && (
         <div
-          className="fixed inset-0 z-20 bg-console-ink/40 lg:hidden"
+          className="fixed inset-0 z-20 bg-ink/40 lg:hidden"
           onClick={onMobileClose}
           aria-hidden="true"
         />
@@ -215,22 +283,22 @@ export function Sidebar({
         role={mobileOpen ? "dialog" : undefined}
         tabIndex={-1}
         className={cn(
-          "fixed inset-y-0 left-0 z-30 flex flex-col bg-console-surface border-r border-console-border transition-all duration-200",
+          "fixed inset-y-0 left-0 z-30 flex flex-col bg-white border-r border-line transition-all duration-200",
           collapsed ? "w-16" : "w-60",
           mobileOpen ? "translate-x-0" : "-translate-x-full",
           "lg:static lg:translate-x-0 lg:z-auto",
         )}
       >
-        {/* Brand */}
-        <div className="flex h-14 items-center gap-3 px-4 border-b border-console-border shrink-0">
+        {/* Brand — DS letter mark: rounded brand-amber square + bold "C" (no logo asset). */}
+        <div className="flex h-14 items-center gap-3 px-4 border-b border-line shrink-0">
           <span
             aria-hidden="true"
-            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-console-signal text-console-ink"
+            className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-signal text-base font-black text-ink"
           >
-            <BrandMark size={16} strokeWidth={2.5} />
+            C
           </span>
           {!collapsed && (
-            <span className="font-bold text-console-ink truncate">
+            <span className="font-bold text-ink truncate">
               {ko.shell.title}
             </span>
           )}
@@ -244,7 +312,7 @@ export function Sidebar({
           {filteredGroups.map((group) => (
             <div key={group.key}>
               {!collapsed && (
-                <p className="mb-1 px-3 text-xs font-semibold uppercase tracking-wider text-console-steel">
+                <p className="mb-1 px-3 text-xs font-semibold uppercase tracking-wider text-steel">
                   {navGroupLabel(group.key)}
                 </p>
               )}
@@ -264,9 +332,10 @@ export function Sidebar({
                       className={({ isActive }) =>
                         cn(
                           "relative flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors",
+                          // Active-nav brand accent (DS: amber active accents), via tokens.
                           isActive
-                            ? "bg-console-muted text-console-ink font-semibold"
-                            : "text-console-steel hover:bg-console-muted hover:text-console-ink",
+                            ? "bg-muted-panel text-ink font-semibold before:absolute before:inset-y-1.5 before:left-0 before:w-0.5 before:rounded-full before:bg-signal before:content-['']"
+                            : "text-steel hover:bg-muted-panel hover:text-ink",
                         )
                       }
                       title={collapsed ? (showBadge ? `${labelStr} · ${badge.ariaLabel}` : labelStr) : undefined}
@@ -279,29 +348,21 @@ export function Sidebar({
                       {!collapsed && (
                         <span className="min-w-0 flex-1 truncate">{labelStr}</span>
                       )}
-                      {showBadge && collapsed ? (
-                        // Collapsed icon rail: a plain unread dot (no digits fit
-                        // at 64px) — the full count is still announced via the
-                        // NavLink's aria-label and hover `title` above.
+                      {showBadge ? (
                         <span
-                          aria-hidden="true"
                           className={cn(
-                            "absolute right-1.5 top-1.5 h-2 w-2 rounded-full",
-                            badge.tone === "neutral" ? "bg-console-steel" : "bg-console-danger-solid",
+                            "ml-auto inline-flex min-w-10 justify-end gap-1",
+                            collapsed && "absolute right-1 top-1 ml-0 min-w-0",
                           )}
-                        />
-                      ) : null}
-                      {showBadge && !collapsed ? (
-                        <span
-                          className="ml-auto inline-flex min-w-10 justify-end gap-1"
                           aria-label={badge.ariaLabel}
                         >
                           {badge.primary > 0 ? (
                             <span
                               aria-hidden="true"
                               className={cn(
-                                "inline-flex min-h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-bold leading-none text-console-surface",
-                                badge.tone === "neutral" ? "bg-console-steel" : "bg-console-danger-solid",
+                                "inline-flex min-h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-bold leading-none text-white",
+                                badge.tone === "neutral" ? "bg-steel" : "bg-red-600",
+                                collapsed && "min-h-4 min-w-4 px-1 text-[10px]",
                               )}
                             >
                               {badgeLabel(badge.primary)}
@@ -310,7 +371,10 @@ export function Sidebar({
                           {(badge.secondary ?? 0) > 0 ? (
                             <span
                               aria-hidden="true"
-                              className="inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-console-muted px-1.5 text-[11px] font-bold leading-none text-console-steel ring-1 ring-console-border"
+                              className={cn(
+                                "inline-flex min-h-5 min-w-5 items-center justify-center rounded-full bg-muted-panel px-1.5 text-[11px] font-bold leading-none text-steel ring-1 ring-line",
+                                collapsed && "hidden",
+                              )}
                               title={badge.secondaryLabel}
                             >
                               {badgeLabel(badge.secondary ?? 0)}
@@ -327,10 +391,10 @@ export function Sidebar({
         </nav>
 
         {/* Collapse toggle (desktop only) */}
-        <div className="border-t border-console-border px-2 py-3 hidden lg:block">
+        <div className="border-t border-line px-2 py-3 hidden lg:block">
           <button
             aria-label={collapsed ? ko.shell.expandMenu : ko.shell.collapseMenu}
-            className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-console-steel hover:bg-console-muted"
+            className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-steel hover:bg-muted-panel"
             onClick={onCollapse}
           >
             {collapsed ? (

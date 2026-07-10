@@ -1,9 +1,16 @@
-# Deploy — Talos + Argo CD on Oracle Cloud (Always Free)
+# Deploy — Talos + Argo CD deployment contexts
 
-GitOps deployment of the forklift FSM onto a single-node [Talos Linux](https://talos.dev)
-Kubernetes cluster running on an Oracle Cloud **Ampere A1** instance, sized to
-stay inside the **Always Free** tier (4 OCPU / 24 GB / 200 GB block / 20 GB
-object storage / 1 flexible LB). Region: **ap-chuncheon-1**.
+GitOps deployment of the forklift FSM. The live deployment context today is a
+single-node [Talos Linux](https://talos.dev) Kubernetes cluster running on an
+Oracle Cloud **Ampere A1** instance, sized to stay inside the **Always Free** tier
+(4 OCPU / 24 GB / 200 GB block / 20 GB object storage / 1 flexible LB). Region:
+**ap-chuncheon-1**.
+
+For the live OCI guest, use [`OPS-RUNBOOK.md`](OPS-RUNBOOK.md). For the additive
+ADR-0022 bare-metal/on-prem HA path, use
+[`OPS-RUNBOOK-baremetal.md`](OPS-RUNBOOK-baremetal.md). The on-prem path is
+parallel to OCI and remains DARK until a founder/operator activation gate says
+otherwise.
 
 Everything below `deploy/` is declarative and reconciled by Argo CD with
 self-heal — the only imperative steps are the one-time cluster bootstrap and
@@ -29,13 +36,24 @@ Workloads (`deploy/apps/maintenance`): `mnt-app` (API, blue/green Rollout ×2),
 
 ## Release & rollback model
 
-- **Zero-downtime version bumps:** images are built/signed by CI
-  (`.github/workflows/image-release.yml`) and tagged by release-please. The prod
-  overlay pins the tag; Argo CD syncs it. `mnt-app`/`mnt-web` deploy **blue/green**:
-  the new ("preview") ReplicaSet comes up alongside the live one, the
-  `smoke-http` AnalysisTemplate probes its health endpoint, and only on success
-  is the active Service flipped. A failed smoke check → no flip → the old version
-  keeps serving (**automatic rollback**).
+- **Digest-pinned rollouts:** images are built/signed by CI
+  (`.github/workflows/image-release.yml`) and emitted as immutable `sha256`
+  digests. The prod overlay pins the `mnt-app` and `mnt-web` digests; Argo CD
+  syncs that desired state. `mnt-app`/`mnt-web` deploy **blue/green**: the new
+  ("preview") ReplicaSet comes up alongside the live one, the `smoke-http`
+  AnalysisTemplate probes its health endpoint, and only on success is the active
+  Service flipped. A failed smoke check → no flip → the old version keeps serving
+  (**automatic rollback**).
+- **Verified deployment claims:** only the default `scripts/deploy.sh <git-sha>`
+  path, run to its final `done: ... deployed and verified` message, counts as a
+  completed deployment. It verifies the Image Release run and digest artifacts,
+  the Argo Application synced revision, `mnt-app`/`mnt-web` Rollout health,
+  `mnt-worker` Deployment rollout, workload template image digests, running/ready
+  pods whose `imageID` or image reference matches the built digests, and public
+  endpoint HTTP 200s. Missing `kubectl`, missing target-cluster access, an
+  unreachable Argo Application, rollout failure, or digest mismatch fails closed.
+  `--digest-bump-only` / `--bump-only` updates desired prod digests only and must
+  be recorded as an unverified desired-state bump, not as deployed.
 - **Manual instant rollback:** `kubectl argo rollouts undo mnt-app -n maintenance`
   (the previous ReplicaSet is kept warm for `scaleDownDelaySeconds`). Or revert
   the image tag in git — Argo re-syncs.
@@ -112,6 +130,37 @@ embedded migrations, then exits.
 - [ ] DNS A-record for the host points at the node's public IP; OCI security
       list allows 80/443 (ingress), 6443 (k8s API), 50000 (Talos API).
 - [ ] `mnt-secrets` + `oci-objectstore-creds` exist in the `maintenance` namespace.
+- [ ] NetworkPolicy isolation is proven against the target cluster before it is
+      claimed. The NetworkPolicy manifests in
+      `apps/maintenance/base/networkpolicy.yaml` render through CI, but a clean
+      manifest render alone is not enforcement evidence. Run these with
+      `kubectl` pointed at the target:
+
+      ```sh
+      MNT_NETWORKPOLICY_PREFLIGHT=require npm run check:k8s:networkpolicy
+      MNT_NETWORKPOLICY_EXPECTED_ENFORCER=cilium \
+        MNT_NETWORKPOLICY_SMOKE_POSTGRES=auto \
+        npm run smoke:k8s:networkpolicy-deny
+      ```
+
+      Plain Talos/flannel must fail until Cilium, Calico/Canal, or another
+      policy-capable enforcer is installed and the `maintenance` NetworkPolicies
+      are applied. The smoke creates temporary pods and passes only when an
+      unlabeled control pod can reach the temporary `app=mnt-web` target on
+      TCP/8080, an `app=mnt-app` client can use DNS, outbound HTTPS, and
+      Postgres when the `mnt-db-rw` Service exists, and that same app-tier client
+      is denied on a non-allowed TCP/8080 flow by the app-tier egress policy.
+      Use the on-prem Cilium stage in `apps/cilium/README.md` (or document an
+      explicit equivalent) and attach the smoke output before claiming isolation.
+- [ ] If claiming a live deployment, run `scripts/deploy.sh <git-sha>` in default
+      mode from an operator workstation that has `gh`, `git`, `curl`, `kubectl`,
+      the argo-rollouts kubectl plugin, and a kubeconfig for the target cluster.
+      The deployment is not complete until the script verifies Argo sync at the
+      desired revision, Rollout/Deployment health, template and pod image digests,
+      and public endpoint HTTP 200s. If the operator only has source/CI access,
+      use `--digest-bump-only` only as an explicit desired-state bump and hand off
+      to a cluster-access operator for fresh verification before any completion
+      claim.
 - [ ] mox dark-stack secrets are present in OCI Vault and projected to
       `mnt-secrets` before the first sync: `MNT_MAIL_MOX_WEBHOOK_SECRET` and the
       operator-held bootstrap/account credentials documented in `SECRETS.md`.
@@ -145,7 +194,10 @@ reachable from the internet.
 
 - **Single node, no control-plane HA.** Pod self-healing and zero-downtime app
   bumps work; a node loss is a restore-from-backup event, not an automatic
-  failover. A second A1 node (still Always Free) would add real HA.
+  failover. Future on-prem anti-affinity expectations are documented in
+  [`docs/decisions/ADR-0022-ha-workload-scheduling-expectations.md`](../docs/decisions/ADR-0022-ha-workload-scheduling-expectations.md),
+  but they stay DARK until the cluster has dedicated workers and the live OCI
+  guest remains single-node compatible.
 - **Custom image import needs a Pay-As-You-Go account** (which stays $0 within
   Always-Free shapes) — the pure free tier can't import images directly; see the
   boot-volume workaround in `talos/README.md`.

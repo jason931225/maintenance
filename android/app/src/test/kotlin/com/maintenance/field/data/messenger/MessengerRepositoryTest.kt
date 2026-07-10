@@ -43,7 +43,7 @@ class MessengerRepositoryTest {
             MessengerAction.LiveMessageReceived(second.toMessengerMessage()),
         )
 
-        assertEquals("팀 채널", thread.toMessengerThread().displayTitle)
+        assertEquals("팀 채널", thread.toMessengerThread().title)
         assertEquals(listOf("초기 점검", "현장 도착"), live.messagesByThread.getValue(threadId).map { it.body })
         assertEquals(secondMessageId, live.lastMessageIdByThread.getValue(threadId))
         assertEquals(secondMessageId, live.resumeCursor())

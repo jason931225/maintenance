@@ -82,6 +82,7 @@ final class FieldViewModel: ObservableObject {
     private let messengerReducer = MessengerReducer()
     private let locationConsentRepository: LocationConsentRepository
     private let mobileOperationsRepository: MobileOperationsRepository
+    private let passkeyStepUpRepository: PasskeyStepUpRepository
 
     init(container: FieldAppContainer) {
         self.authRepository = container.authRepository
@@ -90,6 +91,7 @@ final class FieldViewModel: ObservableObject {
         self.messengerRepository = container.messengerRepository
         self.locationConsentRepository = container.locationConsentRepository
         self.mobileOperationsRepository = container.mobileOperationsRepository
+        self.passkeyStepUpRepository = container.passkeyStepUpRepository
     }
 
     var mobileOperationsDashboard: MobileOperationsDashboard? {
@@ -135,8 +137,11 @@ final class FieldViewModel: ObservableObject {
         loginState = await authRepository.login(userID: trimmedUserID)
         isLoading = false
         switch loginState {
-        case .authenticated:
+        case let .authenticated(_, _, deviceRegistration):
             await refreshToday()
+            if case let .retryPending(retry) = deviceRegistration {
+                messageKey = retry.messageKey
+            }
         case let .signedOut(messageKey):
             self.messageKey = messageKey
         default:
@@ -159,41 +164,42 @@ final class FieldViewModel: ObservableObject {
         isLoading = true
         do {
             _ = try await workOrderRepository.replayPending()
-            _ = await evidenceRepository.uploadPending()
-            _ = await messengerRepository.replayPending()
+            _ = try await evidenceRepository.uploadPending()
+            _ = try await messengerRepository.replayPending()
             today = try await workOrderRepository.refreshToday()
             locationConsent = try await locationConsentRepository.status()
             messageKey = nil
         } catch {
             today = await workOrderRepository.cachedToday()
-            messageKey = "error_network"
+            messageKey = failureMessageKey(for: error, fallback: "error_network")
         }
         isLoading = false
     }
 
     func refreshWorkHub() async {
         isLoading = true
-        var failed = false
+        var failedMessageKey: String?
 
         do {
             _ = try await workOrderRepository.replayPending()
-            _ = await evidenceRepository.uploadPending()
+            _ = try await evidenceRepository.uploadPending()
             today = try await workOrderRepository.refreshToday()
             locationConsent = try await locationConsentRepository.status()
         } catch {
             today = await workOrderRepository.cachedToday()
-            failed = true
+            failedMessageKey = failureMessageKey(for: error, fallback: "error_network")
         }
 
         do {
-            _ = await messengerRepository.replayPending()
+            _ = try await messengerRepository.replayPending()
             let threads = try await messengerRepository.loadThreads()
             messengerState = messengerReducer.reduce(messengerState, .threadsLoaded(threads))
         } catch {
-            failed = true
+            let messengerFailureKey = failureMessageKey(for: error, fallback: "error_network")
+            failedMessageKey = failedMessageKey == "offline_persistence_failed" ? failedMessageKey : messengerFailureKey
         }
 
-        messageKey = failed ? "error_network" : nil
+        messageKey = failedMessageKey
         isLoading = false
     }
 
@@ -240,7 +246,7 @@ final class FieldViewModel: ObservableObject {
             today = await workOrderRepository.cachedToday()
             messageKey = syncState == .pending ? "offline_queued" : nil
         } catch {
-            messageKey = "offline_queued"
+            messageKey = failureMessageKey(for: error, fallback: "operation_failed")
         }
         isLoading = false
     }
@@ -261,7 +267,7 @@ final class FieldViewModel: ObservableObject {
             today = await workOrderRepository.cachedToday()
             messageKey = syncState == .pending ? "offline_queued" : "report_submitted"
         } catch {
-            messageKey = "offline_queued"
+            messageKey = failureMessageKey(for: error, fallback: "operation_failed")
         }
         isLoading = false
     }
@@ -274,11 +280,28 @@ final class FieldViewModel: ObservableObject {
         guard let selectedWorkOrder else { return }
         do {
             _ = try await evidenceRepository.stageEvidence(workOrderID: selectedWorkOrder.id, fileURL: fileURL)
-            _ = await evidenceRepository.uploadPending()
-            messageKey = "capture_saved"
+            let evidenceSummary = try await evidenceRepository.uploadPending()
+            messageKey = evidenceUploadMessageKey(for: evidenceSummary) ?? "capture_saved"
         } catch {
-            messageKey = "offline_queued"
+            messageKey = failureMessageKey(for: error, fallback: "offline_queued")
         }
+    }
+
+    private func evidenceUploadMessageKey(for summary: EvidenceUploadSummary) -> String? {
+        if summary.failed > 0 {
+            return "evidence_upload_failed"
+        }
+        if summary.retrying > 0 {
+            return "evidence_upload_retrying"
+        }
+        return nil
+    }
+
+    private func failureMessageKey(for error: Error, fallback: String) -> String {
+        if error is PersistenceStoreError {
+            return "offline_persistence_failed"
+        }
+        return fallback
     }
 
 
@@ -316,15 +339,18 @@ final class FieldViewModel: ObservableObject {
         guard poll.canVote, let optionID = poll.firstOptionID else { return }
         isLoading = true
         do {
-            _ = mobileOperationsRepository.stepUpEnvelope(
+            let stepUp = try? await requestStepUpEnvelope(
                 actionKind: .pollVote,
-                objectID: poll.id,
-                reasonKey: "operations_passkey_poll_vote"
+                objectID: poll.id
             )
-            _ = try await mobileOperationsRepository.votePoll(pollID: poll.id, selectedOptionIDs: [optionID])
+            let queued = try await mobileOperationsRepository.votePoll(
+                pollID: poll.id,
+                selectedOptionIDs: [optionID],
+                stepUp: stepUp
+            )
             mobileOperationsOverview = await mobileOperationsRepository.cachedOverview()?.withLiveOrigin()
             mobileSensitiveActionSummary = await mobileOperationsRepository.sensitiveActionQueueSummary()
-            messageKey = "operations_poll_voted"
+            messageKey = queued == nil ? "operations_poll_voted" : "operations_passkey_required"
         } catch {
             messageKey = "operation_failed"
         }
@@ -332,11 +358,6 @@ final class FieldViewModel: ObservableObject {
     }
 
     func prepareApprovalStepUp() {
-        _ = mobileOperationsRepository.stepUpEnvelope(
-            actionKind: .approvalDecision,
-            objectID: nil,
-            reasonKey: "operations_passkey_approval_decision"
-        )
         messageKey = "operations_passkey_required"
     }
 
@@ -347,13 +368,19 @@ final class FieldViewModel: ObservableObject {
         }
         isLoading = true
         do {
-            _ = try await mobileOperationsRepository.approveWorkOrder(
+            let stepUp = try? await requestStepUpEnvelope(
+                actionKind: .approvalDecision,
+                objectID: approval.sourceID
+            )
+            let queued = try await mobileOperationsRepository.approveWorkOrder(
                 approval: approval,
                 comment: approvalComment,
-                stepUpAssertion: nil
+                stepUp: stepUp
             )
             mobileSensitiveActionSummary = await mobileOperationsRepository.sensitiveActionQueueSummary()
-            messageKey = approval.canExecuteOnMobile ? "operations_approval_queued_for_passkey" : "operations_approval_unsupported_mobile"
+            messageKey = approval.canExecuteOnMobile
+                ? (queued == nil ? "operations_approval_submitted" : "operations_approval_queued_for_passkey")
+                : "operations_approval_unsupported_mobile"
         } catch {
             messageKey = "operation_failed"
         }
@@ -362,10 +389,37 @@ final class FieldViewModel: ObservableObject {
 
     func replayMobileSensitiveActions() async {
         isLoading = true
-        let summary = await mobileOperationsRepository.replaySensitiveActions(stepUpAssertion: nil)
+        let summary = await mobileOperationsRepository.replaySensitiveActions { [passkeyStepUpRepository] _, binding in
+            try await passkeyStepUpRepository.envelope(binding: binding)
+        }
         mobileSensitiveActionSummary = await mobileOperationsRepository.sensitiveActionQueueSummary()
         messageKey = summary.submitted > 0 ? "operations_sensitive_replayed" : "operations_passkey_required"
         isLoading = false
+    }
+
+    private func requestStepUpEnvelope(
+        actionKind: MobileSensitiveActionKind,
+        objectID: Components.Schemas.Uuid,
+        replayAttempt: Int32? = nil
+    ) async throws -> Components.Schemas.MobilePasskeyStepUpEnvelope {
+        let binding = try mobileOperationsRepository.stepUpBinding(
+            actionKind: actionKind,
+            objectID: objectID,
+            replayAttempt: replayAttempt
+        )
+        let expectedReasonKey: String
+        switch actionKind {
+        case .approvalDecision:
+            expectedReasonKey = "operations_passkey_approval_decision"
+        case .pollVote:
+            expectedReasonKey = "operations_passkey_poll_vote"
+        case .mailSend, .workflowStepUp, .deviceRegistration, .onDutyPing:
+            throw MaintenanceGatewayError.unexpectedResponse("unsupported mobile passkey step-up action: \(actionKind.rawValue)")
+        }
+        guard binding.reasonKey.rawValue == expectedReasonKey else {
+            throw MaintenanceGatewayError.unexpectedResponse("mobile passkey step-up reason mismatch")
+        }
+        return try await passkeyStepUpRepository.envelope(binding: binding)
     }
 
     func registerPushToken(_ token: String, deviceID: String, appVersion: String) async {
@@ -414,7 +468,7 @@ final class FieldViewModel: ObservableObject {
     func refreshMessenger() async {
         isLoading = true
         do {
-            _ = await messengerRepository.replayPending()
+            _ = try await messengerRepository.replayPending()
             let threads = try await messengerRepository.loadThreads()
             messengerState = messengerReducer.reduce(messengerState, .threadsLoaded(threads))
             if let selectedThreadID = messengerState.selectedThreadID {
@@ -422,7 +476,7 @@ final class FieldViewModel: ObservableObject {
             }
             messageKey = nil
         } catch {
-            messageKey = "error_network"
+            messageKey = failureMessageKey(for: error, fallback: "error_network")
         }
         isLoading = false
     }
@@ -476,7 +530,7 @@ final class FieldViewModel: ObservableObject {
             }
             messageKey = result.state == .pending ? "messenger_send_pending" : nil
         } catch {
-            messageKey = "messenger_send_pending"
+            messageKey = failureMessageKey(for: error, fallback: "messenger_send_pending")
         }
     }
 

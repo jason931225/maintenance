@@ -23,17 +23,18 @@ test("ADMIN-11 KPI dashboard renders metric cards", async ({
   // The period field is present and pre-filled with the default range.
   await expect(page.getByLabel("기간").first()).toBeVisible();
 
-  // Once the report loads, the metric cards render their Korean labels. These are
+  // Once the report loads, the metrics render as the §4-11 stat strip — every
+  // metric is a drill link ("<label> <value> 상세 열기"). Their Korean labels are
   // the proof the report deserialized (a timestamp-as-array would have failed the
   // read and left the no-report empty state instead).
   await expect(
-    page.getByRole("heading", { name: /완료 건수/ }),
+    page.getByRole("link", { name: /완료 건수.*상세 열기/ }),
   ).toBeVisible({ timeout: 10_000 });
   await expect(
-    page.getByRole("heading", { name: /평균 응답 속도/ }),
+    page.getByRole("link", { name: /평균 응답 속도.*상세 열기/ }),
   ).toBeVisible();
   await expect(
-    page.getByRole("heading", { name: /P1 수락률/ }),
+    page.getByRole("link", { name: /P1 수락률.*상세 열기/ }),
   ).toBeVisible();
 });
 

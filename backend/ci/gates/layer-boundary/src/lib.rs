@@ -15,7 +15,8 @@
 //! Manifest hygiene:
 //!   - Every workspace crate name starts with `mnt-`
 //!   - Every crate uses `edition.workspace = true` (edition equals workspace edition "2024")
-//!   - publish = false (inherited)
+//!   - Every crate is non-publishable: `publish.workspace = true`
+//!     (inheriting workspace `publish = false`) or direct `publish = false`
 //!   - [lints] workspace = true present in each Cargo.toml
 
 use std::collections::{HashMap, HashSet};
@@ -42,8 +43,8 @@ pub struct Package {
     pub manifest_path: String,
     pub edition: String,
     pub dependencies: Vec<Dependency>,
-    // publish is a Vec<String> (registry list) or null when publish=false
-    // We parse it as raw JSON value to handle both cases.
+    // publish is [] when non-publishable, null for Cargo's publishable default,
+    // or a registry list. We parse it as raw JSON value to handle all cases.
     pub publish: Option<serde_json::Value>,
 }
 
@@ -203,6 +204,7 @@ pub enum ViolationKind {
     ForbiddenExternalDep,
     MissingMntPrefix,
     WrongEdition,
+    MissingPublishFalse,
     MissingLintsWorkspace,
     ConflictMarker,
 }
@@ -214,6 +216,7 @@ impl std::fmt::Display for Violation {
             ViolationKind::ForbiddenExternalDep => "FORBIDDEN_EXTERNAL_DEP",
             ViolationKind::MissingMntPrefix => "MISSING_MNT_PREFIX",
             ViolationKind::WrongEdition => "WRONG_EDITION",
+            ViolationKind::MissingPublishFalse => "MISSING_PUBLISH_FALSE",
             ViolationKind::MissingLintsWorkspace => "MISSING_LINTS_WORKSPACE",
             ViolationKind::ConflictMarker => "CONFLICT_MARKER",
         };
@@ -348,9 +351,27 @@ pub fn check(metadata: &Metadata, workspace_edition: &str) -> GateResult {
             });
         }
 
+        let manifest_path = PathBuf::from(&pkg.manifest_path);
+
+        // --- Manifest hygiene: package must explicitly opt out of publishing ---
+        // Cargo metadata is authoritative for publishability; the raw manifest
+        // check requires either `publish.workspace = true` (inheriting workspace
+        // `publish = false`) or a direct `publish = false` declaration so the
+        // gate stays aligned with the documented convention.
+        if !package_publish_is_false(pkg) || !has_publish_false_convention(&manifest_path) {
+            violations.push(Violation {
+                kind: ViolationKind::MissingPublishFalse,
+                crate_name: pkg.name.clone(),
+                detail: format!(
+                    "{}: missing non-publishable manifest hygiene; use `publish.workspace = true` to inherit workspace `publish = false` (or declare `publish = false`); cargo metadata publish={}",
+                    pkg.manifest_path,
+                    describe_publish_value(pkg.publish.as_ref())
+                ),
+            });
+        }
+
         // --- Manifest hygiene: [lints] workspace = true ---
         // We check this by reading the raw Cargo.toml file.
-        let manifest_path = PathBuf::from(&pkg.manifest_path);
         if !has_lints_workspace(&manifest_path) {
             violations.push(Violation {
                 kind: ViolationKind::MissingLintsWorkspace,
@@ -438,6 +459,50 @@ fn has_lints_workspace(manifest_path: &Path) -> bool {
             }
         }
     }
+    false
+}
+
+/// Cargo metadata reports `publish = false` as an empty registry list.
+fn package_publish_is_false(pkg: &Package) -> bool {
+    matches!(
+        pkg.publish.as_ref(),
+        Some(serde_json::Value::Array(registries)) if registries.is_empty()
+    )
+}
+
+fn describe_publish_value(value: Option<&serde_json::Value>) -> String {
+    match value {
+        Some(value) => value.to_string(),
+        None => "null (publishable default)".to_owned(),
+    }
+}
+
+/// Check whether a Cargo.toml package manifest explicitly opts into the
+/// workspace `publish = false` convention or declares `publish = false` itself.
+fn has_publish_false_convention(manifest_path: &Path) -> bool {
+    let Ok(content) = std::fs::read_to_string(manifest_path) else {
+        return false;
+    };
+
+    let mut in_package = false;
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') {
+            in_package = trimmed == "[package]";
+            continue;
+        }
+        if in_package {
+            let before_comment = trimmed.split('#').next().unwrap_or("").trim();
+            let normalized: String = before_comment
+                .chars()
+                .filter(|c| !c.is_whitespace())
+                .collect();
+            if normalized == "publish.workspace=true" || normalized == "publish=false" {
+                return true;
+            }
+        }
+    }
+
     false
 }
 

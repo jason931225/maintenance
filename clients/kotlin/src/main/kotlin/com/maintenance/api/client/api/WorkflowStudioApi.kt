@@ -41,11 +41,14 @@ import com.maintenance.api.client.model.SimulateWorkflowDefinitionRequest
 import com.maintenance.api.client.model.SubmittableDefinitionListResponse
 import com.maintenance.api.client.model.TriggerBindingListResponse
 import com.maintenance.api.client.model.TriggerBindingResponse
+import com.maintenance.api.client.model.TriggerWorkflowRunRequest
 import com.maintenance.api.client.model.UpdateWorkflowDefinitionRequest
 import com.maintenance.api.client.model.UpdateWorkflowScheduleRequest
 import com.maintenance.api.client.model.WorkflowDefinitionHistoryResponse
 import com.maintenance.api.client.model.WorkflowDefinitionListResponse
 import com.maintenance.api.client.model.WorkflowDefinitionResponse
+import com.maintenance.api.client.model.WorkflowRunLogResponse
+import com.maintenance.api.client.model.WorkflowRunResponse
 import com.maintenance.api.client.model.WorkflowScheduleListResponse
 import com.maintenance.api.client.model.WorkflowScheduleResponse
 import com.maintenance.api.client.model.WorkflowSimulationResponse
@@ -1039,6 +1042,79 @@ open class WorkflowStudioApi(basePath: kotlin.String = defaultBasePath, client: 
     }
 
     /**
+     * GET /api/v1/workflow-studio/definitions/{id}/run-log
+     * List workflow automation run-log entries
+     * Returns the most recent durable runtime rows for this workflow definition, scoped by tenant RLS, for the Workflow Studio timeline.
+     * @param id
+     * @return WorkflowRunLogResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listWorkflowRunLog(id: java.util.UUID) : WorkflowRunLogResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = listWorkflowRunLogWithHttpInfo(id = id)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as WorkflowRunLogResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/workflow-studio/definitions/{id}/run-log
+     * List workflow automation run-log entries
+     * Returns the most recent durable runtime rows for this workflow definition, scoped by tenant RLS, for the Workflow Studio timeline.
+     * @param id
+     * @return ApiResponse<WorkflowRunLogResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listWorkflowRunLogWithHttpInfo(id: java.util.UUID) : ApiResponse<WorkflowRunLogResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listWorkflowRunLogRequestConfig(id = id)
+
+        return@withContext request<Unit, WorkflowRunLogResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listWorkflowRunLog
+     *
+     * @param id
+     * @return RequestConfig
+     */
+    fun listWorkflowRunLogRequestConfig(id: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/workflow-studio/definitions/{id}/run-log".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * GET /api/v1/workflow-studio/schedules/{id}/runs
      * Run history for a workflow schedule
      *
@@ -1480,6 +1556,83 @@ open class WorkflowStudioApi(basePath: kotlin.String = defaultBasePath, client: 
     }
 
     /**
+     * POST /api/v1/workflow-studio/definitions/{id}/resume
+     * Resume a paused workflow definition
+     *
+     * @param id
+     * @param workflowStepUpRequest
+     * @return WorkflowDefinitionResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun resumeWorkflowDefinition(id: java.util.UUID, workflowStepUpRequest: WorkflowStepUpRequest) : WorkflowDefinitionResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = resumeWorkflowDefinitionWithHttpInfo(id = id, workflowStepUpRequest = workflowStepUpRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as WorkflowDefinitionResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/workflow-studio/definitions/{id}/resume
+     * Resume a paused workflow definition
+     *
+     * @param id
+     * @param workflowStepUpRequest
+     * @return ApiResponse<WorkflowDefinitionResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun resumeWorkflowDefinitionWithHttpInfo(id: java.util.UUID, workflowStepUpRequest: WorkflowStepUpRequest) : ApiResponse<WorkflowDefinitionResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = resumeWorkflowDefinitionRequestConfig(id = id, workflowStepUpRequest = workflowStepUpRequest)
+
+        return@withContext request<WorkflowStepUpRequest, WorkflowDefinitionResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation resumeWorkflowDefinition
+     *
+     * @param id
+     * @param workflowStepUpRequest
+     * @return RequestConfig
+     */
+    fun resumeWorkflowDefinitionRequestConfig(id: java.util.UUID, workflowStepUpRequest: WorkflowStepUpRequest) : RequestConfig<WorkflowStepUpRequest> {
+        val localVariableBody = workflowStepUpRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/workflow-studio/definitions/{id}/resume".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/v1/workflow-studio/definitions/{id}/rollback
      * Roll back by appending a new active version copied from history
      *
@@ -1626,6 +1779,83 @@ open class WorkflowStudioApi(basePath: kotlin.String = defaultBasePath, client: 
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/v1/workflow-studio/definitions/{id}/simulate".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/workflow-studio/definitions/{id}/run
+     * Trigger a workflow definition run
+     * Creates an idempotent MANUAL runtime row for an ACTIVE workflow definition and returns the run-log event used by Workflow Studio.
+     * @param id
+     * @param triggerWorkflowRunRequest
+     * @return WorkflowRunResponse
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun triggerWorkflowRun(id: java.util.UUID, triggerWorkflowRunRequest: TriggerWorkflowRunRequest) : WorkflowRunResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = triggerWorkflowRunWithHttpInfo(id = id, triggerWorkflowRunRequest = triggerWorkflowRunRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as WorkflowRunResponse
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/workflow-studio/definitions/{id}/run
+     * Trigger a workflow definition run
+     * Creates an idempotent MANUAL runtime row for an ACTIVE workflow definition and returns the run-log event used by Workflow Studio.
+     * @param id
+     * @param triggerWorkflowRunRequest
+     * @return ApiResponse<WorkflowRunResponse?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun triggerWorkflowRunWithHttpInfo(id: java.util.UUID, triggerWorkflowRunRequest: TriggerWorkflowRunRequest) : ApiResponse<WorkflowRunResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = triggerWorkflowRunRequestConfig(id = id, triggerWorkflowRunRequest = triggerWorkflowRunRequest)
+
+        return@withContext request<TriggerWorkflowRunRequest, WorkflowRunResponse>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation triggerWorkflowRun
+     *
+     * @param id
+     * @param triggerWorkflowRunRequest
+     * @return RequestConfig
+     */
+    fun triggerWorkflowRunRequestConfig(id: java.util.UUID, triggerWorkflowRunRequest: TriggerWorkflowRunRequest) : RequestConfig<TriggerWorkflowRunRequest> {
+        val localVariableBody = triggerWorkflowRunRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/workflow-studio/definitions/{id}/run".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

@@ -8,9 +8,9 @@
 // ios/Config/README.md for how CI generates the concrete values.
 //
 // Local fallbacks below let `xcodebuild` resolve the project when a developer
-// opens it without the CI variables; they are placeholders, clearly marked, and
-// must be overridden by CI for any signed/distributable build. They are inert
-// for the unsigned Simulator test build the CI job runs.
+// opens it without the CI variables. They are repo defaults for the CI/test
+// wrapper only; signed/distributable builds still must prove the registered App
+// ID, capabilities, and provisioning profile match before release.
 
 // --- Identity ---
 // Bundle id is com.maintenance.field (matches the Android applicationId + the

@@ -38,6 +38,8 @@ import kotlinx.serialization.Contextual
  * @param team
  * @param roles
  * @param branchIds
+ * @param previewAcknowledged Required when `roles` or `branch_ids` is present; confirms the caller reviewed the policy assignment/account-scope preview.
+ * @param previewReceiptId
  */
 @Serializable
 
@@ -59,7 +61,14 @@ data class UpdateUserRequest (
     val roles: kotlin.collections.List<kotlin.String>? = null,
 
     @SerialName(value = "branch_ids")
-    val branchIds: kotlin.collections.List<@Contextual java.util.UUID>? = null
+    val branchIds: kotlin.collections.List<@Contextual java.util.UUID>? = null,
+
+    /* Required when `roles` or `branch_ids` is present; confirms the caller reviewed the policy assignment/account-scope preview. */
+    @SerialName(value = "preview_acknowledged")
+    val previewAcknowledged: kotlin.Boolean? = null,
+
+    @Contextual @SerialName(value = "preview_receipt_id")
+    val previewReceiptId: java.util.UUID? = null
 
 ) {
 

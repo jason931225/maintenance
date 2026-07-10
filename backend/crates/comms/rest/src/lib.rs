@@ -61,6 +61,20 @@ pub const MAIL_THREAD_PATH: &str = "/api/v1/mail/threads/{id}";
 pub const MAIL_THREAD_READ_STATE_PATH: &str = "/api/v1/mail/threads/{id}/read-state";
 pub const MAIL_MESSAGE_PATH: &str = "/api/v1/mail/messages/{id}";
 pub const MAIL_ATTACHMENT_DOWNLOAD_PATH: &str = "/api/v1/mail/attachments/{id}/download";
+pub const COMMS_ROUTE_PATHS: &[&str] = &[
+    MAIL_ACCOUNT_PATH,
+    MAIL_ACCOUNT_TEST_PATH,
+    MAIL_SEND_PATH,
+    MAIL_REPLY_PATH,
+    MAIL_FORWARD_PATH,
+    MAIL_FOLDERS_PATH,
+    MAIL_THREADS_PATH,
+    MAIL_THREAD_PATH,
+    MAIL_THREAD_READ_STATE_PATH,
+    MAIL_MESSAGE_PATH,
+    MAIL_ATTACHMENT_DOWNLOAD_PATH,
+];
+
 /// The mox delivery webhook receiver. NOT a client/console API — mox (our own
 /// mail server) POSTs incoming-delivery events here, authenticated by a shared
 /// secret, so it is deliberately absent from the customer OpenAPI + SDK clients.

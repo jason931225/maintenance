@@ -24,11 +24,80 @@ docker compose -f ops/compose.yml -f ops/compose.dev.yml up -d
 curl http://127.0.0.1:8080/healthz
 ```
 
+For the host-launched full-stack developer loop, prefer the npm wrapper:
+
+```sh
+npm run dev:up
+```
+
+`scripts/dev-up.mjs` layers `ops/compose.dev-deps.yml` on top of
+`ops/compose.yml` and `ops/compose.dev.yml`, using the `mnt-dev` Compose project
+by default. That dev-only overlay adds Mailpit, a published OTEL port, and the
+Postgres WAL archive retention helper described below.
+
 Shut the stack down:
 
 ```sh
 docker compose -f ops/compose.yml down
 ```
+
+## Dev Postgres WAL Archive Retention
+
+Issue #366 is guarded by a dev-only WAL archive pruner so repeated
+`npm run dev:up` / `npm run dev:down` cycles do not leave an unbounded local WAL
+archive volume.
+
+- Where archives live: `ops/compose.yml` still archives Postgres WAL into the
+  project-scoped `postgres-wal-archive` volume. In the normal dev wrapper this is
+  Docker volume `mnt-dev_postgres-wal-archive`, mounted at
+  `/var/lib/postgresql/wal-archive` in Postgres and `/wal-archive` in the pruner.
+- Retention limit: the default policy deletes matching WAL/timeline/backup
+  history archive files older than 72 hours and also caps retained archive bytes
+  at 1 GiB, while always preserving at least the newest 8 archive files for local
+  PITR/debug safety.
+- Enforcement: `postgres-wal-archive-pruner` is defined only in
+  `ops/compose.dev-deps.yml` and is included by `scripts/dev-up.mjs` for
+  `dev:up` and `dev:bootstrap`. It runs outside Postgres `archive_command`, waits
+  for the dev Postgres container to become healthy, prunes once every 300
+  seconds, and logs as `dev-wal-pruner`. A pruner failure must not make Postgres
+  WAL archiving fail.
+- Overrides: `MNT_DEV_WAL_ARCHIVE_RETENTION_HOURS`,
+  `MNT_DEV_WAL_ARCHIVE_MAX_BYTES`, `MNT_DEV_WAL_ARCHIVE_MIN_SEGMENTS`, and
+  `MNT_DEV_WAL_ARCHIVE_PRUNE_INTERVAL_SECONDS` tune the dev policy. Set the age
+  or size bound to `0`/`off` only for a temporary local PITR drill that needs
+  extra WAL history.
+
+Inspect current local dev WAL archive usage without relying on host-specific
+Docker volume mount paths:
+
+```sh
+docker run --rm \
+  -v mnt-dev_postgres-wal-archive:/wal-archive:ro \
+  postgres:18.4@sha256:65f70a152846cf504dff86e807007e9aeac98c3aeb7b62541b2c55ab9d264e56 \
+  bash -ceu 'du -sh /wal-archive; find /wal-archive -maxdepth 1 -type f | wc -l'
+```
+
+If local WAL archive storage is already large, first run a one-shot prune through
+the same service contract:
+
+```sh
+docker compose -p mnt-dev \
+  -f ops/compose.yml -f ops/compose.dev.yml -f ops/compose.dev-deps.yml \
+  run --rm -e MNT_DEV_WAL_ARCHIVE_PRUNE_ONCE=1 postgres-wal-archive-pruner --once
+```
+
+For an urgent local cleanup where no local PITR/debug archive needs to be kept,
+stop the dev stack and remove only the dev WAL archive volume:
+
+```sh
+npm run dev:down
+docker volume rm mnt-dev_postgres-wal-archive
+```
+
+The next `npm run dev:up` recreates the archive volume and starts the pruner with
+the bounded policy. Do not apply this cleanup to production-like Compose projects
+or production DR storage; `ops/compose.yml`, `ops/backup/`, and `ops/dr/` remain
+responsible for continuous WAL archiving and off-VM retention.
 
 ## Image Pins
 

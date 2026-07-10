@@ -1,0 +1,7 @@
+{
+  access_token: "access-123",
+  token_type: "Bearer",
+  refresh_expires_at: "2026-07-09T12:00:00Z",
+  requires_passkey_setup: false,
+  refresh_token: "refresh-123"
+}

@@ -28,14 +28,17 @@ test("EXEC-01 executive reads the KPI dashboard with metric cards", async ({
   // The period field is present and pre-filled with the default range.
   await expect(page.getByLabel("기간").first()).toBeVisible();
 
-  // Metric cards prove the report deserialized for an executive session.
+  // The §4-11 stat strip drill links prove the report deserialized for an
+  // executive session (every metric renders as "<label> <value> 상세 열기").
   await expect(
-    page.getByRole("heading", { name: /완료 건수/ }),
+    page.getByRole("link", { name: /완료 건수.*상세 열기/ }),
   ).toBeVisible({ timeout: 10_000 });
   await expect(
-    page.getByRole("heading", { name: /평균 응답 속도/ }),
+    page.getByRole("link", { name: /평균 응답 속도.*상세 열기/ }),
   ).toBeVisible();
-  await expect(page.getByRole("heading", { name: /P1 수락률/ })).toBeVisible();
+  await expect(
+    page.getByRole("link", { name: /P1 수락률.*상세 열기/ }),
+  ).toBeVisible();
 
   await auditPage(page, { context: "/kpi (executive)", consoleGuard });
 });

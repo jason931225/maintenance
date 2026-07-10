@@ -379,6 +379,20 @@ async fn admin_can_grant_admin_to_existing_executive_in_scope(pool: PgPool) {
     let executive = seed_user(&pool, "임원", &["EXECUTIVE"], Some(admin_branch)).await;
     let token = harness.token(admin, &["ADMIN"], vec![admin_branch]);
 
+    let (status, preview) = send(
+        &harness,
+        "POST",
+        &format!("/api/v1/policy/users/{executive}/assignment-preview"),
+        &token,
+        Some(json!({
+            "system_roles": ["EXECUTIVE", "ADMIN"],
+            "branch_ids": [admin_branch.to_string()],
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{preview:?}");
+    let preview_receipt_id = preview["preview_receipt_id"].as_str().unwrap();
+
     let (status, updated) = send_patch(
         &harness,
         &format!("/api/v1/users/{executive}"),
@@ -386,6 +400,8 @@ async fn admin_can_grant_admin_to_existing_executive_in_scope(pool: PgPool) {
         json!({
             "roles": ["EXECUTIVE", "ADMIN"],
             "branch_ids": [admin_branch.to_string()],
+            "preview_acknowledged": true,
+            "preview_receipt_id": preview_receipt_id,
         }),
     )
     .await;
@@ -397,6 +413,54 @@ async fn admin_can_grant_admin_to_existing_executive_in_scope(pool: PgPool) {
         .map(|role| role.as_str().unwrap())
         .collect();
     assert_eq!(roles, BTreeSet::from(["ADMIN", "EXECUTIVE"]));
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn profile_edit_resending_current_assignments_needs_no_receipt(pool: PgPool) {
+    // The legacy user-edit form re-sends the user's current roles/branches on a
+    // phone-only edit. Delta-scoped, that is a no-op and must NOT demand an
+    // impact-preview receipt (the admin-01-03 regression).
+    let harness = Harness::new(pool.clone()).await;
+    let branch = seed_branch(&pool).await;
+    let admin = seed_user(&pool, "Branch Admin", &["ADMIN"], Some(branch)).await;
+    let mechanic = seed_user(&pool, "정비사", &["MECHANIC"], Some(branch)).await;
+    let token = harness.token(admin, &["ADMIN"], vec![branch]);
+
+    let (status, updated) = send_patch(
+        &harness,
+        &format!("/api/v1/users/{mechanic}"),
+        &token,
+        json!({
+            "phone": "010-1234-5678",
+            "roles": ["MECHANIC"],
+            "branch_ids": [branch.to_string()],
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{updated:?}");
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn real_role_change_without_a_receipt_is_rejected(pool: PgPool) {
+    // A genuine role change (not an escalation the actor lacks authority for, so
+    // not FORBIDDEN) without a preview receipt is a 422 at the REST layer.
+    let harness = Harness::new(pool.clone()).await;
+    let branch = seed_branch(&pool).await;
+    let super_admin = seed_user(&pool, "본사 관리자", &["SUPER_ADMIN"], Some(branch)).await;
+    let mechanic = seed_user(&pool, "정비사", &["MECHANIC"], Some(branch)).await;
+    let token = harness.token(super_admin, &["SUPER_ADMIN"], vec![branch]);
+
+    let (status, body) = send_patch(
+        &harness,
+        &format!("/api/v1/users/{mechanic}"),
+        &token,
+        json!({
+            "roles": ["MECHANIC", "ADMIN"],
+            "branch_ids": [branch.to_string()],
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body:?}");
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
@@ -495,6 +559,126 @@ async fn any_authenticated_user_edits_own_profile(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn console_rollout_opt_in_persists_per_user_and_is_audited(pool: PgPool) {
+    let harness = Harness::new(pool.clone()).await;
+    let branch = seed_branch(&pool).await;
+    let admin = seed_user(&pool, "Console Admin", &["SUPER_ADMIN"], Some(branch)).await;
+    let mechanic = seed_user(&pool, "Console Pilot", &["MECHANIC"], Some(branch)).await;
+    let admin_token = harness.token(admin, &["SUPER_ADMIN"], vec![branch]);
+    let mechanic_token = harness.token(mechanic, &["MECHANIC"], vec![branch]);
+
+    let (status, initial) = send(
+        &harness,
+        "GET",
+        "/api/v1/console/rollout",
+        &mechanic_token,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{initial:?}");
+    assert_eq!(initial["flag_key"], "console_carbon_copy");
+    assert_eq!(initial["org_enabled"], false);
+    assert_eq!(initial["user_opted_in"], false);
+    assert_eq!(initial["effective_new_console"], false);
+
+    let (status, enabled) = send_put(
+        &harness,
+        "/api/v1/console/rollout/org-flag",
+        &admin_token,
+        json!({ "enabled": true, "rollout_note": "pilot smoke" }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{enabled:?}");
+    assert_eq!(enabled["org_enabled"], true);
+    assert_eq!(enabled["user_opted_in"], false);
+    assert_eq!(enabled["effective_new_console"], false);
+
+    let (status, denied) = send_put(
+        &harness,
+        "/api/v1/console/rollout/org-flag",
+        &mechanic_token,
+        json!({ "enabled": false }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{denied:?}");
+
+    let (status, opted_in) = send_put(
+        &harness,
+        "/api/v1/console/rollout/opt-in",
+        &mechanic_token,
+        json!({ "opt_in": true }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{opted_in:?}");
+    assert_eq!(opted_in["org_enabled"], true);
+    assert_eq!(opted_in["user_opted_in"], true);
+    assert_eq!(opted_in["effective_new_console"], true);
+
+    let stored_pref = sqlx::query(
+        "SELECT preferences_json FROM user_feature_preferences \
+         WHERE org_id = $1 AND user_id = $2 AND feature_key = 'console_rollout'",
+    )
+    .bind(*OrgId::knl().as_uuid())
+    .bind(*mechanic.as_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let preferences: Value = stored_pref.try_get("preferences_json").unwrap();
+    assert_eq!(preferences["opt_in"], true);
+
+    let (status, opted_out) = send_put(
+        &harness,
+        "/api/v1/console/rollout/opt-in",
+        &mechanic_token,
+        json!({ "opt_in": false }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{opted_out:?}");
+    assert_eq!(opted_out["org_enabled"], true);
+    assert_eq!(opted_out["user_opted_in"], false);
+    assert_eq!(opted_out["effective_new_console"], false);
+
+    let audit_rows = sqlx::query(
+        "SELECT action, target_type, target_id, after_snap \
+         FROM audit_events \
+         WHERE action IN ('console.org_flag_update', 'console.opt_in_update') \
+         ORDER BY occurred_at",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    let actions: Vec<String> = audit_rows
+        .iter()
+        .map(|row| row.try_get::<String, _>("action").unwrap())
+        .collect();
+    assert!(
+        actions.contains(&"console.org_flag_update".to_owned()),
+        "expected org flag audit, got {actions:?}"
+    );
+    assert!(
+        actions
+            .iter()
+            .filter(|action| *action == "console.opt_in_update")
+            .count()
+            >= 2,
+        "expected opt-in and opt-out audits, got {actions:?}"
+    );
+
+    let opt_out_audit = audit_rows.last().unwrap();
+    assert_eq!(
+        opt_out_audit.try_get::<String, _>("target_type").unwrap(),
+        "user_feature_preference"
+    );
+    assert_eq!(
+        opt_out_audit.try_get::<String, _>("target_id").unwrap(),
+        format!("{}:console_rollout", mechanic)
+    );
+    let after_snap: Value = opt_out_audit.try_get("after_snap").unwrap();
+    assert_eq!(after_snap["opt_in"], false);
+    assert_eq!(after_snap["effective_new_console"], false);
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn mechanic_cannot_manage_users(pool: PgPool) {
     let harness = Harness::new(pool.clone()).await;
     let branch = seed_branch(&pool).await;
@@ -553,6 +737,197 @@ async fn create_user_writes_audit_event(pool: PgPool) {
     assert!(
         actions.contains(&"user.create".to_owned()),
         "expected user.create audit, got {actions:?}"
+    );
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn user_role_or_branch_update_requires_policy_preview_receipt(pool: PgPool) {
+    let harness = Harness::new(pool.clone()).await;
+    let current_branch = seed_branch(&pool).await;
+    let next_branch = seed_branch(&pool).await;
+    let super_admin = seed_user(&pool, "Policy Account Owner", &["SUPER_ADMIN"], None).await;
+    let target = seed_user(
+        &pool,
+        "Receipt-Gated User",
+        &["MECHANIC"],
+        Some(current_branch),
+    )
+    .await;
+    let token = harness.token(super_admin, &["SUPER_ADMIN"], vec![]);
+
+    let (status, body) = send_patch(
+        &harness,
+        &format!("/api/v1/users/{target}"),
+        &token,
+        json!({ "roles": ["MECHANIC", "ADMIN"] }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body:?}");
+    assert_eq!(persisted_user_roles(&pool, target).await, vec!["MECHANIC"]);
+
+    let (status, body) = send_patch(
+        &harness,
+        &format!("/api/v1/users/{target}"),
+        &token,
+        json!({ "branch_ids": [current_branch.to_string(), next_branch.to_string()] }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body:?}");
+    assert_eq!(
+        persisted_user_branch_ids(&pool, target).await,
+        vec![*current_branch.as_uuid()]
+    );
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn user_role_and_branch_update_consumes_policy_preview_receipt_and_audits(pool: PgPool) {
+    let harness = Harness::new(pool.clone()).await;
+    let current_branch = seed_branch(&pool).await;
+    let next_branch = seed_branch(&pool).await;
+    let super_admin = seed_user(&pool, "Account Mutation Owner", &["SUPER_ADMIN"], None).await;
+    let target = seed_user(
+        &pool,
+        "Previewed Account",
+        &["MECHANIC"],
+        Some(current_branch),
+    )
+    .await;
+    let existing_custom_role = seed_policy_role(
+        &pool,
+        super_admin,
+        "account_mutation_existing_reader",
+        "기존 계정 조회자",
+        "ACTIVE",
+        false,
+        &[("daily_plan_review", "allow")],
+    )
+    .await;
+    seed_policy_assignment(&pool, target, existing_custom_role, super_admin).await;
+    let token = harness.token(super_admin, &["SUPER_ADMIN"], vec![]);
+
+    let (status, preview) = send(
+        &harness,
+        "POST",
+        &format!("/api/v1/policy/users/{target}/assignment-preview"),
+        &token,
+        Some(json!({
+            "system_roles": ["MECHANIC", "ADMIN"],
+            "branch_ids": [current_branch.to_string(), next_branch.to_string()],
+        })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{preview:?}");
+    assert_eq!(preview["current_system_roles"], json!(["MECHANIC"]));
+    assert_eq!(
+        preview["requested_system_roles"],
+        json!(["ADMIN", "MECHANIC"])
+    );
+    assert_eq!(
+        json_string_set(&preview["current_branch_ids"]),
+        BTreeSet::from([current_branch.to_string()])
+    );
+    assert_eq!(
+        json_string_set(&preview["requested_branch_ids"]),
+        BTreeSet::from([current_branch.to_string(), next_branch.to_string()])
+    );
+    assert_eq!(preview["current_role_ids"], json!([existing_custom_role]));
+    assert_eq!(preview["requested_role_ids"], json!([existing_custom_role]));
+    let preview_receipt_id = preview["preview_receipt_id"].as_str().unwrap();
+
+    let (status, updated) = send_patch(
+        &harness,
+        &format!("/api/v1/users/{target}"),
+        &token,
+        json!({
+            "roles": ["MECHANIC", "ADMIN"],
+            "branch_ids": [current_branch.to_string(), next_branch.to_string()],
+            "preview_acknowledged": true,
+            "preview_receipt_id": preview_receipt_id,
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{updated:?}");
+    assert_eq!(updated["roles"], json!(["ADMIN", "MECHANIC"]));
+    assert_eq!(
+        json_string_set(&updated["branch_ids"]),
+        BTreeSet::from([current_branch.to_string(), next_branch.to_string()])
+    );
+    assert_eq!(
+        assigned_policy_role_ids(&pool, target).await,
+        vec![existing_custom_role]
+    );
+
+    let (status, body) = send_patch(
+        &harness,
+        &format!("/api/v1/users/{target}"),
+        &token,
+        json!({
+            "roles": ["MECHANIC"],
+            "preview_acknowledged": true,
+            "preview_receipt_id": preview_receipt_id,
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body:?}");
+
+    let actions = policy_audit_actions_for_user(&pool, target).await;
+    assert!(
+        actions.contains(&"policy.account.update.snapshot".to_owned()),
+        "policy account update audit should be visible to audit chips: {actions:?}"
+    );
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn deactivate_and_activate_are_reversible_archived_lifecycle(pool: PgPool) {
+    let harness = Harness::new(pool.clone()).await;
+    let branch = seed_branch(&pool).await;
+    let super_admin = seed_user(&pool, "Lifecycle Owner", &["SUPER_ADMIN"], None).await;
+    let target = seed_user(&pool, "Lifecycle Target", &["MECHANIC"], Some(branch)).await;
+    let token = harness.token(super_admin, &["SUPER_ADMIN"], vec![]);
+
+    let (status, archived) = send(
+        &harness,
+        "POST",
+        &format!("/api/v1/users/{target}/deactivate"),
+        &token,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{archived:?}");
+    assert_eq!(archived["is_active"], false);
+    assert_eq!(archived["account_status"], "ARCHIVED");
+
+    let (status, hidden) = send(&harness, "GET", "/api/v1/users", &token, None).await;
+    assert_eq!(status, StatusCode::OK, "{hidden:?}");
+    assert!(
+        !hidden["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|user| user["id"] == target.to_string()),
+        "archived users must stay out of the active roster: {hidden:?}"
+    );
+
+    let (status, activated) = send(
+        &harness,
+        "POST",
+        &format!("/api/v1/users/{target}/activate"),
+        &token,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{activated:?}");
+    assert_eq!(activated["is_active"], true);
+    assert_eq!(activated["account_status"], "PENDING_SETUP");
+
+    let actions = policy_audit_actions_for_user(&pool, target).await;
+    assert!(
+        actions.contains(&"policy.account.archive".to_owned()),
+        "archive audit should be visible to policy audit chips: {actions:?}"
+    );
+    assert!(
+        actions.contains(&"policy.account.activate".to_owned()),
+        "activate audit should be visible to policy audit chips: {actions:?}"
     );
 }
 
@@ -1686,11 +2061,26 @@ async fn assignment_save_rejects_stale_preview_when_target_branches_changed(pool
         .parse::<uuid::Uuid>()
         .unwrap();
 
+    let (status, move_preview) = send(
+        &harness,
+        "POST",
+        &format!("/api/v1/policy/users/{target}/assignment-preview"),
+        &full_token,
+        Some(json!({ "branch_ids": [blocked_branch.to_string()] })),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{move_preview:?}");
+    let move_preview_receipt_id = move_preview["preview_receipt_id"].as_str().unwrap();
+
     let (status, moved_user) = send_patch(
         &harness,
         &format!("/api/v1/users/{target}"),
         &full_token,
-        json!({ "branch_ids": [blocked_branch.to_string()] }),
+        json!({
+            "branch_ids": [blocked_branch.to_string()],
+            "preview_acknowledged": true,
+            "preview_receipt_id": move_preview_receipt_id,
+        }),
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{moved_user:?}");
@@ -2249,6 +2639,15 @@ async fn delete_passkey_succeeds_and_writes_audit_when_others_remain(pool: PgPoo
 // Harness helpers
 // ---------------------------------------------------------------------------
 
+fn json_string_set(value: &Value) -> BTreeSet<String> {
+    value
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|entry| entry.as_str().unwrap().to_owned())
+        .collect()
+}
+
 /// GET /api/v1/me/authz (charter G-a): the caller's NON-AUTHORITATIVE
 /// authorization projection — org/branch scope, roles-as-attributes, and the
 /// legacy-matrix capability grants (deny-by-omission). Runs on the real `mnt_rt`
@@ -2775,6 +3174,37 @@ async fn assigned_policy_role_ids(pool: &PgPool, user_id: UserId) -> Vec<uuid::U
         "SELECT role_id FROM user_role_assignments WHERE user_id = $1 ORDER BY role_id",
     )
     .bind(*user_id.as_uuid())
+    .fetch_all(pool)
+    .await
+    .unwrap()
+}
+
+async fn persisted_user_roles(pool: &PgPool, user_id: UserId) -> Vec<String> {
+    sqlx::query_scalar("SELECT roles FROM users WHERE id = $1")
+        .bind(*user_id.as_uuid())
+        .fetch_one(pool)
+        .await
+        .unwrap()
+}
+
+async fn persisted_user_branch_ids(pool: &PgPool, user_id: UserId) -> Vec<uuid::Uuid> {
+    sqlx::query_scalar("SELECT branch_id FROM user_branches WHERE user_id = $1 ORDER BY branch_id")
+        .bind(*user_id.as_uuid())
+        .fetch_all(pool)
+        .await
+        .unwrap()
+}
+
+async fn policy_audit_actions_for_user(pool: &PgPool, user_id: UserId) -> Vec<String> {
+    sqlx::query_scalar(
+        r#"
+        SELECT action
+        FROM audit_events
+        WHERE target_id = $1 AND action LIKE 'policy.%'
+        ORDER BY action
+        "#,
+    )
+    .bind(user_id.to_string())
     .fetch_all(pool)
     .await
     .unwrap()

@@ -58,6 +58,12 @@
       "routeGroup": "maintenance-inspection",
       "mustContainOwnerGoal": "G006",
       "requiredStory": "inspection/preventive maintenance links equipment picker, cycle, schedule, checklist, and lifecycle evidence to the equipment source object"
+    },
+    {
+      "path": "/ontology",
+      "routeGroup": "equipment-detail",
+      "mustContainOwnerGoal": "G006",
+      "requiredStory": "KPI-tier user browses ontology object types, expands link relationships, and traces an equipment object instance to its source object within enforced group/org scope"
     }
   ],
   "dependencyRoutes": [

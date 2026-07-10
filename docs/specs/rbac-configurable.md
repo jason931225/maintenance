@@ -352,6 +352,13 @@ This slice exists because tenants need to create many named roles (for example d
   under RLS for the future `(org_id, policy_version)` resolver cache.
 - Custom role definitions may grant ordinary operational features only. Admin escalation features (`RoleManage`, `ElevatedRoleGrant`) and the scope-widening `OrgWideQueueTriage` stay system-role-only until no-lockout/self-bounded grant proofs and richer scope publication land together.
 - Add a console Policy Studio page under account/authority management that creates role definitions from data and shows the scope/status honestly.
+- Identity-console S2 account/person mutations use the same impact-preview receipt contract as Policy Studio:
+  `POST /api/v1/policy/users/{id}/assignment-preview` accepts `role_ids` plus optional `system_roles` and
+  `branch_ids`, returns current/requested system-role and branch-scope sets with a short-lived
+  `preview_receipt_id`, and `PATCH /api/v1/users/{id}` must include `preview_acknowledged: true` plus that
+  receipt whenever replacing `roles` or `branch_ids`. Account lifecycle uses `POST /api/v1/users/{id}/deactivate`
+  to archive/offboard and revoke credentials/sessions, and `POST /api/v1/users/{id}/activate` to reactivate an
+  archived user without recreating credentials; generated clients expose `AccountStatus = ACTIVE | PENDING_SETUP | ARCHIVED`.
 
 **Out of scope for this slice**
 

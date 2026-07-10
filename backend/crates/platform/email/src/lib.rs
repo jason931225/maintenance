@@ -2,17 +2,19 @@
 //!
 //! Sends transactional email (e.g. the open-signup OTP) over SMTP via an
 //! authenticated STARTTLS relay — the OCI Email Delivery endpoint in production.
-//! TLS is provided by `lettre`'s bundled rustls backend (the workspace ships no
+//! TLS is provided by `lettre`' bundled rustls backend (the workspace ships no
 //! other TLS stack: `reqwest` is built `default-features = false`), so this crate
 //! pulls `lettre` with `tokio1-rustls-tls` and nothing system-native.
 //!
 //! Mirrors the provider-adapter shape of `mnt-platform-push`: a `*Config` with a
-//! `validate()`, an async sender trait, a live adapter, and a stub that degrades
-//! gracefully when the integration is unconfigured.
+//! `validate()`, an async sender trait, a live adapter, and explicit non-prod
+//! stub/disabled senders for local/e2e safety.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
+use std::fmt::{Display, Formatter};
 use std::future::Future;
 use std::pin::Pin;
+use std::str::FromStr;
 use std::time::Duration;
 
 use lettre::transport::smtp::authentication::Credentials;
@@ -74,6 +76,63 @@ pub trait EmailSender: Send + Sync {
     ) -> BoxFuture<'a, Result<(), EmailError>>;
 }
 
+/// Explicit non-production modes that are allowed to use the OTP-logging stub.
+///
+/// Production must use [`LettreSmtpSender`] or a fail-closed sender; constructing
+/// [`StubEmailSender`] requires choosing one of these modes at the app boundary so
+/// OTP logging is auditable and cannot be reached by accidental missing SMTP
+/// configuration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StubEmailMode {
+    Local,
+    Development,
+    Test,
+    E2e,
+}
+
+impl StubEmailMode {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Local => "local",
+            Self::Development => "development",
+            Self::Test => "test",
+            Self::E2e => "e2e",
+        }
+    }
+}
+
+impl Display for StubEmailMode {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error(
+    "unsupported email stub mode {value:?}; expected one of local, dev, development, test, or e2e"
+)]
+pub struct StubEmailModeParseError {
+    value: String,
+}
+
+impl FromStr for StubEmailMode {
+    type Err = StubEmailModeParseError;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        let normalized = value.trim().to_ascii_lowercase();
+        match normalized.as_str() {
+            "local" => Ok(Self::Local),
+            "dev" | "development" => Ok(Self::Development),
+            "test" => Ok(Self::Test),
+            "e2e" => Ok(Self::E2e),
+            _ => Err(StubEmailModeParseError {
+                value: value.to_owned(),
+            }),
+        }
+    }
+}
+
 /// Live SMTP sender over an authenticated STARTTLS relay (OCI Email Delivery).
 #[derive(Clone)]
 pub struct LettreSmtpSender {
@@ -125,12 +184,45 @@ impl EmailSender for LettreSmtpSender {
     }
 }
 
-/// Stub sender used when SMTP is unconfigured. Logs the OTP via `tracing` and
-/// returns `Ok(())` — it NEVER sends mail. Mirrors how the Solapi/FCM adapters
-/// degrade when their credentials are absent, so the app boots and local/dev
-/// flows can read the code from the logs.
+/// Fail-closed sender used when neither live SMTP nor explicit stub mode is
+/// configured. It never logs OTPs; callers get a configuration error instead.
 #[derive(Debug, Clone, Default)]
-pub struct StubEmailSender;
+pub struct DisabledEmailSender;
+
+impl EmailSender for DisabledEmailSender {
+    fn send_otp<'a>(
+        &'a self,
+        _to: &'a str,
+        _code: &'a str,
+        _ttl: Duration,
+    ) -> BoxFuture<'a, Result<(), EmailError>> {
+        Box::pin(async move {
+            Err(EmailError::Config(
+                "outbound OTP email is disabled because neither live SMTP config nor explicit non-production stub mode is configured"
+                    .to_owned(),
+            ))
+        })
+    }
+}
+
+/// Stub sender for explicit non-production dev/e2e/test flows. Logs the OTP via
+/// `tracing` and returns `Ok(())` — it NEVER sends mail.
+#[derive(Debug, Clone)]
+pub struct StubEmailSender {
+    mode: StubEmailMode,
+}
+
+impl StubEmailSender {
+    #[must_use]
+    pub const fn new(mode: StubEmailMode) -> Self {
+        Self { mode }
+    }
+
+    #[must_use]
+    pub const fn mode(&self) -> StubEmailMode {
+        self.mode
+    }
+}
 
 impl EmailSender for StubEmailSender {
     fn send_otp<'a>(
@@ -140,7 +232,12 @@ impl EmailSender for StubEmailSender {
         ttl: Duration,
     ) -> BoxFuture<'a, Result<(), EmailError>> {
         Box::pin(async move {
-            tracing::info!(target: "mnt::email", "[DEV] OTP for {to}: {code} (ttl {ttl:?})");
+            tracing::info!(
+                target: "mnt::email",
+                email_stub_mode = %self.mode,
+                "[NONPROD:{}] OTP for {to}: {code} (ttl {ttl:?})",
+                self.mode
+            );
             Ok(())
         })
     }
@@ -202,12 +299,44 @@ mod tests {
         assert!(config.validate().is_err());
     }
 
+    #[test]
+    fn stub_mode_parses_only_explicit_non_production_values() {
+        assert_eq!(
+            "local".parse::<StubEmailMode>().unwrap(),
+            StubEmailMode::Local
+        );
+        assert_eq!(
+            "dev".parse::<StubEmailMode>().unwrap(),
+            StubEmailMode::Development
+        );
+        assert_eq!(
+            "development".parse::<StubEmailMode>().unwrap(),
+            StubEmailMode::Development
+        );
+        assert_eq!(
+            "test".parse::<StubEmailMode>().unwrap(),
+            StubEmailMode::Test
+        );
+        assert_eq!("e2e".parse::<StubEmailMode>().unwrap(), StubEmailMode::E2e);
+        assert!("production".parse::<StubEmailMode>().is_err());
+        assert!("true".parse::<StubEmailMode>().is_err());
+    }
+
     #[tokio::test]
     async fn stub_sender_never_fails_and_does_not_send() {
-        let sender = StubEmailSender;
+        let sender = StubEmailSender::new(StubEmailMode::Test);
         let result = sender
             .send_otp("ops@example.com", "123456", Duration::from_secs(300))
             .await;
         assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn disabled_sender_fails_closed_without_logging_otp() {
+        let sender = DisabledEmailSender;
+        let result = sender
+            .send_otp("ops@example.com", "123456", Duration::from_secs(300))
+            .await;
+        assert!(matches!(result, Err(EmailError::Config(message)) if message.contains("disabled")));
     }
 }

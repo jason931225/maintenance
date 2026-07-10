@@ -19,9 +19,14 @@ import com.maintenance.api.client.model.CalendarEventResponse
 import com.maintenance.api.client.model.MailFolderView
 import com.maintenance.api.client.model.MailThreadReadStateRequest
 import com.maintenance.api.client.model.MailThreadView
+import com.maintenance.api.client.model.MobileApproveWorkOrderRequest
+import com.maintenance.api.client.model.MobilePasskeyStepUpBinding
+import com.maintenance.api.client.model.MobilePasskeyStepUpEnvelope
+import com.maintenance.api.client.model.MobilePasskeyStepUpStartRequest
+import com.maintenance.api.client.model.MobilePasskeyStepUpStartResponse
+import com.maintenance.api.client.model.MobileVotePollRequest
 import com.maintenance.api.client.model.PollResponse
 import com.maintenance.api.client.model.PollStatus
-import com.maintenance.api.client.model.VotePollRequest
 import com.maintenance.field.data.collaboration.MobileOperationsGateway
 import java.time.OffsetDateTime
 import com.maintenance.api.client.model.DeviceRegistrationRequest
@@ -76,6 +81,8 @@ interface MaintenanceApiGateway : SyncGateway, MessengerGateway, MobileOperation
         appVersion: String,
         pushToken: String?,
     ): DeviceRegistrationResponse
+
+    override suspend fun startMobilePasskeyStepUp(binding: MobilePasskeyStepUpBinding): MobilePasskeyStepUpStartResponse
 
     suspend fun getLocationConsentStatus(): LocationConsentStatus
 
@@ -158,10 +165,22 @@ class GeneratedMaintenanceApiGateway(
     override suspend fun listApprovalItems(limit: Long, offset: Long): ApprovalItemsPage =
         approvalItemsApi.listApprovalItems(limit = limit, offset = offset)
 
-    override suspend fun approveWorkOrder(workOrderId: UUID, comment: String) {
-        workOrdersApi.approveWorkOrder(
+    override suspend fun startMobilePasskeyStepUp(binding: MobilePasskeyStepUpBinding): MobilePasskeyStepUpStartResponse =
+        authApi.startMobilePasskeyStepUp(
+            MobilePasskeyStepUpStartRequest(binding = binding),
+        )
+
+    override suspend fun approveWorkOrder(
+        workOrderId: UUID,
+        comment: String,
+        stepUp: MobilePasskeyStepUpEnvelope,
+    ) {
+        workOrdersApi.approveMobileWorkOrder(
             workOrderId = workOrderId,
-            approveWorkOrderRequest = ApproveWorkOrderRequest(comment = comment),
+            mobileApproveWorkOrderRequest = MobileApproveWorkOrderRequest(
+                comment = comment,
+                stepUp = stepUp,
+            ),
         )
     }
 
@@ -201,10 +220,17 @@ class GeneratedMaintenanceApiGateway(
     override suspend fun listPolls(status: PollStatus?, limit: Long): List<PollResponse> =
         collaborationApi.listCollaborationPolls(status = status, limit = limit).items
 
-    override suspend fun votePoll(pollId: UUID, selectedOptionIds: List<UUID>): PollResponse =
-        collaborationApi.voteCollaborationPoll(
+    override suspend fun votePoll(
+        pollId: UUID,
+        selectedOptionIds: List<UUID>,
+        stepUp: MobilePasskeyStepUpEnvelope,
+    ): PollResponse =
+        collaborationApi.voteMobileCollaborationPoll(
             id = pollId,
-            votePollRequest = VotePollRequest(selectedOptionIds = selectedOptionIds),
+            mobileVotePollRequest = MobileVotePollRequest(
+                selectedOptionIds = selectedOptionIds,
+                stepUp = stepUp,
+            ),
         )
 
     override suspend fun listThreads(limit: Long): List<MessengerThread> =

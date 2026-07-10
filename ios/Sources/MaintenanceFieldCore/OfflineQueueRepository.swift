@@ -129,11 +129,11 @@ public struct QueuedMutation: Codable, Hashable, Sendable {
 }
 
 public protocol MutationQueueStore: Sendable {
-    func upsert(_ mutation: QueuedMutation) async
-    func pending() async -> [QueuedMutation]
-    func get(_ requestID: String) async -> QueuedMutation?
-    func markSynced(requestID: String, serverReplayed: Bool) async
-    func markFailed(requestID: String, message: String) async
+    func upsert(_ mutation: QueuedMutation) async throws
+    func pending() async throws -> [QueuedMutation]
+    func get(_ requestID: String) async throws -> QueuedMutation?
+    func markSynced(requestID: String, serverReplayed: Bool) async throws
+    func markFailed(requestID: String, message: String) async throws
 }
 
 public protocol SyncGateway: Sendable {
@@ -186,7 +186,7 @@ public struct OfflineQueueRepository: Sendable {
     @discardableResult
     public func enqueueStart(workOrderID: Components.Schemas.Uuid) async throws -> String {
         let requestID = requestIDFactory.nextID()
-        await store.upsert(
+        try await store.upsert(
             QueuedMutation(
                 requestID: requestID,
                 kind: .workOrderStart,
@@ -205,7 +205,7 @@ public struct OfflineQueueRepository: Sendable {
         actionTaken: String
     ) async throws -> String {
         let requestID = requestIDFactory.nextID()
-        await store.upsert(
+        try await store.upsert(
             QueuedMutation(
                 requestID: requestID,
                 kind: .workOrderReport,
@@ -220,7 +220,7 @@ public struct OfflineQueueRepository: Sendable {
     }
 
     public func replayPending() async throws -> ReplaySummary {
-        let pending = await store.pending()
+        let pending = try await store.pending()
         guard !pending.isEmpty else { return .empty }
 
         let request = Components.Schemas.SyncBatchRequest(
@@ -246,11 +246,11 @@ public struct OfflineQueueRepository: Sendable {
                 if result.replayed {
                     cached += 1
                 }
-                await store.markSynced(requestID: result.requestId, serverReplayed: result.replayed)
+                try await store.markSynced(requestID: result.requestId, serverReplayed: result.replayed)
             case .failed:
                 failed += 1
                 let message = result.error?.message ?? "offline_sync_failed"
-                await store.markFailed(requestID: result.requestId, message: message)
+                try await store.markFailed(requestID: result.requestId, message: message)
             }
         }
 

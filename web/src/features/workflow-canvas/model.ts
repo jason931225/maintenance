@@ -697,6 +697,219 @@ export function createLeaveRequestApprovalTemplate({
   return withValidationResult(definition);
 }
 
+// Server-authoritative canonical approval graph, parameterized purely by
+// object_type. Mirrors backend `canonical_workflow_definition(object_type)` so a
+// fixed-template draft passes the canonical create-time validator for ANY object
+// type (trigger source, form object_ref, and object_update action are the only
+// object-type-bound checks; everything else is object-type-agnostic and reuses
+// the shared node/edge helpers). The leave builder above keeps its HR-specific
+// form/assignee shape; this one is the generic operational-approval skeleton.
+export function createCanonicalApprovalTemplate({
+  name,
+  objectType,
+}: {
+  name: string;
+  objectType: string;
+}): WorkflowDefinitionV1 {
+  const definition = createEmptyWorkflowDefinition({ name, objectType });
+  definition.metadata.description =
+    "Submit the object, approve or reject it, then update status and append an audit event.";
+  definition.metadata.sensitivity = "summary_only";
+  definition.metadata.tags = [objectType, "approval"];
+
+  const trigger = createWorkflowNode("trigger.form_submission", {
+    id: "node-trigger",
+    key: `trigger.${objectType}.submitted`,
+    label: "Submitted",
+  });
+  trigger.config = canonicalTriggerConfig(objectType);
+
+  const form = createWorkflowNode("form.input", {
+    id: "node-form",
+    key: `form.${objectType}`,
+    label: "Review form",
+  });
+  form.config = canonicalFormConfig(objectType);
+
+  const approval = createWorkflowNode("task.approval", {
+    id: "node-approval",
+    key: `task.${objectType}.approval`,
+    label: "Approval",
+  });
+
+  const condition = createWorkflowNode("condition.branch", {
+    id: "node-condition",
+    key: `condition.${objectType}.approval_result`,
+    label: "Approval result",
+  });
+
+  const approvedUpdate = createWorkflowNode("action.object_update", {
+    id: "node-approved-update",
+    key: `action.${objectType}.approved_status`,
+    label: "Set status approved",
+  });
+  approvedUpdate.config = canonicalObjectUpdateConfig(objectType, "approved");
+  const approvedNotify = createWorkflowNode("action.notification", {
+    id: "node-approved-notify",
+    key: `action.${objectType}.notify_approved`,
+    label: "Notify approved",
+  });
+  approvedNotify.config = notificationConfig(`${objectType}.approved`);
+  const approvedAudit = createWorkflowNode("action.audit_append", {
+    id: "node-approved-audit",
+    key: `action.${objectType}.audit_approved`,
+    label: "Audit approved",
+  });
+  updateAuditNode(
+    approvedAudit,
+    `${objectType}.workflow.approved`,
+    `${objectType} workflow completed with approved.`,
+  );
+  const endApproved = createWorkflowNode("end.state", {
+    id: "node-end-approved",
+    key: "end.approved",
+    label: "Approved end",
+  });
+  updateEndNode(endApproved, "approved");
+
+  const rejectedUpdate = createWorkflowNode("action.object_update", {
+    id: "node-rejected-update",
+    key: `action.${objectType}.rejected_status`,
+    label: "Set status rejected",
+  });
+  rejectedUpdate.config = canonicalObjectUpdateConfig(objectType, "rejected");
+  const rejectedNotify = createWorkflowNode("action.notification", {
+    id: "node-rejected-notify",
+    key: `action.${objectType}.notify_rejected`,
+    label: "Notify rejected",
+  });
+  rejectedNotify.config = notificationConfig(`${objectType}.rejected`);
+  const rejectedAudit = createWorkflowNode("action.audit_append", {
+    id: "node-rejected-audit",
+    key: `action.${objectType}.audit_rejected`,
+    label: "Audit rejected",
+  });
+  updateAuditNode(
+    rejectedAudit,
+    `${objectType}.workflow.rejected`,
+    `${objectType} workflow completed with rejected.`,
+  );
+  const endRejected = createWorkflowNode("end.state", {
+    id: "node-end-rejected",
+    key: "end.rejected",
+    label: "Rejected end",
+  });
+  updateEndNode(endRejected, "rejected");
+
+  definition.graph.nodes = [
+    trigger,
+    form,
+    approval,
+    condition,
+    approvedUpdate,
+    approvedNotify,
+    approvedAudit,
+    endApproved,
+    rejectedUpdate,
+    rejectedNotify,
+    rejectedAudit,
+    endRejected,
+  ];
+  definition.graph.edges = [
+    edge("edge-trigger-form", "node-trigger", "submitted", "node-form", "in", "control"),
+    edge("edge-form-approval", "node-form", "completed", "node-approval", "in", "control"),
+    edge(
+      "edge-approval-condition",
+      "node-approval",
+      "decision",
+      "node-condition",
+      "in",
+      "control",
+    ),
+    edge(
+      "edge-condition-approved-update",
+      "node-condition",
+      "approved",
+      "node-approved-update",
+      "in",
+      "decision",
+      "Approved",
+    ),
+    edge(
+      "edge-approved-update-notify",
+      "node-approved-update",
+      "done",
+      "node-approved-notify",
+      "in",
+      "control",
+    ),
+    edge(
+      "edge-approved-notify-audit",
+      "node-approved-notify",
+      "done",
+      "node-approved-audit",
+      "in",
+      "control",
+    ),
+    edge(
+      "edge-approved-audit-end",
+      "node-approved-audit",
+      "done",
+      "node-end-approved",
+      "in",
+      "control",
+    ),
+    edge(
+      "edge-condition-rejected-update",
+      "node-condition",
+      "rejected",
+      "node-rejected-update",
+      "in",
+      "decision",
+      "Rejected",
+    ),
+    edge(
+      "edge-rejected-update-notify",
+      "node-rejected-update",
+      "done",
+      "node-rejected-notify",
+      "in",
+      "control",
+    ),
+    edge(
+      "edge-rejected-notify-audit",
+      "node-rejected-notify",
+      "done",
+      "node-rejected-audit",
+      "in",
+      "control",
+    ),
+    edge(
+      "edge-rejected-audit-end",
+      "node-rejected-audit",
+      "done",
+      "node-end-rejected",
+      "in",
+      "control",
+    ),
+  ];
+  definition.canvas.nodes = {
+    "node-trigger": { x: 80, y: 120 },
+    "node-form": { x: 320, y: 120 },
+    "node-approval": { x: 560, y: 120 },
+    "node-condition": { x: 800, y: 120 },
+    "node-approved-update": { x: 1040, y: 40 },
+    "node-approved-notify": { x: 1280, y: 40 },
+    "node-approved-audit": { x: 1520, y: 40 },
+    "node-end-approved": { x: 1760, y: 40 },
+    "node-rejected-update": { x: 1040, y: 220 },
+    "node-rejected-notify": { x: 1280, y: 220 },
+    "node-rejected-audit": { x: 1520, y: 220 },
+    "node-end-rejected": { x: 1760, y: 220 },
+  };
+  return withValidationResult(definition);
+}
+
 export function addNodeToWorkflow(
   definition: WorkflowDefinitionV1,
   type: WorkflowNodeType,
@@ -1124,6 +1337,52 @@ function objectUpdateConfig(status: "approved" | "rejected" | "completed"): Obje
       key_template: `{run_id}:{node_key}:leave_request.update_status.${status}`,
     },
     requires_policy: "leave_request.update_status",
+  };
+}
+
+function canonicalTriggerConfig(objectType: string): TriggerFormSubmissionConfig {
+  return {
+    type: "trigger.form_submission",
+    source: { object_type: objectType, event: "submitted", scope: "org" },
+    actor: { required_policy: `${objectType}.submit` },
+    idempotency: { key_template: `${objectType}:{object_id}:submitted:{version}` },
+  };
+}
+
+function canonicalFormConfig(objectType: string): FormInputConfig {
+  return {
+    type: "form.input",
+    fields: [
+      {
+        key: `${objectType}_id`,
+        label: "Request",
+        field_type: "object_ref",
+        object_type: objectType,
+        required: true,
+        sensitivity: "summary_only",
+      },
+    ],
+    submit_label: "Submit",
+  };
+}
+
+function canonicalObjectUpdateConfig(
+  objectType: string,
+  status: "approved" | "rejected",
+): ObjectUpdateConfig {
+  return {
+    type: "action.object_update",
+    action_id: `${objectType}.update_status`,
+    target: { from: "trigger.object_ref" },
+    input: {
+      status,
+      updated_by: { from: "approval.actor_id" },
+      updated_at: { from: "system.now" },
+    },
+    idempotency: {
+      key_template: `{run_id}:{node_key}:${objectType}.update_status.${status}`,
+    },
+    requires_policy: `${objectType}.update_status`,
   };
 }
 

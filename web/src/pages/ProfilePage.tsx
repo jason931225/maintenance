@@ -1,10 +1,18 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+
+import type { operations } from "@maintenance/api-client-ts";
 
 import type { UserSummary } from "../api/types";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
 import { Input } from "../components/ui/input";
+import { PolicyGateProvider, type PolicyGate } from "../console/policy";
+import {
+  CONSOLE_ROLLOUT_ACTIONS,
+  ConsoleRolloutToggle,
+  type ConsoleRolloutStatus as ConsoleRolloutToggleStatus,
+} from "../console/rollout";
 import { PageError } from "../components/states/PageError";
 import { SkeletonCards } from "../components/states/Skeleton";
 import { FeedbackBanner } from "../components/states/FeedbackBanner";
@@ -18,28 +26,109 @@ import { useFeedback } from "../lib/useAutoDismiss";
 
 type ReadState = "idle" | "loading" | "error";
 
+type ConsoleRolloutStatus =
+  operations["getConsoleRollout"]["responses"][200]["content"]["application/json"];
+type ConsoleRoute = ConsoleRolloutStatus["effective_route"];
+
+function isConsoleRoute(value: unknown): value is ConsoleRoute {
+  return value === "legacy" || value === "new_console";
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function isConsoleRolloutStatus(value: unknown): value is ConsoleRolloutStatus {
+  if (!isRecord(value)) return false;
+  const record = value;
+  return (
+    typeof record.flag_key === "string" &&
+    typeof record.org_enabled === "boolean" &&
+    typeof record.org_rollout_enabled === "boolean" &&
+    typeof record.user_opted_in === "boolean" &&
+    typeof record.legacy_kill_switch_enabled === "boolean" &&
+    typeof record.kill_switch_active === "boolean" &&
+    typeof record.effective_new_console === "boolean" &&
+    isConsoleRoute(record.effective_route) &&
+    isConsoleRoute(record.effective_route_for_opted_in_user) &&
+    record.effective_route_for_opted_out_user === "legacy" &&
+    typeof record.overrides_individual_toggles === "boolean"
+  );
+}
+
+function requireConsoleRolloutStatus(value: unknown): ConsoleRolloutStatus {
+  if (isConsoleRolloutStatus(value)) return value;
+  throw new Error("updateConsoleRolloutOptIn returned invalid rollout status");
+}
+
+function consoleEffectiveNewConsole(
+  status: ConsoleRolloutStatus,
+  optedIn = status.user_opted_in,
+): boolean {
+  return (
+    optedIn &&
+    status.org_enabled &&
+    status.org_rollout_enabled &&
+    !status.kill_switch_active &&
+    !status.legacy_kill_switch_enabled
+  );
+}
+
+function toConsoleRolloutToggleStatus(
+  status: ConsoleRolloutStatus,
+): ConsoleRolloutToggleStatus {
+  return {
+    orgEnabled: status.org_enabled && status.org_rollout_enabled,
+    killSwitchActive: status.kill_switch_active || status.legacy_kill_switch_enabled,
+  };
+}
+
 export function ProfilePage() {
-  const { api } = useAuth();
+  const { api, session } = useAuth();
 
   const [profile, setProfile] = useState<UserSummary | undefined>(undefined);
   const [state, setState] = useState<ReadState>("loading");
   const [displayName, setDisplayName] = useState("");
   const [phone, setPhone] = useState("");
   const [pending, setPending] = useState(false);
+  const [consoleRollout, setConsoleRollout] = useState<
+    ConsoleRolloutStatus | undefined
+  >(undefined);
+  const [consolePending, setConsolePending] = useState(false);
   const { feedback, error, showFeedback, showError, clearFeedback, clearError } =
     useFeedback();
+  const consoleRolloutGate = useMemo<PolicyGate>(
+    () => ({
+      can: (action) => {
+        if (!consoleRollout) return false;
+        return (
+          action === CONSOLE_ROLLOUT_ACTIONS.toggleOptIn &&
+          consoleRollout.org_enabled &&
+          consoleRollout.org_rollout_enabled
+        );
+      },
+    }),
+    [consoleRollout],
+  );
 
   const load = useCallback(async () => {
     setState("loading");
-    const response = await api.GET("/api/v1/users/me").catch(() => undefined);
-    if (!response?.data) {
+    const profileResponse = await api
+      .GET("/api/v1/users/me", {})
+      .catch(() => undefined);
+    if (!profileResponse?.data) {
       setState("error");
       return;
     }
-    setProfile(response.data);
-    setDisplayName(response.data.display_name);
-    setPhone(response.data.phone ?? "");
+    setProfile(profileResponse.data);
+    setDisplayName(profileResponse.data.display_name);
+    setPhone(profileResponse.data.phone ?? "");
     setState("idle");
+
+    const rolloutResponse = await api
+      .GET("/api/v1/console/rollout", {})
+      .catch(() => undefined);
+    setConsoleRollout(rolloutResponse?.data);
   }, [api]);
 
   useEffect(() => {
@@ -67,6 +156,34 @@ export function ProfilePage() {
       showError(ko.profile.saveFailed);
     } finally {
       setPending(false);
+    }
+  }
+
+  async function handleConsoleOptIn(optIn: boolean) {
+    if (!consoleRollout) return;
+    const previousRollout = consoleRollout;
+    clearError();
+    setConsolePending(true);
+    setConsoleRollout({
+      ...consoleRollout,
+      user_opted_in: optIn,
+      effective_new_console: consoleEffectiveNewConsole(consoleRollout, optIn),
+      effective_route: consoleEffectiveNewConsole(consoleRollout, optIn)
+        ? "new_console"
+        : "legacy",
+    });
+    try {
+      const response = await api.PUT("/api/v1/console/rollout/opt-in", {
+        body: { opt_in: optIn },
+      });
+      if (!response.data) throw new Error("updateConsoleRolloutOptIn failed");
+      setConsoleRollout(requireConsoleRolloutStatus(response.data));
+    } catch (caught) {
+      setConsoleRollout(previousRollout);
+      showError(ko.profile.consoleRolloutSaveFailed);
+      throw caught;
+    } finally {
+      setConsolePending(false);
     }
   }
 
@@ -145,10 +262,29 @@ export function ProfilePage() {
                 {/* Awaiting a role grant (no role yet, or the placeholder
                     MEMBER): explain why some features are unavailable rather than
                     leaving the user to discover it via a 403. */}
-                {isPendingMember(profile.roles) ? (
+                {isPendingMember(
+                  profile.roles,
+                  session?.group_roles,
+                  session?.feature_grants,
+                ) ? (
                   <p className="text-sm text-steel">{ko.profile.memberHelp}</p>
                 ) : null}
               </div>
+            ) : null}
+
+            {consoleRollout ? (
+              <PolicyGateProvider gate={consoleRolloutGate}>
+                <ConsoleRolloutToggle
+                  enabled={consoleRollout.user_opted_in}
+                  disabled={
+                    consolePending ||
+                    consoleRollout.kill_switch_active ||
+                    consoleRollout.legacy_kill_switch_enabled
+                  }
+                  status={toConsoleRolloutToggleStatus(consoleRollout)}
+                  onToggle={handleConsoleOptIn}
+                />
+              </PolicyGateProvider>
             ) : null}
 
             <FeedbackBanner kind="error" message={error} onDismiss={clearError} />

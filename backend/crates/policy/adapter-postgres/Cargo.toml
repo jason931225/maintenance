@@ -1,0 +1,26 @@
+[package]
+name = "mnt-policy-adapter-postgres"
+version = "0.1.0"
+description = "Postgres adapter for Cedar policy catalog rows and no-code draft staging."
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+mnt-kernel-core = { workspace = true }
+mnt-platform-db = { workspace = true }
+mnt-platform-request-context = { workspace = true }
+mnt-policy-application = { workspace = true }
+mnt-policy-domain = { workspace = true }
+serde_json = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+uuid = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true

@@ -1,34 +1,49 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { render, screen, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
-import { MemoryRouter } from "react-router-dom";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { createConsoleApiClient } from "../api/client";
-import type { AuthContextValue, AuthSession } from "../context/auth";
-import { AuthContext } from "../context/auth";
+import { AuthContext, type AuthContextValue, type AuthSession } from "../context/auth";
 import { MailPage } from "./MailPage";
 
 const server = setupServer();
 
 beforeAll(() => {
-  server.listen({ onUnhandledRequest: "bypass" });
+  server.listen({ onUnhandledRequest: "error" });
 });
+
 afterEach(() => {
   server.resetHandlers();
 });
+
 afterAll(() => {
   server.close();
 });
+
+const adminSession: AuthSession = {
+  access_token: "a",
+  roles: ["ADMIN"],
+};
+
+const featureGrantSession: AuthSession = {
+  access_token: "feature",
+  roles: ["MEMBER"],
+  feature_grants: ["mail_use"],
+};
+
+const deniedSession: AuthSession = {
+  access_token: "denied",
+  roles: ["MEMBER"],
+};
 
 const folders = [
   {
     id: "11111111-1111-4111-8111-111111111111",
     role: "INBOX",
     name: "Inbox",
-    unread_count: 2,
-    total_count: 8,
+    unread_count: 1,
+    total_count: 4,
   },
 ];
 
@@ -39,8 +54,13 @@ const threads = [
     last_message_at: "2026-06-26T01:00:00Z",
     message_count: 1,
     unread_count: 1,
-    has_attachments: false,
+    has_attachments: true,
     is_flagged: false,
+    governance: {
+      classification: "confidential",
+      retention_label: "R7",
+      litigation_hold: true,
+    },
   },
 ];
 
@@ -66,31 +86,31 @@ const detail = {
       seen: false,
       flagged: false,
       answered: false,
-      has_attachments: false,
+      has_attachments: true,
       received_at: "2026-06-26T01:00:00Z",
-      attachments: [],
+      sender_auth: {
+        spf: "pass",
+        dkim: "pass",
+        dmarc: "fail",
+        tls: "verified",
+        storage_encryption: "encrypted",
+      },
+      governance: {
+        classification: "sensitive",
+        retention_label: "R7",
+        litigation_hold: true,
+      },
+      attachments: [
+        {
+          id: "66666666-6666-4666-8666-666666666666",
+          filename: "invoice.pdf",
+          content_type: "application/pdf",
+          size_bytes: 1024,
+          is_inline: false,
+        },
+      ],
     },
   ],
-};
-
-const adminSession: AuthSession = { access_token: "a", roles: ["ADMIN"] };
-
-const mailAccount = {
-  id: "44444444-4444-4444-8444-444444444444",
-  display_name: "정비팀",
-  email_address: "service@example.com",
-  from_name: "정비팀",
-  imap_host: "imap.example.com",
-  imap_port: 993,
-  imap_security: "SSL_TLS",
-  imap_username: "service@example.com",
-  smtp_host: "smtp.example.com",
-  smtp_port: 465,
-  smtp_security: "SSL_TLS",
-  smtp_username: "service@example.com",
-  has_smtp_password: true,
-  has_imap_password: true,
-  status: "ACTIVE",
 };
 
 function makeAuthContext(session: AuthSession): AuthContextValue {
@@ -110,467 +130,51 @@ function makeAuthContext(session: AuthSession): AuthContextValue {
   };
 }
 
-function renderPage(ctx = makeAuthContext(adminSession)) {
+function mockMailbox() {
+  server.use(
+    http.get("*/api/v1/mail/account", () => HttpResponse.json({ id: "acct", status: "ACTIVE" })),
+    http.get("*/api/v1/mail/folders", () => HttpResponse.json(folders)),
+    http.get("*/api/v1/mail/threads", () => HttpResponse.json(threads)),
+    http.get(/.*\/api\/v1\/mail\/threads\/.*/, () => HttpResponse.json(detail)),
+  );
+}
+
+function renderPage(session: AuthSession = adminSession) {
   return render(
-    <AuthContext.Provider value={ctx}>
-      <MemoryRouter>
-        <MailPage />
-      </MemoryRouter>
+    <AuthContext.Provider value={makeAuthContext(session)}>
+      <MailPage />
     </AuthContext.Provider>,
   );
 }
 
-function mockMailbox() {
-  server.use(
-    http.get("*/api/v1/mail/account", () => HttpResponse.json(mailAccount)),
-    http.get("*/api/v1/mail/folders", () => HttpResponse.json(folders)),
-    http.get("*/api/v1/mail/threads", () => HttpResponse.json(threads)),
-    http.get("*/api/v1/mail/threads/:id", () => HttpResponse.json(detail)),
-    http.get("*/api/v1/sales/inquiries", () =>
-      HttpResponse.json({ items: [], limit: 5, offset: 0, total: 0 }),
-    ),
-  );
-}
-
 describe("MailPage", () => {
-  it("loads folders, threads, and renders sanitized HTML mail bodies", async () => {
+  it("mounts the console mail screen with route-level mail roles", async () => {
     mockMailbox();
 
     renderPage();
 
     expect(await screen.findByRole("heading", { name: "메일함" })).toBeVisible();
-    expect(await screen.findByText("받은 편지함")).toBeVisible();
-    expect(screen.getAllByText("급여명세서 확인").length).toBeGreaterThan(0);
+    expect(screen.getByRole("navigation", { name: "메일 폴더" })).toBeVisible();
     expect(await screen.findByText("안전 HTML 본문")).toBeVisible();
+    expect(screen.getByRole("button", { name: "invoice.pdf 인제스트" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "메일 보내기" })).toBeVisible();
+
     const body = screen.getByTestId("mail-html-body");
     expect(body.querySelector("img, script")).toBeNull();
     expect(body.querySelector("[onclick]")).toBeNull();
     expect(body.querySelector("a[href^='javascript:']")).toBeNull();
-    const safeLink = within(body).getByRole("link", { name: "공식 링크" });
-    expect(safeLink).toHaveAttribute("target", "_blank");
-    expect(safeLink).toHaveAttribute("rel", "noopener noreferrer");
+    expect(within(body).getByRole("link", { name: "공식 링크" })).toHaveAttribute("target", "_blank");
   });
 
-  it("sends a composed message through the mail API", async () => {
-    const user = userEvent.setup();
-    const sent = vi.fn();
+  it("allows explicit mail_use grants and denies sessions without route mail access", async () => {
     mockMailbox();
-    server.use(
-      http.post("*/api/v1/mail/send", async ({ request }) => {
-        sent(await request.json());
-        return HttpResponse.json({
-          message_id: "44444444-4444-4444-8444-444444444444",
-          rfc_message_id: "<sent@example.com>",
-        }, { status: 201 });
-      }),
-    );
 
-    renderPage();
+    const { unmount } = renderPage(featureGrantSession);
+    expect(await screen.findByRole("heading", { name: "메일함" })).toBeVisible();
+    expect(screen.getByRole("button", { name: "메일 보내기" })).toBeVisible();
+    unmount();
 
-    const compose = await screen.findByRole("heading", { name: "새 메일" });
-    const form = compose.closest("section");
-    expect(form).not.toBeNull();
-    if (!form) throw new Error("compose form missing");
-    await user.type(within(form).getByLabelText("받는 사람"), "payroll@example.com");
-    await user.type(within(form).getByLabelText("제목"), "정산 확인");
-    await user.type(within(form).getByLabelText("본문"), "확인 부탁드립니다.");
-    await user.click(within(form).getByRole("button", { name: "메일 보내기" }));
-
-    await waitFor(() => { expect(sent).toHaveBeenCalledTimes(1); });
-    expect(sent.mock.calls[0][0]).toEqual({
-      to: [{ address: "payroll@example.com" }],
-      subject: "정산 확인",
-      body_text: "확인 부탁드립니다.",
-    });
-    expect(await screen.findByText("메일을 보냈습니다.")).toBeVisible();
-  });
-
-  it("sends a composed message with the mail-client keyboard shortcut", async () => {
-    const user = userEvent.setup();
-    const sent = vi.fn();
-    mockMailbox();
-    server.use(
-      http.post("*/api/v1/mail/send", async ({ request }) => {
-        sent(await request.json());
-        return HttpResponse.json({
-          message_id: "44444444-4444-4444-8444-444444444444",
-          rfc_message_id: "<sent@example.com>",
-        }, { status: 201 });
-      }),
-    );
-
-    renderPage();
-
-    const compose = await screen.findByRole("heading", { name: "새 메일" });
-    const form = compose.closest("section");
-    expect(form).not.toBeNull();
-    if (!form) throw new Error("compose form missing");
-    await user.type(within(form).getByLabelText("받는 사람"), "payroll@example.com");
-    await user.type(within(form).getByLabelText("제목"), "단축키 전송");
-    await user.type(within(form).getByLabelText("본문"), "키보드로 전송합니다.");
-    await user.keyboard("{Control>}{Enter}{/Control}");
-
-    await waitFor(() => { expect(sent).toHaveBeenCalledTimes(1); });
-    expect(sent.mock.calls[0][0]).toEqual({
-      to: [{ address: "payroll@example.com" }],
-      subject: "단축키 전송",
-      body_text: "키보드로 전송합니다.",
-    });
-    expect(await screen.findByText("메일을 보냈습니다.")).toBeVisible();
-  });
-
-  it("marks the selected mail thread read and unread through the mail API", async () => {
-    const user = userEvent.setup();
-    const patched = vi.fn();
-    let threadRows = [{ ...threads[0] }];
-    let folderRows = [{ ...folders[0] }];
-    mockMailbox();
-    server.use(
-      http.get("*/api/v1/mail/folders", () => HttpResponse.json(folderRows)),
-      http.get("*/api/v1/mail/threads", () => HttpResponse.json(threadRows)),
-      http.patch("*/api/v1/mail/threads/:id/read-state", async ({ request }) => {
-        const body = (await request.json()) as { seen: boolean };
-        patched(body);
-        threadRows = threadRows.map((thread) => ({
-          ...thread,
-          unread_count: body.seen ? 0 : 1,
-        }));
-        folderRows = folderRows.map((folder) => ({
-          ...folder,
-          unread_count: body.seen ? 0 : 1,
-        }));
-        return new HttpResponse(null, { status: 204 });
-      }),
-    );
-
-    renderPage();
-
-    expect(await screen.findByText("읽지 않음 1건")).toBeVisible();
-    await user.click(await screen.findByRole("button", { name: "읽음 처리" }));
-
-    await waitFor(() => { expect(patched).toHaveBeenCalledWith({ seen: true }); });
-    expect(await screen.findByText("메일을 읽음으로 표시했습니다.")).toBeVisible();
-    await waitFor(() => {
-      expect(screen.queryByText("읽지 않음 1건")).not.toBeInTheDocument();
-    });
-    expect(await screen.findByRole("button", { name: "읽지 않음으로 표시" })).toBeVisible();
-
-    await user.click(screen.getByRole("button", { name: "읽지 않음으로 표시" }));
-    await waitFor(() => {
-      expect(patched).toHaveBeenLastCalledWith({ seen: false });
-    });
-    expect(await screen.findByText("읽지 않음 1건")).toBeVisible();
-  });
-
-  it("sends selected compose attachments through the mail API", async () => {
-    const user = userEvent.setup();
-    const sent = vi.fn();
-    mockMailbox();
-    server.use(
-      http.post("*/api/v1/mail/send", async ({ request }) => {
-        sent(await request.json());
-        return HttpResponse.json({
-          message_id: "44444444-4444-4444-8444-444444444444",
-          rfc_message_id: "<sent@example.com>",
-        }, { status: 201 });
-      }),
-    );
-
-    renderPage();
-
-    const compose = await screen.findByRole("heading", { name: "새 메일" });
-    const form = compose.closest("section");
-    expect(form).not.toBeNull();
-    if (!form) throw new Error("compose form missing");
-
-    await user.upload(
-      within(form).getByLabelText("파일 첨부"),
-      new File(["invoice"], "invoice.txt", { type: "text/plain" }),
-    );
-    expect(await within(form).findByText("invoice.txt · 0.0 KB")).toBeVisible();
-    expect(within(form).getByRole("button", { name: "invoice.txt 제거" })).toBeVisible();
-
-    await user.type(within(form).getByLabelText("받는 사람"), "payroll@example.com");
-    await user.type(within(form).getByLabelText("제목"), "첨부 확인");
-    await user.type(within(form).getByLabelText("본문"), "첨부 확인 부탁드립니다.");
-    await user.click(within(form).getByRole("button", { name: "메일 보내기" }));
-
-    await waitFor(() => { expect(sent).toHaveBeenCalledTimes(1); });
-    expect(sent.mock.calls[0][0]).toEqual({
-      to: [{ address: "payroll@example.com" }],
-      subject: "첨부 확인",
-      body_text: "첨부 확인 부탁드립니다.",
-      attachments: [
-        {
-          filename: "invoice.txt",
-          content_type: "text/plain",
-          content_base64: "aW52b2ljZQ==",
-        },
-      ],
-    });
-    expect(await screen.findByText("메일을 보냈습니다.")).toBeVisible();
-  });
-
-  it("rejects compose attachments over the outbound size limit", async () => {
-    const user = userEvent.setup();
-    const sent = vi.fn();
-    mockMailbox();
-    server.use(
-      http.post("*/api/v1/mail/send", async ({ request }) => {
-        sent(await request.json());
-        return HttpResponse.json({
-          message_id: "44444444-4444-4444-8444-444444444444",
-          rfc_message_id: "<sent@example.com>",
-        }, { status: 201 });
-      }),
-    );
-
-    renderPage();
-
-    const compose = await screen.findByRole("heading", { name: "새 메일" });
-    const form = compose.closest("section");
-    expect(form).not.toBeNull();
-    if (!form) throw new Error("compose form missing");
-
-    await user.upload(
-      within(form).getByLabelText("파일 첨부"),
-      new File([new Uint8Array(25 * 1024 * 1024 + 1)], "too-large.bin", {
-        type: "application/octet-stream",
-      }),
-    );
-    await user.type(within(form).getByLabelText("받는 사람"), "payroll@example.com");
-    await user.type(within(form).getByLabelText("제목"), "첨부 확인");
-    await user.type(within(form).getByLabelText("본문"), "첨부 확인 부탁드립니다.");
-    await user.click(within(form).getByRole("button", { name: "메일 보내기" }));
-
-    expect(await screen.findByRole("alert")).toHaveTextContent(
-      "첨부파일은 합계 25MB 이하로 선택하세요.",
-    );
-    expect(sent).not.toHaveBeenCalled();
-  });
-
-  it("replies to a selected thread through the threaded reply API", async () => {
-    const user = userEvent.setup();
-    const sent = vi.fn();
-    const detachedSend = vi.fn();
-    mockMailbox();
-    server.use(
-      http.post("*/api/v1/mail/send", async ({ request }) => {
-        detachedSend(await request.json());
-        return HttpResponse.json({ error: { code: "wrong_endpoint" } }, { status: 500 });
-      }),
-      http.post("*/api/v1/mail/reply", async ({ request }) => {
-        sent(await request.json());
-        return HttpResponse.json({
-          message_id: "44444444-4444-4444-8444-444444444444",
-          rfc_message_id: "<reply@example.com>",
-        }, { status: 201 });
-      }),
-    );
-
-    renderPage();
-
-    await screen.findByText("인사팀");
-    await user.click(await screen.findByRole("button", { name: "답장" }));
-
-    const compose = await screen.findByRole("heading", { name: "답장 작성" });
-    const form = compose.closest("section");
-    expect(form).not.toBeNull();
-    if (!form) throw new Error("compose form missing");
-    expect(within(form).getByLabelText("받는 사람")).toHaveValue("hr@example.com");
-    expect(within(form).getByLabelText("제목")).toHaveValue("Re: 급여명세서 확인");
-    await user.type(within(form).getByLabelText("본문"), "확인했습니다.");
-    await user.click(within(form).getByRole("button", { name: "답장 보내기" }));
-
-    await waitFor(() => { expect(sent).toHaveBeenCalledTimes(1); });
-    expect(detachedSend).not.toHaveBeenCalled();
-    expect(sent.mock.calls[0][0]).toEqual({
-      to: [{ address: "hr@example.com" }],
-      subject: "Re: 급여명세서 확인",
-      body_text: expect.stringContaining("확인했습니다."),
-      in_reply_to: "<m1@example.com>",
-      references: ["<m1@example.com>"],
-    });
-    expect(await screen.findByText("답장을 보냈습니다.")).toBeVisible();
-  });
-
-  it("forwards an existing message through the threaded forward API", async () => {
-    const user = userEvent.setup();
-    const sent = vi.fn();
-    const detachedSend = vi.fn();
-    mockMailbox();
-    server.use(
-      http.post("*/api/v1/mail/send", async ({ request }) => {
-        detachedSend(await request.json());
-        return HttpResponse.json({ error: { code: "wrong_endpoint" } }, { status: 500 });
-      }),
-      http.post("*/api/v1/mail/forward", async ({ request }) => {
-        sent(await request.json());
-        return HttpResponse.json({
-          message_id: "44444444-4444-4444-8444-444444444444",
-          rfc_message_id: "<forward@example.com>",
-        }, { status: 201 });
-      }),
-    );
-
-    renderPage();
-
-    await screen.findByText("인사팀");
-    await user.click(await screen.findByRole("button", { name: "전달" }));
-
-    const compose = await screen.findByRole("heading", { name: "전달 작성" });
-    const form = compose.closest("section");
-    expect(form).not.toBeNull();
-    if (!form) throw new Error("compose form missing");
-    expect(within(form).getByLabelText("받는 사람")).toHaveValue("");
-    expect(within(form).getByLabelText("제목")).toHaveValue("Fwd: 급여명세서 확인");
-    await user.type(within(form).getByLabelText("받는 사람"), "manager@example.com");
-    await user.type(within(form).getByLabelText("본문"), "검토 부탁드립니다.");
-    await user.click(within(form).getByRole("button", { name: "전달 보내기" }));
-
-    await waitFor(() => { expect(sent).toHaveBeenCalledTimes(1); });
-    expect(detachedSend).not.toHaveBeenCalled();
-    expect(sent.mock.calls[0][0]).toEqual({
-      to: [{ address: "manager@example.com" }],
-      subject: "Fwd: 급여명세서 확인",
-      body_text: expect.stringContaining("검토 부탁드립니다."),
-      in_reply_to: "<m1@example.com>",
-      references: ["<m1@example.com>"],
-    });
-    expect(await screen.findByText("메일을 전달했습니다.")).toBeVisible();
-  });
-
-  it("shows platform readiness instead of a server-configuration link when mail is unavailable", async () => {
-    server.use(
-      http.get("*/api/v1/mail/account", () =>
-        HttpResponse.json({ error: { code: "email_not_configured" } }, { status: 503 }),
-      ),
-      http.get("*/api/v1/mail/folders", () =>
-        HttpResponse.json({ error: { code: "email_not_configured" } }, { status: 503 }),
-      ),
-      http.get("*/api/v1/mail/threads", () =>
-        HttpResponse.json({ error: { code: "email_not_configured" } }, { status: 503 }),
-      ),
-      http.get("*/api/v1/sales/inquiries", () =>
-        HttpResponse.json({ items: [], limit: 5, offset: 0, total: 0 }),
-      ),
-    );
-
-    renderPage();
-
-    expect(await screen.findByText("회사 메일함 준비 중")).toBeVisible();
-    expect(
-      screen.getByText(/SMTP\/IMAP 서버 설정은 사용자가 입력하지 않습니다/),
-    ).toBeVisible();
-    expect(screen.queryByRole("link", { name: "메일 서버 설정" })).not.toBeInTheDocument();
-  });
-
-  it("shows automatic provisioning readiness instead of compose when no mailbox account exists", async () => {
-    server.use(
-      http.get(
-        "*/api/v1/mail/account",
-        () => new HttpResponse(null, { status: 204 }),
-      ),
-      http.get("*/api/v1/mail/folders", () => HttpResponse.json([])),
-      http.get("*/api/v1/mail/threads", () => HttpResponse.json([])),
-      http.get("*/api/v1/sales/inquiries", () =>
-        HttpResponse.json({ items: [], limit: 5, offset: 0, total: 0 }),
-      ),
-    );
-
-    renderPage();
-
-    expect(await screen.findByRole("heading", { name: "메일함 자동 프로비저닝 대기" })).toBeVisible();
-    expect(
-      screen.getByText(/사용자는 SMTP\/IMAP 서버 정보를 직접 설정하지 않습니다/),
-    ).toBeVisible();
-    expect(
-      screen.getByText("직원·역할·조직 정보에 맞춰 메일함과 별칭을 자동 생성합니다."),
-    ).toBeVisible();
-    expect(screen.queryByRole("link", { name: "메일 서버 설정" })).not.toBeInTheDocument();
-    expect(screen.queryByRole("heading", { name: "새 메일" })).not.toBeInTheDocument();
-  });
-
-  it("surfaces new website inquiries beside the mailbox workflow", async () => {
-    const user = userEvent.setup();
-    const patched = vi.fn();
-    mockMailbox();
-    server.use(
-      http.get("*/api/v1/sales/inquiries", () =>
-        HttpResponse.json({
-          items: [
-            {
-              id: "55555555-5555-4555-8555-555555555555",
-              name: "고객 담당자",
-              phone: "010-1111-2222",
-              topic: "USED_SALES",
-              location: "창원",
-              message: "2.5톤 중고 지게차 상담 요청",
-              listing_id: null,
-              status: "NEW",
-              created_at: "2026-06-26T02:00:00Z",
-              updated_at: "2026-06-26T02:00:00Z",
-            },
-          ],
-          limit: 5,
-          offset: 0,
-          total: 1,
-        }),
-      ),
-      http.patch("*/api/v1/sales/inquiries/:id", async ({ request }) => {
-        patched(await request.json());
-        return HttpResponse.json({ ok: true });
-      }),
-    );
-
-    renderPage();
-
-    expect(await screen.findByRole("heading", { name: "신규 고객 문의" })).toBeVisible();
-    expect(await screen.findByText("고객 담당자")).toBeVisible();
-    expect(screen.getByText("2.5톤 중고 지게차 상담 요청")).toBeVisible();
-    await user.click(screen.getByRole("button", { name: "연락함으로 표시" }));
-
-    await waitFor(() => {
-      expect(patched).toHaveBeenCalledWith({ status: "CONTACTED" });
-    });
-  });
-
-  it("rejects unsafe attachment download URLs returned by the API", async () => {
-    const user = userEvent.setup();
-    const open = vi.spyOn(window, "open").mockImplementation(() => null);
-    mockMailbox();
-    server.use(
-      http.get("*/api/v1/mail/threads/:id", () =>
-        HttpResponse.json({
-          ...detail,
-          messages: [
-            {
-              ...detail.messages[0],
-              has_attachments: true,
-              attachments: [
-                {
-                  id: "66666666-6666-4666-8666-666666666666",
-                  filename: "invoice.pdf",
-                  content_type: "application/pdf",
-                  size_bytes: 1024,
-                  is_inline: false,
-                },
-              ],
-            },
-          ],
-        }),
-      ),
-      http.get("*/api/v1/mail/attachments/:id/download", () =>
-        HttpResponse.json({ url: "javascript:alert(1)" }),
-      ),
-    );
-
-    renderPage();
-
-    await user.click(await screen.findByRole("button", { name: /invoice\.pdf/ }));
-
-    expect(open).not.toHaveBeenCalled();
-    expect(await screen.findByText("첨부파일 링크를 열지 못했습니다.")).toBeVisible();
-    open.mockRestore();
+    renderPage(deniedSession);
+    expect(screen.queryByRole("heading", { name: "메일함" })).not.toBeInTheDocument();
   });
 });

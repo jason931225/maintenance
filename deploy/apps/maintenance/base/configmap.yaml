@@ -34,6 +34,10 @@ data:
   MNT_IOS_APP_IDS: "98Q89GFZWP.com.maintenance.field"
   MNT_ANDROID_PACKAGE: "com.maintenance.field"
   MNT_ANDROID_CERT_SHA256: ""
+  # Public storefront + support intake tenant. Both unauthenticated public CX
+  # flows share this configured org so submitted rows land under the same tenant
+  # staff inboxes query through RLS.
+  STOREFRONT_ORG_ID: "00000000-0000-0000-0000-0000000000a1"
   # Evidence object storage — OCI Object Storage (S3-compatible), Chuncheon.
   MNT_S3_ENDPOINT_URL: "https://axdotp9iv3ua.compat.objectstorage.ap-chuncheon-1.oraclecloud.com"
   MNT_S3_REGION: "ap-chuncheon-1"
@@ -47,8 +51,11 @@ data:
   # credentials (MNT_EMAIL_SMTP_USERNAME / MNT_EMAIL_SMTP_PASSWORD) are on the
   # mnt-secrets Secret, provisioned from OCI Vault. ACTIVE: the OCI email domain
   # knllogistic.com (DKIM knl1 + SPF + DMARC in Cloudflare) and the approved
-  # sender are live, so the group is enabled and the app relays OTPs over SMTP
-  # (and still logs them as a fallback). Setting any member requires all of them.
+  # sender are live, so the group is enabled and the app relays OTPs over SMTP.
+  # The workload manifests explicitly require the secret credential keys; local,
+  # dev, and e2e stub-email configs should omit this relay group and set
+  # MNT_EMAIL_STUB_MODE explicitly instead.
+  # Setting any member requires all of them.
   # MNT_EMAIL_FROM must equal an OCI-approved sender — note the hyphen in no-reply.
   MNT_EMAIL_SMTP_HOST: "smtp.email.ap-chuncheon-1.oci.oraclecloud.com"
   MNT_EMAIL_SMTP_PORT: "587"

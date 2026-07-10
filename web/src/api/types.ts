@@ -104,6 +104,11 @@ export type WorkflowDefinitionHistoryResponse =
   components["schemas"]["WorkflowDefinitionHistoryResponse"];
 export type WorkflowDefinitionEventResponse =
   components["schemas"]["WorkflowDefinitionEventResponse"];
+export type WorkflowRunLogResponse =
+  components["schemas"]["WorkflowRunLogResponse"];
+export type WorkflowRunResponse = components["schemas"]["WorkflowRunResponse"];
+export type TriggerWorkflowRunRequest =
+  components["schemas"]["TriggerWorkflowRunRequest"];
 export type WorkflowSimulationResponse =
   components["schemas"]["WorkflowSimulationResponse"];
 export type WorkflowStepUpRequest =

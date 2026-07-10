@@ -48,6 +48,11 @@ export class RouteErrorBoundary extends Component<
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
     console.error("Page render error:", error, info.componentStack);
+    window.dispatchEvent(
+      new CustomEvent("maintenance:route-error", {
+        detail: { error_name: error.name || "RouteBoundaryError" },
+      }),
+    );
   }
 
   render(): ReactNode {

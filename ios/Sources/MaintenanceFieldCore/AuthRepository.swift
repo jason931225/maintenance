@@ -7,7 +7,7 @@ public protocol PasskeyCredentialProvider: Sendable {
 }
 
 public struct PasskeyAuthRepository: Sendable {
-    private let gateway: any MaintenanceAPIGateway
+    private let gateway: any PasskeyAuthGateway
     private let credentialProvider: any PasskeyCredentialProvider
     private let sessionStore: any SessionTokenStore
     private let deviceIDStore: any DeviceIDStore
@@ -16,7 +16,7 @@ public struct PasskeyAuthRepository: Sendable {
     private let encoder: JSONEncoder
 
     public init(
-        gateway: any MaintenanceAPIGateway,
+        gateway: any PasskeyAuthGateway,
         credentialProvider: any PasskeyCredentialProvider,
         sessionStore: any SessionTokenStore,
         deviceIDStore: any DeviceIDStore,
@@ -41,6 +41,7 @@ public struct PasskeyAuthRepository: Sendable {
 
     public func login(userID: Components.Schemas.Uuid) async -> LoginState {
         var state = LoginState.signedOut()
+        let deviceID: String
         do {
             let challenge = try await gateway.startPasskeyLogin()
             let challengeJSON = String(data: try encoder.encode(challenge.challenge), encoding: .utf8) ?? "{}"
@@ -64,7 +65,7 @@ public struct PasskeyAuthRepository: Sendable {
                 await sessionStore.clear()
                 return stateMachine.reduce(state, .failed(messageKey: "login_failed"))
             }
-            let deviceID = await deviceIDStore.loadOrCreate()
+            deviceID = await deviceIDStore.loadOrCreate()
             state = stateMachine.reduce(
                 state,
                 .passkeyVerified(
@@ -76,16 +77,79 @@ public struct PasskeyAuthRepository: Sendable {
             )
 
             await sessionStore.save(AuthTokens(accessToken: tokens.accessToken, refreshToken: refreshToken))
-            let device = try await gateway.registerDevice(deviceID: deviceID, appVersion: appVersion)
-            return stateMachine.reduce(state, .deviceRegistered(serverDeviceID: device.id))
         } catch {
             await sessionStore.clear()
             return stateMachine.reduce(state, .failed(messageKey: "login_failed"))
+        }
+
+        do {
+            let device = try await gateway.registerDevice(deviceID: deviceID, appVersion: appVersion)
+            return stateMachine.reduce(state, .deviceRegistered(serverDeviceID: device.id))
+        } catch {
+            return stateMachine.reduce(
+                state,
+                .deviceRegistrationFailed(
+                    messageKey: "device_registration_retry_pending",
+                    lastErrorClass: Self.sanitizedErrorClass(error)
+                )
+            )
         }
     }
 
     public func logout() async -> LoginState {
         await sessionStore.clear()
         return .signedOut()
+    }
+
+    private static func sanitizedErrorClass(_ error: any Error) -> String {
+        let bridgedError = error as NSError
+        if bridgedError.domain == NSURLErrorDomain {
+            return "URLError"
+        }
+        return String(describing: type(of: error))
+    }
+}
+
+public enum PasskeyStepUpError: Error, Equatable, Sendable {
+    case bindingMismatch
+}
+
+public struct PasskeyStepUpRepository: Sendable {
+    private let gateway: any PasskeyStepUpGateway
+    private let credentialProvider: any PasskeyCredentialProvider
+    private let encoder: JSONEncoder
+    private let decoder: JSONDecoder
+
+    public init(
+        gateway: any PasskeyStepUpGateway,
+        credentialProvider: any PasskeyCredentialProvider
+    ) {
+        self.gateway = gateway
+        self.credentialProvider = credentialProvider
+        self.encoder = JSONEncoder()
+        self.decoder = JSONDecoder()
+    }
+
+    public func envelope(
+        binding: Components.Schemas.MobilePasskeyStepUpBinding
+    ) async throws -> Components.Schemas.MobilePasskeyStepUpEnvelope {
+        let start = try await gateway.startMobilePasskeyStepUp(binding: binding)
+        guard start.binding == binding else {
+            throw PasskeyStepUpError.bindingMismatch
+        }
+
+        let challengeJSON = String(data: try encoder.encode(start.challenge), encoding: .utf8) ?? "{}"
+        let loginCredential = try await credentialProvider.credentialAssertion(challengeJSON: challengeJSON)
+        let credential = try decoder.decode(
+            Components.Schemas.PasskeyStepUpAssertion.CredentialPayload.self,
+            from: encoder.encode(loginCredential)
+        )
+        return Components.Schemas.MobilePasskeyStepUpEnvelope(
+            binding: binding,
+            assertion: Components.Schemas.PasskeyStepUpAssertion(
+                ceremonyId: start.ceremonyId,
+                credential: credential
+            )
+        )
     }
 }

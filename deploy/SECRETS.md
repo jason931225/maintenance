@@ -8,6 +8,18 @@ or prune them.
 > [External Secrets] so encrypted material can live in the repo. For a 1–2 person team the
 > out-of-band `kubectl create secret` below is the pragmatic, honest baseline.
 
+## Deployment-context secret-store contract
+
+| Context | Acceptable secret store and projection path |
+|---|---|
+| `oci-guest` (live) | **OCI Vault** is the authoritative recovery store for Talos, kubeconfig, app, database, and OCI Object Storage credentials. Operators project the needed values into Kubernetes `Secret` objects (`mnt-secrets`, `oci-objectstore-creds`, `mnt-db-rt`, and namespace-specific integration secrets) with one-time `kubectl create secret` commands. This is honest for the current single-node guest; it is not an automatic GitOps secret controller. |
+| `on-prem-ha` (ADR-0022 / DARK until activation) | **OpenBao HA Raft + External Secrets Operator** is the expected production secret root and Kubernetes projection path. OpenBao must be initialized, unsealed, audited, backed up, and operated by named custodians before production data moves. CNPG Barman, evidence S3, app, mail, and integration credentials should be projected from OpenBao/ESO into context-local Kubernetes secrets; OCI Vault is allowed only as the previous `oci-guest` rollback source, not as a requirement for on-prem HA. |
+
+Never commit, log, paste, or checkpoint secret values, OpenBao unseal shares, root
+tokens, OCI customer-secret keys, Talos secrets, kubeconfigs, or generated JWT
+keys. Sealed Secrets remains an acceptable per-context alternative only after a
+specific activation decision; do not treat it as already deployed.
+
 ## `mnt-secrets` — application secrets
 
 Consumed by `mnt-app` / `mnt-worker` via `envFrom`. Required keys:
@@ -29,13 +41,15 @@ Kakao / FCM credentials): `MNT_FCM_*`, `MNT_SOLAPI_*`.
 | `MNT_EMAIL_SMTP_USERNAME` | OCI Email Delivery SMTP credential — username (open-signup OTP relay) |
 | `MNT_EMAIL_SMTP_PASSWORD` | OCI Email Delivery SMTP credential — password |
 
-Optional, same as above: the outbound OTP email relay. The non-secret
-host/port/sender are on the `mnt-config` ConfigMap (`MNT_EMAIL_SMTP_HOST`,
-`MNT_EMAIL_SMTP_PORT`, `MNT_EMAIL_FROM`, `MNT_EMAIL_FROM_NAME`); only these two
-credentials are secret. They come from **OCI Vault → `mnt-secrets`** (the
-operator creates them once the approved sender is provisioned). Until they are
-set the app logs the OTP via a stub sender instead of relaying it, so the app
-boots without them. Setting any `MNT_EMAIL_*` member requires the full group.
+Outbound OTP email relay. The non-secret host/port/sender live on the
+`mnt-config` ConfigMap (`MNT_EMAIL_SMTP_HOST`, `MNT_EMAIL_SMTP_PORT`,
+`MNT_EMAIL_FROM`, `MNT_EMAIL_FROM_NAME`); only these two credentials are secret.
+They come from **OCI Vault → `mnt-secrets`**. Because the production ConfigMap
+sets the relay fields, the `mnt-app` and `mnt-worker` workload manifests require
+both credential keys with explicit `secretKeyRef` entries; missing keys fail the
+rollout instead of silently degrading OTP delivery to stub logs. Local/dev/e2e
+stub-email configurations must omit the whole `MNT_EMAIL_*` relay group. Setting
+any `MNT_EMAIL_*` member requires the full group.
 
 `MNT_MAIL_MASTER_KEY` is the webmail envelope-encryption key (KEK) used to seal
 tenant mail-server credentials. Generate exactly 32 random bytes, base64-encode
@@ -118,7 +132,9 @@ kubectl create secret generic mnt-secrets -n maintenance \
   --from-file=MNT_S3_ACCESS_KEY_ID="$SECRET_TMP/MNT_S3_ACCESS_KEY_ID" \
   --from-file=MNT_S3_SECRET_ACCESS_KEY="$SECRET_TMP/MNT_S3_SECRET_ACCESS_KEY" \
   --from-file=MNT_MAIL_MASTER_KEY="$SECRET_TMP/MNT_MAIL_MASTER_KEY" \
-  --from-file=MNT_MAIL_MOX_WEBHOOK_SECRET="$SECRET_TMP/MNT_MAIL_MOX_WEBHOOK_SECRET"
+  --from-file=MNT_MAIL_MOX_WEBHOOK_SECRET="$SECRET_TMP/MNT_MAIL_MOX_WEBHOOK_SECRET" \
+  --from-literal=MNT_EMAIL_SMTP_USERNAME=<oci-email-smtp-username> \
+  --from-literal=MNT_EMAIL_SMTP_PASSWORD=<oci-email-smtp-password>
 rm -rf "$SECRET_TMP" jwt-private.pem jwt-public.pem
 trap - EXIT
 
@@ -134,6 +150,10 @@ PY
 Consumed by the Barman `ObjectStore` for DB backups. The keys are an **OCI
 Customer Secret Key** (Identity → your user → Customer Secret Keys), which is an
 S3-compatible access/secret pair. Can be the same pair as the evidence keys.
+This secret name and credential source are the live `oci-guest` contract. The
+`on-prem-ha` overlay must use an OpenBao/External-Secrets-projected secret for
+the selected self-hosted S3 endpoint instead of making OCI Customer Secret Keys a
+universal database-backup requirement.
 
 ```sh
 set -euo pipefail
@@ -233,12 +253,13 @@ once, out-of-band, then drives tenant onboarding.
   passkey (the normal steady state). `MNT_COLDSTART_OTP_TTL_SECS` (default 3600)
   bounds the redeem window; the value is never logged or written to audit.
   - The platform admin's login mints a **platform token** (`platform = true` in
-    the JWT), the only token accepted on `/platform/*`. A tenant token is
-    rejected there (403), and a platform token is rejected on tenant `/api/*`.
+    the JWT), the only token accepted on the platform data API (`/api/platform/*`).
+    A tenant token is rejected there (403), and a platform token is rejected on
+    tenant `/api/*`.
 
 - **Tenant #1 (KNL) and every later tenant** get their own admin via the
   platform onboarding flow, NOT via `MNT_COLDSTART_OTP`:
-  - `POST /platform/orgs {slug,name}` (platform token) creates the
+  - `POST /api/platform/orgs {slug,name}` (platform token) creates the
     `organizations` row, seeds that tenant's first SUPER_ADMIN, and returns a
     fresh **per-org** one-time OTP to deliver to the tenant out-of-band. This is
     the ONLY path that inserts org rows (the app's `mnt_rt` role is SELECT-only on
@@ -246,13 +267,13 @@ once, out-of-band, then drives tenant onboarding.
     `platform_create_organization`). The fixed `coss0000` seed removed in
     migration 0023 is never reintroduced — every onboarding OTP is generated
     fresh per org.
-  - `GET /platform/orgs` lists tenants (audited cross-tenant read); the platform
+  - `GET /api/platform/orgs` lists tenants (audited cross-tenant read); the platform
     sentinel org is never listed.
-  - `PATCH /platform/orgs/{id} {status}` suspends/reactivates a tenant (audited
+  - `PATCH /api/platform/orgs/{id} {status}` suspends/reactivates a tenant (audited
     to the target org).
 
   > KNL was historically backfilled by migration 0028 and remains tenant #1; its
-  > admin should be (re)issued through `POST /platform/orgs` semantics rather than
+  > admin should be (re)issued through `POST /api/platform/orgs` semantics rather than
   > the global cold-start OTP, which now belongs to the platform tier.
 
 ## Native app-link association + session TTLs (non-secret config)

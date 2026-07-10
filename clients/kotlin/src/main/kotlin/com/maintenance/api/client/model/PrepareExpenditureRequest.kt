@@ -23,6 +23,7 @@
 
 package com.maintenance.api.client.model
 
+import com.maintenance.api.client.model.PasskeyStepUpAssertion
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerialName
@@ -32,13 +33,17 @@ import kotlinx.serialization.Contextual
  *
  *
  * @param expenditureNo
+ * @param stepUp
  */
 @Serializable
 
 data class PrepareExpenditureRequest (
 
     @SerialName(value = "expenditure_no")
-    val expenditureNo: kotlin.String
+    val expenditureNo: kotlin.String,
+
+    @SerialName(value = "step_up")
+    val stepUp: PasskeyStepUpAssertion
 
 ) {
 

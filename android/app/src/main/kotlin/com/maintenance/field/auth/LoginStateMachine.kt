@@ -24,7 +24,22 @@ sealed interface LoginState {
     data class Authenticated(
         val accessToken: String,
         val refreshToken: String,
+        val deviceRegistration: DeviceRegistrationState = DeviceRegistrationState.Registered,
     ) : LoginState
+}
+
+const val DEVICE_REGISTRATION_RETRY_PENDING_MESSAGE_KEY = "device_registration_retry_pending"
+
+sealed interface DeviceRegistrationState {
+    data object Registered : DeviceRegistrationState
+
+    data class RetryPending(
+        val deviceId: String,
+        val platform: DevicePlatform,
+        val appVersion: String,
+        val lastErrorClass: String,
+        val messageKey: String = DEVICE_REGISTRATION_RETRY_PENDING_MESSAGE_KEY,
+    ) : DeviceRegistrationState
 }
 
 sealed interface LoginEvent {
@@ -43,6 +58,11 @@ sealed interface LoginEvent {
     ) : LoginEvent
 
     data class DeviceRegistered(val serverDeviceId: UUID) : LoginEvent
+
+    data class DeviceRegistrationFailed(
+        val lastErrorClass: String,
+        val messageKey: String = DEVICE_REGISTRATION_RETRY_PENDING_MESSAGE_KEY,
+    ) : LoginEvent
 
     data class Failed(val messageKey: String) : LoginEvent
 }
@@ -66,6 +86,24 @@ class LoginStateMachine {
                 accessToken = state.accessToken,
                 refreshToken = state.refreshToken,
             )
+            is LoginState.Authenticated -> state.copy(
+                deviceRegistration = DeviceRegistrationState.Registered,
+            )
+            else -> LoginState.SignedOut(messageKey = "login_failed")
+        }
+        is LoginEvent.DeviceRegistrationFailed -> when (state) {
+            is LoginState.RegisteringDevice -> LoginState.Authenticated(
+                accessToken = state.accessToken,
+                refreshToken = state.refreshToken,
+                deviceRegistration = DeviceRegistrationState.RetryPending(
+                    deviceId = state.deviceId,
+                    platform = state.platform,
+                    appVersion = state.appVersion,
+                    lastErrorClass = event.lastErrorClass,
+                    messageKey = event.messageKey,
+                ),
+            )
+            is LoginState.Authenticated -> state
             else -> LoginState.SignedOut(messageKey = "login_failed")
         }
         is LoginEvent.Failed -> LoginState.SignedOut(messageKey = event.messageKey)

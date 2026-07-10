@@ -226,7 +226,7 @@ Reach: ONLY members of the principal's group; unrelated groups/orgs are absent f
 unreachable. Cross-group is architecturally impossible (no resolver maps one group → another's members).
 Distinct from Platform view-as: a group-admin is a TENANT-tier principal (`platform=false`) who can WRITE
 but only within their group's members; view-as is vendor-tier + read-only + can target any tenant. The two
-never overlap (the platform extractor rejects a tenant token on `/platform/*`).
+never overlap (the platform extractor rejects a tenant token on `/api/platform/*`).
 
 ## 7. Markings / Least Privilege (conjunctive)
 Payroll/financial consolidated reads are NOT group-visible by default — require BOTH `scope_level=group`
@@ -256,7 +256,7 @@ behavior · C7 worksite-local confined to subtree · C8 payroll consolidated req
 GROUP_FINANCE · C9 every cross-entity action audited with real actor+target · C10 group-role grants only
 via audited DEFINER; mnt_rt cannot self-grant · C11 consolidated helper unarmed/empty fails closed · C12
 legacy tokens unchanged · C13 rls-arming + tenant-isolation gates green · C14 group-admin token
-platform=false, rejected on /platform/*.
+platform=false, rejected on `/api/platform/*`.
 
 ## 10. mnt_rt Test Plan (genuine NOBYPASSRLS runtime_role_pool; seed as owner row_security off)
 T1 group_admin_consolidated_sees_all_members · T2 consolidated_excludes_non_member_org · T3

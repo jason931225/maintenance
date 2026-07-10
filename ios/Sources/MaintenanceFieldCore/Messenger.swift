@@ -38,24 +38,6 @@ public struct MessengerThread: Identifiable, Hashable, Sendable {
     }
 }
 
-public extension MessengerThread {
-    var displayTitle: String {
-        if let title, title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false {
-            return title
-        }
-        switch kind {
-        case .workOrder:
-            return "WO \(workOrderID ?? id)"
-        case .team:
-            return "팀 채널"
-        case .dm:
-            return "1:1 대화"
-        case .group:
-            return "그룹 대화"
-        }
-    }
-}
-
 public struct MessengerMessage: Identifiable, Hashable, Sendable {
     public let id: Components.Schemas.Uuid
     public let threadID: Components.Schemas.Uuid
@@ -425,8 +407,8 @@ public struct MessengerRepository: Sendable {
         }
     }
 
-    public func replayPending() async -> MessengerReplaySummary {
-        let pending = (try? await outbox.pending()) ?? []
+    public func replayPending() async throws -> MessengerReplaySummary {
+        let pending = try await outbox.pending()
         var sent = 0
         var failed = 0
 
@@ -439,8 +421,10 @@ public struct MessengerRepository: Sendable {
                 )
                 try await outbox.markSent(requestID: message.requestID)
                 sent += 1
+            } catch let error as PersistenceStoreError {
+                throw error
             } catch {
-                try? await outbox.markFailed(requestID: message.requestID, message: error.localizedDescription)
+                try await outbox.markFailed(requestID: message.requestID, message: error.localizedDescription)
                 failed += 1
             }
         }

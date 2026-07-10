@@ -63,6 +63,7 @@ import com.maintenance.api.client.model.AttachmentStage
 import com.maintenance.api.client.model.CollaborationScopeType
 import com.maintenance.api.client.model.LocationConsentState
 import com.maintenance.api.client.model.LocationConsentStatus
+import com.maintenance.api.client.model.MessengerThreadKind
 import com.maintenance.api.client.model.PollAnonymity
 import com.maintenance.api.client.model.PollStatus
 import com.maintenance.api.client.model.PriorityLevel
@@ -70,6 +71,7 @@ import com.maintenance.api.client.model.WorkOrderStatus
 import com.maintenance.api.client.model.WorkResultType
 import com.maintenance.field.AppContainer
 import com.maintenance.field.R
+import com.maintenance.field.auth.DeviceRegistrationState
 import com.maintenance.field.auth.LoginState
 import com.maintenance.field.data.api.ReportDraft
 import com.maintenance.field.data.api.TechnicianWorkOrder
@@ -98,6 +100,9 @@ import kotlinx.coroutines.launch
 
 private val messengerTimestampFormatter: DateTimeFormatter =
     DateTimeFormatter.ofLocalizedDateTime(FormatStyle.SHORT).withZone(ZoneId.systemDefault())
+
+private const val OPERATIONS_PASSKEY_APPROVAL_DECISION_REASON_KEY = "operations_passkey_approval_decision"
+private const val OPERATIONS_PASSKEY_POLL_VOTE_REASON_KEY = "operations_passkey_poll_vote"
 
 internal enum class MobileCollaborationKind {
     NOTIFICATION,
@@ -275,6 +280,7 @@ fun FieldApp(container: AppContainer) {
     val selected = orders.firstOrNull { it.id.toString() == selectedId }
     val messengerReducer = remember { MessengerReducer() }
     val loginFailedMessage = stringResource(R.string.login_failed)
+    val deviceRegistrationRetryPendingMessage = stringResource(R.string.device_registration_retry_pending)
     val offlineQueuedMessage = stringResource(R.string.offline_queued)
     val reportSubmittedMessage = stringResource(R.string.report_submitted)
     val cameraPermissionDeniedMessage = stringResource(R.string.camera_permission_denied)
@@ -307,6 +313,27 @@ fun FieldApp(container: AppContainer) {
         notificationInbox = container.mobileOperations.notificationInbox()
         sensitiveActionSummary = container.mobileOperations.sensitiveActionQueueSummary()
     }
+
+    suspend fun requestStepUpEnvelope(
+        actionKind: MobileSensitiveActionKind,
+        objectId: UUID,
+        replayAttempt: Int? = null,
+    ) = runCatching {
+        val reasonKey = when (actionKind) {
+            MobileSensitiveActionKind.APPROVAL_DECISION -> OPERATIONS_PASSKEY_APPROVAL_DECISION_REASON_KEY
+            MobileSensitiveActionKind.POLL_VOTE -> OPERATIONS_PASSKEY_POLL_VOTE_REASON_KEY
+            else -> error("unsupported mobile passkey step-up action: $actionKind")
+        }
+        check(reasonKey.isNotBlank())
+        container.passkeyStepUp.requestStepUp(
+            context = context,
+            binding = container.mobileOperations.stepUpBinding(
+                actionKind = actionKind,
+                objectId = objectId,
+                replayAttempt = replayAttempt,
+            ),
+        )
+    }.getOrNull()
 
     LaunchedEffect(authenticated) {
         if (authenticated) {
@@ -425,10 +452,13 @@ fun FieldApp(container: AppContainer) {
                         scope.launch {
                             busy = true
                             val state = container.auth.login(context, userId)
-                            authenticated = state is LoginState.Authenticated
+                            val authenticatedState = state as? LoginState.Authenticated
+                            authenticated = authenticatedState != null
                             currentUserId = if (authenticated) userId else null
                             busy = false
-                            if (!authenticated) {
+                            if (authenticatedState?.deviceRegistration is DeviceRegistrationState.RetryPending) {
+                                snackbarHostState.showSnackbar(deviceRegistrationRetryPendingMessage)
+                            } else if (!authenticated) {
                                 snackbarHostState.showSnackbar(loginFailedMessage)
                             }
                         }
@@ -563,6 +593,7 @@ fun FieldApp(container: AppContainer) {
                             state = messengerState,
                             busy = busy,
                             currentUserId = currentUserId,
+                            workOrderRequestNosById = orders.associate { it.id to it.requestNo },
                             searchQuery = messengerSearchQuery,
                             draft = messengerDraft,
                             modifier = Modifier.weight(1f),
@@ -672,7 +703,8 @@ fun FieldApp(container: AppContainer) {
                                 }
                             },
                             onQueueApproval = {
-                                val approval = operationsOverview?.snapshot?.let(::MobileOperationsDashboard)?.approvals?.firstOrNull()
+                                val approval = operationsOverview?.snapshot?.let(::MobileOperationsDashboard)?.approvals
+                                    ?.firstOrNull { it.canExecuteOnMobile }
                                 if (approval != null) {
                                     scope.launch {
                                         busy = true
@@ -680,10 +712,12 @@ fun FieldApp(container: AppContainer) {
                                             container.mobileOperations.approveWorkOrder(
                                                 approval = approval,
                                                 comment = approvalComment,
-                                                stepUpAssertion = null,
-                                            )
+                                                stepUp = requestStepUpEnvelope(
+                                                    actionKind = MobileSensitiveActionKind.APPROVAL_DECISION,
+                                                    objectId = approval.sourceId,
+                                                ),
+                                            )?.let { snackbarHostState.showSnackbar(operationsPasskeyRequiredMessage) }
                                             sensitiveActionSummary = container.mobileOperations.sensitiveActionQueueSummary()
-                                            snackbarHostState.showSnackbar(operationsPasskeyRequiredMessage)
                                         }.onFailure { snackbarHostState.showSnackbar(operationFailedMessage) }
                                         busy = false
                                     }
@@ -693,7 +727,14 @@ fun FieldApp(container: AppContainer) {
                                 scope.launch {
                                     busy = true
                                     runCatching {
-                                        container.mobileOperations.replaySensitiveActions(stepUpAssertion = null)
+                                        container.mobileOperations.replaySensitiveActions { _, binding ->
+                                            runCatching {
+                                                container.passkeyStepUp.requestStepUp(
+                                                    context = context,
+                                                    binding = binding,
+                                                )
+                                            }.getOrNull()
+                                        }
                                         sensitiveActionSummary = container.mobileOperations.sensitiveActionQueueSummary()
                                     }.onFailure { snackbarHostState.showSnackbar(operationFailedMessage) }
                                     busy = false
@@ -720,16 +761,23 @@ fun FieldApp(container: AppContainer) {
                                     scope.launch {
                                         busy = true
                                         runCatching {
-                                            container.mobileOperations.stepUpEnvelope(
-                                                actionKind = MobileSensitiveActionKind.POLL_VOTE,
-                                                objectId = poll.id,
-                                                reasonKey = "operations_passkey_poll_vote",
+                                            val queued = container.mobileOperations.votePoll(
+                                                poll.id,
+                                                listOf(optionId),
+                                                requestStepUpEnvelope(
+                                                    actionKind = MobileSensitiveActionKind.POLL_VOTE,
+                                                    objectId = poll.id,
+                                                ),
                                             )
-                                            container.mobileOperations.votePoll(poll.id, listOf(optionId))
-                                            operationsOverview = container.mobileOperations.cachedOverview()?.copy(
-                                                origin = MobileOperationsSnapshotOrigin.LIVE,
-                                            )
-                                            snackbarHostState.showSnackbar(operationsPollVotedMessage)
+                                            sensitiveActionSummary = container.mobileOperations.sensitiveActionQueueSummary()
+                                            if (queued == null) {
+                                                operationsOverview = container.mobileOperations.cachedOverview()?.copy(
+                                                    origin = MobileOperationsSnapshotOrigin.LIVE,
+                                                )
+                                                snackbarHostState.showSnackbar(operationsPollVotedMessage)
+                                            } else {
+                                                snackbarHostState.showSnackbar(operationsPasskeyRequiredMessage)
+                                            }
                                         }.onFailure { snackbarHostState.showSnackbar(operationFailedMessage) }
                                         busy = false
                                     }
@@ -1320,6 +1368,7 @@ internal fun MessengerScreen(
     onSend: () -> Unit,
     modifier: Modifier = Modifier,
     currentUserId: UUID? = null,
+    workOrderRequestNosById: Map<UUID, String> = emptyMap(),
 ) {
     LaunchedEffect(Unit) {
         if (state.threads.isEmpty()) {
@@ -1404,6 +1453,7 @@ internal fun MessengerScreen(
                 MessengerThreadRow(
                     thread = thread,
                     selected = state.selectedThreadId == thread.id,
+                    workOrderRequestNosById = workOrderRequestNosById,
                     onClick = { onSelectThread(thread) },
                 )
             }
@@ -1481,6 +1531,7 @@ internal fun MessengerScreen(
 private fun MessengerThreadRow(
     thread: MessengerThread,
     selected: Boolean,
+    workOrderRequestNosById: Map<UUID, String>,
     onClick: () -> Unit,
 ) {
     Card(
@@ -1496,7 +1547,10 @@ private fun MessengerThreadRow(
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    text = thread.displayTitle,
+                    text = messengerThreadTitleSpec(
+                        thread = thread,
+                        workOrderRequestNosById = workOrderRequestNosById,
+                    ).localizedText(),
                     style = MaterialTheme.typography.titleMedium,
                     modifier = Modifier.weight(1f),
                     maxLines = 1,
@@ -1519,6 +1573,41 @@ private fun MessengerThreadRow(
             }
         }
     }
+}
+
+internal sealed interface MessengerThreadTitleSpec {
+    data class RuntimeData(val text: String) : MessengerThreadTitleSpec
+    data class Localized(@get:StringRes val resId: Int, val formatArg: String? = null) : MessengerThreadTitleSpec
+}
+
+internal fun messengerThreadTitleSpec(
+    thread: MessengerThread,
+    workOrderRequestNosById: Map<UUID, String> = emptyMap(),
+): MessengerThreadTitleSpec {
+    thread.title?.takeIf { it.isNotBlank() }?.let { return MessengerThreadTitleSpec.RuntimeData(it) }
+
+    return when (thread.kind) {
+        MessengerThreadKind.WORK_ORDER -> {
+            val requestNo = thread.workOrderId
+                ?.let(workOrderRequestNosById::get)
+                ?.takeIf { it.isNotBlank() }
+            if (requestNo != null) {
+                MessengerThreadTitleSpec.Localized(R.string.messenger_thread_work_order_format, requestNo)
+            } else {
+                MessengerThreadTitleSpec.Localized(R.string.messenger_thread_work_order)
+            }
+        }
+        MessengerThreadKind.TEAM -> MessengerThreadTitleSpec.Localized(R.string.messenger_thread_team)
+        MessengerThreadKind.DM -> MessengerThreadTitleSpec.Localized(R.string.messenger_thread_dm)
+        MessengerThreadKind.GROUP -> MessengerThreadTitleSpec.Localized(R.string.messenger_thread_group)
+    }
+}
+
+@Composable
+private fun MessengerThreadTitleSpec.localizedText(): String = when (this) {
+    is MessengerThreadTitleSpec.RuntimeData -> text
+    is MessengerThreadTitleSpec.Localized -> formatArg?.let { stringResource(resId, it) }
+        ?: stringResource(resId)
 }
 
 @Composable

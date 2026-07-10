@@ -47,10 +47,14 @@
 "back" = "뒤로";
 "loading" = "처리 중";
 "login_failed" = "로그인에 실패했습니다.";
+"device_registration_retry_pending" = "로그인은 완료되었습니다. 네트워크 복구 후 기기 등록을 다시 시도합니다.";
 "operation_failed" = "처리에 실패했습니다.";
 "offline_queued" = "오프라인 작업으로 저장되었습니다.";
+"offline_persistence_failed" = "오프라인 저장소를 사용할 수 없습니다. 앱을 다시 열기 전에 관리자에게 문의해 주세요.";
 "report_submitted" = "보고가 제출되었습니다.";
 "capture_saved" = "증빙이 저장되었습니다.";
+"evidence_upload_retrying" = "증빙 업로드가 일시 실패했습니다. 네트워크 복구 후 다시 시도합니다.";
+"evidence_upload_failed" = "증빙 업로드에 실패했습니다. 파일 또는 입력값을 확인해 주세요.";
 "camera_cancel" = "취소";
 "camera_shutter" = "촬영";
 "camera_permission_denied" = "카메라 권한이 필요합니다.";
@@ -88,6 +92,11 @@
 "messenger_read_progress_format" = "읽음 %lld/%lld";
 "messenger_member_count_format" = "%lld명";
 "messenger_send_pending" = "오프라인 메시지로 저장되었습니다.";
+"messenger_thread_work_order" = "작업지시 대화";
+"messenger_thread_work_order_format" = "작업지시 %@";
+"messenger_thread_team" = "팀 채널";
+"messenger_thread_dm" = "1:1 대화";
+"messenger_thread_group" = "그룹 대화";
 "messenger_kind_work_order" = "작업";
 "messenger_kind_team" = "팀";
 "messenger_kind_dm" = "1:1";
@@ -211,6 +220,7 @@
 "operations_sensitive_ready_replay_format" = "재전송 준비 %lld건";
 "operations_sensitive_failed" = "실패";
 "operations_sensitive_failed_format" = "실패 %lld건";
+"operations_approval_submitted" = "승인 작업이 제출되었습니다.";
 "operations_approval_queued_for_passkey" = "승인 작업을 패스키 확인 대기열에 추가했습니다.";
 "operations_approval_unsupported_mobile" = "이 승인 유형은 모바일에서 직접 처리할 수 없어 원천 업무 화면에서 처리해야 합니다.";
 "operations_sensitive_replayed" = "대기 중인 민감 작업을 재전송했습니다.";

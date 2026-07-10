@@ -5,7 +5,8 @@
 // Reuses ops/compose.yml (pinned Postgres, SeaweedFS per ADR-0005) + the dev
 // wiring in ops/compose.dev.yml via `-f` layering; ops/compose.dev-deps.yml
 // adds only what those two files don't have yet (Mailpit, a published OTEL
-// port). The one thing this script changes vs. ops/dev-up.sh: mnt-app runs ON
+// port, and the dev-only WAL archive retention helper). The one thing this
+// script changes vs. ops/dev-up.sh: mnt-app runs ON
 // THE HOST under bacon/cargo instead of in a container, so every docker-network
 // hostname (postgres, seaweedfs, otel-collector) has to be rewritten to a
 // published localhost port — that relocation is `buildAppEnv()` below.
@@ -63,6 +64,7 @@ const COMPOSE_FILES = [
 const OFFICE_ENABLED = process.env.MNT_DEV_OFFICE === "1";
 const DEPS_SERVICES = [
   "postgres",
+  "postgres-wal-archive-pruner",
   "seaweedfs",
   "otel-collector",
   "mailpit",
@@ -532,6 +534,9 @@ function buildAppEnv(role) {
     MNT_APP_ROLE: role,
     DATABASE_URL: databaseUrl(),
     MNT_HTTP_ADDR: `127.0.0.1:${PORTS.backend}`,
+    // Local dev intentionally uses the OTP-logging stub unless a caller supplies
+    // a complete SMTP relay config via MNT_EMAIL_*.
+    MNT_EMAIL_STUB_MODE: process.env.MNT_EMAIL_STUB_MODE ?? "dev",
     OTEL_EXPORTER_OTLP_ENDPOINT: `http://127.0.0.1:${PORTS.otel}`,
     OTEL_SERVICE_NAME: "mnt-app-dev",
     MNT_S3_ENDPOINT_URL: `http://127.0.0.1:${PORTS.s3}`,

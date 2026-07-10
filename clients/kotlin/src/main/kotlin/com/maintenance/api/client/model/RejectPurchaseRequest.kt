@@ -23,6 +23,7 @@
 
 package com.maintenance.api.client.model
 
+import com.maintenance.api.client.model.PasskeyStepUpAssertion
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerialName
@@ -32,13 +33,17 @@ import kotlinx.serialization.Contextual
  *
  *
  * @param memo
+ * @param stepUp
  */
 @Serializable
 
 data class RejectPurchaseRequest (
 
     @SerialName(value = "memo")
-    val memo: kotlin.String
+    val memo: kotlin.String,
+
+    @SerialName(value = "step_up")
+    val stepUp: PasskeyStepUpAssertion
 
 ) {
 

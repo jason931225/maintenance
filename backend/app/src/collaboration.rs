@@ -4,7 +4,10 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Extension, Json, Router};
 use mnt_kernel_core::{AuditAction, AuditEvent, ErrorKind, KernelError, TraceContext};
-use mnt_platform_auth::JwtVerifier;
+use mnt_platform_auth::{
+    JwtVerifier, MobilePasskeyStepUpBinding, MobilePasskeyStepUpEnvelope,
+    MobilePasskeyStepUpVerificationError, PasskeyService,
+};
 use mnt_platform_authz::{Feature, PermissionLevel, Principal, permission_for};
 use mnt_platform_db::{DbError, with_audit, with_org_conn};
 use serde::{Deserialize, Serialize};
@@ -17,22 +20,40 @@ use uuid::Uuid;
 pub const CALENDAR_EVENTS_PATH: &str = "/api/v1/collaboration/calendar/events";
 pub const POLLS_PATH: &str = "/api/v1/collaboration/polls";
 pub const POLL_VOTE_PATH_TEMPLATE: &str = "/api/v1/collaboration/polls/{id}/vote";
+pub const MOBILE_POLL_VOTE_PATH_TEMPLATE: &str = "/api/v1/mobile/collaboration/polls/{id}/vote";
+pub const COLLABORATION_ROUTE_PATHS: &[&str] = &[
+    CALENDAR_EVENTS_PATH,
+    POLLS_PATH,
+    POLL_VOTE_PATH_TEMPLATE,
+    MOBILE_POLL_VOTE_PATH_TEMPLATE,
+];
 
 const COLLABORATION_REQUESTS_TOTAL: &str = "collaboration_requests_total";
 const MAX_LIST_LIMIT: i64 = 100;
 const DEFAULT_LIST_LIMIT: i64 = 30;
 const MAX_POLL_OPTIONS: usize = 20;
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct CollaborationState {
     pool: PgPool,
     jwt_verifier: Option<JwtVerifier>,
+    passkey_step_up: Option<PasskeyService>,
 }
 
 impl CollaborationState {
     #[must_use]
     pub fn new(pool: PgPool, jwt_verifier: Option<JwtVerifier>) -> Self {
-        Self { pool, jwt_verifier }
+        Self {
+            pool,
+            jwt_verifier,
+            passkey_step_up: None,
+        }
+    }
+
+    #[must_use]
+    pub fn with_passkey_step_up(mut self, passkey_step_up: Option<PasskeyService>) -> Self {
+        self.passkey_step_up = passkey_step_up;
+        self
     }
 }
 
@@ -46,6 +67,7 @@ pub fn router(state: CollaborationState) -> Router {
         )
         .route(POLLS_PATH, get(list_polls).post(create_poll))
         .route(POLL_VOTE_PATH_TEMPLATE, post(vote_poll))
+        .route(MOBILE_POLL_VOTE_PATH_TEMPLATE, post(vote_mobile_poll))
         .with_state(state);
     mnt_platform_request_context::with_request_context(router, verifier, pool)
 }
@@ -147,6 +169,13 @@ struct CreatePollRequest {
 #[derive(Debug, Deserialize)]
 struct VotePollRequest {
     selected_option_ids: Vec<Uuid>,
+}
+
+#[derive(Debug, Deserialize)]
+struct MobileVotePollRequest {
+    selected_option_ids: Vec<Uuid>,
+    #[serde(default)]
+    step_up: Option<MobilePasskeyStepUpEnvelope>,
 }
 
 #[derive(Debug, Serialize)]
@@ -641,9 +670,45 @@ async fn vote_poll(
     Json(body): Json<VotePollRequest>,
 ) -> Result<Json<PollResponse>, CollaborationError> {
     authorize_collaboration_member(&principal)?;
+    let selected = normalize_selected_options(body.selected_option_ids)?;
+    let response = submit_poll_vote(&state, &principal, poll_id, selected).await?;
+    record_collaboration_request("poll_vote", "success");
+    Ok(Json(response))
+}
+
+async fn vote_mobile_poll(
+    State(state): State<CollaborationState>,
+    Extension(principal): Extension<Principal>,
+    Path(poll_id): Path<Uuid>,
+    Json(body): Json<MobileVotePollRequest>,
+) -> Result<Json<PollResponse>, CollaborationError> {
+    authorize_collaboration_member(&principal)?;
+    let selected = normalize_selected_options(body.selected_option_ids)?;
+    verify_mobile_poll_step_up(
+        &state,
+        &principal,
+        poll_id,
+        body.step_up.ok_or_else(|| {
+            CollaborationError::precondition_required(
+                "passkey_step_up_required",
+                "mobile poll vote requires a fresh passkey step-up",
+            )
+        })?,
+    )
+    .await?;
+    let response = submit_poll_vote(&state, &principal, poll_id, selected).await?;
+    record_collaboration_request("poll_vote", "success");
+    Ok(Json(response))
+}
+
+async fn submit_poll_vote(
+    state: &CollaborationState,
+    principal: &Principal,
+    poll_id: Uuid,
+    selected: Vec<Uuid>,
+) -> Result<PollResponse, CollaborationError> {
     let org = principal.org_id;
     let actor = principal.user_id;
-    let selected = normalize_selected_options(body.selected_option_ids)?;
     let trace = TraceContext::generate();
     let now = OffsetDateTime::now_utc();
     let audit_after = json!({
@@ -660,7 +725,7 @@ async fn vote_poll(
     )
     .with_org(org)
     .with_snapshots(None, Some(audit_after.clone()));
-    let response = with_audit::<_, _, CollaborationError>(&state.pool, audit_event, move |tx| {
+    with_audit::<_, _, CollaborationError>(&state.pool, audit_event, move |tx| {
         Box::pin(async move {
             let poll = load_poll_vote_policy(tx, poll_id).await?;
             if poll.status != PollStatus::Open {
@@ -713,9 +778,49 @@ async fn vote_poll(
             load_poll_response(tx, poll_id, *actor.as_uuid()).await
         })
     })
-    .await?;
-    record_collaboration_request("poll_vote", "success");
-    Ok(Json(response))
+    .await
+}
+
+async fn verify_mobile_poll_step_up(
+    state: &CollaborationState,
+    principal: &Principal,
+    poll_id: Uuid,
+    step_up: MobilePasskeyStepUpEnvelope,
+) -> Result<(), CollaborationError> {
+    step_up
+        .binding
+        .validate()
+        .map_err(|err| CollaborationError::validation(err.to_string()))?;
+    let expected_binding =
+        MobilePasskeyStepUpBinding::poll_vote(poll_id, step_up.binding.replay_attempt);
+    let verifier = state.passkey_step_up.as_ref().ok_or_else(|| {
+        CollaborationError::unavailable("passkey step-up is not configured for collaboration API")
+    })?;
+    verifier
+        .verify_mobile_step_up_for_user(
+            &state.pool,
+            step_up,
+            *principal.user_id.as_uuid(),
+            &expected_binding,
+        )
+        .await
+        .map_err(collaboration_error_from_mobile_step_up)
+}
+
+fn collaboration_error_from_mobile_step_up(
+    error: MobilePasskeyStepUpVerificationError,
+) -> CollaborationError {
+    match error {
+        MobilePasskeyStepUpVerificationError::BindingMismatch => {
+            CollaborationError::unauthorized_with_code(
+                "passkey_step_up_binding_mismatch",
+                "passkey step-up binding does not match the requested action",
+            )
+        }
+        MobilePasskeyStepUpVerificationError::Auth(err) => {
+            CollaborationError::unauthorized_with_code("passkey_step_up_failed", err.to_string())
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -1225,6 +1330,22 @@ impl CollaborationError {
 
     fn not_found(message: impl Into<String>) -> Self {
         Self::from_kernel(KernelError::not_found(message.into()))
+    }
+
+    fn precondition_required(code: &'static str, message: impl Into<String>) -> Self {
+        Self::new(StatusCode::PRECONDITION_REQUIRED, code, message)
+    }
+
+    fn unauthorized_with_code(code: &'static str, message: impl Into<String>) -> Self {
+        Self::new(StatusCode::UNAUTHORIZED, code, message)
+    }
+
+    fn unavailable(message: impl Into<String>) -> Self {
+        Self::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "service_unavailable",
+            message,
+        )
     }
 
     fn internal(message: impl Into<String>) -> Self {

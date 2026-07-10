@@ -30,10 +30,11 @@ no-code). KNL's forklift FSM is the first configured instance proving the generi
 React 19 + Vite + Tailwind v4 (`@theme`) + react-router 7 + Pretendard, typed client `@maintenance/
 api-client-ts`. Rust (axum) bounded-context crates (`domain/application/adapter-*/rest`), sqlx, multi-
 tenant Postgres 18 RLS (runtime role `mnt_rt` NOBYPASSRLS + FORCE RLS; owner `mnt_app` runs migrations
-out-of-band). OpenAPI single source (`backend/openapi/openapi.yaml`, served via `include_str`). OCI/Talos
-k8s, CNPG, Argo Rollouts, image-release auto-deploy on push, secrets in OCI Vault. i18n `web/src/i18n/
-ko.ts` (no inline Hangul). New external integrations are ask-first (Kakao geocode, 전자세금계산서 relay,
-payroll rate data).
+out-of-band). OpenAPI single source (`backend/openapi/openapi.yaml`, served via `include_str`) covers tenant
+and `/api/platform/*` platform-admin routes; generated clients and the web platform API types derive from
+that file. OCI/Talos k8s, CNPG, Argo Rollouts, image-release auto-deploy on push, secrets in OCI Vault.
+i18n `web/src/i18n/ko.ts` (no inline Hangul). New external integrations are ask-first (Kakao geocode,
+전자세금계산서 relay, payroll rate data).
 
 ## Commands
 
@@ -42,14 +43,14 @@ payroll rate data).
 npm run lint        # eslint --max-warnings 0 + check-ui-strings (no inline Hangul)
 npm run build       # tsc -b + vite build
 npm test            # vitest; until #31: npx vitest run --exclude '**/PlatformConsole.test.tsx'
-npm run gen:api:ts  # regen TS client from openapi
+npm run gen:api:ts  # regen TS client from OpenAPI, including platform-admin DTOs
 
 # Backend (cd backend; SQLX_OFFLINE=true; DATABASE_URL=postgres://<user>@localhost/mnt_ci — user REQUIRED)
 cargo fmt --all --check
 cargo clippy --all-targets -- -D warnings
 cargo test -p <crate>                    # #[sqlx::test] applies migrations
 cargo run -p mnt-gate-{rls-arming,tenant-isolation,layer-boundary,audit-coverage,migration-safety}
-npm run check:openapi-app                # served openapi == committed file
+npm run check:openapi-app                # platform route inventory + served openapi == committed file
 npm run gen:api:swift
 ```
 
@@ -60,7 +61,7 @@ backend/crates/<context>/{domain,application,adapter-postgres,adapter-*,rest}   
 backend/crates/platform/{auth,authz,storage,realtime,request-context,db/migrations,email,comms}
 backend/ci/gates/<gate>                  # static-analysis gates
 backend/app/src/lib.rs                   # composition root (routers + background workers)
-backend/openapi/openapi.yaml             # single source; clients regenerated from it
+backend/openapi/openapi.yaml             # single source for tenant + platform routes; clients regenerated from it
 web/src/{pages,features/<domain>,components/{ui,shell,states},i18n,lib,context,api}
 SPEC.md (this) · docs/specs/             # master spec + JIT domain sub-specs (payroll, accounting, org-hierarchy, rbac-configurable)
 .omc/{research,ultragoal}/               # blueprints, research, durable goal ledger
@@ -86,12 +87,14 @@ ids/₩ in `Mono`. New objects = one `ObjectViewConfig<T>` over `ObjectViewScaff
   path, not the BYPASSRLS owner pool) proving create→read round-trip, org-scoping, cross-tenant
   invisibility, fail-closed-unarmed. **Web**: vitest per page + shared kit; **visual-verdict ≥90** on every
   path before a UI phase is "done". **Regulated** (payroll/회계): golden-case tests vs 노무사/세무사-validated
-  worked examples + effective-dated rate-table tests. Gates + fmt/clippy + check:openapi-app green before commit.
+  worked examples + effective-dated rate-table tests. Gates + fmt/clippy + platform route-inventory
+  comparison (`scripts/check-platform-contract-drift.mjs` via `check:openapi-app`) + generated frontend
+  type regeneration/validation (`gen:api:ts`, `check:ts`) green before commit.
 
 ## Boundaries
 
-- **Always**: arm `app.current_org` + a real `mnt_rt` test for every tenant read/write · openapi-first +
-  regen clients · incremental (≤~5 files/task) · gates+fmt+clippy+tests green + evidence before "done" ·
+- **Always**: arm `app.current_org` + a real `mnt_rt` test for every tenant read/write · openapi-first
+  (including `/api/platform/*`) + regen clients · incremental (≤~5 files/task) · gates+fmt+clippy+tests green + evidence before "done" ·
   authoring and review are separate passes (code-reviewer/security-reviewer; never self-approve) ·
   operational/business mutations through the audited console API (never direct SQL).
 - **Ask first**: DB schema changes · new dependencies · new external integrations/keys (Kakao,

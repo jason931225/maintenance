@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 const repoRoot = fileURLToPath(new URL("..", import.meta.url));
 const appRoot = join(repoRoot, "ios/Sources/MaintenanceFieldApp");
 const coreLabelPath = join(repoRoot, "ios/Sources/MaintenanceFieldCore/FieldLabels.swift");
+const coreMessengerPath = join(repoRoot, "ios/Sources/MaintenanceFieldCore/Messenger.swift");
 const stringsPath = join(
   repoRoot,
   "ios/Sources/MaintenanceFieldApp/Resources/ko.lproj/Localizable.strings",
@@ -70,14 +71,36 @@ function isFieldLabelReturn(content, literalStart) {
   return /:\s*$/s.test(prefix);
 }
 
+function isInsideComputedProperty(content, literalStart, propertyName) {
+  const headerPattern = new RegExp(`var\\s+${propertyName}\\s*:`, "g");
+  const prefix = content.slice(0, literalStart);
+  const headers = [...prefix.matchAll(headerPattern)];
+  const header = headers.at(-1);
+  if (!header) return false;
+
+  const openingBrace = content.indexOf("{", header.index);
+  if (openingBrace < 0 || openingBrace > literalStart) return false;
+
+  let depth = 0;
+  for (let index = openingBrace; index < content.length; index += 1) {
+    const char = content[index];
+    if (char === "{") depth += 1;
+    if (char === "}") depth -= 1;
+    if (index >= literalStart) return depth > 0;
+    if (depth === 0) return false;
+  }
+  return false;
+}
+
 const localizableKeys = parseLocalizableKeys(await readFile(stringsPath, "utf8"));
-const files = [...(await collectSwiftFiles(appRoot)), coreLabelPath];
+const files = [...(await collectSwiftFiles(appRoot)), coreLabelPath, coreMessengerPath];
 const violations = [];
 
 for (const file of files) {
   const content = await readFile(file, "utf8");
   const displayPath = relative(repoRoot, file).split(/[\\/]/).join("/");
   const isFieldLabelsFile = file === coreLabelPath;
+  const isMessengerFile = file === coreMessengerPath;
 
   for (const match of content.matchAll(swiftStringLiteral)) {
     const [raw] = match;
@@ -92,7 +115,8 @@ for (const file of files) {
     const shouldResolveKey =
       uiCallUsesLocalizedKey(content, match.index) ||
       isMessageKeyAssignment(content, match.index) ||
-      (isFieldLabelsFile && isFieldLabelReturn(content, match.index));
+      (isFieldLabelsFile && isFieldLabelReturn(content, match.index)) ||
+      (isMessengerFile && isInsideComputedProperty(content, match.index, "displayTitle"));
 
     if (shouldResolveKey && !localizableKeys.has(value)) {
       violations.push(`${displayPath}:${line}: localized key "${value}" is missing from Localizable.strings`);

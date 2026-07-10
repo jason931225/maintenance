@@ -18,6 +18,7 @@ on:
       - "android/**"
       - "ios/**"
       - "deploy/**"
+      - "docs/CI-GATES.md"
       - "docs/benchmarks/**"
       - "docs/specs/**"
       - "docs/ENTERPRISE-READINESS.md"
@@ -46,6 +47,7 @@ on:
       - "android/**"
       - "ios/**"
       - "deploy/**"
+      - "docs/CI-GATES.md"
       - "docs/benchmarks/**"
       - "docs/specs/**"
       - "docs/ENTERPRISE-READINESS.md"
@@ -76,6 +78,7 @@ jobs:
   backend:
     name: Backend — fmt / clippy / test / gates
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:18.4
@@ -119,68 +122,84 @@ jobs:
           toolchain: "1.96.0"
           components: rustfmt, clippy
 
-      - name: Cache Cargo registry + build artifacts
-        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0
+      - name: Cache Rust dependencies + build artifacts
+        # rust-cache keys on Cargo.lock + rustc + job, caches registry/git deps
+        # and prunes stale crates from target/ (so the cache does not grow
+        # unbounded on every Cargo.lock change the way a raw target/ cache does).
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            backend/target
-          key: ${{ runner.os }}-cargo-backend-${{ hashFiles('backend/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-backend-
-            ${{ runner.os }}-cargo-
+          workspaces: backend
 
       - name: Cargo.lock freshness gate
+        if: ${{ !cancelled() }}
         run: cargo tree --locked --workspace --target all >/dev/null
 
       - name: rustfmt check
+        if: ${{ !cancelled() }}
         run: cargo fmt --all -- --check
 
       - name: clippy -D warnings
+        if: ${{ !cancelled() }}
         run: SQLX_OFFLINE=true cargo clippy --all-targets -- -D warnings
 
       - name: cargo test
+        if: ${{ !cancelled() }}
         # SQLX_OFFLINE=true so the query! macros compile against the committed
         # .sqlx cache (the documented contract — see crates/platform/db/src/lib.rs)
         # rather than the unmigrated CI service DB. The #[sqlx::test] runtime
         # tests still use DATABASE_URL to create their own per-test databases.
         # Without this, a Cargo.lock change busts the build cache and the macros
         # re-check online against a schema-less DB ("audit_events does not exist").
-        run: SQLX_OFFLINE=true cargo test
+        # --no-fail-fast runs every test binary so one failing suite does not hide
+        # the rest — the whole run reports all failures.
+        run: SQLX_OFFLINE=true cargo test --no-fail-fast
 
       - name: Layer-boundary gate
+        if: ${{ !cancelled() }}
         run: cargo run -p mnt-gate-layer-boundary
 
       - name: Audit-coverage gate
+        if: ${{ !cancelled() }}
         run: cargo run -p mnt-gate-audit-coverage
 
       - name: Migration-safety gate
+        if: ${{ !cancelled() }}
         run: cargo run -p mnt-gate-migration-safety
 
       - name: Tenant-isolation gate
+        if: ${{ !cancelled() }}
         run: cargo run -p mnt-gate-tenant-isolation
 
       - name: PII-no-logs gate
+        if: ${{ !cancelled() }}
         run: cargo run -p mnt-gate-pii-no-logs
 
       - name: RLS-arming gate
+        if: ${{ !cancelled() }}
         run: cargo run -p mnt-gate-rls-arming
 
       - name: Dev-auth-absence gate
+        if: ${{ !cancelled() }}
         run: cargo run -p mnt-gate-dev-auth-absence
 
       - name: IaC tier-discipline gate
+        if: ${{ !cancelled() }}
         run: cargo run -p mnt-gate-iac-tier
 
       - name: Dev-auth feature build/tests
+        if: ${{ !cancelled() }}
         # `dev-auth` is NOT in default features (proven above) — build/test it
         # explicitly so its code path still compiles and its own tests
         # (including the route-present-under-the-feature session tests) run.
+        # `set -e` would abort on the first failing invocation and hide the rest;
+        # run all three, recording failure, then propagate the real exit code so
+        # one run reports every failing suite (no exit-code masking).
         run: |
-          SQLX_OFFLINE=true cargo test -p mnt-platform-auth-rest --features dev-auth
-          SQLX_OFFLINE=true cargo test -p mnt-app --features dev-auth --test dev_auth_persona_guard_feature
-          SQLX_OFFLINE=true cargo test -p mnt-platform-provisioning --test dev_principal_upsert_race
+          rc=0
+          SQLX_OFFLINE=true cargo test -p mnt-platform-auth-rest --features dev-auth --no-fail-fast || rc=1
+          SQLX_OFFLINE=true cargo test -p mnt-app --features dev-auth --test dev_auth_persona_guard_feature --no-fail-fast || rc=1
+          SQLX_OFFLINE=true cargo test -p mnt-platform-provisioning --test dev_principal_upsert_race --no-fail-fast || rc=1
+          exit $rc
 
   dev-up-smoke:
     name: dev-up.mjs smoke — compose deps + migrate + /readyz + dev-auth e2e
@@ -204,17 +223,10 @@ jobs:
         with:
           toolchain: "1.96.0"
 
-      - name: Cache Cargo registry + build artifacts
-        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0
+      - name: Cache Rust dependencies + build artifacts
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            backend/target
-          key: ${{ runner.os }}-cargo-dev-up-smoke-${{ hashFiles('backend/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-dev-up-smoke-
-            ${{ runner.os }}-cargo-
+          workspaces: backend
 
       - name: Set up Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -277,6 +289,7 @@ jobs:
   api-clients:
     name: API clients — TypeScript / Kotlin generation and compile
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -304,14 +317,17 @@ jobs:
         run: git diff --exit-code -- clients/ts clients/kotlin
 
       - name: TypeScript compile
+        if: ${{ !cancelled() }}
         run: npm run check:ts
 
       - name: Kotlin compile
+        if: ${{ !cancelled() }}
         run: npm run check:kotlin
 
   web:
     name: Web console — lint / test / build
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -327,74 +343,105 @@ jobs:
         run: npm ci
 
       - name: Foundation gate contract
+        if: ${{ !cancelled() }}
         run: npm run check:foundation-gates
 
       - name: Shared text gate unit tests
+        if: ${{ !cancelled() }}
         run: npm run test:text-gate
 
       - name: Enterprise UX parity / no-text-wall gate
+        if: ${{ !cancelled() }}
         run: npm run check:enterprise-ux-parity
 
       - name: Browser persona E2E matrix gate
+        if: ${{ !cancelled() }}
         run: npm run check:browser-persona-matrix
 
+      - name: iOS UI-test fail-closed workflow guard
+        if: ${{ !cancelled() }}
+        run: npm run check:ios-ui-test-fail-closed
+
+      - name: Android E2E fail-closed workflow guard
+        if: ${{ !cancelled() }}
+        run: npm run check:android-e2e-fail-closed
+
       - name: G004 identity group org people policy foundation gate
+        if: ${{ !cancelled() }}
         run: npm run check:g004-identity-foundation
 
       - name: G005 workflow approval Work Hub lifecycle gate
+        if: ${{ !cancelled() }}
         run: npm run check:g005-workflow-lifecycle
 
       - name: Workflow runtime spine gate
+        if: ${{ !cancelled() }}
         run: npm run check:workflow-runtime-spine
 
       - name: Workflow runtime M2 strangler dark-landing gate
+        if: ${{ !cancelled() }}
         run: npm run check:workflow-runtime-m2-strangler
 
       - name: Workflow runtime M2 Cedar-guard observe-and-record gate
+        if: ${{ !cancelled() }}
         run: npm run check:workflow-runtime-m2-cedar-guards
 
       - name: Workflow runtime M2 flag-ON runtime gate
+        if: ${{ !cancelled() }}
         run: npm run check:workflow-runtime-m2-runtime
 
       - name: Workflow runtime M2 outbox-drainer transactional-idempotency gate
+        if: ${{ !cancelled() }}
         run: npm run check:workflow-runtime-m2-drainer
 
       - name: G006 asset equipment dispatch lifecycle gate
+        if: ${{ !cancelled() }}
         run: npm run check:g006-asset-dispatch-lifecycle
 
       - name: G007 collaboration mail calendar poll mobile lifecycle gate
+        if: ${{ !cancelled() }}
         run: npm run check:g007-collaboration-mobile-lifecycle
 
       - name: G008 import HR payroll readiness gate
+        if: ${{ !cancelled() }}
         run: npm run check:g008-payroll-readiness
 
       - name: People HR lifecycle maturity gate
+        if: ${{ !cancelled() }}
         run: npm run check:people-hr-maturity
 
       - name: Payroll release-gate contract
+        if: ${{ !cancelled() }}
         run: npm run check:payroll-release-gate
 
       - name: Financial maturity gate
+        if: ${{ !cancelled() }}
         run: npm run check:financial-maturity
 
       - name: CX reporting BI maturity gate
+        if: ${{ !cancelled() }}
         run: npm run check:cx-reporting-maturity
 
       - name: Operations intelligence maturity gate
+        if: ${{ !cancelled() }}
         run: npm run check:operations-intelligence-maturity
 
       - name: Lint (eslint + UI-string gate)
+        if: ${{ !cancelled() }}
         run: npm run lint --workspace @maintenance/web-console
 
       - name: Unit tests
+        if: ${{ !cancelled() }}
         run: npm run test --workspace @maintenance/web-console
 
       - name: Production build
+        if: ${{ !cancelled() }}
         run: npm run build --workspace @maintenance/web-console
 
   api-contract:
     name: API contract — app OpenAPI and generated TS round-trip
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:18.4
@@ -430,17 +477,10 @@ jobs:
         with:
           toolchain: "1.96.0"
 
-      - name: Cache Cargo registry + build artifacts
-        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0
+      - name: Cache Rust dependencies + build artifacts
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            backend/target
-          key: ${{ runner.os }}-cargo-contract-${{ hashFiles('backend/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-contract-
-            ${{ runner.os }}-cargo-
+          workspaces: backend
 
       - name: Set up Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
@@ -452,14 +492,17 @@ jobs:
         run: npm ci
 
       - name: OpenAPI app-served drift gate
+        if: ${{ !cancelled() }}
         run: npm run check:openapi-app
 
       - name: Generated TypeScript client round-trip
+        if: ${{ !cancelled() }}
         run: npm run test:contract
 
   kubernetes-manifests:
-    name: Kubernetes manifests — render / hardening / Argo target guard
+    name: Kubernetes manifests — render / hardening / NetworkPolicy preflight
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout
@@ -475,15 +518,23 @@ jobs:
           sudo install -m 0755 kubectl /usr/local/bin/kubectl
           kubectl version --client=true
 
-      - name: Render production manifests and guard Argo targets
-        run: scripts/render-k8s-manifests.sh "${RUNNER_TEMP}/rendered-k8s"
+      - name: Render manifests and NetworkPolicy enforcement preflight
+        if: ${{ !cancelled() }}
+        # Generic CI has no production kubeconfig, so the live readback runs in
+        # warning mode here. Real deployment validation must set
+        # MNT_NETWORKPOLICY_PREFLIGHT=require against the target cluster.
+        env:
+          MNT_NETWORKPOLICY_PREFLIGHT: warn
+        run: npm run check:k8s
 
       - name: Production hardening contract
+        if: ${{ !cancelled() }}
         run: npm run check:production-hardening
 
   swift-client:
     name: API client — Swift generation and build
     runs-on: macos-latest
+    timeout-minutes: 25
 
     steps:
       - name: Checkout
@@ -508,20 +559,24 @@ jobs:
         run: git diff --exit-code -- clients/swift
 
       - name: Swift build
+        if: ${{ !cancelled() }}
         run: npm run check:swift
 
   mobile-parity:
     name: Mobile parity — checklist and strings
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
 
       - name: Check hardcoded UI strings across clients
+        if: ${{ !cancelled() }}
         run: node scripts/check-i18n.mjs
 
       - name: Check parity checklist and localized string keys
+        if: ${{ !cancelled() }}
         run: |
           node --input-type=module <<'NODE'
           import { readFileSync } from "node:fs";
@@ -540,6 +595,10 @@ jobs:
             location_consent_collection: "iOS base label; Android uses location_consent_collection_format",
             location_consent_state: "SwiftUI location-consent status label",
             messenger_search_no_results: "iOS messenger search empty-state copy",
+            evidence_upload_failed: "iOS-only evidence upload failure copy",
+            evidence_upload_retrying: "iOS-only evidence upload retry copy",
+            offline_persistence_failed: "iOS-only offline persistence failure copy",
+            operations_approval_submitted: "iOS-only operations approval confirmation copy",
             request_no: "SwiftUI detail label",
             result_type: "SwiftUI alias for report_result_type",
             site: "SwiftUI detail label",
@@ -629,6 +688,7 @@ jobs:
   android-app:
     name: Android app — Gradle build
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: mobile-parity
 
     steps:
@@ -662,10 +722,12 @@ jobs:
         run: ./gradlew build -x testReleaseUnitTest -x testDebugUnitTest
 
       - name: Robolectric Compose UI + accessibility tests
+        if: ${{ !cancelled() }}
         working-directory: android
         run: ./gradlew testDebugUnitTest
 
       - name: Roborazzi screenshot verification
+        if: ${{ !cancelled() }}
         working-directory: android
         # Goldens are recorded and committed under android/app/src/test/snapshots.
         # verifyRoborazziDebug is the regression gate; it fails on any pixel diff.
@@ -686,6 +748,7 @@ jobs:
   android-instrumented:
     name: Android app — instrumented post-login E2E (emulator)
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     needs: android-app
 
     steps:
@@ -715,39 +778,96 @@ jobs:
           sdkmanager --install "platform-tools" "platforms;android-36" "build-tools;36.1.0"
 
       - name: Mint a real backend session for the test user
-        id: session
         # No fakes: obtain a REAL session from the REAL backend. The test user's passkey
         # was registered through the automatable web ceremony; here we refresh its token at
-        # run start and hand the fresh access+refresh pair to the instrumented test.
-        # When the backend secret is absent (e.g. forks), the test self-skips via Assume.
+        # run start and hand the fresh access+refresh pair to the instrumented test via a
+        # permission-restricted temporary androidTest asset fixture (never step outputs or
+        # raw Gradle CLI arguments).
+        # Protected branch push runs require a real session. Fork PRs/manual optional
+        # contexts may still run without secrets, but must log an explicit optional skip.
         env:
           FIELD_E2E_BASE_URL: ${{ secrets.FIELD_E2E_BASE_URL }}
           FIELD_E2E_SEED_REFRESH_TOKEN: ${{ secrets.FIELD_E2E_SEED_REFRESH_TOKEN }}
+          # Trust-context decision, not a function of whether secrets are present:
+          # missing required inputs must fail closed before Gradle can false-green.
+          FIELD_E2E_REQUIRE_REAL_SESSION: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && '1' || '0' }}
         run: |
-          if [ -z "$FIELD_E2E_BASE_URL" ] || [ -z "$FIELD_E2E_SEED_REFRESH_TOKEN" ]; then
-            echo "No backend E2E secrets configured; instrumented test will self-skip."
-            echo "access=" >> "$GITHUB_OUTPUT"
-            echo "refresh=" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          if [ -z "${FIELD_E2E_BASE_URL:-}" ] || [ -z "${FIELD_E2E_SEED_REFRESH_TOKEN:-}" ]; then
+            if [ "${FIELD_E2E_REQUIRE_REAL_SESSION:-0}" = "1" ]; then
+              echo "::error title=Required Android E2E real-session inputs are missing::Protected branch push runs require FIELD_E2E_BASE_URL and FIELD_E2E_SEED_REFRESH_TOKEN; refusing a false-green post-login gate."
+              if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+                {
+                  echo "### Android instrumented E2E real-session gate"
+                  echo "- Gate: required"
+                  echo "- Result: failed closed before Gradle Managed Device execution"
+                  echo "- Required inputs: FIELD_E2E_BASE_URL and FIELD_E2E_SEED_REFRESH_TOKEN"
+                } >> "$GITHUB_STEP_SUMMARY"
+              fi
+              exit 1
+            fi
+            echo "::notice title=Optional Android E2E real-session gate skipped::FIELD_E2E_BASE_URL or FIELD_E2E_SEED_REFRESH_TOKEN is unavailable in this optional context; session-dependent instrumented tests may self-skip and this run is not protected-branch post-login evidence."
+            if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
+              {
+                echo "### Android instrumented E2E real-session gate"
+                echo "- Gate: optional/skipped"
+                echo "- Reason: FIELD_E2E_BASE_URL or FIELD_E2E_SEED_REFRESH_TOKEN was not available in this non-required context"
+                echo "- Required protected branch push contexts fail closed before Gradle execution"
+              } >> "$GITHUB_STEP_SUMMARY"
+            fi
+            echo "FIELD_E2E_SESSION_ASSETS_DIR=" >> "$GITHUB_ENV"
             exit 0
           fi
-          resp=$(curl -fsS -X POST "$FIELD_E2E_BASE_URL/api/v1/auth/refresh" \
+          printf '::add-mask::%s\n' "$FIELD_E2E_SEED_REFRESH_TOKEN"
+          session_assets_dir="${RUNNER_TEMP}/android-e2e-session-assets"
+          session_file="${session_assets_dir}/field-e2e-session.properties"
+          rm -rf "$session_assets_dir"
+          install -d -m 700 "$session_assets_dir"
+          if ! resp=$(curl -fsS -X POST "$FIELD_E2E_BASE_URL/api/v1/auth/refresh" \
             -H 'Content-Type: application/json' \
-            -d "{\"refresh_token\":\"$FIELD_E2E_SEED_REFRESH_TOKEN\"}")
-          echo "access=$(echo "$resp" | jq -r '.access_token')" >> "$GITHUB_OUTPUT"
-          echo "refresh=$(echo "$resp" | jq -r '.refresh_token')" >> "$GITHUB_OUTPUT"
+            -d "{\"refresh_token\":\"$FIELD_E2E_SEED_REFRESH_TOKEN\"}"); then
+            echo "::error title=Android E2E real-session mint failed::The backend refresh-token exchange failed; refusing a false-green post-login gate."
+            exit 1
+          fi
+          if ! access_token=$(printf '%s' "$resp" | jq -er '.access_token'); then
+            echo "::error title=Android E2E real-session mint failed::The backend response did not contain access_token; refusing a false-green post-login gate."
+            exit 1
+          fi
+          if ! refresh_token=$(printf '%s' "$resp" | jq -er '.refresh_token'); then
+            echo "::error title=Android E2E real-session mint failed::The backend response did not contain refresh_token; refusing a false-green post-login gate."
+            exit 1
+          fi
+          printf '::add-mask::%s\n' "$access_token"
+          printf '::add-mask::%s\n' "$refresh_token"
+          umask 077
+          {
+            printf 'FIELD_E2E_ACCESS_TOKEN=%s\n' "$access_token"
+            printf 'FIELD_E2E_REFRESH_TOKEN=%s\n' "$refresh_token"
+          } > "$session_file"
+          chmod 600 "$session_file"
+          echo "FIELD_E2E_SESSION_ASSETS_DIR=$session_assets_dir" >> "$GITHUB_ENV"
 
       - name: Instrumented post-login E2E on Gradle Managed Device
         working-directory: android
         # Gradle Managed Device: API 34, google_apis_playstore, swiftshader_indirect.
         # The device is declared in app/build.gradle.kts (fieldApi34 GMD).
+        env:
+          FIELD_E2E_SESSION_ASSETS_DIR: ${{ env.FIELD_E2E_SESSION_ASSETS_DIR }}
         run: |
-          ./gradlew fieldApi34DebugAndroidTest \
-            -Pandroid.testInstrumentationRunnerArguments.FIELD_E2E_ACCESS_TOKEN="${{ steps.session.outputs.access }}" \
-            -Pandroid.testInstrumentationRunnerArguments.FIELD_E2E_REFRESH_TOKEN="${{ steps.session.outputs.refresh }}"
+          cleanup_session_fixture() {
+            if [ -n "${FIELD_E2E_SESSION_ASSETS_DIR:-}" ]; then
+              rm -rf "$FIELD_E2E_SESSION_ASSETS_DIR"
+              find app/build -type f -name 'field-e2e-session.properties' -delete 2>/dev/null || true
+              find app/build -type f -name '*androidTest*.apk' -delete 2>/dev/null || true
+            fi
+          }
+          trap cleanup_session_fixture EXIT
+          ./gradlew fieldApi34DebugAndroidTest
 
   ios-app:
     name: iOS app — Swift build and behavior tests
     runs-on: macos-latest
+    timeout-minutes: 30
     needs: mobile-parity
 
     steps:
@@ -762,10 +882,12 @@ jobs:
         run: swift build
 
       - name: Swift package tests
+        if: ${{ !cancelled() }}
         working-directory: ios
         run: swift test
 
       - name: Behavior runner
+        if: ${{ !cancelled() }}
         working-directory: ios
         run: swift run MaintenanceFieldCoreBehaviorTests
 
@@ -813,16 +935,10 @@ jobs:
         with:
           toolchain: "1.96.0"
 
-      - name: Cache Cargo registry + build artifacts
-        uses: actions/cache@2c8a9bd7457de244a408f35966fab2fb45fda9c8 # v6.0.0
+      - name: Cache Rust dependencies + build artifacts
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
         with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            backend/target
-          key: ${{ runner.os }}-cargo-${{ hashFiles('backend/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-
+          workspaces: backend
 
       - name: Set up Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0

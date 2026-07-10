@@ -16,7 +16,9 @@ pub use jwt::{
 };
 pub use refresh::{RefreshToken, RefreshTokenIssue, RefreshTokenStore, RefreshTokenUseError};
 pub use webauthn::{
-    AuthenticationCeremony, AuthenticationOutcome, PasskeyAuthenticationCredential,
+    AuthenticationCeremony, AuthenticationOutcome, MobilePasskeyStepUpAssertion,
+    MobilePasskeyStepUpBinding, MobilePasskeyStepUpEnvelope, MobilePasskeyStepUpVerificationError,
+    MobileStepUpActionKind, MobileStepUpBindingError, PasskeyAuthenticationCredential,
     PasskeyRegistrationCredential, PasskeyRegistrationStart, PasskeyService, RegistrationCeremony,
     StoredPasskey, WebauthnSettings,
 };

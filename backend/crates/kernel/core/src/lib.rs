@@ -18,7 +18,7 @@ pub mod transition;
 pub mod validation;
 
 pub use access_scope::{AccessScope, AccessScopeLevel, BranchProjection, ScopeNodeId};
-pub use audit::{AuditAction, AuditEvent};
+pub use audit::{AuditAction, AuditClassification, AuditEvent, AuditRequestContext};
 pub use branch::BranchScope;
 pub use clock::{Clock, FixedClock, SystemClock};
 pub use error::{ErrorKind, KernelError};
