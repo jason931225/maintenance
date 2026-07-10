@@ -1,5 +1,5 @@
 import { Monitor, QrCode } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
 import { Button } from "../components/ui/button";
@@ -28,55 +28,6 @@ function onboardingDestination(session: AuthSession | undefined): string {
       session?.feature_grants,
     ).find((item) => item.key !== "profile")?.href ?? "/pending"
   );
-}
-
-function handoffSessionFromAccessToken(accessToken: string): AuthSession {
-  return {
-    access_token: accessToken,
-    requires_passkey_setup: false,
-    ...decodeAccessTokenRoutingClaims(accessToken),
-  };
-}
-
-function decodeAccessTokenRoutingClaims(
-  accessToken: string,
-): Pick<AuthSession, "roles" | "group_roles" | "feature_grants" | "isPlatform"> {
-  try {
-    const payload = accessToken.split(".")[1];
-    if (!payload) return {};
-    const normalized = payload.replace(/-/g, "+").replace(/_/g, "/");
-    const padded = normalized.padEnd(
-      normalized.length + ((4 - (normalized.length % 4)) % 4),
-      "=",
-    );
-    const binary = atob(padded);
-    const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
-    const json = new TextDecoder().decode(bytes);
-    const claims = JSON.parse(json) as {
-      roles?: unknown;
-      group_roles?: unknown;
-      feature_grants?: unknown;
-      platform?: unknown;
-    };
-    return {
-      roles: Array.isArray(claims.roles)
-        ? claims.roles.filter((role): role is string => typeof role === "string")
-        : undefined,
-      group_roles: Array.isArray(claims.group_roles)
-        ? claims.group_roles.filter(
-            (role): role is string => typeof role === "string",
-          )
-        : undefined,
-      feature_grants: Array.isArray(claims.feature_grants)
-        ? claims.feature_grants.filter(
-            (feature): feature is string => typeof feature === "string",
-          )
-        : undefined,
-      isPlatform: claims.platform === true,
-    };
-  } catch {
-    return {};
-  }
 }
 
 const privacyConsentSections = [
@@ -145,6 +96,7 @@ export function OnboardingPage() {
   );
   const [pending, setPending] = useState(false);
   const [showQr, setShowQr] = useState(false);
+  const handoffRedirectTokenRef = useRef<string | undefined>(undefined);
   const [error, setError] = useState<string | undefined>(undefined);
 
   const loadConsentStatus = useCallback(async () => {
@@ -221,20 +173,30 @@ export function OnboardingPage() {
 
   const handlePhoneQrCompleted = useCallback(
     (accessToken?: string) => {
-      const destinationSession = accessToken
-        ? handoffSessionFromAccessToken(accessToken)
-        : session;
-      if (accessToken) {
-        acceptTokens({
-          access_token: accessToken,
-          requires_passkey_setup: false,
-        });
+      if (!accessToken) {
+        clearPasskeySetup();
+        void navigate(onboardingDestination(session), { replace: true });
+        return;
       }
-      clearPasskeySetup();
-      void navigate(onboardingDestination(destinationSession), { replace: true });
+
+      acceptTokens({
+        access_token: accessToken,
+        requires_passkey_setup: false,
+      });
+      handoffRedirectTokenRef.current = accessToken;
     },
     [acceptTokens, clearPasskeySetup, navigate, session],
   );
+
+  useEffect(() => {
+    const redirectToken = handoffRedirectTokenRef.current;
+    if (!redirectToken || session?.access_token !== redirectToken) {
+      return;
+    }
+    handoffRedirectTokenRef.current = undefined;
+    clearPasskeySetup();
+    void navigate(onboardingDestination(session), { replace: true });
+  }, [clearPasskeySetup, navigate, session]);
 
   const busy = pending || consentLoading || consentPending;
   const canAcceptConsent = privacyChecked && termsChecked && !consentPending;

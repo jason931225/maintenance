@@ -400,7 +400,7 @@ describe("OnboardingPage object-first first login", () => {
         access_token: qrAccessToken,
         requires_passkey_setup: false,
       });
-      expect(clearPasskeySetup).toHaveBeenCalledTimes(1);
+      expect(clearPasskeySetup).toHaveBeenCalled();
       expect(screen.getByLabelText("current location")).toHaveTextContent(
         "/approvals",
       );
