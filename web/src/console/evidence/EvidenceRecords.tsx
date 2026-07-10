@@ -1,12 +1,26 @@
 // 증거 records surface — EV- rows with a compact stat bar, admissibility/hold
 // filters, objDrag row sources, and detail opening as the right pin (§4.7-3;
 // inline aside fallback when no window shell is mounted, e.g. legacy pages).
-import { useMemo, useState, type CSSProperties } from "react";
+// Real-wired: GET /api/v1/evidence/objects (list) + GET .../{id} (detail on
+// open) + verify/hold via evidenceApi. After every mutation the full detail is
+// refetched — never client-synthesized (§4-25-⑥).
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 
+import type { ConsoleApiClient } from "../../api/client";
 import { ko } from "../../i18n/ko";
+import { safeLabel } from "../../lib/utils";
 import { StatusChip } from "../components";
 import { objDrag, useOptionalWindowManager } from "../window";
-import { EvidenceCard, evidenceWindowEntry } from "./EvidenceCard";
+import { EvidenceCard, evidenceWindowEntry, type EvidenceCardProps } from "./EvidenceCard";
+import {
+  applyLegalHold,
+  decideHoldReleaseApproval,
+  getEvidenceObjectDetail,
+  listEvidenceObjects,
+  releaseLegalHold,
+  requestHoldReleaseApproval,
+  verifyEvidenceObject,
+} from "./evidenceApi";
 import {
   admissibilityLabel,
   admissibilityTone,
@@ -15,18 +29,14 @@ import {
   originalOf,
   shortDigest,
 } from "./evidenceModel";
-import { createEvidenceStubs } from "./evidenceStubs";
-import type {
-  AdmissibilityStatus,
-  EvidenceObjectDetail,
-  VerifyEvidence,
-} from "./types";
+import type { AdmissibilityStatus, EvidenceObjectDetail } from "./types";
 import "../tokens.css";
 
 const T = ko.console.evidence;
 const TA = ko.console.audit;
 
 type RecordsFilter = "ALL" | AdmissibilityStatus | "HOLD";
+type ListState = "loading" | "ready" | "error";
 
 const ADMISSIBILITY_ORDER: readonly AdmissibilityStatus[] = [
   "ADMISSIBLE",
@@ -158,26 +168,78 @@ const asideBarStyle: CSSProperties = {
   padding: "var(--sp-3) var(--sp-3) 0",
 };
 
+const errorPaneStyle: CSSProperties = {
+  display: "grid",
+  gap: "var(--sp-2)",
+  padding: "var(--sp-4)",
+  border: "1px solid var(--danger-bd)",
+  borderRadius: "var(--radius-card)",
+  background: "var(--danger-bg)",
+  color: "var(--danger-tx)",
+};
+
 function timestampLabel(value: string): string {
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : TA.datetime(date);
 }
 
 export interface EvidenceRecordsProps {
-  /**
-   * EV rows. Defaults to the stub feed.
-   * wire-pending: Phase C → GET /api/v1/evidence-objects (t_15b1a1ec §7.1).
-   */
-  records?: EvidenceObjectDetail[];
-  /** Real fixity poll for the detail's 무결성 검증 affordance. */
-  verify?: VerifyEvidence;
+  api: ConsoleApiClient;
+  /** The signed-in user — blocks a self-decide in the hold-release UI. */
+  currentUserId?: string;
 }
 
-export function EvidenceRecords({ records, verify }: EvidenceRecordsProps) {
-  const rows = useMemo(() => records ?? createEvidenceStubs(), [records]);
+export function EvidenceRecords({ api, currentUserId }: EvidenceRecordsProps) {
+  const [rows, setRows] = useState<EvidenceObjectDetail[]>([]);
+  const [listState, setListState] = useState<ListState>("loading");
+  const [users, setUsers] = useState<Map<string, string>>(new Map());
   const [filter, setFilter] = useState<RecordsFilter>("ALL");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [openError, setOpenError] = useState<string | null>(null);
+  const [openingId, setOpeningId] = useState<string | null>(null);
   const windowManager = useOptionalWindowManager();
+
+  const resolveName = useCallback(
+    (id: string | null | undefined): string => safeLabel(id ? users.get(id) : undefined),
+    [users],
+  );
+
+  const resolveNames = useCallback(
+    (detail: EvidenceObjectDetail): EvidenceObjectDetail => ({
+      ...detail,
+      custodian: resolveName(detail.custodian),
+      custody: detail.custody.map((event) => ({
+        ...event,
+        actor: event.actor ? resolveName(event.actor) : event.actor,
+      })),
+    }),
+    [resolveName],
+  );
+
+  const loadList = useCallback(async () => {
+    setListState("loading");
+    try {
+      const items = await listEvidenceObjects(api);
+      setRows(items.map(resolveNames));
+      setListState("ready");
+    } catch {
+      setListState("error");
+    }
+  }, [api, resolveNames]);
+
+  useEffect(() => {
+    void Promise.resolve().then(loadList);
+  }, [loadList]);
+
+  useEffect(() => {
+    void api
+      .GET("/api/v1/users")
+      .then((res) => {
+        if (!res.data) return;
+        setUsers(new Map(res.data.items.map((u) => [u.id, u.display_name])));
+      })
+      .catch(() => undefined);
+  }, [api]);
 
   const counts = useMemo(() => {
     const byStatus = new Map<AdmissibilityStatus, number>();
@@ -197,12 +259,59 @@ export function EvidenceRecords({ records, verify }: EvidenceRecordsProps) {
 
   const selected = rows.find((row) => row.id === selectedId);
 
-  function openDetail(row: EvidenceObjectDetail): void {
-    if (windowManager) {
-      windowManager.open(evidenceWindowEntry(row, verify));
-      return;
+  // Plain functions (not hooks) so the refreshDetail ↔ mountEntry ↔
+  // buildCardProps mutual recursion below can rely on ordinary function-
+  // declaration hoisting instead of fighting the hooks lint's forward-
+  // reference rule.
+  async function refreshDetail(id: string): Promise<void> {
+    try {
+      const fresh = resolveNames(await getEvidenceObjectDetail(api, id));
+      setRows((current) => current.map((row) => (row.id === id ? fresh : row)));
+      mountEntry(fresh);
+    } catch {
+      // Best-effort refresh — the mutation itself already surfaced its own
+      // error to the caller; the row keeps showing the last-known state.
     }
-    setSelectedId(row.id);
+  }
+
+  function buildCardProps(id: string): Omit<EvidenceCardProps, "detail"> {
+    return {
+      currentUserId,
+      verify: (detail) => verifyEvidenceObject(api, detail.id),
+      applyHold: async (body) => {
+        await applyLegalHold(api, id, body);
+        await refreshDetail(id);
+      },
+      requestHoldRelease: (holdId) => requestHoldReleaseApproval(api, id, holdId),
+      decideHoldRelease: (requestRef, requestedBy, decision) =>
+        decideHoldReleaseApproval(api, requestRef, requestedBy, decision),
+      releaseHold: async (body) => {
+        await releaseLegalHold(api, id, body);
+        await refreshDetail(id);
+      },
+    };
+  }
+
+  function mountEntry(detail: EvidenceObjectDetail): void {
+    if (windowManager) {
+      windowManager.open(evidenceWindowEntry(detail, buildCardProps(detail.id)));
+    } else {
+      setSelectedId(detail.id);
+    }
+  }
+
+  async function openDetail(row: EvidenceObjectDetail): Promise<void> {
+    setOpenError(null);
+    setOpeningId(row.id);
+    try {
+      const fresh = resolveNames(await getEvidenceObjectDetail(api, row.id));
+      setRows((current) => current.map((r) => (r.id === row.id ? fresh : r)));
+      mountEntry(fresh);
+    } catch {
+      setOpenError(T.records.openFailed);
+    } finally {
+      setOpeningId(null);
+    }
   }
 
   function statButton(key: RecordsFilter, label: string, count: number) {
@@ -223,6 +332,33 @@ export function EvidenceRecords({ records, verify }: EvidenceRecordsProps) {
     );
   }
 
+  if (listState === "loading" && rows.length === 0) {
+    return (
+      <section className="console" aria-label={T.records.label} style={rootStyle}>
+        <StatusChip role="status" tone="info">{T.records.loading}</StatusChip>
+      </section>
+    );
+  }
+
+  if (listState === "error") {
+    return (
+      <section className="console" aria-label={T.records.label} style={rootStyle}>
+        <div role="alert" style={errorPaneStyle}>
+          <p>{T.records.loadFailed}</p>
+          <button
+            type="button"
+            style={openButtonStyle}
+            onClick={() => {
+              void loadList();
+            }}
+          >
+            {T.records.retry}
+          </button>
+        </div>
+      </section>
+    );
+  }
+
   return (
     <section className="console" aria-label={T.records.label} style={rootStyle}>
       {/* Compact stat bar — counts double as filters. */}
@@ -233,6 +369,12 @@ export function EvidenceRecords({ records, verify }: EvidenceRecordsProps) {
         )}
         {statButton("HOLD", T.hold.active, counts.hold)}
       </div>
+
+      {openError ? (
+        <div role="alert" style={errorPaneStyle}>
+          {openError}
+        </div>
+      ) : null}
 
       <div
         style={{
@@ -254,8 +396,9 @@ export function EvidenceRecords({ records, verify }: EvidenceRecordsProps) {
                     {...objDrag(row.code, row.title)}
                     aria-label={T.records.open(row.code, row.title)}
                     style={codeStyle}
+                    disabled={openingId === row.id}
                     onClick={() => {
-                      openDetail(row);
+                      void openDetail(row);
                     }}
                   >
                     {row.code}
@@ -280,8 +423,9 @@ export function EvidenceRecords({ records, verify }: EvidenceRecordsProps) {
                     type="button"
                     aria-label={T.records.open(row.code, row.title)}
                     style={openButtonStyle}
+                    disabled={openingId === row.id}
                     onClick={() => {
-                      openDetail(row);
+                      void openDetail(row);
                     }}
                   >
                     {T.records.detail}
@@ -307,7 +451,7 @@ export function EvidenceRecords({ records, verify }: EvidenceRecordsProps) {
                 {T.records.close}
               </button>
             </div>
-            <EvidenceCard key={selected.id} detail={selected} verify={verify} />
+            <EvidenceCard key={selected.id} detail={selected} {...buildCardProps(selected.id)} />
           </aside>
         ) : null}
       </div>

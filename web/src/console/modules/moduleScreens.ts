@@ -8,9 +8,13 @@ import type {
   EquipmentTimelineGraph,
   ObjectActionCatalogResponse,
 } from "../../api/types";
+import { createElement } from "react";
+
 import type { ConsoleApiClient } from "../../api/client";
 import { complianceModuleScreen } from "../compliance";
 import { registeredObjectType } from "../ontology/typeRegistrySource";
+import { VoucherComposeForm } from "../finance/VoucherComposeForm";
+import { FINANCE_MODULE_ACTIONS, makeFinanceDataAdapter } from "../finance/financeModel";
 import { choiceStatus, getObjectType } from "./typeRegistry";
 import type {
   ModuleChipTone,
@@ -24,15 +28,9 @@ import type {
   ModuleTimelineValue,
 } from "./types";
 
-export const FINANCE_MODULE_ACTIONS = {
-  read: "finance_voucher_read",
-  create: "finance_voucher_create",
-  post: "finance_voucher_post",
-  link: "object.link.create",
-  graph: "object.view",
-  audit: "audit_log_read",
-  lifecycle: "finance_voucher_read",
-} as const;
+// Re-exported for existing callers of the finance policy-action map; owned in
+// financeModel.ts to avoid a config↔domain import cycle.
+export { FINANCE_MODULE_ACTIONS };
 
 export const ASSET_MODULE_ACTIONS = {
   read: "work_order_read_all",
@@ -339,6 +337,8 @@ const assetDataAdapter: ModuleDataAdapter = {
   },
 };
 
+const financeDataAdapter = makeFinanceDataAdapter((context) => createElement(VoucherComposeForm, context));
+
 export const financeModuleScreen: ModuleScreenConfig = {
   id: "finance",
   screen: "finance",
@@ -349,14 +349,16 @@ export const financeModuleScreen: ModuleScreenConfig = {
   objectKind: "finance_voucher",
   typeKey: "finance_voucher",
   codePrefix: "VC-",
-  emptyMode: "blocked-until-backend",
-  blockedChipKey: "console.modules.finance.emptyBlockedChip",
+  emptyMode: "live",
+  emptyLiveHintKey: "console.modules.finance.emptyLiveHint",
   policy: FINANCE_MODULE_ACTIONS,
+  dataAdapter: financeDataAdapter,
   data: {
     list: "/api/v1/finance/vouchers",
     detail: "/api/v1/finance/vouchers/{voucherId}",
     create: "/api/v1/finance/vouchers",
     post: "/api/v1/finance/vouchers/{voucherId}/post",
+    reverse: "/api/v1/finance/vouchers/{voucherId}/reverse",
     lifecycle: "/api/v1/lifecycles/finance_voucher/{voucherId}",
     objectResolve: "/api/objects/{kind}/{id}",
     graph: "/api/objects/{kind}/{id}/graph",
@@ -442,6 +444,8 @@ export const financeModuleScreen: ModuleScreenConfig = {
       { key: "voucherDate" },
       // Detail wants "전기 시각" while the registry prop is the column label — override.
       { key: "postedAt", labelKey: "console.modules.finance.detail.postedAt" },
+      { key: "documentFlow" },
+      { key: "balanceCheck" },
       { key: "totalDebitWon" },
       { key: "totalCreditWon" },
       { key: "sourceKind" },
@@ -464,20 +468,16 @@ export const financeModuleScreen: ModuleScreenConfig = {
       { key: "glAccount", labelKey: "console.modules.finance.links.glAccount", policyAction: FINANCE_MODULE_ACTIONS.read, resourceKind: "gl_account" },
       { key: "costLedger", labelKey: "console.modules.finance.links.costLedger", policyAction: "equipment_cost_ledger_read", resourceKind: "cost_ledger" },
     ],
-    actions: [
-      { key: "openSource", labelKey: "console.modules.finance.actions.openSource", policyAction: FINANCE_MODULE_ACTIONS.read },
-      { key: "openGraph", labelKey: "console.modules.finance.actions.openGraph", policyAction: FINANCE_MODULE_ACTIONS.graph },
-      { key: "openLifecycle", labelKey: "console.modules.finance.actions.openLifecycle", policyAction: FINANCE_MODULE_ACTIONS.lifecycle },
-      { key: "postVoucher", labelKey: "console.modules.finance.actions.postVoucher", policyAction: FINANCE_MODULE_ACTIONS.post, blockedUntil: "B21a finance VC-/GL backend" },
-      { key: "createRelation", labelKey: "console.modules.finance.actions.createRelation", policyAction: FINANCE_MODULE_ACTIONS.link },
-    ],
+    // Real per-row actions (post/reverse, eligibility-gated) come from
+    // financeDataAdapter.loadDetail's row.actions — same precedent as
+    // assetModuleScreen. This static template is the no-adapter fallback.
+    actions: [],
   },
   primaryAction: {
     key: "createVoucher",
     labelKey: "console.modules.finance.actions.createVoucher",
     policyAction: FINANCE_MODULE_ACTIONS.create,
     resourceKind: "finance_voucher",
-    blockedUntil: "B21a finance VC-/GL backend",
   },
   rows: [],
 };

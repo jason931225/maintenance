@@ -19,11 +19,7 @@ import { PageError } from "../components/states/PageError";
 import { SkeletonTable } from "../components/states/Skeleton";
 import { PageHeader } from "../components/shell/PageHeader";
 import { RefreshButton } from "../components/shell/RefreshButton";
-import {
-  EVIDENCE_ACTIONS,
-  EvidenceRecords,
-  type VerifyEvidence,
-} from "../console/evidence";
+import { EVIDENCE_ACTIONS, EvidenceRecords } from "../console/evidence";
 import { PolicyGateProvider, type PolicyGate } from "../console/policy";
 import { useAuth } from "../context/auth";
 import { ko } from "../i18n/ko";
@@ -217,34 +213,6 @@ export function IntegrityPage() {
     };
   }, [session]);
 
-  // 무결성 검증 — REAL wiring: the original copy that wraps a work-order
-  // evidence_media row polls GET /api/v1/evidence/{evidenceId}/status. EV
-  // objects without such a copy report "unavailable" until the EV attestation
-  // REST lands (wire-pending: Phase C → POST
-  // /api/v1/evidence-objects/{id}/admissibility/recompute, t_15b1a1ec §7.8).
-  const verifyEvidence = useCallback<VerifyEvidence>(
-    async (detail) => {
-      const mediaId = detail.copies.find(
-        (copy) => copy.kind === "ORIGINAL",
-      )?.sourceEvidenceMediaId;
-      if (!mediaId) return { state: "unavailable" };
-      const res = await api
-        .GET("/api/v1/evidence/{evidenceId}/status", {
-          params: { path: { evidenceId: mediaId } },
-        })
-        .catch(() => undefined);
-      if (!res?.data) return { state: "failed", reason: null };
-      if (res.data.processing_status === "READY") {
-        return { state: "verified", processedAt: res.data.processed_at ?? null };
-      }
-      if (res.data.processing_status === "PROCESSING") {
-        return { state: "processing" };
-      }
-      return { state: "failed", reason: res.data.processing_error ?? null };
-    },
-    [api],
-  );
-
   async function submitTriage(
     finding: GovernanceFinding,
     status: "REVIEWED" | "DISMISSED" | "ESCALATED",
@@ -332,7 +300,7 @@ export function IntegrityPage() {
       {tab === "evidence" ? (
         <Card className="grid gap-4">
           <PolicyGateProvider gate={evidenceGate}>
-            <EvidenceRecords verify={verifyEvidence} />
+            <EvidenceRecords api={api} currentUserId={session?.user_id} />
           </PolicyGateProvider>
         </Card>
       ) : tab === "decisions" ? (

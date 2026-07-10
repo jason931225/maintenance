@@ -4,6 +4,7 @@ import type { ObjectCardDescriptor, StatusTone } from "../objectcard";
 import type { AuditRecord } from "../audit";
 import type {
   AdmissibilityStatus,
+  CopyFixityStatus,
   CustodyStage,
   EvidenceCopy,
   EvidenceLegalHold,
@@ -37,7 +38,17 @@ export function fixityTone(fixity: FixityStatus): StatusTone {
 }
 
 export function tsaTone(tsa: TsaStatus): StatusTone {
-  return tsa === "VERIFIED" ? "ok" : tsa === "FAILED" ? "danger" : "neutral";
+  if (tsa === "VERIFIED") return "ok";
+  if (tsa === "FAILED" || tsa === "REVOKED" || tsa === "EXPIRED_CA") return "danger";
+  return "neutral";
+}
+
+export function copyVerdictTone(status: CopyFixityStatus): StatusTone {
+  return status === "MATCH" ? "ok" : status === "MISMATCH" ? "danger" : "warn";
+}
+
+export function copyVerdictLabel(status: CopyFixityStatus): string {
+  return T.copyVerdict[status];
 }
 
 export function wormTone(status: WormStatus): StatusTone {
@@ -62,6 +73,8 @@ export function derivativesOf(copies: readonly EvidenceCopy[]): EvidenceCopy[] {
 }
 
 // Audit action → custody stage (contract §11 audit actions → §4.5 ledger).
+// Legacy/stub fallback only — real custody events carry the wire CustodyStage
+// directly (see WIRE_CUSTODY_STAGES below).
 const AUDIT_CUSTODY_STAGE: Record<string, CustodyStage | undefined> = {
   "evidence_object.register": "REGISTERED",
   "evidence_copy.register_original": "HASH_RECORDED",
@@ -76,11 +89,31 @@ const AUDIT_CUSTODY_STAGE: Record<string, CustodyStage | undefined> = {
   "evidence_disposal.complete": "DISPOSED",
 };
 
+const WIRE_CUSTODY_STAGES: ReadonlySet<string> = new Set<CustodyStage>([
+  "REGISTERED",
+  "HASH_RECORDED",
+  "TSA_SUBMITTED",
+  "TSA_VERIFIED",
+  "WORM_REPLICATED",
+  "CUSTODY_TRANSFERRED",
+  "UNDER_REVIEW",
+  "ADMISSIBILITY_EVALUATED",
+  "LEGAL_HOLD_APPLIED",
+  "LEGAL_HOLD_RELEASED",
+  "EXPORTED",
+  "ARCHIVED",
+  "DISPOSAL_REQUESTED",
+  "DISPOSED",
+]);
+
 /**
- * Map an audit-stream action to a custody stage; read/access-shaped actions
- * become ACCESSED, anything unknown returns null (timeline shows the raw action).
+ * Map a custody-event action to a display stage. Real CustodyEventView rows
+ * (evidenceApi.mapCustodyEvent) carry the literal wire CustodyStage as the
+ * action — recognized directly. Read/access-shaped audit actions become
+ * ACCESSED; anything else unknown returns null (timeline shows the raw action).
  */
 export function custodyStageOfAudit(action: string): CustodyStage | null {
+  if (WIRE_CUSTODY_STAGES.has(action)) return action as CustodyStage;
   const direct = AUDIT_CUSTODY_STAGE[action];
   if (direct) return direct;
   if (/read|view|access|download|list/.test(action.toLowerCase())) return "ACCESSED";

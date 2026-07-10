@@ -1,3 +1,5 @@
+import type { ReactNode } from "react";
+
 import type { ConsoleApiClient } from "../../api/client";
 import type { StatusChip } from "../components";
 import type { PolicyResource } from "../policy";
@@ -24,6 +26,7 @@ export interface ModuleDataEndpointConfig {
   update?: string;
   delete?: string;
   post?: string;
+  reverse?: string;
   lifecycle?: string;
   timeline?: string;
   costLedger?: string;
@@ -57,7 +60,7 @@ export interface ModuleSearchConfig {
 }
 
 export type ModuleColumnVariant = "text" | "mono" | "status" | "source" | "linkChips";
-export type ModuleDetailFieldVariant = "text" | "mono" | "timeline" | "graph" | "ledger";
+export type ModuleDetailFieldVariant = "text" | "mono" | "timeline" | "graph" | "ledger" | "stepper" | "balanceCheck";
 
 export interface ModuleColumnConfig {
   /** Registry property id — label/variant derive from ONT_TYPES when omitted. */
@@ -166,12 +169,42 @@ export interface ModuleLedgerValue {
   total?: ModuleStatValue;
 }
 
+/** §4.7-3 document-flow stepper (e.g. finance 기표→차대검증→승인→전기). */
+export type ModuleStepperStepState = "done" | "current" | "blocked" | "pending";
+
+export interface ModuleStepperStep {
+  key: string;
+  labelKey: string;
+  state: ModuleStepperStepState;
+  occurredAt?: string;
+  /** Why this step is blocked/pending — resolved via ko, not fabricated. */
+  reasonKey?: string;
+}
+
+export interface ModuleStepperValue {
+  steps: ModuleStepperStep[];
+}
+
+/** Balance-check callout (ok/blocked) — e.g. voucher debit=credit gate. */
+export interface ModuleBalanceCheckValue {
+  status: "ok" | "blocked";
+  okLabelKey: string;
+  blockedLabelKey: string;
+  totalDebit?: ModuleStatValue;
+  totalDebitLabelKey?: string;
+  totalCredit?: ModuleStatValue;
+  totalCreditLabelKey?: string;
+  reasonKey?: string;
+}
+
 export type ModuleDetailValue =
   | string
   | number
   | ModuleTimelineValue
   | ModuleGraphValue
   | ModuleLedgerValue
+  | ModuleStepperValue
+  | ModuleBalanceCheckValue
   | undefined;
 
 export interface ModuleRow {
@@ -210,9 +243,27 @@ export interface ModuleDetailLoadContext {
   hasPolicy: (action: string, resource?: PolicyResource) => boolean;
 }
 
+export interface ModuleComposeContext {
+  api: ConsoleApiClient;
+  onDone: (row?: ModuleRow) => void;
+  onCancel: () => void;
+}
+
+export interface ModuleActionExecuteContext {
+  api: ConsoleApiClient;
+  row: ModuleRow;
+  action: ModuleActionConfig;
+}
+
 export interface ModuleDataAdapter {
   loadRows?: (context: ModuleListLoadContext) => Promise<ModuleListLoadResult>;
   loadDetail?: (context: ModuleDetailLoadContext) => Promise<ModuleDetailLoadResult>;
+  /** When set, the header primaryAction opens this in place of navigating an href. */
+  renderCompose?: (context: ModuleComposeContext) => ReactNode;
+  /** When set, a detail action with no href executes through here instead of
+   * rendering inert (§4-12: no placeholder controls in final shape). Returning
+   * a row patches it in place; returning nothing triggers a full detail reload. */
+  executeAction?: (context: ModuleActionExecuteContext) => Promise<{ row?: ModuleRow } | undefined>;
 }
 
 export type ModuleListDisplay = "table" | "lanes";
@@ -230,6 +281,8 @@ export interface ModuleScreenConfig {
   codePrefix: string;
   emptyMode?: ModuleEmptyMode;
   blockedChipKey?: string;
+  /** Live mode, zero rows yet (e.g. no vouchers drafted) — reason + next action (§4-10). */
+  emptyLiveHintKey?: string;
   policy: ModulePolicyConfig;
   data: ModuleDataEndpointConfig;
   dataAdapter?: ModuleDataAdapter;

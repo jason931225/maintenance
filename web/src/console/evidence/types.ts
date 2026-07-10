@@ -1,7 +1,7 @@
 // EV- evidence object surface types — UI mirror of the BE-DOCS EV contract
 // (.omc/handoffs/t_15b1a1ec-ev-object-domain-api-contract.md §4/§7/§8).
-// wire-pending: Phase C → GET /api/v1/evidence-objects (+ /{id}) replaces the
-// stub feed in evidenceStubs.ts; these shapes already match that contract.
+// Real-wired: evidenceApi.ts maps GET /api/v1/evidence/objects (+ /{id}) into
+// these shapes. evidenceFixtures.ts (test-only) mirrors the same contract.
 import type { AuditRecord } from "../audit";
 
 /** Admissibility chip states (contract §4.7). */
@@ -14,23 +14,37 @@ export type AdmissibilityStatus =
 /** WORM copy verification (aligned with WormReplicaStatus). */
 export type WormStatus = "PENDING" | "VERIFIED" | "FAILED";
 
-/** TSA timestamp proof summary (contract §4.4, display subset). */
-export type TsaStatus = "MISSING" | "PENDING" | "VERIFIED" | "FAILED";
+/** TSA timestamp proof summary — mirrors the wire TsaProofStatus exactly (no
+ * faked upgrade to VERIFIED; a null/absent proof renders as MISSING). */
+export type TsaStatus =
+  | "MISSING"
+  | "PENDING"
+  | "VERIFIED"
+  | "FAILED"
+  | "REVOKED"
+  | "EXPIRED_CA";
 
 /** SHA-256 fixity of the original lineage, server-derived. */
 export type FixityStatus = "VERIFIED" | "PENDING" | "MISMATCH";
 
-/** Custody ledger stages (contract §4.5, display subset + ACCESSED). */
+/**
+ * Custody ledger stages — mirrors the wire CustodyStage enum exactly, plus
+ * ACCESSED which is a client-side synthesis for read/view-shaped audit
+ * actions (no such wire stage exists; see custodyStageOfAudit).
+ */
 export type CustodyStage =
   | "REGISTERED"
   | "HASH_RECORDED"
+  | "TSA_SUBMITTED"
   | "TSA_VERIFIED"
   | "WORM_REPLICATED"
   | "CUSTODY_TRANSFERRED"
   | "UNDER_REVIEW"
+  | "ADMISSIBILITY_EVALUATED"
   | "LEGAL_HOLD_APPLIED"
   | "LEGAL_HOLD_RELEASED"
   | "EXPORTED"
+  | "ARCHIVED"
   | "ACCESSED"
   | "DISPOSAL_REQUESTED"
   | "DISPOSED";
@@ -98,17 +112,38 @@ export interface EvidenceObjectDetail {
   custody: AuditRecord[];
 }
 
+/** Per-copy fixity verdict (contract §7.8 CopyVerification), keyed by copy id.
+ * A Map (not Record) so a missing key types as `undefined` without relying on
+ * noUncheckedIndexedAccess. */
+export type CopyFixityStatus = "MATCH" | "MISMATCH" | "CHECKSUM_UNAVAILABLE" | "STORAGE_ERROR";
+export type CopyVerdictMap = ReadonlyMap<string, CopyFixityStatus>;
+
 /** Result of the 무결성 검증 affordance. */
 export type VerifyOutcome =
-  | { state: "verified"; processedAt: string | null }
+  | { state: "verified"; processedAt: string | null; copyVerdicts: CopyVerdictMap }
   | { state: "processing" }
-  | { state: "failed"; reason: string | null }
-  /** No real endpoint applies to this copy yet (attestation REST wire-pending). */
+  | { state: "failed"; reason: string | null; copyVerdicts: CopyVerdictMap }
+  /** Object storage not configured (503) or the request failed outright. */
   | { state: "unavailable" };
 
 export type VerifyEvidence = (
   detail: EvidenceObjectDetail,
 ) => Promise<VerifyOutcome>;
+
+/**
+ * Hold-release four-eyes state (contract: hold-release requires a distinct-
+ * approver approval opened via governance/approvals then decided via
+ * governance/approvals/decide before the actual release call can succeed —
+ * fail-closed: the hold stays ACTIVE at every step until the real release
+ * response confirms RELEASED).
+ */
+export type ReleaseFlowState =
+  | { stage: "idle" }
+  | { stage: "requesting" }
+  | { stage: "pending"; holdId: string; requestRef: string; requestedBy: string }
+  | { stage: "deciding"; holdId: string; requestRef: string; requestedBy: string }
+  | { stage: "releasing"; holdId: string; requestRef: string }
+  | { stage: "error"; message: string };
 
 // PBAC actions (deny-by-omission via PolicyGated — absent, never disabled-with-
 // excuse, except the hold⇒dispose gate which is a deliberate fail-closed lock).

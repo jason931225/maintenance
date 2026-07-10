@@ -10,7 +10,7 @@ import {
   shortDigest,
   toObjectCardDescriptor,
 } from "./evidenceModel";
-import { createEvidenceStubs } from "./evidenceStubs";
+import { evidenceFixtures } from "./evidenceFixtures";
 import type { EvidenceLegalHold } from "./types";
 
 describe("custodyStageOfAudit", () => {
@@ -46,7 +46,7 @@ describe("hold / copy helpers", () => {
   });
 
   it("splits original and derivative copies", () => {
-    const [withDerivatives] = createEvidenceStubs();
+    const [withDerivatives] = evidenceFixtures();
     expect(originalOf(withDerivatives.copies)?.kind).toBe("ORIGINAL");
     expect(derivativesOf(withDerivatives.copies).every((c) => c.kind === "DERIVATIVE")).toBe(true);
   });
@@ -72,7 +72,7 @@ describe("admissibilityTone", () => {
 });
 
 describe("toObjectCardDescriptor", () => {
-  const [held, plain] = createEvidenceStubs();
+  const [held, plain] = evidenceFixtures();
 
   it("locks the lifecycle while a legal hold is active", () => {
     const descriptor = toObjectCardDescriptor(held, held.holds, held.custody);

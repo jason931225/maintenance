@@ -462,7 +462,7 @@ function AddWidgetStrip({
           <button
             key={kind}
             type="button"
-            aria-label={S.slot.addAria(n)}
+            aria-label={`${T.widgetKinds[kind]} ${S.slot.addAria(n)}`}
             style={{ ...buttonStyle, justifyContent: "center", minHeight: 64, flex: "1 1 auto" }}
             onClick={() => {
               const widget = defaultWidgetOf(kind, registry, rows);

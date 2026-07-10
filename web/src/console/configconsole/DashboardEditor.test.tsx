@@ -221,11 +221,20 @@ describe("DashboardEditor config mode (§4-22 add-anything, design delta 94+96)"
     renderEditor();
     fireEvent.click(screen.getByRole("button", { name: S.config.toggleAria }));
     const slot = screen.getByRole("region", { name: S.slot.aria(2) });
-    const addButtons = within(slot).getAllByRole("button", { name: S.slot.addAria(2) });
+    const addButtons = within(slot).getAllByRole("button", { name: new RegExp(S.slot.addAria(2)) });
     expect(addButtons.map((button) => button.textContent)).toEqual([
       T.widgetKinds.count,
       T.widgetKinds.trend,
       T.widgetKinds.dist,
+    ]);
+    // a11y: each add button carries a distinct, kind-bearing accessible name so
+    // a screen-reader user can tell 건수/추이/분포 apart (not one shared label).
+    const addNames = addButtons.map((button) => button.getAttribute("aria-label"));
+    expect(new Set(addNames).size).toBe(3);
+    expect(addNames).toEqual([
+      `${T.widgetKinds.count} ${S.slot.addAria(2)}`,
+      `${T.widgetKinds.trend} ${S.slot.addAria(2)}`,
+      `${T.widgetKinds.dist} ${S.slot.addAria(2)}`,
     ]);
     // dist(work_order) — count(work_order,priority) is already slot-1's widget.
     fireEvent.click(addButtons[2]);
@@ -238,7 +247,7 @@ describe("DashboardEditor config mode (§4-22 add-anything, design delta 94+96)"
     const slot = screen.getByRole("region", { name: S.slot.aria(2) });
     // slot-1 already has count(work_order, priority) — the default count add
     // targets the same first registry type + first choice, so it collides.
-    fireEvent.click(within(slot).getAllByRole("button", { name: S.slot.addAria(2) })[0]);
+    fireEvent.click(within(slot).getAllByRole("button", { name: new RegExp(S.slot.addAria(2)) })[0]);
     expect(screen.getByText(T.slot.dedupBlocked)).toBeTruthy();
   });
 
@@ -251,7 +260,7 @@ describe("DashboardEditor config mode (§4-22 add-anything, design delta 94+96)"
     });
     expect(within(slot).getByRole("list", { name: S.widget.chartAria("작업 지시") })).toBeTruthy();
     fireEvent.click(within(slot).getByRole("button", { name: S.slot.removeAria(1) }));
-    expect(within(slot).getAllByRole("button", { name: S.slot.addAria(1) })).toHaveLength(3);
+    expect(within(slot).getAllByRole("button", { name: new RegExp(S.slot.addAria(1)) })).toHaveLength(3);
   });
 
   it("restores the shipped default layout", () => {
@@ -310,7 +319,7 @@ describe("DashboardEditor deny-by-omission", () => {
     expect(screen.queryByRole("button", { name: S.config.toggleAria })).toBeNull();
     expect(screen.queryByRole("button", { name: S.save.action })).toBeNull();
     expect(screen.queryByRole("button", { name: S.deploy.action })).toBeNull();
-    expect(screen.queryAllByRole("button", { name: S.slot.addAria(2) })).toHaveLength(0);
+    expect(screen.queryAllByRole("button", { name: new RegExp(S.slot.addAria(2)) })).toHaveLength(0);
     // read surfaces stay: the live numbers still render and drill.
     expect(screen.getByRole("button", { name: S.widget.totalAria("작업 지시", 6) })).toBeTruthy();
   });

@@ -20,6 +20,9 @@ import {
   type OntObjectType,
 } from "./typeRegistry";
 import type {
+  ModuleActionConfig,
+  ModuleBalanceCheckValue,
+  ModuleChipTone,
   ModuleColumnConfig,
   ModuleDetailFieldConfig,
   ModuleDetailValue,
@@ -31,6 +34,7 @@ import type {
   ModuleScreenConfig,
   ModuleStatConfig,
   ModuleStatValue,
+  ModuleStepperValue,
   ModuleTimelineValue,
 } from "./types";
 
@@ -441,6 +445,21 @@ function isLedgerValue(value: ModuleDetailValue): value is ModuleLedgerValue {
   return Boolean(value && typeof value === "object" && "entries" in value);
 }
 
+function isStepperValue(value: ModuleDetailValue): value is ModuleStepperValue {
+  return Boolean(value && typeof value === "object" && "steps" in value);
+}
+
+function isBalanceCheckValue(value: ModuleDetailValue): value is ModuleBalanceCheckValue {
+  return Boolean(value && typeof value === "object" && "status" in value);
+}
+
+const stepperToneByState: Record<ModuleStepperValue["steps"][number]["state"], ModuleChipTone> = {
+  done: "ok",
+  current: "info",
+  blocked: "danger",
+  pending: "neutral",
+};
+
 function renderLinkedContent(content: ReactNode, href: string | undefined, ariaLabel: string) {
   return href ? (
     <a href={href} style={{ color: "inherit", textDecoration: "none" }} aria-label={ariaLabel}>
@@ -539,10 +558,48 @@ function renderLedger(value: ModuleLedgerValue): ReactNode {
   );
 }
 
+function renderStepper(value: ModuleStepperValue): ReactNode {
+  if (value.steps.length === 0) return "—";
+  return (
+    <ol style={{ ...chipRowStyle, margin: 0, padding: 0, listStyle: "none" }}>
+      {value.steps.map((step, index) => (
+        <li key={step.key} style={{ display: "inline-flex", alignItems: "center", gap: "var(--sp-2)" }}>
+          <StatusChip tone={stepperToneByState[step.state]}>{resolveText(step.labelKey)}</StatusChip>
+          {step.reasonKey ? <span style={kvKeyStyle}>{resolveText(step.reasonKey)}</span> : null}
+          {index < value.steps.length - 1 ? <span aria-hidden="true" style={kvKeyStyle}>→</span> : null}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function renderBalanceCheck(value: ModuleBalanceCheckValue): ReactNode {
+  return (
+    <span style={{ ...chipRowStyle, alignItems: "center" }} role={value.status === "blocked" ? "alert" : "status"}>
+      <StatusChip tone={value.status === "ok" ? "ok" : "danger"}>
+        {resolveText(value.status === "ok" ? value.okLabelKey : value.blockedLabelKey)}
+      </StatusChip>
+      {value.totalDebit !== undefined ? (
+        <span style={kvKeyStyle}>
+          {value.totalDebitLabelKey ? resolveText(value.totalDebitLabelKey) : null} {formatCellValue(value.totalDebit)}
+        </span>
+      ) : null}
+      {value.totalCredit !== undefined ? (
+        <span style={kvKeyStyle}>
+          {value.totalCreditLabelKey ? resolveText(value.totalCreditLabelKey) : null} {formatCellValue(value.totalCredit)}
+        </span>
+      ) : null}
+      {value.reasonKey ? <span style={kvKeyStyle}>{resolveText(value.reasonKey)}</span> : null}
+    </span>
+  );
+}
+
 function renderDetailValue(field: ModuleDetailFieldConfig, value: ModuleDetailValue): ReactNode {
   if (field.variant === "timeline" && isTimelineValue(value)) return renderTimeline(value);
   if (field.variant === "graph" && isGraphValue(value)) return renderGraph(value);
   if (field.variant === "ledger" && isLedgerValue(value)) return renderLedger(value);
+  if (field.variant === "stepper" && isStepperValue(value)) return renderStepper(value);
+  if (field.variant === "balanceCheck" && isBalanceCheckValue(value)) return renderBalanceCheck(value);
   return formatCellValue(isScalarDetailValue(value) ? value : undefined);
 }
 
@@ -825,6 +882,10 @@ function GenericModuleScreenBody({
   const [runtime, dispatch] = useReducer(moduleRuntimeReducer, initialRuntimeState(config));
   const [query, setQuery] = useState("");
   const [display, setDisplay] = useState<ModuleListDisplay>(config.list.display ?? "table");
+  const [composeOpen, setComposeOpen] = useState(false);
+  const [refreshToken, setRefreshToken] = useState(0);
+  const [actionBusyKey, setActionBusyKey] = useState<string | undefined>(undefined);
+  const [actionErrorKey, setActionErrorKey] = useState<string | undefined>(undefined);
   const loadRows = config.dataAdapter?.loadRows;
   const loadDetail = config.dataAdapter?.loadDetail;
   const usesListLoader = Boolean(loadRows && api);
@@ -874,6 +935,28 @@ function GenericModuleScreenBody({
     [type, windowManager],
   );
 
+  const runAction = useCallback(
+    async (action: ModuleActionConfig, row: ModuleRow) => {
+      const executeAction = config.dataAdapter?.executeAction;
+      if (!executeAction || !api) return;
+      setActionErrorKey(undefined);
+      setActionBusyKey(action.key);
+      try {
+        const result = await executeAction({ api, row, action });
+        if (result?.row) {
+          dispatch({ type: "detailLoaded", row: result.row, stats: undefined, baseRows: config.rows });
+        } else {
+          setRefreshToken((token) => token + 1);
+        }
+      } catch {
+        setActionErrorKey(action.labelKey);
+      } finally {
+        setActionBusyKey(undefined);
+      }
+    },
+    [api, config.dataAdapter, config.rows],
+  );
+
   useEffect(() => {
     if (!api || !loadRows) return;
     let active = true;
@@ -895,7 +978,7 @@ function GenericModuleScreenBody({
     return () => {
       active = false;
     };
-  }, [api, gate.can, loadRows, query]);
+  }, [api, gate.can, loadRows, query, refreshToken]);
 
   const selectedRow = rows.find((row) => row.id === runtime.selectedRowId) ?? rows.at(0);
 
@@ -923,7 +1006,14 @@ function GenericModuleScreenBody({
     return () => {
       active = false;
     };
-  }, [api, config.rows, gate.can, loadDetail, selectedRow]);
+    // Depend on the row's id (not the `selectedRow` object) and refreshToken,
+    // not `selectedRow` itself: loadDetail always returns a freshly-mapped row
+    // object, so re-running on every reference change here would refetch in
+    // an infinite loop the moment a detail load (or a post/reverse action)
+    // ever succeeds — the effect must re-run on a real selection/refresh, not
+    // on the row's own content settling.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [api, config.rows, gate.can, loadDetail, selectedRow?.id, refreshToken]);
 
   const stats = visibleStats(config, { ...runtime.listStats, ...runtime.detailStats });
   const blocked = isBackendBlocked(config);
@@ -959,6 +1049,16 @@ function GenericModuleScreenBody({
                 <a href={config.primaryAction.href} style={{ ...actionButtonStyle, textDecoration: "none" }}>
                   {resolveText(config.primaryAction.labelKey)}
                 </a>
+              ) : config.dataAdapter?.renderCompose && api ? (
+                <button
+                  type="button"
+                  style={actionButtonStyle}
+                  onClick={() => {
+                    setComposeOpen(true);
+                  }}
+                >
+                  {resolveText(config.primaryAction.labelKey)}
+                </button>
               ) : (
                 <button type="button" style={actionButtonStyle}>
                   {resolveText(config.primaryAction.labelKey)}
@@ -967,6 +1067,22 @@ function GenericModuleScreenBody({
             </PolicyGated>
           ) : null}
         </header>
+
+        {composeOpen && config.dataAdapter?.renderCompose && api ? (
+          <section aria-label={resolveText(config.primaryAction?.labelKey ?? config.titleKey)} style={cardStyle}>
+            {config.dataAdapter.renderCompose({
+              api,
+              onDone: (row) => {
+                setComposeOpen(false);
+                setRefreshToken((token) => token + 1);
+                if (row) dispatch({ type: "select", rowId: row.id });
+              },
+              onCancel: () => {
+                setComposeOpen(false);
+              },
+            })}
+          </section>
+        ) : null}
 
         {stats.length > 0 ? (
           <section aria-label={T.statsAria(objectName)} style={chipRowStyle}>
@@ -1074,6 +1190,11 @@ function GenericModuleScreenBody({
                 <StatusChip tone="warn">{blockedChip}</StatusChip>
               </span>
             ) : null}
+            {rows.length === 0 && !blocked && runtime.listState === "idle" && config.emptyLiveHintKey ? (
+              <span style={chipRowStyle}>
+                <StatusChip tone="neutral">{resolveText(config.emptyLiveHintKey)}</StatusChip>
+              </span>
+            ) : null}
             {runtime.listState === "loading" ? (
               <StatusChip role="status" tone="info">{T.loading}</StatusChip>
             ) : null}
@@ -1094,7 +1215,12 @@ function GenericModuleScreenBody({
                 <div style={kvGridStyle}>
                   {detailFields.map((field) => {
                     const value = field.key === "code" ? selectedRow.code : selectedRow.detail?.[field.key];
-                    const structured = field.variant === "timeline" || field.variant === "graph" || field.variant === "ledger";
+                    const structured =
+                      field.variant === "timeline" ||
+                      field.variant === "graph" ||
+                      field.variant === "ledger" ||
+                      field.variant === "stepper" ||
+                      field.variant === "balanceCheck";
                     const valueStyle =
                       !structured && (field.variant === "mono" || field.key === "code" || field.key.toLowerCase().includes("id"))
                         ? { ...kvValueStyle, ...monoStyle }
@@ -1138,6 +1264,17 @@ function GenericModuleScreenBody({
                           <a href={action.href} style={{ ...ghostButtonStyle, textDecoration: "none" }}>
                             {resolveText(action.labelKey)}
                           </a>
+                        ) : config.dataAdapter?.executeAction && api ? (
+                          <button
+                            type="button"
+                            style={ghostButtonStyle}
+                            disabled={actionBusyKey === action.key}
+                            onClick={() => {
+                              void runAction(action, selectedRow);
+                            }}
+                          >
+                            {resolveText(action.labelKey)}
+                          </button>
                         ) : (
                           <button type="button" style={ghostButtonStyle}>
                             {resolveText(action.labelKey)}
@@ -1146,6 +1283,9 @@ function GenericModuleScreenBody({
                       </PolicyGated>
                     ))}
                 </span>
+                {actionErrorKey ? (
+                  <StatusChip role="alert" tone="danger">{resolveText(actionErrorKey)} · {T.loadFailed}</StatusChip>
+                ) : null}
               </>
             ) : blocked && blockedChip ? (
               <StatusChip tone="warn">{blockedChip}</StatusChip>

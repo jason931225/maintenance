@@ -1,8 +1,26 @@
-export { EvidenceCard, evidenceWindowEntry, type EvidenceCardProps } from "./EvidenceCard";
+export {
+  EvidenceCard,
+  evidenceWindowEntry,
+  type EvidenceCardProps,
+  type HoldApplyBody,
+  type HoldReleaseBody,
+} from "./EvidenceCard";
 export { EvidenceRecords, type EvidenceRecordsProps } from "./EvidenceRecords";
+export {
+  applyLegalHold,
+  decideHoldReleaseApproval,
+  getEvidenceObjectDetail,
+  listEvidenceObjects,
+  mapEvidenceObjectDetail,
+  releaseLegalHold,
+  requestHoldReleaseApproval,
+  verifyEvidenceObject,
+} from "./evidenceApi";
 export {
   admissibilityLabel,
   admissibilityTone,
+  copyVerdictLabel,
+  copyVerdictTone,
   custodyStageLabel,
   custodyStageOfAudit,
   derivativesOf,
@@ -12,10 +30,11 @@ export {
   shortDigest,
   toObjectCardDescriptor,
 } from "./evidenceModel";
-export { createEvidenceStubs } from "./evidenceStubs";
 export {
   EVIDENCE_ACTIONS,
   type AdmissibilityStatus,
+  type CopyFixityStatus,
+  type CopyVerdictMap,
   type CustodyStage,
   type DerivativeKind,
   type EvidenceCopy,
@@ -23,6 +42,7 @@ export {
   type EvidenceObjectDetail,
   type EvidenceSourceRef,
   type FixityStatus,
+  type ReleaseFlowState,
   type TsaStatus,
   type VerifyEvidence,
   type VerifyOutcome,

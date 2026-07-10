@@ -55,7 +55,18 @@ export type OntProperty =
   | (OntPropertyBase & { type: "choice"; config: { choices: OntChoice[] } })
   | (OntPropertyBase & { type: "currency"; config: { unit: "KRW" } })
   | (OntPropertyBase & {
-      type: "code" | "text" | "user" | "date" | "datetime" | "link" | "timeline" | "graph" | "ledger";
+      type:
+        | "code"
+        | "text"
+        | "user"
+        | "date"
+        | "datetime"
+        | "link"
+        | "timeline"
+        | "graph"
+        | "ledger"
+        | "stepper"
+        | "balanceCheck";
       config?: undefined;
     });
 
@@ -138,6 +149,8 @@ export const ONT_TYPES: Readonly<Record<string, OntObjectType>> = {
       { id: "gl", nameKey: `${F}.columns.gl`, type: "text" },
       { id: "links", nameKey: `${F}.columns.links`, type: "link" },
       { id: "postedAt", nameKey: `${F}.columns.postedAt`, type: "datetime" },
+      { id: "documentFlow", nameKey: `${F}.detail.documentFlow`, type: "stepper" },
+      { id: "balanceCheck", nameKey: `${F}.detail.balanceCheck`, type: "balanceCheck" },
       { id: "lifecyclePhase", nameKey: `${F}.detail.lifecycle`, type: "text" },
       { id: "lifecycleVersion", nameKey: `${F}.detail.version`, type: "text" },
       { id: "postingStatus", nameKey: `${F}.detail.postingStatus`, type: "text" },
@@ -160,6 +173,7 @@ export const ONT_TYPES: Readonly<Record<string, OntObjectType>> = {
     actions: [
       { key: "createVoucher", nameKey: `${F}.actions.createVoucher`, policyAction: "finance_voucher_create" },
       { key: "postVoucher", nameKey: `${F}.actions.postVoucher`, policyAction: "finance_voucher_post" },
+      { key: "reverseVoucher", nameKey: `${F}.actions.reverseVoucher`, policyAction: "finance_voucher_post" },
     ],
     analytics: [
       { key: "balance", nameKey: `${X}.finance.analytics.balance`, formula: "totalDebitWon - totalCreditWon", resultType: "currency" },
@@ -405,6 +419,8 @@ export function detailVariantFor(prop: OntProperty | undefined): ModuleDetailFie
     case "timeline":
     case "graph":
     case "ledger":
+    case "stepper":
+    case "balanceCheck":
       return prop.type;
     default:
       return "text";
