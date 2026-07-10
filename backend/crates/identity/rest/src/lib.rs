@@ -2869,11 +2869,34 @@ async fn update_user(
             .as_deref()
             .unwrap_or(target.branch_ids.as_slice());
         authorize_user_write(&principal, &elevated_role_changes, target_branches)?;
-        ensure_assignment_preview_acknowledged(&principal, body.preview_acknowledged)?;
-        preview_receipt_id = Some(require_assignment_preview_receipt(
-            &principal,
-            body.preview_receipt_id,
-        )?);
+
+        // Only an actual assignment change needs an impact-preview receipt. A
+        // profile-only edit (e.g. phone) that re-sends the user's existing roles
+        // and branches is a governance no-op and must not demand a preview; any
+        // real role/branch change still requires it. (The escalation guard above
+        // always runs.)
+        let roles_changed = roles.as_ref().is_some_and(|r| {
+            let mut current = target.roles.clone();
+            current.sort();
+            current.dedup();
+            role_db_strings(r) != current
+        });
+        let branches_changed = body.branch_ids.as_ref().is_some_and(|requested| {
+            let normalize = |branches: &[BranchId]| {
+                let mut out = branches.to_vec();
+                out.sort();
+                out.dedup();
+                out
+            };
+            normalize(requested) != normalize(&target.branch_ids)
+        });
+        if roles_changed || branches_changed {
+            ensure_assignment_preview_acknowledged(&principal, body.preview_acknowledged)?;
+            preview_receipt_id = Some(require_assignment_preview_receipt(
+                &principal,
+                body.preview_receipt_id,
+            )?);
+        }
     }
 
     let summary = state

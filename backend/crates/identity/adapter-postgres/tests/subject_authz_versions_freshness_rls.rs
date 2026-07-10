@@ -397,3 +397,112 @@ async fn bump_and_get_subject_authz_versions_via_store(owner_pool: PgPool) {
     };
     assert_eq!(rows, 1, "exactly one freshness row for the target subject");
 }
+
+/// Delta-scope enforcement: the impact-preview receipt gate fires on an actual
+/// assignment CHANGE, not the mere presence of roles/branch_ids. The legacy
+/// user-edit form re-sends the current roles on a profile edit — that must save
+/// without a receipt and must not bump the subject version — while any real
+/// change (including one that no longer matches its receipt) is still rejected.
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn update_user_delta_scopes_the_preview_receipt_gate(owner_pool: PgPool) {
+    let rt_pool = runtime_role_pool(&owner_pool).await;
+    let org = OrgId::knl();
+    let org_uuid = *org.as_uuid();
+    seed_org(&owner_pool, org_uuid, "A").await;
+    let actor = seed_active_user(&owner_pool, org_uuid).await;
+    let target = seed_active_user(&owner_pool, org_uuid).await; // seeded roles: ["MECHANIC"]
+    let store = PgOrgStore::new(rt_pool.clone());
+
+    // (1) No-op: a profile edit that re-sends the current role set with NO receipt
+    // saves fine and does not bump the subject version (no role-change signal).
+    CURRENT_ORG
+        .scope(
+            org,
+            store.update_user(UpdateUserCommand {
+                actor,
+                user_id: target,
+                display_name: None,
+                employee_id: None,
+                phone: Some(Some("010-1234-5678".to_owned())),
+                team: None,
+                roles: Some(vec!["MECHANIC".to_owned()]),
+                branch_ids: None,
+                preview_receipt_id: None,
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            }),
+        )
+        .await
+        .expect("re-sending the current roles on a profile edit must save without a receipt");
+    assert_eq!(
+        CURRENT_ORG
+            .scope(org, store.get_subject_authz_versions(target))
+            .await
+            .unwrap(),
+        (0, 0),
+        "a no-op assignment resend must not bump the subject version",
+    );
+
+    // (2) A real role change with NO receipt is rejected by the store
+    // (enforcement-of-record) and does not bump either.
+    CURRENT_ORG
+        .scope(
+            org,
+            store.update_user(UpdateUserCommand {
+                actor,
+                user_id: target,
+                display_name: None,
+                employee_id: None,
+                phone: None,
+                team: None,
+                roles: Some(vec!["ADMIN".to_owned()]),
+                branch_ids: None,
+                preview_receipt_id: None,
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            }),
+        )
+        .await
+        .expect_err("a real role change without a receipt must be rejected by the store");
+    assert_eq!(
+        CURRENT_ORG
+            .scope(org, store.get_subject_authz_versions(target))
+            .await
+            .unwrap(),
+        (0, 0),
+        "a rejected change must not bump the subject version",
+    );
+
+    // (3) A receipt minted for one transition must not authorize a different one
+    // (stale / no-longer-matches — the TOCTOU guard on the security path).
+    let receipt = mint_role_change_receipt(
+        &store,
+        org,
+        actor,
+        target,
+        vec!["MECHANIC".to_owned()],
+        vec!["ADMIN".to_owned()],
+    )
+    .await;
+    CURRENT_ORG
+        .scope(
+            org,
+            store.update_user(UpdateUserCommand {
+                actor,
+                user_id: target,
+                display_name: None,
+                employee_id: None,
+                phone: None,
+                team: None,
+                roles: Some(vec!["SUPER_ADMIN".to_owned()]),
+                branch_ids: None,
+                preview_receipt_id: Some(receipt),
+                trace: TraceContext::generate(),
+                occurred_at: OffsetDateTime::now_utc(),
+            }),
+        )
+        .await
+        .expect_err(
+            "a receipt minted for MECHANIC→ADMIN must not authorize a MECHANIC→SUPER_ADMIN change",
+        );
+}

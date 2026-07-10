@@ -271,6 +271,23 @@ export async function loginAsLanding(page: Page, role: TenantRole): Promise<void
 }
 
 /**
+ * Login for a role KEEPING the virtual authenticator attached, so a later
+ * passkey step-up (e.g. an executive final-approve) auto-asserts against the
+ * enrolled discoverable passkey. The caller owns teardown via
+ * `removeVirtualAuthenticator(authenticator)`.
+ */
+export async function loginWithRetainedPasskey(
+  page: Page,
+  role: TenantRole,
+): Promise<WebAuthnAuthenticator> {
+  resetRateLimits();
+  await seedDeviceId(page);
+  const authenticator = await attachVirtualAuthenticator(page);
+  await performRoleLogin(page, role);
+  return authenticator;
+}
+
+/**
  * Capture a Playwright storageState for a role by running the real ceremony once
  * in a throwaway context, then persisting the cookies (the HttpOnly mnt_refresh
  * cookie is what the app's boot silent-refresh restores the session from). The

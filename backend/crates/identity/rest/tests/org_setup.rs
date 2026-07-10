@@ -416,6 +416,54 @@ async fn admin_can_grant_admin_to_existing_executive_in_scope(pool: PgPool) {
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn profile_edit_resending_current_assignments_needs_no_receipt(pool: PgPool) {
+    // The legacy user-edit form re-sends the user's current roles/branches on a
+    // phone-only edit. Delta-scoped, that is a no-op and must NOT demand an
+    // impact-preview receipt (the admin-01-03 regression).
+    let harness = Harness::new(pool.clone()).await;
+    let branch = seed_branch(&pool).await;
+    let admin = seed_user(&pool, "Branch Admin", &["ADMIN"], Some(branch)).await;
+    let mechanic = seed_user(&pool, "정비사", &["MECHANIC"], Some(branch)).await;
+    let token = harness.token(admin, &["ADMIN"], vec![branch]);
+
+    let (status, updated) = send_patch(
+        &harness,
+        &format!("/api/v1/users/{mechanic}"),
+        &token,
+        json!({
+            "phone": "010-1234-5678",
+            "roles": ["MECHANIC"],
+            "branch_ids": [branch.to_string()],
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{updated:?}");
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn real_role_change_without_a_receipt_is_rejected(pool: PgPool) {
+    // A genuine role change (not an escalation the actor lacks authority for, so
+    // not FORBIDDEN) without a preview receipt is a 422 at the REST layer.
+    let harness = Harness::new(pool.clone()).await;
+    let branch = seed_branch(&pool).await;
+    let super_admin = seed_user(&pool, "본사 관리자", &["SUPER_ADMIN"], Some(branch)).await;
+    let mechanic = seed_user(&pool, "정비사", &["MECHANIC"], Some(branch)).await;
+    let token = harness.token(super_admin, &["SUPER_ADMIN"], vec![branch]);
+
+    let (status, body) = send_patch(
+        &harness,
+        &format!("/api/v1/users/{mechanic}"),
+        &token,
+        json!({
+            "roles": ["MECHANIC", "ADMIN"],
+            "branch_ids": [branch.to_string()],
+        }),
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body:?}");
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn admin_cannot_grant_new_executive_role_on_update(pool: PgPool) {
     let harness = Harness::new(pool.clone()).await;
     let admin_branch = seed_branch(&pool).await;

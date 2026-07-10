@@ -1,4 +1,12 @@
-import { test, expect, sql, TENANT_ORG_ID } from "../fixtures/roles";
+import {
+  test,
+  expect,
+  sql,
+  TENANT_ORG_ID,
+  loginWithRetainedPasskey,
+  waitForSessionReady,
+} from "../fixtures/roles";
+import { removeVirtualAuthenticator } from "../fixtures/auth";
 import { attachConsoleGuard, auditPage } from "../fixtures/ux";
 
 /**
@@ -42,44 +50,50 @@ test.beforeEach(() => {
 
 test("EXEC-03 executive final-approves an EXECUTIVE_PENDING purchase request", async ({
   page,
-  loginAs,
 }) => {
   const consoleGuard = attachConsoleGuard(page);
 
-  await loginAs("EXECUTIVE");
-  await page.goto("/financial");
-  await expect(
-    page.getByRole("heading", { name: /구매·정산/, level: 1 }),
-  ).toBeVisible({ timeout: 8_000 });
+  // Final-approve now requires a real passkey step-up (M1 governance), so log in
+  // keeping the virtual authenticator attached to auto-assert the ceremony.
+  const authenticator = await loginWithRetainedPasskey(page, "EXECUTIVE");
+  try {
+    await waitForSessionReady(page);
+    await page.goto("/financial");
+    await expect(
+      page.getByRole("heading", { name: /구매·정산/, level: 1 }),
+    ).toBeVisible({ timeout: 8_000 });
 
-  // Load the seeded EXECUTIVE_PENDING request by id (the 구매요청서 번호로 불러오기).
-  await page.locator("#pr-lookup").fill(PR_ID);
-  await page.getByRole("button", { name: /^불러오기$/ }).click();
+    // Load the seeded EXECUTIVE_PENDING request by id (the 구매요청서 번호로 불러오기).
+    await page.locator("#pr-lookup").fill(PR_ID);
+    await page.getByRole("button", { name: /^불러오기$/ }).click();
 
-  // The detail panel renders with the EXECUTIVE_PENDING (임원 승인 대기) badge.
-  await expect(
-    page.getByRole("heading", { name: /구매요청서 상세/ }),
-  ).toBeVisible({ timeout: 8_000 });
-  await expect(page.getByText(/임원 승인 대기/).first()).toBeVisible();
+    // The detail panel renders with the EXECUTIVE_PENDING (임원 승인 대기) badge.
+    await expect(
+      page.getByRole("heading", { name: /구매요청서 상세/ }),
+    ).toBeVisible({ timeout: 8_000 });
+    await expect(page.getByText(/임원 승인 대기/).first()).toBeVisible();
 
-  // The exec-only final-approve control.
-  const finalApprove = page.getByRole("button", { name: /임원 최종 승인/ });
-  await expect(finalApprove).toBeVisible({ timeout: 8_000 });
+    // The exec-only final-approve control.
+    const finalApprove = page.getByRole("button", { name: /임원 최종 승인/ });
+    await expect(finalApprove).toBeVisible({ timeout: 8_000 });
 
-  // Audit the settled detail panel before the mutation.
-  await auditPage(page, {
-    context: "/financial purchase EXECUTIVE_PENDING",
-    consoleGuard,
-  });
+    // Audit the settled detail panel before the mutation.
+    await auditPage(page, {
+      context: "/financial purchase EXECUTIVE_PENDING",
+      consoleGuard,
+    });
 
-  await finalApprove.click();
+    // Click → passkey step-up auto-asserts → the mutation commits and the panel
+    // refetches to READY_TO_EXECUTE (집행 대기). The badge is proof of the commit.
+    await finalApprove.click();
+    await expect(page.getByText(/집행 대기/).first()).toBeVisible({
+      timeout: 8_000,
+    });
+    // The executive has no PurchaseExecute, so the 집행 control must NOT appear.
+    await expect(page.getByRole("button", { name: /^집행$/ })).toHaveCount(0);
 
-  // Approved → status badge shows 집행 대기 (READY_TO_EXECUTE).
-  await expect(page.getByText(/집행 대기/).first()).toBeVisible({
-    timeout: 8_000,
-  });
-  // The executive has no PurchaseExecute, so the 집행 control must NOT appear.
-  await expect(page.getByRole("button", { name: /^집행$/ })).toHaveCount(0);
-
-  consoleGuard.assertClean();
+    consoleGuard.assertClean();
+  } finally {
+    await removeVirtualAuthenticator(authenticator);
+  }
 });

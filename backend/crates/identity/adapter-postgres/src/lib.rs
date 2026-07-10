@@ -179,7 +179,6 @@ impl PgOrgStore {
             .branch_ids
             .as_ref()
             .map(|ids| ids.iter().map(|b| *b.as_uuid()).collect());
-        let role_or_scope_update = roles.is_some() || branch_ids.is_some();
 
         let event = user_audit_event(
             "user.update",
@@ -213,7 +212,21 @@ impl PgOrgStore {
                         .collect(),
                 );
 
-                if role_or_scope_update {
+                // Delta-scope the receipt gate against the FOR UPDATE-locked row
+                // (order-insensitive set-equality via normalize_*). Re-sending the
+                // current roles/branches is a no-op and must not demand a receipt;
+                // any real change — including one a concurrent writer made after the
+                // client read — differs from the locked current set and still gates.
+                let roles_changed = roles
+                    .as_ref()
+                    .is_some_and(|r| normalize_system_roles(r.clone()) != current_system_roles);
+                let branches_changed = branch_ids.as_ref().is_some_and(|b| {
+                    normalize_policy_role_ids(b.clone())
+                        != normalize_policy_role_ids(current_branch_ids.clone())
+                });
+                let assignment_changed = roles_changed || branches_changed;
+
+                if assignment_changed {
                     let preview_receipt_id =
                         preview_receipt_id.ok_or_else(stale_policy_assignment_preview_error)?;
                     let requested_system_roles = roles
@@ -273,17 +286,17 @@ impl PgOrgStore {
                         .execute(tx.as_mut())
                         .await?;
                 }
-                if let Some(roles) = &roles {
+                if let Some(roles) = roles.as_ref().filter(|_| roles_changed) {
                     sqlx::query("UPDATE users SET roles = $2 WHERE id = $1")
                         .bind(*user_id.as_uuid())
                         .bind(roles)
                         .execute(tx.as_mut())
                         .await?;
                 }
-                if let Some(branch_ids) = &branch_ids {
+                if let Some(branch_ids) = branch_ids.as_ref().filter(|_| branches_changed) {
                     replace_user_branches(tx, user_id, branch_ids, org_uuid).await?;
                 }
-                if role_or_scope_update {
+                if assignment_changed {
                     // System roles and branch memberships are authorization-relevant
                     // subject material; bump freshness once after a successful
                     // receipt-gated replacement (covers role AND/OR branch changes).
