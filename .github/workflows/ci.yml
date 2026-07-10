@@ -78,6 +78,7 @@ jobs:
   backend:
     name: Backend — fmt / clippy / test / gates
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:18.4
@@ -299,6 +300,7 @@ jobs:
   api-clients:
     name: API clients — TypeScript / Kotlin generation and compile
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -336,6 +338,7 @@ jobs:
   web:
     name: Web console — lint / test / build
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
       - name: Checkout
@@ -449,6 +452,7 @@ jobs:
   api-contract:
     name: API contract — app OpenAPI and generated TS round-trip
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     services:
       postgres:
         image: postgres:18.4
@@ -516,6 +520,7 @@ jobs:
   kubernetes-manifests:
     name: Kubernetes manifests — render / hardening / NetworkPolicy preflight
     runs-on: ubuntu-latest
+    timeout-minutes: 15
 
     steps:
       - name: Checkout
@@ -547,6 +552,7 @@ jobs:
   swift-client:
     name: API client — Swift generation and build
     runs-on: macos-latest
+    timeout-minutes: 25
 
     steps:
       - name: Checkout
@@ -577,6 +583,7 @@ jobs:
   mobile-parity:
     name: Mobile parity — checklist and strings
     runs-on: ubuntu-latest
+    timeout-minutes: 10
 
     steps:
       - name: Checkout
@@ -699,6 +706,7 @@ jobs:
   android-app:
     name: Android app — Gradle build
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     needs: mobile-parity
 
     steps:
@@ -758,6 +766,7 @@ jobs:
   android-instrumented:
     name: Android app — instrumented post-login E2E (emulator)
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     needs: android-app
 
     steps:
@@ -876,6 +885,7 @@ jobs:
   ios-app:
     name: iOS app — Swift build and behavior tests
     runs-on: macos-latest
+    timeout-minutes: 30
     needs: mobile-parity
 
     steps:
