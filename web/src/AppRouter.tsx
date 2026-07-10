@@ -293,10 +293,9 @@ export function AppRouter() {
           ProtectedRoute guard so it stays unauthenticated. */}
       {consoleHost ? (
         // Console host: the storefront/marketing paths belong on apex/www, so
-        // land the SPA root (and the rest) on the console. /login and the
-        // /console app itself are declared outside this block and stay intact.
-        // The public /support/new intake stays mounted (with its PublicLayout
-        // chrome) — a legacy-host 301 lands customers here and must not bounce.
+        // land the SPA root (and the rest) on the console. /login, the /console
+        // app, and the public /support/new intake (hoisted below) are declared
+        // outside this block and stay intact.
         <>
           {STOREFRONT_PATHS.map((path) => (
             <Route
@@ -305,9 +304,6 @@ export function AppRouter() {
               element={<Navigate to="/console" replace />}
             />
           ))}
-          <Route element={<PublicLayout />}>
-            <Route path="/support/new" element={<CustomerIntakePage />} />
-          </Route>
         </>
       ) : (
       <Route element={<PublicLayout />}>
@@ -324,12 +320,18 @@ export function AppRouter() {
             public marketing surface is mounted at /platform-fsm so it stays
             unauthenticated. */}
         <Route path="/platform-fsm" element={<PlatformFsmPage />} />
-        {/* Public, unauthenticated customer support intake — the dominant
-            storefront CTA target. Nested inside PublicLayout so it inherits the
-            KNL header/nav/footer; the page renders only its own <main>. */}
-        <Route path="/support/new" element={<CustomerIntakePage />} />
       </Route>
       )}
+      {/* Public, unauthenticated customer support intake — the dominant
+          storefront CTA target, mounted on EVERY host (declared once: the
+          enterprise-ux-parity gate forbids duplicate path strings). On apex/www
+          it is the storefront CTA; on the console host the path-preserving
+          fsm→console 301 lands already-distributed intake links/QR codes here,
+          so it must not bounce to /console. PublicLayout supplies the KNL
+          header/nav/footer chrome on both. */}
+      <Route element={<PublicLayout />}>
+        <Route path="/support/new" element={<CustomerIntakePage />} />
+      </Route>
       <Route path="/login" element={<LoginPage />} />
 
       {/* Auth guard — redirects to /login when unauthenticated */}
