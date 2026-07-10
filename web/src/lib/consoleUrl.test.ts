@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { consoleHref } from "./consoleUrl";
+import { consoleHref, isConsoleHost } from "./consoleUrl";
 
 describe("consoleHref", () => {
   afterEach(() => {
@@ -38,5 +38,30 @@ describe("consoleHref", () => {
 
   it("defaults the path to /login", () => {
     expect(consoleHref(undefined, "console.knllogistic.com")).toBe("/login");
+  });
+});
+
+describe("isConsoleHost", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("is true on any console.<domain> host", () => {
+    expect(isConsoleHost("console.knllogistic.com")).toBe(true);
+    expect(isConsoleHost("console.cosskorea.com")).toBe(true);
+  });
+
+  it("is false on apex/www and dev/preview hosts", () => {
+    expect(isConsoleHost("knllogistic.com")).toBe(false);
+    expect(isConsoleHost("www.knllogistic.com")).toBe(false);
+    expect(isConsoleHost("cosskorea.com")).toBe(false);
+    expect(isConsoleHost("localhost:5173")).toBe(false);
+    expect(isConsoleHost("deploy-preview-12.example.com")).toBe(false);
+  });
+
+  it("matches an explicit VITE_CONSOLE_HOST override (case-insensitively)", () => {
+    vi.stubEnv("VITE_CONSOLE_HOST", "Ops.Staging.Example.com:8443");
+    expect(isConsoleHost("ops.staging.example.com:8443")).toBe(true);
+    expect(isConsoleHost("staging.example.com:8443")).toBe(false);
   });
 });

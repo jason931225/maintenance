@@ -1,6 +1,8 @@
 import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 
+import { isConsoleHost } from "./lib/consoleUrl";
+
 import { PublicLayout } from "./components/public/PublicLayout";
 import { AppShell } from "./components/shell/AppShell";
 import { PlatformShell } from "./components/shell/PlatformShell";
@@ -256,7 +258,31 @@ const ConfigConsolePage = lazy(() =>
   })),
 );
 
+// Public KNL storefront/marketing paths. On the dedicated console host these
+// public-site pages don't belong on the ops origin, so `/` (+ every marketing
+// path) bounces to /console; on apex/www they render the storefront as normal.
+// NOTE: /support/new is deliberately excluded — the fsm-console-redirect Traefik
+// middleware 301s fsm.<domain>/<path> → console.<domain>/<path> path-preserving,
+// so already-distributed customer intake links/QR codes land on the console host
+// and must still reach the public intake, not bounce to /console.
+const STOREFRONT_PATHS = [
+  "/",
+  "/home",
+  "/landing",
+  "/rental",
+  "/used",
+  "/maintenance",
+  "/about",
+  "/contact",
+  "/privacy",
+  "/platform-fsm",
+];
+
 export function AppRouter() {
+  // Host-level decision (not the per-org rollout flag): the console host serves
+  // the console at its root, apex/www keep the storefront. localhost/dev is not
+  // a console host, so dev e2e still lands on `/` = storefront.
+  const consoleHost = isConsoleHost();
   return (
     <Routes>
       {/* Shell-less full-screen routes */}
@@ -265,6 +291,25 @@ export function AppRouter() {
           replaces the previous #10 LandingPage — `/` and `/landing` both resolve
           to the KNL home, the primary public surface. Placed before the
           ProtectedRoute guard so it stays unauthenticated. */}
+      {consoleHost ? (
+        // Console host: the storefront/marketing paths belong on apex/www, so
+        // land the SPA root (and the rest) on the console. /login and the
+        // /console app itself are declared outside this block and stay intact.
+        // The public /support/new intake stays mounted (with its PublicLayout
+        // chrome) — a legacy-host 301 lands customers here and must not bounce.
+        <>
+          {STOREFRONT_PATHS.map((path) => (
+            <Route
+              key={path}
+              path={path}
+              element={<Navigate to="/console" replace />}
+            />
+          ))}
+          <Route element={<PublicLayout />}>
+            <Route path="/support/new" element={<CustomerIntakePage />} />
+          </Route>
+        </>
+      ) : (
       <Route element={<PublicLayout />}>
         <Route path="/" element={<StorefrontHomePage />} />
         <Route path="/home" element={<StorefrontHomePage />} />
@@ -284,6 +329,7 @@ export function AppRouter() {
             KNL header/nav/footer; the page renders only its own <main>. */}
         <Route path="/support/new" element={<CustomerIntakePage />} />
       </Route>
+      )}
       <Route path="/login" element={<LoginPage />} />
 
       {/* Auth guard — redirects to /login when unauthenticated */}
