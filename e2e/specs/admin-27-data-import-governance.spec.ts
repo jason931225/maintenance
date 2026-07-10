@@ -100,6 +100,11 @@ test("ADMIN-27 governed employee import preserves raw rows, masks sensitive prev
   );
   expect(ledgerRows).toEqual([{ runs: 1, raw_rows: 2, candidate_rows: 1 }]);
 
+  // §16 ingest-commit gate (85 판정): apply is fail-closed until the operator
+  // acknowledges the self-checklist, which sends checklist_all_acknowledged.
+  await page
+    .getByRole("checkbox", { name: "자가 점검 목록을 모두 확인했습니다" })
+    .check();
   await page.getByRole("button", { name: "검토 후 적용", exact: true }).click();
   await expect(page.getByText(employeeName, { exact: true })).toBeVisible({
     timeout: 20_000,

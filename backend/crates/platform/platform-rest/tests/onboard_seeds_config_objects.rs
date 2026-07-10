@@ -194,8 +194,11 @@ async fn published_object_types(owner_pool: &PgPool, org_id: Uuid) -> Vec<String
         .await
         .unwrap();
     let keys: Vec<String> = sqlx::query_scalar(
+        // COLLATE "C" pins byte-order sort so the result matches the Rust
+        // byte-sorted `expected` vec; the DB's default locale collation orders
+        // `_` differently (workflow_definition before work_order) and diverges.
         "SELECT stable_key FROM ont_object_types \
-         WHERE org_id = $1 AND lifecycle_state = 'published' ORDER BY stable_key",
+         WHERE org_id = $1 AND lifecycle_state = 'published' ORDER BY stable_key COLLATE \"C\"",
     )
     .bind(org_id)
     .fetch_all(&mut *tx)
