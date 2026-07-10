@@ -36,7 +36,11 @@ async fn seed_org_and_user(owner_pool: &PgPool, org: OrgId) -> UserId {
         .unwrap();
     sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING")
         .bind(*org.as_uuid())
-        .bind(format!("policy-{}", org))
+        // organizations_slug_check caps slug at 40 chars; the hyphenated UUID
+        // form ("policy-" + 36) is 43 and only passed when another test seeded
+        // this org first (ON CONFLICT masks the bad insert). Use the 32-hex
+        // simple form: "policy-" + 32 = 39, valid + unique per org.
+        .bind(format!("policy-{}", org.as_uuid().simple()))
         .bind(format!("Policy Org {org}"))
         .execute(&mut *tx)
         .await
