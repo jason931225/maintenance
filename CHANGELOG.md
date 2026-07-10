@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.56](https://github.com/jason931225/maintenance/compare/v0.1.55...v0.1.56) (2026-07-10)
+
+
+### Bug Fixes
+
+* **web:** de-flake EmployeesPage vitest teardown race ([#430](https://github.com/jason931225/maintenance/issues/430)) ([312de63](https://github.com/jason931225/maintenance/commit/312de63e6a7fc85725be473b3923d24dd7895c65))
+
 ## [0.1.55](https://github.com/jason931225/maintenance/compare/v0.1.54...v0.1.55) (2026-07-10)
 
 
