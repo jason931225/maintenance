@@ -1,6 +1,8 @@
 import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 
+import { isConsoleHost } from "./lib/consoleUrl";
+
 import { PublicLayout } from "./components/public/PublicLayout";
 import { AppShell } from "./components/shell/AppShell";
 import { PlatformShell } from "./components/shell/PlatformShell";
@@ -256,7 +258,31 @@ const ConfigConsolePage = lazy(() =>
   })),
 );
 
+// Public KNL storefront/marketing paths. On the dedicated console host these
+// public-site pages don't belong on the ops origin, so `/` (+ every marketing
+// path) bounces to /console; on apex/www they render the storefront as normal.
+// NOTE: /support/new is deliberately excluded — the fsm-console-redirect Traefik
+// middleware 301s fsm.<domain>/<path> → console.<domain>/<path> path-preserving,
+// so already-distributed customer intake links/QR codes land on the console host
+// and must still reach the public intake, not bounce to /console.
+const STOREFRONT_PATHS = [
+  "/",
+  "/home",
+  "/landing",
+  "/rental",
+  "/used",
+  "/maintenance",
+  "/about",
+  "/contact",
+  "/privacy",
+  "/platform-fsm",
+];
+
 export function AppRouter() {
+  // Host-level decision (not the per-org rollout flag): the console host serves
+  // the console at its root, apex/www keep the storefront. localhost/dev is not
+  // a console host, so dev e2e still lands on `/` = storefront.
+  const consoleHost = isConsoleHost();
   return (
     <Routes>
       {/* Shell-less full-screen routes */}
@@ -265,6 +291,21 @@ export function AppRouter() {
           replaces the previous #10 LandingPage — `/` and `/landing` both resolve
           to the KNL home, the primary public surface. Placed before the
           ProtectedRoute guard so it stays unauthenticated. */}
+      {consoleHost ? (
+        // Console host: the storefront/marketing paths belong on apex/www, so
+        // land the SPA root (and the rest) on the console. /login, the /console
+        // app, and the public /support/new intake (hoisted below) are declared
+        // outside this block and stay intact.
+        <>
+          {STOREFRONT_PATHS.map((path) => (
+            <Route
+              key={path}
+              path={path}
+              element={<Navigate to="/console" replace />}
+            />
+          ))}
+        </>
+      ) : (
       <Route element={<PublicLayout />}>
         <Route path="/" element={<StorefrontHomePage />} />
         <Route path="/home" element={<StorefrontHomePage />} />
@@ -279,9 +320,16 @@ export function AppRouter() {
             public marketing surface is mounted at /platform-fsm so it stays
             unauthenticated. */}
         <Route path="/platform-fsm" element={<PlatformFsmPage />} />
-        {/* Public, unauthenticated customer support intake — the dominant
-            storefront CTA target. Nested inside PublicLayout so it inherits the
-            KNL header/nav/footer; the page renders only its own <main>. */}
+      </Route>
+      )}
+      {/* Public, unauthenticated customer support intake — the dominant
+          storefront CTA target, mounted on EVERY host (declared once: the
+          enterprise-ux-parity gate forbids duplicate path strings). On apex/www
+          it is the storefront CTA; on the console host the path-preserving
+          fsm→console 301 lands already-distributed intake links/QR codes here,
+          so it must not bounce to /console. PublicLayout supplies the KNL
+          header/nav/footer chrome on both. */}
+      <Route element={<PublicLayout />}>
         <Route path="/support/new" element={<CustomerIntakePage />} />
       </Route>
       <Route path="/login" element={<LoginPage />} />

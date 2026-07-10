@@ -33,3 +33,25 @@ export function consoleHref(
   }
   return path;
 }
+
+/**
+ * True when the SPA is running on the dedicated operator-console host — the
+ * `console.<domain>` origin, or an explicit `VITE_CONSOLE_HOST` override for a
+ * staging/preview console. On this host the root (`/`) lands on the console
+ * instead of the public KNL storefront.
+ *
+ * Local dev and preview hosts (localhost, deploy previews) are deliberately NOT
+ * console hosts: dev e2e + shell flows hit `/` for the public surface and
+ * `/console` directly, and must not be auto-redirected.
+ */
+export function isConsoleHost(
+  host: string = typeof window === "undefined" ? "" : window.location.host,
+): boolean {
+  const configured = import.meta.env.VITE_CONSOLE_HOST?.trim();
+  // Compared case-insensitively: browsers lowercase location.host, so an
+  // uppercase env value would otherwise silently never match.
+  if (configured && host.toLowerCase() === configured.toLowerCase()) {
+    return true;
+  }
+  return /^console\./i.test(host);
+}
