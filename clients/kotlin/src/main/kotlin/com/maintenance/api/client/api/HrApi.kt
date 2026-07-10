@@ -39,6 +39,7 @@ import com.maintenance.api.client.model.EmployeeAttendanceRecord
 import com.maintenance.api.client.model.EmployeeAttendanceRecordPage
 import com.maintenance.api.client.model.ErrorBody
 import com.maintenance.api.client.model.HrOrgChartResponse
+import com.maintenance.api.client.model.ImportApplyRequest
 import com.maintenance.api.client.model.LeaveBalancePage
 import com.maintenance.api.client.model.ReportEmployeeExitCaseRequest
 
@@ -75,6 +76,7 @@ open class HrApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
      * Apply a dry-run direct attendance import as append-only coordinate-free facts
      * Applies only a DRY_RUN attendance_direct import with no unresolved row errors. It writes lineage-preserving attendance_direct_import_events and leaves geofence-derived site_attendance_events unchanged.
      * @param runId
+     * @param importApplyRequest  (optional)
      * @return AttendanceImportApplyReport
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
@@ -84,8 +86,8 @@ open class HrApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun applyAttendanceImport(runId: java.util.UUID) : AttendanceImportApplyReport = withContext(Dispatchers.IO) {
-        val localVarResponse = applyAttendanceImportWithHttpInfo(runId = runId)
+    suspend fun applyAttendanceImport(runId: java.util.UUID, importApplyRequest: ImportApplyRequest? = null) : AttendanceImportApplyReport = withContext(Dispatchers.IO) {
+        val localVarResponse = applyAttendanceImportWithHttpInfo(runId = runId, importApplyRequest = importApplyRequest)
 
         return@withContext when (localVarResponse.responseType) {
             ResponseType.Success -> (localVarResponse as Success<*>).data as AttendanceImportApplyReport
@@ -107,16 +109,17 @@ open class HrApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
      * Apply a dry-run direct attendance import as append-only coordinate-free facts
      * Applies only a DRY_RUN attendance_direct import with no unresolved row errors. It writes lineage-preserving attendance_direct_import_events and leaves geofence-derived site_attendance_events unchanged.
      * @param runId
+     * @param importApplyRequest  (optional)
      * @return ApiResponse<AttendanceImportApplyReport?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun applyAttendanceImportWithHttpInfo(runId: java.util.UUID) : ApiResponse<AttendanceImportApplyReport?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = applyAttendanceImportRequestConfig(runId = runId)
+    suspend fun applyAttendanceImportWithHttpInfo(runId: java.util.UUID, importApplyRequest: ImportApplyRequest?) : ApiResponse<AttendanceImportApplyReport?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = applyAttendanceImportRequestConfig(runId = runId, importApplyRequest = importApplyRequest)
 
-        return@withContext request<Unit, AttendanceImportApplyReport>(
+        return@withContext request<ImportApplyRequest, AttendanceImportApplyReport>(
             localVariableConfig
         )
     }
@@ -125,12 +128,14 @@ open class HrApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
      * To obtain the request config of the operation applyAttendanceImport
      *
      * @param runId
+     * @param importApplyRequest  (optional)
      * @return RequestConfig
      */
-    fun applyAttendanceImportRequestConfig(runId: java.util.UUID) : RequestConfig<Unit> {
-        val localVariableBody = null
+    fun applyAttendanceImportRequestConfig(runId: java.util.UUID, importApplyRequest: ImportApplyRequest?) : RequestConfig<ImportApplyRequest> {
+        val localVariableBody = importApplyRequest
         val localVariableQuery: MultiValueMap = mutableMapOf()
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
         localVariableHeaders["Accept"] = "application/json"
 
         return RequestConfig(

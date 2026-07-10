@@ -113,6 +113,20 @@ async fn notifications_rest_is_recipient_scoped(pool: PgPool) {
         .await;
         assert_eq!(b_count.json["unread"].as_i64(), Some(1), "B's own count");
 
+        // Summary is per-category and recipient-scoped, just like unread-count.
+        let a_summary = get_json(
+            service.clone(),
+            "/api/v1/me/notifications/summary",
+            &token_a,
+        )
+        .await;
+        assert_eq!(a_summary.status, StatusCode::OK, "{:?}", a_summary.json);
+        assert_eq!(a_summary.json["total_unread"].as_i64(), Some(1));
+        let by_category = a_summary.json["by_category"].as_array().unwrap();
+        assert_eq!(by_category.len(), 1);
+        assert_eq!(by_category[0]["category"].as_str(), Some("결재"));
+        assert_eq!(by_category[0]["unread"].as_i64(), Some(1));
+
         // B marking A's notification read -> 404 (recipient scoping).
         let cross = post_empty(
             service.clone(),
@@ -178,6 +192,7 @@ fn emit_to(recipient: UserId) -> EmitNotificationCommand {
         actor: None,
         recipient,
         category: "결재".to_owned(),
+        kind: "info".to_owned(),
         text: "결재 문서가 도착했습니다".to_owned(),
         link: NotificationLink::Screen {
             screen: "approvals".to_owned(),

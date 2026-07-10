@@ -12,6 +12,7 @@ members = [
   "crates/compliance/*",
   "crates/docs/*",
   "crates/financial/*",
+  "crates/finance-gl/*",
   "crates/governance/*",
   "crates/identity/*",
   "crates/inspection/*",
@@ -25,6 +26,7 @@ members = [
   "crates/workflow/*",
   "crates/messenger/*",
   "crates/notifications/*",
+  "crates/notices/*",
   "crates/inbox/*",
   "crates/leave/*",
   "crates/todos/*",
@@ -185,6 +187,10 @@ mnt-financial-domain = { path = "crates/financial/domain" }
 mnt-financial-application = { path = "crates/financial/application" }
 mnt-financial-adapter-postgres = { path = "crates/financial/adapter-postgres" }
 mnt-financial-rest = { path = "crates/financial/rest" }
+mnt-finance-gl-domain = { path = "crates/finance-gl/domain" }
+mnt-finance-gl-application = { path = "crates/finance-gl/application" }
+mnt-finance-gl-adapter-postgres = { path = "crates/finance-gl/adapter-postgres" }
+mnt-finance-gl-rest = { path = "crates/finance-gl/rest" }
 mnt-identity-domain = { path = "crates/identity/domain" }
 mnt-identity-application = { path = "crates/identity/application" }
 mnt-identity-adapter-postgres = { path = "crates/identity/adapter-postgres" }
@@ -227,6 +233,10 @@ mnt-notifications-domain = { path = "crates/notifications/domain" }
 mnt-notifications-application = { path = "crates/notifications/application" }
 mnt-notifications-adapter-postgres = { path = "crates/notifications/adapter-postgres" }
 mnt-notifications-rest = { path = "crates/notifications/rest" }
+mnt-notices-domain = { path = "crates/notices/domain" }
+mnt-notices-application = { path = "crates/notices/application" }
+mnt-notices-adapter-postgres = { path = "crates/notices/adapter-postgres" }
+mnt-notices-rest = { path = "crates/notices/rest" }
 mnt-inbox-domain = { path = "crates/inbox/domain" }
 mnt-inbox-application = { path = "crates/inbox/application" }
 mnt-inbox-adapter-postgres = { path = "crates/inbox/adapter-postgres" }
@@ -249,6 +259,8 @@ mnt-comms-adapter-mox = { path = "crates/comms/adapter-mox" }
 mnt-comms-mailbox = { path = "crates/comms/mailbox" }
 mnt-comms-rest = { path = "crates/comms/rest" }
 mnt-payroll-domain = { path = "crates/payroll/domain" }
+mnt-payroll-adapter-postgres = { path = "crates/payroll/adapter-postgres" }
+mnt-payroll-rest = { path = "crates/payroll/rest" }
 mnt-policy-domain = { path = "crates/policy/domain" }
 mnt-policy-application = { path = "crates/policy/application" }
 mnt-policy-adapter-postgres = { path = "crates/policy/adapter-postgres" }

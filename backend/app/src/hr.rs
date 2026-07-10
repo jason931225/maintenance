@@ -7,6 +7,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Extension, Json, Router};
 use calamine::{Data, DataType, Reader, Xlsx};
+use mnt_governance_domain::{GateChainConfig, GateEvidence, evaluate_gate_chain};
 use mnt_kernel_core::{
     AuditAction, AuditEvent, BranchId, BranchScope, ErrorKind, KernelError, OrgId, TraceContext,
     UserId,
@@ -2021,8 +2022,11 @@ async fn apply_attendance_import(
     State(state): State<HrState>,
     Extension(principal): Extension<Principal>,
     Path(run_id): Path<Uuid>,
+    body: Option<Json<ImportApplyRequest>>,
 ) -> Result<Json<AttendanceImportApplyReport>, HrError> {
     authorize_hr_org_wide(&principal, Feature::EmployeeDirectoryManage)?;
+    let checklist_all_acknowledged = body.and_then(|Json(b)| b.checklist_all_acknowledged);
+    let gate_outcome = evaluate_ingest_checklist_gate(checklist_all_acknowledged)?;
     let org = principal.org_id;
     let org_uuid = *org.as_uuid();
     let actor = principal.user_id;
@@ -2038,7 +2042,11 @@ async fn apply_attendance_import(
     .with_org(org)
     .with_snapshots(
         None,
-        Some(json!({ "run_id": run_id, "entity_type": "attendance_direct" })),
+        Some(json!({
+            "run_id": run_id,
+            "entity_type": "attendance_direct",
+            "gate_outcome": gate_outcome
+        })),
     );
 
     let report = with_audit::<_, _, HrError>(&state.pool, event, |tx| {
@@ -2384,8 +2392,11 @@ async fn apply_employee_import(
     State(state): State<HrState>,
     Extension(principal): Extension<Principal>,
     Path(run_id): Path<Uuid>,
+    body: Option<Json<ImportApplyRequest>>,
 ) -> Result<Json<EmployeeImportReport>, HrError> {
     authorize_hr_org_wide(&principal, Feature::EmployeeDirectoryManage)?;
+    let checklist_all_acknowledged = body.and_then(|Json(b)| b.checklist_all_acknowledged);
+    let gate_outcome = evaluate_ingest_checklist_gate(checklist_all_acknowledged)?;
     let org = principal.org_id;
     let org_uuid = *org.as_uuid();
     let actor = principal.user_id;
@@ -2401,7 +2412,11 @@ async fn apply_employee_import(
     .with_org(org)
     .with_snapshots(
         None,
-        Some(json!({ "run_id": run_id, "entity_type": "employee_hr" })),
+        Some(json!({
+            "run_id": run_id,
+            "entity_type": "employee_hr",
+            "gate_outcome": gate_outcome
+        })),
     );
 
     let report = with_audit::<_, _, HrError>(&state.pool, event, |tx| {
@@ -4683,6 +4698,41 @@ async fn apply_employee_rows_tx(
     }
     report.companies = by_company.into_values().collect();
     Ok(report)
+}
+
+/// Optional body for an ingest-commit ("적재") apply call. `checklist_all_acknowledged`
+/// is the §16 self-checklist evidence the gate chain below requires (85 판정).
+#[derive(Debug, Default, Deserialize)]
+struct ImportApplyRequest {
+    #[serde(default)]
+    checklist_all_acknowledged: Option<bool>,
+}
+
+/// §16 ingest-commit gate (85 판정): apply ("적재") requires self-checklist
+/// evidence — fail-closed deny, nothing written, if it's missing or false.
+/// Authority is already enforced by the caller's `authorize_hr_org_wide` check;
+/// four-eyes/egress are not part of this gate (ingest commit is single-actor).
+/// ponytail: reuse the legacy authz check already in front of every apply
+/// handler instead of re-deriving Authority through Cedar for this lane.
+fn evaluate_ingest_checklist_gate(
+    checklist_all_acknowledged: Option<bool>,
+) -> Result<Value, HrError> {
+    let outcome = evaluate_gate_chain(
+        GateChainConfig {
+            self_checklist: true,
+            ..GateChainConfig::default()
+        },
+        &GateEvidence {
+            checklist_all_acknowledged,
+            ..GateEvidence::default()
+        },
+    );
+    if !outcome.allow {
+        return Err(HrError::from_kernel(KernelError::forbidden(
+            "ingest commit requires acknowledging the self-checklist before applying",
+        )));
+    }
+    Ok(json!(outcome))
 }
 
 async fn import_run_for_update(

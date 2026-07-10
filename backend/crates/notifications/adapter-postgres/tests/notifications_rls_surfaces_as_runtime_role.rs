@@ -96,6 +96,7 @@ fn emit_to(recipient: UserId, category: &str, dedup_key: Option<&str>) -> EmitNo
         actor: None,
         recipient,
         category: category.to_owned(),
+        kind: "info".to_owned(),
         text: "결재 문서가 도착했습니다".to_owned(),
         link: NotificationLink::Object {
             kind: "approval".to_owned(),
@@ -366,5 +367,196 @@ async fn mark_all_read_and_dedup_idempotency_as_runtime_role(owner_pool: PgPool)
         notifier_calls_after - notifier_calls_before,
         1,
         "the realtime notifier fires once, not on the redelivery"
+    );
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn summary_is_grouped_by_category_as_runtime_role(owner_pool: PgPool) {
+    let rt_pool = runtime_role_pool(&owner_pool).await;
+    let knl = OrgId::knl();
+    let user = seed_user(&owner_pool, *knl.as_uuid(), "Summary User").await;
+    let store = PgNotificationStore::new(rt_pool.clone());
+
+    for cat in ["결재", "결재", "공지"] {
+        mnt_platform_request_context::scope_org(knl, async {
+            store.emit_notification(emit_to(user, cat, None)).await
+        })
+        .await
+        .expect("emit");
+    }
+
+    let summary = mnt_platform_request_context::scope_org(knl, async {
+        store
+            .summary(
+                mnt_notifications_application::NotificationCountsSummaryQuery { recipient: user },
+            )
+            .await
+    })
+    .await
+    .expect("summary");
+
+    assert_eq!(summary.total_unread, 3);
+    let approval = summary
+        .by_category
+        .iter()
+        .find(|c| c.category == "결재")
+        .expect("결재 present");
+    assert_eq!(approval.unread, 2);
+    let notice = summary
+        .by_category
+        .iter()
+        .find(|c| c.category == "공지")
+        .expect("공지 present");
+    assert_eq!(notice.unread, 1);
+}
+
+/// Proves the generic detect -> assign -> resolve chain: a resolve-by-link
+/// sweep marks EVERY still-open notification pointing at that link resolved,
+/// across recipients, in one audited call — and never touches another org's
+/// rows (RLS) or an already-resolved row.
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn resolve_by_link_closes_every_open_notification_for_that_target_as_runtime_role(
+    owner_pool: PgPool,
+) {
+    let rt_pool = runtime_role_pool(&owner_pool).await;
+    let knl = OrgId::knl();
+    let other = OrgId::from_uuid(OTHER_ORG);
+    seed_org(&owner_pool, OTHER_ORG, "Other").await;
+    let user_a = seed_user(&owner_pool, *knl.as_uuid(), "Coverage A").await;
+    let user_b = seed_user(&owner_pool, *knl.as_uuid(), "Coverage B").await;
+    let store = PgNotificationStore::new(rt_pool.clone());
+
+    let breach_link = NotificationLink::Object {
+        kind: "attendance_gap".to_owned(),
+        id: "shift-2026-07-10".to_owned(),
+    };
+    let slo_notification = |recipient: UserId| EmitNotificationCommand {
+        actor: None,
+        recipient,
+        category: "근태".to_owned(),
+        kind: "slo_violation".to_owned(),
+        text: "미편성 결원이 발생했습니다".to_owned(),
+        link: breach_link.clone(),
+        dedup_key: None,
+        trace: TraceContext::generate(),
+        occurred_at: OffsetDateTime::now_utc(),
+    };
+
+    // Two people got notified of the same coverage breach; plus an unrelated
+    // notification that must NOT be touched by the resolve sweep.
+    let notif_a = mnt_platform_request_context::scope_org(knl, async {
+        store.emit_notification(slo_notification(user_a)).await
+    })
+    .await
+    .expect("emit to A");
+    let notif_b = mnt_platform_request_context::scope_org(knl, async {
+        store.emit_notification(slo_notification(user_b)).await
+    })
+    .await
+    .expect("emit to B");
+    let unrelated = mnt_platform_request_context::scope_org(knl, async {
+        store.emit_notification(emit_to(user_a, "결재", None)).await
+    })
+    .await
+    .expect("emit unrelated");
+
+    // Another tenant's identical-shaped link must stay untouched (RLS).
+    seed_user(&owner_pool, OTHER_ORG, "Other Tenant User").await;
+
+    let resolved_count = mnt_platform_request_context::scope_org(knl, async {
+        store
+            .resolve_notifications_by_link(
+                mnt_notifications_application::ResolveNotificationsByLinkCommand {
+                    link: breach_link.clone(),
+                    resolved_by: Some(user_b),
+                    trace: TraceContext::generate(),
+                    occurred_at: OffsetDateTime::now_utc(),
+                },
+            )
+            .await
+    })
+    .await
+    .expect("resolve by link");
+    assert_eq!(
+        resolved_count, 2,
+        "both open notifications for the breach resolve"
+    );
+
+    let a_after = mnt_platform_request_context::scope_org(knl, async {
+        store.list(list_unread(user_a)).await
+    })
+    .await
+    .expect("A list after resolve");
+    // Resolving does not itself mark a notification read; it's still unread
+    // but now carries a resolved_at stamp.
+    let a_notif = a_after
+        .items
+        .iter()
+        .find(|n| n.id == notif_a.id)
+        .expect("A's breach notification still listed");
+    assert!(
+        a_notif.resolved_at.is_some(),
+        "A's breach notification is resolved"
+    );
+    let a_unrelated = a_after
+        .items
+        .iter()
+        .find(|n| n.id == unrelated.id)
+        .expect("A's unrelated notification still listed");
+    assert!(
+        a_unrelated.resolved_at.is_none(),
+        "the unrelated notification must NOT be auto-resolved"
+    );
+
+    let b_after = mnt_platform_request_context::scope_org(knl, async {
+        store.list(list_unread(user_b)).await
+    })
+    .await
+    .expect("B list after resolve");
+    let b_notif = b_after
+        .items
+        .iter()
+        .find(|n| n.id == notif_b.id)
+        .expect("B's breach notification still listed");
+    assert!(
+        b_notif.resolved_at.is_some(),
+        "B's breach notification is resolved too"
+    );
+
+    // Re-resolving the same link is idempotent-friendly: nothing left open.
+    let second_sweep = mnt_platform_request_context::scope_org(knl, async {
+        store
+            .resolve_notifications_by_link(
+                mnt_notifications_application::ResolveNotificationsByLinkCommand {
+                    link: breach_link.clone(),
+                    resolved_by: None,
+                    trace: TraceContext::generate(),
+                    occurred_at: OffsetDateTime::now_utc(),
+                },
+            )
+            .await
+    })
+    .await
+    .expect("second resolve sweep");
+    assert_eq!(second_sweep, 0, "nothing left open to resolve");
+
+    // Cross-tenant: the other org never sees or resolves knl's rows.
+    let cross_tenant_sweep = mnt_platform_request_context::scope_org(other, async {
+        store
+            .resolve_notifications_by_link(
+                mnt_notifications_application::ResolveNotificationsByLinkCommand {
+                    link: breach_link,
+                    resolved_by: None,
+                    trace: TraceContext::generate(),
+                    occurred_at: OffsetDateTime::now_utc(),
+                },
+            )
+            .await
+    })
+    .await
+    .expect("cross-tenant sweep itself succeeds");
+    assert_eq!(
+        cross_tenant_sweep, 0,
+        "another tenant's sweep resolves none of knl's notifications"
     );
 }

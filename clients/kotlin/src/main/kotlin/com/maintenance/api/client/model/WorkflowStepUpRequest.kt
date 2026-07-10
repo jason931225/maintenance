@@ -33,13 +33,18 @@ import kotlinx.serialization.Contextual
  * Fresh passkey step-up assertion for a sensitive Workflow Studio mutation.
  *
  * @param stepUp
+ * @param fourEyesRequestRef §16 org-scope automation gate (85 판정). Required to publish (direct-activate) an org-scope definition; a personal-scope definition (§3.9.0-①) ignores this and publishes directly. References a gov_approvals request_ref recorded by a distinct approver.
  */
 @Serializable
 
 data class WorkflowStepUpRequest (
 
     @SerialName(value = "step_up")
-    val stepUp: PasskeyStepUpAssertion
+    val stepUp: PasskeyStepUpAssertion,
+
+    /* §16 org-scope automation gate (85 판정). Required to publish (direct-activate) an org-scope definition; a personal-scope definition (§3.9.0-①) ignores this and publishes directly. References a gov_approvals request_ref recorded by a distinct approver. */
+    @Contextual @SerialName(value = "four_eyes_request_ref")
+    val fourEyesRequestRef: java.util.UUID? = null
 
 ) {
 

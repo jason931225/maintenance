@@ -3,6 +3,8 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use axum::{Extension, Json, Router};
+use mnt_governance_adapter_postgres::{PgGovernanceError, four_eyes_approved_conn};
+use mnt_governance_domain::{GateChainConfig, GateEvidence, evaluate_gate_chain};
 use mnt_kernel_core::{
     AuditAction, AuditEvent, BranchId, BranchScope, ErrorKind, KernelError, TraceContext, UserId,
 };
@@ -559,6 +561,11 @@ struct TriggerWorkflowRunRequest {
     trigger_type: String,
     #[serde(default)]
     idempotency_key: Option<String>,
+    /// §16 org-scope automation gate (85 판정): the caller's `gov_approvals`
+    /// request ref for org-scope automations (§3.9.0-① personal-scope ignores
+    /// this and runs direct).
+    #[serde(default)]
+    four_eyes_request_ref: Option<Uuid>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -606,6 +613,11 @@ struct UpdateWorkflowDefinitionRequest {
 struct WorkflowStepUpRequest {
     #[serde(default)]
     step_up: Option<WorkflowStepUpAssertionRequest>,
+    /// §16 org-scope automation gate (85 판정): required on `publish` for a
+    /// never-activated org-scope definition; ignored by every other handler
+    /// that shares this request shape.
+    #[serde(default)]
+    four_eyes_request_ref: Option<Uuid>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -3129,6 +3141,7 @@ async fn trigger_definition_run(
 ) -> Result<Json<WorkflowRunResponse>, WorkflowStudioError> {
     authorize_workflow_manage(&principal)?;
     let trigger_type = normalize_workflow_run_trigger_type(&body.trigger_type)?;
+    let four_eyes_request_ref = body.four_eyes_request_ref;
     let run_id = Uuid::new_v4();
     let actor = principal.user_id;
     let org = principal.org_id;
@@ -3170,6 +3183,38 @@ async fn trigger_definition_run(
             if let Some(existing) = load_run_by_idempotency_key(tx, &idempotency_key).await? {
                 return Ok(existing);
             }
+
+            // §16 org-scope automation gate (85 판정): re-checked in this tx
+            // (TOCTOU-safe), only for a genuinely new run (an idempotent replay
+            // above already passed the gate when the run was first created).
+            // Personal-scope (§3.9.0-①) skips the gate.
+            let owner_scope_is_org = workflow_owner_scope_is_org(&current.definition);
+            let four_eyes_approved = match four_eyes_request_ref {
+                Some(request_ref) => four_eyes_approved_conn(tx.as_mut(), request_ref)
+                    .await
+                    .map_err(governance_to_workflow_studio)?,
+                None => None,
+            };
+            let gate_outcome = evaluate_automation_four_eyes_gate(owner_scope_is_org, four_eyes_approved);
+            if !gate_outcome.allow {
+                return Err(WorkflowStudioError::from(KernelError::forbidden(
+                    "org-scope automation run requires a distinct four-eyes approval",
+                )));
+            }
+            insert_workflow_event(
+                tx,
+                WorkflowAuditEvent {
+                    org,
+                    definition_id: id,
+                    version: Some(active_version),
+                    action: "workflow_definition.run_gate",
+                    actor: Some(actor),
+                    summary: "실행 게이트",
+                    before_snap: None,
+                    after_snap: Some(json!({ "run_id": run_id, "gate_outcome": gate_outcome })),
+                },
+            )
+            .await?;
 
             let row = sqlx::query(
                 r#"
@@ -3287,6 +3332,7 @@ async fn publish_definition(
 ) -> Result<Json<WorkflowDefinitionResponse>, WorkflowStudioError> {
     authorize_workflow_manage(&principal)?;
     verify_workflow_step_up(&state, &principal, body.step_up).await?;
+    let four_eyes_request_ref = body.four_eyes_request_ref;
     let actor = principal.user_id;
     let org = principal.org_id;
     let event = AuditEvent::new(
@@ -3317,7 +3363,26 @@ async fn publish_definition(
                 let before = snapshot_from_row(&current);
 
                 if current.active_version.is_none() {
-                    // Direct activate: never-published definition.
+                    // Direct activate: never-published definition. §16 org-scope
+                    // gate (85 판정): an org-owned automation's FIRST activation
+                    // requires a distinct four-eyes approval — re-checked here,
+                    // inside this writeback tx, so the gate is TOCTOU-safe.
+                    // Personal-scope (§3.9.0-①) skips the gate and stays direct.
+                    let owner_scope_is_org = workflow_owner_scope_is_org(&current.definition);
+                    let four_eyes_approved = match four_eyes_request_ref {
+                        Some(request_ref) => four_eyes_approved_conn(tx.as_mut(), request_ref)
+                            .await
+                            .map_err(governance_to_workflow_studio)?,
+                        None => None,
+                    };
+                    let gate_outcome =
+                        evaluate_automation_four_eyes_gate(owner_scope_is_org, four_eyes_approved);
+                    if !gate_outcome.allow {
+                        return Err(WorkflowStudioError::from(KernelError::forbidden(
+                            "org-scope automation publish requires a distinct four-eyes approval",
+                        )));
+                    }
+
                     let new_version = current.latest_version + 1;
                     let updated = insert_version_and_update_definition(
                         tx,
@@ -3342,7 +3407,10 @@ async fn publish_definition(
                             actor: Some(actor),
                             summary: "게시",
                             before_snap: Some(before),
-                            after_snap: Some(snapshot_from_response(&updated)),
+                            after_snap: Some(json!({
+                                "response": snapshot_from_response(&updated),
+                                "gate_outcome": gate_outcome
+                            })),
                         },
                     )
                     .await?;
@@ -7303,6 +7371,46 @@ async fn verify_workflow_step_up(
 fn authorize_workflow_manage(principal: &Principal) -> Result<(), WorkflowStudioError> {
     authorize_org_wide(principal, Action::new(Feature::RoleManage))
         .map_err(WorkflowStudioError::from)
+}
+
+/// §16 org-scope automation gate (85 판정): `metadata.owner_scope.type` on the
+/// definition JSON distinguishes an org-owned automation (publish/run require
+/// four-eyes) from a personal-scope one (§3.9.0-① stays direct). Missing or
+/// unrecognized scope defaults to org — fail-closed toward the stricter gate.
+fn workflow_owner_scope_is_org(definition: &Value) -> bool {
+    definition
+        .pointer("/metadata/owner_scope/type")
+        .and_then(Value::as_str)
+        != Some("personal")
+}
+
+/// Map the governance adapter's error onto this crate's error surface (mirrors
+/// `governance_to_ontology` in `crates/ontology/rest`).
+fn governance_to_workflow_studio(error: PgGovernanceError) -> WorkflowStudioError {
+    match error {
+        PgGovernanceError::Db(db) => WorkflowStudioError::from(db),
+        PgGovernanceError::Domain(kernel) => WorkflowStudioError::from(kernel),
+    }
+}
+
+/// Evaluate the §16 four-eyes gate for an org-scope automation action.
+/// Personal-scope automations (`owner_scope_is_org == false`) skip the gate
+/// entirely (`GateChainConfig::default()` — every gate `NotRequired`), per
+/// §3.9.0-①.
+fn evaluate_automation_four_eyes_gate(
+    owner_scope_is_org: bool,
+    four_eyes_approved: Option<bool>,
+) -> mnt_governance_domain::GateChainOutcome {
+    evaluate_gate_chain(
+        GateChainConfig {
+            four_eyes: owner_scope_is_org,
+            ..GateChainConfig::default()
+        },
+        &GateEvidence {
+            four_eyes_approved,
+            ..GateEvidence::default()
+        },
+    )
 }
 
 fn snapshot_from_row(row: &WorkflowVersionRow) -> Value {

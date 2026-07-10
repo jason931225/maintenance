@@ -219,7 +219,43 @@ async fn onboarding_seeds_governed_config_object_types(owner_pool: PgPool) {
     let org_b = onboard(&service, &token, "beta").await;
 
     // Both new tenants get exactly the standard catalog, PUBLISHED and org-scoped.
-    let expected = vec!["console_view".to_owned(), "support_slo_setting".to_owned()];
+    // The catalog has grown as parallel lanes extended
+    // `seed_governed_config_object_types`: the 2 original governed-config types,
+    // the niche instance-backed types (§A.2), the C- chain (contract → position →
+    // posting), and the BE-semantic-backfill projected domain types (coverage
+    // matrix gap lane #4) — kept alphabetically sorted to match the query.
+    let expected: Vec<String> = vec![
+        "approval",
+        "compliance_framework",
+        "compliance_obligation",
+        "compliance_regulation",
+        "console_view",
+        "contract",
+        "customer",
+        "employee",
+        "equipment",
+        "evidence",
+        "handover_policy",
+        "labor_refusal",
+        "leave_request",
+        "mail",
+        "messenger_thread",
+        "position",
+        "posting",
+        "profitability_analytic",
+        "regulation_param",
+        "shift_timetable",
+        "site",
+        "site_coverage",
+        "sla_setting",
+        "support_slo_setting",
+        "support_ticket",
+        "work_order",
+        "workflow_definition",
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect();
     assert_eq!(
         published_object_types(&owner_pool, org_a).await,
         expected,

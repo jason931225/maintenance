@@ -74,6 +74,12 @@ mnt-leave-rest = { workspace = true }
 mnt-todos-adapter-postgres = { workspace = true }
 mnt-todos-rest = { workspace = true }
 mnt-payroll-domain = { workspace = true }
+mnt-payroll-adapter-postgres = { workspace = true }
+mnt-payroll-rest = { workspace = true }
+mnt-notices-adapter-postgres = { workspace = true }
+mnt-notices-rest = { workspace = true }
+mnt-finance-gl-adapter-postgres = { workspace = true }
+mnt-finance-gl-rest = { workspace = true }
 mnt-platform-audit-chain = { path = "../crates/platform/audit-chain" }
 mnt-platform-auth = { path = "../crates/platform/auth" }
 mnt-platform-auth-rest = { workspace = true }
@@ -82,6 +88,7 @@ mnt-platform-authz-rest = { workspace = true }
 mnt-ontology-adapter-postgres = { workspace = true }
 mnt-ontology-rest = { workspace = true }
 mnt-governance-adapter-postgres = { workspace = true }
+mnt-governance-domain = { workspace = true }
 mnt-governance-rest = { workspace = true }
 mnt-docs-adapter-postgres = { workspace = true }
 mnt-docs-rest = { workspace = true }
@@ -97,6 +104,8 @@ mnt-platform-storage = { workspace = true }
 mnt-reporting-adapter-postgres = { workspace = true }
 mnt-reporting-rest = { workspace = true }
 mnt-registry-adapter-postgres = { workspace = true }
+mnt-registry-application = { workspace = true }
+mnt-registry-domain = { workspace = true }
 mnt-registry-rest = { workspace = true }
 mnt-dispatch-adapter-postgres = { workspace = true }
 mnt-dispatch-domain = { workspace = true }
@@ -129,6 +138,7 @@ uuid = { workspace = true }
 [dev-dependencies]
 mnt-financial-application = { workspace = true }
 mnt-financial-domain = { workspace = true }
+mnt-governance-application = { workspace = true }
 p256 = { version = "0.13.2", features = ["ecdsa", "pkcs8", "pem"] }
 tokio = { workspace = true, features = ["io-util", "net", "macros", "rt-multi-thread"] }
 tower = { workspace = true, features = ["util"] }

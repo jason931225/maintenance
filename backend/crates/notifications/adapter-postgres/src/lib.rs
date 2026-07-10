@@ -12,11 +12,15 @@ use std::sync::Arc;
 use mnt_kernel_core::{ErrorKind, KernelError, NotificationId, UserId};
 use mnt_notifications_application::{
     EmitNotificationCommand, EmitNotificationFuture, ListNotificationsQuery,
-    MarkAllNotificationsReadCommand, MarkNotificationReadCommand, NotificationCreatedNotification,
-    NotificationNotifier, NotificationPage, NotificationSink, NotificationSummary,
+    MarkAllNotificationsReadCommand, MarkNotificationReadCommand, NotificationCategoryCount,
+    NotificationCountsSummary, NotificationCountsSummaryQuery, NotificationCreatedNotification,
+    NotificationNotifier, NotificationPage, NotificationResolver, NotificationSink,
+    NotificationSummary, ResolveNotificationsByLinkCommand, ResolveNotificationsFuture,
     UnreadNotificationCountQuery, notification_audit_event,
 };
-use mnt_notifications_domain::{NotificationBody, NotificationCategory, NotificationLink};
+use mnt_notifications_domain::{
+    NotificationBody, NotificationCategory, NotificationKind, NotificationLink,
+};
 use mnt_platform_db::{DbError, with_audit, with_org_conn};
 use mnt_platform_request_context::current_org;
 use sqlx::{PgPool, Postgres, QueryBuilder, Row};
@@ -109,6 +113,7 @@ impl PgNotificationStore {
         command: EmitNotificationCommand,
     ) -> Result<NotificationSummary, PgNotificationError> {
         let category = NotificationCategory::new(command.category)?;
+        let kind = NotificationKind::new(command.kind)?;
         let body = NotificationBody::new(command.text)?;
         let link = NotificationLink::validated(command.link)?;
         let link_json = serde_json::to_value(&link).map_err(|err| {
@@ -139,6 +144,7 @@ impl PgNotificationStore {
 
         let insert = {
             let category = category.into_string();
+            let kind = kind.into_string();
             let body = body.into_string();
             let link_json = link_json.clone();
             let dedup_key = dedup_key.clone();
@@ -150,19 +156,20 @@ impl PgNotificationStore {
                         let row = sqlx::query(
                             r#"
                             INSERT INTO notifications (
-                                id, org_id, recipient_user_id, category, body, link, dedup_key
+                                id, org_id, recipient_user_id, category, kind, body, link, dedup_key
                             )
-                            VALUES ($1, $2, $3, $4, $5, $6, $7)
+                            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                             ON CONFLICT (org_id, recipient_user_id, dedup_key)
                                 WHERE dedup_key IS NOT NULL DO NOTHING
-                            RETURNING id, recipient_user_id, category, body, link,
-                                      unread, created_at, read_at
+                            RETURNING id, recipient_user_id, category, kind, body, link,
+                                      unread, created_at, read_at, resolved_at
                             "#,
                         )
                         .bind(notification_id.as_uuid())
                         .bind(org_uuid)
                         .bind(recipient_uuid)
                         .bind(category)
+                        .bind(kind)
                         .bind(body)
                         .bind(link_json)
                         .bind(dedup_key)
@@ -224,8 +231,8 @@ impl PgNotificationStore {
             Box::pin(async move {
                 Ok(sqlx::query(
                     r#"
-                    SELECT id, recipient_user_id, category, body, link,
-                           unread, created_at, read_at
+                    SELECT id, recipient_user_id, category, kind, body, link,
+                           unread, created_at, read_at, resolved_at
                     FROM notifications
                     WHERE recipient_user_id = $1 AND dedup_key = $2
                     "#,
@@ -253,8 +260,8 @@ impl PgNotificationStore {
             Box::pin(async move {
                 let mut builder = QueryBuilder::<Postgres>::new(
                     r#"
-                    SELECT id, recipient_user_id, category, body, link,
-                           unread, created_at, read_at
+                    SELECT id, recipient_user_id, category, kind, body, link,
+                           unread, created_at, read_at, resolved_at
                     FROM notifications
                     WHERE recipient_user_id =
                     "#,
@@ -346,8 +353,8 @@ impl PgNotificationStore {
                     UPDATE notifications
                     SET unread = false, read_at = COALESCE(read_at, $3)
                     WHERE id = $1 AND recipient_user_id = $2
-                    RETURNING id, recipient_user_id, category, body, link,
-                              unread, created_at, read_at
+                    RETURNING id, recipient_user_id, category, kind, body, link,
+                              unread, created_at, read_at, resolved_at
                     "#,
                 )
                 .bind(notification_uuid)
@@ -399,12 +406,119 @@ impl PgNotificationStore {
         })
         .await
     }
+
+    /// Per-category unread breakdown for the comms-rail badge, plus the total.
+    /// `category` doubles as the "surface" grouping (결재/멘션/문서/공지/근태/급여,
+    /// extensible) — a new producer category needs no schema change to appear
+    /// here.
+    pub async fn summary(
+        &self,
+        query: NotificationCountsSummaryQuery,
+    ) -> Result<NotificationCountsSummary, PgNotificationError> {
+        let recipient_uuid = *query.recipient.as_uuid();
+        let org = current_org().map_err(KernelError::from)?;
+
+        let rows = with_org_conn::<_, _, PgNotificationError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                Ok(sqlx::query(
+                    r#"
+                    SELECT category, COUNT(*) AS unread
+                    FROM notifications
+                    WHERE recipient_user_id = $1 AND unread = true
+                    GROUP BY category
+                    ORDER BY category
+                    "#,
+                )
+                .bind(recipient_uuid)
+                .fetch_all(tx.as_mut())
+                .await?)
+            })
+        })
+        .await?;
+
+        let by_category = rows
+            .iter()
+            .map(|row| {
+                Ok(NotificationCategoryCount {
+                    category: row.try_get("category")?,
+                    unread: row.try_get("unread")?,
+                })
+            })
+            .collect::<Result<Vec<_>, PgNotificationError>>()?;
+        let total_unread = by_category.iter().map(|c| c.unread).sum();
+        Ok(NotificationCountsSummary {
+            total_unread,
+            by_category,
+        })
+    }
+
+    /// Mark every still-open notification pointing at `command.link` as
+    /// resolved, in one audited sweep. Generic across recipients and
+    /// producers — matches solely on the `link` shape. Returns the number of
+    /// rows resolved (0 when nothing matched, which is not an error: a
+    /// resolving event may race ahead of, or arrive after, the detector).
+    pub async fn resolve_notifications_by_link(
+        &self,
+        command: ResolveNotificationsByLinkCommand,
+    ) -> Result<u64, PgNotificationError> {
+        let org = current_org().map_err(KernelError::from)?;
+        let link = NotificationLink::validated(command.link)?;
+        let link_json = serde_json::to_value(&link).map_err(|err| {
+            KernelError::internal(format!("notification link is not JSON: {err}"))
+        })?;
+        let resolved_by_uuid = command.resolved_by.map(|id| *id.as_uuid());
+        let occurred_at = command.occurred_at;
+
+        let target = serde_json::to_string(&link_json)
+            .unwrap_or_else(|_| "<unserializable link>".to_owned());
+        let event = notification_audit_event(
+            "notification.resolve",
+            command.resolved_by,
+            target,
+            command.trace,
+            command.occurred_at,
+        )?
+        .with_org(org);
+
+        with_audit::<_, u64, PgNotificationError>(&self.pool, event, move |tx| {
+            Box::pin(async move {
+                let result = sqlx::query(
+                    r#"
+                    UPDATE notifications
+                    SET resolved_at = $2, resolved_by = $3
+                    WHERE org_id = $4 AND link = $1 AND resolved_at IS NULL
+                    "#,
+                )
+                .bind(&link_json)
+                .bind(occurred_at)
+                .bind(resolved_by_uuid)
+                .bind(*org.as_uuid())
+                .execute(tx.as_mut())
+                .await?;
+                Ok(result.rows_affected())
+            })
+        })
+        .await
+    }
 }
 
 impl NotificationSink for PgNotificationStore {
     fn emit(&self, command: EmitNotificationCommand) -> EmitNotificationFuture<'_> {
         Box::pin(async move {
             self.emit_notification(command)
+                .await
+                .map_err(KernelError::from)
+        })
+    }
+}
+
+impl NotificationResolver for PgNotificationStore {
+    fn resolve_by_link(
+        &self,
+        command: ResolveNotificationsByLinkCommand,
+    ) -> ResolveNotificationsFuture<'_> {
+        Box::pin(async move {
+            self.resolve_notifications_by_link(command)
                 .await
                 .map_err(KernelError::from)
         })
@@ -422,10 +536,12 @@ fn summary_from_row(
         id: NotificationId::from_uuid(row.try_get("id")?),
         recipient_user_id: UserId::from_uuid(row.try_get("recipient_user_id")?),
         category: row.try_get("category")?,
+        kind: row.try_get("kind")?,
         text: row.try_get("body")?,
         link,
         unread: row.try_get("unread")?,
         created_at: row.try_get("created_at")?,
         read_at: row.try_get("read_at")?,
+        resolved_at: row.try_get("resolved_at")?,
     })
 }

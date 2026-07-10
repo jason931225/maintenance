@@ -3489,6 +3489,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/me/notifications/summary": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Per-category unread breakdown for the comms-rail badge, plus the total */
+        get: operations["getNotificationsSummary"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/leave/requests": {
         parameters: {
             query?: never;
@@ -6523,6 +6540,263 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/notices": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List notices (published-only for most callers; NoticeManage sees drafts too) */
+        get: operations["listNotices"];
+        put?: never;
+        /** Create a draft notice (NoticeManage only) */
+        post: operations["createNoticeDraft"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notices/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Fetch one notice (a draft is NotFound unless the caller holds NoticeManage) */
+        get: operations["getNotice"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notices/{id}/publish": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Publish a draft (NoticeManage only); issues the NT- code, snapshots recipients, fans out notifications */
+        post: operations["publishNotice"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notices/{id}/ack": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 수령확인 — the caller confirms receipt of a published notice (owner-scoped) */
+        post: operations["acknowledgeNotice"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/notices/{id}/progress": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** 수령확인 progress (done/total) for one notice (NoticeManage only) */
+        get: operations["getNoticeProgress"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/finance-gl/vouchers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List general-ledger vouchers (tenant-scoped; optional branch/status filter) */
+        get: operations["listVouchers"];
+        put?: never;
+        /** Open a draft voucher (기표) */
+        post: operations["createVoucherDraft"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/finance-gl/vouchers/{voucher_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Fetch one voucher with its lines and source linkage */
+        get: operations["getVoucher"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/finance-gl/vouchers/{voucher_id}/submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 기표 → 차대검증 (balance gate; unbalanced is rejected) */
+        post: operations["submitVoucher"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/finance-gl/vouchers/{voucher_id}/approve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 차대검증 → 승인 */
+        post: operations["approveVoucher"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/finance-gl/vouchers/{voucher_id}/post": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 승인 → 전기(posted); lines become immutable */
+        post: operations["postVoucher"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/finance-gl/vouchers/{voucher_id}/reverse": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** 전기 → 역분개; creates a linked contra voucher (returns the contra) */
+        post: operations["reverseVoucher"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/finance-gl/accounts/{account_code}/entries": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Account drill — voucher lines for an account with voucher/source links */
+        get: operations["accountDrill"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/payroll/runs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List payroll draft runs (admin; EXECUTIVE/SUPER_ADMIN only, audited read) */
+        get: operations["listPayrollRuns"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/payroll/runs/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get one payroll draft run and its per-employee readiness lines (admin) */
+        get: operations["getPayrollRun"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/payroll/payslips/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the signed-in employee's own payroll draft-line (readiness) rows */
+        get: operations["listMyPayrollLines"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -7532,6 +7806,11 @@ export interface components {
              */
             trigger_type: "MANUAL" | "SCHEDULE" | "WEBHOOK" | "SYSTEM";
             idempotency_key?: string | null;
+            /**
+             * Format: uuid
+             * @description §16 org-scope automation gate (85 판정); ignored for a personal-scope (§3.9.0-①) definition.
+             */
+            four_eyes_request_ref?: string | null;
         };
         WorkflowDefinitionEventResponse: {
             id: components["schemas"]["Uuid"];
@@ -7781,6 +8060,11 @@ export interface components {
         /** @description Fresh passkey step-up assertion for a sensitive Workflow Studio mutation. */
         WorkflowStepUpRequest: {
             step_up: components["schemas"]["PasskeyStepUpAssertion"];
+            /**
+             * Format: uuid
+             * @description §16 org-scope automation gate (85 판정). Required to publish (direct-activate) an org-scope definition; a personal-scope definition (§3.9.0-①) ignores this and publishes directly. References a gov_approvals request_ref recorded by a distinct approver.
+             */
+            four_eyes_request_ref?: string | null;
         };
         RollbackWorkflowDefinitionRequest: {
             /** Format: int32 */
@@ -8244,6 +8528,10 @@ export interface components {
             missing_employee_rows: number;
             ambiguous_employee_rows: number;
             row_errors: components["schemas"]["AttendanceImportRowError"][];
+        };
+        /** @description §16 self-checklist evidence for an ingest-commit ("적재") apply. Missing or false ⇒ fail-closed deny, nothing written (85 판정). */
+        ImportApplyRequest: {
+            checklist_all_acknowledged?: boolean | null;
         };
         AttendanceImportApplyReport: {
             run_id: components["schemas"]["Uuid"];
@@ -9213,6 +9501,8 @@ export interface components {
             recipient_user_id: components["schemas"]["Uuid"];
             /** @description Extensible category (결재/멘션/문서/공지/근태/급여 and beyond). */
             category: string;
+            /** @description Extensible producer kind (default "info"); generic detect->assign->resolve chains key on this. */
+            kind: string;
             text: string;
             link: components["schemas"]["NotificationLink"];
             unread: boolean;
@@ -9222,6 +9512,21 @@ export interface components {
              * @description When the notification was first marked read; null while unread.
              */
             read_at: string | null;
+            /**
+             * Format: date-time
+             * @description When a producer's resolve-by-link sweep closed this notification; null while open.
+             */
+            resolved_at: string | null;
+        };
+        NotificationCategoryCount: {
+            category: string;
+            /** Format: int64 */
+            unread: number;
+        };
+        NotificationCountsSummary: {
+            /** Format: int64 */
+            total_unread: number;
+            by_category: components["schemas"]["NotificationCategoryCount"][];
         };
         NotificationPage: {
             items: components["schemas"]["NotificationSummary"][];
@@ -11645,6 +11950,189 @@ export interface components {
             /** Format: date-time */
             createdAt: string;
         };
+        NoticeSummary: {
+            id: components["schemas"]["Uuid"];
+            /** @description NT- code, set only once published. */
+            code?: string | null;
+            author_user_id: components["schemas"]["Uuid"];
+            title: string;
+            body: string;
+            /** @enum {string} */
+            status: "draft" | "published";
+            /** Format: date-time */
+            published_at?: string | null;
+            created_at: components["schemas"]["Timestamp"];
+        };
+        CreateNoticeDraftRequest: {
+            title: string;
+            body: string;
+        };
+        NoticeProgress: {
+            /** Format: int64 */
+            total: number;
+            /** Format: int64 */
+            acknowledged: number;
+        };
+        /** @enum {string} */
+        DebitCredit: "DEBIT" | "CREDIT";
+        /** @enum {string} */
+        VoucherStatus: "DRAFT" | "BALANCE_CHECKED" | "APPROVED" | "POSTED" | "REVERSED";
+        VoucherSourceRef: {
+            object_type: string;
+            object_id: string;
+        };
+        VoucherLineInput: {
+            account_code: string;
+            side: components["schemas"]["DebitCredit"];
+            /** Format: int64 */
+            amount_won: number;
+            memo?: string;
+        };
+        VoucherLineSummary: {
+            id: components["schemas"]["Uuid"];
+            /** Format: int32 */
+            line_no: number;
+            account_code: string;
+            side: components["schemas"]["DebitCredit"];
+            /** Format: int64 */
+            amount_won: number;
+            memo: string;
+        };
+        CreateVoucherRequest: {
+            branch_id: components["schemas"]["Uuid"];
+            memo?: string;
+            source?: components["schemas"]["VoucherSourceRef"] | null;
+            lines: components["schemas"]["VoucherLineInput"][];
+        };
+        ReverseVoucherRequest: {
+            memo?: string;
+        };
+        VoucherSummary: {
+            id: components["schemas"]["Uuid"];
+            voucher_no: string;
+            branch_id: components["schemas"]["Uuid"];
+            status: components["schemas"]["VoucherStatus"];
+            memo: string;
+            source_object_type?: string | null;
+            source_object_id?: string | null;
+            /** Format: uuid */
+            reversal_of_voucher_id?: string | null;
+            /** Format: uuid */
+            reversed_by_voucher_id?: string | null;
+            /** Format: int64 */
+            debit_total_won: number;
+            /** Format: int64 */
+            credit_total_won: number;
+            lines: components["schemas"]["VoucherLineSummary"][];
+            created_by: components["schemas"]["Uuid"];
+            /** Format: date-time */
+            posted_at?: string | null;
+            created_at: components["schemas"]["Timestamp"];
+            updated_at: components["schemas"]["Timestamp"];
+        };
+        AccountDrillEntry: {
+            voucher_id: components["schemas"]["Uuid"];
+            voucher_no: string;
+            status: components["schemas"]["VoucherStatus"];
+            line_id: components["schemas"]["Uuid"];
+            account_code: string;
+            side: components["schemas"]["DebitCredit"];
+            /** Format: int64 */
+            amount_won: number;
+            source_object_type?: string | null;
+            source_object_id?: string | null;
+            entry_at: components["schemas"]["Timestamp"];
+        };
+        PayrollRunSummary: {
+            id: components["schemas"]["Uuid"];
+            /** Format: date */
+            period_start: string;
+            /** Format: date */
+            period_end: string;
+            source_label: string;
+            /** @enum {string} */
+            status: "STAGED" | "BLOCKED_LEGAL_GATE" | "READY_FOR_REVIEW" | "APPROVED" | "ISSUED" | "VOID";
+            calculation_enabled: boolean;
+            /** Format: uuid */
+            created_by?: string | null;
+            /** Format: uuid */
+            approved_by?: string | null;
+            /** Format: date-time */
+            approved_at?: string | null;
+            created_at: components["schemas"]["Timestamp"];
+            updated_at: components["schemas"]["Timestamp"];
+        };
+        PayrollRunPage: {
+            items: components["schemas"]["PayrollRunSummary"][];
+            /** Format: int64 */
+            total: number;
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            offset: number;
+        };
+        PayrollLineSummary: {
+            id: components["schemas"]["Uuid"];
+            /** Format: uuid */
+            employee_id?: string | null;
+            employee_display_name: string;
+            employee_company: string;
+            work_days?: number | null;
+            regular_hours?: number | null;
+            overtime_hours?: number | null;
+            night_hours?: number | null;
+            holiday_hours?: number | null;
+            leave_used?: number | null;
+            leave_remaining?: number | null;
+            gross_pay_source_present: boolean;
+            net_pay_source_present: boolean;
+            /** @enum {string} */
+            nts_tax_row_status: "REQUIRED_NOT_SUPPLIED" | "SUPPLIED_UNVERIFIED" | "VERIFIED_SOURCE_ROW";
+            /** @enum {string} */
+            calculation_status: "BLOCKED_LEGAL_GATE" | "READY_FOR_REVIEW" | "APPROVED" | "ISSUED" | "VOID";
+            blockers: unknown[];
+        };
+        PayrollRunDetail: {
+            run: components["schemas"]["PayrollRunSummary"];
+            legal_basis: Record<string, never>;
+            source_summary: Record<string, never>;
+            lines: components["schemas"]["PayrollLineSummary"][];
+            /** Format: int64 */
+            lines_total: number;
+            /** Format: int64 */
+            lines_limit: number;
+            /** Format: int64 */
+            lines_offset: number;
+        };
+        MyPayrollLine: {
+            run_id: components["schemas"]["Uuid"];
+            /** Format: date */
+            period_start: string;
+            /** Format: date */
+            period_end: string;
+            /** @enum {string} */
+            run_status: "STAGED" | "BLOCKED_LEGAL_GATE" | "READY_FOR_REVIEW" | "APPROVED" | "ISSUED" | "VOID";
+            /** @enum {string} */
+            calculation_status: "BLOCKED_LEGAL_GATE" | "READY_FOR_REVIEW" | "APPROVED" | "ISSUED" | "VOID";
+            work_days?: number | null;
+            regular_hours?: number | null;
+            overtime_hours?: number | null;
+            night_hours?: number | null;
+            holiday_hours?: number | null;
+            leave_used?: number | null;
+            leave_remaining?: number | null;
+            gross_pay_source_present: boolean;
+            net_pay_source_present: boolean;
+        };
+        MyPayrollLinePage: {
+            items: components["schemas"]["MyPayrollLine"][];
+            /** Format: int64 */
+            total: number;
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            offset: number;
+        };
     };
     responses: {
         /** @description Missing or invalid bearer token. */
@@ -13562,7 +14050,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ImportApplyRequest"];
+            };
+        };
         responses: {
             /** @description Apply counts for append-only direct attendance facts. */
             200: {
@@ -13786,7 +14278,11 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ImportApplyRequest"];
+            };
+        };
         responses: {
             /** @description Applied import counts by company. */
             200: {
@@ -16910,6 +17406,36 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             404: components["responses"]["NotFound"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    getNotificationsSummary: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Unread counts grouped by category, for the caller only. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NotificationCountsSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
             /** @description JWT verification is not configured. */
             503: {
                 headers: {
@@ -22550,6 +23076,440 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+        };
+    };
+    listNotices: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Notices visible to the caller, newest first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoticeSummary"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+        };
+    };
+    createNoticeDraft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateNoticeDraftRequest"];
+            };
+        };
+        responses: {
+            /** @description Draft notice created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoticeSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getNotice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The notice. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoticeSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    publishNotice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The published notice. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoticeSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    acknowledgeNotice: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Acknowledged. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    getNoticeProgress: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Acknowledgment progress. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoticeProgress"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listVouchers: {
+        parameters: {
+            query?: {
+                branch_id?: components["schemas"]["Uuid"];
+                status?: components["schemas"]["VoucherStatus"];
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Vouchers visible to the caller. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoucherSummary"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createVoucherDraft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateVoucherRequest"];
+            };
+        };
+        responses: {
+            /** @description Draft voucher created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoucherSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getVoucher: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                voucher_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The voucher. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoucherSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    submitVoucher: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                voucher_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Voucher advanced to 차대검증. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoucherSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    approveVoucher: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                voucher_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Voucher approved. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoucherSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    postVoucher: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                voucher_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Voucher posted. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoucherSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    reverseVoucher: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                voucher_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["ReverseVoucherRequest"];
+            };
+        };
+        responses: {
+            /** @description Contra voucher created; original marked REVERSED. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["VoucherSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    accountDrill: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                account_code: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Account entries. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AccountDrillEntry"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    listPayrollRuns: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Page of payroll draft runs, newest period first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayrollRunPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    getPayrollRun: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The run, its legal/source-summary context, and a page of lines. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PayrollRunDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listMyPayrollLines: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Page of the caller's own payroll draft-line rows, newest run period first. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MyPayrollLinePage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
         };
     };
 }

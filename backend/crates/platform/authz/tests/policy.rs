@@ -23,7 +23,7 @@ const ROLES: [Role; 6] = [
     Role::SuperAdmin,
 ];
 
-fn expected_matrix() -> [(Feature, [PermissionLevel; 6]); 60] {
+fn expected_matrix() -> [(Feature, [PermissionLevel; 6]); 62] {
     use Feature::{
         AiAssist, ApprovalFinalize, AssigneeManage, AuditLogRead, AuditStreamAccessLogRead,
         AuditStreamRead, BenefitCatalogManage, BenefitCatalogRead, BranchManage, CompletionReview,
@@ -33,12 +33,12 @@ fn expected_matrix() -> [(Feature, [PermissionLevel; 6]); 60] {
         ExitSettlementManage, InspectionRoundComplete, InspectionScheduleManage,
         IntegrityFindingTriage, IntegrityFindingsRead, InventoryConsume, InventoryManage,
         InventoryRead, InventoryReorder, KpiExclusionManage, KpiRead, LifecycleManage, Login,
-        MailAccountManage, MailUse, MasterListImport, OpsDashboardRead, OrgWideQueueTriage,
-        PeriodLockManage, PriorityManage, PurchaseExecute, PurchaseFinalApprove,
-        PurchaseRequestApprove, PurchaseRequestCreate, PurchaseRequestRead, RegionManage,
-        RentalQuoteManage, RoleManage, SalesManage, SubordinateUserCreate, TargetManage,
-        UserManage, WorkOrderCreate, WorkOrderEditIntake, WorkOrderReadAll, WorkOrderStart,
-        WorkReportSubmit,
+        MailAccountManage, MailUse, MasterListImport, NoticeManage, OpsDashboardRead,
+        OrgWideQueueTriage, PayrollRunRead, PeriodLockManage, PriorityManage, PurchaseExecute,
+        PurchaseFinalApprove, PurchaseRequestApprove, PurchaseRequestCreate, PurchaseRequestRead,
+        RegionManage, RentalQuoteManage, RoleManage, SalesManage, SubordinateUserCreate,
+        TargetManage, UserManage, WorkOrderCreate, WorkOrderEditIntake, WorkOrderReadAll,
+        WorkOrderStart, WorkReportSubmit,
     };
     use PermissionLevel::{Allow as A, Deny as D, Limited as L, RequestOnly as R};
 
@@ -131,6 +131,11 @@ fn expected_matrix() -> [(Feature, [PermissionLevel; 6]); 60] {
         // lifecycle/records management (ADMIN + SUPER_ADMIN).
         (PeriodLockManage, [D, D, D, A, A, A]),
         (LifecycleManage, [D, D, D, A, D, A]),
+        // Payroll draft-run/line staging read: same tier as
+        // EmployeeDirectoryRead (financial/HR-sensitive).
+        (PayrollRunRead, [D, D, D, A, A, A]),
+        // Notice-board publish tier: ADMIN + EXECUTIVE + SUPER_ADMIN.
+        (NoticeManage, [D, D, D, A, A, A]),
     ]
 }
 
@@ -792,7 +797,7 @@ fn cedar_compiled_bundle_cache_key_requires_versioned_identity() {
 #[test]
 fn permission_matrix_is_exhaustive_and_matches_inherited_table() {
     let matrix = expected_matrix();
-    assert_eq!(Feature::ALL.len(), 60);
+    assert_eq!(Feature::ALL.len(), 62);
     assert_eq!(matrix.len(), Feature::ALL.len());
 
     for feature in Feature::ALL {

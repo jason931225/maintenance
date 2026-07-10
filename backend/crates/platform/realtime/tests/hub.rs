@@ -109,6 +109,7 @@ async fn notification_fans_out_only_to_its_recipient() {
         id: mnt_kernel_core::NotificationId::new(),
         recipient_user_id: recipient,
         category: "결재".to_owned(),
+        kind: "info".to_owned(),
         text: "결재 문서가 도착했습니다".to_owned(),
         link: NotificationLink::Screen {
             screen: "approvals".to_owned(),
@@ -116,6 +117,7 @@ async fn notification_fans_out_only_to_its_recipient() {
         unread: true,
         created_at: OffsetDateTime::now_utc(),
         read_at: None,
+        resolved_at: None,
     };
     hub.dispatch_notification_for_test(recipient, summary.clone())
         .await;

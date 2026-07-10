@@ -234,10 +234,27 @@ pub enum Feature {
     /// hold, retention). ADMIN + SUPER_ADMIN — the records-management tier,
     /// mirroring how payroll admin endpoints gate.
     LifecycleManage,
+    /// Read payroll draft-run/line staging rows (`payroll_draft_runs`/
+    /// `payroll_draft_lines`, mig 0074). Financial/HR-sensitive; gated via
+    /// `authorize_org_wide` because the table has no `branch_id` column to
+    /// narrow a branch-scoped ADMIN's visibility. Built-in access is
+    /// EXECUTIVE + SUPER_ADMIN only — `authorize_org_wide`'s built-in path
+    /// never grants ADMIN (all-branch-scoped or not), matching
+    /// `EmployeeDirectoryRead`/`OrgWideQueueTriage` today; an ADMIN's only
+    /// path in is a custom org-wide PBAC grant. See the payroll REST crate's
+    /// module docs for the deny-by-omission rationale.
+    PayrollRunRead,
+    /// Create a draft board notice, publish it (issues the NT- code, snapshots
+    /// every active org member as a recipient, and fans out a notification to
+    /// each), and read 수령확인 progress. The HQ/announcement tier: ADMIN +
+    /// EXECUTIVE + SUPER_ADMIN. Reading a PUBLISHED notice is open to any
+    /// authenticated org member — this feature gates only draft visibility and
+    /// the publish/progress mutations.
+    NoticeManage,
 }
 
 impl Feature {
-    pub const ALL: [Self; 60] = [
+    pub const ALL: [Self; 62] = [
         Self::Login,
         Self::WorkOrderCreate,
         Self::WorkOrderEditIntake,
@@ -298,6 +315,8 @@ impl Feature {
         Self::AuditStreamAccessLogRead,
         Self::PeriodLockManage,
         Self::LifecycleManage,
+        Self::PayrollRunRead,
+        Self::NoticeManage,
     ];
 
     #[must_use]
@@ -363,6 +382,8 @@ impl Feature {
             Self::AuditStreamAccessLogRead => "audit_stream_access_log_read",
             Self::PeriodLockManage => "period_lock_manage",
             Self::LifecycleManage => "lifecycle_manage",
+            Self::PayrollRunRead => "payroll_run_read",
+            Self::NoticeManage => "notice_manage",
         }
     }
 
@@ -460,6 +481,13 @@ impl Feature {
             // and SUPER_ADMIN.
             Self::PeriodLockManage => [D, D, D, A, A, A],
             Self::LifecycleManage => [D, D, D, A, D, A],
+            // Payroll draft-run/line staging read: financial/HR-sensitive,
+            // same tier as EmployeeDirectoryRead. Gated via
+            // `authorize_org_wide` (requires BranchScope::All) since the
+            // table has no branch_id to narrow a branch-scoped ADMIN.
+            Self::PayrollRunRead => [D, D, D, A, A, A],
+            // The HQ/announcement tier: ADMIN + EXECUTIVE + SUPER_ADMIN.
+            Self::NoticeManage => [D, D, D, A, A, A],
         }
     }
 }
@@ -529,6 +557,8 @@ impl FromStr for Feature {
             "audit_stream_access_log_read" => Ok(Self::AuditStreamAccessLogRead),
             "period_lock_manage" => Ok(Self::PeriodLockManage),
             "lifecycle_manage" => Ok(Self::LifecycleManage),
+            "payroll_run_read" => Ok(Self::PayrollRunRead),
+            "notice_manage" => Ok(Self::NoticeManage),
             _ => Err(KernelError::validation(format!(
                 "unknown feature key: {raw}"
             ))),
