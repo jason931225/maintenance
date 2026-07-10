@@ -61,10 +61,6 @@ pub const WORKFLOW_STUDIO_DEFINITION_ROLLBACK_PATH_TEMPLATE: &str =
     "/api/v1/workflow-studio/definitions/{id}/rollback";
 pub const WORKFLOW_STUDIO_DEFINITION_CLONE_PATH_TEMPLATE: &str =
     "/api/v1/workflow-studio/definitions/{id}/clone";
-pub const WORKFLOW_STUDIO_DEFINITION_REVISION_APPROVE_PATH_TEMPLATE: &str =
-    "/api/v1/workflow-studio/definitions/{id}/revisions/{rev}/approve";
-pub const WORKFLOW_STUDIO_DEFINITION_REVISION_WITHDRAW_PATH_TEMPLATE: &str =
-    "/api/v1/workflow-studio/definitions/{id}/revisions/{rev}/withdraw";
 pub const WORKFLOW_STUDIO_DEFINITIONS_BY_OBJECT_KIND_PATH_TEMPLATE: &str =
     "/api/v1/workflow-studio/definitions/by-object-kind/{kind}";
 pub const WORKFLOW_STUDIO_TRIGGER_BINDINGS_PATH: &str = "/api/v1/workflow-studio/trigger-bindings";
@@ -368,14 +364,6 @@ pub fn router(state: WorkflowStudioState) -> Router {
         .route(
             WORKFLOW_STUDIO_DEFINITION_CLONE_PATH_TEMPLATE,
             post(clone_definition),
-        )
-        .route(
-            WORKFLOW_STUDIO_DEFINITION_REVISION_APPROVE_PATH_TEMPLATE,
-            post(approve_revision),
-        )
-        .route(
-            WORKFLOW_STUDIO_DEFINITION_REVISION_WITHDRAW_PATH_TEMPLATE,
-            post(withdraw_revision),
         )
         .route(
             WORKFLOW_STUDIO_DEFINITIONS_BY_OBJECT_KIND_PATH_TEMPLATE,
