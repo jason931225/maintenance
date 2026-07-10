@@ -12731,6 +12731,45 @@ paths:
                 $ref: '#/components/schemas/MyPayrollLinePage'
         '401':
           $ref: '#/components/responses/Unauthorized'
+  /api/v1/analytics/projection:
+    post:
+      tags:
+        - analytics
+      operationId: computeAnalyticsProjection
+      summary: Project a value series forward with a fat-tail confidence band
+      description: >
+        Deterministic, read-only projection. Given a historical value series and
+        a horizon, returns a point estimate, a 95% confidence band, and a CVaR95
+        (expected shortfall) under EWMA volatility + Student-t(ν=4) innovations,
+        computed via a seeded Monte-Carlo (same input → same output) with an EVT
+        (Generalized-Pareto) lower-tail fit. No persistence, no PII.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProjectionRequest'
+      responses:
+        '200':
+          description: The projection result.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ProjectionResult'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
 components:
   securitySchemes:
     bearerAuth:
@@ -12914,6 +12953,75 @@ components:
           schema:
             $ref: '#/components/schemas/ErrorBody'
   schemas:
+    ProjectionRequest:
+      type: object
+      required: [series, horizon, kind]
+      properties:
+        series:
+          type: array
+          description: Ordered historical values, oldest first (min 3).
+          items:
+            type: number
+            format: double
+          minItems: 3
+        horizon:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 3650
+          description: Number of forward steps to project.
+        kind:
+          type: string
+          enum: [money, percent]
+          description: >
+            Composition rule. `money` = multiplicative (ratio returns, floored
+            at 0); `percent` = additive (arithmetic differences).
+    ProjectionResult:
+      type: object
+      required: [point_estimate, ci95_low, ci95_high, cvar95, assumptions]
+      properties:
+        point_estimate:
+          type: number
+          format: double
+          description: Deterministic central projection.
+        ci95_low:
+          type: number
+          format: double
+          description: 2.5th percentile of terminal outcomes.
+        ci95_high:
+          type: number
+          format: double
+          description: 97.5th percentile of terminal outcomes.
+        cvar95:
+          type: number
+          format: double
+          description: EVT-refined expected shortfall of the worst 5% of outcomes.
+        assumptions:
+          $ref: '#/components/schemas/ProjectionAssumptions'
+    ProjectionAssumptions:
+      type: object
+      required: [ewma_volatility, student_t_nu, drift, simulations, seed]
+      properties:
+        ewma_volatility:
+          type: number
+          format: double
+          description: Final EWMA volatility σ.
+        student_t_nu:
+          type: number
+          format: double
+          description: Student-t degrees of freedom (4).
+        drift:
+          type: number
+          format: double
+          description: Estimated per-step drift μ.
+        simulations:
+          type: integer
+          format: int32
+          description: Monte-Carlo path count.
+        seed:
+          type: integer
+          format: int64
+          description: RNG seed (echoed to prove determinism).
     ConsoleRouteTelemetryEventKind:
       type: string
       enum:

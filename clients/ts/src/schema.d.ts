@@ -6797,10 +6797,94 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/analytics/projection": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Project a value series forward with a fat-tail confidence band
+         * @description Deterministic, read-only projection. Given a historical value series and a horizon, returns a point estimate, a 95% confidence band, and a CVaR95 (expected shortfall) under EWMA volatility + Student-t(ν=4) innovations, computed via a seeded Monte-Carlo (same input → same output) with an EVT (Generalized-Pareto) lower-tail fit. No persistence, no PII.
+         */
+        post: operations["computeAnalyticsProjection"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        ProjectionRequest: {
+            /** @description Ordered historical values, oldest first (min 3). */
+            series: number[];
+            /**
+             * Format: int32
+             * @description Number of forward steps to project.
+             */
+            horizon: number;
+            /**
+             * @description Composition rule. `money` = multiplicative (ratio returns, floored at 0); `percent` = additive (arithmetic differences).
+             * @enum {string}
+             */
+            kind: "money" | "percent";
+        };
+        ProjectionResult: {
+            /**
+             * Format: double
+             * @description Deterministic central projection.
+             */
+            point_estimate: number;
+            /**
+             * Format: double
+             * @description 2.5th percentile of terminal outcomes.
+             */
+            ci95_low: number;
+            /**
+             * Format: double
+             * @description 97.5th percentile of terminal outcomes.
+             */
+            ci95_high: number;
+            /**
+             * Format: double
+             * @description EVT-refined expected shortfall of the worst 5% of outcomes.
+             */
+            cvar95: number;
+            assumptions: components["schemas"]["ProjectionAssumptions"];
+        };
+        ProjectionAssumptions: {
+            /**
+             * Format: double
+             * @description Final EWMA volatility σ.
+             */
+            ewma_volatility: number;
+            /**
+             * Format: double
+             * @description Student-t degrees of freedom (4).
+             */
+            student_t_nu: number;
+            /**
+             * Format: double
+             * @description Estimated per-step drift μ.
+             */
+            drift: number;
+            /**
+             * Format: int32
+             * @description Monte-Carlo path count.
+             */
+            simulations: number;
+            /**
+             * Format: int64
+             * @description RNG seed (echoed to prove determinism).
+             */
+            seed: number;
+        };
         /** @enum {string} */
         ConsoleRouteTelemetryEventKind: "route_selection" | "rum_error" | "rum_perf";
         /** @enum {string} */
@@ -23510,6 +23594,42 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+        };
+    };
+    computeAnalyticsProjection: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProjectionRequest"];
+            };
+        };
+        responses: {
+            /** @description The projection result. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProjectionResult"];
+                };
+            };
+            400: components["responses"]["ValidationError"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
         };
     };
 }

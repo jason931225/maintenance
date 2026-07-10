@@ -35,6 +35,7 @@ members = [
   "crates/policy/*",
   "crates/erp/*",
   "crates/platform/*",
+  "crates/analytics-quant/*",
   "ci/gates/*",
 ]
 
@@ -216,6 +217,8 @@ mnt-reporting-domain = { path = "crates/reporting/domain" }
 mnt-reporting-application = { path = "crates/reporting/application" }
 mnt-reporting-adapter-postgres = { path = "crates/reporting/adapter-postgres" }
 mnt-reporting-rest = { path = "crates/reporting/rest" }
+mnt-analytics-quant-service = { path = "crates/analytics-quant/service" }
+mnt-analytics-quant-rest = { path = "crates/analytics-quant/rest" }
 mnt-registry-adapter-postgres = { path = "crates/registry/adapter-postgres" }
 mnt-registry-rest = { path = "crates/registry/rest" }
 mnt-workorder-domain = { path = "crates/workorder/domain" }

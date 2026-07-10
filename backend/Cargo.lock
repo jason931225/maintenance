@@ -2730,6 +2730,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "mnt-analytics-quant-rest"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "mnt-analytics-quant-service",
+ "mnt-kernel-core",
+ "mnt-platform-auth",
+ "mnt-platform-authz",
+ "mnt-platform-request-context",
+ "serde",
+ "sqlx 0.9.0",
+]
+
+[[package]]
+name = "mnt-analytics-quant-service"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "mnt-app"
 version = "0.1.0"
 dependencies = [
@@ -2744,6 +2766,7 @@ dependencies = [
  "jsonwebtoken",
  "metrics",
  "metrics-exporter-prometheus",
+ "mnt-analytics-quant-rest",
  "mnt-comms-adapter-imap",
  "mnt-comms-adapter-postgres",
  "mnt-comms-application",

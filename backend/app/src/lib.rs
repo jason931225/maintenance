@@ -22,6 +22,7 @@ use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::{Json, Router};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
+use mnt_analytics_quant_rest::AnalyticsQuantState;
 use mnt_comms_adapter_postgres::PgMailStore;
 use mnt_comms_credential_cipher::EnvelopeCredentialCipher;
 use mnt_comms_rest::CommsRestState;
@@ -294,6 +295,10 @@ pub const CONFIGURED_ROUTE_SURFACES: &[ConfiguredRouteSurface] = &[
     ConfiguredRouteSurface {
         name: "payroll",
         paths: mnt_payroll_rest::PAYROLL_ROUTE_PATHS,
+    },
+    ConfiguredRouteSurface {
+        name: "analytics",
+        paths: mnt_analytics_quant_rest::ANALYTICS_QUANT_ROUTE_PATHS,
     },
 ];
 
@@ -2008,6 +2013,11 @@ pub fn build_router(state: AppState) -> Router {
                 // Payroll draft-run visibility (admin org-wide + self payslips).
                 .merge(mnt_payroll_rest::router(PayrollRestState::new(
                     PgPayrollStore::new(pool.clone()),
+                    state.jwt_verifier.clone(),
+                )))
+                // Deterministic statistical projection (read-only, stateless).
+                .merge(mnt_analytics_quant_rest::router(AnalyticsQuantState::new(
+                    pool.clone(),
                     state.jwt_verifier.clone(),
                 )));
             // READ-ONLY WALL for PLATFORM "view as": wrap the WHOLE tenant

@@ -17,7 +17,8 @@
 use mnt_ontology_adapter_postgres::PgOntologyStore;
 use mnt_ontology_adapter_postgres::instances::PgInstanceStore;
 use mnt_ontology_adapter_postgres::seed::{
-    EMPLOYEE_KEY, WORKFLOW_DEFINITION_KEY, seed_projected_domain_object_types,
+    EMPLOYEE_KEY, SITE_KEY, WORK_ORDER_KEY, WORKFLOW_DEFINITION_KEY,
+    seed_projected_domain_object_types,
 };
 use mnt_ontology_domain::{BackingKind, ObjectTypeId};
 
@@ -183,6 +184,30 @@ async fn projected_list_returns_real_domain_rows(owner_pool: PgPool) {
             "wo.escalate"
         );
         assert_eq!(workflows[0].revision.attributes["status"], "ACTIVE");
+    })
+    .await;
+
+    // Projected fk_links carry the reverse title (the console relationship
+    // tab's "← arrow"), same as the C-chain links — not left blank.
+    mnt_platform_request_context::scope_org(org, async {
+        let store = PgOntologyStore::new(owner_pool.clone());
+        let site = store.get_object_type(SITE_KEY, None).await.unwrap();
+        let site_customer = site
+            .links
+            .iter()
+            .find(|l| l.stable_key == "customer")
+            .expect("site → customer link");
+        assert_eq!(site_customer.reverse_title.as_deref(), Some("현장"));
+
+        let work_order = store.get_object_type(WORK_ORDER_KEY, None).await.unwrap();
+        for l in &work_order.links {
+            assert_eq!(
+                l.reverse_title.as_deref(),
+                Some("작업지시"),
+                "work_order link {} must carry its reverse title",
+                l.stable_key
+            );
+        }
     })
     .await;
 }

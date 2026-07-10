@@ -148,12 +148,15 @@ fn choice_prop(key: &str, title: &str, values: &[&str]) -> PropertyDefInput {
 /// A traversable link from this projected type to another registered type,
 /// resolved by FK column (§2 traversal generalizes the existing equipment
 /// timeline-graph). Declared as `one_many`: many `from` rows reference one
-/// `to` row (the standard child→parent FK shape).
-fn fk_link(stable_key: &str, title: &str, to: ObjectTypeId) -> LinkTypeInput {
+/// `to` row (the standard child→parent FK shape). `reverse` is the owning
+/// type's own name — the "← arrow" the console relationship tab renders from
+/// the target's side (docs/design/oyatie-console change-log 74), mirroring the
+/// C-chain [`link`] helper.
+fn fk_link(stable_key: &str, title: &str, reverse: &str, to: ObjectTypeId) -> LinkTypeInput {
     LinkTypeInput {
         stable_key: stable_key.to_owned(),
         title: title.to_owned(),
-        reverse_title: None,
+        reverse_title: Some(reverse.to_owned()),
         to_object_type_id: Some(to),
         cardinality: LinkCardinality::OneMany,
         traversable: true,
@@ -215,7 +218,7 @@ pub fn site_draft(customer_type_id: ObjectTypeId) -> CreateObjectTypeDraft {
         projected_prop("name", "현장명", "text", json!({})),
         projected_prop("created_at", "등록일", "timestamp", json!({})),
     ];
-    let links = vec![fk_link("customer", "고객", customer_type_id)];
+    let links = vec![fk_link("customer", "고객", "현장", customer_type_id)];
     projected_draft(
         SITE_KEY,
         "현장",
@@ -245,8 +248,8 @@ pub fn equipment_draft(
         projected_prop("created_at", "등록일", "timestamp", json!({})),
     ];
     let links = vec![
-        fk_link("customer", "고객", customer_type_id),
-        fk_link("site", "현장", site_type_id),
+        fk_link("customer", "고객", "장비", customer_type_id),
+        fk_link("site", "현장", "장비", site_type_id),
     ];
     projected_draft(
         EQUIPMENT_KEY,
@@ -324,9 +327,9 @@ pub fn work_order_draft(
         projected_prop("created_at", "접수일", "timestamp", json!({})),
     ];
     let links = vec![
-        fk_link("equipment", "장비", equipment_type_id),
-        fk_link("customer", "고객", customer_type_id),
-        fk_link("site", "현장", site_type_id),
+        fk_link("equipment", "장비", "작업지시", equipment_type_id),
+        fk_link("customer", "고객", "작업지시", customer_type_id),
+        fk_link("site", "현장", "작업지시", site_type_id),
     ];
     projected_draft(
         WORK_ORDER_KEY,
@@ -472,7 +475,7 @@ pub fn compliance_obligation_draft(site_type_id: ObjectTypeId) -> CreateObjectTy
         ),
         projected_prop("created_at", "등록일", "timestamp", json!({})),
     ];
-    let links = vec![fk_link("site", "현장", site_type_id)];
+    let links = vec![fk_link("site", "현장", "준수 의무", site_type_id)];
     projected_draft(
         COMPLIANCE_OBLIGATION_KEY,
         "준수 의무",
@@ -566,7 +569,7 @@ pub fn leave_request_draft(employee_type_id: ObjectTypeId) -> CreateObjectTypeDr
         projected_prop("reason", "사유", "text", json!({})),
         projected_prop("created_at", "신청일", "timestamp", json!({})),
     ];
-    let links = vec![fk_link("employee", "직원", employee_type_id)];
+    let links = vec![fk_link("employee", "직원", "휴가 신청", employee_type_id)];
     projected_draft(
         LEAVE_REQUEST_KEY,
         "휴가 신청",
@@ -610,7 +613,12 @@ pub fn messenger_thread_draft(work_order_type_id: ObjectTypeId) -> CreateObjectT
         projected_prop("title", "제목", "text", json!({})),
         projected_prop("created_at", "생성일", "timestamp", json!({})),
     ];
-    let links = vec![fk_link("work_order", "작업지시", work_order_type_id)];
+    let links = vec![fk_link(
+        "work_order",
+        "작업지시",
+        "메신저 스레드",
+        work_order_type_id,
+    )];
     projected_draft(
         MESSENGER_THREAD_KEY,
         "메신저 스레드",

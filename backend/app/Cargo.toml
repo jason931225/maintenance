@@ -80,6 +80,7 @@ mnt-notices-adapter-postgres = { workspace = true }
 mnt-notices-rest = { workspace = true }
 mnt-finance-gl-adapter-postgres = { workspace = true }
 mnt-finance-gl-rest = { workspace = true }
+mnt-analytics-quant-rest = { workspace = true }
 mnt-platform-audit-chain = { path = "../crates/platform/audit-chain" }
 mnt-platform-auth = { path = "../crates/platform/auth" }
 mnt-platform-auth-rest = { workspace = true }
