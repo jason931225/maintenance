@@ -72,7 +72,10 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  # Cancel superseded runs only for PRs. On main, every push must run CI to
+  # completion: the image-release ci-gate requires CI success for the exact
+  # sha, and a rapid merge train cancelling predecessors starves it of images.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   backend:
