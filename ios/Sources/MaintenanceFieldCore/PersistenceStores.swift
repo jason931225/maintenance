@@ -325,70 +325,62 @@ public actor CoreDataMutationQueueStore: MutationQueueStore {
             throw PersistenceStoreError.saveFailed("mutation_queue", "injected")
         }
         let context = container.viewContext
-        var mutationResult: Result<Void, Error> = .success(())
-        context.performAndWait {
-            mutationResult = Result {
-                let object = try Self.fetchObject(
-                    requestID: mutation.requestID,
-                    context: context,
-                    testingFailureMode: testingFailureMode
-                ) ?? NSManagedObject(
-                    entity: Self.entityDescription(in: context),
-                    insertInto: context
-                )
-                object.setValue(mutation.requestID, forKey: "requestID")
-                object.setValue(mutation.kind.rawValue, forKey: "kind")
-                object.setValue(mutation.workOrderID, forKey: "workOrderID")
-                object.setValue(mutation.createdAt, forKey: "createdAt")
-                object.setValue(mutation.resultType?.rawValue, forKey: "resultType")
-                object.setValue(mutation.diagnosis, forKey: "diagnosis")
-                object.setValue(mutation.actionTaken, forKey: "actionTaken")
-                object.setValue(mutation.syncState.rawValue, forKey: "syncState")
-                object.setValue(mutation.lastError, forKey: "lastError")
-                object.setValue(mutation.serverReplayed, forKey: "serverReplayed")
-                try Self.save(context)
-            }
+        // A throwing, value-returning block binds to `performAndWait<T>(_:) throws`
+        // (block is not `@Sendable`), so the non-Sendable `context` is not captured
+        // by a Sendable closure — which is what triggers Swift 6 "sending 'context'
+        // risks causing data races". The work still runs on the context's queue.
+        try context.performAndWait {
+            let object = try Self.fetchObject(
+                requestID: mutation.requestID,
+                context: context,
+                testingFailureMode: testingFailureMode
+            ) ?? NSManagedObject(
+                entity: Self.entityDescription(in: context),
+                insertInto: context
+            )
+            object.setValue(mutation.requestID, forKey: "requestID")
+            object.setValue(mutation.kind.rawValue, forKey: "kind")
+            object.setValue(mutation.workOrderID, forKey: "workOrderID")
+            object.setValue(mutation.createdAt, forKey: "createdAt")
+            object.setValue(mutation.resultType?.rawValue, forKey: "resultType")
+            object.setValue(mutation.diagnosis, forKey: "diagnosis")
+            object.setValue(mutation.actionTaken, forKey: "actionTaken")
+            object.setValue(mutation.syncState.rawValue, forKey: "syncState")
+            object.setValue(mutation.lastError, forKey: "lastError")
+            object.setValue(mutation.serverReplayed, forKey: "serverReplayed")
+            try Self.save(context)
         }
-        try mutationResult.get()
     }
 
     public func pending() throws -> [QueuedMutation] {
         let context = container.viewContext
-        var fetchResult: Result<[QueuedMutation], Error> = .success([])
-        context.performAndWait {
-            fetchResult = Result {
-                if testingFailureMode == .fetch {
-                    throw PersistenceStoreError.fetchFailed("mutation_queue", "injected")
-                }
-                let request = NSFetchRequest<NSManagedObject>(entityName: "QueuedMutationEntity")
-                request.predicate = NSPredicate(format: "syncState == %@", SyncState.pending.rawValue)
-                request.sortDescriptors = [NSSortDescriptor(key: "requestID", ascending: true)]
-                do {
-                    return try context.fetch(request).compactMap(Self.decodeMutation)
-                } catch {
-                    throw PersistenceStoreError.fetchFailed(
-                        "mutation_queue",
-                        PersistenceStoreError.sanitizedUnderlyingDescription(error)
-                    )
-                }
+        return try context.performAndWait {
+            if testingFailureMode == .fetch {
+                throw PersistenceStoreError.fetchFailed("mutation_queue", "injected")
+            }
+            let request = NSFetchRequest<NSManagedObject>(entityName: "QueuedMutationEntity")
+            request.predicate = NSPredicate(format: "syncState == %@", SyncState.pending.rawValue)
+            request.sortDescriptors = [NSSortDescriptor(key: "requestID", ascending: true)]
+            do {
+                return try context.fetch(request).compactMap(Self.decodeMutation)
+            } catch {
+                throw PersistenceStoreError.fetchFailed(
+                    "mutation_queue",
+                    PersistenceStoreError.sanitizedUnderlyingDescription(error)
+                )
             }
         }
-        return try fetchResult.get()
     }
 
     public func get(_ requestID: String) throws -> QueuedMutation? {
         let context = container.viewContext
-        var fetchResult: Result<QueuedMutation?, Error> = .success(nil)
-        context.performAndWait {
-            fetchResult = Result {
-                try Self.fetchObject(
-                    requestID: requestID,
-                    context: context,
-                    testingFailureMode: testingFailureMode
-                ).flatMap(Self.decodeMutation)
-            }
+        return try context.performAndWait {
+            try Self.fetchObject(
+                requestID: requestID,
+                context: context,
+                testingFailureMode: testingFailureMode
+            ).flatMap(Self.decodeMutation)
         }
-        return try fetchResult.get()
     }
 
     public func markSynced(requestID: String, serverReplayed: Bool) throws {
@@ -396,21 +388,17 @@ public actor CoreDataMutationQueueStore: MutationQueueStore {
             throw PersistenceStoreError.saveFailed("mutation_queue", "injected")
         }
         let context = container.viewContext
-        var mutationResult: Result<Void, Error> = .success(())
-        context.performAndWait {
-            mutationResult = Result {
-                guard let object = try Self.fetchObject(
-                    requestID: requestID,
-                    context: context,
-                    testingFailureMode: testingFailureMode
-                ) else { return }
-                object.setValue(SyncState.synced.rawValue, forKey: "syncState")
-                object.setValue(nil, forKey: "lastError")
-                object.setValue(serverReplayed, forKey: "serverReplayed")
-                try Self.save(context)
-            }
+        try context.performAndWait {
+            guard let object = try Self.fetchObject(
+                requestID: requestID,
+                context: context,
+                testingFailureMode: testingFailureMode
+            ) else { return }
+            object.setValue(SyncState.synced.rawValue, forKey: "syncState")
+            object.setValue(nil, forKey: "lastError")
+            object.setValue(serverReplayed, forKey: "serverReplayed")
+            try Self.save(context)
         }
-        try mutationResult.get()
     }
 
     public func markFailed(requestID: String, message: String) throws {
@@ -418,20 +406,16 @@ public actor CoreDataMutationQueueStore: MutationQueueStore {
             throw PersistenceStoreError.saveFailed("mutation_queue", "injected")
         }
         let context = container.viewContext
-        var mutationResult: Result<Void, Error> = .success(())
-        context.performAndWait {
-            mutationResult = Result {
-                guard let object = try Self.fetchObject(
-                    requestID: requestID,
-                    context: context,
-                    testingFailureMode: testingFailureMode
-                ) else { return }
-                object.setValue(SyncState.failed.rawValue, forKey: "syncState")
-                object.setValue(message, forKey: "lastError")
-                try Self.save(context)
-            }
+        try context.performAndWait {
+            guard let object = try Self.fetchObject(
+                requestID: requestID,
+                context: context,
+                testingFailureMode: testingFailureMode
+            ) else { return }
+            object.setValue(SyncState.failed.rawValue, forKey: "syncState")
+            object.setValue(message, forKey: "lastError")
+            try Self.save(context)
         }
-        try mutationResult.get()
     }
 
     private static func fetchObject(
