@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.55](https://github.com/jason931225/maintenance/compare/v0.1.54...v0.1.55) (2026-07-10)
+
+
+### Bug Fixes
+
+* **web:** route first-login onboarding by visible console object ([#428](https://github.com/jason931225/maintenance/issues/428)) ([26833de](https://github.com/jason931225/maintenance/commit/26833de9be0308cefaf543605414a613f636231b))
+
 ## [0.1.54](https://github.com/jason931225/maintenance/compare/v0.1.53...v0.1.54) (2026-07-09)
 
 
