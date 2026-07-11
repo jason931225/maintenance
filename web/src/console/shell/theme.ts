@@ -1,8 +1,9 @@
 /**
- * Console theme mode. `system` follows the OS via the tokens.css
- * `@media (prefers-color-scheme: dark)` block; `light`/`dark` force it via a
- * data attribute on the `.console` root. The cycle mirrors the prototype's
- * theme button: system → light → dark → system.
+ * Console theme mode. The design authority is light-default with dark as an
+ * explicit opt-in (no OS auto-dark), so `system` and `light` both render the
+ * light token family; `dark` forces the dark family via the
+ * `data-console-theme` attribute on the `.console` root. The cycle mirrors the
+ * prototype's theme button: system → light → dark → system.
  *
  * ponytail: mode is component-local, not persisted — per-user layout/theme
  * persistence is P0.2's `/api/v1/me/workspace` slice, not shell chrome.

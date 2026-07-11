@@ -192,12 +192,16 @@ describe("Oyatie console CSS tokens", () => {
   });
 });
 
-describe("Oyatie console dark-copy parity", () => {
-  it("keeps the .console.dark class tokens identical to the prefers-color-scheme media copy", () => {
-    const darkClassTokens = tokensIn(blockFor(".console.dark"));
-    const darkMediaTokens = tokensIn(blockFor(".console:not(.t-light):not(.dark)"));
-
-    expect(darkMediaTokens).toEqual(darkClassTokens);
+describe("Oyatie console light-default (authority: no OS auto-dark)", () => {
+  it("never darkens the .console scope via prefers-color-scheme", () => {
+    // Authority (docs/design/oyatie-console/tokens/colors.css): light default,
+    // dark ONLY as an explicit opt-in (.console.dark / .console.t-dark, and the
+    // carbon console's [data-console-theme="dark"]). An OS-preference auto-dark
+    // block here force-darkened the carbon console — which signals its theme via
+    // the data-console-theme attribute, not the .t-light/.dark classes — turning
+    // light/system module surfaces black on dark-OS machines. The block is gone,
+    // so blockFor can no longer find its selector.
+    expect(() => blockFor(".console:not(.t-light):not(.dark)")).toThrow();
   });
 });
 

@@ -96,7 +96,13 @@
   outline-offset: 2px;
 }
 
-.console[data-console-theme="dark"] {
+/* Only the console root carries `data-console-theme`; module/screen surfaces
+   render their own nested `.console` scope (no attribute), which would re-apply
+   the light base and leave content light inside a dark shell. Cascade the dark
+   values to those descendants too so an explicit dark theme darkens the whole
+   surface, not just the chrome. */
+.console[data-console-theme="dark"],
+.console[data-console-theme="dark"] .console {
   --canvas: #0e1319;
   --surface: #161c24;
   --muted: #1f2731;

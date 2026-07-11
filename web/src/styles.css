@@ -286,45 +286,13 @@ select {
   --console-shadow-pop: 0 16px 40px rgba(0, 0, 0, 0.55);
 }
 
-@media (prefers-color-scheme: dark) {
-  .console:not(.t-light):not(.dark) {
-    color-scheme: dark;
-    --console-canvas: #0e1319;
-    --console-surface: #161c24;
-    --console-muted: #1f2731;
-    --console-border: #2b3542;
-    --console-border-soft: #232c37;
-    --console-ink: #e8edf4;
-    --console-steel: #9cabbc;
-    --console-faint: #8b98a7;
-    --console-signal: #f6b521;
-    --console-signal-deep: #ffc93d;
-    --console-teal: #2dd4bf;
-    --console-danger-bg: #3a1214;
-    --console-danger-bd: #7f2b2b;
-    --console-danger-tx: #fda4a4;
-    --console-danger-solid: #f87171;
-    --console-warn-bg: #3a2606;
-    --console-warn-bd: #92610a;
-    --console-warn-tx: #fcd34d;
-    --console-warn-solid: #fbbf24;
-    --console-ok-bg: #062e22;
-    --console-ok-bd: #0b6e51;
-    --console-ok-tx: #6ee7b7;
-    --console-ok-solid: #34d399;
-    --console-info-bg: #14243f;
-    --console-info-bd: #2d5eb8;
-    --console-info-tx: #93c5fd;
-    --console-accent-bg: #362605;
-    --console-accent-bd: #a97b06;
-    --console-accent-tx: #fcd34d;
-    --console-purple-bg: #271449;
-    --console-purple-bd: #6d43c0;
-    --console-purple-tx: #c4b5fd;
-    --console-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
-    --console-shadow-pop: 0 16px 40px rgba(0, 0, 0, 0.55);
-  }
-}
+/* No `@media (prefers-color-scheme: dark)` auto-dark: the design authority
+   (docs/design/oyatie-console/tokens/colors.css) mandates a light default with
+   dark ONLY as an explicit opt-in (`.console.dark`/`.console.t-dark`, and the
+   carbon console's `[data-console-theme="dark"]`). An OS-preference block here
+   force-darkened the carbon console — which signals its theme via the
+   `data-console-theme` attribute, not the `.t-light`/`.dark` classes — turning
+   light/system surfaces black on dark-OS machines. Dark is a choice, not the OS. */
 
 @keyframes toast-in {
   from {
