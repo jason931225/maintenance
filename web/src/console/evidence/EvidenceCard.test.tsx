@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { ko } from "../../i18n/ko";
@@ -97,6 +97,41 @@ describe("EvidenceCard verify affordance", () => {
       expect(screen.getByText(T.actions.verifyPending)).toBeTruthy();
     });
   });
+
+  it("clears a prior MATCH verdict chip when a later verify comes back unavailable", async () => {
+    const verify = vi
+      .fn<VerifyEvidence>()
+      .mockResolvedValueOnce({ state: "verified", processedAt: null, copyVerdicts: new Map([["cp-13-orig", "MATCH"]]) })
+      .mockResolvedValueOnce({ state: "unavailable" });
+    renderCard(allowGate, verify, plainEvidence);
+    fireEvent.click(screen.getByRole("button", { name: T.actions.verify }));
+    await waitFor(() => {
+      expect(screen.getByText(T.copyVerdict.MATCH)).toBeTruthy();
+    });
+    fireEvent.click(screen.getByRole("button", { name: T.actions.verify }));
+    await waitFor(() => {
+      expect(screen.getByText(T.actions.verifyPending)).toBeTruthy();
+    });
+    // The stale green MATCH chip must be gone, not lingering as fake fixity.
+    expect(screen.queryByText(T.copyVerdict.MATCH)).toBeNull();
+  });
+
+  it("clears a prior MATCH verdict chip when a later verify throws", async () => {
+    const verify = vi
+      .fn<VerifyEvidence>()
+      .mockResolvedValueOnce({ state: "verified", processedAt: null, copyVerdicts: new Map([["cp-13-orig", "MATCH"]]) })
+      .mockRejectedValueOnce(new Error("network"));
+    renderCard(allowGate, verify, plainEvidence);
+    fireEvent.click(screen.getByRole("button", { name: T.actions.verify }));
+    await waitFor(() => {
+      expect(screen.getByText(T.copyVerdict.MATCH)).toBeTruthy();
+    });
+    fireEvent.click(screen.getByRole("button", { name: T.actions.verify }));
+    await waitFor(() => {
+      expect(screen.getByText(T.actions.verifyFail)).toBeTruthy();
+    });
+    expect(screen.queryByText(T.copyVerdict.MATCH)).toBeNull();
+  });
 });
 
 describe("EvidenceCard PBAC (deny-by-omission)", () => {
@@ -124,11 +159,47 @@ describe("EvidenceCard legal-hold disposal gate (fail-closed)", () => {
     ).toBe(true);
   });
 
-  it("keeps disposal enabled when no hold exists", () => {
+  it("keeps disposal disabled with a wire-pending reason even without a hold (no disposal REST)", () => {
     renderCard(allowGate, undefined, plainEvidence);
     expect(
       screen.getByRole("button", { name: T.actions.dispose }).hasAttribute("disabled"),
-    ).toBe(false);
+    ).toBe(true);
+    expect(screen.getByText(T.actions.disposeWirePending)).toBeTruthy();
+  });
+});
+
+describe("EvidenceCard custody transfer / disposal (wire-pending, never fabricated)", () => {
+  function custodyTimeline() {
+    return screen.getByRole("region", { name: T.custody.title });
+  }
+
+  it("renders the transfer affordance disabled with a reason and stages no custody event", () => {
+    renderCard(allowGate, undefined, plainEvidence);
+    const transfer = screen.getByRole("button", { name: T.actions.transfer });
+    expect(transfer.hasAttribute("disabled")).toBe(true);
+    expect(screen.getByText(T.actions.transferWirePending)).toBeTruthy();
+    // The chain-of-custody timeline shows only the real fetched events — no
+    // synthetic "staged" row is ever prepended (§4-25-⑥).
+    expect(within(custodyTimeline()).getAllByRole("listitem")).toHaveLength(
+      plainEvidence.custody.length,
+    );
+    // A disabled control fires no handler; clicking never mutates state, so the
+    // timeline row count stays exactly the fetched events (no staged prepend).
+    fireEvent.click(transfer);
+    expect(within(custodyTimeline()).getAllByRole("listitem")).toHaveLength(
+      plainEvidence.custody.length,
+    );
+  });
+
+  it("renders the disposal affordance disabled with a reason and stages no custody event", () => {
+    renderCard(allowGate, undefined, plainEvidence);
+    const dispose = screen.getByRole("button", { name: T.actions.dispose });
+    expect(dispose.hasAttribute("disabled")).toBe(true);
+    expect(screen.getByText(T.actions.disposeWirePending)).toBeTruthy();
+    fireEvent.click(dispose);
+    expect(within(custodyTimeline()).getAllByRole("listitem")).toHaveLength(
+      plainEvidence.custody.length,
+    );
   });
 });
 

@@ -416,7 +416,7 @@ export function EvidenceRecords({ api, currentUserId }: EvidenceRecordsProps) {
                       {original ? (
                         <span style={monoStyle}>{shortDigest(original.digestSha256)}</span>
                       ) : null}
-                      <span>{timestampLabel(row.collectedAt)}</span>
+                      <span>{timestampLabel(row.registeredAt)}</span>
                     </div>
                   </div>
                   <button

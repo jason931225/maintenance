@@ -10,11 +10,12 @@
 // chips). Custody/holds render straight from `detail` — the caller (see
 // EvidenceRecords) refetches the full object after every mutation, so the
 // timeline is never client-synthesized (§4-25-⑥ — fabrication is a caught
-// defect class here).
+// defect class here). Custody transfer + disposal have no REST endpoint yet, so
+// those affordances stay disabled with a wire-pending reason — they never mutate
+// custodian/disposed locally nor stage a synthetic custody event.
 import { useState, type CSSProperties } from "react";
 
 import { ko } from "../../i18n/ko";
-import type { AuditRecord } from "../audit";
 import { StatusChip } from "../components";
 import { ObjectCard } from "../objectcard";
 import { PolicyGated } from "../policy";
@@ -185,29 +186,6 @@ const entryTreeStyle: CSSProperties = {
   fontSize: "var(--text-xs)",
 };
 
-function nowIso(): string {
-  return new Date().toISOString();
-}
-
-/** Local staged custody event in the audit-stream shape — only used for the
- * still-unwired transfer/dispose affordances (no REST endpoint exists yet). */
-function stagedCustodyEvent(action: string, targetId: string): AuditRecord {
-  const at = nowIso();
-  return {
-    id: `staged-${action}-${at}`,
-    actor: null,
-    action,
-    target_type: "evidence_object",
-    target_id: targetId,
-    branch_id: null,
-    before_snap: null,
-    after_snap: null,
-    trace_id: "staged",
-    span_id: "staged",
-    occurred_at: at,
-  };
-}
-
 function verifyChip(outcome: VerifyOutcome | "running" | null) {
   if (outcome === null) return null;
   if (outcome === "running") return <StatusChip role="status" tone="info">{T.actions.verifying}</StatusChip>;
@@ -297,12 +275,8 @@ export function EvidenceCard({
   decideHoldRelease,
   releaseHold,
 }: EvidenceCardProps) {
-  const [custodian, setCustodian] = useState(detail.custodian);
-  const [disposed, setDisposed] = useState(detail.disposed);
-  const [stagedCustody, setStagedCustody] = useState<AuditRecord[]>([]);
   const [outcome, setOutcome] = useState<VerifyOutcome | "running" | null>(null);
   const [copyVerdicts, setCopyVerdicts] = useState<CopyVerdictMap>(new Map());
-  const [transferTo, setTransferTo] = useState("");
   const [caseRef, setCaseRef] = useState("");
   const [basis, setBasis] = useState("");
   const [applyReason, setApplyReason] = useState("");
@@ -315,9 +289,13 @@ export function EvidenceCard({
   const original = originalOf(detail.copies);
   const derivatives = derivativesOf(detail.copies);
   const locked = holdActive(detail.holds);
-  const custody = [...stagedCustody, ...detail.custody];
+  const custody = detail.custody;
 
   async function runVerify(): Promise<void> {
+    // Clear any prior per-copy verdicts up front: a MATCH chip must never linger
+    // as stale green when this run ends unavailable/processing/thrown — only a
+    // fresh verified/failed result repopulates them.
+    setCopyVerdicts(new Map());
     if (!verify) {
       setOutcome({ state: "unavailable" });
       return;
@@ -332,16 +310,6 @@ export function EvidenceCard({
     } catch {
       setOutcome({ state: "failed", reason: null, copyVerdicts: new Map() });
     }
-  }
-
-  function submitTransfer(): void {
-    const next = transferTo.trim();
-    if (!next) return;
-    // wire-pending: Phase C → POST /api/v1/evidence-objects/{id}/custody-events
-    // (no custody-transfer REST exists yet).
-    setStagedCustody((current) => [stagedCustodyEvent("evidence_custody.transition", detail.code), ...current]);
-    setCustodian(next);
-    setTransferTo("");
   }
 
   async function submitApplyHold(): Promise<void> {
@@ -405,14 +373,6 @@ export function EvidenceCard({
     }
   }
 
-  function requestDisposal(): void {
-    if (locked || disposed) return;
-    // wire-pending: Phase C → evidence_disposal.request via lifecycle route
-    // (no disposal REST exists yet).
-    setDisposed(true);
-    setStagedCustody((current) => [stagedCustodyEvent("evidence_disposal.request", detail.code), ...current]);
-  }
-
   const activeHold = detail.holds.find((hold) => hold.status === "ACTIVE");
   const selfDecide = releaseFlow.stage === "pending" && currentUserId != null && releaseFlow.requestedBy === currentUserId;
 
@@ -444,7 +404,7 @@ export function EvidenceCard({
               {T.hold.active}
             </StatusChip>
           ) : null}
-          {disposed ? <StatusChip tone="danger">{T.custody.stages.DISPOSED}</StatusChip> : null}
+          {detail.disposed ? <StatusChip tone="danger">{T.custody.stages.DISPOSED}</StatusChip> : null}
         </div>
       </header>
 
@@ -575,19 +535,14 @@ export function EvidenceCard({
         </div>
 
         <PolicyGated action={EVIDENCE_ACTIONS.custodyManage} resource={{ kind: "evidence_object", id: detail.id }}>
-          <div style={inlineFormStyle}>
-            <input
-              aria-label={T.custody.transferTo}
-              placeholder={T.custody.transferTo}
-              style={inputStyle}
-              value={transferTo}
-              onChange={(event) => {
-                setTransferTo(event.target.value);
-              }}
-            />
-            <button type="button" style={buttonStyle} onClick={submitTransfer}>
+          {/* wire-pending: evidence custody REST — no custody-transfer endpoint
+              exists, so the affordance is disabled with its reason and never
+              mutates the custodian nor stages a synthetic custody event. */}
+          <div style={stackedFormStyle}>
+            <button type="button" style={{ ...buttonStyle, opacity: 0.5 }} disabled>
               {T.actions.transfer}
             </button>
+            <StatusChip tone="neutral" role="status">{T.actions.transferWirePending}</StatusChip>
           </div>
         </PolicyGated>
 
@@ -713,26 +668,25 @@ export function EvidenceCard({
         </PolicyGated>
 
         <PolicyGated action={EVIDENCE_ACTIONS.dispose} resource={{ kind: "evidence_object", id: detail.id }}>
-          <button
-            type="button"
-            style={{ ...buttonStyle, opacity: locked || disposed ? 0.5 : 1 }}
-            disabled={locked || disposed}
-            aria-label={locked ? T.actions.disposeBlockedAria : T.actions.dispose}
-            onClick={requestDisposal}
-          >
-            {T.actions.dispose}
-          </button>
+          {/* wire-pending: evidence custody REST — no disposal endpoint exists;
+              the button stays disabled (also fail-closed under an active hold)
+              and never flips disposed state nor stages a synthetic event. */}
+          <div style={stackedFormStyle}>
+            <button
+              type="button"
+              style={{ ...buttonStyle, opacity: 0.5 }}
+              disabled
+              aria-label={locked ? T.actions.disposeBlockedAria : T.actions.dispose}
+            >
+              {T.actions.dispose}
+            </button>
+            <StatusChip tone="neutral" role="status">{T.actions.disposeWirePending}</StatusChip>
+          </div>
         </PolicyGated>
       </section>
 
       {/* §4-14 single object-detail substrate. */}
-      <ObjectCard
-        descriptor={toObjectCardDescriptor(
-          { ...detail, custodian, disposed },
-          detail.holds,
-          custody,
-        )}
-      />
+      <ObjectCard descriptor={toObjectCardDescriptor(detail, detail.holds, custody)} />
     </article>
   );
 }

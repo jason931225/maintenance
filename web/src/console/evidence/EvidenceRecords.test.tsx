@@ -31,9 +31,9 @@ function listRow(detail: typeof heldWire) {
     admissibility_inputs: {},
     created_by: "creator-1",
     updated_by: "creator-1",
-    created_at: detail.collectedAt,
-    updated_at: detail.collectedAt,
-    disposed_at: detail.disposed ? detail.collectedAt : null,
+    created_at: detail.registeredAt,
+    updated_at: detail.registeredAt,
+    disposed_at: detail.disposed ? detail.registeredAt : null,
   };
 }
 
@@ -55,7 +55,7 @@ function detailWire(detail: typeof heldWire) {
       worm_status: c.wormStatus,
       verified_at: null,
       created_by: "creator-1",
-      created_at: detail.collectedAt,
+      created_at: detail.registeredAt,
     })),
     tsa_proofs: [],
     custody_history: detail.custody.map((event) => ({

@@ -2764,7 +2764,7 @@ export const ko = {
       fields: {
         classification: "분류",
         source: "출처",
-        collectedAt: "수집 시각",
+        registeredAt: "등록 시각",
         custodian: "보관 담당",
         sha256: "SHA-256",
         contentType: "형식",
@@ -2889,7 +2889,9 @@ export const ko = {
         verifyFail: "검증 실패",
         verifyPending: "검증 대기",
         transfer: "보관 이전",
+        transferWirePending: "보관 이전 API 연결 대기",
         dispose: "폐기",
+        disposeWirePending: "폐기 API 연결 대기",
         disposeBlockedAria: "보존잠금 중 폐기 불가",
       },
       copyVerdict: {

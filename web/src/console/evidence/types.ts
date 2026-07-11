@@ -101,7 +101,9 @@ export interface EvidenceObjectDetail {
   admissibility: AdmissibilityStatus;
   custodyStage: CustodyStage;
   custodian: string;
-  collectedAt: string;
+  /** Object registration time (wire created_at) — labeled 등록 시각, not a
+   * chain-of-custody collection timestamp (which the wire does not carry). */
+  registeredAt: string;
   fixity: FixityStatus;
   tsa: TsaStatus;
   disposed: boolean;

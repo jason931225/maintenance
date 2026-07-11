@@ -85,22 +85,31 @@ function mapCustodyEvent(view: CustodyEventView): AuditRecord {
 /**
  * The domain model carries one aggregate TSA status; a real object may hold
  * several copy-scoped proofs. Absence renders MISSING — never faked VERIFIED.
+ * VERIFIED requires every proof to be explicitly VERIFIED: any PENDING/MISSING
+ * or unrecognized status keeps the aggregate indeterminate (PENDING), so an
+ * unknown enum can never surface a green chain-of-custody chip.
  */
-function aggregateTsa(proofs: TimestampAuthorityProofView[]): TsaStatus {
+export function aggregateTsa(proofs: TimestampAuthorityProofView[]): TsaStatus {
   if (proofs.length === 0) return "MISSING";
   const statuses = new Set(proofs.map((p) => p.status));
   if (statuses.has("FAILED")) return "FAILED";
   if (statuses.has("REVOKED")) return "REVOKED";
   if (statuses.has("EXPIRED_CA")) return "EXPIRED_CA";
-  if (statuses.has("PENDING") || statuses.has("MISSING")) return "PENDING";
-  return "VERIFIED";
+  if (proofs.every((p) => p.status === "VERIFIED")) return "VERIFIED";
+  return "PENDING";
 }
 
-/** Aggregate fixity across copies: any non-VERIFIED WORM copy taints the whole. */
-function aggregateFixity(copies: EvidenceCopyView[]): FixityStatus {
+/**
+ * Aggregate fixity across copies. Fail-closed: no copies at all is nothing to
+ * verify → PENDING (never a green VERIFIED on an empty set); any FAILED copy
+ * taints to MISMATCH; VERIFIED only when every copy is explicitly VERIFIED, so
+ * a PENDING or unrecognized worm_status stays indeterminate (PENDING).
+ */
+export function aggregateFixity(copies: EvidenceCopyView[]): FixityStatus {
+  if (copies.length === 0) return "PENDING";
   if (copies.some((c) => c.worm_status === "FAILED")) return "MISMATCH";
-  if (copies.some((c) => c.worm_status === "PENDING")) return "PENDING";
-  return "VERIFIED";
+  if (copies.every((c) => c.worm_status === "VERIFIED")) return "VERIFIED";
+  return "PENDING";
 }
 
 export function mapEvidenceObjectDetail(wire: EvidenceObjectDetailWire): EvidenceObjectDetail {
@@ -112,10 +121,10 @@ export function mapEvidenceObjectDetail(wire: EvidenceObjectDetailWire): Evidenc
     classification: object.classification,
     admissibility: object.admissibility_status,
     custodyStage: object.current_custody_stage,
-    // ponytail: no dedicated collected_at on the wire — created_at (registration
-    // time) is the closest honest proxy, not a fabricated field.
+    // created_at is the object's registration time — surfaced as registeredAt
+    // (label 등록 시각), never mislabeled as a chain-of-custody collection time.
     custodian: object.record_owner_user_id ?? object.created_by,
-    collectedAt: object.created_at,
+    registeredAt: object.created_at,
     fixity: aggregateFixity(wire.copies),
     tsa: aggregateTsa(wire.tsa_proofs),
     disposed: object.disposed_at != null,
@@ -135,7 +144,7 @@ export function mapEvidenceObjectSummary(view: EvidenceObjectView): EvidenceObje
     admissibility: view.admissibility_status,
     custodyStage: view.current_custody_stage,
     custodian: view.record_owner_user_id ?? view.created_by,
-    collectedAt: view.created_at,
+    registeredAt: view.created_at,
     // A list row carries no copies/TSA — rendered as absent/pending until the
     // row is opened and the full detail is fetched.
     fixity: "PENDING",
