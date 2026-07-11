@@ -46,7 +46,7 @@ function toCsv(rows: EvidenceObjectDetail[], resolveOwner: (id: string) => strin
   const header = [T.columns.code, T.columns.title, T.columns.type, T.columns.owner, T.columns.registeredAt];
   const escape = (value: string) => `"${value.replace(/"/g, '""')}"`;
   const lines = rows.map((row) =>
-    [row.code, row.title, ko.console.evidence.title, resolveOwner(row.custodian), row.registeredAt]
+    [row.code, row.title, row.source?.title ?? ko.console.evidence.title, resolveOwner(row.custodian), row.registeredAt]
       .map((v) => escape(v))
       .join(","),
   );
@@ -448,7 +448,13 @@ export function EvidenceScreenBody() {
                     <td style={{ ...tdStyle, fontFamily: "var(--font-mono)" }}>{row.code}</td>
                     <td style={tdStyle}>{row.title}</td>
                     <td style={tdStyle}>
-                      <StatusChip tone="purple">{ko.console.evidence.title}</StatusChip>
+                      {/* r12: real per-row 유형 (source.title, mapped from the
+                          object's actual source_type — record_archive/inbox_doc/
+                          mail_attachment/ingest_job/work_order_evidence_media/
+                          external_document) instead of a hardcoded "증거" chip on
+                          every row — the field already existed on EvidenceObjectDetail
+                          (evidenceApi.mapSource) and was simply unused here. */}
+                      <StatusChip tone="purple">{row.source?.title ?? ko.console.evidence.title}</StatusChip>
                     </td>
                     <td style={tdStyle}>{resolveOwner(row.custodian)}</td>
                     <td style={tdStyle}>{formatDate(row.registeredAt)}</td>

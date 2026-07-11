@@ -113,13 +113,21 @@ INSERT INTO registry_equipment (id, branch_id, customer_id, site_id, equipment_n
 ON CONFLICT (id) DO NOTHING;
 
 -- ── work orders (dashboard KPI + ops summary + evidence parent) ──────────────
+-- r12: ad0001 carries explicit created_at/target_due_at so the KPI rollup's
+-- completion-duration + due-compliance aggregates stop reading 미지정 — both
+-- default to `now()`/NULL otherwise, and since approved_at (below, in
+-- work_order_approval_steps) is deliberately backdated for KPI realism, a
+-- DEFAULT now() created_at always lands AFTER approved_at, so the rollup's
+-- `approved_at >= created_at` guard never fires (average_completion_seconds
+-- stays None). Backdating created_at here — and giving it a real due date it
+-- met — is the real write shape (a work order is opened before it's closed).
 INSERT INTO work_orders (
   id, request_no, branch_id, equipment_id, customer_id, site_id, requested_by, status, priority,
-  symptom, customer_request, result_type, kpi_excluded, evidence_verified, org_id
+  symptom, customer_request, result_type, kpi_excluded, evidence_verified, org_id, created_at, target_due_at
 ) VALUES
-  ('00000000-0000-0000-0000-000000ad0001', '20260701-001', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-000000c20001', '00000000-0000-0000-0000-000000c00001', '00000000-0000-0000-0000-000000c10001', '00000000-0000-0000-0000-00000000d003', 'FINAL_COMPLETED', 'P2', '유압 실린더 누유', '리프트 하강 시 기름 누출', 'COMPLETED', false, true, '00000000-0000-0000-0000-0000000000a1'),
-  ('00000000-0000-0000-0000-000000ad0002', '20260705-002', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-000000c20002', '00000000-0000-0000-0000-000000c00001', '00000000-0000-0000-0000-000000c10001', '00000000-0000-0000-0000-00000000d003', 'IN_PROGRESS', 'P1', '배터리 충전 불가', '전동 지게차 시동 불량', 'UNKNOWN', false, false, '00000000-0000-0000-0000-0000000000a1'),
-  ('00000000-0000-0000-0000-000000ad0003', '20260708-003', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-000000c20001', '00000000-0000-0000-0000-000000c00001', '00000000-0000-0000-0000-000000c10001', '00000000-0000-0000-0000-00000000d003', 'ASSIGNED', 'P3', '경적 작동 불량', '경고음이 나지 않음', 'UNKNOWN', false, false, '00000000-0000-0000-0000-0000000000a1')
+  ('00000000-0000-0000-0000-000000ad0001', '20260701-001', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-000000c20001', '00000000-0000-0000-0000-000000c00001', '00000000-0000-0000-0000-000000c10001', '00000000-0000-0000-0000-00000000d003', 'FINAL_COMPLETED', 'P2', '유압 실린더 누유', '리프트 하강 시 기름 누출', 'COMPLETED', false, true, '00000000-0000-0000-0000-0000000000a1', now() - interval '4 days', now() - interval '18 hours'),
+  ('00000000-0000-0000-0000-000000ad0002', '20260705-002', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-000000c20002', '00000000-0000-0000-0000-000000c00001', '00000000-0000-0000-0000-000000c10001', '00000000-0000-0000-0000-00000000d003', 'IN_PROGRESS', 'P1', '배터리 충전 불가', '전동 지게차 시동 불량', 'UNKNOWN', false, false, '00000000-0000-0000-0000-0000000000a1', DEFAULT, NULL),
+  ('00000000-0000-0000-0000-000000ad0003', '20260708-003', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-000000c20001', '00000000-0000-0000-0000-000000c00001', '00000000-0000-0000-0000-000000c10001', '00000000-0000-0000-0000-00000000d003', 'ASSIGNED', 'P3', '경적 작동 불량', '경고음이 나지 않음', 'UNKNOWN', false, false, '00000000-0000-0000-0000-0000000000a1', DEFAULT, NULL)
 ON CONFLICT (id) DO NOTHING;
 
 -- ── evidence media (docs screen) + lifecycle rows ────────────────────────────
@@ -327,9 +335,34 @@ INSERT INTO ont_instances (id, org_id, object_type_id, title, current_revision_i
   ('00000000-0000-0000-0000-000000a90002', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000a70001', '부산 지점 정기 점검 계약', '00000000-0000-0000-0000-000000ab0002', 'active', now() - interval '2 days')
 ON CONFLICT (id) DO NOTHING;
 
+-- r12: attributes carry the 5 deepened properties below (vendor_name/
+-- contract_start/contract_end/status/labor_cost_ratio_pct) — ont_instance_revisions
+-- is append-only (no UPDATE), so the richer payload has to be in this genesis
+-- row, not patched on afterward.
 INSERT INTO ont_instance_revisions (id, org_id, instance_id, version, attributes, valid_from, prev_hash, row_hash) VALUES
-  ('00000000-0000-0000-0000-000000ab0001', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000a90001', 1, '{"name":"한성물류 연간 정비 계약","annual_fee_won":36000000}'::jsonb, now(), repeat('0', 64), encode(sha256('mc-001-v1'), 'hex')),
-  ('00000000-0000-0000-0000-000000ab0002', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000a90002', 1, '{"name":"부산 지점 정기 점검 계약","annual_fee_won":18000000}'::jsonb, now(), repeat('0', 64), encode(sha256('mc-002-v1'), 'hex'))
+  ('00000000-0000-0000-0000-000000ab0001', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000a90001', 1, '{"name":"한성물류 연간 정비 계약","annual_fee_won":36000000,"vendor_name":"한성물류㈜","contract_start":"2026-01-01","contract_end":"2026-12-31","status":"active","labor_cost_ratio_pct":38}'::jsonb, now(), repeat('0', 64), encode(sha256('mc-001-v1'), 'hex')),
+  ('00000000-0000-0000-0000-000000ab0002', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000a90002', 1, '{"name":"부산 지점 정기 점검 계약","annual_fee_won":18000000,"vendor_name":"부산해운대물류㈜","contract_start":"2026-03-01","contract_end":"2027-02-28","status":"active","labor_cost_ratio_pct":42}'::jsonb, now(), repeat('0', 64), encode(sha256('mc-002-v1'), 'hex'))
+ON CONFLICT (id) DO NOTHING;
+
+-- r12: deepen the 매니저 tab's 속성 (5 more, real FIELD_KINDS tags) + populate
+-- 액션/분석 (both tables were empty across every seeded object type, so those
+-- two 매니저 subtabs always rendered EmptyChip — not a UI gap, a seed gap).
+INSERT INTO ont_property_defs (id, org_id, object_type_id, key, title, type, config, required, in_property_policy) VALUES
+  ('00000000-0000-0000-0000-000000a80003', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000a70001', 'vendor_name', '거래처명', 'text', '{}'::jsonb, true, false),
+  ('00000000-0000-0000-0000-000000a80004', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000a70001', 'contract_start', '계약 시작일', 'date', '{}'::jsonb, true, false),
+  ('00000000-0000-0000-0000-000000a80005', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000a70001', 'contract_end', '계약 종료일', 'date', '{}'::jsonb, true, false),
+  ('00000000-0000-0000-0000-000000a80006', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000a70001', 'status', '상태', 'choice', '{"choices":[{"id":"active","name":"활성"},{"id":"expired","name":"만료"},{"id":"terminated","name":"해지"}]}'::jsonb, true, false),
+  ('00000000-0000-0000-0000-000000a80007', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000a70001', 'labor_cost_ratio_pct', '인건비율(%)', 'number', '{}'::jsonb, false, true)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO ont_action_types (id, org_id, object_type_id, stable_key, title, dispatch, control_points) VALUES
+  ('00000000-0000-0000-0000-000000a91101', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000a70001', 'renew', '계약 갱신', 'instance_revision', '[]'::jsonb),
+  ('00000000-0000-0000-0000-000000a91102', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000a70001', 'terminate', '계약 해지', 'instance_revision', '[]'::jsonb)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO ont_analytics (id, org_id, object_type_id, key, title, formula, result_type) VALUES
+  ('00000000-0000-0000-0000-000000a91201', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000a70001', 'labor_cost_won', '인건비 = 계약금 × 인건비율', '{"expr":"annual_fee_won * labor_cost_ratio_pct / 100"}'::jsonb, '{"kind":"number"}'::jsonb),
+  ('00000000-0000-0000-0000-000000a91202', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000a70001', 'margin_won', '마진 = 계약금 − 인건비', '{"expr":"annual_fee_won - labor_cost_won"}'::jsonb, '{"kind":"number"}'::jsonb)
 ON CONFLICT (id) DO NOTHING;
 
 -- ── ontology graph density (round 5): service_plan/vendor_partner/site_visit
@@ -662,15 +695,17 @@ ON CONFLICT (id) DO NOTHING;
 -- projection all compute REAL numbers. approved_at is relative to now() so the
 -- fixture stays inside the dashboard's rolling 6-month window on any dev-up.
 -- This mirrors the real completion-approval write shape exactly.
+-- r12: created_at/target_due_at added (same 미지정 fix as ad0001 above) — 3 of
+-- 5 meet target_due_at (compliant), 2 miss it, for a realistic <100% bps.
 INSERT INTO work_orders (
   id, request_no, branch_id, equipment_id, customer_id, site_id, requested_by, status, priority,
-  symptom, customer_request, result_type, kpi_excluded, evidence_verified, org_id
+  symptom, customer_request, result_type, kpi_excluded, evidence_verified, org_id, created_at, target_due_at
 ) VALUES
-  ('00000000-0000-0000-0000-000000ad0005', '20260601-005', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-000000c20001', '00000000-0000-0000-0000-000000c00001', '00000000-0000-0000-0000-000000c10001', '00000000-0000-0000-0000-00000000d003', 'FINAL_COMPLETED', 'P2', '체인 장력 조정', '리프트 체인 소음', 'COMPLETED', false, true, '00000000-0000-0000-0000-0000000000a1'),
-  ('00000000-0000-0000-0000-000000ad0006', '20260501-006', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-000000c20002', '00000000-0000-0000-0000-000000c00001', '00000000-0000-0000-0000-000000c10001', '00000000-0000-0000-0000-00000000d003', 'FINAL_COMPLETED', 'P3', '타이어 마모 교체', '구동 타이어 교체', 'COMPLETED', false, true, '00000000-0000-0000-0000-0000000000a1'),
-  ('00000000-0000-0000-0000-000000ad0007', '20260401-007', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-000000c20001', '00000000-0000-0000-0000-000000c00001', '00000000-0000-0000-0000-000000c10001', '00000000-0000-0000-0000-00000000d003', 'FINAL_COMPLETED', 'P2', '브레이크 패드 교체', '제동 성능 저하', 'COMPLETED', false, true, '00000000-0000-0000-0000-0000000000a1'),
-  ('00000000-0000-0000-0000-000000ad0008', '20260301-008', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-000000c20002', '00000000-0000-0000-0000-000000c00001', '00000000-0000-0000-0000-000000c10001', '00000000-0000-0000-0000-00000000d003', 'FINAL_COMPLETED', 'P3', '전조등 교체', '야간 작업등 불량', 'COMPLETED', false, true, '00000000-0000-0000-0000-0000000000a1'),
-  ('00000000-0000-0000-0000-000000ad0009', '20260201-009', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-000000c20001', '00000000-0000-0000-0000-000000c00001', '00000000-0000-0000-0000-000000c10001', '00000000-0000-0000-0000-00000000d003', 'FINAL_COMPLETED', 'P2', '유압 호스 교체', '작동유 누유', 'COMPLETED', false, true, '00000000-0000-0000-0000-0000000000a1')
+  ('00000000-0000-0000-0000-000000ad0005', '20260601-005', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-000000c20001', '00000000-0000-0000-0000-000000c00001', '00000000-0000-0000-0000-000000c10001', '00000000-0000-0000-0000-00000000d003', 'FINAL_COMPLETED', 'P2', '체인 장력 조정', '리프트 체인 소음', 'COMPLETED', false, true, '00000000-0000-0000-0000-0000000000a1', date_trunc('month', now()) - interval '1 month' + interval '7 days', date_trunc('month', now()) - interval '1 month' + interval '11 days'),
+  ('00000000-0000-0000-0000-000000ad0006', '20260501-006', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-000000c20002', '00000000-0000-0000-0000-000000c00001', '00000000-0000-0000-0000-000000c10001', '00000000-0000-0000-0000-00000000d003', 'FINAL_COMPLETED', 'P3', '타이어 마모 교체', '구동 타이어 교체', 'COMPLETED', false, true, '00000000-0000-0000-0000-0000000000a1', date_trunc('month', now()) - interval '2 months' + interval '7 days', date_trunc('month', now()) - interval '2 months' + interval '9 days 12 hours'),
+  ('00000000-0000-0000-0000-000000ad0007', '20260401-007', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-000000c20001', '00000000-0000-0000-0000-000000c00001', '00000000-0000-0000-0000-000000c10001', '00000000-0000-0000-0000-00000000d003', 'FINAL_COMPLETED', 'P2', '브레이크 패드 교체', '제동 성능 저하', 'COMPLETED', false, true, '00000000-0000-0000-0000-0000000000a1', date_trunc('month', now()) - interval '3 months' + interval '7 days', date_trunc('month', now()) - interval '3 months' + interval '11 days'),
+  ('00000000-0000-0000-0000-000000ad0008', '20260301-008', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-000000c20002', '00000000-0000-0000-0000-000000c00001', '00000000-0000-0000-0000-000000c10001', '00000000-0000-0000-0000-00000000d003', 'FINAL_COMPLETED', 'P3', '전조등 교체', '야간 작업등 불량', 'COMPLETED', false, true, '00000000-0000-0000-0000-0000000000a1', date_trunc('month', now()) - interval '4 months' + interval '7 days', date_trunc('month', now()) - interval '4 months' + interval '9 days 12 hours'),
+  ('00000000-0000-0000-0000-000000ad0009', '20260201-009', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-000000c20001', '00000000-0000-0000-0000-000000c00001', '00000000-0000-0000-0000-000000c10001', '00000000-0000-0000-0000-00000000d003', 'FINAL_COMPLETED', 'P2', '유압 호스 교체', '작동유 누유', 'COMPLETED', false, true, '00000000-0000-0000-0000-0000000000a1', date_trunc('month', now()) - interval '5 months' + interval '7 days', date_trunc('month', now()) - interval '5 months' + interval '11 days')
 ON CONFLICT (id) DO NOTHING;
 
 -- EXECUTIVE completion approvals: ad0001 this month, ad0005..ad0009 one per
@@ -703,7 +738,10 @@ ON CONFLICT (id) DO NOTHING;
 
 -- Extra completed work orders: extra[ago] = {5:1,4:2,3:2,2:3,1:4,0:3}; combined
 -- with the one existing completion per month the series becomes 2,3,3,4,5,4.
-INSERT INTO work_orders (id, request_no, branch_id, equipment_id, customer_id, site_id, requested_by, status, priority, symptom, customer_request, result_type, kpi_excluded, evidence_verified, org_id)
+-- r12: created_at anchored 3 days before the matching approval's anchor date
+-- (same 미지정 fix as above) so these rows count toward average_completion_seconds
+-- too, not just the 6 concrete ad000N rows.
+INSERT INTO work_orders (id, request_no, branch_id, equipment_id, customer_id, site_id, requested_by, status, priority, symptom, customer_request, result_type, kpi_excluded, evidence_verified, org_id, created_at)
 SELECT
   ('00000000-0000-0000-0000-e5' || lpad((p.ago * 100 + g.n)::text, 10, '0'))::uuid,
   to_char(date_trunc('month', now()) - (p.ago || ' months')::interval, 'YYYYMM') || '20-' || lpad((600 + p.ago * 20 + g.n)::text, 3, '0'),
@@ -713,7 +751,8 @@ SELECT
        ELSE '00000000-0000-0000-0000-000000c20001' END)::uuid,
   (CASE WHEN (p.ago + g.n) % 3 = 0 THEN '00000000-0000-0000-0000-000000c00002' ELSE '00000000-0000-0000-0000-000000c00001' END)::uuid,
   (CASE WHEN (p.ago + g.n) % 3 = 0 THEN '00000000-0000-0000-0000-000000c10002' ELSE '00000000-0000-0000-0000-000000c10001' END)::uuid,
-  '00000000-0000-0000-0000-00000000d003'::uuid, 'FINAL_COMPLETED', 'P2', '정기 정비 완료', '정기 점검 및 소모품 교체', 'COMPLETED', false, true, '00000000-0000-0000-0000-0000000000a1'::uuid
+  '00000000-0000-0000-0000-00000000d003'::uuid, 'FINAL_COMPLETED', 'P2', '정기 정비 완료', '정기 점검 및 소모품 교체', 'COMPLETED', false, true, '00000000-0000-0000-0000-0000000000a1'::uuid,
+  LEAST(now() - interval '3 hours', date_trunc('month', now()) - (p.ago || ' months')::interval + interval '7 days' + (g.n || ' hours')::interval)
 FROM (VALUES (5, 1), (4, 2), (3, 2), (2, 3), (1, 4), (0, 3)) AS p(ago, extra),
      LATERAL generate_series(1, p.extra) AS g(n)
 ON CONFLICT (id) DO NOTHING;
@@ -730,6 +769,50 @@ SELECT
 FROM (VALUES (5, 1), (4, 2), (3, 2), (2, 3), (1, 4), (0, 3)) AS p(ago, extra),
      LATERAL generate_series(1, p.extra) AS g(n)
 ON CONFLICT (id) DO NOTHING;
+
+-- ── dashboard KPI depth r12: 응답 속도 / 점검 계획 이행률 / P1 수락률 were
+-- 미지정 (no qualifying source rows at all, not just zero) — fill each with a
+-- real write shape so the stat strip stops reading "미지정" for these three.
+
+-- 평균 응답 속도: an IN_PROGRESS status-history row between created_at and the
+-- completion approval gives the rollup a first_in_progress_at to diff against
+-- created_at (backend: work_order_status_history). One per concrete completed
+-- work order is enough to make response_count > 0 in every rolling window.
+INSERT INTO work_order_status_history (id, org_id, work_order_id, actor, action, from_status, to_status, occurred_at) VALUES
+  ('00000000-0000-0000-0000-000000ee0001', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000ad0001', '00000000-0000-0000-0000-00000000d002', 'START_WORK', 'ASSIGNED', 'IN_PROGRESS', now() - interval '3 days 12 hours'),
+  ('00000000-0000-0000-0000-000000ee0005', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000ad0005', '00000000-0000-0000-0000-00000000d002', 'START_WORK', 'ASSIGNED', 'IN_PROGRESS', date_trunc('month', now()) - interval '1 month' + interval '7 days 6 hours'),
+  ('00000000-0000-0000-0000-000000ee0006', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000ad0006', '00000000-0000-0000-0000-00000000d002', 'START_WORK', 'ASSIGNED', 'IN_PROGRESS', date_trunc('month', now()) - interval '2 months' + interval '7 days 6 hours'),
+  ('00000000-0000-0000-0000-000000ee0007', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000ad0007', '00000000-0000-0000-0000-00000000d002', 'START_WORK', 'ASSIGNED', 'IN_PROGRESS', date_trunc('month', now()) - interval '3 months' + interval '7 days 6 hours'),
+  ('00000000-0000-0000-0000-000000ee0008', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000ad0008', '00000000-0000-0000-0000-00000000d002', 'START_WORK', 'ASSIGNED', 'IN_PROGRESS', date_trunc('month', now()) - interval '4 months' + interval '7 days 6 hours'),
+  ('00000000-0000-0000-0000-000000ee0009', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000ad0009', '00000000-0000-0000-0000-00000000d002', 'START_WORK', 'ASSIGNED', 'IN_PROGRESS', date_trunc('month', now()) - interval '5 months' + interval '7 days 6 hours')
+ON CONFLICT (id) DO NOTHING;
+
+-- 점검 계획 이행률: regular_inspection_schedules due THIS calendar month — 3
+-- COMPLETED + 2 still SCHEDULED gives a real 60% rather than 미지정 (zero rows
+-- due at all) or a degenerate 100%.
+INSERT INTO regular_inspection_schedules (
+  id, org_id, branch_id, equipment_id, mechanic_id, cycle, interval_days, due_date, status,
+  completed_at, completed_by, note, created_by, created_at
+) VALUES
+  ('00000000-0000-0000-0000-000000ef2001', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-000000c20001', '00000000-0000-0000-0000-00000000d002', 'MONTHLY', 30, date_trunc('month', now())::date + 4, 'COMPLETED', date_trunc('month', now()) + interval '4 days 3 hours', '00000000-0000-0000-0000-00000000d002', '월간 정기점검 완료', '00000000-0000-0000-0000-00000000d001', date_trunc('month', now()) + interval '4 days'),
+  ('00000000-0000-0000-0000-000000ef2002', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-000000c20002', '00000000-0000-0000-0000-00000000d002', 'MONTHLY', 30, date_trunc('month', now())::date + 6, 'COMPLETED', date_trunc('month', now()) + interval '6 days 2 hours', '00000000-0000-0000-0000-00000000d002', '월간 정기점검 완료', '00000000-0000-0000-0000-00000000d001', date_trunc('month', now()) + interval '6 days'),
+  ('00000000-0000-0000-0000-000000ef2003', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-0000000000c2', '00000000-0000-0000-0000-000000c20003', '00000000-0000-0000-0000-00000000d003', 'MONTHLY', 30, date_trunc('month', now())::date + 8, 'COMPLETED', date_trunc('month', now()) + interval '8 days 5 hours', '00000000-0000-0000-0000-00000000d003', '월간 정기점검 완료', '00000000-0000-0000-0000-00000000d001', date_trunc('month', now()) + interval '8 days'),
+  ('00000000-0000-0000-0000-000000ef2004', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-000000c20001', '00000000-0000-0000-0000-00000000d002', 'MONTHLY', 30, date_trunc('month', now())::date + 22, 'SCHEDULED', NULL, NULL, NULL, '00000000-0000-0000-0000-00000000d001', now()),
+  ('00000000-0000-0000-0000-000000ef2005', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-0000000000c2', '00000000-0000-0000-0000-000000c20003', '00000000-0000-0000-0000-00000000d003', 'MONTHLY', 30, date_trunc('month', now())::date + 25, 'SCHEDULED', NULL, NULL, NULL, '00000000-0000-0000-0000-00000000d001', now())
+ON CONFLICT (branch_id, equipment_id, due_date, cycle) DO NOTHING;
+
+-- P1 수락률: two more P1 dispatches whose accept window opened this month, one
+-- accepted by a technician and one auto-assigned — combined with the existing
+-- BROADCASTING ea0001 (no response) the rollup reads a real ~67% instead of
+-- 미지정/0%.
+INSERT INTO p1_dispatches (id, org_id, work_order_id, branch_id, status, accept_window_started_at, accept_window_ends_at, auto_assigned_mechanic_id, created_by, created_at, updated_at) VALUES
+  ('00000000-0000-0000-0000-000000ea0002', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000ad0005', '00000000-0000-0000-0000-0000000000c1', 'BROADCASTING', now() - interval '5 days', now() - interval '5 days' + interval '30 minutes', NULL, '00000000-0000-0000-0000-00000000d003', now() - interval '5 days', now() - interval '5 days' + interval '30 minutes'),
+  ('00000000-0000-0000-0000-000000ea0003', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000ad0006', '00000000-0000-0000-0000-0000000000c1', 'AUTO_ASSIGNED', now() - interval '6 days', now() - interval '6 days' + interval '30 minutes', '00000000-0000-0000-0000-00000000d002', '00000000-0000-0000-0000-00000000d003', now() - interval '6 days', now() - interval '6 days' + interval '20 minutes')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO p1_dispatch_responses (id, org_id, dispatch_id, user_id, response, responded_at, workload_weight) VALUES
+  ('00000000-0000-0000-0000-000000eb2001', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000ea0002', '00000000-0000-0000-0000-00000000d001', 'ACCEPT', now() - interval '5 days' + interval '4 minutes', 0)
+ON CONFLICT (dispatch_id, user_id) DO NOTHING;
 
 -- ── site attendance events (대시보드 사업장 커버리지 card) ─────────────────────
 -- Business clock-in facts the hr/attendance-summary read groups per user into

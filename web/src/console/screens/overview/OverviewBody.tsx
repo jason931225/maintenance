@@ -7,7 +7,7 @@ import {
 } from "react";
 import { useNavigate } from "react-router-dom";
 
-import { isUuid } from "../../../lib/utils";
+import { resolveRowTitle } from "../../../lib/rowTitle";
 import { ko } from "../../../i18n/ko";
 import { StatusChip } from "../../components";
 import "../../tokens.css";
@@ -220,23 +220,35 @@ export function OverviewBody({ accessToken, api, now, onOpen }: OverviewBodyProp
             <p style={emptyStyle}>{S.empty.queue}</p>
           ) : (
             <ul style={listStyle}>
-              {rows.map((item) => (
+              {rows.map((item) => {
+                // §4-18: dispatch/work rows carry only a request_no as `title`
+                // (see action_inbox.rs) — the shared resolver leads with a human
+                // subject and demotes the code to the meta line, so a raw object
+                // id never sits in the primary title slot. The most specific
+                // human descriptor a code-only row has is its site (equipment
+                // location); it beats a bare kind word (which would only echo the
+                // type chip). Fall back to the kind label when there is no site.
+                const resolved = resolveRowTitle(
+                  item.title,
+                  item.ref,
+                  item.site ?? kindLabel(item.kind, S),
+                );
+                const siteInTitle = resolved.title === item.site;
+                const meta = [
+                  resolved.code,
+                  siteInTitle ? undefined : item.site,
+                  item.who,
+                ]
+                  .filter(Boolean)
+                  .join(" · ");
+                return (
                 <li key={item.id} style={rowStyle}>
                   <StatusChip tone={item.done ? "ok" : "neutral"}>
                     {kindLabel(item.kind, S)}
                   </StatusChip>
                   <div style={{ minWidth: 0, flex: 1 }}>
-                    <div style={rowTitleStyle}>
-                      {item.title}
-                      {/* Some sources (approval/support) have no canonical human
-                          code today — see action_inbox.rs's documented gap — and
-                          `ref` there is a raw object/run/ticket UUID. Never
-                          render that as if it were a business code. */}
-                      {isUuid(item.ref) ? null : <span style={refStyle}>{item.ref}</span>}
-                    </div>
-                    <div style={rowMetaStyle}>
-                      {[item.site, item.who].filter(Boolean).join(" · ")}
-                    </div>
+                    <div style={rowTitleStyle}>{resolved.title}</div>
+                    {meta ? <div style={rowMetaStyle}>{meta}</div> : null}
                   </div>
                   {item.due ? (
                     <StatusChip tone={item.dueTone}>{timeFmt.format(new Date(item.due))}</StatusChip>
@@ -252,7 +264,8 @@ export function OverviewBody({ accessToken, api, now, onOpen }: OverviewBodyProp
                     {actionLabel(item.kind, S)}
                   </button>
                 </li>
-              ))}
+                );
+              })}
             </ul>
           )}
         </section>
@@ -293,7 +306,7 @@ export function OverviewBody({ accessToken, api, now, onOpen }: OverviewBodyProp
                       openItem(item);
                     }}
                   >
-                    {item.title}
+                    {resolveRowTitle(item.title, item.ref, item.site ?? kindLabel(item.kind, S)).title}
                   </button>
                   {item.who ? (
                     <StatusChip tone="neutral">{item.who}</StatusChip>
@@ -451,12 +464,6 @@ const rowTitleStyle: CSSProperties = {
   fontWeight: "var(--fw-medium)",
   color: "var(--ink)",
   minWidth: 0,
-};
-
-const refStyle: CSSProperties = {
-  fontSize: "var(--text-xs)",
-  color: "var(--faint)",
-  fontFamily: "var(--font-mono)",
 };
 
 const rowMetaStyle: CSSProperties = {

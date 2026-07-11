@@ -155,6 +155,21 @@ describe("CommsRail", () => {
     expect(screen.getByTestId("pathname")).toHaveTextContent("/support");
   });
 
+  it("localizes a bare English category key on the chip", () => {
+    setViewport(1400);
+    renderRail();
+    act(() => {
+      useCommsStore.setState({
+        notifications: [notification({ id: "a", category: "leave", text: "연차 신청 승인 대기" })],
+        notificationUnread: 1,
+        openSection: "notifications",
+      });
+    });
+
+    expect(screen.getByText("연차")).toBeVisible();
+    expect(screen.queryByText("leave")).not.toBeInTheDocument();
+  });
+
   it("marks all notifications read from the section header", () => {
     setViewport(1400);
     renderRail();

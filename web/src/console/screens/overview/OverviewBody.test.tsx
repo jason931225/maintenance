@@ -89,6 +89,50 @@ describe("OverviewBody", () => {
     expect(screen.queryByText("3fa85f64-5717-4562-b3fc-2c963f66afa6")).not.toBeInTheDocument();
   });
 
+  it("leads a code-only row with its kind label and demotes the code to meta (§4-18)", async () => {
+    renderBody({
+      api: stubApi({
+        loadInbox: vi.fn().mockResolvedValue({
+          total: 1,
+          items: [
+            // work/dispatch rows carry only a request_no as their title (===ref)
+            item({
+              kind: "work",
+              id: "work:1",
+              title: "20260710-004",
+              ref: "20260710-004",
+              site: "인천 제2물류센터",
+            }),
+          ],
+        }),
+      }),
+    });
+    const queue = within(await screen.findByRole("region", { name: S.queueTitle }));
+    // primary title is the human site, never the raw code…
+    expect(queue.getByText("인천 제2물류센터")).toBeInTheDocument();
+    // …and the code sits on the meta line, not the title.
+    expect(queue.getByText("20260710-004")).toBeInTheDocument();
+    // the raw code is gone from the title slot entirely (only the meta chip has it)
+    expect(queue.queryByText("20260710-004 · 인천 제2물류센터")).not.toBeInTheDocument();
+  });
+
+  it("falls back to the kind label when a code-only row has no site (§4-18)", async () => {
+    renderBody({
+      api: stubApi({
+        loadInbox: vi.fn().mockResolvedValue({
+          total: 1,
+          items: [
+            item({ kind: "dispatch", id: "dispatch:2", title: "20260710-009", ref: "20260710-009" }),
+          ],
+        }),
+      }),
+    });
+    const queue = within(await screen.findByRole("region", { name: S.queueTitle }));
+    // no site → the type chip and the title both read the kind label; assert both.
+    expect(queue.getAllByText(S.chip.dispatch).length).toBeGreaterThanOrEqual(2);
+    expect(queue.getByText("20260710-009")).toBeInTheDocument();
+  });
+
   it("drilling a stat filters the queue to that kind", async () => {
     const user = userEvent.setup();
     renderBody();

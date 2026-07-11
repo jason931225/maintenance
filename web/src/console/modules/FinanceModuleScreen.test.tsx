@@ -102,6 +102,18 @@ describe("FinanceModuleScreen", () => {
     expect(screen.queryByText("전표 도메인 대기")).not.toBeInTheDocument();
   });
 
+  it("keeps code/identifier cells single-line so 전표 코드 never collapses to one char per line beside the detail split", () => {
+    render(
+      <PolicyGateProvider gate={allowGate}>
+        <GenericModuleScreen config={liveRowConfig} />
+      </PolicyGateProvider>,
+    );
+
+    const codeCell = screen.getByRole("button", { name: "OBJ-1 상세 열기" }).closest("td");
+    expect(codeCell).not.toBeNull();
+    expect(codeCell).toHaveStyle({ whiteSpace: "nowrap" });
+  });
+
   it("gates primary, row, detail, and link affordances through PolicyGated", () => {
     const readOnlyGate: PolicyGate = {
       can: (action) => action === FINANCE_MODULE_ACTIONS.read,

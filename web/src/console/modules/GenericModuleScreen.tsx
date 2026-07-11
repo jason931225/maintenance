@@ -166,6 +166,10 @@ const tdStyle: CSSProperties = {
   fontSize: "var(--text-sm)",
   fontWeight: "var(--fw-body)",
   verticalAlign: "middle",
+  // Code/identifier cells (전표 코드 GL-2026-0003) must not wrap to one char per
+  // line when the master-detail split shrinks the list track (minmax(0,1fr));
+  // the tableWrap's overflowX:auto scrolls instead. thStyle already nowraps.
+  whiteSpace: "nowrap",
 };
 
 const rowButtonStyle: CSSProperties = {
