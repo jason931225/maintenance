@@ -481,15 +481,15 @@ jobs:
 
       - name: Lint (eslint + UI-string gate)
         if: ${{ !cancelled() }}
-        run: npm run lint --workspace @maintenance/web-console
+        run: npm run lint --workspace @console/web
 
       - name: Unit tests
         if: ${{ !cancelled() }}
-        run: npm run test --workspace @maintenance/web-console
+        run: npm run test --workspace @console/web
 
       - name: Production build
         if: ${{ !cancelled() }}
-        run: npm run build --workspace @maintenance/web-console
+        run: npm run build --workspace @console/web
 
   api-contract:
     name: API contract — app OpenAPI and generated TS round-trip

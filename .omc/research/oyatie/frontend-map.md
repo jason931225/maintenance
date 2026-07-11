@@ -2,7 +2,7 @@
 
 ## 1. Stack
 
-Single frontend: `web/` (npm workspace `@maintenance/web-console`).
+Single frontend: `web/` (npm workspace `@console/web`).
 
 - React 19.2.7 SPA, react-router-dom ^7 (declarative, React.lazy code-split), Vite 8 + @tailwindcss/vite, TypeScript strict (`tsc -b`).
 - Tailwind CSS v4.3 (CSS-first `@theme`, no config file) + shadcn/ui ("new-york", `web/components.json`) + CVA + tailwind-merge + lucide-react. Pretendard font.

@@ -21,7 +21,7 @@ COPY clients/ts ./clients/ts
 COPY web ./web
 
 # tsc -b && vite build → web/dist
-RUN npm run build --workspace @maintenance/web-console
+RUN npm run build --workspace @console/web
 
 # ---- runtime ---------------------------------------------------------------
 FROM nginxinc/nginx-unprivileged:stable-alpine@sha256:de3e40ec8b7debd7194fc798d4bbfb102c7f8b012b2c73032816b5f72393acdd AS runtime

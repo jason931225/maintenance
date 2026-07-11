@@ -1,5 +1,5 @@
 {
-  "name": "@maintenance/web-console",
+  "name": "@console/web",
   "version": "0.1.59",
   "private": true,
   "type": "module",

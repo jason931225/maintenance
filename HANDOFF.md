@@ -37,7 +37,7 @@
 |------|------|
 | `backend/` | Rust Cargo workspace (modular monolith, `mnt-` prefix, layering `domain ← application ← adapter ← {rest,worker} ← app`) |
 | `backend/crates/kernel/core` | `mnt-kernel-core` — typed IDs, AuditEvent, BranchScope, TraceContext, errors, Clock |
-| `web/` | React/Vite web console workspace (`@maintenance/web-console`) with lint/test/build scripts. Built assets in `web/dist/` are repository artifacts only, not deployment proof. |
+| `web/` | React/Vite web console workspace (`@console/web`) with lint/test/build scripts. Built assets in `web/dist/` are repository artifacts only, not deployment proof. |
 | `android/` | Kotlin/Compose field app Gradle project (`maintenance-field-android`) with JVM unit/Compose/Roborazzi and managed-device instrumented test topology. Play/internal-track release still requires signing and service-account secrets. |
 | `.github/workflows/ci.yml` `android-instrumented` | Linux/KVM Gradle Managed Device Android post-login E2E. Required branch/push contexts need `FIELD_E2E_BASE_URL` and `FIELD_E2E_SEED_REFRESH_TOKEN`; absent secrets are acceptable only for fork/explicit optional runs with clear optional/skipped output and are not real Android post-login evidence. |
 | `ios/` | SwiftPM/SwiftUI field app (`MaintenanceField`) with core/app/tests/UITests. `ios/project.yml` generates a CI-only Xcode project for Simulator XCUITest; do not infer a committed distributable Xcode project/workspace from it. |
