@@ -11,6 +11,7 @@ import {
   type RevisionWire,
   type TraversalGraphWire,
 } from "../../api/ontology";
+import { formatWon } from "../charts";
 import type {
   ObjectCardDescriptor,
   ObjectCardLifecycleStep,
@@ -287,8 +288,16 @@ export function revisionsFromHistory(
     }));
 }
 
-function displayValue(value: unknown): string | null {
+export function displayValue(value: unknown, fieldType?: string): string | null {
   if (value === null || value === undefined) return null;
+  // A money-typed attribute is a raw won integer on the wire; render it with the
+  // one shared ₩ helper (§4-18) so the inspector never leaks "36000000". A value
+  // that is not a finite number (already-formatted, or a non-numeric string)
+  // falls through to the generic display below rather than becoming "₩NaN".
+  if (fieldType === "money") {
+    const amount = typeof value === "number" ? value : Number(value);
+    if (Number.isFinite(amount)) return formatWon(amount);
+  }
   if (typeof value === "string") return value;
   if (typeof value === "number" || typeof value === "boolean") {
     return String(value);
@@ -354,7 +363,7 @@ export function objectCardDescriptorFrom({
       title: property.title,
       type: property.field_type,
       // null ⇒ property-policy denied / absent server-side (deny-by-omission).
-      value: displayValue(attributes[property.key]),
+      value: displayValue(attributes[property.key], property.field_type),
       inPropertyPolicy: property.in_property_policy || undefined,
       required: property.required,
     })),

@@ -170,12 +170,20 @@ export function buildObjectExplorerView(model: ObjectExplorerModel, focusId?: st
 // base (R9 explore verdict). Percent coordinates (0–100) drive both the pill
 // `left/top` and the SVG edge `viewBox="0 0 100 100"`.
 const RING_BASE = 30; // ring-1 radius: wide enough that direct neighbours don't collide
-const RING_STEP = 14; // each extra hop pushes the ring out …
-const RING_MAX = 46; // … but never past the viewport edge (pills are ~50% off-centre)
+const RING_STEP = 15; // each extra hop pushes the ring out …
+const RING_MAX = 47; // … but never past the viewport edge (pills are ~50% off-centre)
 const VERTICAL_SQUASH = 0.9; // the viewport is wider than tall — keep rings inside it
+// Percent-width one (tightened) pill needs so two ring-adjacent pills clear each
+// other. A crowded ring (many nodes at one depth — e.g. 8 direct neighbours) is
+// pushed outward until its chord spans at least this, so neighbours stop
+// overlapping (verdict R10 "explore graph overlap"), still capped by RING_MAX.
+const NODE_ARC = 20;
 
-function ringRadius(depth: number): number {
-  return Math.min(RING_MAX, RING_BASE + RING_STEP * (depth - 1));
+function ringRadius(depth: number, count: number): number {
+  const byDepth = RING_BASE + RING_STEP * (depth - 1);
+  // chord between adjacent nodes = 2·r·sin(π/n); solve r for chord ≥ NODE_ARC.
+  const byCrowd = count > 1 ? NODE_ARC / (2 * Math.sin(Math.PI / count)) : 0;
+  return Math.min(RING_MAX, Math.max(byDepth, byCrowd));
 }
 
 /** Undirected BFS hop count from the focus to every reachable node. */
@@ -231,7 +239,7 @@ export function layoutObjectExplorerNodes(view: ObjectExplorerView): ObjectExplo
   }
 
   for (const [depth, nodes] of rings) {
-    const radius = ringRadius(depth);
+    const radius = ringRadius(depth, nodes.length);
     // Stagger alternate rings by a half-step so nodes don't line up radially.
     const offset = depth % 2 === 0 ? Math.PI / nodes.length : 0;
     nodes.forEach((node, index) => {

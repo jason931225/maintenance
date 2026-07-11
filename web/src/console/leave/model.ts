@@ -113,10 +113,20 @@ export interface LeaveLedgerRow {
  * `active` defaults true: the endpoint only returns the current employee
  * ledger and carries no separate exit flag.
  */
+// Short reference token from an employee UUID. Native ids share a long all-zero
+// prefix (00000000-0000-0000-0000-000000ee0001), so a plain leading slice
+// collapsed EVERY roster row's code to "LV-000000" (verdict R10: identical codes
+// down the roster). Drop dashes + leading-zero padding first, then take the
+// distinguishing head — same idiom as explore/ObjectExplorerModel.ts `shortId`.
+function shortEmployeeRef(id: string): string {
+  const hex = id.replace(/-/g, "");
+  return (hex.replace(/^0+/, "") || hex).slice(0, 6).toUpperCase();
+}
+
 export function rosterToLedgerRow(entry: LeaveRosterEntry): LeaveLedgerRow {
   return {
     id: entry.employee_id,
-    code: `LV-${entry.employee_id.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+    code: `LV-${shortEmployeeRef(entry.employee_id)}`,
     name: entry.name,
     orgUnit: entry.team ?? undefined,
     accrued: entry.grant,

@@ -120,7 +120,9 @@ const actionButtonStyle: CSSProperties = {
 
 const bodyGridStyle: CSSProperties = {
   display: "grid",
-  gridTemplateColumns: "minmax(0, 1fr) minmax(220px, 320px)",
+  // Detail pane is wide enough that voucher ids (VC-…) and GL account codes
+  // (GL-2026-0003, "5104, 1102") no longer wrap mid-token in the key/value rows.
+  gridTemplateColumns: "minmax(0, 1fr) minmax(320px, 420px)",
   gap: "var(--sp-5)",
   alignItems: "start",
 };
@@ -230,6 +232,9 @@ const kvValueStyle: CSSProperties = {
 const monoStyle: CSSProperties = {
   fontFamily: "var(--font-mono)",
   fontWeight: "var(--fw-strong)",
+  // Identifiers (voucher no, GL codes, post timestamp) are atomic — never break
+  // "GL-2026-0003" into "GL-202 6- 000 3"; the row/panel gives them the width.
+  whiteSpace: "nowrap",
 };
 
 const ghostButtonStyle: CSSProperties = {
