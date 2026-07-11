@@ -366,6 +366,9 @@ const tdStyle: CSSProperties = {
   color: "var(--ink)",
   fontSize: "var(--text-sm)",
   verticalAlign: "middle",
+  // 직원 코드 + 발생/사용/잔여 cells must stay single-line when the 원장 table's
+  // list track shrinks beside an open detail pin; tableWrap overflowX:auto scrolls.
+  whiteSpace: "nowrap",
 };
 
 const cellMetaStyle: CSSProperties = {

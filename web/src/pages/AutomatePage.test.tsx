@@ -257,6 +257,26 @@ const overdueRule = {
   },
 };
 
+// r12: a definition with NO stored canvas doc (automate.doc: null) — the
+// fallback synthesizer (buildRuleDoc) must still terminate the branch's "met"
+// output on a real action node, not leave it dangling.
+const undockedRule = {
+  ...baseDefinition,
+  id: "55555555-5555-4555-8555-555555555555",
+  workflow_key: "automate.rule.undocked",
+  display_name: "미배정 3일 경과 알림",
+  object_type: "work_order",
+  status: "DRAFT",
+  latest_version: 1,
+  active_version: null,
+  definition: {
+    schema_version: "workflow.definition.v1",
+    trigger: "automate.object_change",
+    steps: [],
+    automate: { scope: "org", doc: null, condition: overdueCondition },
+  },
+};
+
 const personalRule = {
   ...baseDefinition,
   id: "22222222-2222-4222-8222-222222222222",
@@ -415,6 +435,20 @@ describe("AutomatePage (Phase C — real workflow-studio wiring)", () => {
     expect(within(runLog).getByText(/웹훅 호출 실패/)).toBeVisible();
     const chip = within(runLog).getByText("WO-2643");
     expect(chip).toHaveAttribute("draggable", "true");
+  });
+
+  it("terminates a doc-less definition's fallback canvas on a real action node instead of a dangling branch", async () => {
+    installBaseHandlers([undockedRule]);
+    renderPage();
+
+    await screen.findByRole("tab", { name: S.tabs.rules, selected: true });
+    const builder = screen.getByRole("region", { name: undockedRule.display_name });
+    expect(within(builder).getByText(S.samples.trigger)).toBeVisible();
+    expect(within(builder).getByText(S.labels.branchMet)).toBeVisible();
+    expect(within(builder).getByText(S.labels.branchUnmet)).toBeVisible();
+    // The synthesized doc's terminal node: the first ontology action (에스컬레이션)
+    // on the branch's "met" output, not an empty dead end.
+    expect(within(builder).getAllByText("에스컬레이션").length).toBeGreaterThan(0);
   });
 
   it("renders the error state (not a crash) when GET /definitions fails, and retry recovers", async () => {

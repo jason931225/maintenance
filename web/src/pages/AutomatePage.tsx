@@ -280,7 +280,11 @@ interface RuleVm {
   condition: PredicateGroup;
 }
 
-function ruleVmOf(definition: WorkflowDefinitionResponse, fields: FieldRegistry): RuleVm {
+function ruleVmOf(
+  definition: WorkflowDefinitionResponse,
+  fields: FieldRegistry,
+  defaultAction?: ActionOption,
+): RuleVm {
   const envelope = automateEnvelopeOf(definition);
   const condition = envelope.condition ?? { join: "and", predicates: [] };
   return {
@@ -291,7 +295,12 @@ function ruleVmOf(definition: WorkflowDefinitionResponse, fields: FieldRegistry)
     active: definition.status === "ACTIVE",
     editable: definition.status === "DRAFT",
     envelope,
-    doc: envelope.doc ?? buildRuleDoc(condition, fields),
+    // r12: a definition with no stored canvas doc falls back to the synthesized
+    // trigger→condition→branch doc — pass the default action through so the
+    // branch's "met" output lands on a real terminal action node instead of
+    // dangling unconnected (buildRuleDoc only appends the action node when one
+    // is supplied).
+    doc: envelope.doc ?? buildRuleDoc(condition, fields, defaultAction),
     condition,
   };
 }
@@ -1020,8 +1029,8 @@ export function AutomateHub() {
     () =>
       definitions
         .filter((definition) => !isScheduleDefinition(definition))
-        .map((definition) => ruleVmOf(definition, fields)),
-    [definitions, fields],
+        .map((definition) => ruleVmOf(definition, fields, actionOptions.at(0))),
+    [definitions, fields, actionOptions],
   );
   const schedules = useMemo(
     () =>

@@ -220,6 +220,13 @@ describe("LeaveConsole (레인1 leave 카드 존, real-wired)", () => {
     expect(within(pin).getByText(S.objects.props.accrued)).toBeVisible();
   });
 
+  it("원장 직원 코드 cell stays single-line (no one-char-per-line wrap) beside an open detail pin", () => {
+    renderConsole();
+    const codeCell = screen.getByRole("button", { name: S.openObject("JL-A001") }).closest("td");
+    expect(codeCell).not.toBeNull();
+    expect(codeCell).toHaveStyle({ whiteSpace: "nowrap" });
+  });
+
   it("every stat drills: 촉진 대상 filters the ledger to backend-computed tone (§4-11)", () => {
     renderConsole();
     const ledgerRegion = screen.getByRole("region", { name: S.ledger.title });

@@ -16,7 +16,7 @@ const evidenceObjectView = {
   code: "EV-101",
   title: "현장 CCTV 클립",
   description: null,
-  source: { source_type: "MANUAL_UPLOAD", source_id: "src-1", source_code: null },
+  source: { source_type: "external_document", source_id: "src-1", source_code: null },
   classification: "internal",
   record_owner_user_id: "user-1",
   current_custody_stage: "REGISTERED",
@@ -96,6 +96,28 @@ describe("EvidenceScreenBody", () => {
     await waitFor(() => {
       expect(expiringButton).toHaveTextContent("1");
     });
+  });
+
+  it("renders each row's real 유형 from its source_type, not a hardcoded 증거 chip on every row", async () => {
+    const inbox = {
+      ...evidenceObjectView,
+      id: "ev-3",
+      code: "EV-303",
+      title: "무단결근 소명 진술 녹취",
+      source: { source_type: "inbox_doc", source_id: "src-3", source_code: null },
+    };
+    renderBody(async (path: unknown) => {
+      await Promise.resolve();
+      if (path === "/api/v1/evidence/objects") {
+        return { data: { items: [evidenceObjectView, inbox], limit: 200, offset: 0, total: 2 } };
+      }
+      if (path === "/api/v1/users") return { data: { items: [] } };
+      return { data: undefined, response: { status: 404 } };
+    });
+
+    await screen.findByText("EV-101");
+    expect(screen.getByText(ko.console.evidence.sourceTypes.external_document)).toBeVisible();
+    expect(screen.getByText(ko.console.evidence.sourceTypes.inbox_doc)).toBeVisible();
   });
 
   it("drills the 보존 만료 임박 stat into a filtered table", async () => {

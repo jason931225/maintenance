@@ -26,6 +26,7 @@ import type {
 } from "../../api/types";
 import { useAuth } from "../../context/auth";
 import { ko } from "../../i18n/ko";
+import { categoryLabel } from "../../i18n/notificationCategories";
 import { formatKoreanDateTime } from "../../lib/datetime";
 import { sanitizeMailHtml } from "../../lib/mailHtml";
 import { publishNotificationCountsInvalidated } from "../../lib/notification-events";
@@ -501,7 +502,7 @@ function NotificationsSection({ open }: { open: boolean }) {
                   >
                     <span className="flex items-center gap-2">
                       <span className="inline-flex items-center rounded-full border border-console-border-soft bg-console-muted px-2 py-0.5 text-[11px] font-medium text-console-steel">
-                        {notification.category}
+                        {categoryLabel(notification.category)}
                       </span>
                       {notification.unread ? (
                         <>

@@ -1,6 +1,7 @@
 import type { CSSProperties } from "react";
 
 import { ko } from "../../i18n/ko";
+import { resolveRowTitle } from "../../lib/rowTitle";
 import { StatusChip } from "../components";
 import type { WorkflowRunEvent, WorkflowRunStatus } from "./types";
 
@@ -104,7 +105,13 @@ export function RunLogTimeline({
             {event.code ? <StatusChip tone="neutral">{event.code}</StatusChip> : null}
             <span>{T.timeline.eventMeta(event.at, event.actor)}</span>
           </div>
-          <p style={titleStyle}>{event.label}</p>
+          {/* §4-18: an event whose summary is a bare object id (e.g.
+              "20260701-001") must not stand as the primary title — the shared
+              resolver leads with the human status label and leaves the code to
+              the meta chip above. */}
+          <p style={titleStyle}>
+            {resolveRowTitle(event.label, event.code, T.status[event.status]).title}
+          </p>
           {event.error ? <p style={detailStyle}>{event.error}</p> : null}
           {event.retryCount !== undefined ? (
             <StatusChip tone="warn">{T.timeline.retryCount(event.retryCount)}</StatusChip>
