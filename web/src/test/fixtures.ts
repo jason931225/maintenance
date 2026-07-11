@@ -285,9 +285,12 @@ export const kpiReport: components["schemas"]["KpiReport"] = {
       target_due_compliance_bps: 8_750,
       revisit_rate_bps: 500,
       delay_rate_bps: 1_250,
+      // Real backend contract: keys are work_order.delay_reason enum variants
+      // (migration 0008), NOT pre-localized labels — the UI localizes them.
       delay_reason_distribution: {
-        "부품 대기": 2,
-        "장비 사용 중": 1,
+        PART_WAITING: 2,
+        EQUIPMENT_IN_USE: 1,
+        ADDITIONAL_FAULT_FOUND: 1,
       },
     },
     {
@@ -305,7 +308,7 @@ export const kpiReport: components["schemas"]["KpiReport"] = {
       revisit_rate_bps: 250,
       delay_rate_bps: 750,
       delay_reason_distribution: {
-        "부품 대기": 1,
+        PART_WAITING: 1,
       },
     },
     {
@@ -323,7 +326,7 @@ export const kpiReport: components["schemas"]["KpiReport"] = {
       revisit_rate_bps: 430,
       delay_rate_bps: 900,
       delay_reason_distribution: {
-        "부품 대기": 2,
+        PART_WAITING: 2,
       },
     },
     {

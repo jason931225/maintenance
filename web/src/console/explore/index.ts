@@ -11,6 +11,7 @@ export {
   OBJECT_EXPLORER_ACTIONS,
   buildObjectExplorerView,
   createDraftObjectNode,
+  edgeLabelOccluded,
   layoutObjectExplorerNodes,
   lifecycleTone,
   ontologyExplorerModel,

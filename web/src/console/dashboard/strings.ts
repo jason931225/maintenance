@@ -43,6 +43,11 @@ export interface DashboardStrings {
   pendingLaborCost?: string;
   pendingContracts?: string;
   pendingInsights?: string;
+  /** 지연 사유 분포 chart: work_order.delay_reason enum → Korean label. Keys are the
+   *  DB CHECK variants (migration 0008_create_work_orders.sql). Unknown/retired
+   *  variants fail closed to delayReasonUnknown — never the raw enum key. */
+  delayReasonLabels?: Record<string, string>;
+  delayReasonUnknown?: string;
 }
 
 const FALLBACK = {
@@ -68,6 +73,22 @@ const FALLBACK = {
   pendingLaborCost: "Labor-cost trend (₩)",
   pendingContracts: "Contract profitability",
   pendingInsights: "Operational insights",
+  // koManifest (serial wire-up → ko.console.dashboard.delayReasonLabels):
+  //   PART_WAITING "부품 대기", CUSTOMER_ABSENT "고객 부재",
+  //   EQUIPMENT_IN_USE "장비 사용 중", MECHANIC_OVERLOADED "정비사 과부하",
+  //   OUTSOURCE_DELAY "외주 지연", ADDITIONAL_FAULT_FOUND "추가 결함 발견",
+  //   SAFETY_ISSUE "안전 문제", OTHER "기타"; delayReasonUnknown "기타 사유".
+  delayReasonLabels: {
+    PART_WAITING: "Awaiting parts",
+    CUSTOMER_ABSENT: "Customer absent",
+    EQUIPMENT_IN_USE: "Equipment in use",
+    MECHANIC_OVERLOADED: "Mechanic overloaded",
+    OUTSOURCE_DELAY: "Outsourcing delay",
+    ADDITIONAL_FAULT_FOUND: "Additional fault found",
+    SAFETY_ISSUE: "Safety issue",
+    OTHER: "Other",
+  } as Record<string, string>,
+  delayReasonUnknown: "Other reason",
 } satisfies DashboardStrings;
 
 /** The resolved strings: every FALLBACK key is guaranteed present, plus the

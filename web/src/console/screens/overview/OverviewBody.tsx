@@ -340,6 +340,11 @@ export function OverviewBody({ accessToken, api, now, onOpen }: OverviewBodyProp
                   item.ref,
                   item.site ?? kindLabel(item.kind, S),
                 );
+                // Parity with the 처리 대기 row (verdict r15): the agenda item
+                // carries the same real owner fields — the site (owner/team,
+                // unless it was promoted into the title) and the responsible
+                // person — not just the person alone.
+                const siteInTitle = resolved.title === item.site;
                 return (
                 <li key={item.id} style={timelineRowStyle}>
                   <span aria-hidden="true" style={checkboxStyle(item.done)}>
@@ -359,6 +364,9 @@ export function OverviewBody({ accessToken, api, now, onOpen }: OverviewBodyProp
                   </button>
                   {resolved.code ? (
                     <span style={rowCodeStyle}>{resolved.code}</span>
+                  ) : null}
+                  {!siteInTitle && item.site ? (
+                    <StatusChip tone="neutral">{item.site}</StatusChip>
                   ) : null}
                   {item.who ? (
                     <StatusChip tone="neutral">{item.who}</StatusChip>

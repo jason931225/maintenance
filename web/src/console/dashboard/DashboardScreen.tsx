@@ -443,7 +443,13 @@ export function DashboardScreen({
     selectedRollup?.delay_reason_distribution ?? {},
   )
     .sort((left, right) => right[1] - left[1])
-    .map(([reason, count]) => ({ id: reason, label: reason, value: count }));
+    .map(([reason, count]) => ({
+      id: reason,
+      // Localize the delay_reason enum; unknown/retired variants fail closed to a
+      // neutral label so a raw key (e.g. "ADDITIONAL_FAULT_FOUND") never surfaces.
+      label: S.delayReasonLabels[reason] ?? S.delayReasonUnknown,
+      value: count,
+    }));
 
   // §4-24: an honest projection needs ≥3 real closed data points; below that the
   // panel would over-claim, so the trend is simply omitted (never faked).

@@ -200,17 +200,45 @@ function predicateSummary(predicate: Predicate, fields: FieldRegistry): string {
   return `${field?.label ?? predicate.field} ${OPERATOR_SYMBOL[predicate.op]} ${value}`;
 }
 
+/** The object type a rule watches, resolved to its Korean title. Registry first
+ *  (ontology), then the well-known sample map; unknown ⇒ undefined so a raw
+ *  object-type key never leaks into the trigger body. */
+function monitoredObjectTitle(
+  objectType: string | undefined,
+  registry: readonly OntObjectTypeDef[],
+): string | undefined {
+  if (!objectType) return undefined;
+  const known = registry.find((type) => type.key === objectType)?.title;
+  if (known) return known;
+  return (S.samples.objectTypes as Record<string, string | undefined>)[objectType];
+}
+
+/** Stamp a trigger-body summary onto trigger nodes that carry none (persisted
+ *  docs author only the trigger title), so the node reads configured. */
+function withTriggerDetail(doc: CanvasDoc, triggerDetail: string | undefined): CanvasDoc {
+  if (!triggerDetail || !doc.nodes.some((node) => node.kind === "trigger" && !node.detail)) {
+    return doc;
+  }
+  return {
+    ...doc,
+    nodes: doc.nodes.map((node) =>
+      node.kind === "trigger" && !node.detail ? { ...node, detail: triggerDetail } : node,
+    ),
+  };
+}
+
 /** Trigger→Condition→Branch(→Action) doc for definitions that carry no canvas yet. */
 function buildRuleDoc(
   condition: PredicateGroup,
   fields: FieldRegistry,
   action?: ActionOption,
+  triggerDetail?: string,
 ): CanvasDoc {
   const trigger = nextId("n-trigger");
   const cond = nextId("n-condition");
   const branch = nextId("n-branch");
   const nodes: CanvasDoc["nodes"] = [
-    { id: trigger, kind: "trigger", title: S.samples.trigger, x: 40, y: 32 },
+    { id: trigger, kind: "trigger", title: S.samples.trigger, detail: triggerDetail, x: 40, y: 32 },
     {
       id: cond,
       kind: "condition",
@@ -284,9 +312,16 @@ function ruleVmOf(
   definition: WorkflowDefinitionResponse,
   fields: FieldRegistry,
   defaultAction?: ActionOption,
+  registry: readonly OntObjectTypeDef[] = [],
 ): RuleVm {
   const envelope = automateEnvelopeOf(definition);
   const condition = envelope.condition ?? { join: "and", predicates: [] };
+  // The trigger fires on changes to the rule's object type; surface that as the
+  // trigger body so the node reads configured (the monitor object wins when set).
+  const triggerDetail = monitoredObjectTitle(
+    envelope.monitor?.objectType ?? definition.object_type,
+    registry,
+  );
   return {
     definition,
     id: definition.id,
@@ -299,8 +334,11 @@ function ruleVmOf(
     // trigger→condition→branch doc — pass the default action through so the
     // branch's "met" output lands on a real terminal action node instead of
     // dangling unconnected (buildRuleDoc only appends the action node when one
-    // is supplied).
-    doc: envelope.doc ?? buildRuleDoc(condition, fields, defaultAction),
+    // is supplied). r15: stamp the trigger body onto persisted docs too (they
+    // author only the trigger title).
+    doc: envelope.doc
+      ? withTriggerDetail(envelope.doc, triggerDetail)
+      : buildRuleDoc(condition, fields, defaultAction, triggerDetail),
     condition,
   };
 }
@@ -1029,8 +1067,8 @@ export function AutomateHub() {
     () =>
       definitions
         .filter((definition) => !isScheduleDefinition(definition))
-        .map((definition) => ruleVmOf(definition, fields, actionOptions.at(0))),
-    [definitions, fields, actionOptions],
+        .map((definition) => ruleVmOf(definition, fields, actionOptions.at(0), registry)),
+    [definitions, fields, actionOptions, registry],
   );
   const schedules = useMemo(
     () =>

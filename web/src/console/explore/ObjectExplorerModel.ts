@@ -193,6 +193,29 @@ function clampPercent(value: number, inset: number): number {
   return Math.min(100 - inset, Math.max(inset, value));
 }
 
+// An edge's relation label sits at the edge midpoint; because node pills paint
+// after the labels (later in DOM order) an opaque pill whose box covers that
+// midpoint clips the label into an unreadable sliver (r15 verdict "explore graph
+// node cards overlap edge labels"). A label is "occluded" when a non-endpoint
+// node pill's box contains its midpoint — the caller fades those. Half-extents
+// are ≈ a 120×60px pill over the ~700×460px canvas, expressed in 0–100 percent.
+const PILL_HALF_X = 9;
+const PILL_HALF_Y = 7;
+
+export function edgeLabelOccluded(
+  mid: { x: number; y: number },
+  nodes: readonly ObjectExplorerNodeLayout[],
+  endpointIds: readonly [string, string],
+): boolean {
+  return nodes.some(
+    (n) =>
+      n.id !== endpointIds[0] &&
+      n.id !== endpointIds[1] &&
+      Math.abs(n.x - mid.x) < PILL_HALF_X &&
+      Math.abs(n.y - mid.y) < PILL_HALF_Y,
+  );
+}
+
 function ringRadius(depth: number, count: number): number {
   const byDepth = RING_BASE + RING_STEP * (depth - 1);
   // chord between adjacent nodes = 2·r·sin(π/n); solve r for chord ≥ NODE_ARC.

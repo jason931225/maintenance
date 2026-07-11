@@ -39,6 +39,11 @@ export function instanceCode(id: string): string {
 
 // `YYYY-MM-DD HH:mm` in KST — mirrors lib/datetime's formatKoreanDateTime,
 // re-implemented locally because console/ modules may not import src/lib/.
+// Plain ko-KR thousands separators for number/integer/decimal property values
+// (no ₩ — that is the money path's formatWon). Local, matching the file's note
+// that console/ modules re-implement rather than reach into src/lib/.
+const NUMBER_FORMAT = new Intl.NumberFormat("ko-KR");
+
 const AT_FORMAT = new Intl.DateTimeFormat("ko-KR", {
   timeZone: "Asia/Seoul",
   year: "numeric",
@@ -297,6 +302,13 @@ export function displayValue(value: unknown, fieldType?: string): string | null 
   if (fieldType === "money") {
     const amount = typeof value === "number" ? value : Number(value);
     if (Number.isFinite(amount)) return formatWon(amount);
+  }
+  // number/integer/decimal are raw numerics on the wire; render them with plain
+  // ko-KR thousands separators (the ₩-less sibling of the money path above) so
+  // the inspector never leaks a bare "36000000". Non-finite values fall through.
+  if (fieldType !== undefined && fieldKindOf(fieldType) === "number") {
+    const amount = typeof value === "number" ? value : Number(value);
+    if (Number.isFinite(amount)) return NUMBER_FORMAT.format(amount);
   }
   if (typeof value === "string") return value;
   if (typeof value === "number" || typeof value === "boolean") {
