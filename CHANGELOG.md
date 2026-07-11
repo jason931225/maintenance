@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.61](https://github.com/jason931225/maintenance/compare/v0.1.60...v0.1.61) (2026-07-11)
+
+
+### Features
+
+* **console:** round 15 — enum localization, canvas node bodies, inspector formatting ([#468](https://github.com/jason931225/maintenance/issues/468)) ([d704a91](https://github.com/jason931225/maintenance/commit/d704a91a5c782af86a334f0caf195a107e107613))
+
 ## [0.1.60](https://github.com/jason931225/maintenance/compare/v0.1.59...v0.1.60) (2026-07-11)
 
 
