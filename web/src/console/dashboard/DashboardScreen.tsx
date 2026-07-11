@@ -2,14 +2,16 @@ import { useMemo, useState, type CSSProperties } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
 import type {
+  AttendanceSummaryItem,
   KpiMetric,
   KpiReport,
   KpiRollup,
   KpiRollupScope,
+  MyPayrollLine,
   OpsSummary,
   UnavailableMetric,
 } from "../../api/types";
-import { HonestBar } from "../charts";
+import { HonestBar, ProjectionPanel, type ChartFormat } from "../charts";
 import { StatusChip } from "../components";
 import "../tokens.css";
 import { ko } from "../../i18n/ko";
@@ -31,6 +33,16 @@ interface DashboardScreenProps {
   period: string;
   isLoading: boolean;
   onPeriodChange: (period: string) => void;
+  /**
+   * Real month-over-month completed-count series (oldest→newest, current month
+   * last) the body derived from trailing KPI reads. Fed to the §4-24 honest
+   * projection panel; the current in-progress month is the projected step.
+   */
+  trend?: number[];
+  /** Site attendance facts (사업장 커버리지) — additive, ops-authorized viewers. */
+  coverage?: AttendanceSummaryItem[];
+  /** Caller-scoped payroll readiness lines (내 지표) — honest, no ₩ fabricated. */
+  myMetrics?: MyPayrollLine[];
 }
 
 const metricOrder: KpiMetric[] = [
@@ -78,6 +90,10 @@ function fmtSeconds(value: number | null) {
   }
   return `${String(value)}${ko.common.secondUnit}`;
 }
+
+// The completion trend is a count series, not money/percent — feed the honest
+// projection panel a count formatter sourced from ko.common (no inline Hangul).
+const trendFormat: ChartFormat = (value) => fmtCount(Math.round(value));
 
 // ── typed month periods (§4-19: segments, never a raw date-format input) ─────
 
@@ -338,6 +354,41 @@ const emptyActionStyle: CSSProperties = {
   textDecoration: "none",
 };
 
+const cardsGridStyle: CSSProperties = {
+  display: "grid",
+  gap: "var(--sp-5)",
+  gridTemplateColumns: "repeat(auto-fit, minmax(18rem, 1fr))",
+};
+
+// A drillable card that mirrors the stat-strip grammar: whole card is a link to
+// its source screen (§4-11 drill), title + a compact fact list.
+const cardLinkStyle: CSSProperties = {
+  ...panelStyle,
+  gap: "var(--sp-3)",
+  textDecoration: "none",
+  color: "var(--ink)",
+};
+
+const factRowStyle: CSSProperties = {
+  display: "flex",
+  justifyContent: "space-between",
+  gap: "var(--sp-3)",
+  minHeight: 32,
+  alignItems: "center",
+  fontSize: "var(--text-body)",
+};
+
+const factValueStyle: CSSProperties = {
+  fontWeight: "var(--fw-strong)",
+  fontVariantNumeric: "tabular-nums",
+};
+
+const pendingRowStyle: CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  gap: "var(--sp-2)",
+};
+
 // ── screen ───────────────────────────────────────────────────────────────────
 
 export function DashboardScreen({
@@ -346,6 +397,9 @@ export function DashboardScreen({
   period,
   isLoading,
   onPeriodChange,
+  trend,
+  coverage,
+  myMetrics,
 }: DashboardScreenProps) {
   const S = dashboardStrings();
   const navigate = useNavigate();
@@ -390,6 +444,24 @@ export function DashboardScreen({
   )
     .sort((left, right) => right[1] - left[1])
     .map(([reason, count]) => ({ id: reason, label: reason, value: count }));
+
+  // §4-24: an honest projection needs ≥3 real closed data points; below that the
+  // panel would over-claim, so the trend is simply omitted (never faked).
+  const trendSeries = (trend ?? []).filter((value) => Number.isFinite(value));
+  const showTrend = trendSeries.length >= 3;
+
+  // Coverage/my-metrics are additive cards: undefined = the viewer isn't
+  // authorized (honest omission); [] = authorized but no rows (§4-10 empty).
+  const latestPayLine = myMetrics?.[0];
+  const payReady =
+    latestPayLine?.calculation_status === "APPROVED" ||
+    latestPayLine?.calculation_status === "ISSUED";
+
+  const pendingAggregates = [
+    S.pendingLaborCost,
+    S.pendingContracts,
+    S.pendingInsights,
+  ];
 
   return (
     <div className="console" style={rootStyle}>
@@ -519,6 +591,89 @@ export function DashboardScreen({
           ) : null}
         </div>
       ) : null}
+
+      {showTrend ? (
+        <ProjectionPanel
+          title={S.trendTitle}
+          kind="percent"
+          format={trendFormat}
+          sample={trendSeries}
+          onDrill={() => {
+            void navigate("/dispatch?status=COMPLETED");
+          }}
+        />
+      ) : null}
+
+      {coverage !== undefined || myMetrics !== undefined ? (
+        <div style={cardsGridStyle}>
+          {coverage !== undefined ? (
+            <Link
+              to="/attendance"
+              data-window-control="true"
+              aria-label={S.coverageTitle}
+              style={cardLinkStyle}
+            >
+              <h2 style={panelTitleStyle}>{S.coverageTitle}</h2>
+              {coverage.length > 0 ? (
+                coverage.slice(0, 5).map((item) => (
+                  <div key={item.user_id} style={factRowStyle}>
+                    <span style={{ color: "var(--steel)" }}>{item.display_name}</span>
+                    <span style={factValueStyle}>
+                      {`${S.coverageArrivals} ${fmtCount(item.arrivals)} · ${S.coverageDepartures} ${fmtCount(item.departures)}`}
+                    </span>
+                  </div>
+                ))
+              ) : (
+                <p style={{ margin: 0, fontSize: "var(--text-body)", color: "var(--steel)" }}>
+                  {S.coverageEmpty}
+                </p>
+              )}
+            </Link>
+          ) : null}
+
+          {myMetrics !== undefined ? (
+            <Link
+              to="/payroll"
+              data-window-control="true"
+              aria-label={S.myMetricsTitle}
+              style={cardLinkStyle}
+            >
+              <h2 style={panelTitleStyle}>{S.myMetricsTitle}</h2>
+              {latestPayLine ? (
+                <div style={factRowStyle}>
+                  <span style={{ color: "var(--steel)" }}>
+                    {`${S.myMetricsPeriod} ${latestPayLine.period_start}`}
+                  </span>
+                  <StatusChip tone={payReady ? "ok" : "warn"} role="status">
+                    {payReady ? S.myMetricsReady : S.myMetricsPending}
+                  </StatusChip>
+                </div>
+              ) : (
+                <p style={{ margin: 0, fontSize: "var(--text-body)", color: "var(--steel)" }}>
+                  {S.myMetricsEmpty}
+                </p>
+              )}
+            </Link>
+          ) : null}
+        </div>
+      ) : null}
+
+      {/* §4-25-⑥ / task ladder LAST resort: aggregates with no backing server
+          endpoint (labor-cost ₩, contract profitability, AN-insights) are named
+          honestly as pending, never rendered with fabricated numbers. */}
+      <section style={panelStyle} aria-label={S.pendingTitle}>
+        <h2 style={panelTitleStyle}>{S.pendingTitle}</h2>
+        <div style={pendingRowStyle}>
+          {pendingAggregates.map((name) => (
+            <StatusChip key={name} tone="warn" role="status">
+              {name}
+            </StatusChip>
+          ))}
+        </div>
+        <p style={{ margin: 0, fontSize: "var(--text-sm)", color: "var(--steel)" }}>
+          {S.pendingReason}
+        </p>
+      </section>
     </div>
   );
 }

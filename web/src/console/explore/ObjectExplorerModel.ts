@@ -236,7 +236,14 @@ function objectIdSlug(label: string): string {
 // /object-types). The graph layout above is unchanged; this is the data seam.
 // ---------------------------------------------------------------------------
 
-function shortId(id: string): string {
+/** A short reference token derived from a raw id, for the (rare) case a
+ * backend source has no canonical business code — e.g. native ontology
+ * instances (`ont_instances` carries no code column) or a search hit whose
+ * `ObjectHead.code` came back `None`. Deliberately NOT the raw UUID: an
+ * 8-char uppercase hex fragment reads as a reference token, not as "here is
+ * an internal database id" (§4-25-⑥ no fabricated business codes, but also
+ * no raw-id leaks). */
+export function shortId(id: string): string {
   return id.slice(0, 8).toUpperCase();
 }
 

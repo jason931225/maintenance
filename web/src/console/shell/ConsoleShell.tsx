@@ -3,6 +3,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ko } from "../../i18n/ko";
 import { useAuth } from "../../context/auth";
 import { useConsoleAuthz, useConsoleScopes, UNION_SCOPE_ID } from "./authz";
+import { CommsRailPanel } from "./CommsRailPanel";
 import { Icon } from "./icons";
 import { defaultScreen, visibleConsoleNav } from "./nav";
 import { Sidebar } from "./Sidebar";
@@ -67,6 +68,13 @@ export function ConsoleShell({
     };
   }, []);
   const collapsed = sbUser ?? narrow;
+
+  // Comms rail: default-expanded on every screen (round-5 fix — was a
+  // presentational 54px icon strip everywhere; the P2 comment claiming "no
+  // interactive rail yet" is stale now that CommsRailPanel is wired). The user
+  // may still collapse it back to the icon strip; that choice does not persist
+  // across a reload (no product ask for that yet).
+  const [railOpen, setRailOpen] = useState(true);
 
   const [screen, setScreen] = useState<string | null>(null);
   const activeScreen =
@@ -211,15 +219,16 @@ export function ConsoleShell({
         </section>
       </main>
 
-      {/* Comms rail — collapsed strip only (chrome). The interactive rail (open
-          views: messenger/mail/notif) arrives in P2, so the strip is
-          presentational here: no unwired handlers. */}
+      {/* Comms rail — shell-level, default-expanded on every screen (round 5).
+          The single "커뮤니케이션" complementary landmark stays exactly as
+          deduped in #459: this is still the only element carrying that name. */}
       <aside
         aria-label={S.rail.label}
         data-cshell-rail
+        data-cshell-rail-open={railOpen || undefined}
         style={{
           flex: "none",
-          width: 54,
+          width: railOpen ? 320 : 54,
           borderLeft: "1px solid var(--border)",
           background: "var(--surface)",
           display: "flex",
@@ -228,24 +237,90 @@ export function ConsoleShell({
           overflow: "hidden",
         }}
       >
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            gap: 6,
-            padding: "12px 0",
-          }}
-        >
-          <RailGlyph name="chevronsLeft" decorative />
-          <span
-            aria-hidden="true"
-            style={{ width: 18, height: 1, background: "var(--border)" }}
-          />
-          <RailGlyph name="msg" label={S.rail.messenger} />
-          <RailGlyph name="mail" label={S.rail.mail} />
-          <RailGlyph name="bell" label={S.rail.notif} />
-        </div>
+        {railOpen ? (
+          <>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 8,
+                padding: "12px 12px 0",
+              }}
+            >
+              <span style={{ fontSize: 13, fontWeight: 600, color: "var(--ink)" }}>
+                {S.rail.label}
+              </span>
+              <button
+                type="button"
+                onClick={() => {
+                  setRailOpen(false);
+                }}
+                title={S.rail.collapse}
+                aria-label={S.rail.collapse}
+                data-cshell-rail-toggle
+                className="cshell-hoverable cshell-focusable"
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  width: 28,
+                  height: 28,
+                  border: "none",
+                  borderRadius: 7,
+                  background: "transparent",
+                  color: "var(--steel)",
+                  cursor: "pointer",
+                }}
+              >
+                <Icon name="chevronsRight" size={15} strokeWidth={2} />
+              </button>
+            </div>
+            <CommsRailPanel accessToken={session?.access_token} />
+          </>
+        ) : (
+          <div
+            style={{
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              gap: 6,
+              padding: "12px 0",
+            }}
+          >
+            <button
+              type="button"
+              onClick={() => {
+                setRailOpen(true);
+              }}
+              title={S.rail.expand}
+              aria-label={S.rail.expand}
+              data-cshell-rail-toggle
+              className="cshell-hoverable cshell-focusable"
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                width: 34,
+                height: 34,
+                border: "none",
+                borderRadius: 9,
+                background: "transparent",
+                color: "var(--steel)",
+                cursor: "pointer",
+              }}
+            >
+              <Icon name="chevronsLeft" size={15} strokeWidth={2} />
+            </button>
+            <span
+              aria-hidden="true"
+              style={{ width: 18, height: 1, background: "var(--border)" }}
+            />
+            <RailGlyph name="msg" label={S.rail.messenger} />
+            <RailGlyph name="mail" label={S.rail.mail} />
+            <RailGlyph name="bell" label={S.rail.notif} />
+          </div>
+        )}
       </aside>
 
       {paletteOpen && (

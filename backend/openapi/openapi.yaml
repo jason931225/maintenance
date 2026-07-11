@@ -25623,6 +25623,10 @@ components:
           type: string
         branch_id:
           $ref: '#/components/schemas/Uuid'
+        branch_name:
+          type:
+          - string
+          - 'null'
         status:
           $ref: '#/components/schemas/VoucherStatus'
         memo:
@@ -25657,11 +25661,19 @@ components:
             $ref: '#/components/schemas/VoucherLineSummary'
         created_by:
           $ref: '#/components/schemas/Uuid'
+        created_by_name:
+          type:
+          - string
+          - 'null'
         approved_by:
           type:
           - string
           - 'null'
           format: uuid
+        approved_by_name:
+          type:
+          - string
+          - 'null'
         posted_at:
           type:
           - string

@@ -8,12 +8,14 @@ import type { ObjectLifecycleState as CardLifecycleState } from "../objectcard";
 import { PolicyGated } from "../policy";
 import { objDrag, useOptionalWindowManager } from "../window";
 import "../tokens.css";
+import { safeLabel } from "../../lib/utils";
 import {
   OBJECT_EXPLORER_ACTIONS,
   buildObjectExplorerView,
   createDraftObjectNode,
   layoutObjectExplorerNodes,
   lifecycleTone,
+  shortId,
   type ObjectExplorerModel,
   type ObjectExplorerNode,
   type ObjectExplorerNodeLayout,
@@ -629,14 +631,16 @@ function NodeCreatePanel({
 }
 
 function searchResultLabel(result: ObjectSearchResult): string {
-  return result.title ?? result.label ?? result.code ?? result.id;
+  return safeLabel(result.title, result.label, result.code, result.id);
 }
 
 function searchResultToNode(result: ObjectSearchResult): ObjectExplorerNode {
   return {
     id: result.id,
     type: result.kind,
-    code: result.code ?? result.id,
+    // No canonical business code on this hit (e.g. a kind resolveObject
+    // never issues one for) — a short reference token, never the raw id.
+    code: result.code ?? shortId(result.id),
     label: searchResultLabel(result),
     automation_chips: result.status ? [result.status] : undefined,
   };
@@ -743,7 +747,7 @@ function ObjectSearchPanel({
                           style={buttonStyle}
                         >
                           <span style={chipRowStyle}>
-                            <StatusChip tone="info">{result.code ?? result.id}</StatusChip>
+                            <StatusChip tone="info">{result.code ?? shortId(result.id)}</StatusChip>
                             <StatusChip tone="neutral">{label}</StatusChip>
                             <StatusChip tone="accent">{result.kind}</StatusChip>
                           </span>

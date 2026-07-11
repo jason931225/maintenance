@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useState, type CSSProperties } from "react";
 
-import type { KpiReport, OpsSummary } from "../../../api/types";
+import type {
+  AttendanceSummaryItem,
+  KpiReport,
+  MyPayrollLine,
+  OpsSummary,
+} from "../../../api/types";
 import { useAuth } from "../../../context/auth";
 import { ko } from "../../../i18n/ko";
 import { DashboardScreen } from "../../dashboard";
@@ -40,12 +45,30 @@ function bodyStrings(): { errorReason: string; retry: string } {
   };
 }
 
+const iso = (value: Date) => value.toISOString().slice(0, 10);
+
+/** A month range `start..end` for the month `offset` months before `now`. */
+function monthPeriod(now: Date, offset: number): string {
+  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - offset, 1));
+  const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - offset + 1, 1));
+  return `${iso(start)}..${iso(end)}`;
+}
+
 /** Current month (진행) range — the KPI report's default period segment. */
 function currentMonthPeriod(now = new Date()): string {
-  const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-  const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
-  const iso = (value: Date) => value.toISOString().slice(0, 10);
-  return `${iso(start)}..${iso(end)}`;
+  return monthPeriod(now, 0);
+}
+
+/** Trailing `count` month ranges, oldest first (current month last). */
+function trailingMonthPeriods(now: Date, count: number): string[] {
+  return Array.from({ length: count }, (_, index) =>
+    monthPeriod(now, count - 1 - index),
+  );
+}
+
+/** The overall completed count for a month's report (authorized-union rollup). */
+function completedForReport(report: KpiReport | undefined): number {
+  return report?.rollups[0]?.completed_count ?? 0;
 }
 
 const bodyStyle: CSSProperties = {
@@ -88,6 +111,9 @@ export function DashboardBody() {
   const [opsSummary, setOpsSummary] = useState<OpsSummary>();
   const [period, setPeriod] = useState(currentMonthPeriod);
   const [readState, setReadState] = useState<ReadState>("loading");
+  const [trend, setTrend] = useState<number[]>();
+  const [coverage, setCoverage] = useState<AttendanceSummaryItem[]>();
+  const [myMetrics, setMyMetrics] = useState<MyPayrollLine[]>();
 
   const canReadOps = (session?.roles ?? []).some((role) =>
     OPS_ROLES.includes(role),
@@ -123,6 +149,50 @@ export function DashboardBody() {
     void Promise.resolve().then(() => load(period));
   }, [load, period]);
 
+  // Period-independent additive surfaces, fetched once: the trailing-month
+  // completion series (§4-24 honest trend), site attendance coverage, and the
+  // caller's own payroll readiness. Each is set only on a real success so a
+  // failed/denied fetch omits its surface (deny-by-omission) rather than
+  // showing a misleading empty aggregate.
+  useEffect(() => {
+    let cancelled = false;
+    void Promise.resolve().then(async () => {
+      const now = new Date();
+      const periods = trailingMonthPeriods(now, 6);
+      const [reports, coverageRes, payRes] = await Promise.all([
+        Promise.all(
+          periods.map((p) =>
+            api
+              .GET("/api/v1/kpi", { params: { query: { period: p } } })
+              .catch(() => undefined),
+          ),
+        ),
+        canReadOps
+          ? api
+              .GET("/api/v1/hr/attendance-summary", { params: { query: {} } })
+              .catch(() => undefined)
+          : Promise.resolve(undefined),
+        api.GET("/api/v1/payroll/payslips/me", {}).catch(() => undefined),
+      ]);
+      if (cancelled) {
+        return;
+      }
+      const series = reports
+        .filter((response) => response?.data)
+        .map((response) => completedForReport(response?.data));
+      setTrend(series);
+      if (canReadOps && coverageRes?.data) {
+        setCoverage(coverageRes.data.items);
+      }
+      if (payRes?.data) {
+        setMyMetrics(payRes.data.items);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [api, canReadOps]);
+
   return (
     <div className="console" data-cshell-screen-body="dashboard" style={bodyStyle}>
       {readState === "error" ? (
@@ -147,6 +217,9 @@ export function DashboardBody() {
           period={period}
           isLoading={readState === "loading"}
           onPeriodChange={setPeriod}
+          trend={trend}
+          coverage={coverage}
+          myMetrics={myMetrics}
         />
       )}
     </div>

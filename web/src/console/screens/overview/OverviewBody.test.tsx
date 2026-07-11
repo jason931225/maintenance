@@ -6,12 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 import { OverviewBody } from "./OverviewBody";
 import type { OverviewApi } from "./overviewApi";
 import { overviewStrings } from "./strings";
-import type {
-  ActionInboxItem,
-  ActionInboxResponse,
-  NotificationCountsSummary,
-} from "./overviewModel";
-import type { NotificationSummary } from "../../../api/types";
+import type { ActionInboxItem, ActionInboxResponse } from "./overviewModel";
 
 const S = overviewStrings();
 const NOW = new Date("2026-07-03T09:00:00Z");
@@ -39,32 +34,9 @@ const inbox: ActionInboxResponse = {
   ],
 };
 
-const counts: NotificationCountsSummary = {
-  total_unread: 4,
-  by_category: [{ category: "cat-a", unread: 4 }],
-};
-
-const notifications: NotificationSummary[] = [
-  {
-    id: "n1",
-    recipient_user_id: "u1",
-    category: "cat-a",
-    kind: "info",
-    text: "New assignment",
-    link: { kind: "work_order", id: "wo1" } as NotificationSummary["link"],
-    unread: true,
-    created_at: "2026-07-03T08:50:00Z",
-    read_at: null,
-    resolved_at: null,
-  },
-];
-
 function stubApi(over?: Partial<OverviewApi>): OverviewApi {
   return {
     loadInbox: vi.fn().mockResolvedValue(inbox),
-    loadNotificationCounts: vi.fn().mockResolvedValue(counts),
-    loadNotifications: vi.fn().mockResolvedValue(notifications),
-    loadMailThreads: vi.fn().mockResolvedValue([]),
     ...over,
   };
 }
@@ -78,7 +50,7 @@ function renderBody(props?: Partial<Parameters<typeof OverviewBody>[0]>) {
 }
 
 describe("OverviewBody", () => {
-  it("renders the stat strip, work queue, timeline, and comms feed from real endpoints", async () => {
+  it("renders the stat strip, work queue, and timeline from the real action-inbox endpoint", async () => {
     renderBody();
     await screen.findByText(S.stat.approval);
 
@@ -89,13 +61,32 @@ describe("OverviewBody", () => {
     expect(within(approvalStat).getByText("1")).toBeInTheDocument();
     expect(screen.getByText(S.stat.urgent(1))).toBeInTheDocument();
 
-    // queue rows + comms feed. The approval is also due today, so it legitimately
-    // renders again in the 오늘 timeline — scope the queue assertion to its region.
+    // queue rows. The approval is also due today, so it legitimately renders
+    // again in the 오늘 timeline — scope the queue assertion to its region.
     const queue = within(screen.getByRole("region", { name: S.queueTitle }));
     expect(queue.getByText("Approve budget")).toBeInTheDocument();
-    expect(screen.getByText("New assignment")).toBeInTheDocument();
     // timeline picks up the approval due today
     expect(screen.getByLabelText(S.timelineTitle)).toBeInTheDocument();
+  });
+
+  it("never renders a raw UUID as the row's ref badge (support tickets carry no human code)", async () => {
+    renderBody({
+      api: stubApi({
+        loadInbox: vi.fn().mockResolvedValue({
+          total: 1,
+          items: [
+            item({
+              kind: "support",
+              id: "support:1",
+              title: "Reply ticket",
+              ref: "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+            }),
+          ],
+        }),
+      }),
+    });
+    await screen.findByText("Reply ticket");
+    expect(screen.queryByText("3fa85f64-5717-4562-b3fc-2c963f66afa6")).not.toBeInTheDocument();
   });
 
   it("drilling a stat filters the queue to that kind", async () => {

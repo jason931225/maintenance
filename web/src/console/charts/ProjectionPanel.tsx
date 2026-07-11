@@ -21,6 +21,12 @@ export interface ProjectionPanelProps {
   onDrill: (part: ProjectionDrillPart) => void;
   /** §4-22 in-place add path for the underlying sample. */
   onAddSample?: () => void;
+  /**
+   * Optional formatter override for fields that are neither money nor percent
+   * (e.g. a monthly completed-count series). Falls back to the money/percent
+   * formatter chosen by `kind` when omitted.
+   */
+  format?: ChartFormat;
 }
 
 const formatPercent: ChartFormat = (value) => `${value.toFixed(1)}%`;
@@ -57,8 +63,8 @@ const statValueStyle: CSSProperties = {
  * DESIGN change-log (68) 정량 투영: deterministic point estimate + CI95 band
  * + CVaR95 fat-tail over a money/percent field. Every number drills (§4.7-9).
  */
-export function ProjectionPanel({ title, kind, sample, lambda = DEFAULT_LAMBDA, onDrill, onAddSample }: ProjectionPanelProps) {
-  const format = kind === "money" ? formatWon : formatPercent;
+export function ProjectionPanel({ title, kind, sample, lambda = DEFAULT_LAMBDA, onDrill, onAddSample, format: formatOverride }: ProjectionPanelProps) {
+  const format = formatOverride ?? (kind === "money" ? formatWon : formatPercent);
   const p = project(sample, lambda);
 
   return (

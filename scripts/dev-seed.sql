@@ -115,6 +115,40 @@ INSERT INTO object_lifecycles (id, org_id, object_type, object_id, current_state
   ('00000000-0000-0000-0000-0000001c0002', '00000000-0000-0000-0000-0000000000a1', 'work_order', '00000000-0000-0000-0000-000000ad0002', 'in_progress', false)
 ON CONFLICT (id) DO NOTHING;
 
+-- ── EV evidence OBJECTS (문서·기록물 → 증거 tab reads docs_evidence_objects, a
+--     registration read-model SEPARATE from evidence_media; the domain's
+--     create_object path writes: the EV code counter, the object row, and a
+--     REGISTERED custody event atomically — mirrored exactly here, no shortcut
+--     that diverges from the real write). Sourced from the two seeded
+--     evidence_media rows above (source_type='work_order_evidence_media'). ────
+INSERT INTO docs_evidence_code_counters (org_id, object_prefix, next_value) VALUES
+  ('00000000-0000-0000-0000-0000000000a1', 'EV', 3)
+ON CONFLICT (org_id, object_prefix) DO NOTHING;
+
+INSERT INTO docs_evidence_objects (
+  id, org_id, code, title, description, source_type, source_id, source_code,
+  classification, record_owner_user_id, created_by, updated_by
+) VALUES
+  ('00000000-0000-0000-0000-000000ef0001', '00000000-0000-0000-0000-0000000000a1', 'EV-000001', '작업지시 20260705-002 완료 후 증빙 (After)', '전동 지게차 배터리 수리 완료 상태 사진', 'work_order_evidence_media', '00000000-0000-0000-0000-000000ed0001', '20260705-002', 'INTERNAL', '00000000-0000-0000-0000-00000000d002', '00000000-0000-0000-0000-00000000d002', '00000000-0000-0000-0000-00000000d002'),
+  ('00000000-0000-0000-0000-000000ef0002', '00000000-0000-0000-0000-0000000000a1', 'EV-000002', '작업지시 20260705-002 착수 전 증빙 (Before)', '전동 지게차 배터리 수리 착수 전 상태 사진', 'work_order_evidence_media', '00000000-0000-0000-0000-000000ed0002', '20260705-002', 'SENSITIVE', '00000000-0000-0000-0000-00000000d002', '00000000-0000-0000-0000-00000000d002', '00000000-0000-0000-0000-00000000d002')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO docs_evidence_custody_events (
+  id, org_id, evidence_object_id, stage, actor_user_id, reason, source_ref,
+  event_digest_sha256, occurred_at
+) VALUES
+  ('00000000-0000-0000-0000-000000ef1001', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000ef0001', 'REGISTERED', '00000000-0000-0000-0000-00000000d002', '작업지시 증빙 등록', '{"source_type":"work_order_evidence_media","source_id":"00000000-0000-0000-0000-000000ed0001","source_code":"20260705-002"}'::jsonb, encode(sha256('ev-000001-registered'), 'hex'), now()),
+  ('00000000-0000-0000-0000-000000ef1002', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000ef0002', 'REGISTERED', '00000000-0000-0000-0000-00000000d002', '작업지시 증빙 등록', '{"source_type":"work_order_evidence_media","source_id":"00000000-0000-0000-0000-000000ed0002","source_code":"20260705-002"}'::jsonb, encode(sha256('ev-000002-registered'), 'hex'), now())
+ON CONFLICT (id) DO NOTHING;
+
+-- Retention (보존) rows the 증거 screen resolves per-object via
+-- GET /api/v1/lifecycles/evidence_object/{id}. One is inside the 90-day
+-- expiry window so the "보존 만료 임박" stat surfaces a real count.
+INSERT INTO object_lifecycles (id, org_id, object_type, object_id, current_state, legal_hold, retention_until) VALUES
+  ('00000000-0000-0000-0000-0000001c0003', '00000000-0000-0000-0000-0000000000a1', 'evidence_object', '00000000-0000-0000-0000-000000ef0001', 'registered', false, (current_date + 60)),
+  ('00000000-0000-0000-0000-0000001c0004', '00000000-0000-0000-0000-0000000000a1', 'evidence_object', '00000000-0000-0000-0000-000000ef0002', 'registered', false, (current_date + 1095))
+ON CONFLICT (id) DO NOTHING;
+
 -- ── policy roles + permissions + version (거버넌스 / 정책) ───────────────────
 INSERT INTO policy_roles (id, org_id, role_key, display_name, description, status, is_system, created_by) VALUES
   ('00000000-0000-0000-0000-000000b00001', '00000000-0000-0000-0000-0000000000a1', 'branch_manager', '지점장', '지점 단위 운영 및 승인 권한', 'ACTIVE', false, '00000000-0000-0000-0000-00000000d001'),
@@ -129,6 +163,27 @@ ON CONFLICT (id) DO NOTHING;
 INSERT INTO policy_versions (org_id, version, updated_at) VALUES
   ('00000000-0000-0000-0000-0000000000a1', 3, now())
 ON CONFLICT (org_id) DO UPDATE SET version = EXCLUDED.version, updated_at = EXCLUDED.updated_at;
+
+-- ── Cedar PBAC policy CATALOG (권한·정책 screen reads cedar_policy_catalog_entries
+--     + cedar_policy_drafts — the PBAC read-model, NOT the legacy policy_roles/
+--     policy_versions RBAC tables above; those two systems are disjoint). Rows
+--     render 허용/금지 (effect) badges + 시행 중/초안 (status) chips. Enforced
+--     rows carry the same triad a real promotion writes: policy_version +
+--     schema_version + bundle_digest (the table's CHECK requires all three for
+--     status IN ('enforced','shadow')). ────────────────────────────────────────
+INSERT INTO cedar_policy_catalog_entries (
+  id, org_id, stable_key, title, natural_language_rule, effect, status, source,
+  principal, action, resource, validation_status,
+  policy_version, schema_version, bundle_digest, created_by, updated_by
+) VALUES
+  ('00000000-0000-0000-0000-000000ca0001', '00000000-0000-0000-0000-0000000000a1', 'attendance.branch_lead_read', '지점장은 소속 지점 팀원의 근태를 열람할 수 있다', '지점장 역할은 자신이 속한 지점의 팀원 근태 기록을 열람할 수 있습니다.', 'permit', 'enforced', 'imported_fixture', '{"role":"branch_manager"}'::jsonb, '{"action_key":"attendance.read"}'::jsonb, '{"resource_type":"attendance","scope":"branch"}'::jsonb, 'valid', 1, '1', 'sha256:' || encode(sha256('cedar-bundle-attendance-read'), 'hex'), '00000000-0000-0000-0000-00000000d001', '00000000-0000-0000-0000-00000000d001'),
+  ('00000000-0000-0000-0000-000000ca0002', '00000000-0000-0000-0000-0000000000a1', 'payroll.cross_org_deny', '타 법인 직원의 급여 상세는 볼 수 없다', '어떤 역할도 자신이 속하지 않은 법인 소속 직원의 급여 상세를 열람할 수 없습니다.', 'forbid', 'enforced', 'imported_fixture', '{"role":"any"}'::jsonb, '{"action_key":"payroll.detail.read"}'::jsonb, '{"resource_type":"payroll","scope":"cross_org"}'::jsonb, 'valid', 1, '1', 'sha256:' || encode(sha256('cedar-bundle-payroll-cross-org'), 'hex'), '00000000-0000-0000-0000-00000000d001', '00000000-0000-0000-0000-00000000d001'),
+  ('00000000-0000-0000-0000-000000ca0003', '00000000-0000-0000-0000-0000000000a1', 'payroll.self_read', '본인 급여 명세는 스스로 열람할 수 있다', '모든 직원은 자신의 급여 명세를 스스로 열람할 수 있습니다.', 'permit', 'enforced', 'imported_fixture', '{"role":"employee"}'::jsonb, '{"action_key":"payroll.self.read"}'::jsonb, '{"resource_type":"payroll","scope":"self"}'::jsonb, 'valid', 1, '1', 'sha256:' || encode(sha256('cedar-bundle-payroll-self'), 'hex'), '00000000-0000-0000-0000-00000000d001', '00000000-0000-0000-0000-00000000d001'),
+  ('00000000-0000-0000-0000-000000ca0004', '00000000-0000-0000-0000-0000000000a1', 'hr.sensitive_read', '인사 책임자는 상세 정보(민감)를 열람할 수 있다', '인사 책임자 역할은 민감 인사 정보를 감사 기록을 남기며 열람할 수 있습니다.', 'permit', 'enforced', 'imported_fixture', '{"role":"hr_lead"}'::jsonb, '{"action_key":"hr.sensitive.read"}'::jsonb, '{"resource_type":"employee","field_class":"sensitive"}'::jsonb, 'valid', 1, '1', 'sha256:' || encode(sha256('cedar-bundle-hr-sensitive'), 'hex'), '00000000-0000-0000-0000-00000000d001', '00000000-0000-0000-0000-00000000d001'),
+  ('00000000-0000-0000-0000-000000ca0005', '00000000-0000-0000-0000-0000000000a1', 'workforce.terminated_exclude', '휴직·기간제 종료 인원은 재직 집계·근무 편성에서 제외한다', '휴직 또는 기간제 종료 상태의 인원은 재직 집계와 근무 편성 대상에서 제외됩니다.', 'forbid', 'enforced', 'imported_fixture', '{"employment_status":["on_leave","terminated"]}'::jsonb, '{"action_key":"workforce.roster.include"}'::jsonb, '{"resource_type":"workforce_roster"}'::jsonb, 'valid', 1, '1', 'sha256:' || encode(sha256('cedar-bundle-workforce-exclude'), 'hex'), '00000000-0000-0000-0000-00000000d001', '00000000-0000-0000-0000-00000000d001'),
+  ('00000000-0000-0000-0000-000000ca0006', '00000000-0000-0000-0000-0000000000a1', 'evidence.mechanic_upload', '현장 정비원은 작업지시 증빙을 업로드할 수 있다', '현장 정비원 역할은 배정된 작업지시에 증빙 자료를 업로드할 수 있습니다.', 'permit', 'enforced', 'imported_fixture', '{"role":"field_mechanic"}'::jsonb, '{"action_key":"evidence.attach"}'::jsonb, '{"resource_type":"work_order","scope":"assigned"}'::jsonb, 'valid', 1, '1', 'sha256:' || encode(sha256('cedar-bundle-evidence-upload'), 'hex'), '00000000-0000-0000-0000-00000000d001', '00000000-0000-0000-0000-00000000d001'),
+  ('00000000-0000-0000-0000-000000ca0007', '00000000-0000-0000-0000-0000000000a1', 'dispatch.coordinator_scope', '파견 코디네이터는 배정 현장 인원만 조회한다', '파견 코디네이터 역할은 자신이 배정된 현장의 인원만 조회할 수 있습니다.', 'permit', 'draft', 'no_code_draft', '{"role":"dispatch_coordinator"}'::jsonb, '{"action_key":"workforce.read"}'::jsonb, '{"resource_type":"workforce_roster","scope":"assigned_site"}'::jsonb, 'valid', NULL, NULL, NULL, '00000000-0000-0000-0000-00000000d001', '00000000-0000-0000-0000-00000000d001')
+ON CONFLICT (id) DO NOTHING;
 
 -- ── workflow studio definitions (자동화 / 워크플로) ──────────────────────────
 INSERT INTO workflow_definitions (id, org_id, workflow_key, display_name, object_type, status, latest_version, active_version, created_by) VALUES
@@ -155,9 +210,14 @@ INSERT INTO ont_property_defs (id, org_id, object_type_id, key, title, type, con
 ON CONFLICT (id) DO NOTHING;
 
 -- instances + genesis revision (hash chain: prev = 64 zeros, row = sha256 of attrs)
-INSERT INTO ont_instances (id, org_id, object_type_id, title, current_revision_id, lifecycle_state) VALUES
-  ('00000000-0000-0000-0000-000000a90001', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000a70001', '한성물류 연간 정비 계약', '00000000-0000-0000-0000-000000ab0001', 'active'),
-  ('00000000-0000-0000-0000-000000a90002', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000a70001', '부산 지점 정기 점검 계약', '00000000-0000-0000-0000-000000ab0002', 'active')
+-- Explicit created_at on the contract instances (not just DEFAULT now()):
+-- useOntologyWorkspace seeds the graph pane from `entries[0].instances[0]`
+-- (types ordered by stable_key ASC, instances DESC by created_at) — within a
+-- single seed transaction every DEFAULT now() ties, so root selection would be
+-- undefined. Pinning a90001 strictly latest makes it the deterministic root.
+INSERT INTO ont_instances (id, org_id, object_type_id, title, current_revision_id, lifecycle_state, created_at) VALUES
+  ('00000000-0000-0000-0000-000000a90001', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000a70001', '한성물류 연간 정비 계약', '00000000-0000-0000-0000-000000ab0001', 'active', now()),
+  ('00000000-0000-0000-0000-000000a90002', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000a70001', '부산 지점 정기 점검 계약', '00000000-0000-0000-0000-000000ab0002', 'active', now() - interval '2 days')
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO ont_instance_revisions (id, org_id, instance_id, version, attributes, valid_from, prev_hash, row_hash) VALUES
@@ -165,11 +225,149 @@ INSERT INTO ont_instance_revisions (id, org_id, instance_id, version, attributes
   ('00000000-0000-0000-0000-000000ab0002', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000a90002', 1, '{"name":"부산 지점 정기 점검 계약","annual_fee_won":18000000}'::jsonb, now(), repeat('0', 64), encode(sha256('mc-002-v1'), 'hex'))
 ON CONFLICT (id) DO NOTHING;
 
--- ── finance GL vouchers (모듈 / 재무) ────────────────────────────────────────
-INSERT INTO finance_gl_vouchers (id, org_id, branch_id, voucher_no, status, memo, created_by, approved_by, posted_at) VALUES
-  ('00000000-0000-0000-0000-000000fc0001', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-0000000000c1', 'GL-2026-0001', 'POSTED', '유압 실린더 부품 매입', '00000000-0000-0000-0000-00000000d003', '00000000-0000-0000-0000-00000000d004', now()),
-  ('00000000-0000-0000-0000-000000fc0002', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-0000000000c1', 'GL-2026-0002', 'DRAFT', '전동 지게차 배터리 교체 예정', '00000000-0000-0000-0000-00000000d003', NULL, NULL)
+-- ── ontology graph density (round 5): service_plan/vendor_partner/site_visit
+--    object types, all linked FROM the hub contract (a90001), so the graph
+--    explorer's default depth-2 search-around renders a real multi-node graph
+--    instead of a 2-node island. Every new stable_key sorts AFTER
+--    'maintenance_contract' alphabetically, so the hub type stays the graph
+--    root's type. ──────────────────────────────────────────────────────────
+INSERT INTO ont_object_types (id, org_id, stable_key, title, title_property_key, backing_kind, schema_version, lifecycle_state, created_by) VALUES
+  ('00000000-0000-0000-0000-000000d50001', '00000000-0000-0000-0000-0000000000a1', 'service_plan', '정비 계획', 'name', 'instance', 1, 'published', '00000000-0000-0000-0000-00000000d001'),
+  ('00000000-0000-0000-0000-000000d50002', '00000000-0000-0000-0000-0000000000a1', 'vendor_partner', '협력업체', 'name', 'instance', 1, 'published', '00000000-0000-0000-0000-00000000d001'),
+  ('00000000-0000-0000-0000-000000d50003', '00000000-0000-0000-0000-0000000000a1', 'site_visit', '점검 방문', 'name', 'instance', 1, 'published', '00000000-0000-0000-0000-00000000d001')
 ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO ont_property_defs (id, org_id, object_type_id, key, title, type, config, required, in_property_policy) VALUES
+  ('00000000-0000-0000-0000-000000d60001', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d50001', 'name', '계획명', 'string', '{}'::jsonb, true, false),
+  ('00000000-0000-0000-0000-000000d60002', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d50001', 'period', '대상 기간', 'string', '{}'::jsonb, false, false),
+  ('00000000-0000-0000-0000-000000d60003', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d50002', 'name', '업체명', 'string', '{}'::jsonb, true, false),
+  ('00000000-0000-0000-0000-000000d60004', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d50002', 'item', '공급 품목', 'string', '{}'::jsonb, false, false),
+  ('00000000-0000-0000-0000-000000d60005', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d50003', 'name', '방문명', 'string', '{}'::jsonb, true, false),
+  ('00000000-0000-0000-0000-000000d60006', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d50003', 'visit_date', '방문일', 'string', '{}'::jsonb, false, false),
+  ('00000000-0000-0000-0000-000000d60007', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d50003', 'technician', '담당 기술자', 'string', '{}'::jsonb, false, false)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO ont_link_types (id, org_id, object_type_id, stable_key, title, reverse_title, to_object_type_id, cardinality) VALUES
+  ('00000000-0000-0000-0000-000000d70001', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000a70001', 'covers_plan', '정비 계획', '소속 계약', '00000000-0000-0000-0000-000000d50001', 'one_many'),
+  ('00000000-0000-0000-0000-000000d70002', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000a70001', 'has_vendor', '협력업체', '계약', '00000000-0000-0000-0000-000000d50002', 'many_many'),
+  ('00000000-0000-0000-0000-000000d70003', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d50001', 'has_visit', '점검 방문', '소속 계획', '00000000-0000-0000-0000-000000d50003', 'one_many')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO ont_instances (id, org_id, object_type_id, title, current_revision_id, lifecycle_state) VALUES
+  ('00000000-0000-0000-0000-000000d80001', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d50001', '1월-3월 정기점검 계획', '00000000-0000-0000-0000-000000db0001', 'active'),
+  ('00000000-0000-0000-0000-000000d80002', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d50001', '4월-6월 정기점검 계획', '00000000-0000-0000-0000-000000db0002', 'active'),
+  ('00000000-0000-0000-0000-000000d80003', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d50001', '7월-9월 정기점검 계획', '00000000-0000-0000-0000-000000db0003', 'active'),
+  ('00000000-0000-0000-0000-000000d80004', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d50001', '10월-12월 정기점검 계획', '00000000-0000-0000-0000-000000db0004', 'active'),
+  ('00000000-0000-0000-0000-000000d80005', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d50001', '긴급 유압계통 점검 계획', '00000000-0000-0000-0000-000000db0005', 'active')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO ont_instances (id, org_id, object_type_id, title, current_revision_id, lifecycle_state) VALUES
+  ('00000000-0000-0000-0000-000000d90001', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d50002', '경남유압산업', '00000000-0000-0000-0000-000000db1001', 'active'),
+  ('00000000-0000-0000-0000-000000d90002', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d50002', '부산배터리텍', '00000000-0000-0000-0000-000000db1002', 'active'),
+  ('00000000-0000-0000-0000-000000d90003', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d50002', '창원공구상사', '00000000-0000-0000-0000-000000db1003', 'active')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO ont_instances (id, org_id, object_type_id, title, current_revision_id, lifecycle_state) VALUES
+  ('00000000-0000-0000-0000-000000da0001', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d50003', '1월 정기점검 방문', '00000000-0000-0000-0000-000000db2001', 'active'),
+  ('00000000-0000-0000-0000-000000da0002', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d50003', '3월 정기점검 방문', '00000000-0000-0000-0000-000000db2002', 'active'),
+  ('00000000-0000-0000-0000-000000da0003', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d50003', '4월 정기점검 방문', '00000000-0000-0000-0000-000000db2003', 'active'),
+  ('00000000-0000-0000-0000-000000da0004', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d50003', '6월 정기점검 방문', '00000000-0000-0000-0000-000000db2004', 'active'),
+  ('00000000-0000-0000-0000-000000da0005', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d50003', '7월 정기점검 방문', '00000000-0000-0000-0000-000000db2005', 'active'),
+  ('00000000-0000-0000-0000-000000da0006', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d50003', '9월 정기점검 방문', '00000000-0000-0000-0000-000000db2006', 'active'),
+  ('00000000-0000-0000-0000-000000da0007', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d50003', '10월 정기점검 방문', '00000000-0000-0000-0000-000000db2007', 'active'),
+  ('00000000-0000-0000-0000-000000da0008', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d50003', '12월 정기점검 방문', '00000000-0000-0000-0000-000000db2008', 'active'),
+  ('00000000-0000-0000-0000-000000da0009', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d50003', '유압계통 긴급 점검 1차', '00000000-0000-0000-0000-000000db2009', 'active'),
+  ('00000000-0000-0000-0000-000000da0010', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d50003', '유압계통 긴급 점검 2차', '00000000-0000-0000-0000-000000db2010', 'active')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO ont_instance_revisions (id, org_id, instance_id, version, attributes, valid_from, prev_hash, row_hash) VALUES
+  ('00000000-0000-0000-0000-000000db0001', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d80001', 1, '{"name":"1월-3월 정기점검 계획","period":"2026-Q1"}'::jsonb, now(), repeat('0', 64), encode(sha256('sp-1-v1'), 'hex')),
+  ('00000000-0000-0000-0000-000000db0002', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d80002', 1, '{"name":"4월-6월 정기점검 계획","period":"2026-Q2"}'::jsonb, now(), repeat('0', 64), encode(sha256('sp-2-v1'), 'hex')),
+  ('00000000-0000-0000-0000-000000db0003', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d80003', 1, '{"name":"7월-9월 정기점검 계획","period":"2026-Q3"}'::jsonb, now(), repeat('0', 64), encode(sha256('sp-3-v1'), 'hex')),
+  ('00000000-0000-0000-0000-000000db0004', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d80004', 1, '{"name":"10월-12월 정기점검 계획","period":"2026-Q4"}'::jsonb, now(), repeat('0', 64), encode(sha256('sp-4-v1'), 'hex')),
+  ('00000000-0000-0000-0000-000000db0005', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d80005', 1, '{"name":"긴급 유압계통 점검 계획","period":"수시"}'::jsonb, now(), repeat('0', 64), encode(sha256('sp-5-v1'), 'hex'))
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO ont_instance_revisions (id, org_id, instance_id, version, attributes, valid_from, prev_hash, row_hash) VALUES
+  ('00000000-0000-0000-0000-000000db1001', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d90001', 1, '{"name":"경남유압산업","item":"유압 실린더·호스"}'::jsonb, now(), repeat('0', 64), encode(sha256('vp-1-v1'), 'hex')),
+  ('00000000-0000-0000-0000-000000db1002', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d90002', 1, '{"name":"부산배터리텍","item":"전동 지게차 배터리"}'::jsonb, now(), repeat('0', 64), encode(sha256('vp-2-v1'), 'hex')),
+  ('00000000-0000-0000-0000-000000db1003', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d90003', 1, '{"name":"창원공구상사","item":"일반 소모품·공구"}'::jsonb, now(), repeat('0', 64), encode(sha256('vp-3-v1'), 'hex'))
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO ont_instance_revisions (id, org_id, instance_id, version, attributes, valid_from, prev_hash, row_hash) VALUES
+  ('00000000-0000-0000-0000-000000db2001', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000da0001', 1, '{"name":"1월 정기점검 방문","visit_date":"2026-01-15","technician":"김정비"}'::jsonb, now(), repeat('0', 64), encode(sha256('sv-1-v1'), 'hex')),
+  ('00000000-0000-0000-0000-000000db2002', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000da0002', 1, '{"name":"3월 정기점검 방문","visit_date":"2026-03-15","technician":"김정비"}'::jsonb, now(), repeat('0', 64), encode(sha256('sv-2-v1'), 'hex')),
+  ('00000000-0000-0000-0000-000000db2003', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000da0003', 1, '{"name":"4월 정기점검 방문","visit_date":"2026-04-15","technician":"최현장"}'::jsonb, now(), repeat('0', 64), encode(sha256('sv-3-v1'), 'hex')),
+  ('00000000-0000-0000-0000-000000db2004', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000da0004', 1, '{"name":"6월 정기점검 방문","visit_date":"2026-06-15","technician":"최현장"}'::jsonb, now(), repeat('0', 64), encode(sha256('sv-4-v1'), 'hex')),
+  ('00000000-0000-0000-0000-000000db2005', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000da0005', 1, '{"name":"7월 정기점검 방문","visit_date":"2026-07-15","technician":"김정비"}'::jsonb, now(), repeat('0', 64), encode(sha256('sv-5-v1'), 'hex')),
+  ('00000000-0000-0000-0000-000000db2006', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000da0006', 1, '{"name":"9월 정기점검 방문","visit_date":"2026-09-15","technician":"김정비"}'::jsonb, now(), repeat('0', 64), encode(sha256('sv-6-v1'), 'hex')),
+  ('00000000-0000-0000-0000-000000db2007', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000da0007', 1, '{"name":"10월 정기점검 방문","visit_date":"2026-10-15","technician":"최현장"}'::jsonb, now(), repeat('0', 64), encode(sha256('sv-7-v1'), 'hex')),
+  ('00000000-0000-0000-0000-000000db2008', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000da0008', 1, '{"name":"12월 정기점검 방문","visit_date":"2026-12-15","technician":"최현장"}'::jsonb, now(), repeat('0', 64), encode(sha256('sv-8-v1'), 'hex')),
+  ('00000000-0000-0000-0000-000000db2009', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000da0009', 1, '{"name":"유압계통 긴급 점검 1차","visit_date":"2026-07-20","technician":"김정비"}'::jsonb, now(), repeat('0', 64), encode(sha256('sv-9-v1'), 'hex')),
+  ('00000000-0000-0000-0000-000000db2010', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000da0010', 1, '{"name":"유압계통 긴급 점검 2차","visit_date":"2026-08-05","technician":"김정비"}'::jsonb, now(), repeat('0', 64), encode(sha256('sv-10-v1'), 'hex'))
+ON CONFLICT (id) DO NOTHING;
+
+-- edges from the hub: contract→5×plan, contract→3×vendor, plan→2×visit each
+-- (19 nodes / 18 edges reachable from a90001 within the default depth-2 traverse)
+INSERT INTO ont_links (id, org_id, link_type_id, from_instance_id, to_instance_id, valid_from) VALUES
+  ('00000000-0000-0000-0000-000000dc0001', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d70001', '00000000-0000-0000-0000-000000a90001', '00000000-0000-0000-0000-000000d80001', now()),
+  ('00000000-0000-0000-0000-000000dc0002', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d70001', '00000000-0000-0000-0000-000000a90001', '00000000-0000-0000-0000-000000d80002', now()),
+  ('00000000-0000-0000-0000-000000dc0003', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d70001', '00000000-0000-0000-0000-000000a90001', '00000000-0000-0000-0000-000000d80003', now()),
+  ('00000000-0000-0000-0000-000000dc0004', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d70001', '00000000-0000-0000-0000-000000a90001', '00000000-0000-0000-0000-000000d80004', now()),
+  ('00000000-0000-0000-0000-000000dc0005', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d70001', '00000000-0000-0000-0000-000000a90001', '00000000-0000-0000-0000-000000d80005', now()),
+  ('00000000-0000-0000-0000-000000dc0006', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d70002', '00000000-0000-0000-0000-000000a90001', '00000000-0000-0000-0000-000000d90001', now()),
+  ('00000000-0000-0000-0000-000000dc0007', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d70002', '00000000-0000-0000-0000-000000a90001', '00000000-0000-0000-0000-000000d90002', now()),
+  ('00000000-0000-0000-0000-000000dc0008', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d70002', '00000000-0000-0000-0000-000000a90001', '00000000-0000-0000-0000-000000d90003', now()),
+  ('00000000-0000-0000-0000-000000dc0009', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d70003', '00000000-0000-0000-0000-000000d80001', '00000000-0000-0000-0000-000000da0001', now()),
+  ('00000000-0000-0000-0000-000000dc0010', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d70003', '00000000-0000-0000-0000-000000d80001', '00000000-0000-0000-0000-000000da0002', now()),
+  ('00000000-0000-0000-0000-000000dc0011', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d70003', '00000000-0000-0000-0000-000000d80002', '00000000-0000-0000-0000-000000da0003', now()),
+  ('00000000-0000-0000-0000-000000dc0012', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d70003', '00000000-0000-0000-0000-000000d80002', '00000000-0000-0000-0000-000000da0004', now()),
+  ('00000000-0000-0000-0000-000000dc0013', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d70003', '00000000-0000-0000-0000-000000d80003', '00000000-0000-0000-0000-000000da0005', now()),
+  ('00000000-0000-0000-0000-000000dc0014', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d70003', '00000000-0000-0000-0000-000000d80003', '00000000-0000-0000-0000-000000da0006', now()),
+  ('00000000-0000-0000-0000-000000dc0015', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d70003', '00000000-0000-0000-0000-000000d80004', '00000000-0000-0000-0000-000000da0007', now()),
+  ('00000000-0000-0000-0000-000000dc0016', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d70003', '00000000-0000-0000-0000-000000d80004', '00000000-0000-0000-0000-000000da0008', now()),
+  ('00000000-0000-0000-0000-000000dc0017', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d70003', '00000000-0000-0000-0000-000000d80005', '00000000-0000-0000-0000-000000da0009', now()),
+  ('00000000-0000-0000-0000-000000dc0018', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d70003', '00000000-0000-0000-0000-000000d80005', '00000000-0000-0000-0000-000000da0010', now())
+ON CONFLICT (id) DO NOTHING;
+
+-- ── finance GL vouchers (모듈 / 재무) — created DRAFT, lines attached while
+--    DRAFT (the only status the append-only-lines trigger allows), then driven
+--    forward through the real FSM so ledger amounts come from actual balanced
+--    차/대 lines, not a status literal. GL-0001 reaches 전기(POSTED); GL-0002
+--    stops at 차대검증; GL-0003 stops at 승인 (SoD: approver ≠ drafter). ──────
+INSERT INTO finance_gl_vouchers (id, org_id, branch_id, voucher_no, status, memo, created_by) VALUES
+  ('00000000-0000-0000-0000-000000fc0001', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-0000000000c1', 'GL-2026-0001', 'DRAFT', '유압 실린더 부품 매입', '00000000-0000-0000-0000-00000000d003'),
+  ('00000000-0000-0000-0000-000000fc0002', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-0000000000c1', 'GL-2026-0002', 'DRAFT', '전동 지게차 배터리 교체', '00000000-0000-0000-0000-00000000d003'),
+  ('00000000-0000-0000-0000-000000fc0003', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-0000000000c2', 'GL-2026-0003', 'DRAFT', '부산 지점 정기점검 부품비', '00000000-0000-0000-0000-00000000d003')
+ON CONFLICT (id) DO NOTHING;
+
+-- Lines via NOT EXISTS (not ON CONFLICT): the BEFORE-INSERT draft-only trigger
+-- fires per candidate row before a conflict is even detected, so on a re-run
+-- against an already-advanced voucher a plain ON CONFLICT INSERT would still
+-- raise "not DRAFT" — pre-filtering already-seeded ids out of the SELECT
+-- avoids the INSERT (and the trigger) entirely.
+INSERT INTO finance_gl_voucher_lines (id, org_id, voucher_id, line_no, account_code, side, amount_won, memo)
+SELECT v.id, v.org_id, v.voucher_id, v.line_no, v.account_code, v.side, v.amount_won, v.memo
+FROM (VALUES
+  ('00000000-0000-0000-0000-000000fd0001'::uuid, '00000000-0000-0000-0000-0000000000a1'::uuid, '00000000-0000-0000-0000-000000fc0001'::uuid, 1, '5104', 'DEBIT', 850000::bigint, '유압 실린더 부품 매입'),
+  ('00000000-0000-0000-0000-000000fd0002'::uuid, '00000000-0000-0000-0000-0000000000a1'::uuid, '00000000-0000-0000-0000-000000fc0001'::uuid, 2, '2101', 'CREDIT', 850000::bigint, '경남유압산업 외상매입금'),
+  ('00000000-0000-0000-0000-000000fd0003'::uuid, '00000000-0000-0000-0000-0000000000a1'::uuid, '00000000-0000-0000-0000-000000fc0002'::uuid, 1, '5108', 'DEBIT', 1200000::bigint, '전동 지게차 배터리 소모품비'),
+  ('00000000-0000-0000-0000-000000fd0004'::uuid, '00000000-0000-0000-0000-0000000000a1'::uuid, '00000000-0000-0000-0000-000000fc0002'::uuid, 2, '2103', 'CREDIT', 1200000::bigint, '부산배터리텍 미지급금'),
+  ('00000000-0000-0000-0000-000000fd0005'::uuid, '00000000-0000-0000-0000-0000000000a1'::uuid, '00000000-0000-0000-0000-000000fc0003'::uuid, 1, '5104', 'DEBIT', 620000::bigint, '부산 지점 정기점검 부품비'),
+  ('00000000-0000-0000-0000-000000fd0006'::uuid, '00000000-0000-0000-0000-0000000000a1'::uuid, '00000000-0000-0000-0000-000000fc0003'::uuid, 2, '1102', 'CREDIT', 620000::bigint, '보통예금 지급')
+) AS v(id, org_id, voucher_id, line_no, account_code, side, amount_won, memo)
+WHERE NOT EXISTS (SELECT 1 FROM finance_gl_voucher_lines l WHERE l.id = v.id);
+
+UPDATE finance_gl_vouchers SET status = 'BALANCE_CHECKED'
+WHERE id IN ('00000000-0000-0000-0000-000000fc0001', '00000000-0000-0000-0000-000000fc0002', '00000000-0000-0000-0000-000000fc0003')
+  AND status = 'DRAFT';
+
+UPDATE finance_gl_vouchers SET status = 'APPROVED', approved_by = '00000000-0000-0000-0000-00000000d004'
+WHERE id IN ('00000000-0000-0000-0000-000000fc0001', '00000000-0000-0000-0000-000000fc0003')
+  AND status = 'BALANCE_CHECKED';
+
+UPDATE finance_gl_vouchers SET status = 'POSTED', posted_at = now()
+WHERE id = '00000000-0000-0000-0000-000000fc0001' AND status = 'APPROVED';
 
 -- ── support tickets (지원 센터) — one assigned to the dev SUPER_ADMIN so the
 --     overview action-inbox ("내 처리 대기") also surfaces a row. ─────────────
@@ -179,11 +377,185 @@ INSERT INTO support_tickets (id, branch_id, origin, category, priority, status, 
   ('00000000-0000-0000-0000-0000005c0003', '00000000-0000-0000-0000-0000000000c2', 'CUSTOMER', 'COMPLAINT', 'URGENT', 'RESOLVED', '유압 누유 재발', '지난 번 수리한 부위에서 다시 누유가 발생했습니다.', '부산 창고 박팀장', '051-9876-5432', '00000000-0000-0000-0000-00000000d002', '00000000-0000-0000-0000-0000000000a1')
 ON CONFLICT (id) DO NOTHING;
 
+-- ── overview work-queue (결재/배차/정비/회신): one item per ActionInboxItem
+--    source so GET /api/v1/me/action-inbox (and its stat-strip/chip derivation
+--    in overviewModel.ts) returns a non-empty row for every kind. 회신
+--    (support) already has ticket sc0001 assigned to d001 above. ────────────
+
+-- 정비 — an assignment on the existing ad0003 (ASSIGNED) puts it on d001's
+-- "assigned to me" work list; target_due_at re-stamped to *today* on every
+-- reseed so the "오늘 마감"/urgency chips stay live against wall-clock now().
+INSERT INTO work_order_assignments (id, org_id, work_order_id, mechanic_id, role, assigned_at) VALUES
+  ('00000000-0000-0000-0000-000000ec0001', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000ad0003', '00000000-0000-0000-0000-00000000d001', 'PRIMARY', now())
+ON CONFLICT (work_order_id, mechanic_id) DO NOTHING;
+
+UPDATE work_orders SET target_due_at = date_trunc('day', now()) + interval '20 hours'
+WHERE id = '00000000-0000-0000-0000-000000ad0003';
+
+-- 배차 — a P1 emergency work order broadcasting for dispatch, with d001 as one
+-- of the offered technicians (list_my_pending_offers: BROADCASTING + a live
+-- accept window + a TECHNICIAN target row + no response yet).
+INSERT INTO work_orders (
+  id, request_no, branch_id, equipment_id, customer_id, site_id, requested_by, status, priority,
+  symptom, customer_request, result_type, kpi_excluded, evidence_verified, org_id
+) VALUES
+  ('00000000-0000-0000-0000-000000ad0004', '20260710-004', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-000000c20002', '00000000-0000-0000-0000-000000c00001', '00000000-0000-0000-0000-000000c10001', '00000000-0000-0000-0000-00000000d003', 'UNASSIGNED', 'P1', '화물 리프트 완전 정지 - 유압펌프 고장 의심', '리프트가 전혀 올라가지 않습니다. 긴급 점검 요청', 'UNKNOWN', false, false, '00000000-0000-0000-0000-0000000000a1')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO p1_dispatches (id, org_id, work_order_id, branch_id, status, accept_window_started_at, accept_window_ends_at, created_by, created_at, updated_at) VALUES
+  ('00000000-0000-0000-0000-000000ea0001', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000ad0004', '00000000-0000-0000-0000-0000000000c1', 'BROADCASTING', now(), now() + interval '6 hours', '00000000-0000-0000-0000-00000000d003', now(), now())
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO p1_dispatch_targets (id, org_id, dispatch_id, user_id, target_role, fanout_created_at) VALUES
+  ('00000000-0000-0000-0000-000000eb0001', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000ea0001', '00000000-0000-0000-0000-00000000d001', 'TECHNICIAN', now()),
+  ('00000000-0000-0000-0000-000000eb0002', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000ea0001', '00000000-0000-0000-0000-00000000d002', 'TECHNICIAN', now())
+ON CONFLICT (dispatch_id, user_id) DO NOTHING;
+
+-- 결재 — a real workflow run + waiting task on the published work_order.approval
+-- definition, already claimed by d001 (task_visible's `claimed_by = me` path,
+-- no dependency on role-key grants).
+INSERT INTO workflow_runs (
+  id, org_id, definition_id, definition_version, status, trigger_type, object_type, object_id,
+  idempotency_key, correlation_id, initiated_by, started_at, updated_at
+) VALUES
+  ('00000000-0000-0000-0000-000000e80001', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000f00001', 1, 'WAITING', 'OBJECT_EVENT', 'work_order', '00000000-0000-0000-0000-000000ad0002', 'seed-approval-wo-ad0002', 'seed-corr-wo-ad0002', '00000000-0000-0000-0000-00000000d003', now(), now())
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO workflow_waiting_tasks (
+  id, org_id, run_id, waiting_key, title, status, assignee_role_key, source_object_type, source_object_id,
+  due_at, claimed_by, claimed_at
+) VALUES
+  ('00000000-0000-0000-0000-000000e90001', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000e80001', 'approve_completion', '작업지시 완료 승인 요청', 'CLAIMED', 'branch_manager', 'work_order', '00000000-0000-0000-0000-000000ad0002', now() + interval '6 hours', '00000000-0000-0000-0000-00000000d001', now())
+ON CONFLICT (id) DO NOTHING;
+
+-- ── messenger threads (커뮤니케이션 / 메신저) — two named branch channels, one
+--    work-order auto-thread, one DM, dense with real message rows. ─────────
+INSERT INTO messenger_threads (id, org_id, kind, branch_id, work_order_id, title, created_by, visibility) VALUES
+  ('00000000-0000-0000-0000-000000e10001', '00000000-0000-0000-0000-0000000000a1', 'team', '00000000-0000-0000-0000-0000000000c1', NULL, '정비팀 공지', '00000000-0000-0000-0000-00000000d001', 'channel'),
+  ('00000000-0000-0000-0000-000000e10002', '00000000-0000-0000-0000-0000000000a1', 'team', '00000000-0000-0000-0000-0000000000c1', NULL, '창원 본사 전체', '00000000-0000-0000-0000-00000000d001', 'channel'),
+  ('00000000-0000-0000-0000-000000e10003', '00000000-0000-0000-0000-0000000000a1', 'work_order', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-000000ad0002', NULL, '00000000-0000-0000-0000-00000000d003', 'direct'),
+  ('00000000-0000-0000-0000-000000e10004', '00000000-0000-0000-0000-0000000000a1', 'dm', '00000000-0000-0000-0000-0000000000c1', NULL, NULL, '00000000-0000-0000-0000-00000000d001', 'direct')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO messenger_thread_members (thread_id, org_id, user_id, role, joined_at) VALUES
+  ('00000000-0000-0000-0000-000000e10001', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000d001', 'OWNER', now()),
+  ('00000000-0000-0000-0000-000000e10001', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000d002', 'MEMBER', now()),
+  ('00000000-0000-0000-0000-000000e10001', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000d003', 'MEMBER', now()),
+  ('00000000-0000-0000-0000-000000e10002', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000d001', 'OWNER', now()),
+  ('00000000-0000-0000-0000-000000e10002', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000d002', 'MEMBER', now()),
+  ('00000000-0000-0000-0000-000000e10002', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000d003', 'MEMBER', now()),
+  ('00000000-0000-0000-0000-000000e10002', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000d004', 'MEMBER', now()),
+  ('00000000-0000-0000-0000-000000e10003', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000d002', 'MEMBER', now()),
+  ('00000000-0000-0000-0000-000000e10003', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000d003', 'MEMBER', now()),
+  ('00000000-0000-0000-0000-000000e10004', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000d001', 'OWNER', now()),
+  ('00000000-0000-0000-0000-000000e10004', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000d004', 'MEMBER', now())
+ON CONFLICT (thread_id, user_id) DO NOTHING;
+
+INSERT INTO messenger_messages (id, org_id, thread_id, branch_id, sender_id, body, sent_at) VALUES
+  ('00000000-0000-0000-0000-000000e30001', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000e10001', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-00000000d002', '창원 본사 유압호스 재고 3개 남았습니다. 추가 발주 부탁드립니다.', now() - interval '2 hours'),
+  ('00000000-0000-0000-0000-000000e30002', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000e10001', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-00000000d001', '네, 경남유압산업에 발주 넣겠습니다.', now() - interval '90 minutes'),
+  ('00000000-0000-0000-0000-000000e30003', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000e10001', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-00000000d003', '부산 지점도 재고 확인 부탁드려요.', now() - interval '30 minutes'),
+  ('00000000-0000-0000-0000-000000e30004', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000e10002', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-00000000d004', '이번 달 정비팀 목표 완료율 92% 달성했습니다. 수고 많으셨습니다.', now() - interval '1 day'),
+  ('00000000-0000-0000-0000-000000e30005', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000e10002', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-00000000d001', '감사합니다. 다음 달도 이어가시죠.', now() - interval '23 hours'),
+  ('00000000-0000-0000-0000-000000e30006', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000e10003', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-00000000d003', '고객 문의: 배터리 충전이 전혀 안 된다고 합니다.', now() - interval '3 hours'),
+  ('00000000-0000-0000-0000-000000e30007', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000e10003', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-00000000d002', '충전기 및 배터리 셀 점검 중입니다.', now() - interval '2 hours 30 minutes'),
+  ('00000000-0000-0000-0000-000000e30008', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000e10004', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-00000000d004', '이번 주 임원 보고 자료 준비됐나요?', now() - interval '5 hours'),
+  ('00000000-0000-0000-0000-000000e30009', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000e10004', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-00000000d001', '네, 오늘 오후에 공유드리겠습니다.', now() - interval '4 hours')
+ON CONFLICT (id) DO NOTHING;
+
+-- ── mail (커뮤니케이션 / 메일) — one org-wide corporate mailbox account (the
+--    read API resolves "the" account = latest email_accounts row for the org;
+--    credentials are inert 1-byte placeholders, never real ciphertext, since
+--    the dev harness never runs a live IMAP/SMTP sync). ─────────────────────
+INSERT INTO email_accounts (
+  id, org_id, branch_id, display_name, email_address, from_name,
+  imap_host, imap_port, imap_security, imap_username,
+  smtp_host, smtp_port, smtp_security, smtp_username,
+  smtp_password_ct, smtp_password_nonce, imap_password_ct, imap_password_nonce,
+  dek_wrapped, dek_nonce, imap_dek_wrapped, imap_dek_nonce,
+  status, created_by
+) VALUES (
+  '00000000-0000-0000-0000-000000e40001', '00000000-0000-0000-0000-0000000000a1', NULL, 'KNL 대표 메일', 'office@knl-logistics.co.kr', 'KNL 로지스틱스',
+  'imap.knl-logistics.co.kr', 993, 'TLS', 'office@knl-logistics.co.kr',
+  'smtp.knl-logistics.co.kr', 587, 'STARTTLS', 'office@knl-logistics.co.kr',
+  '\x00'::bytea, '\x00'::bytea, '\x00'::bytea, '\x00'::bytea,
+  '\x00'::bytea, '\x00'::bytea, '\x00'::bytea, '\x00'::bytea,
+  'ACTIVE', '00000000-0000-0000-0000-00000000d001'
+) ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO email_folders (id, org_id, account_id, imap_path, role, name, unread_count, total_count) VALUES
+  ('00000000-0000-0000-0000-000000e50001', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000e40001', 'INBOX', 'INBOX', '받은편지함', 3, 5)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO email_threads (id, org_id, account_id, normalized_subject, subject, last_message_at, message_count, unread_count, has_attachments, linked_customer_id) VALUES
+  ('00000000-0000-0000-0000-000000e60001', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000e40001', '한성물류 정비 견적 요청', '[한성물류] 정비 견적 요청 드립니다', now() - interval '1 hour', 2, 1, false, '00000000-0000-0000-0000-000000c00001'),
+  ('00000000-0000-0000-0000-000000e60002', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000e40001', '부산 지점 소모품 발주 확인', '부산 지점 소모품 발주 확인 요청', now() - interval '5 hours', 1, 1, false, NULL),
+  ('00000000-0000-0000-0000-000000e60003', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000e40001', '경남유압산업 납품 확인', '경남유압산업 유압호스 납품 확인', now() - interval '8 hours', 1, 1, false, NULL),
+  ('00000000-0000-0000-0000-000000e60004', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000e40001', '정기 점검 일정 조율 회신', 'RE: 정기 점검 일정 조율', now() - interval '1 day', 1, 0, false, '00000000-0000-0000-0000-000000c00001')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO email_messages (
+  id, org_id, account_id, folder_id, thread_id, direction, from_address, from_name, to_addresses,
+  subject, snippet, body_text, received_at, sent_at, seen
+) VALUES
+  ('00000000-0000-0000-0000-000000e70001', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000e40001', '00000000-0000-0000-0000-000000e50001', '00000000-0000-0000-0000-000000e60001', 'IN', 'kim@hansung.co.kr', '한성물류 김과장', '[{"address":"office@knl-logistics.co.kr"}]'::jsonb, '[한성물류] 정비 견적 요청 드립니다', '창원센터 지게차 2대 정비 견적 부탁드립니다.', '창원센터 지게차 2대 정비 견적 부탁드립니다.', now() - interval '3 hours', NULL, false),
+  ('00000000-0000-0000-0000-000000e70002', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000e40001', '00000000-0000-0000-0000-000000e50001', '00000000-0000-0000-0000-000000e60001', 'OUT', 'office@knl-logistics.co.kr', 'KNL 로지스틱스', '[{"address":"kim@hansung.co.kr"}]'::jsonb, 'RE: [한성물류] 정비 견적 요청 드립니다', '견적서 첨부해 드립니다. 확인 부탁드립니다.', '견적서 첨부해 드립니다. 확인 부탁드립니다.', now() - interval '1 hour', now() - interval '1 hour', true),
+  ('00000000-0000-0000-0000-000000e70003', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000e40001', '00000000-0000-0000-0000-000000e50001', '00000000-0000-0000-0000-000000e60002', 'IN', 'sales@changwon-tools.co.kr', '창원공구상사', '[{"address":"office@knl-logistics.co.kr"}]'::jsonb, '부산 지점 소모품 발주 확인 요청', '발주하신 소모품 목록 확인 부탁드립니다.', '발주하신 소모품 목록 확인 부탁드립니다.', now() - interval '5 hours', NULL, false),
+  ('00000000-0000-0000-0000-000000e70004', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000e40001', '00000000-0000-0000-0000-000000e50001', '00000000-0000-0000-0000-000000e60003', 'IN', 'order@gn-hydraulic.co.kr', '경남유압산업', '[{"address":"office@knl-logistics.co.kr"}]'::jsonb, '경남유압산업 유압호스 납품 확인', '유압호스 10개 오늘 오후 배송 예정입니다.', '유압호스 10개 오늘 오후 배송 예정입니다.', now() - interval '8 hours', NULL, false),
+  ('00000000-0000-0000-0000-000000e70005', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000e40001', '00000000-0000-0000-0000-000000e50001', '00000000-0000-0000-0000-000000e60004', 'IN', 'lee@hansung.co.kr', '한성물류 이대리', '[{"address":"office@knl-logistics.co.kr"}]'::jsonb, 'RE: 정기 점검 일정 조율', '다음 주 화요일 오전으로 확정하겠습니다.', '다음 주 화요일 오전으로 확정하겠습니다.', now() - interval '1 day', NULL, true)
+ON CONFLICT (id) DO NOTHING;
+
 -- ── notifications (개요 / 알림) — recipient = dev SUPER_ADMIN (d001) ──────────
 INSERT INTO notifications (id, org_id, recipient_user_id, category, kind, body, link, unread) VALUES
   ('00000000-0000-0000-0000-000000ce0001', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000d001', 'support', 'ticket_assigned', '새 지원 요청이 배정되었습니다: 지게차 시동 불량 문의', '{"type":"object","kind":"support_ticket","id":"00000000-0000-0000-0000-0000005c0001"}'::jsonb, true),
   ('00000000-0000-0000-0000-000000ce0002', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000d001', 'leave', 'approval_pending', '연차 신청 승인 대기: 김정비 (2일)', '{"type":"object","kind":"leave_request","id":"00000000-0000-0000-0000-000000a20001"}'::jsonb, true),
-  ('00000000-0000-0000-0000-000000ce0003', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000d001', 'finance', 'voucher_posted', 'GL 전표가 전기되었습니다: GL-2026-0001', '{"type":"object","kind":"gl_voucher","id":"00000000-0000-0000-0000-000000fc0001"}'::jsonb, false)
+  ('00000000-0000-0000-0000-000000ce0003', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000d001', 'finance', 'voucher_posted', 'GL 전표가 전기되었습니다: GL-2026-0001', '{"type":"object","kind":"gl_voucher","id":"00000000-0000-0000-0000-000000fc0001"}'::jsonb, false),
+  ('00000000-0000-0000-0000-000000ce0004', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000d001', 'support', 'slo_violation', 'SLA 위반: 지게차 시동 불량 문의 응답 기한 초과', '{"type":"object","kind":"support_ticket","id":"00000000-0000-0000-0000-0000005c0001"}'::jsonb, true),
+  ('00000000-0000-0000-0000-000000ce0005', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000d001', '메신저', 'info', '정비팀 공지에 새 메시지가 있습니다: 유압호스 재고 확보 요청', '{"type":"object","kind":"messenger_thread","id":"00000000-0000-0000-0000-000000e10001"}'::jsonb, true),
+  ('00000000-0000-0000-0000-000000ce0006', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000d001', '공지', 'info', '여름철 지게차 냉각계통 점검 캠페인 안내', '{"type":"screen","screen":"notice"}'::jsonb, false)
 ON CONFLICT (id) DO NOTHING;
+
+-- ── dashboard KPI aggregation: completed work orders + completion approvals ───
+-- WHY: the KPI rollup (backend reporting adapter) only counts a work order once
+-- it carries an EXECUTIVE/ADMIN `work_order_approval_steps` row APPROVED within
+-- the queried period. Without those steps every dashboard aggregate is zero
+-- ("이 기간에 집계된 승인 보고가 없습니다"). ad0001 (already FINAL_COMPLETED)
+-- had no approval step; we add its step plus one completed work order per
+-- trailing month so the KPI stat strip, the ops summary, and the 완료 추이
+-- projection all compute REAL numbers. approved_at is relative to now() so the
+-- fixture stays inside the dashboard's rolling 6-month window on any dev-up.
+-- This mirrors the real completion-approval write shape exactly.
+INSERT INTO work_orders (
+  id, request_no, branch_id, equipment_id, customer_id, site_id, requested_by, status, priority,
+  symptom, customer_request, result_type, kpi_excluded, evidence_verified, org_id
+) VALUES
+  ('00000000-0000-0000-0000-000000ad0005', '20260601-005', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-000000c20001', '00000000-0000-0000-0000-000000c00001', '00000000-0000-0000-0000-000000c10001', '00000000-0000-0000-0000-00000000d003', 'FINAL_COMPLETED', 'P2', '체인 장력 조정', '리프트 체인 소음', 'COMPLETED', false, true, '00000000-0000-0000-0000-0000000000a1'),
+  ('00000000-0000-0000-0000-000000ad0006', '20260501-006', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-000000c20002', '00000000-0000-0000-0000-000000c00001', '00000000-0000-0000-0000-000000c10001', '00000000-0000-0000-0000-00000000d003', 'FINAL_COMPLETED', 'P3', '타이어 마모 교체', '구동 타이어 교체', 'COMPLETED', false, true, '00000000-0000-0000-0000-0000000000a1'),
+  ('00000000-0000-0000-0000-000000ad0007', '20260401-007', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-000000c20001', '00000000-0000-0000-0000-000000c00001', '00000000-0000-0000-0000-000000c10001', '00000000-0000-0000-0000-00000000d003', 'FINAL_COMPLETED', 'P2', '브레이크 패드 교체', '제동 성능 저하', 'COMPLETED', false, true, '00000000-0000-0000-0000-0000000000a1'),
+  ('00000000-0000-0000-0000-000000ad0008', '20260301-008', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-000000c20002', '00000000-0000-0000-0000-000000c00001', '00000000-0000-0000-0000-000000c10001', '00000000-0000-0000-0000-00000000d003', 'FINAL_COMPLETED', 'P3', '전조등 교체', '야간 작업등 불량', 'COMPLETED', false, true, '00000000-0000-0000-0000-0000000000a1'),
+  ('00000000-0000-0000-0000-000000ad0009', '20260201-009', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-000000c20001', '00000000-0000-0000-0000-000000c00001', '00000000-0000-0000-0000-000000c10001', '00000000-0000-0000-0000-00000000d003', 'FINAL_COMPLETED', 'P2', '유압 호스 교체', '작동유 누유', 'COMPLETED', false, true, '00000000-0000-0000-0000-0000000000a1')
+ON CONFLICT (id) DO NOTHING;
+
+-- EXECUTIVE completion approvals: ad0001 this month, ad0005..ad0009 one per
+-- trailing month. approver = 이대표 (d004, EXECUTIVE).
+INSERT INTO work_order_approval_steps (id, org_id, work_order_id, step_order, role, approver_id, status, requested_at, approved_at, approved_by_id) VALUES
+  ('00000000-0000-0000-0000-000000af0001', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000ad0001', 1, 'EXECUTIVE', '00000000-0000-0000-0000-00000000d004', 'APPROVED', now() - interval '2 days', now() - interval '1 day', '00000000-0000-0000-0000-00000000d004'),
+  ('00000000-0000-0000-0000-000000af0005', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000ad0005', 1, 'EXECUTIVE', '00000000-0000-0000-0000-00000000d004', 'APPROVED', date_trunc('month', now()) - interval '1 month' + interval '9 days', date_trunc('month', now()) - interval '1 month' + interval '10 days', '00000000-0000-0000-0000-00000000d004'),
+  ('00000000-0000-0000-0000-000000af0006', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000ad0006', 1, 'EXECUTIVE', '00000000-0000-0000-0000-00000000d004', 'APPROVED', date_trunc('month', now()) - interval '2 months' + interval '9 days', date_trunc('month', now()) - interval '2 months' + interval '10 days', '00000000-0000-0000-0000-00000000d004'),
+  ('00000000-0000-0000-0000-000000af0007', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000ad0007', 1, 'EXECUTIVE', '00000000-0000-0000-0000-00000000d004', 'APPROVED', date_trunc('month', now()) - interval '3 months' + interval '9 days', date_trunc('month', now()) - interval '3 months' + interval '10 days', '00000000-0000-0000-0000-00000000d004'),
+  ('00000000-0000-0000-0000-000000af0008', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000ad0008', 1, 'EXECUTIVE', '00000000-0000-0000-0000-00000000d004', 'APPROVED', date_trunc('month', now()) - interval '4 months' + interval '9 days', date_trunc('month', now()) - interval '4 months' + interval '10 days', '00000000-0000-0000-0000-00000000d004'),
+  ('00000000-0000-0000-0000-000000af0009', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000ad0009', 1, 'EXECUTIVE', '00000000-0000-0000-0000-00000000d004', 'APPROVED', date_trunc('month', now()) - interval '5 months' + interval '9 days', date_trunc('month', now()) - interval '5 months' + interval '10 days', '00000000-0000-0000-0000-00000000d004')
+ON CONFLICT (id) DO NOTHING;
+
+-- ── site attendance events (대시보드 사업장 커버리지 card) ─────────────────────
+-- Business clock-in facts the hr/attendance-summary read groups per user into
+-- arrivals/departures.
+INSERT INTO site_attendance_events (id, org_id, user_id, branch_id, work_order_id, site_id, kind, occurred_at) VALUES
+  ('00000000-0000-0000-0000-000000ae0001', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000d002', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-000000ad0001', '00000000-0000-0000-0000-000000c10001', 'ARRIVAL', now() - interval '1 day' - interval '8 hours'),
+  ('00000000-0000-0000-0000-000000ae0002', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000d002', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-000000ad0001', '00000000-0000-0000-0000-000000c10001', 'DEPARTURE', now() - interval '1 day' - interval '1 hour'),
+  ('00000000-0000-0000-0000-000000ae0003', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000d003', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-000000ad0002', '00000000-0000-0000-0000-000000c10001', 'ARRIVAL', now() - interval '2 days' - interval '8 hours'),
+  ('00000000-0000-0000-0000-000000ae0004', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000d003', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-000000ad0002', '00000000-0000-0000-0000-000000c10001', 'DEPARTURE', now() - interval '2 days' - interval '1 hour'),
+  ('00000000-0000-0000-0000-000000ae0005', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000d002', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-000000ad0001', '00000000-0000-0000-0000-000000c10001', 'ARRIVAL', now() - interval '8 hours')
+ON CONFLICT (id, org_id) DO NOTHING;
 
 COMMIT;

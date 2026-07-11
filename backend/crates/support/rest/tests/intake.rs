@@ -197,15 +197,25 @@ async fn intake_written_to_configured_org_is_visible_only_to_same_org_staff(pool
     );
 }
 
+/// Real-clock smoke for the intake rate-limit wiring: a handful of under-cap
+/// requests each succeed (202) and a different IP keeps an independent bucket.
+///
+/// The cap/reset boundary is asserted deterministically with a synthetic clock
+/// in `mnt_support_rest`'s `rate_limit_trips_at_cap_and_resets_after_window`
+/// unit test. Driving real HTTP round-trips past the cap here raced the wall
+/// clock's minute boundary — a burst that straddles a minute lands the last
+/// request in a fresh fixed window and resets the bucket before the cap trips —
+/// which was the CI flake. This mirrors auth-rest's
+/// `otp_redeem_rate_limit_wires_up_on_real_clock_path` split.
 #[sqlx::test(migrations = "../../platform/db/migrations")]
-async fn intake_succeeds_then_rate_limits_past_cap(pool: PgPool) {
+async fn intake_succeeds_and_rate_limit_wires_up_on_real_clock_path(pool: PgPool) {
     mnt_platform_request_context::scope_org(mnt_kernel_core::OrgId::knl(), async move {
         let app = build(&pool).await;
         let ip = "203.0.113.42";
-        // Per-IP cap is 5; the 6th request in the window must be 429.
-        let cap = 5;
 
-        for i in 0..cap {
+        // Well under the per-IP cap (5/min): every request is a normal 202,
+        // proving `OffsetDateTime::now_utc()` wires into `rate_limit` end to end.
+        for i in 0..3 {
             let response = app.clone().oneshot(intake_request(ip)).await.unwrap();
             assert_eq!(
                 response.status(),
@@ -213,9 +223,6 @@ async fn intake_succeeds_then_rate_limits_past_cap(pool: PgPool) {
                 "request {i} should be accepted"
             );
         }
-
-        let limited = app.clone().oneshot(intake_request(ip)).await.unwrap();
-        assert_eq!(limited.status(), StatusCode::TOO_MANY_REQUESTS);
 
         // A different IP is independent and still accepted.
         let other = app

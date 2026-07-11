@@ -7,11 +7,12 @@ import {
 } from "react";
 import { useNavigate } from "react-router-dom";
 
+import { isUuid } from "../../../lib/utils";
 import { ko } from "../../../i18n/ko";
 import { StatusChip } from "../../components";
 import "../../tokens.css";
 import { createOverviewApi, type OverviewApi } from "./overviewApi";
-import { overviewStrings, railCategoryStrings } from "./strings";
+import { overviewStrings } from "./strings";
 import { screenHeaderStyle, screenTitleStyle } from "../screenHeader";
 import {
   actionLabel,
@@ -20,22 +21,14 @@ import {
   kindRoute,
   overviewStats,
   queueChips,
-  railCategories,
-  railGroups,
   timelineEntries,
   type ActionInboxItem,
   type ActionInboxResponse,
-  type MailThreadSummary,
-  type NotificationCountsSummary,
   type QueueFilter,
 } from "./overviewModel";
-import type { NotificationSummary } from "../../../api/types";
 
 interface OverviewData {
   inbox: ActionInboxResponse;
-  counts: NotificationCountsSummary;
-  notifications: NotificationSummary[];
-  mailThreads: MailThreadSummary[];
 }
 
 type LoadState = "loading" | "ready" | "error";
@@ -65,15 +58,11 @@ export function OverviewBody({ accessToken, api, now, onOpen }: OverviewBodyProp
 
   useEffect(() => {
     let live = true;
-    Promise.all([
-      client.loadInbox(),
-      client.loadNotificationCounts(),
-      client.loadNotifications(),
-      client.loadMailThreads(),
-    ])
-      .then(([inbox, counts, notifications, mailThreads]) => {
+    client
+      .loadInbox()
+      .then((inbox) => {
         if (!live) return;
-        setData({ inbox, counts, notifications, mailThreads });
+        setData({ inbox });
         setState("ready");
       })
       .catch(() => {
@@ -148,8 +137,6 @@ export function OverviewBody({ accessToken, api, now, onOpen }: OverviewBodyProp
   const chips = queueChips(items, S);
   const rows = filterQueue(items, filter);
   const timeline = timelineEntries(items, today, timeFmt);
-  const categories = railCategories(data.counts);
-  const groups = railGroups(data.notifications, data.mailThreads, railCategoryStrings());
 
   return (
     <div className="console" style={rootStyle}>
@@ -222,7 +209,11 @@ export function OverviewBody({ accessToken, api, now, onOpen }: OverviewBodyProp
                   <div style={{ minWidth: 0, flex: 1 }}>
                     <div style={rowTitleStyle}>
                       {item.title}
-                      <span style={refStyle}>{item.ref}</span>
+                      {/* Some sources (approval/support) have no canonical human
+                          code today — see action_inbox.rs's documented gap — and
+                          `ref` there is a raw object/run/ticket UUID. Never
+                          render that as if it were a business code. */}
+                      {isUuid(item.ref) ? null : <span style={refStyle}>{item.ref}</span>}
                     </div>
                     <div style={rowMetaStyle}>
                       {[item.site, item.who].filter(Boolean).join(" · ")}
@@ -274,49 +265,6 @@ export function OverviewBody({ accessToken, api, now, onOpen }: OverviewBodyProp
               ))}
             </ol>
           )}
-        </section>
-
-        {/* 커뮤니케이션 — comms rail, split into 메신저/메일/알림/공지 panels
-            (verdict R3 density). Every panel renders open by default — there
-            is no collapse control to default, so "default-expanded" is
-            satisfied by construction rather than a toggle nobody asked for. */}
-        <section style={panelStyle} aria-label={S.railTitle}>
-          <div style={panelHeadStyle}>
-            <h2 style={panelTitleStyle}>{S.railTitle}</h2>
-            <span style={countBadgeStyle}>{data.counts.total_unread}</span>
-          </div>
-          {categories.length > 0 ? (
-            <div style={chipRowStyle}>
-              {categories.map((c) => (
-                <StatusChip key={c.category} tone="info">
-                  {c.category} {c.unread}
-                </StatusChip>
-              ))}
-            </div>
-          ) : null}
-          {groups.map((group) => (
-            <div key={group.key} style={railGroupStyle}>
-              <div style={panelHeadStyle}>
-                <h3 style={railGroupTitleStyle}>{group.title}</h3>
-                <span style={countBadgeStyle}>{group.items.length}</span>
-              </div>
-              {group.items.length === 0 ? (
-                <p style={emptyStyle}>{S.empty.rail}</p>
-              ) : (
-                <ul style={listStyle}>
-                  {group.items.map((item) => (
-                    <li key={item.id} style={notifRowStyle} data-unread={item.unread || undefined}>
-                      <div style={notifHeadStyle}>
-                        <StatusChip tone={item.unread ? "accent" : "neutral"}>{group.title}</StatusChip>
-                        <span style={notifTimeStyle}>{timeFmt.format(new Date(item.createdAt))}</span>
-                      </div>
-                      <div style={notifTextStyle}>{item.text}</div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-          ))}
         </section>
       </div>
     </div>
@@ -382,7 +330,7 @@ const statValueStyle: CSSProperties = {
 const gridStyle: CSSProperties = {
   display: "grid",
   gap: "var(--sp-5)",
-  gridTemplateColumns: "minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr)",
+  gridTemplateColumns: "minmax(0, 2fr) minmax(0, 1fr)",
   alignItems: "start",
 };
 
@@ -523,41 +471,3 @@ const timelineTitleBtnStyle: CSSProperties = {
   minWidth: 0,
 };
 
-const railGroupStyle: CSSProperties = {
-  display: "grid",
-  gap: "var(--sp-2)",
-  paddingTop: "var(--sp-2)",
-  borderTop: "1px solid var(--border-soft)",
-};
-
-const railGroupTitleStyle: CSSProperties = {
-  margin: 0,
-  fontSize: "var(--text-sm)",
-  fontWeight: "var(--fw-strong)",
-  color: "var(--steel)",
-};
-
-const notifRowStyle: CSSProperties = {
-  display: "grid",
-  gap: "var(--sp-1)",
-  padding: "var(--sp-2) 0",
-  borderTop: "1px solid var(--border-soft)",
-};
-
-const notifHeadStyle: CSSProperties = {
-  display: "flex",
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: "var(--sp-2)",
-};
-
-const notifTimeStyle: CSSProperties = {
-  fontSize: "var(--text-xs)",
-  color: "var(--faint)",
-  fontVariantNumeric: "tabular-nums",
-};
-
-const notifTextStyle: CSSProperties = {
-  fontSize: "var(--text-sm)",
-  color: "var(--steel)",
-};

@@ -1,16 +1,8 @@
 // UI copy for the KPI/ops dashboard console surface. check-ui-strings forbids
-// Hangul in lane files and this lane must not edit ko.ts — the serial i18n
-// wire-up applies the koManifest below as ko.console.dashboard; until it lands
-// these English defaults keep the surface mountable and testable.
-//
-// koManifest (proposed Korean for the wire-up, keyed ko.console.dashboard):
-//   scopeAll          "전체 — 인가 합집합"
-//   periodOngoing     (month) => `${month} — 진행`
-//   periodClosed      (month) => `${month} — 확정`
-//   completionByScope "범위별 완료 건수"
-//   delayReasons      "지연 사유 분포"
-//   emptyReason       "이 기간에 집계된 승인 보고가 없습니다"
-//   emptyAction       "배차 보드 열기"
+// Hangul in lane files, so real copy lives in ko.console.dashboard
+// (web/src/i18n/ko.ts) and dashboardStrings() below merges it over these
+// English FALLBACK defaults (which also keep the surface testable in
+// isolation and cover any key a future ko.ts revision might drop).
 // The wire-up may also RETIRE now-unused ko.kpi keys: description, period,
 // periodPlaceholder, periodHint, periodInvalid, rollup, noReport,
 // metricDetails, topDelayReason, noDelayReason, command.* (the deleted
@@ -28,9 +20,32 @@ export interface DashboardStrings {
   /** Body-level error/retry copy (DashboardBody's own fetch failure state). */
   errorReason?: string;
   retry?: string;
+  // The keys below are optional on the *contract* so the current ko.ts
+  // `dashboard` block (which the serial wire-up has not yet extended) still
+  // `satisfies DashboardStrings`. dashboardStrings() fills them from FALLBACK,
+  // so they are always defined at the use-site (see the resolved return type).
+  /** §4-24 honest month-over-month completion trend + projected current month. */
+  trendTitle?: string;
+  /** 사업장 커버리지 card (site attendance facts). */
+  coverageTitle?: string;
+  coverageArrivals?: string;
+  coverageDepartures?: string;
+  coverageEmpty?: string;
+  /** 내 지표 card (caller-scoped payroll readiness — honest, no fabricated ₩). */
+  myMetricsTitle?: string;
+  myMetricsPeriod?: string;
+  myMetricsReady?: string;
+  myMetricsPending?: string;
+  myMetricsEmpty?: string;
+  /** Typed wire-pending marker for aggregates with no backing server endpoint. */
+  pendingTitle?: string;
+  pendingReason?: string;
+  pendingLaborCost?: string;
+  pendingContracts?: string;
+  pendingInsights?: string;
 }
 
-const FALLBACK: DashboardStrings = {
+const FALLBACK = {
   scopeAll: "All — authorized union",
   periodOngoing: (month) => `${month} — in progress`,
   periodClosed: (month) => `${month} — closed`,
@@ -38,12 +53,36 @@ const FALLBACK: DashboardStrings = {
   delayReasons: "Delay reasons",
   emptyReason: "No approved reports in this period",
   emptyAction: "Open dispatch board",
-};
+  trendTitle: "Monthly completion trend",
+  coverageTitle: "Worksite coverage",
+  coverageArrivals: "Arrivals",
+  coverageDepartures: "Departures",
+  coverageEmpty: "No attendance events for this scope",
+  myMetricsTitle: "My metrics",
+  myMetricsPeriod: "Latest payroll period",
+  myMetricsReady: "Calculation ready",
+  myMetricsPending: "Calculation pending",
+  myMetricsEmpty: "No payroll lines assigned to you",
+  pendingTitle: "Aggregates pending a backing endpoint",
+  pendingReason: "Not shown — no backing server aggregate yet",
+  pendingLaborCost: "Labor-cost trend (₩)",
+  pendingContracts: "Contract profitability",
+  pendingInsights: "Operational insights",
+} satisfies DashboardStrings;
 
-/** ko.console.dashboard accessor with the English fallback. */
-export function dashboardStrings(): DashboardStrings {
-  return (
-    (ko.console as unknown as { dashboard?: DashboardStrings }).dashboard ??
-    FALLBACK
-  );
+/** The resolved strings: every FALLBACK key is guaranteed present, plus the
+ *  optional ko-only error/retry copy. */
+export type ResolvedDashboardStrings = typeof FALLBACK &
+  Pick<DashboardStrings, "errorReason" | "retry">;
+
+/** ko.console.dashboard accessor, English fallback for keys the wire-up has
+ *  not yet landed (this lane must not edit ko.ts). Merged shallowly (FALLBACK
+ *  first) so the ko block — which today omits the new keys — never drops them
+ *  back to undefined; the cast is sound because FALLBACK supplies them all. */
+export function dashboardStrings(): ResolvedDashboardStrings {
+  return {
+    ...FALLBACK,
+    ...((ko.console as unknown as { dashboard?: Partial<DashboardStrings> })
+      .dashboard ?? {}),
+  };
 }

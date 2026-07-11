@@ -839,4 +839,38 @@ mod tests {
     fn client_ip_none_without_header() {
         assert_eq!(client_ip(&HeaderMap::new(), 1), None);
     }
+
+    /// `rate_limit` takes `now` as an explicit parameter, so its window/cap/reset
+    /// behavior is driven here with a synthetic clock instead of racing real
+    /// wall-clock minute boundaries across a burst of DB round-trips — the root
+    /// cause of the flaky HTTP-level intake rate-limit test. Mirrors auth-rest's
+    /// `rate_limit_trips_at_cap_and_resets_after_window`.
+    #[sqlx::test(migrations = "../../platform/db/migrations")]
+    async fn rate_limit_trips_at_cap_and_resets_after_window(pool: sqlx::PgPool) {
+        use super::{RATE_LIMIT_PER_IP, RATE_LIMIT_WINDOW, rate_limit};
+        use axum::http::StatusCode;
+        use mnt_support_adapter_postgres::PgSupportStore;
+        use time::OffsetDateTime;
+
+        let store = PgSupportStore::new(pool);
+        let headers = headers_with_xff("203.0.113.50");
+        let window1 = OffsetDateTime::from_unix_timestamp(1_700_000_000).unwrap();
+
+        for attempt in 0..RATE_LIMIT_PER_IP {
+            rate_limit(&store, &headers, 1, window1)
+                .await
+                .unwrap_or_else(|_| panic!("attempt {attempt} within the cap must not trip 429"));
+        }
+
+        let tripped = rate_limit(&store, &headers, 1, window1)
+            .await
+            .expect_err("the request past the cap in the same window must trip 429");
+        assert_eq!(tripped.status, StatusCode::TOO_MANY_REQUESTS);
+
+        // Advancing past the fixed window resets the per-IP bucket.
+        let window2 = window1 + RATE_LIMIT_WINDOW;
+        rate_limit(&store, &headers, 1, window2)
+            .await
+            .expect("a new window must reset the per-IP bucket");
+    }
 }

@@ -12090,6 +12090,7 @@ export interface components {
             id: components["schemas"]["Uuid"];
             voucher_no: string;
             branch_id: components["schemas"]["Uuid"];
+            branch_name?: string | null;
             status: components["schemas"]["VoucherStatus"];
             memo: string;
             source_object_type?: string | null;
@@ -12104,8 +12105,10 @@ export interface components {
             credit_total_won: number;
             lines: components["schemas"]["VoucherLineSummary"][];
             created_by: components["schemas"]["Uuid"];
+            created_by_name?: string | null;
             /** Format: uuid */
             approved_by?: string | null;
+            approved_by_name?: string | null;
             /** Format: date-time */
             posted_at?: string | null;
             created_at: components["schemas"]["Timestamp"];

@@ -598,3 +598,78 @@ async fn hand_keyed_source_rejected_but_derive_path_allowed(owner_pool: PgPool) 
     })
     .await;
 }
+
+/// The finance inspector must never leak a raw branch/user id: `branch_name`,
+/// `created_by_name`, and `approved_by_name` resolve to real display names via
+/// the same-org correlated lookup (round-5 leaks-polish fix), and `None` only
+/// before a voucher is approved (no `approved_by_name` yet).
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn voucher_summary_resolves_branch_and_user_display_names(owner_pool: PgPool) {
+    seed_org(&owner_pool, ORG_A, "A").await;
+    let region_id: Uuid =
+        sqlx::query_scalar("INSERT INTO regions (name, org_id) VALUES ($1, $2) RETURNING id")
+            .bind("리전")
+            .bind(ORG_A)
+            .fetch_one(&owner_pool)
+            .await
+            .unwrap();
+    let branch_id: Uuid = sqlx::query_scalar(
+        "INSERT INTO branches (region_id, name, org_id) VALUES ($1, $2, $3) RETURNING id",
+    )
+    .bind(region_id)
+    .bind("남해지사")
+    .bind(ORG_A)
+    .fetch_one(&owner_pool)
+    .await
+    .unwrap();
+    let branch = BranchId::from_uuid(branch_id);
+
+    let creator = UserId::new();
+    sqlx::query("INSERT INTO users (id, display_name, roles, org_id) VALUES ($1, $2, $3, $4)")
+        .bind(*creator.as_uuid())
+        .bind("김기표")
+        .bind(Vec::from(["ADMIN"]))
+        .bind(ORG_A)
+        .execute(&owner_pool)
+        .await
+        .unwrap();
+    let approver = UserId::new();
+    sqlx::query("INSERT INTO users (id, display_name, roles, org_id) VALUES ($1, $2, $3, $4)")
+        .bind(*approver.as_uuid())
+        .bind("이승인")
+        .bind(Vec::from(["ADMIN"]))
+        .bind(ORG_A)
+        .execute(&owner_pool)
+        .await
+        .unwrap();
+
+    let rt = runtime_role_pool(&owner_pool).await;
+    let store = PgVoucherStore::new(rt);
+    let org = OrgId::from_uuid(ORG_A);
+
+    mnt_platform_request_context::scope_org(org, async {
+        let created = store
+            .create_draft(draft(
+                creator,
+                branch,
+                vec![
+                    line("1000", DebitCredit::Debit, 5_000),
+                    line("4000", DebitCredit::Credit, 5_000),
+                ],
+            ))
+            .await
+            .unwrap();
+        assert_eq!(created.branch_name.as_deref(), Some("남해지사"));
+        assert_eq!(created.created_by_name.as_deref(), Some("김기표"));
+        // Not yet approved — no approver name to show.
+        assert_eq!(created.approved_by_name, None);
+
+        store.submit(step(creator, created.id)).await.unwrap();
+        let approved = store.approve(step(approver, created.id)).await.unwrap();
+        assert_eq!(approved.approved_by_name.as_deref(), Some("이승인"));
+        // Unchanged across the transition.
+        assert_eq!(approved.branch_name.as_deref(), Some("남해지사"));
+        assert_eq!(approved.created_by_name.as_deref(), Some("김기표"));
+    })
+    .await;
+}

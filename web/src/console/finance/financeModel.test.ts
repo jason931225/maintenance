@@ -87,6 +87,40 @@ describe("voucherRow", () => {
     expect(glChips?.map((chip) => chip.id)).toEqual(["101", "201"]);
   });
 
+  it("resolves 지점 범위/작성자/승인자 to the backend's display names, never the raw id", () => {
+    const row = voucherRow(
+      record({
+        branch_id: "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+        branch_name: "남해지사",
+        created_by: "111e8400-e29b-41d4-a716-446655440000",
+        created_by_name: "김기표",
+        approved_by: "222e8400-e29b-41d4-a716-446655440000",
+        approved_by_name: "이승인",
+      }),
+    );
+    expect(row.detail?.branchScope).toBe("남해지사");
+    expect(row.detail?.createdBy).toBe("김기표");
+    expect(row.detail?.approvedBy).toBe("이승인");
+  });
+
+  it("falls back to the unknown label rather than a raw uuid when a *_name comes back null", () => {
+    const row = voucherRow(
+      record({
+        branch_id: "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+        branch_name: null,
+        created_by: "111e8400-e29b-41d4-a716-446655440000",
+        created_by_name: null,
+      }),
+    );
+    expect(row.detail?.branchScope).not.toBe("3fa85f64-5717-4562-b3fc-2c963f66afa6");
+    expect(row.detail?.createdBy).not.toBe("111e8400-e29b-41d4-a716-446655440000");
+  });
+
+  it("omits 승인자 (never a placeholder) before the voucher is approved", () => {
+    const row = voucherRow(record({ approved_by: null }));
+    expect(row.detail?.approvedBy).toBeUndefined();
+  });
+
   it("offers submitVoucher only while draft", () => {
     expect(voucherRow(record({ status: "DRAFT" })).actions?.map((a) => a.key)).toEqual(["submitVoucher"]);
     expect(voucherRow(record({ status: "BALANCE_CHECKED" })).actions?.map((a) => a.key)).toEqual(["approveVoucher"]);

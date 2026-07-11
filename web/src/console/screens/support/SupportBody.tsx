@@ -294,6 +294,12 @@ export function SupportBody() {
     setTickets(response.data.items);
     setNowMs(Date.now());
     setListState("idle");
+    // Pre-select the first ticket so the 3rd pane reads populated on load
+    // (matches the reference — never leaves a blank "select a ticket"
+    // detail pane when there's clearly a first row to show). Only on the
+    // initial load: a functional update means a user's existing selection
+    // (or their having cleared it) is never clobbered by a later refetch.
+    setSelectedId((current) => current ?? response.data.items[0]?.id);
   }, [api]);
 
   useEffect(() => {
