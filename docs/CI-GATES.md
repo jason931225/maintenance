@@ -215,9 +215,9 @@ names only, not incidental workflow prose or runner setup text.
   `check:g008-payroll-readiness`, `check:people-hr-maturity`,
   `check:payroll-release-gate`, `check:financial-maturity`,
   `check:cx-reporting-maturity`, and `check:operations-intelligence-maturity`,
-  followed by `npm run lint --workspace @maintenance/web-console`,
-  `npm run test --workspace @maintenance/web-console`, and
-  `npm run build --workspace @maintenance/web-console`. Root shortcuts are
+  followed by `npm run lint --workspace @console/web`,
+  `npm run test --workspace @console/web`, and
+  `npm run build --workspace @console/web`. Root shortcuts are
   `web:lint`, `web:test`, and `web:build`.
 - **API contract — app OpenAPI and generated TS round-trip**:
   `npm run check:openapi-app` and `npm run test:contract` with
@@ -495,11 +495,11 @@ runtime tests:
 
 The workspace checks map to `web/package.json`:
 
-- `npm run lint --workspace @maintenance/web-console` (`npm run web:lint`) runs
+- `npm run lint --workspace @console/web` (`npm run web:lint`) runs
   ESLint and `web/scripts/check-ui-strings.mjs`.
-- `npm run test --workspace @maintenance/web-console` (`npm run web:test`) runs
+- `npm run test --workspace @console/web` (`npm run web:test`) runs
   Vitest.
-- `npm run build --workspace @maintenance/web-console` (`npm run web:build`) runs
+- `npm run build --workspace @console/web` (`npm run web:build`) runs
   `tsc -b` and `vite build`.
 
 ---

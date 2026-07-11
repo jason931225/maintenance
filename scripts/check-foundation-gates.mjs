@@ -143,12 +143,12 @@ function requireCiGateDocsDriftInventory() {
   );
   const webScripts = uniqueSorted(
     npmInvocations
-      .filter(({ options }) => /\s--workspace\s+(?:web|@maintenance\/web-console)\b/.test(options))
+      .filter(({ options }) => /\s--workspace\s+(?:web|@console\/web)\b/.test(options))
       .map(({ script }) => script),
   );
   const unknownWorkspaceInvocations = npmInvocations
     .filter(({ options }) => /\s--workspace\s+/.test(options))
-    .filter(({ options }) => !/\s--workspace\s+(?:web|@maintenance\/web-console)\b/.test(options));
+    .filter(({ options }) => !/\s--workspace\s+(?:web|@console\/web)\b/.test(options));
 
   if (!docs.includes("check:foundation-gates") || !docs.includes(".github/workflows/ci.yml")) {
     failures.push(`${docsPath}: CI drift inventory must name check:foundation-gates and .github/workflows/ci.yml as the source of truth`);
