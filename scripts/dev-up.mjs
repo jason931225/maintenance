@@ -731,11 +731,15 @@ async function cmdUp() {
 // Plain `bootstrap` (the existing CI "dev-up-smoke" job) is unaffected.
 async function cmdBootstrap() {
   await assertPortFree(PORTS.backend, "backend");
+  const devAuth = process.env.MNT_DEV_AUTH_E2E === "1";
   const compose = await bringUpDeps();
   runMigrations();
-  runSeed(compose);
-
-  const devAuth = process.env.MNT_DEV_AUTH_E2E === "1";
+  // Seed ONLY the dev-auth stack. dev-seed.sql pre-seeds a `dev-auth:*` persona
+  // (so `POST /dev-auth/session` upserts the SAME row), which a DEFAULT-feature
+  // build refuses to boot against — `assert_no_dev_auth_personas` treats such a
+  // row as a leaked dev dump. The plain bootstrap is the release-parity boot
+  // smoke and must stay on a clean, un-seeded DB (it only probes /readyz).
+  if (devAuth) runSeed(compose);
   const appEnv = buildAppEnv("api");
   mkdirSync(STATE_DIR, { recursive: true });
   const logFile = path.join(STATE_DIR, "backend.log");
