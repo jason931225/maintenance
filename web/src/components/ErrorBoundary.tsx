@@ -4,6 +4,12 @@ import { ko } from "../i18n/ko";
 
 interface ErrorBoundaryProps {
   children: ReactNode;
+  /**
+   * Rendered instead of the full-page reload card when a child crashes. Lets a
+   * non-critical region (e.g. the console comms rail) degrade in place to a
+   * quiet local fallback rather than blanking its surroundings.
+   */
+  fallback?: ReactNode;
 }
 
 interface ErrorBoundaryState {
@@ -38,6 +44,10 @@ export class ErrorBoundary extends Component<
   render(): ReactNode {
     if (!this.state.hasError) {
       return this.props.children;
+    }
+
+    if (this.props.fallback !== undefined) {
+      return this.props.fallback;
     }
 
     return (
