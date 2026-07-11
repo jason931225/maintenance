@@ -154,7 +154,7 @@ export function toObjectCardDescriptor(
     properties: [
       { key: "classification", title: T.fields.classification, type: "choice", value: detail.classification },
       { key: "custodian", title: T.fields.custodian, type: "user", value: detail.custodian },
-      { key: "collected_at", title: T.fields.collectedAt, type: "datetime", value: detail.collectedAt },
+      { key: "registered_at", title: T.fields.registeredAt, type: "datetime", value: detail.registeredAt },
       {
         key: "sha256",
         title: T.fields.sha256,
