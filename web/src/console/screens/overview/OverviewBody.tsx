@@ -11,7 +11,8 @@ import { ko } from "../../../i18n/ko";
 import { StatusChip } from "../../components";
 import "../../tokens.css";
 import { createOverviewApi, type OverviewApi } from "./overviewApi";
-import { overviewStrings } from "./strings";
+import { overviewStrings, railCategoryStrings } from "./strings";
+import { screenHeaderStyle, screenTitleStyle } from "../screenHeader";
 import {
   actionLabel,
   filterQueue,
@@ -20,9 +21,11 @@ import {
   overviewStats,
   queueChips,
   railCategories,
+  railGroups,
   timelineEntries,
   type ActionInboxItem,
   type ActionInboxResponse,
+  type MailThreadSummary,
   type NotificationCountsSummary,
   type QueueFilter,
 } from "./overviewModel";
@@ -32,6 +35,7 @@ interface OverviewData {
   inbox: ActionInboxResponse;
   counts: NotificationCountsSummary;
   notifications: NotificationSummary[];
+  mailThreads: MailThreadSummary[];
 }
 
 type LoadState = "loading" | "ready" | "error";
@@ -65,10 +69,11 @@ export function OverviewBody({ accessToken, api, now, onOpen }: OverviewBodyProp
       client.loadInbox(),
       client.loadNotificationCounts(),
       client.loadNotifications(),
+      client.loadMailThreads(),
     ])
-      .then(([inbox, counts, notifications]) => {
+      .then(([inbox, counts, notifications, mailThreads]) => {
         if (!live) return;
-        setData({ inbox, counts, notifications });
+        setData({ inbox, counts, notifications, mailThreads });
         setState("ready");
       })
       .catch(() => {
@@ -144,6 +149,7 @@ export function OverviewBody({ accessToken, api, now, onOpen }: OverviewBodyProp
   const rows = filterQueue(items, filter);
   const timeline = timelineEntries(items, today, timeFmt);
   const categories = railCategories(data.counts);
+  const groups = railGroups(data.notifications, data.mailThreads, railCategoryStrings());
 
   return (
     <div className="console" style={rootStyle}>
@@ -270,7 +276,10 @@ export function OverviewBody({ accessToken, api, now, onOpen }: OverviewBodyProp
           )}
         </section>
 
-        {/* 커뮤니케이션 — comms rail feed */}
+        {/* 커뮤니케이션 — comms rail, split into 메신저/메일/알림/공지 panels
+            (verdict R3 density). Every panel renders open by default — there
+            is no collapse control to default, so "default-expanded" is
+            satisfied by construction rather than a toggle nobody asked for. */}
         <aside style={panelStyle} aria-label={S.railTitle}>
           <div style={panelHeadStyle}>
             <h2 style={panelTitleStyle}>{S.railTitle}</h2>
@@ -285,21 +294,29 @@ export function OverviewBody({ accessToken, api, now, onOpen }: OverviewBodyProp
               ))}
             </div>
           ) : null}
-          {data.notifications.length === 0 ? (
-            <p style={emptyStyle}>{S.empty.rail}</p>
-          ) : (
-            <ul style={listStyle}>
-              {data.notifications.map((n) => (
-                <li key={n.id} style={notifRowStyle} data-unread={n.unread || undefined}>
-                  <div style={notifHeadStyle}>
-                    <StatusChip tone={n.unread ? "accent" : "neutral"}>{n.category}</StatusChip>
-                    <span style={notifTimeStyle}>{timeFmt.format(new Date(n.created_at))}</span>
-                  </div>
-                  <div style={notifTextStyle}>{n.text}</div>
-                </li>
-              ))}
-            </ul>
-          )}
+          {groups.map((group) => (
+            <div key={group.key} style={railGroupStyle}>
+              <div style={panelHeadStyle}>
+                <h3 style={railGroupTitleStyle}>{group.title}</h3>
+                <span style={countBadgeStyle}>{group.items.length}</span>
+              </div>
+              {group.items.length === 0 ? (
+                <p style={emptyStyle}>{S.empty.rail}</p>
+              ) : (
+                <ul style={listStyle}>
+                  {group.items.map((item) => (
+                    <li key={item.id} style={notifRowStyle} data-unread={item.unread || undefined}>
+                      <div style={notifHeadStyle}>
+                        <StatusChip tone={item.unread ? "accent" : "neutral"}>{group.title}</StatusChip>
+                        <span style={notifTimeStyle}>{timeFmt.format(new Date(item.createdAt))}</span>
+                      </div>
+                      <div style={notifTextStyle}>{item.text}</div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          ))}
         </aside>
       </div>
     </div>
@@ -318,19 +335,11 @@ const rootStyle: CSSProperties = {
   overflow: "auto",
 };
 
-const headerStyle: CSSProperties = {
-  display: "flex",
-  alignItems: "baseline",
-  gap: "var(--sp-3)",
-  flexWrap: "wrap",
-};
+const headerStyle = screenHeaderStyle;
 
-const titleStyle: CSSProperties = {
-  margin: 0,
-  fontSize: "var(--text-h)",
-  fontWeight: "var(--fw-strong)",
-  letterSpacing: "var(--tracking-tight)",
-};
+// §4-18: was a locally hand-rolled titleStyle carrying a nonexistent
+// `var(--text-h)` token (typo for --text-h1) — now the shared grammar.
+const titleStyle = screenTitleStyle;
 
 const stripStyle: CSSProperties = {
   display: "flex",
@@ -512,6 +521,20 @@ const timelineTitleBtnStyle: CSSProperties = {
   fontSize: "var(--text-body)",
   cursor: "pointer",
   minWidth: 0,
+};
+
+const railGroupStyle: CSSProperties = {
+  display: "grid",
+  gap: "var(--sp-2)",
+  paddingTop: "var(--sp-2)",
+  borderTop: "1px solid var(--border-soft)",
+};
+
+const railGroupTitleStyle: CSSProperties = {
+  margin: 0,
+  fontSize: "var(--text-sm)",
+  fontWeight: "var(--fw-strong)",
+  color: "var(--steel)",
 };
 
 const notifRowStyle: CSSProperties = {

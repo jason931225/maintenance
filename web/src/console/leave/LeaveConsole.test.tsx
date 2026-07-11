@@ -2,125 +2,10 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { LeaveRequestView, LeaveRosterEntry } from "../../api/types";
-import type * as KoModule from "../../i18n/ko";
 import { PolicyGateProvider, type PolicyGate } from "../policy";
 import { WindowManagerProvider } from "../window";
 import { LeaveConsole, type LeaveDecideOutcome, type LeavePromotionOutcome } from "./LeaveConsole";
 import { KO_CONSOLE_LEAVE as S, LEAVE_ACTIONS, LEAVE_RUNTIME_GATE, type LeaveLedgerRow } from "./model";
-
-// wire-pending: the koManifest reported alongside this lane (ko.console.leave
-// replacement — overviewTitle/leaveType/requestState(4-state)/status/ledger.*/
-// queue.comment*/promotion.* etc.) has not landed in ko.ts yet (serial i18n
-// wire-up owns that file). Mock only the `console.leave` node so these tests
-// exercise the REAL component logic against the manifest this lane ships,
-// without touching ko.ts — every other ko.* string stays the real one.
-vi.mock("../../i18n/ko", async (importOriginal) => {
-  const actual = await importOriginal<typeof KoModule>();
-  return {
-    ko: {
-      ...actual.ko,
-      console: {
-        ...actual.ko.console,
-        leave: {
-          count: (count: number) => `${String(count)}건`,
-          openObject: (code: string) => `${code} 개체 카드 열기`,
-          overviewTitle: "연차 현황",
-          leaveType: { annual: "연차", half_day: "반차" },
-          stats: {
-            aria: "연차 현황 요약",
-            headcount: "재직",
-            remaining: "잔여",
-            burnRate: "소진율",
-            promotionTargets: "촉진 대상",
-            people: (count: number) => `${String(count)}명`,
-            percent: (rate: number) => `${String(rate)}%`,
-            drill: (label: string) => `${label} 기준 원장 필터`,
-          },
-          self: {
-            title: "내 연차",
-            myRequests: "내 신청",
-            empty: "신청 내역 없음",
-            formAria: "연차 신청 유효성 확인",
-            reasonLabel: "사유",
-            reasonPlaceholder: "사유 선택",
-            startLabel: "시작일",
-            endLabel: "종료일",
-            validate: "입력값 확인",
-            required: "필수 항목 미입력",
-            invalidRange: "종료일이 시작일보다 빠름",
-            formLink: "연차신청서로 제출",
-            unknownEmployee: "직원 확인 필요",
-          },
-          reasons: {
-            annual: "연차",
-            half_am: "반차(오전)",
-            half_pm: "반차(오후)",
-            family_event: "경조",
-            sick: "병가",
-          },
-          requestState: {
-            pending: "결재 대기",
-            approved: "승인",
-            returned: "보류",
-            rejected: "반려",
-          },
-          queue: {
-            title: "팀 결재함",
-            aria: "결재 대기 신청",
-            empty: "결재 대기 없음",
-            approve: "승인",
-            reject: "반려",
-            cancel: "취소",
-            commentLabel: "반려 사유",
-            commentPlaceholder: "사유 입력",
-            commentRequired: "반려 사유를 입력하세요",
-            decideAria: (decision: string, employeeName: string) => `${employeeName} 신청 ${decision}`,
-            decideFailed: "결재를 처리하지 못했습니다",
-          },
-          promotion: {
-            title: "사용촉진 발송 이력",
-            listAria: "사용촉진 발송 이력",
-            legalBasis: "근로기준법 제61조",
-            roundChip: (round: number) => `${String(round)}차`,
-            send: (round: number) => `${String(round)}차 발송`,
-            sendAria: (name: string, round: number) => `${name} ${String(round)}차 발송`,
-            noLinkedRequest: "연동된 신청 없음",
-            done: "촉진 완료",
-            pushed: "발송 완료",
-            pushFailed: "발송하지 못했습니다",
-            apStatus: { submitted: "AP 상신됨", pending_engine_definition: "AP 연동 대기" },
-          },
-          ledger: {
-            title: "인원별 연차 원장",
-            usageTitle: "인원별 잔여 연차",
-            listAria: "연차 원장 목록",
-            columns: {
-              employee: "직원",
-              department: "부서/직책",
-              tenure: "입사일 기준",
-              accrued: "발생",
-              used: "사용",
-              remaining: "잔여",
-              status: "상태",
-            },
-          },
-          status: {
-            ok: "정상",
-            promote: "사용촉진 대상",
-            low: "잔여 부족",
-            hireDateMissing: "입사일 확인",
-            exited: "퇴사/정산 검토",
-          },
-          objects: {
-            ledgerType: "연차 원장",
-            ledgerTitle: (name: string) => `${name} 연차 원장`,
-            props: { accrued: "발생", used: "사용", remaining: "잔여", hireDate: "입사일" },
-          },
-        },
-      },
-    },
-  };
-});
 
 function makeLedger(): LeaveLedgerRow[] {
   return [
@@ -319,8 +204,8 @@ describe("LeaveConsole (레인1 leave 카드 존, real-wired)", () => {
 
   it("사용촉진 발송: no linked request degrades gracefully (no misdelivery guess)", () => {
     renderConsole();
-    const ledgerRegion = screen.getByRole("region", { name: S.ledger.title });
-    expect(within(ledgerRegion).getByText(S.promotion.noLinkedRequest)).toBeVisible();
+    const promotionRegion = screen.getByRole("region", { name: S.promotion.queueTitle });
+    expect(within(promotionRegion).getByText(S.promotion.noLinkedRequest)).toBeVisible();
   });
 
   it("사용촉진 발송: a resolvable target sends round 1 via the real POST payload", async () => {
@@ -348,8 +233,8 @@ describe("LeaveConsole (레인1 leave 카드 존, real-wired)", () => {
       ],
       pushPromotion,
     });
-    const ledgerRegion = screen.getByRole("region", { name: S.ledger.title });
-    fireEvent.click(within(ledgerRegion).getByRole("button", { name: S.promotion.sendAria("박기사", 1) }));
+    const promotionRegion = screen.getByRole("region", { name: S.promotion.queueTitle });
+    fireEvent.click(within(promotionRegion).getByRole("button", { name: S.promotion.sendAria("박기사", 1) }));
 
     expect(pushPromotion).toHaveBeenCalledWith({
       branchId: "branch-1",
@@ -360,5 +245,29 @@ describe("LeaveConsole (레인1 leave 카드 존, real-wired)", () => {
       unusedDays: 10,
     });
     await screen.findByText(S.promotion.pushed);
+    // round advances to 2 — the panel keeps offering the next round rather
+    // than treating a single push as terminal (regression guard).
+    expect(within(promotionRegion).getByRole("button", { name: S.promotion.sendAria("박기사", 2) })).toBeVisible();
+  });
+
+  it("소진율 meter: every ledger row shows a burn-rate percent, and 촉진 대상 rows carry the inline chip (§4-11 density)", () => {
+    renderConsole();
+    const ledgerRegion = screen.getByRole("region", { name: S.ledger.title });
+    const table = within(ledgerRegion).getByRole("table");
+    const promoteRow = within(table).getByText("박기사").closest("tr");
+    expect(promoteRow).not.toBeNull();
+    // employee-3: used 5 / accrued 15 = 33%. The "사용촉진 대상" label appears
+    // twice on a promote-tone row: the inline meter chip AND the 상태 column
+    // (ledgerStatus() also resolves to the same label — both real, not a dup bug).
+    expect(within(promoteRow as HTMLElement).getByText(S.stats.percent(33))).toBeVisible();
+    expect(within(promoteRow as HTMLElement).getAllByText(S.status.promote)).toHaveLength(2);
+
+    const okRow = within(table).getByText("김현장").closest("tr");
+    expect(within(okRow as HTMLElement).queryByText(S.status.promote)).toBeNull();
+  });
+
+  it("사용 촉진 panel is visible by default whenever there are promotion targets (no extra click)", () => {
+    renderConsole();
+    expect(screen.getByRole("region", { name: S.promotion.queueTitle })).toBeVisible();
   });
 });

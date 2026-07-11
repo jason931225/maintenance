@@ -856,6 +856,7 @@ export const ko = {
         dashboard: "대시보드",
         laborcost: "인건비 분석",
         objectExplorer: "객체 탐색",
+        ontologyManager: "타입·매니저",
         forecast: "예측",
         workflow: "워크플로 스튜디오",
         scheduled: "예약 작업",
@@ -1373,8 +1374,11 @@ export const ko = {
         activeStat: "시행 중 정책",
         draftStat: "초안",
         targetStat: "적용 대상",
+        // 정책/초안은 건수이지 인원이 아님 — people(명)과 분리 (verdict R3 단위 버그).
+        count: (n: number) => `${String(n)}건`,
         people: (n: number) => `${String(n)}명`,
         drill: (label: string) => `${label} 기준 필터`,
+        screenTitle: "권한·정책",
         expandAria: (title: string) => `${title} 펼치기`,
         collapseAria: (title: string) => `${title} 접기`,
         empty: "정책이 없습니다.",
@@ -2479,6 +2483,20 @@ export const ko = {
           graphRefreshFailed: "그래프를 갱신하지 못했습니다.",
         },
       },
+      graph: {
+        pane: "객체 관계 그래프",
+        zoomLabel: "배율 조정",
+        zoomIn: "확대",
+        zoomOut: "축소",
+        zoomReset: "기본 배율",
+        zoomLevel: (pct: number) => `${String(pct)}%`,
+        legend: "범례",
+        legendCount: (count: number) => `타입 ${String(count)}개`,
+        relationAria: (relation: string) => `관계 ${relation}`,
+        projectedNotice: "투영 객체 — 조회 전용",
+        projectedChip: "조회 전용",
+        inspectorHint: "노드를 눌러 상세를 확인하세요.",
+      },
     },
     objectcard: {
       dialog: (title: string) => `${title} 상세`,
@@ -2974,6 +2992,11 @@ export const ko = {
       loading: "기록물을 불러오는 중입니다",
       loadFailed: "기록물을 불러오지 못했습니다",
       retry: "다시 시도",
+      actions: {
+        export: "내보내기",
+        register: "기록물 등재",
+        registerUnavailable: "기록물 등재 API가 아직 없습니다.",
+      },
     },
     // ── ko.console.overviewBody — 업무·운영 개요 (overview screen lane) ──
     overviewBody: {
@@ -3002,7 +3025,15 @@ export const ko = {
         work: "확인",
         support: "회신",
       },
-      rail: { unread: (n: number) => `안 읽음 ${String(n)}` },
+      rail: {
+        unread: (n: number) => `안 읽음 ${String(n)}`,
+        categories: {
+          messenger: "메신저",
+          mail: "메일",
+          notification: "알림",
+          notice: "공지",
+        },
+      },
       empty: {
         queue: "처리할 항목이 없습니다",
         timeline: "오늘 마감 업무가 없습니다",
@@ -3087,6 +3118,11 @@ export const ko = {
           submitted: "AP 상신됨",
           pending_engine_definition: "AP 연동 대기",
         },
+        // §4-11 density: the always-visible promotion panel (in-table button +
+        // send-history above merged into one region — verdict R3).
+        queueTitle: "사용 촉진",
+        unusedLabel: (days: string) => `${days} 미사용`,
+        emptyQueue: "촉진 대상 없음",
       },
       ledger: {
         title: "인원별 연차 원장",
@@ -3100,6 +3136,7 @@ export const ko = {
           used: "사용",
           remaining: "잔여",
           status: "상태",
+          burnRate: "소진율",
         },
       },
       status: {

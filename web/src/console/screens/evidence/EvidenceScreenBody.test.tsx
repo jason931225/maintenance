@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createConsoleApiClient } from "../../../api/client";
 import { AuthContext, type AuthContextValue } from "../../../context/auth";
+import { ko } from "../../../i18n/ko";
 import { EvidenceScreenBody } from "./EvidenceScreenBody";
 
 const now = new Date();
@@ -144,6 +145,56 @@ describe("EvidenceScreenBody", () => {
     await userEvent.click(screen.getByRole("tab", { name: "계약" }));
     expect(screen.queryByText("EV-101")).not.toBeInTheDocument();
     expect(screen.getByText("이 문서 유형은 아직 연동되지 않았습니다")).toBeVisible();
+  });
+
+  it("기록물 등재 has no real create endpoint yet, so it honestly surfaces a pending notice instead of faking a registration (§4-25-⑥)", async () => {
+    renderBody(async (path: unknown) => {
+      await Promise.resolve();
+      if (path === "/api/v1/evidence/objects") {
+        return { data: { items: [evidenceObjectView], limit: 200, offset: 0, total: 1 } };
+      }
+      if (path === "/api/v1/users") return { data: { items: [] } };
+      return { data: undefined, response: { status: 404 } };
+    });
+    await screen.findByText("EV-101");
+
+    expect(screen.queryByRole("status")).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: ko.console.documents.actions.register }));
+    expect(screen.getByRole("status")).toHaveTextContent(
+      ko.console.documents.actions.registerUnavailable,
+    );
+    // No fabricated row was added and the real table is untouched.
+    expect(screen.getByText("EV-101")).toBeVisible();
+  });
+
+  it("내보내기 downloads a CSV of the rows actually on screen (real export, not a fabricated bulk one)", async () => {
+    renderBody(async (path: unknown) => {
+      await Promise.resolve();
+      if (path === "/api/v1/evidence/objects") {
+        return { data: { items: [evidenceObjectView], limit: 200, offset: 0, total: 1 } };
+      }
+      if (path === "/api/v1/users") return { data: { items: [{ id: "user-1", display_name: "정하늘" }] } };
+      return { data: undefined, response: { status: 404 } };
+    });
+    await screen.findByText("EV-101");
+
+    const createObjectURL = vi.fn().mockReturnValue("blob:mock");
+    const revokeObjectURL = vi.fn();
+    vi.stubGlobal("URL", { ...URL, createObjectURL, revokeObjectURL });
+    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+
+    await userEvent.click(screen.getByRole("button", { name: ko.console.documents.actions.export }));
+
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    const [blob] = createObjectURL.mock.calls[0] as [Blob];
+    const csv = await blob.text();
+    expect(csv).toContain("EV-101");
+    expect(csv).toContain("정하늘");
+    expect(clickSpy).toHaveBeenCalledTimes(1);
+    expect(revokeObjectURL).toHaveBeenCalledWith("blob:mock");
+
+    clickSpy.mockRestore();
+    vi.unstubAllGlobals();
   });
 
   it("shows the list-load error state with a working retry", async () => {

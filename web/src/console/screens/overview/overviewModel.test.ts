@@ -1,13 +1,16 @@
 import { describe, expect, it } from "vitest";
 
-import { overviewStrings } from "./strings";
+import type { NotificationSummary } from "../../../api/types";
+import { overviewStrings, railCategoryStrings } from "./strings";
 import {
   filterQueue,
   overviewStats,
   queueChips,
   railCategories,
+  railGroups,
   timelineEntries,
   type ActionInboxItem,
+  type MailThreadSummary,
   type NotificationCountsSummary,
 } from "./overviewModel";
 
@@ -96,5 +99,60 @@ describe("railCategories", () => {
     };
     expect(railCategories(counts).map((c) => c.category)).toEqual(["결재", "공지"]);
     expect(railCategories(undefined)).toEqual([]);
+  });
+});
+
+describe("railGroups", () => {
+  const L = railCategoryStrings();
+
+  function notification(over: Partial<NotificationSummary> & Pick<NotificationSummary, "category">): NotificationSummary {
+    return {
+      id: `n-${over.category}-${Math.random().toString(36).slice(2)}`,
+      recipient_user_id: "u1",
+      kind: "info",
+      text: "t",
+      link: null,
+      unread: true,
+      created_at: "2026-07-03T08:00:00Z",
+      read_at: null,
+      resolved_at: null,
+      ...over,
+    };
+  }
+
+  const mailThread: MailThreadSummary = {
+    id: "mail-1",
+    subject: "견적 회신",
+    last_message_at: "2026-07-03T07:00:00Z",
+    message_count: 2,
+    unread_count: 1,
+    has_attachments: false,
+    is_flagged: false,
+  };
+
+  it("buckets 메신저/공지 by category, everything else into 알림, and 메일 from the separate mail source", () => {
+    const notifications = [
+      notification({ category: "메신저" }),
+      notification({ category: "공지" }),
+      notification({ category: "결재" }),
+    ];
+    const groups = railGroups(notifications, [mailThread], L);
+    const byKey = Object.fromEntries(groups.map((g) => [g.key, g]));
+
+    expect(byKey.messenger.items).toHaveLength(1);
+    expect(byKey.messenger.items[0].id).toBe(notifications[0].id);
+    expect(byKey.notice.items).toHaveLength(1);
+    expect(byKey.notice.items[0].id).toBe(notifications[1].id);
+    expect(byKey.notification.items).toHaveLength(1);
+    expect(byKey.notification.items[0].id).toBe(notifications[2].id);
+    expect(byKey.mail.items).toEqual([
+      { id: "mail-1", text: "견적 회신", createdAt: "2026-07-03T07:00:00Z", unread: true },
+    ]);
+  });
+
+  it("every group renders even when empty (no filler, but no missing panel either)", () => {
+    const groups = railGroups([], [], L);
+    expect(groups).toHaveLength(4);
+    expect(groups.every((g) => g.items.length === 0)).toBe(true);
   });
 });

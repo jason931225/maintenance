@@ -17,7 +17,13 @@ vi.mock("../../../api/ontology");
 // open passthroughs so the body renders without the auth/bulk-authorize round-trip.
 vi.mock("../../policy", () => {
   const passthrough = ({ children }: { children: ReactNode }) => <>{children}</>;
-  return { BulkPolicyGateProvider: passthrough, PolicyGated: passthrough };
+  // usePolicyGate is exercised by the docked ObjectCard inspector the graph pane
+  // now renders; open it so the card mounts without the bulk-authorize round-trip.
+  return {
+    BulkPolicyGateProvider: passthrough,
+    PolicyGated: passthrough,
+    usePolicyGate: () => ({ can: () => true }),
+  };
 });
 
 import * as ont from "../../../api/ontology";

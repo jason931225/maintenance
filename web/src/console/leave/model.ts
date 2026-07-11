@@ -157,6 +157,11 @@ export function tenureStage(hireDate: string | undefined): string {
   return legacy.tenure.additionalYear(yearLabel);
 }
 
+/** used/accrued as a rounded percent — same arithmetic as the header's burnRate stat, per-row (§4-11 density). */
+export function rowBurnRate(row: LeaveLedgerRow): number {
+  return row.accrued > 0 ? Math.round((row.used / row.accrued) * 100) : 0;
+}
+
 export function ledgerStatus(row: LeaveLedgerRow): {
   label: string;
   tone: "neutral" | "ok" | "warn";

@@ -111,3 +111,27 @@ export function overviewStrings(): OverviewStrings {
     FALLBACK
   );
 }
+
+// ko.console.overviewBody.rail.categories is now real (wired in ko.ts,
+// serial wire round 4). Kept as a per-field defensive pick (same convention
+// as LeaveConsole/EvidenceScreenBody) as a guard against a future ko.ts
+// regression rather than because the keys are pending.
+export interface RailCategoryStrings {
+  messenger: string;
+  mail: string;
+  notification: string;
+  notice: string;
+}
+
+const RAIL_CATEGORY_FALLBACK: RailCategoryStrings = {
+  messenger: "Messenger",
+  mail: "Mail",
+  notification: "Notifications",
+  notice: "Notices",
+};
+
+export function railCategoryStrings(): RailCategoryStrings {
+  const rail = (ko.console as unknown as { overviewBody?: { rail?: { categories?: Partial<RailCategoryStrings> } } })
+    .overviewBody?.rail;
+  return { ...RAIL_CATEGORY_FALLBACK, ...rail?.categories };
+}

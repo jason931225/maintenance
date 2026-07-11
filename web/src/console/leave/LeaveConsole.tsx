@@ -29,11 +29,43 @@ import {
   ledgerDescriptor,
   ledgerStatus,
   requestDays,
+  rowBurnRate,
   tenureStage,
   type LeaveLedgerRow,
   type LeaveReason,
   type LedgerFilter,
+  type LeaveRosterTone,
 } from "./model";
+
+// ko.console.leave.ledger.columns.burnRate and ko.console.leave.promotion.{
+// queueTitle, unusedLabel(days), emptyQueue} are now real (wired in ko.ts,
+// serial wire round 4). English fallbacks below only guard a future ko.ts
+// regression (same defensive-pick pattern as LeaveBody/PolicyBody).
+function densityStrings(): {
+  burnRateColumn: string;
+  queueTitle: string;
+  unusedLabel: (days: string) => string;
+  emptyQueue: string;
+} {
+  const leave = ko.console.leave as unknown as {
+    ledger?: { columns?: Record<string, unknown> };
+    promotion?: Record<string, unknown>;
+  };
+  const columns = leave.ledger?.columns;
+  const promotion = leave.promotion;
+  const pickStr = (value: unknown, fallback: string): string =>
+    typeof value === "string" ? value : fallback;
+  const unusedLabel =
+    typeof promotion?.unusedLabel === "function"
+      ? (promotion.unusedLabel as (days: string) => string)
+      : (days: string) => `${days} unused`;
+  return {
+    burnRateColumn: pickStr(columns?.burnRate, "Burn rate"),
+    queueTitle: pickStr(promotion?.queueTitle, "Leave usage prompts"),
+    unusedLabel,
+    emptyQueue: pickStr(promotion?.emptyQueue, "No promotion targets"),
+  };
+}
 
 // ── Styles (tokens only, 8px grid via --sp-*, §4-25-⑧) ──────────────────────
 
@@ -204,6 +236,45 @@ const tableWrapStyle: CSSProperties = {
   borderRadius: "var(--radius)",
 };
 
+// Per-row 소진율 meter — same track/fill grammar as charts/HonestMarks'
+// HonestBar (§4-18 reuse), sized for an inline table cell rather than a
+// drillable chart row.
+const meterCellStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "var(--sp-2)",
+};
+
+const meterTrackStyle: CSSProperties = {
+  position: "relative",
+  display: "block",
+  width: 64,
+  height: 8,
+  background: "var(--muted)",
+  border: "1px solid var(--border-soft)",
+  borderRadius: "var(--radius-pill)",
+  overflow: "hidden",
+  flex: "none",
+};
+
+function meterFillStyle(pct: number, tone: LeaveRosterTone): CSSProperties {
+  const color = tone === "promote" ? "var(--warn-tx)" : tone === "low" ? "var(--danger-tx)" : "var(--ok-tx)";
+  return {
+    position: "absolute",
+    insetBlock: 0,
+    left: 0,
+    width: `${String(Math.min(100, Math.max(0, pct)))}%`,
+    background: color,
+  };
+}
+
+const meterValueStyle: CSSProperties = {
+  fontSize: "var(--text-xs)",
+  color: "var(--steel)",
+  fontVariantNumeric: "tabular-nums",
+  whiteSpace: "nowrap",
+};
+
 const tableStyle: CSSProperties = {
   width: "100%",
   borderCollapse: "collapse",
@@ -316,6 +387,7 @@ export interface LeaveConsoleProps {
 
 export function LeaveConsole({ ledger, requests, selfUserId, decide, pushPromotion }: LeaveConsoleProps) {
   const S = leaveStrings();
+  const D = densityStrings();
   const windowManager = useOptionalWindowManager();
   const [filter, setFilter] = useState<LedgerFilter>("all");
   const [form, setForm] = useState<RequestForm>(EMPTY_FORM);
@@ -652,20 +724,14 @@ export function LeaveConsole({ ledger, requests, selfUserId, decide, pushPromoti
                     <th scope="col" style={thStyle}>{S.ledger.columns.accrued}</th>
                     <th scope="col" style={thStyle}>{S.ledger.columns.used}</th>
                     <th scope="col" style={thStyle}>{S.ledger.columns.remaining}</th>
+                    <th scope="col" style={thStyle}>{D.burnRateColumn}</th>
                     <th scope="col" style={thStyle}>{S.ledger.columns.status}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {visibleLedger.map((row) => {
                     const status = ledgerStatus(row);
-                    const candidate = row.tone === "promote" ? promotionCandidate(row) : undefined;
-                    const alreadyRound = pushedRounds.get(row.id);
-                    const nextRound: 1 | 2 | undefined =
-                      row.tone === "promote" && alreadyRound === undefined
-                        ? 1
-                        : row.tone === "promote" && alreadyRound === 1
-                          ? 2
-                          : undefined;
+                    const burnRate = rowBurnRate(row);
                     return (
                       <tr key={row.id}>
                         <td style={tdStyle}>
@@ -697,31 +763,18 @@ export function LeaveConsole({ ledger, requests, selfUserId, decide, pushPromoti
                         <td style={tdStyle}>{dayLabel(row.used)}</td>
                         <td style={tdStyle}>{dayLabel(row.remaining)}</td>
                         <td style={tdStyle}>
-                          <span style={chipRowStyle}>
-                            <StatusChip tone={status.tone}>{status.label}</StatusChip>
-                            {nextRound !== undefined ? (
-                              <PolicyGated
-                                action={LEAVE_ACTIONS.promotionManage}
-                                resource={{ kind: "leave_ledger", id: row.id }}
-                              >
-                                {candidate ? (
-                                  <button
-                                    type="button"
-                                    disabled={pushingId === row.id}
-                                    aria-label={S.promotion.sendAria(row.name, nextRound)}
-                                    onClick={() => { void sendPromotion(row, nextRound, candidate); }}
-                                    style={pushingId === row.id ? buttonDisabledStyle : buttonStyle}
-                                  >
-                                    {S.promotion.send(nextRound)}
-                                  </button>
-                                ) : (
-                                  <StatusChip tone="neutral">{S.promotion.noLinkedRequest}</StatusChip>
-                                )}
-                              </PolicyGated>
-                            ) : row.tone === "promote" && alreadyRound === 2 ? (
-                              <StatusChip tone="ok">{S.promotion.done}</StatusChip>
+                          <span style={meterCellStyle}>
+                            <span style={meterTrackStyle} aria-hidden="true">
+                              <span style={meterFillStyle(burnRate, row.tone)} />
+                            </span>
+                            <span style={meterValueStyle}>{S.stats.percent(burnRate)}</span>
+                            {row.tone === "promote" ? (
+                              <StatusChip tone="warn">{S.status.promote}</StatusChip>
                             ) : null}
                           </span>
+                        </td>
+                        <td style={tdStyle}>
+                          <StatusChip tone={status.tone}>{status.label}</StatusChip>
                         </td>
                       </tr>
                     );
@@ -790,35 +843,73 @@ export function LeaveConsole({ ledger, requests, selfUserId, decide, pushPromoti
         </PolicyGated>
       </div>
 
-      {/* HR 전담 persona — 사용촉진 발송 결과 (근로기준법 §61, 세션 기준) */}
-      {pushResults.size > 0 || pushError !== undefined ? (
-        <PolicyGated action={LEAVE_ACTIONS.promotionView} resource={{ kind: "leave_promotion" }}>
-          <section aria-labelledby="leave-promotion-title" style={cardStyle}>
-            <div style={sectionHeadStyle}>
-              <h2 id="leave-promotion-title" style={sectionTitleStyle}>{S.promotion.title}</h2>
-              <StatusChip tone="purple">{S.promotion.legalBasis}</StatusChip>
-            </div>
-            {pushError !== undefined ? (
-              <StatusChip role="alert" tone="danger">{pushError}</StatusChip>
-            ) : null}
+      {/* HR 전담 persona — 사용촉진 대상 + 발송 (근로기준법 §61), one panel:
+          target list, next-round send, and post-push state all live here
+          (merged from the old table-embedded button + separate history
+          panel — same internals: promotionCandidate/sendPromotion/pushed*
+          maps, just consolidated to match the reference density). */}
+      <PolicyGated action={LEAVE_ACTIONS.promotionView} resource={{ kind: "leave_promotion" }}>
+        <section aria-labelledby="leave-promotion-queue-title" style={cardStyle}>
+          <div style={sectionHeadStyle}>
+            <h2 id="leave-promotion-queue-title" style={sectionTitleStyle}>{D.queueTitle}</h2>
+            <StatusChip tone="purple">{S.promotion.legalBasis}</StatusChip>
+            <StatusChip tone="neutral">{S.count(promotionTargets.length)}</StatusChip>
+          </div>
+          {pushError !== undefined ? (
+            <StatusChip role="alert" tone="danger">{pushError}</StatusChip>
+          ) : null}
+          {promotionTargets.length === 0 ? (
+            <StatusChip tone="neutral">{D.emptyQueue}</StatusChip>
+          ) : (
             <ul aria-label={S.promotion.listAria} style={listStyle}>
-              {[...pushResults.entries()].map(([employeeId, push]) => {
-                const row = ledgerById.get(employeeId);
+              {promotionTargets.map((row) => {
+                const candidate = promotionCandidate(row);
+                const alreadyRound = pushedRounds.get(row.id);
+                const pushed = pushResults.get(row.id);
+                const nextRound: 1 | 2 | undefined =
+                  alreadyRound === undefined ? 1 : alreadyRound === 1 ? 2 : undefined;
                 return (
-                  <li key={push.id} style={rowStyle}>
-                    <span style={cellNameStyle}>{row?.name ?? S.self.unknownEmployee}</span>
-                    <StatusChip tone="info">{S.promotion.roundChip(push.round)}</StatusChip>
-                    <StatusChip tone="ok">{S.promotion.pushed}</StatusChip>
-                    <StatusChip tone={push.ap_submission === "submitted" ? "ok" : "neutral"}>
-                      {S.promotion.apStatus[push.ap_submission]}
-                    </StatusChip>
+                  <li key={row.id} style={rowStyle}>
+                    <span style={cellNameStyle}>{row.name}</span>
+                    <StatusChip tone="warn">{D.unusedLabel(dayLabel(row.remaining))}</StatusChip>
+                    {pushed ? (
+                      <>
+                        <StatusChip tone="info">{S.promotion.roundChip(pushed.round)}</StatusChip>
+                        <StatusChip tone="ok">{S.promotion.pushed}</StatusChip>
+                        <StatusChip tone={pushed.ap_submission === "submitted" ? "ok" : "neutral"}>
+                          {S.promotion.apStatus[pushed.ap_submission]}
+                        </StatusChip>
+                      </>
+                    ) : null}
+                    {nextRound !== undefined ? (
+                      <PolicyGated
+                        action={LEAVE_ACTIONS.promotionManage}
+                        resource={{ kind: "leave_ledger", id: row.id }}
+                      >
+                        {candidate ? (
+                          <button
+                            type="button"
+                            disabled={pushingId === row.id}
+                            aria-label={S.promotion.sendAria(row.name, nextRound)}
+                            onClick={() => { void sendPromotion(row, nextRound, candidate); }}
+                            style={pushingId === row.id ? buttonDisabledStyle : buttonStyle}
+                          >
+                            {S.promotion.send(nextRound)}
+                          </button>
+                        ) : (
+                          <StatusChip tone="neutral">{S.promotion.noLinkedRequest}</StatusChip>
+                        )}
+                      </PolicyGated>
+                    ) : (
+                      <StatusChip tone="ok">{S.promotion.done}</StatusChip>
+                    )}
                   </li>
                 );
               })}
             </ul>
-          </section>
-        </PolicyGated>
-      ) : null}
+          )}
+        </section>
+      </PolicyGated>
     </div>
   );
 }

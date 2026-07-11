@@ -204,6 +204,10 @@ export const NAV_GROUPS: readonly ConsoleNavGroup[] = [
       { screen: "dashboard", labelKey: "console.shell.nav.dashboard", icon: "chart", gate: g(MANAGEMENT_ROLES, [FEATURES.KPI_READ]) },
       { screen: "laborcost", labelKey: "console.shell.nav.laborcost", icon: "trend", gate: g(MANAGEMENT_ROLES, [FEATURES.KPI_READ]) },
       { screen: "objectExplorer", labelKey: "console.shell.nav.objectExplorer", icon: "share", gate: g(MANAGEMENT_ROLES) },
+      // Same graph explorer + the 타입·매니저 authoring tab (draft/publish object
+      // types) — gated to the authoring tier, not read access (§4-18: one
+      // OntologyWorkspaceBody backs both nav slots, see screens/registry.ts).
+      { screen: "ontologyManager", labelKey: "console.shell.nav.ontologyManager", icon: "share", gate: g(ROLE_MANAGE_ROLES) },
       { screen: "forecast", labelKey: "console.shell.nav.forecast", icon: "gauge", gate: g(MANAGEMENT_ROLES, [FEATURES.KPI_READ]) },
     ],
   },
