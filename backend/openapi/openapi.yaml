@@ -25533,16 +25533,6 @@ components:
     VoucherStatus:
       type: string
       enum: [DRAFT, BALANCE_CHECKED, APPROVED, POSTED, REVERSED]
-    VoucherSourceRef:
-      type: object
-      required:
-      - object_type
-      - object_id
-      properties:
-        object_type:
-          type: string
-        object_id:
-          type: string
     VoucherLineInput:
       type: object
       required:
@@ -25594,10 +25584,6 @@ components:
           $ref: '#/components/schemas/Uuid'
         memo:
           type: string
-        source:
-          oneOf:
-          - $ref: '#/components/schemas/VoucherSourceRef'
-          - type: 'null'
         lines:
           type: array
           items:
@@ -25662,6 +25648,11 @@ components:
             $ref: '#/components/schemas/VoucherLineSummary'
         created_by:
           $ref: '#/components/schemas/Uuid'
+        approved_by:
+          type:
+          - string
+          - 'null'
+          format: uuid
         posted_at:
           type:
           - string

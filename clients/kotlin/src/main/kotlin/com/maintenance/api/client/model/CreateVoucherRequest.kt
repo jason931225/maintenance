@@ -24,7 +24,6 @@
 package com.maintenance.api.client.model
 
 import com.maintenance.api.client.model.VoucherLineInput
-import com.maintenance.api.client.model.VoucherSourceRef
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerialName
@@ -36,7 +35,6 @@ import kotlinx.serialization.Contextual
  * @param branchId
  * @param lines
  * @param memo
- * @param source
  */
 @Serializable
 
@@ -49,10 +47,7 @@ data class CreateVoucherRequest (
     val lines: kotlin.collections.List<VoucherLineInput>,
 
     @SerialName(value = "memo")
-    val memo: kotlin.String? = null,
-
-    @SerialName(value = "source")
-    val source: VoucherSourceRef? = null
+    val memo: kotlin.String? = null
 
 ) {
 

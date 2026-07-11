@@ -681,7 +681,6 @@ src/main/kotlin/com/maintenance/api/client/model/VerifyOutcome.kt
 src/main/kotlin/com/maintenance/api/client/model/VotePollRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/VoucherLineInput.kt
 src/main/kotlin/com/maintenance/api/client/model/VoucherLineSummary.kt
-src/main/kotlin/com/maintenance/api/client/model/VoucherSourceRef.kt
 src/main/kotlin/com/maintenance/api/client/model/VoucherStatus.kt
 src/main/kotlin/com/maintenance/api/client/model/VoucherSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/WorkDiaryActionEntry.kt

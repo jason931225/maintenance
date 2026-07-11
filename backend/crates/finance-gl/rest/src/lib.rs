@@ -15,8 +15,7 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use mnt_finance_gl_adapter_postgres::{PgVoucherError, PgVoucherStore};
 use mnt_finance_gl_application::{
-    CreateVoucherDraftCommand, ReverseVoucherCommand, VoucherLineInput, VoucherSourceRef,
-    VoucherTransitionCommand,
+    CreateVoucherDraftCommand, ReverseVoucherCommand, VoucherLineInput, VoucherTransitionCommand,
 };
 use mnt_finance_gl_domain::{VoucherId, VoucherStatus};
 use mnt_kernel_core::{BranchId, ErrorKind, KernelError, TraceContext};
@@ -108,8 +107,6 @@ struct CreateVoucherRequest {
     branch_id: BranchId,
     #[serde(default)]
     memo: String,
-    #[serde(default)]
-    source: Option<VoucherSourceRef>,
     lines: Vec<VoucherLineInput>,
 }
 
@@ -166,7 +163,9 @@ async fn create_draft(
             actor: principal.user_id,
             branch_id: body.branch_id,
             memo: body.memo,
-            source: body.source,
+            // Hand-keyed vouchers carry no source linkage — provenance is set only
+            // by the trusted approval-derived path (S7).
+            source: None,
             lines: body.lines,
             trace: TraceContext::generate(),
             occurred_at: time::OffsetDateTime::now_utc(),
