@@ -11,7 +11,9 @@
 // count endpoint, so a stat can never disagree with the queue below it.
 
 import type { components } from "@maintenance/api-client-ts";
-import type { OverviewStrings } from "./strings";
+import type { NotificationSummary } from "../../../api/types";
+import { NOTIFICATION_CATEGORY } from "../../../i18n/notificationCategories";
+import type { OverviewStrings, RailCategoryStrings } from "./strings";
 
 export type ActionInboxItem = components["schemas"]["ActionInboxItem"];
 export type ActionInboxResponse = components["schemas"]["ActionInboxResponse"];
@@ -19,6 +21,7 @@ export type NotificationCountsSummary =
   components["schemas"]["NotificationCountsSummary"];
 export type NotificationCategoryCount =
   components["schemas"]["NotificationCategoryCount"];
+export type MailThreadSummary = components["schemas"]["MailThreadView"];
 
 export type InboxKind = ActionInboxItem["kind"]; // "approval" | "dispatch" | "work" | "support"
 export type QueueFilter = "all" | InboxKind | "today";
@@ -178,4 +181,63 @@ export function railCategories(
   counts: NotificationCountsSummary | undefined,
 ): NotificationCategoryCount[] {
   return (counts?.by_category ?? []).filter((c) => c.unread > 0);
+}
+
+// ── comms rail groups (메신저/메일/알림/공지) — verdict R3 density: split the
+// flat feed into named panels, all rendered open (no collapse state to
+// default — see OverviewBody.tsx). 메신저/공지/알림 bucket the SAME real
+// /api/v1/me/notifications feed already fetched (by category); 메일 is a
+// second real source (mail doesn't post into notifications) via a small
+// extra fetch (overviewApi.ts loadMailThreads).
+
+export interface RailItem {
+  id: string;
+  text: string;
+  createdAt: string;
+  unread: boolean;
+}
+
+export type RailGroupKey = "messenger" | "mail" | "notification" | "notice";
+
+export interface RailGroup {
+  key: RailGroupKey;
+  title: string;
+  items: RailItem[];
+}
+
+function notificationItems(
+  notifications: readonly NotificationSummary[],
+  predicate: (n: NotificationSummary) => boolean,
+): RailItem[] {
+  return notifications
+    .filter(predicate)
+    .map((n) => ({ id: n.id, text: n.text, createdAt: n.created_at, unread: n.unread }));
+}
+
+export function railGroups(
+  notifications: readonly NotificationSummary[],
+  mailThreads: readonly MailThreadSummary[],
+  categoryLabels: RailCategoryStrings,
+): RailGroup[] {
+  const isMessenger = (n: NotificationSummary) => n.category === NOTIFICATION_CATEGORY.messenger;
+  const isNotice = (n: NotificationSummary) => n.category === NOTIFICATION_CATEGORY.notice;
+  return [
+    { key: "messenger", title: categoryLabels.messenger, items: notificationItems(notifications, isMessenger) },
+    {
+      key: "mail",
+      title: categoryLabels.mail,
+      items: mailThreads.map((t) => ({
+        id: t.id,
+        text: t.subject,
+        createdAt: t.last_message_at,
+        unread: t.unread_count > 0,
+      })),
+    },
+    {
+      key: "notification",
+      title: categoryLabels.notification,
+      items: notificationItems(notifications, (n) => !isMessenger(n) && !isNotice(n)),
+    },
+    { key: "notice", title: categoryLabels.notice, items: notificationItems(notifications, isNotice) },
+  ];
 }

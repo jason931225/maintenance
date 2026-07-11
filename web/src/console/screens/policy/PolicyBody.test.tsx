@@ -148,6 +148,29 @@ describe("PolicyBody", () => {
     expect(screen.getByText("Dispatch export block")).toBeVisible();
   });
 
+  it("policy/draft counts use a count unit, not a headcount unit (verdict R3 KPI unit bug)", async () => {
+    setupAuth();
+    renderBody();
+    await screen.findByText("Work order view");
+
+    // 1 active (enforced) policy in the fixture, 1 draft (shadow) — the
+    // stat value must not read like a headcount ("1명") for a policy count.
+    const activeStat = screen.getByRole("button", { name: L.drill(L.activeStat) });
+    expect(activeStat).not.toHaveTextContent("1명");
+    const draftStat = screen.getByRole("button", { name: L.drill(L.draftStat) });
+    expect(draftStat).not.toHaveTextContent("1명");
+  });
+
+  it("screen title reads 권한·정책 grammar (policycanvas title is renamed on this list screen only)", async () => {
+    setupAuth();
+    renderBody();
+    await screen.findByText("Work order view");
+    expect(screen.getByRole("heading", { level: 1 })).toBeVisible();
+    // The internal policycanvas studio title ("정책 캔버스") is untouched —
+    // only this list screen's own header changes (koManifest: screenTitle).
+    expect(screen.queryByText(S.title)).toBeNull();
+  });
+
   it("real, non-fabricated org headcount drives the 적용대상 stat", async () => {
     setupAuth({ employeeTotal: 42 });
     renderBody();

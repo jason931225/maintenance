@@ -2,8 +2,8 @@ import { useMemo, useRef, useState, type CSSProperties } from "react";
 
 import { ko } from "../../../i18n/ko";
 import type { ConsoleApiClient } from "../../../api/client";
-import { ObjectExplorerScreen } from "../../explore";
 import { OntologyManagerScreen } from "../../ontology";
+import { GraphExplorer } from "./GraphExplorer";
 import { BulkPolicyGateProvider } from "../../policy";
 import { WindowManagerProvider } from "../../window";
 import "../../tokens.css";
@@ -19,34 +19,26 @@ import {
   ONTOLOGY_GATE_ACTIONS,
   useOntologyWorkspace,
 } from "./useOntologyWorkspace";
+import { screenHeaderStyle, screenTitleStyle } from "../screenHeader";
 
 const ON = ko.console.ontology;
 const TABS = ko.ontology.tabs;
 
 export type WorkspaceTab = "manager" | "graph";
 
+// Evidence/support header grammar (§ rhythm): the shell owns the outer padding
+// via the .console class, so the body is just a gap-4 grid — no double padding,
+// no minHeight/background repaint, one title header (the graph pane no longer
+// ships its own), which fixes R3's floating-title + whitespace-gap defects.
 const rootStyle: CSSProperties = {
   display: "grid",
-  gap: "var(--sp-5)",
-  padding: "var(--sp-6)",
-  minHeight: "100%",
-  background: "var(--canvas)",
+  gap: "var(--sp-4)",
   color: "var(--ink)",
   fontFamily: "var(--font-sans)",
 };
 
-const headerStyle: CSSProperties = {
-  display: "grid",
-  gap: "var(--sp-4)",
-};
-
-const titleStyle: CSSProperties = {
-  margin: 0,
-  color: "var(--ink)",
-  fontSize: "var(--text-h1)",
-  fontWeight: "var(--fw-strong)",
-  letterSpacing: "var(--tracking-tight)",
-};
+const headerStyle = screenHeaderStyle;
+const titleStyle = screenTitleStyle;
 
 const tabBarStyle: CSSProperties = {
   display: "flex",
@@ -137,26 +129,26 @@ export function OntologyWorkspaceBody({
     <section className="console" aria-label={title} style={rootStyle}>
       <header style={headerStyle}>
         <h1 style={titleStyle}>{title}</h1>
-        <StatStrip stats={stats} onDrill={handleDrill} ariaLabel={title} />
-        {allowManager ? (
-          <div role="tablist" aria-label={title} style={tabBarStyle}>
-            {(["manager", "graph"] as const).map((key) => (
-              <button
-                key={key}
-                type="button"
-                role="tab"
-                aria-selected={tab === key}
-                onClick={() => {
-                  setTab(key);
-                }}
-                style={tab === key ? tabActiveStyle : tabStyle}
-              >
-                {key === "manager" ? TABS.manager : TABS.graph}
-              </button>
-            ))}
-          </div>
-        ) : null}
       </header>
+      <StatStrip stats={stats} onDrill={handleDrill} ariaLabel={title} />
+      {allowManager ? (
+        <div role="tablist" aria-label={title} style={tabBarStyle}>
+          {(["manager", "graph"] as const).map((key) => (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={tab === key}
+              onClick={() => {
+                setTab(key);
+              }}
+              style={tab === key ? tabActiveStyle : tabStyle}
+            >
+              {key === "manager" ? TABS.manager : TABS.graph}
+            </button>
+          ))}
+        </div>
+      ) : null}
 
       {ws.feedback ? (
         <FeedbackBanner message={ws.feedback} onDismiss={ws.clearFeedback} />
@@ -184,10 +176,11 @@ export function OntologyWorkspaceBody({
               />
             ) : (
               <div ref={graphRef}>
-                <ObjectExplorerScreen
+                <GraphExplorer
                   model={ws.explorerModel}
                   onFocusChange={ws.onGraphFocusChange}
                   resolveNodeDescriptor={ws.resolveNodeDescriptor}
+                  projectedTypeIds={ws.projectedTypeIds}
                 />
               </div>
             )}

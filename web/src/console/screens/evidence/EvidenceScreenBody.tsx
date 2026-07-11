@@ -20,6 +20,38 @@ import { ko } from "../../../i18n/ko";
 import { StatusChip } from "../../components";
 import { listEvidenceObjects, type EvidenceObjectDetail } from "../../evidence";
 import { documentsKoManifest as T } from "./koManifest";
+import { screenHeaderStyle, screenTitleStyle } from "../screenHeader";
+
+// ko.console.documents.actions.{export, register, registerUnavailable} are
+// now real (wired in ko.ts, serial wire round 4). English fallbacks below
+// only guard a future ko.ts regression.
+function actionStrings(): { export: string; register: string; registerUnavailable: string } {
+  const documents = ko.console.documents as unknown as { actions?: Record<string, unknown> };
+  const actions = documents.actions;
+  const pick = (value: unknown, fallback: string): string => (typeof value === "string" ? value : fallback);
+  return {
+    export: pick(actions?.export, "Export"),
+    register: pick(actions?.register, "Register a record"),
+    registerUnavailable: pick(
+      actions?.registerUnavailable,
+      "Record registration has no create endpoint yet.",
+    ),
+  };
+}
+
+// Real, honest export — a client-side CSV of the rows actually on screen
+// (never a fabricated bulk export the backend doesn't offer). Native
+// Blob/URL, no library (§ ponytail: native platform feature over a dep).
+function toCsv(rows: EvidenceObjectDetail[], resolveOwner: (id: string) => string): string {
+  const header = [T.columns.code, T.columns.title, T.columns.type, T.columns.owner, T.columns.registeredAt];
+  const escape = (value: string) => `"${value.replace(/"/g, '""')}"`;
+  const lines = rows.map((row) =>
+    [row.code, row.title, ko.console.evidence.title, resolveOwner(row.custodian), row.registeredAt]
+      .map((v) => escape(v))
+      .join(","),
+  );
+  return [header.map(escape).join(","), ...lines].join("\r\n");
+}
 
 type TypeTab = "ALL" | "APPROVAL" | "NOTICE" | "WORKLOG" | "CONTRACT" | "INTAKE" | "EVIDENCE";
 
@@ -34,8 +66,25 @@ type ListState = "loading" | "ready" | "error";
 type RetentionEntry = { retentionUntil: string | null };
 
 const rootStyle: CSSProperties = { display: "grid", gap: "var(--sp-4)", color: "var(--ink)", fontFamily: "var(--font-sans)" };
-const headerStyle: CSSProperties = { display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--sp-3)", flexWrap: "wrap" };
-const titleStyle: CSSProperties = { margin: 0, fontSize: "var(--text-h1)", fontWeight: "var(--fw-strong)" };
+const headerStyle = screenHeaderStyle;
+const titleStyle = screenTitleStyle;
+const headerActionsStyle: CSSProperties = { display: "flex", alignItems: "center", gap: "var(--sp-2)", flexWrap: "wrap" };
+const actionButtonStyle: CSSProperties = {
+  minHeight: 44,
+  borderRadius: "var(--radius-md)",
+  border: "1px solid var(--border)",
+  background: "var(--surface)",
+  color: "var(--ink)",
+  padding: "0 var(--sp-4)",
+  fontSize: "var(--text-sm)",
+  fontWeight: "var(--fw-strong)",
+  cursor: "pointer",
+};
+const primaryActionButtonStyle: CSSProperties = {
+  ...actionButtonStyle,
+  border: "1px solid var(--signal)",
+  background: "var(--signal)",
+};
 const barStyle: CSSProperties = { display: "flex", flexWrap: "wrap", alignItems: "center", gap: "var(--sp-2)" };
 const statButtonStyle: CSSProperties = {
   display: "inline-flex",
@@ -123,12 +172,14 @@ function isExpiringSoon(retentionUntil: string): boolean {
 
 export function EvidenceScreenBody() {
   const { api } = useAuth();
+  const A = actionStrings();
   const [rows, setRows] = useState<EvidenceObjectDetail[]>([]);
   const [listState, setListState] = useState<ListState>("loading");
   const [users, setUsers] = useState<Map<string, string>>(new Map());
   const [retention, setRetention] = useState<Map<string, RetentionEntry>>(new Map());
   const [tab, setTab] = useState<TypeTab>("ALL");
   const [statFilter, setStatFilter] = useState<StatFilter>("ALL");
+  const [registerNotice, setRegisterNotice] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -217,11 +268,42 @@ export function EvidenceScreenBody() {
     setStatFilter((current) => (current === next ? "ALL" : next));
   }
 
+  // Real export: a CSV of the rows on screen right now — never a fabricated
+  // bulk-export the backend doesn't offer (§4-25-⑥).
+  function exportVisibleRows() {
+    const blob = new Blob([toCsv(visibleRows, resolveOwner)], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "documents.csv";
+    link.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <section className="console" aria-label={T.title} style={rootStyle}>
       <header style={headerStyle}>
         <h1 style={titleStyle}>{T.title}</h1>
+        <div style={headerActionsStyle}>
+          <button type="button" style={actionButtonStyle} onClick={exportVisibleRows}>
+            {A.export}
+          </button>
+          <button
+            type="button"
+            style={primaryActionButtonStyle}
+            onClick={() => {
+              setRegisterNotice(true);
+            }}
+          >
+            {A.register}
+          </button>
+        </div>
       </header>
+      {registerNotice ? (
+        <StatusChip role="status" tone="warn">
+          {A.registerUnavailable}
+        </StatusChip>
+      ) : null}
 
       <div role="group" aria-label={T.title} style={barStyle}>
         <button

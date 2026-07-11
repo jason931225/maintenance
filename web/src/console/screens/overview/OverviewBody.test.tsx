@@ -64,6 +64,7 @@ function stubApi(over?: Partial<OverviewApi>): OverviewApi {
     loadInbox: vi.fn().mockResolvedValue(inbox),
     loadNotificationCounts: vi.fn().mockResolvedValue(counts),
     loadNotifications: vi.fn().mockResolvedValue(notifications),
+    loadMailThreads: vi.fn().mockResolvedValue([]),
     ...over,
   };
 }

@@ -3,16 +3,25 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createConsoleApiClient } from "../../../api/client";
 import { AuthContext, type AuthContextValue } from "../../../context/auth";
-import { PolicyGateProvider, type PolicyGate } from "../../policy";
 import { ModuleFinanceScreenBody } from "./ModuleFinanceScreenBody";
 
-const allowGate: PolicyGate = { can: () => true };
-
-function renderBody(getImpl: (path: unknown) => Promise<unknown>, gate: PolicyGate = allowGate) {
+// NOTE: no PolicyGateProvider wrapper here — the body owns its own gate. Mounting
+// it bare (exactly as ConsoleShell does) is what proves the R4 blank-plane fix:
+// an injected allow-gate previously masked the missing provider.
+function renderBody(
+  getImpl: (path: unknown) => Promise<unknown>,
+  roles: readonly string[] = ["SUPER_ADMIN"],
+) {
   const api = createConsoleApiClient("module-finance-screen-test-token");
   vi.spyOn(api, "GET").mockImplementation(getImpl as never);
   const authValue = {
-    session: { access_token: "module-finance-screen-test-token", roles: ["ADMIN"] },
+    session: {
+      access_token: "module-finance-screen-test-token",
+      roles,
+      feature_grants: [],
+      org_id: "org-1",
+      user_id: "user-1",
+    },
     restoring: false,
     login: vi.fn(),
     logout: vi.fn(),
@@ -27,42 +36,38 @@ function renderBody(getImpl: (path: unknown) => Promise<unknown>, gate: PolicyGa
 
   return render(
     <AuthContext.Provider value={authValue}>
-      <PolicyGateProvider gate={gate}>
-        <ModuleFinanceScreenBody />
-      </PolicyGateProvider>
+      <ModuleFinanceScreenBody />
     </AuthContext.Provider>,
   );
 }
 
+const voucherRows = [
+  {
+    id: "v-1",
+    voucher_no: "VC-1001",
+    branch_id: "branch-1",
+    status: "DRAFT",
+    memo: "임대료 지급",
+    source_object_type: null,
+    source_object_id: null,
+    reversal_of_voucher_id: null,
+    reversed_by_voucher_id: null,
+    debit_total_won: 100_000,
+    credit_total_won: 100_000,
+    lines: [],
+    created_by: "user-1",
+    approved_by: null,
+    posted_at: null,
+    created_at: "2026-07-01T00:00:00Z",
+    updated_at: "2026-07-01T00:00:00Z",
+  },
+];
+
 describe("ModuleFinanceScreenBody", () => {
-  it("renders the real 재무 shell (title + stat strip) bound to the authenticated api client", async () => {
+  it("renders the real 재무 shell (title + stat strip) for a granted session with NO ambient gate", async () => {
     renderBody(async (path) => {
       await Promise.resolve();
-      if (path === "/api/v1/finance-gl/vouchers") {
-        return {
-          data: [
-            {
-              id: "v-1",
-              voucher_no: "VC-1001",
-              branch_id: "branch-1",
-              status: "DRAFT",
-              memo: "임대료 지급",
-              source_object_type: null,
-              source_object_id: null,
-              reversal_of_voucher_id: null,
-              reversed_by_voucher_id: null,
-              debit_total_won: 100_000,
-              credit_total_won: 100_000,
-              lines: [],
-              created_by: "user-1",
-              approved_by: null,
-              posted_at: null,
-              created_at: "2026-07-01T00:00:00Z",
-              updated_at: "2026-07-01T00:00:00Z",
-            },
-          ],
-        };
-      }
+      if (path === "/api/v1/finance-gl/vouchers") return { data: voucherRows };
       return { data: undefined };
     });
 
@@ -70,6 +75,20 @@ describe("ModuleFinanceScreenBody", () => {
     expect(await screen.findByRole("button", { name: "VC-1001 상세 열기" })).toBeVisible();
     // Stat strip drills a real count, not a hardcoded zero.
     expect(screen.getByText("미결전표 1")).toBeVisible();
+  });
+
+  it("stays blank for a role without module-read (deny-by-omission — no ledger leaks)", async () => {
+    renderBody(async (path) => {
+      await Promise.resolve();
+      if (path === "/api/v1/finance-gl/vouchers") return { data: voucherRows };
+      return { data: undefined };
+    }, ["MEMBER"]);
+
+    // The whole surface is gated on config.policy.read; a MEMBER sees nothing.
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: "재무" })).toBeNull();
+    });
+    expect(screen.queryByRole("button", { name: "VC-1001 상세 열기" })).toBeNull();
   });
 
   it("shows the list-load error state (not a blank/frozen screen) when the real request fails", async () => {

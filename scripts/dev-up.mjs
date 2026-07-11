@@ -521,6 +521,33 @@ function runMigrations() {
   if (result.status !== 0) throw new Error("migration run failed (MNT_APP_ROLE=migrate)");
 }
 
+// Load the KNL tenant dev fixtures (scripts/dev-seed.sql) so every console
+// screen shows real org-scoped rows instead of 0-counts. Idempotent
+// (ON CONFLICT DO NOTHING) — safe to run on every up/bootstrap. Piped into the
+// compose Postgres service's own psql, so no host psql is required.
+function runSeed(compose) {
+  const seedPath = path.join(REPO_ROOT, "scripts", "dev-seed.sql");
+  if (!existsSync(seedPath)) return;
+  log("seeding dev fixtures (scripts/dev-seed.sql)...");
+  const result = spawnSync(
+    compose.bin,
+    composeArgs(compose, [
+      "exec",
+      "-T",
+      "postgres",
+      "psql",
+      "-v",
+      "ON_ERROR_STOP=1",
+      "-U",
+      POSTGRES_USER,
+      "-d",
+      POSTGRES_DB,
+    ]),
+    { input: readFileSync(seedPath), stdio: ["pipe", "ignore", "inherit"] },
+  );
+  if (result.status !== 0) throw new Error("dev seed failed (scripts/dev-seed.sql)");
+}
+
 // The env relocation is the essence of W2: everything ops/compose.dev.yml
 // injects into the `app` *container* (JWT keys, WebAuthn RP, cookie flag,
 // cold-start OTP) plus the docker-network hostnames the container-only
@@ -612,8 +639,9 @@ function printUrls() {
 
 async function cmdUp() {
   await assertPortFree(PORTS.backend, "backend");
-  await bringUpDeps();
+  const compose = await bringUpDeps();
   runMigrations();
+  runSeed(compose);
 
   const appEnv = buildAppEnv("api");
   log("launching bacon (backend) + vite (web)...");
@@ -703,10 +731,15 @@ async function cmdUp() {
 // Plain `bootstrap` (the existing CI "dev-up-smoke" job) is unaffected.
 async function cmdBootstrap() {
   await assertPortFree(PORTS.backend, "backend");
-  await bringUpDeps();
-  runMigrations();
-
   const devAuth = process.env.MNT_DEV_AUTH_E2E === "1";
+  const compose = await bringUpDeps();
+  runMigrations();
+  // Seed ONLY the dev-auth stack. dev-seed.sql pre-seeds a `dev-auth:*` persona
+  // (so `POST /dev-auth/session` upserts the SAME row), which a DEFAULT-feature
+  // build refuses to boot against — `assert_no_dev_auth_personas` treats such a
+  // row as a leaked dev dump. The plain bootstrap is the release-parity boot
+  // smoke and must stay on a clean, un-seeded DB (it only probes /readyz).
+  if (devAuth) runSeed(compose);
   const appEnv = buildAppEnv("api");
   mkdirSync(STATE_DIR, { recursive: true });
   const logFile = path.join(STATE_DIR, "backend.log");

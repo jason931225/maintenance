@@ -29,19 +29,22 @@ afterAll(() => {
   server.close();
 });
 
-const session: AuthSession = {
-  access_token: "token",
-  user_id: "00000000-0000-4000-8000-0000000000aa",
-  display_name: "개발자",
-  roles: ["SUPER_ADMIN"],
-  group_roles: [],
-  feature_grants: [],
-  org_id: "00000000-0000-0000-0000-0000000000a1",
-  branches: ["00000000-0000-4000-8000-000000000001"],
-  isPlatform: false,
-};
+function sessionWith(roles: readonly string[]): AuthSession {
+  return {
+    access_token: "token",
+    user_id: "00000000-0000-4000-8000-0000000000aa",
+    display_name: "개발자",
+    roles: [...roles],
+    group_roles: [],
+    feature_grants: [],
+    org_id: "00000000-0000-0000-0000-0000000000a1",
+    branches: ["00000000-0000-4000-8000-000000000001"],
+    isPlatform: false,
+  };
+}
 
-function authValue(): AuthContextValue {
+function authValue(roles: readonly string[]): AuthContextValue {
+  const session = sessionWith(roles);
   return {
     session,
     restoring: false,
@@ -57,9 +60,11 @@ function authValue(): AuthContextValue {
   };
 }
 
-function renderBody() {
+// No injected policy provider — the body owns its own role gate (the R4 fix);
+// mounting it bare is what proves SUPER_ADMIN gets tabs while others don't.
+function renderBody(roles: readonly string[] = ["SUPER_ADMIN"]) {
   return render(
-    <AuthContext.Provider value={authValue()}>
+    <AuthContext.Provider value={authValue(roles)}>
       <AutomateBody />
     </AuthContext.Provider>,
   );
@@ -94,5 +99,17 @@ describe("AutomateBody (console screen composition)", () => {
     renderBody();
 
     expect(await screen.findByText(ko.console.workflows.errors.loadFailed)).toBeVisible();
+  });
+
+  it("shows no tabs (deny-by-omission) for a role without automate grants", async () => {
+    installHandlers([]);
+    renderBody(["MEMBER"]);
+
+    // The hub loads, then finds zero viewable tabs → the honest empty chip, and
+    // NOT the rule/schedule/monitor tablist.
+    expect(await screen.findByText(S.labels.noAvailableTabs)).toBeVisible();
+    expect(screen.queryByRole("tab", { name: S.tabs.rules })).toBeNull();
+    expect(screen.queryByRole("tab", { name: S.tabs.schedules })).toBeNull();
+    expect(screen.queryByRole("tab", { name: S.tabs.monitors })).toBeNull();
   });
 });

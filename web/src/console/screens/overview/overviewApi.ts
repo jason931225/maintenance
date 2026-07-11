@@ -7,6 +7,7 @@
 import type { NotificationSummary } from "../../../api/types";
 import type {
   ActionInboxResponse,
+  MailThreadSummary,
   NotificationCountsSummary,
 } from "./overviewModel";
 
@@ -14,6 +15,7 @@ export interface OverviewApi {
   loadInbox(): Promise<ActionInboxResponse>;
   loadNotificationCounts(): Promise<NotificationCountsSummary>;
   loadNotifications(): Promise<NotificationSummary[]>;
+  loadMailThreads(): Promise<MailThreadSummary[]>;
 }
 
 export function createOverviewApi(accessToken?: string): OverviewApi {
@@ -32,6 +34,13 @@ export function createOverviewApi(accessToken?: string): OverviewApi {
           accessToken,
         )
       ).items,
+    // Soft-fail: mail is a caller-scoped, licensable feature (MailUse) — a
+    // 403/unavailable mailbox degrades to an empty 메일 rail panel rather than
+    // failing the whole overview load (unlike the three REQUIRED sources above).
+    loadMailThreads: () =>
+      requestJson<MailThreadSummary[]>("/api/v1/mail/threads?unread=true&limit=5", accessToken).catch(
+        () => [],
+      ),
   };
 }
 

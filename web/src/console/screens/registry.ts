@@ -10,6 +10,7 @@ import { EvidenceScreenBody } from "./evidence/EvidenceScreenBody";
 import ExploreScreen from "./explore/ExploreBody";
 import { LeaveBody } from "./leave/LeaveBody";
 import { ModuleFinanceScreenBody } from "./module-finance/ModuleFinanceScreenBody";
+import OntologyManagerScreenBody from "./ontology-manager/OntologyManagerBody";
 import OverviewScreen from "./overview/OverviewScreen";
 import { PolicyBody } from "./policy/PolicyBody";
 import { SupportBody } from "./support/SupportBody";
@@ -23,6 +24,8 @@ export const SCREEN_REGISTRY: Readonly<Partial<Record<string, ComponentType>>> =
   policy: PolicyBody,
   // nav label "객체 탐색" — the read-only graph explorer (no type authoring).
   objectExplorer: ExploreScreen,
+  // nav label "타입·매니저" — same OntologyWorkspaceBody, allowManager tab on.
+  ontologyManager: OntologyManagerScreenBody,
   // AutomateHub owns rules + schedules + run history as internal tabs, so both
   // nav slots ("워크플로 스튜디오" and "예약 작업") mount the same studio.
   workflow: AutomateBody,

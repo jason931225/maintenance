@@ -62,6 +62,8 @@ export interface OntologyWorkspace {
   readState: OntologyReadState;
   registry: OntObjectTypeDef[];
   explorerModel: ObjectExplorerModel;
+  /** Object-type version ids whose backing_kind is projected (S23: not get/traverse-able → 조회 전용). */
+  projectedTypeIds: Set<string>;
   stats: OntologyWorkspaceStats;
   /** True once a successful read returned an empty registry (honest empty, not error). */
   isEmpty: boolean;
@@ -193,6 +195,16 @@ export function useOntologyWorkspace(
     [entries, graphs, linkTitleById, typeTitleById],
   );
 
+  const projectedTypeIds = useMemo(
+    () =>
+      new Set(
+        entries
+          .filter((entry) => entry.detail.object_type.backing_kind === "projected")
+          .map((entry) => entry.detail.object_type.id),
+      ),
+    [entries],
+  );
+
   const stats = useMemo<OntologyWorkspaceStats>(
     () => ({
       types: entries.length,
@@ -291,6 +303,7 @@ export function useOntologyWorkspace(
     readState,
     registry,
     explorerModel,
+    projectedTypeIds,
     stats,
     isEmpty: readState === "idle" && entries.length === 0,
     feedback,

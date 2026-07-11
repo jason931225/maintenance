@@ -173,9 +173,9 @@ describe("LeaveBody", () => {
     const { POST } = setupAuth();
     renderBody();
 
-    const ledgerRegion = await screen.findByRole("region", { name: S.ledger.title });
+    const promotionRegion = await screen.findByRole("region", { name: S.promotion.queueTitle });
     await userEvent.click(
-      within(ledgerRegion).getByRole("button", { name: S.promotion.sendAria("이정비", 1) }),
+      within(promotionRegion).getByRole("button", { name: S.promotion.sendAria("이정비", 1) }),
     );
 
     expect(POST).toHaveBeenCalledWith(

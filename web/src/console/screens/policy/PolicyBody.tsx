@@ -18,6 +18,7 @@ import {
   type PolicyCanvasWireStrings,
 } from "../../policycanvas";
 import { BulkPolicyGateProvider, PolicyGated } from "../../policy";
+import { screenHeaderStyle, screenTitleStyle } from "../screenHeader";
 import "../../tokens.css";
 
 /**
@@ -30,22 +31,22 @@ import "../../tokens.css";
  * headcount) fetch, list-row derivation, the §4-11 stat strip, and the
  * studio toggle. The serial wire mounts `<PolicyBody />` with no props.
  *
- * koManifest (new keys the serial wire-up should add to ko.console.policycanvas
- * — English defaults below keep this mountable/testable standalone):
- *   list: { statsAria, activeStat, draftStat, targetStat, people, drill,
- *     expandAria, collapseAria, empty, source, updatedAt, key, backToList }
+ * ko.console.policycanvas.list is fully wired (serial wire round 4),
+ * including list.count(n) (건, NOT 명 — verdict R3 "policy KPI unit bug";
+ * `people` stays 명, reserved for the 적용 대상/org-headcount stat only) and
+ * list.screenTitle ("권한·정책", replacing the studio's internal "정책 캔버스"
+ * title on THIS list screen only — verdict R3 title rename).
  */
 
 // The real, already-wired ko.console.policycanvas (title/effectLabels/
 // newPolicyName/catalogLabel/canvasLabel/wire.*) — same source PolicyCanvasScreen
-// itself is mounted with below. Only the genuinely NEW list-specific strings
-// (below) are koManifest-pending.
+// itself is mounted with below.
 const S = ko.console.policycanvas;
 const W: PolicyCanvasWireStrings = { ...DEFAULT_POLICYCANVAS_WIRE_STRINGS, ...S.wire };
 
-// Body-local list copy — read defensively off ko.console.policycanvas.list
-// (wire-pending, this lane must not edit ko.ts), same pick-with-fallback
-// pattern as DashboardBody/LeaveBody.
+// Body-local list copy off ko.console.policycanvas.list — pick-with-fallback
+// kept as a defensive guard against a future ko.ts regression (same pattern
+// as DashboardBody/LeaveBody), not because the keys are still pending.
 function listStrings() {
   const pc = (ko.console as { policycanvas?: { list?: Record<string, unknown> } }).policycanvas;
   const list = pc?.list;
@@ -58,8 +59,12 @@ function listStrings() {
     activeStat: pick("activeStat", "Active policies"),
     draftStat: pick("draftStat", "Drafts"),
     targetStat: pick("targetStat", "Applies to"),
+    // Policy/draft rows are a COUNT, not a headcount — 건, not 명 (verdict R3
+    // unit bug). `people` stays reserved for the org-headcount target stat.
+    count: pick<(n: number) => string>("count", (n) => `${String(n)} policies`),
     people: pick<(n: number) => string>("people", (n) => String(n)),
     drill: pick<(label: string) => string>("drill", (label) => `Filter by ${label}`),
+    screenTitle: pick("screenTitle", "Access & Policy"),
     expandAria: pick<(title: string) => string>("expandAria", (title) => `Expand ${title}`),
     collapseAria: pick<(title: string) => string>("collapseAria", (title) => `Collapse ${title}`),
     empty: pick("empty", "No policies yet."),
@@ -137,20 +142,8 @@ const cardStyle: CSSProperties = {
   boxShadow: "var(--shadow)",
 };
 
-const headerStyle: CSSProperties = {
-  display: "flex",
-  flexWrap: "wrap",
-  alignItems: "center",
-  justifyContent: "space-between",
-  gap: "var(--sp-3)",
-};
-
-const titleStyle: CSSProperties = {
-  margin: 0,
-  fontSize: "var(--text-h1)",
-  fontWeight: "var(--fw-strong)",
-  letterSpacing: "var(--tracking-tight)",
-};
+const headerStyle = screenHeaderStyle;
+const titleStyle = screenTitleStyle;
 
 const chipRowStyle: CSSProperties = {
   display: "flex",
@@ -353,8 +346,8 @@ export function PolicyBody() {
   const draftCount = rows.filter((r) => r.bucket === "draft").length;
 
   const stats: { key: string; label: string; value: string; filter: Filter }[] = [
-    { key: "active", label: L.activeStat, value: L.people(activeCount), filter: "enforced" },
-    { key: "draft", label: L.draftStat, value: L.people(draftCount), filter: "draft" },
+    { key: "active", label: L.activeStat, value: L.count(activeCount), filter: "enforced" },
+    { key: "draft", label: L.draftStat, value: L.count(draftCount), filter: "draft" },
     { key: "target", label: L.targetStat, value: L.people(targetHeadcount), filter: "all" },
   ];
 
@@ -385,7 +378,7 @@ export function PolicyBody() {
     <BulkPolicyGateProvider actions={GATE_ACTIONS}>
       <div style={rootStyle} data-cshell-screen-body="policy">
         <header style={headerStyle}>
-          <h2 style={titleStyle}>{S.title}</h2>
+          <h1 style={titleStyle}>{L.screenTitle}</h1>
           <PolicyGated action={POLICY_CANVAS_ACTIONS.author}>
             <button
               type="button"
@@ -408,25 +401,26 @@ export function PolicyBody() {
           />
         ) : (
           <>
-            <section style={cardStyle}>
-              <div role="group" aria-label={L.statsAria} style={chipRowStyle}>
-                {stats.map((stat) => (
-                  <button
-                    key={stat.key}
-                    type="button"
-                    aria-pressed={filter === stat.filter && stat.filter !== "all"}
-                    aria-label={L.drill(stat.label)}
-                    onClick={() => {
-                      setFilter(filter === stat.filter ? "all" : stat.filter);
-                    }}
-                    style={statButtonStyle(filter === stat.filter && stat.filter !== "all")}
-                  >
-                    <span style={statLabelStyle}>{stat.label}</span>
-                    <span>{stat.value}</span>
-                  </button>
-                ))}
-              </div>
-            </section>
+            {/* Bare stat bar (no card border) — same floating-header, open
+                whitespace grammar as EvidenceScreenBody's stat row (verdict
+                R3 rhythm fix), instead of boxing every stat in its own card. */}
+            <div role="group" aria-label={L.statsAria} style={chipRowStyle}>
+              {stats.map((stat) => (
+                <button
+                  key={stat.key}
+                  type="button"
+                  aria-pressed={filter === stat.filter && stat.filter !== "all"}
+                  aria-label={L.drill(stat.label)}
+                  onClick={() => {
+                    setFilter(filter === stat.filter ? "all" : stat.filter);
+                  }}
+                  style={statButtonStyle(filter === stat.filter && stat.filter !== "all")}
+                >
+                  <span style={statLabelStyle}>{stat.label}</span>
+                  <span>{stat.value}</span>
+                </button>
+              ))}
+            </div>
 
             <section style={cardStyle} aria-label={S.catalogLabel}>
               {visibleRows.length === 0 ? (

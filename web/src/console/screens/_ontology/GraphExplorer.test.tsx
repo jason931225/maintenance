@@ -1,0 +1,90 @@
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import type { ReactNode } from "react";
+import { describe, expect, it, vi } from "vitest";
+
+import { ko } from "../../../i18n/ko";
+import type { ObjectExplorerModel, ObjectExplorerNode } from "../../explore";
+import type { ObjectCardDescriptor } from "../../objectcard";
+import { GraphExplorer } from "./GraphExplorer";
+
+// The docked inspector renders a real ObjectCard; open the policy gate so it
+// mounts without the bulk-authorize round-trip.
+vi.mock("../../policy", () => {
+  const passthrough = ({ children }: { children: ReactNode }) => <>{children}</>;
+  return {
+    PolicyGated: passthrough,
+    usePolicyGate: () => ({ can: () => true }),
+  };
+});
+
+const G = ko.console.explore.graph;
+
+const model: ObjectExplorerModel = {
+  nodes: [
+    { id: "n1", type: "계약", type_id: "t1", code: "C-207", label: "NK보안 경비용역", lifecycle: { phase: "active" } },
+    { id: "n2", type: "구매", type_id: "t2", code: "PO-119", label: "경비 근무 장구", lifecycle: { phase: "active" } },
+  ],
+  object_links: [{ id: "e1", source_id: "n1", target_id: "n2", relation: "공급" }],
+};
+
+function resolvedDescriptor(node: ObjectExplorerNode): ObjectCardDescriptor {
+  return {
+    id: node.id,
+    code: node.code,
+    title: node.label,
+    objectType: { key: node.type_id ?? node.type, title: node.type },
+    lifecycleState: "active",
+    properties: [{ key: "amount", title: "월 계약금", type: "money", value: "₩1,860,000" }],
+    relations: [],
+    lifecycle: [{ state: "active", reached: true, current: true }],
+    history: [],
+    actions: [{ key: "renew", title: "갱신 검토 기안" }],
+  };
+}
+
+describe("GraphExplorer", () => {
+  it("renders typed nodes, relation-labelled edges and a legend by type", () => {
+    render(<GraphExplorer model={model} />);
+    // Typed node code chips (C-207 also appears in the docked focus-node card).
+    expect(screen.getAllByText("C-207").length).toBeGreaterThan(0);
+    expect(screen.getByText("PO-119")).toBeInTheDocument();
+    // Edge carries its relation label.
+    expect(screen.getByText("공급")).toBeInTheDocument();
+    // Legend counts the two distinct types.
+    const legend = screen.getByRole("group", { name: G.legend });
+    expect(within(legend).getByText(G.legendCount(2))).toBeInTheDocument();
+  });
+
+  it("zooms in from the 100% baseline", () => {
+    render(<GraphExplorer model={model} />);
+    expect(screen.getByText(G.zoomLevel(100))).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: G.zoomIn }));
+    expect(screen.getByText(G.zoomLevel(110))).toBeInTheDocument();
+  });
+
+  it("resolves the docked inspector card when a node is activated", async () => {
+    const resolve = vi.fn((node: ObjectExplorerNode) => Promise.resolve(resolvedDescriptor(node)));
+    render(<GraphExplorer model={model} resolveNodeDescriptor={resolve} />);
+    // Default inspector is the degraded focus card — no fabricated properties.
+    expect(screen.queryByText("월 계약금")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: ko.console.explore.actions.recenter("NK보안 경비용역") }));
+    await waitFor(() => {
+      expect(screen.getByText("월 계약금")).toBeInTheDocument();
+    });
+    expect(resolve).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the honest 조회 전용 state for a projected node and never resolves it", () => {
+    const resolve = vi.fn((node: ObjectExplorerNode) => Promise.resolve(resolvedDescriptor(node)));
+    render(
+      <GraphExplorer
+        model={model}
+        resolveNodeDescriptor={resolve}
+        projectedTypeIds={new Set(["t1"])}
+      />,
+    );
+    // Focus node (t1) is projected → the notice shows without a resolve attempt.
+    expect(screen.getByText(G.projectedNotice)).toBeInTheDocument();
+    expect(resolve).not.toHaveBeenCalled();
+  });
+});
