@@ -36,6 +36,20 @@ layers (Semantic / Kinetic / Dynamic) plus UI and Tests. Evidence-based, cites
 
 ---
 
+## Wave completion status
+
+### W1 — Backend engine completion (PR #440)
+**Lanes delivered (2026-07-10):** C-chain audit integration · projected-dispatch prototype · semantic-backfill machinery · niche-seeds catalog · create-action auto-attach · voucher/GL finance module · quant service · notifications board · payroll REST · ingest-checklist gates.
+**Status:** Merged, CI green (all gates 🟢), live on main.
+**Follow-ups:** See `docs/program/ultra-review-w1-w2.md` — M1-M3 must-fix (four-eyes binding, finance self-approval, evidence fabrication) + S1-S24 should-fix (residual wiring, policy-gate bulk, fixity honesty, config audit, etc.) tracked as post-replica backlog.
+
+### W2 — Frontend Phase C wave 2 (PR #441)
+**Lanes delivered (2026-07-10):** Chart honestScale · leave-depth object rows · evidence-viewer WORM chain · config-console instance aggregation · policy-canvas bulk gate · dynamics (acting-read integration) · decisions (Cedar feed) · compliance-UI obligations/regulations · finance surfaces (voucher compose, SLO config) · forecast projection (CI95/CVaR).
+**Status:** Merged, CI green (834 tests 🟢), zero must-fix doctrine violations.
+**Follow-ups:** Same ultra-review register; all remaining stubs wired to real REST endpoints, zero fabrication. Post-replica audit per §4-25-⑥ will lock any regression (E2E persona workflows, polish pass, capability mining).
+
+---
+
 ## Condensed coverage table
 
 Legend: ✅ EXISTS · ◐ PARTIAL · ✗ MISSING
@@ -345,3 +359,21 @@ steps 1-5 into "publish the type." Until then, "no-code add-a-type" is really
    labels come from the published schema.
 5. **Registry-sourced candidate lists** for policy `resource_type` and automation
    `objectType` (autocomplete from `ONT_TYPES ∪ POL_BLOCKS`) — discoverability.
+
+---
+
+# Ultra-review findings (W0 + W1 + W2)
+
+Post-merge quality audit across backend engine (W1, 10 lanes), frontend Phase C wave 2 (W2, 10 lanes), and routing/model evidence (W0). Full register: `docs/program/ultra-review-w1-w2.md`.
+
+## Critical findings (M1–M3: must-fix before production)
+- **M1** — Four-eyes approval ref binding unbound and replayable (systemic authz bypass across workflow publish/run and projected dispatch)
+- **M2** — Finance-GL voucher approval self-approval enabled (no four-eyes / SoD, missing `approved_by` column)
+- **M3** — Evidence custody transfer & disposal fabricated client-side (violates §4-25-⑥, audit chain integrity)
+
+## Quality findings (S1–S24: should-fix, tracked as post-replica backlog)
+**Ranked sample:** Deny-by-omission row-filter not wired (S1) · policy-gate bulk undeployed (S2) · four-eyes self-decide fail-open on unknown user (S3) · governance API parsing fail-open (S5) · Finance FE model diverges from backend FSM (S14) · no-code add-a-type automation gaps (Section B automation-lane register) · plus 18 more (schema, UI, test, performance, discovery, a11y).
+
+**Coverage gaps:** Android/mobile unaudited · four-eyes binding sweep incomplete · view-as→mutation seam untested · notices REST/app crate unexamined · FE↔BE contract seam (clients/openapi.yaml fidelity) unverified.
+
+**Verdict:** W1+W2 delivered on schedule, core lanes production-ready; all MFix items are **known and tracked**. Post-replica audit (Phase C.5) will lock regressions via E2E persona workflows + regression suite + polish sweep.
