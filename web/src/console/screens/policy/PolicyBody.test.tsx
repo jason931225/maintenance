@@ -190,7 +190,11 @@ describe("PolicyBody", () => {
     renderBody();
     await screen.findByText("Work order view");
 
-    await userEvent.click(screen.getByRole("button", { name: S.newPolicyName }));
+    // The 새 정책 button lives behind <PolicyGated>, whose bulk-authorize gate
+    // resolves on a separate async chain from the catalog load that
+    // findByText("Work order view") awaits — so wait for the gated button to
+    // appear rather than grabbing it synchronously (deny-by-omission until Allow).
+    await userEvent.click(await screen.findByRole("button", { name: S.newPolicyName }));
     expect(await screen.findByLabelText(S.canvasLabel)).toBeVisible();
   });
 });
