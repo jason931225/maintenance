@@ -194,6 +194,7 @@ export const NAV_GROUPS: readonly ConsoleNavGroup[] = [
         icon: "history",
         gate: g(ADMIN_ROLES, [FEATURES.AUDIT_LOG_READ]),
       },
+      { screen: "support", labelKey: "console.shell.nav.support", icon: "mailbox" },
     ],
   },
   {

@@ -1,96 +1,112 @@
 import { describe, expect, it } from "vitest";
 
-import type { VoucherRecord } from "./financeApi";
+import type { VoucherSummary } from "./financeApi";
 import { balanceCheckValue, documentFlowStepper, validateDraft, voucherRow, voucherStatusId, type DraftLine } from "./financeModel";
 
-function record(overrides: Partial<VoucherRecord> = {}): VoucherRecord {
+function record(overrides: Partial<VoucherSummary> = {}): VoucherSummary {
   return {
     id: "v-1",
-    code: "VC-1",
-    title: "임대료 지급",
-    lifecycle_state: "draft",
-    lifecycle_version: 1,
-    posting_status: "unposted",
-    validation_status: "valid",
-    total_debit_won: 100_000,
-    total_credit_won: 100_000,
+    voucher_no: "VC-1",
+    branch_id: "branch-1",
+    status: "DRAFT",
+    memo: "임대료 지급",
+    source_object_type: null,
+    source_object_id: null,
+    reversal_of_voucher_id: null,
+    reversed_by_voucher_id: null,
+    debit_total_won: 100_000,
+    credit_total_won: 100_000,
     lines: [
-      { line_no: 1, gl_account_id: "gl-101", debit_won: 100_000, credit_won: 0 },
-      { line_no: 2, gl_account_id: "gl-201", debit_won: 0, credit_won: 100_000 },
+      { id: "line-1", line_no: 1, account_code: "101", side: "DEBIT", amount_won: 100_000, memo: "" },
+      { id: "line-2", line_no: 2, account_code: "201", side: "CREDIT", amount_won: 100_000, memo: "" },
     ],
+    created_by: "user-1",
+    approved_by: null,
+    posted_at: null,
+    created_at: "2026-07-01T00:00:00Z",
+    updated_at: "2026-07-01T00:00:00Z",
     ...overrides,
   };
 }
 
 describe("voucherStatusId", () => {
-  it("prefers validation failure over posting/lifecycle", () => {
-    expect(voucherStatusId(record({ validation_status: "unbalanced" }))).toBe("invalid");
-  });
-  it("reports posted once posting_status is posted", () => {
-    expect(voucherStatusId(record({ posting_status: "posted" }))).toBe("posted");
-  });
-  it("falls back to lifecycle_state when unposted and valid", () => {
-    expect(voucherStatusId(record({ lifecycle_state: "review" }))).toBe("review");
+  it("is a direct lowercase mirror of the real VoucherStatus enum", () => {
+    expect(voucherStatusId(record({ status: "DRAFT" }))).toBe("draft");
+    expect(voucherStatusId(record({ status: "BALANCE_CHECKED" }))).toBe("balance_checked");
+    expect(voucherStatusId(record({ status: "APPROVED" }))).toBe("approved");
+    expect(voucherStatusId(record({ status: "POSTED" }))).toBe("posted");
+    expect(voucherStatusId(record({ status: "REVERSED" }))).toBe("reversed");
   });
 });
 
 describe("documentFlowStepper", () => {
-  it("marks validate blocked with a reason when validation fails", () => {
-    const stepper = documentFlowStepper(record({ validation_status: "unbalanced" }));
-    const validate = stepper.steps.find((step) => step.key === "validate");
-    expect(validate?.state).toBe("blocked");
-    expect(validate?.reasonKey).toBe("console.modules.finance.validationReasons.unbalanced");
+  it("marks every step done once posted, with a posted timestamp", () => {
+    const stepper = documentFlowStepper(record({ status: "POSTED", posted_at: "2026-07-09T00:00:00Z" }));
+    expect(stepper.steps.map((s) => s.state)).toEqual(["done", "done", "done", "done"]);
+    expect(stepper.steps.find((s) => s.key === "post")?.occurredAt).toBeTruthy();
   });
 
-  it("marks post done with a posted timestamp once posted", () => {
-    const stepper = documentFlowStepper(record({ posting_status: "posted", posted_at: "2026-07-09T00:00:00Z" }));
-    const post = stepper.steps.find((step) => step.key === "post");
-    expect(post?.state).toBe("done");
-    expect(post?.occurredAt).toBeTruthy();
+  it("marks approve current while balance-checked", () => {
+    const stepper = documentFlowStepper(record({ status: "BALANCE_CHECKED" }));
+    expect(stepper.steps.find((s) => s.key === "validate")?.state).toBe("done");
+    expect(stepper.steps.find((s) => s.key === "approve")?.state).toBe("current");
+    expect(stepper.steps.find((s) => s.key === "post")?.state).toBe("pending");
   });
 
-  it("marks approve current while lifecycle is under review", () => {
-    const stepper = documentFlowStepper(record({ lifecycle_state: "review" }));
-    expect(stepper.steps.find((step) => step.key === "approve")?.state).toBe("current");
+  it("marks post blocked-with-reason once reversed, all earlier steps done", () => {
+    const stepper = documentFlowStepper(record({ status: "REVERSED", posted_at: "2026-07-01T00:00:00Z" }));
+    expect(stepper.steps.every((s) => s.state === "done")).toBe(true);
+    expect(stepper.steps.find((s) => s.key === "post")?.reasonKey).toBe(
+      "console.modules.finance.documentFlow.reversedReason",
+    );
+  });
+
+  it("leaves everything ahead of entry pending while still a draft", () => {
+    const stepper = documentFlowStepper(record({ status: "DRAFT" }));
+    expect(stepper.steps.find((s) => s.key === "entry")?.state).toBe("done");
+    expect(stepper.steps.find((s) => s.key === "validate")?.state).toBe("current");
+    expect(stepper.steps.find((s) => s.key === "approve")?.state).toBe("pending");
   });
 });
 
 describe("balanceCheckValue", () => {
-  it("is ok when validation is valid and totals match", () => {
+  it("is ok when debit and credit totals match and are positive", () => {
     expect(balanceCheckValue(record()).status).toBe("ok");
   });
-  it("is blocked when validation fails, carrying the reason", () => {
-    const value = balanceCheckValue(record({ validation_status: "invalid_gl_account" }));
+  it("is blocked when totals diverge", () => {
+    const value = balanceCheckValue(record({ debit_total_won: 100_000, credit_total_won: 90_000 }));
     expect(value.status).toBe("blocked");
-    expect(value.reasonKey).toBe("console.modules.finance.validationReasons.invalid_gl_account");
   });
 });
 
 describe("voucherRow", () => {
-  it("surfaces one account-drill chip per distinct GL line, not a fabricated summary", () => {
+  it("surfaces one account-drill chip per distinct account code, not a fabricated summary", () => {
     const row = voucherRow(record());
     const glChips = row.linkChips?.filter((chip) => chip.key.startsWith("glAccount:"));
     expect(glChips).toHaveLength(2);
-    expect(glChips?.map((chip) => chip.id)).toEqual(["gl-101", "gl-201"]);
+    expect(glChips?.map((chip) => chip.id)).toEqual(["101", "201"]);
   });
 
-  it("only offers postVoucher when unposted+valid+draft-or-review (mirrors validate_post_transition)", () => {
-    expect(voucherRow(record()).actions?.map((a) => a.key)).toContain("postVoucher");
-    expect(voucherRow(record({ validation_status: "unbalanced" })).actions?.map((a) => a.key)).not.toContain(
-      "postVoucher",
-    );
+  it("offers submitVoucher only while draft", () => {
+    expect(voucherRow(record({ status: "DRAFT" })).actions?.map((a) => a.key)).toEqual(["submitVoucher"]);
+    expect(voucherRow(record({ status: "BALANCE_CHECKED" })).actions?.map((a) => a.key)).toEqual(["approveVoucher"]);
+    expect(voucherRow(record({ status: "APPROVED" })).actions?.map((a) => a.key)).toEqual(["postVoucher"]);
+    expect(voucherRow(record({ status: "POSTED" })).actions?.map((a) => a.key)).toEqual(["reverseVoucher"]);
+    expect(voucherRow(record({ status: "REVERSED" })).actions).toEqual([]);
   });
 
-  it("only offers reverseVoucher once posted", () => {
-    expect(voucherRow(record()).actions?.map((a) => a.key)).not.toContain("reverseVoucher");
-    expect(voucherRow(record({ posting_status: "posted" })).actions?.map((a) => a.key)).toContain("reverseVoucher");
+  it("surfaces the source link chip only when the voucher was derived from a source", () => {
+    expect(voucherRow(record()).linkChips?.some((c) => c.key.startsWith("source:"))).toBe(false);
+    const derived = voucherRow(record({ source_object_type: "purchase_request", source_object_id: "pr-1" }));
+    expect(derived.linkChips?.some((c) => c.key === "source:purchase_request")).toBe(true);
+    expect(derived.source?.kind).toBe("purchase_request");
   });
 });
 
 describe("validateDraft", () => {
   const balancedLines: DraftLine[] = [
-    { line_no: 1, gl_account_id: "gl-101", description: "", debit_won: "50000", credit_won: "" },
-    { line_no: 2, gl_account_id: "gl-201", description: "", debit_won: "", credit_won: "50000" },
+    { line_no: 1, account_code: "101", memo: "", debit_won: "50000", credit_won: "" },
+    { line_no: 2, account_code: "201", memo: "", debit_won: "", credit_won: "50000" },
   ];
 
   it("balances two well-formed lines", () => {
@@ -100,7 +116,7 @@ describe("validateDraft", () => {
     expect(result.totalCredit).toBe(50_000);
   });
 
-  it("rejects an empty title", () => {
+  it("rejects an empty memo", () => {
     expect(validateDraft("", balancedLines).reasonKey).toBe("console.modules.finance.compose.errors.title");
   });
 
@@ -110,16 +126,16 @@ describe("validateDraft", () => {
 
   it("rejects an unbalanced total", () => {
     const lines: DraftLine[] = [
-      { line_no: 1, gl_account_id: "gl-101", description: "", debit_won: "50000", credit_won: "" },
-      { line_no: 2, gl_account_id: "gl-201", description: "", debit_won: "", credit_won: "40000" },
+      { line_no: 1, account_code: "101", memo: "", debit_won: "50000", credit_won: "" },
+      { line_no: 2, account_code: "201", memo: "", debit_won: "", credit_won: "40000" },
     ];
     expect(validateDraft("t", lines).reasonKey).toBe("console.modules.finance.compose.errors.unbalanced");
   });
 
   it("rejects a line with both debit and credit populated", () => {
     const lines: DraftLine[] = [
-      { line_no: 1, gl_account_id: "gl-101", description: "", debit_won: "10", credit_won: "10" },
-      { line_no: 2, gl_account_id: "gl-201", description: "", debit_won: "", credit_won: "10" },
+      { line_no: 1, account_code: "101", memo: "", debit_won: "10", credit_won: "10" },
+      { line_no: 2, account_code: "201", memo: "", debit_won: "", credit_won: "10" },
     ];
     expect(validateDraft("t", lines).reasonKey).toBe("console.modules.finance.compose.errors.onesided");
   });

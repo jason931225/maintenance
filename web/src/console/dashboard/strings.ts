@@ -25,6 +25,9 @@ export interface DashboardStrings {
   delayReasons: string;
   emptyReason: string;
   emptyAction: string;
+  /** Body-level error/retry copy (DashboardBody's own fetch failure state). */
+  errorReason?: string;
+  retry?: string;
 }
 
 const FALLBACK: DashboardStrings = {

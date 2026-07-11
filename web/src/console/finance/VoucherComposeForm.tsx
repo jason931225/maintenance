@@ -1,9 +1,10 @@
-import { useState, type CSSProperties } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 
 import { StatusChip } from "../components";
 import "../tokens.css";
 import { resolveText } from "../modules/typeRegistry";
 import type { ModuleComposeContext } from "../modules/types";
+import { listBranches, type BranchSummary } from "./financeApi";
 import { formatWon, submitVoucherDraft, validateDraft, type DraftLine } from "./financeModel";
 
 const F = "console.modules.finance";
@@ -86,18 +87,33 @@ const chipRowStyle: CSSProperties = {
 };
 
 function emptyLine(lineNo: number): DraftLine {
-  return { line_no: lineNo, gl_account_id: "", description: "", debit_won: "", credit_won: "" };
+  return { line_no: lineNo, account_code: "", memo: "", debit_won: "", credit_won: "" };
 }
 
 type SubmitState = { status: "idle" } | { status: "submitting" } | { status: "error"; reasonKey: string };
 
 export function VoucherComposeForm({ api, onDone, onCancel }: ModuleComposeContext) {
-  const [title, setTitle] = useState("");
   const [memo, setMemo] = useState("");
   const [lines, setLines] = useState<DraftLine[]>([emptyLine(1), emptyLine(2)]);
   const [submit, setSubmit] = useState<SubmitState>({ status: "idle" });
+  const [branches, setBranches] = useState<BranchSummary[]>([]);
+  const [branchId, setBranchId] = useState("");
 
-  const validation = validateDraft(title, lines);
+  useEffect(() => {
+    let active = true;
+    void listBranches(api)
+      .then((items) => {
+        if (!active) return;
+        setBranches(items);
+        setBranchId((current) => current || (items[0]?.id ?? ""));
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, [api]);
+
+  const validation = validateDraft(memo, lines);
 
   function updateLine(index: number, patch: Partial<DraftLine>) {
     setLines((current) => current.map((line, i) => (i === index ? { ...line, ...patch } : line)));
@@ -113,19 +129,21 @@ export function VoucherComposeForm({ api, onDone, onCancel }: ModuleComposeConte
 
   async function handleSubmit() {
     setSubmit({ status: "submitting" });
-    const record = await submitVoucherDraft(api, title, memo, lines);
-    if (!record) {
+    try {
+      const record = await submitVoucherDraft(api, branchId, memo, lines);
+      setSubmit({ status: "idle" });
+      onDone({
+        id: record.id,
+        code: record.voucher_no,
+        title: record.memo,
+        cells: {},
+      });
+    } catch {
       setSubmit({ status: "error", reasonKey: `${F}.compose.errors.submitFailed` });
-      return;
     }
-    setSubmit({ status: "idle" });
-    onDone({
-      id: record.id,
-      code: record.code,
-      title: record.title,
-      cells: {},
-    });
   }
+
+  const canSubmit = validation.balanced && Boolean(branchId) && submit.status !== "submitting";
 
   return (
     <form
@@ -133,23 +151,29 @@ export function VoucherComposeForm({ api, onDone, onCancel }: ModuleComposeConte
       style={formStyle}
       onSubmit={(event) => {
         event.preventDefault();
-        if (validation.balanced && submit.status !== "submitting") void handleSubmit();
+        if (canSubmit) void handleSubmit();
       }}
     >
       <label style={fieldStyle}>
-        {resolveText(`${F}.compose.titleField`)}
-        <input
-          type="text"
-          value={title}
+        {resolveText(`${F}.compose.branchField`)}
+        <select
+          value={branchId}
           onChange={(event) => {
-            setTitle(event.currentTarget.value);
+            setBranchId(event.currentTarget.value);
           }}
           style={inputStyle}
           required
-        />
+        >
+          {branches.length === 0 ? <option value="">{resolveText(`${F}.compose.branchLoading`)}</option> : null}
+          {branches.map((branch) => (
+            <option key={branch.id} value={branch.id}>
+              {branch.name}
+            </option>
+          ))}
+        </select>
       </label>
       <label style={fieldStyle}>
-        {resolveText(`${F}.compose.memoField`)}
+        {resolveText(`${F}.compose.titleField`)}
         <input
           type="text"
           value={memo}
@@ -157,6 +181,7 @@ export function VoucherComposeForm({ api, onDone, onCancel }: ModuleComposeConte
             setMemo(event.currentTarget.value);
           }}
           style={inputStyle}
+          required
         />
       </label>
 
@@ -173,18 +198,18 @@ export function VoucherComposeForm({ api, onDone, onCancel }: ModuleComposeConte
             <input
               type="text"
               aria-label={resolveText(`${F}.compose.columns.glAccount`)}
-              value={line.gl_account_id}
+              value={line.account_code}
               onChange={(event) => {
-                updateLine(index, { gl_account_id: event.currentTarget.value });
+                updateLine(index, { account_code: event.currentTarget.value });
               }}
               style={inputStyle}
             />
             <input
               type="text"
               aria-label={resolveText(`${F}.compose.columns.description`)}
-              value={line.description}
+              value={line.memo}
               onChange={(event) => {
-                updateLine(index, { description: event.currentTarget.value });
+                updateLine(index, { memo: event.currentTarget.value });
               }}
               style={inputStyle}
             />
@@ -248,7 +273,7 @@ export function VoucherComposeForm({ api, onDone, onCancel }: ModuleComposeConte
       ) : null}
 
       <span style={chipRowStyle}>
-        <button type="submit" style={primaryButtonStyle} disabled={!validation.balanced || submit.status === "submitting"}>
+        <button type="submit" style={primaryButtonStyle} disabled={!canSubmit}>
           {resolveText(submit.status === "submitting" ? `${F}.compose.submitting` : `${F}.compose.submit`)}
         </button>
         <button type="button" style={ghostButtonStyle} onClick={onCancel}>

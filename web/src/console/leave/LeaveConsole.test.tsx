@@ -182,6 +182,7 @@ interface RenderOptions {
   selfUserId?: string;
   decide?: (id: string, decision: "approve" | "reject", comment?: string) => Promise<LeaveDecideOutcome>;
   pushPromotion?: (payload: {
+    branchId: string;
     targetUserId: string;
     targetEmployeeId: string;
     targetName: string;
@@ -193,13 +194,17 @@ interface RenderOptions {
 function renderConsole(options: RenderOptions = {}) {
   const decide = options.decide ?? (() => Promise.resolve({ ok: true }));
   const pushPromotion = options.pushPromotion ?? (() => Promise.resolve({ ok: true }));
+  // `?? "self-user"` would coerce an explicit `selfUserId: undefined` (the S3
+  // fail-closed case) back to a default — distinguish "omitted" from "asserted
+  // unresolved" via `in`.
+  const selfUserId = "selfUserId" in options ? options.selfUserId : "self-user";
   return render(
     <WindowManagerProvider>
       <PolicyGateProvider gate={options.gate ?? LEAVE_RUNTIME_GATE}>
         <LeaveConsole
           ledger={makeLedger()}
           requests={options.requests ?? []}
-          selfUserId={options.selfUserId ?? "self-user"}
+          selfUserId={selfUserId}
           decide={decide}
           pushPromotion={pushPromotion}
         />
@@ -240,6 +245,17 @@ describe("LeaveConsole (레인1 leave 카드 존, real-wired)", () => {
     const queue = screen.getByRole("region", { name: S.queue.title });
     expect(
       within(queue).queryByRole("button", { name: S.queue.decideAria(S.queue.approve, "김현장") }),
+    ).toBeNull();
+  });
+
+  it("S3 fail-closed: an unresolved selfUserId hides decide buttons on every row (never fail-open)", () => {
+    renderConsole({
+      requests: [makeRequest({ id: "req-9", requester_user_id: "employee-2", subject_employee_id: "employee-2" })],
+      selfUserId: undefined,
+    });
+    const queue = screen.getByRole("region", { name: S.queue.title });
+    expect(
+      within(queue).queryByRole("button", { name: S.queue.decideAria(S.queue.approve, "이정비") }),
     ).toBeNull();
   });
 
@@ -336,6 +352,7 @@ describe("LeaveConsole (레인1 leave 카드 존, real-wired)", () => {
     fireEvent.click(within(ledgerRegion).getByRole("button", { name: S.promotion.sendAria("박기사", 1) }));
 
     expect(pushPromotion).toHaveBeenCalledWith({
+      branchId: "branch-1",
       targetUserId: "u-3",
       targetEmployeeId: "employee-3",
       targetName: "박기사",

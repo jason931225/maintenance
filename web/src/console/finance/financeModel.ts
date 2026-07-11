@@ -10,15 +10,18 @@ import type {
   ModuleStepperValue,
 } from "../modules/types";
 import {
-  createVoucher,
+  createVoucherDraft,
   getVoucher,
   listVouchers,
   postVoucher as postVoucherApi,
   reverseVoucher as reverseVoucherApi,
+  submitVoucher as submitVoucherApi,
+  approveVoucher as approveVoucherApi,
   type CreateVoucherRequest,
-  type VoucherLine,
-  type VoucherRecord,
-  type VoucherValidationStatus,
+  type DebitCredit,
+  type VoucherLineInput,
+  type VoucherSummary,
+  type VoucherStatus,
 } from "./financeApi";
 
 const F = "console.modules.finance";
@@ -49,178 +52,174 @@ function formatDate(value: string | null | undefined): string | undefined {
   return dateFormatter.format(date);
 }
 
-/** Status choice id — validation/posting override lifecycle since they gate
- * what a user can actually do next (mirrors backend validate_post_transition:
- * posting requires lifecycle draft|review, posting_status unposted, and a
- * valid validation_status). */
-export function voucherStatusId(record: VoucherRecord): string {
-  if (record.validation_status !== "valid") return "invalid";
-  if (record.posting_status === "posted") return "posted";
-  // ponytail: "reversed" has no dedicated registry choice yet; "revision"
-  // (개정) is the closest existing tone — add a real "reversed" choice if a
-  // future review wants it distinguished from an in-flight edit.
-  if (record.posting_status === "reversed") return "revision";
-  return record.lifecycle_state;
+/** Status choice id — a direct lowercase mirror of the real backend
+ * `VoucherStatus` FSM (finance-gl/domain: Draft → BalanceChecked → Approved →
+ * Posted → Reversed). S14 fix: the prior version of this file invented a
+ * three-field (lifecycle_state/posting_status/validation_status) shape that
+ * does not exist on the wire; there is exactly one status enum. */
+export function voucherStatusId(record: VoucherSummary): string {
+  return record.status.toLowerCase();
 }
 
-function sourceValue(record: VoucherRecord): ModuleSourceValue | undefined {
-  if (!record.source_kind) return undefined;
+const KNOWN_SOURCE_LABEL_KEYS: Partial<Record<string, string>> = {
+  approval: `${F}.sources.approval`,
+  purchase_request: `${F}.sources.purchase`,
+  payroll_run: `${F}.sources.payroll`,
+  contract: `${F}.sources.contract`,
+};
+
+/** A source type outside the known set renders its raw string rather than an
+ * unresolved dotted ko key (never a literal "console.modules.finance..." on
+ * screen). */
+function sourceTypeLabel(type: string): string {
+  const key = KNOWN_SOURCE_LABEL_KEYS[type];
+  return key ? resolveText(key) : type;
+}
+
+function sourceValue(record: VoucherSummary): ModuleSourceValue | undefined {
+  if (!record.source_object_type || !record.source_object_id) return undefined;
   return {
-    labelKey: `${F}.sources.${record.source_kind}`,
+    labelKey: KNOWN_SOURCE_LABEL_KEYS[record.source_object_type] ?? record.source_object_type,
     tone: "info",
-    kind: record.source_kind,
-    id: record.source_id ?? record.source_code ?? record.source_kind,
-    code: record.source_code ?? undefined,
+    kind: record.source_object_type,
+    id: record.source_object_id,
     policyAction: FINANCE_MODULE_ACTIONS.read,
   };
 }
 
-const SOURCE_LINK_KEY: Record<NonNullable<VoucherRecord["source_kind"]>, string> = {
-  dx: "sourceDx",
-  approval: "sourceAp",
-  payroll: "sourcePayroll",
-  purchase: "sourcePurchase",
-  contract: "sourceContract",
-  manual: "sourceDx",
-};
-
-function linkChips(record: VoucherRecord): ModuleLinkChipValue[] {
+function linkChips(record: VoucherSummary): ModuleLinkChipValue[] {
   const chips: ModuleLinkChipValue[] = [
-    { key: "lifecycle", labelKey: `${F}.links.lifecycle`, tone: "info", kind: "finance_voucher", id: record.id, code: record.code, policyAction: FINANCE_MODULE_ACTIONS.lifecycle },
-    { key: "objectGraph", labelKey: `${F}.links.graph`, tone: "neutral", kind: "finance_voucher", id: record.id, code: record.code, policyAction: FINANCE_MODULE_ACTIONS.graph },
+    { key: "lifecycle", labelKey: `${F}.links.lifecycle`, tone: "info", kind: "finance_voucher", id: record.id, code: record.voucher_no, policyAction: FINANCE_MODULE_ACTIONS.lifecycle },
+    { key: "objectGraph", labelKey: `${F}.links.graph`, tone: "neutral", kind: "finance_voucher", id: record.id, code: record.voucher_no, policyAction: FINANCE_MODULE_ACTIONS.graph },
+    // Any resource is audit-queryable by (kind, id) — real, not a fabricated
+    // trace-id field (the old audit_trace_id column does not exist on the wire).
+    { key: "auditTrail", labelKey: `${F}.links.audit`, tone: "neutral", kind: "finance_voucher", id: record.id, policyAction: FINANCE_MODULE_ACTIONS.audit },
   ];
-  if (record.audit_trace_id) {
-    chips.push({ key: "auditTrail", labelKey: `${F}.links.audit`, tone: "neutral", kind: "audit_trace", id: record.audit_trace_id, policyAction: FINANCE_MODULE_ACTIONS.audit });
-  }
-  if (record.source_kind && (record.source_id || record.source_code)) {
+  if (record.source_object_type && record.source_object_id) {
     chips.push({
-      key: SOURCE_LINK_KEY[record.source_kind],
-      labelKey: `${F}.links.${record.source_kind === "manual" ? "dx" : record.source_kind}`,
+      key: `source:${record.source_object_type}`,
+      labelKey: sourceTypeLabel(record.source_object_type),
       tone: "info",
-      kind: record.source_kind,
-      id: record.source_id ?? record.source_code ?? record.source_kind,
-      code: record.source_code ?? undefined,
+      kind: record.source_object_type,
+      id: record.source_object_id,
       policyAction: FINANCE_MODULE_ACTIONS.read,
     });
   }
-  // Account drill: one chip per distinct GL line — real per-line data, not a
-  // fabricated single summary chip.
+  if (record.reversal_of_voucher_id) {
+    chips.push({ key: "reversalOf", labelKey: `${F}.links.reversalOf`, tone: "purple", kind: "finance_voucher", id: record.reversal_of_voucher_id, policyAction: FINANCE_MODULE_ACTIONS.read });
+  }
+  if (record.reversed_by_voucher_id) {
+    chips.push({ key: "reversedBy", labelKey: `${F}.links.reversedBy`, tone: "purple", kind: "finance_voucher", id: record.reversed_by_voucher_id, policyAction: FINANCE_MODULE_ACTIONS.read });
+  }
+  // Account drill: one chip per distinct account code — real per-line data,
+  // not a fabricated single summary chip.
   const seenAccounts = new Set<string>();
   for (const line of record.lines) {
-    if (seenAccounts.has(line.gl_account_id)) continue;
-    seenAccounts.add(line.gl_account_id);
+    if (seenAccounts.has(line.account_code)) continue;
+    seenAccounts.add(line.account_code);
     chips.push({
-      key: `glAccount:${line.gl_account_id}`,
+      key: `glAccount:${line.account_code}`,
       labelKey: `${F}.links.glAccount`,
       tone: "accent",
       kind: "gl_account",
-      id: line.gl_account_id,
-      code: line.gl_account_code ?? line.gl_account_id,
+      id: line.account_code,
+      code: line.account_code,
       policyAction: FINANCE_MODULE_ACTIONS.read,
     });
   }
   return chips;
 }
 
-/** 기표→차대검증→승인→전기 — grounded in the three real backend fields
- * (voucher.rs VoucherLifecycleState/PostingStatus/ValidationStatus +
- * validate_post_transition's draft|review→post gate), not invented stages. */
-export function documentFlowStepper(record: VoucherRecord): ModuleStepperValue {
-  const validationDone = record.validation_status === "valid";
-  const approvalDone = record.lifecycle_state === "active" || record.lifecycle_state === "archived" || record.lifecycle_state === "disposed";
-  const approvalCurrent = record.lifecycle_state === "review";
-  const postingDone = record.posting_status === "posted";
-  const postingBlocked = record.posting_status !== "posted" && (!validationDone || !approvalDone) && record.posting_status !== "reversed";
-
+/** 기표→차대검증→승인→전기 — the real backend FSM (finance-gl/domain
+ * VoucherStatus + validate_voucher_transition), not invented stages. */
+export function documentFlowStepper(record: VoucherSummary): ModuleStepperValue {
+  const order: VoucherStatus[] = ["DRAFT", "BALANCE_CHECKED", "APPROVED", "POSTED"];
+  const reversed = record.status === "REVERSED";
+  // A reversed voucher was posted at some point — every step reads as done,
+  // with the post step's reason explaining the revoked terminal state.
+  const currentIndex = reversed ? order.length - 1 : order.indexOf(record.status);
+  const stateAt = (stepIndex: number): "done" | "current" | "pending" => {
+    if (stepIndex <= currentIndex) return "done";
+    if (stepIndex === currentIndex + 1) return "current";
+    return "pending";
+  };
   return {
     steps: [
-      // A loaded voucher has, by definition, been entered.
       { key: "entry", labelKey: `${F}.documentFlow.entry`, state: "done" },
-      {
-        key: "validate",
-        labelKey: `${F}.documentFlow.validate`,
-        state: validationDone ? "done" : "blocked",
-        reasonKey: validationDone ? undefined : `${F}.validationReasons.${record.validation_status}`,
-      },
-      {
-        key: "approve",
-        labelKey: `${F}.documentFlow.approve`,
-        state: approvalDone ? "done" : approvalCurrent ? "current" : "pending",
-      },
+      { key: "validate", labelKey: `${F}.documentFlow.validate`, state: stateAt(1) },
+      { key: "approve", labelKey: `${F}.documentFlow.approve`, state: stateAt(2) },
       {
         key: "post",
         labelKey: `${F}.documentFlow.post`,
-        state: postingDone ? "done" : record.posting_status === "reversed" ? "blocked" : postingBlocked ? "blocked" : "current",
+        state: stateAt(3),
         occurredAt: formatDate(record.posted_at),
-        reasonKey: record.posting_status === "reversed" ? `${F}.documentFlow.reversedReason` : undefined,
+        reasonKey: reversed ? `${F}.documentFlow.reversedReason` : undefined,
       },
     ],
   };
 }
 
-export function balanceCheckValue(record: VoucherRecord): ModuleBalanceCheckValue {
-  const ok = record.validation_status === "valid" && record.total_debit_won === record.total_credit_won;
+export function balanceCheckValue(record: VoucherSummary): ModuleBalanceCheckValue {
+  const ok = record.debit_total_won === record.credit_total_won && record.debit_total_won > 0;
   return {
     status: ok ? "ok" : "blocked",
     okLabelKey: `${F}.balanceCheck.ok`,
     blockedLabelKey: `${F}.balanceCheck.blocked`,
-    totalDebit: formatWon(record.total_debit_won),
+    totalDebit: formatWon(record.debit_total_won),
     totalDebitLabelKey: `${F}.detail.totalDebit`,
-    totalCredit: formatWon(record.total_credit_won),
+    totalCredit: formatWon(record.credit_total_won),
     totalCreditLabelKey: `${F}.detail.totalCredit`,
-    reasonKey: ok ? undefined : `${F}.validationReasons.${record.validation_status}`,
   };
 }
 
-// openSource/openGraph/openLifecycle are covered by the (real, per-row)
-// linkChips above — a second control for the same destination would be a
-// §4-18 duplicate shape. Only genuinely distinct, executable operations are
-// row actions here, each wired to financeDataAdapter.executeAction below.
-function rowActions(record: VoucherRecord): ModuleActionConfig[] {
-  const actions: ModuleActionConfig[] = [];
-  const canPost =
-    record.posting_status === "unposted" &&
-    record.validation_status === "valid" &&
-    (record.lifecycle_state === "draft" || record.lifecycle_state === "review");
-  if (canPost) {
-    actions.push({ key: "postVoucher", labelKey: `${F}.actions.postVoucher`, policyAction: FINANCE_MODULE_ACTIONS.post });
+/** 승인 상신(제출) / 승인 / 전기 / 반제 — one action per legal forward edge of
+ * the real FSM, gated on the voucher's current status (mirrors
+ * validate_voucher_transition; the backend re-validates and re-authorizes
+ * every call, including the SoD `approved_by != created_by` check). */
+function rowActions(record: VoucherSummary): ModuleActionConfig[] {
+  switch (record.status) {
+    case "DRAFT":
+      return [{ key: "submitVoucher", labelKey: `${F}.actions.submitVoucher`, policyAction: FINANCE_MODULE_ACTIONS.post }];
+    case "BALANCE_CHECKED":
+      return [{ key: "approveVoucher", labelKey: `${F}.actions.approveVoucher`, policyAction: FINANCE_MODULE_ACTIONS.post }];
+    case "APPROVED":
+      return [{ key: "postVoucher", labelKey: `${F}.actions.postVoucher`, policyAction: FINANCE_MODULE_ACTIONS.post }];
+    case "POSTED":
+      return [{ key: "reverseVoucher", labelKey: `${F}.actions.reverseVoucher`, policyAction: FINANCE_MODULE_ACTIONS.post }];
+    case "REVERSED":
+      return [];
   }
-  if (record.posting_status === "posted") {
-    actions.push({ key: "reverseVoucher", labelKey: `${F}.actions.reverseVoucher`, policyAction: FINANCE_MODULE_ACTIONS.post });
-  }
-  return actions;
 }
 
-export function voucherRow(record: VoucherRecord): ModuleRow {
+/** Distinct account codes, joined — the real per-line GL summary (never a
+ * single fabricated account). */
+function glAccountSummary(record: VoucherSummary): string | undefined {
+  const codes = [...new Set(record.lines.map((line) => line.account_code))];
+  return codes.length > 0 ? codes.join(", ") : undefined;
+}
+
+export function voucherRow(record: VoucherSummary): ModuleRow {
   return {
     id: record.id,
-    code: record.code,
-    title: record.title,
+    code: record.voucher_no,
+    title: record.memo,
     status: choiceStatus("finance_voucher", "status", voucherStatusId(record)),
     source: sourceValue(record),
     cells: {
-      title: record.title,
-      amount: formatWon(record.total_debit_won),
-      gl: record.gl_account_summary ?? undefined,
+      title: record.memo,
+      amount: formatWon(record.debit_total_won),
+      gl: glAccountSummary(record),
       postedAt: formatDate(record.posted_at),
     },
     detail: {
-      title: record.title,
-      lifecyclePhase: resolveText(choiceStatus("finance_voucher", "status", record.lifecycle_state).labelKey),
-      lifecycleVersion: String(record.lifecycle_version),
-      postingStatus: resolveText(`${F}.postingStatuses.${record.posting_status}`),
-      period: record.period ?? undefined,
-      voucherDate: formatDate(record.voucher_date),
+      title: record.memo,
+      totalDebitWon: formatWon(record.debit_total_won),
+      totalCreditWon: formatWon(record.credit_total_won),
       postedAt: formatDate(record.posted_at),
-      totalDebitWon: formatWon(record.total_debit_won),
-      totalCreditWon: formatWon(record.total_credit_won),
-      sourceKind: record.source_kind ? resolveText(`${F}.sources.${record.source_kind}`) : undefined,
-      sourceCode: record.source_code ?? undefined,
-      glAccountSummary: record.gl_account_summary ?? undefined,
-      orgScope: record.org_scope ?? undefined,
-      branchScope: record.branch_scope ?? undefined,
-      createdBy: record.created_by ?? undefined,
-      auditTraceId: record.audit_trace_id ?? undefined,
+      createdBy: record.created_by,
+      approvedBy: record.approved_by ?? undefined,
+      branchScope: record.branch_id,
+      glAccountSummary: glAccountSummary(record),
       documentFlow: documentFlowStepper(record),
       balanceCheck: balanceCheckValue(record),
     },
@@ -231,8 +230,8 @@ export function voucherRow(record: VoucherRecord): ModuleRow {
 
 export interface DraftLine {
   line_no: number;
-  gl_account_id: string;
-  description: string;
+  account_code: string;
+  memo: string;
   debit_won: string;
   credit_won: string;
 }
@@ -244,16 +243,17 @@ export interface DraftValidation {
   reasonKey?: string;
 }
 
-/** Client-side mirror of backend validate_voucher_draft — catches the same
- * shape of error before a round trip, not a replacement for server validation. */
-export function validateDraft(title: string, lines: DraftLine[]): DraftValidation {
-  if (!title.trim()) return { balanced: false, totalDebit: 0, totalCredit: 0, reasonKey: `${F}.compose.errors.title` };
+/** Client-side mirror of the backend `compute_balance`/`ensure_balanced` gate
+ * — catches the same shape of error before a round trip, not a replacement
+ * for the server's own check at 기표→차대검증. */
+export function validateDraft(memo: string, lines: DraftLine[]): DraftValidation {
+  if (!memo.trim()) return { balanced: false, totalDebit: 0, totalCredit: 0, reasonKey: `${F}.compose.errors.title` };
   if (lines.length < 2) return { balanced: false, totalDebit: 0, totalCredit: 0, reasonKey: `${F}.compose.errors.minLines` };
   const seen = new Set<number>();
   let totalDebit = 0;
   let totalCredit = 0;
   for (const line of lines) {
-    if (!line.gl_account_id.trim()) return { balanced: false, totalDebit: 0, totalCredit: 0, reasonKey: `${F}.compose.errors.glAccount` };
+    if (!line.account_code.trim()) return { balanced: false, totalDebit: 0, totalCredit: 0, reasonKey: `${F}.compose.errors.glAccount` };
     if (seen.has(line.line_no)) return { balanced: false, totalDebit: 0, totalCredit: 0, reasonKey: `${F}.compose.errors.duplicateLine` };
     seen.add(line.line_no);
     const debit = Number(line.debit_won) || 0;
@@ -270,74 +270,69 @@ export function validateDraft(title: string, lines: DraftLine[]): DraftValidatio
   return { balanced: true, totalDebit, totalCredit };
 }
 
-export function toCreateRequest(title: string, memo: string, lines: DraftLine[]): CreateVoucherRequest {
-  const mapped: VoucherLine[] = lines.map((line) => ({
-    line_no: line.line_no,
-    gl_account_id: line.gl_account_id.trim(),
-    description: line.description.trim() || null,
-    debit_won: Number(line.debit_won) || 0,
-    credit_won: Number(line.credit_won) || 0,
-  }));
-  return {
-    title: title.trim(),
-    memo: memo.trim() || undefined,
-    lines: mapped,
-  };
+export function toCreateRequest(branchId: string, memo: string, lines: DraftLine[]): CreateVoucherRequest {
+  const mapped: VoucherLineInput[] = lines.map((line) => {
+    const debit = Number(line.debit_won) || 0;
+    const side: DebitCredit = debit > 0 ? "DEBIT" : "CREDIT";
+    const amount = debit > 0 ? debit : Number(line.credit_won) || 0;
+    return {
+      account_code: line.account_code.trim(),
+      side,
+      amount_won: amount,
+      memo: line.memo.trim() || undefined,
+    };
+  });
+  return { branch_id: branchId, memo: memo.trim(), lines: mapped };
 }
 
-const EXCEPTION_STATUSES: ReadonlySet<VoucherValidationStatus> = new Set([
-  "unbalanced",
-  "invalid_gl_account",
-  "source_missing",
-]);
-
-/** Real counts over the fetched page — matches the statbar `source:` docs on
- * financeModuleScreen (review/posted/linked/exceptions), never fabricated. */
-function voucherStats(items: VoucherRecord[]): Record<string, number> {
+/** Real counts over the fetched page (§4-11: every stat drills, none
+ * fabricated). 당월수입/당월지출 are NOT computed here: the backend carries no
+ * revenue/expense account classification (account_code is a free-form string,
+ * no chart-of-accounts type field on the wire) — inventing one would be
+ * fabricated data, not a real stat. */
+function voucherStats(items: VoucherSummary[]): Record<string, number> {
   const currentPeriod = new Date().toISOString().slice(0, 7);
-  let review = 0;
-  let posted = 0;
-  let linked = 0;
-  let exceptions = 0;
+  let pending = 0;
+  let postedThisMonth = 0;
+  let postedAmountThisMonth = 0;
+  let auto = 0;
   for (const item of items) {
-    if (item.lifecycle_state === "draft" || item.lifecycle_state === "review") review += 1;
-    if (item.posting_status === "posted" && item.period === currentPeriod) posted += 1;
-    if (item.source_kind) linked += 1;
-    if (EXCEPTION_STATUSES.has(item.validation_status)) exceptions += 1;
+    if (item.status !== "POSTED" && item.status !== "REVERSED") pending += 1;
+    if (item.status === "POSTED" && item.posted_at?.slice(0, 7) === currentPeriod) {
+      postedThisMonth += 1;
+      postedAmountThisMonth += item.debit_total_won;
+    }
+    if (item.source_object_type) auto += 1;
   }
-  return { review, posted, linked, exceptions };
+  return { pending, postedThisMonth, postedAmountThisMonth, auto };
 }
 
 export function makeFinanceDataAdapter(
   renderCompose: ModuleDataAdapter["renderCompose"],
 ): ModuleDataAdapter {
   return {
-    async loadRows({ api, query }) {
-      const response = await listVouchers(api, query);
-      // Fail-closed (§4-10): a transport/backend error resolves listVouchers to
-      // undefined (rawRequest swallows it). A successful empty result is
-      // `{ items: [] }`, never undefined — so undefined here is always a real
-      // failure and must surface as GenericModuleScreen's listFailed error
-      // state, not a normal empty list. Mirrors EvidenceRecords.loadList.
-      if (!response) throw new Error("finance voucher list request failed");
-      const items = response.items;
+    async loadRows({ api }) {
+      const items = await listVouchers(api);
       return {
         rows: items.map(voucherRow),
-        stats: { total: response.total, ...voucherStats(items) },
+        stats: { total: items.length, ...voucherStats(items) },
         selectedRowId: items[0]?.id,
       };
     },
     async loadDetail({ api, row }) {
       const record = await getVoucher(api, row.id);
-      if (!record) return { row };
       return { row: voucherRow(record) };
     },
     renderCompose,
     async executeAction({ api, row, action }) {
-      const call = action.key === "postVoucher" ? postVoucherApi : action.key === "reverseVoucher" ? reverseVoucherApi : undefined;
+      const call =
+        action.key === "submitVoucher" ? submitVoucherApi :
+        action.key === "approveVoucher" ? approveVoucherApi :
+        action.key === "postVoucher" ? postVoucherApi :
+        action.key === "reverseVoucher" ? reverseVoucherApi :
+        undefined;
       if (!call) return;
       const record = await call(api, row.id);
-      if (!record) throw new Error(`finance voucher ${action.key} failed`);
       return { row: voucherRow(record) };
     },
   };
@@ -345,9 +340,9 @@ export function makeFinanceDataAdapter(
 
 export async function submitVoucherDraft(
   api: ConsoleApiClient,
-  title: string,
+  branchId: string,
   memo: string,
   lines: DraftLine[],
-): Promise<VoucherRecord | undefined> {
-  return createVoucher(api, toCreateRequest(title, memo, lines));
+): Promise<VoucherSummary> {
+  return createVoucherDraft(api, toCreateRequest(branchId, memo, lines));
 }

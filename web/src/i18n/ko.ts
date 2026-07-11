@@ -864,6 +864,7 @@ export const ko = {
         notif: "알림",
         board: "게시판·공지",
         directory: "주소록",
+        support: "지원 센터",
       },
     },
 
@@ -969,7 +970,7 @@ export const ko = {
         priority: workOrderPriorityLabels,
       },
       support: {
-        title: "회신",
+        title: "지원 센터",
         compose: "회신 등록",
         col: {
           title: "건명",
@@ -1367,6 +1368,21 @@ export const ko = {
         simErrorsLabel: "평가 오류",
         draftKeyLabel: "정책 키",
       } satisfies PolicyCanvasWireStrings,
+      list: {
+        statsAria: "정책 요약",
+        activeStat: "시행 중 정책",
+        draftStat: "초안",
+        targetStat: "적용 대상",
+        people: (n: number) => `${String(n)}명`,
+        drill: (label: string) => `${label} 기준 필터`,
+        expandAria: (title: string) => `${title} 펼치기`,
+        collapseAria: (title: string) => `${title} 접기`,
+        empty: "정책이 없습니다.",
+        source: "출처",
+        updatedAt: "수정일",
+        key: "키",
+        backToList: "목록으로",
+      },
     },
     configconsole: {
       screenAria: "대시보드 구성 콘솔",
@@ -1734,6 +1750,10 @@ export const ko = {
           posted: "전기 완료",
           linked: "원천 연결",
           exceptions: "예외",
+          pending: "미결전표",
+          postedThisMonth: "당월 전기",
+          postedAmountThisMonth: "당월 전기액",
+          auto: "자동전표",
         },
         search: {
           label: "전표 검색",
@@ -1765,6 +1785,7 @@ export const ko = {
           branchScope: "지점 범위",
           createdBy: "작성자",
           auditTrace: "감사 추적",
+          approvedBy: "승인자",
         },
         links: {
           lifecycle: "생애주기",
@@ -1777,6 +1798,8 @@ export const ko = {
           contract: "계약",
           glAccount: "계정",
           costLedger: "원가원장",
+          reversalOf: "역분개 원본",
+          reversedBy: "역분개 파생",
         },
         actions: {
           createVoucher: "전표 생성",
@@ -1786,6 +1809,8 @@ export const ko = {
           openGraph: "그래프",
           openLifecycle: "생애주기",
           createRelation: "연결 추가",
+          submitVoucher: "승인 상신",
+          approveVoucher: "승인",
         },
         statuses: {
           draft: "초안",
@@ -1796,6 +1821,9 @@ export const ko = {
           archived: "보관",
           disposed: "폐기",
           invalid: "예외",
+          balance_checked: "차대검증",
+          approved: "승인",
+          reversed: "반제",
         },
         sources: {
           dx: "오픈뱅킹",
@@ -1831,6 +1859,8 @@ export const ko = {
           title: "전표 기안",
           titleField: "내용",
           memoField: "비고",
+          branchField: "지점",
+          branchLoading: "지점 불러오는 중",
           linesAria: "분개 라인",
           columns: {
             glAccount: "계정과목",
@@ -2909,6 +2939,79 @@ export const ko = {
         external_document: "외부 문서",
       },
     },
+    // ── ko.console.documents — 문서·기록물 화면 (evidence screen lane, nav "docs") ──
+    documents: {
+      title: "문서·기록물",
+      stats: {
+        total: "총 기록물",
+        registeredThisMonth: "이번달 등록",
+        retentionExpiring: "보존 만료 임박",
+      },
+      types: {
+        ALL: "전체",
+        APPROVAL: "결재",
+        NOTICE: "공지",
+        WORKLOG: "업무일지",
+        CONTRACT: "계약",
+        INTAKE: "접수",
+        EVIDENCE: "증거",
+      },
+      columns: {
+        code: "코드",
+        title: "제목",
+        type: "유형",
+        owner: "작성·담당",
+        registeredAt: "등록",
+        retention: "보존",
+      },
+      retention: {
+        unset: "—",
+        pending: "확인 중",
+        permanent: "영구",
+      },
+      blockedType: "이 문서 유형은 아직 연동되지 않았습니다",
+      empty: "표시할 기록물이 없습니다",
+      loading: "기록물을 불러오는 중입니다",
+      loadFailed: "기록물을 불러오지 못했습니다",
+      retry: "다시 시도",
+    },
+    // ── ko.console.overviewBody — 업무·운영 개요 (overview screen lane) ──
+    overviewBody: {
+      title: "업무·운영 개요",
+      queueTitle: "처리 대기",
+      timelineTitle: "오늘",
+      railTitle: "커뮤니케이션",
+      stat: {
+        approval: "결재 대기",
+        dispatch: "미배정 배차",
+        today: "오늘 마감",
+        work: "미확인 업무",
+        urgent: (n: number) => `긴급 ${String(n)}`,
+        slaImminent: (n: number) => `SLA 임박 ${String(n)}`,
+      },
+      chip: {
+        all: "전체",
+        approval: "결재",
+        dispatch: "배차",
+        work: "정비",
+        support: "회신",
+      },
+      action: {
+        approval: "검토",
+        dispatch: "배차",
+        work: "확인",
+        support: "회신",
+      },
+      rail: { unread: (n: number) => `안 읽음 ${String(n)}` },
+      empty: {
+        queue: "처리할 항목이 없습니다",
+        timeline: "오늘 마감 업무가 없습니다",
+        rail: "새 알림이 없습니다",
+      },
+      error: "개요를 불러오지 못했습니다",
+      retry: "다시 시도",
+      loading: "불러오는 중",
+    },
     // ── ko.console.leave — 연차관리 표면 (leave lane, koManifest 원본: console/leave/model.ts) ──
     leave: {
       count: (count: number) => `${String(count)}건`,
@@ -3016,6 +3119,11 @@ export const ko = {
           hireDate: "입사일",
         },
       },
+      wire: {
+        loading: "연차 정보를 불러오는 중…",
+        loadFailed: "연차 정보를 불러오지 못했습니다.",
+        retry: "다시 시도",
+      },
     },
     // ── ko.console.supportdesk — 지원 데스크 목록·핀 (support-desk lane, §4-11) ──
     supportdesk: {
@@ -3038,6 +3146,8 @@ export const ko = {
       delayReasons: "지연 사유 분포",
       emptyReason: "이 기간에 집계된 승인 보고가 없습니다",
       emptyAction: "배차 보드 열기",
+      errorReason: "지표를 불러오지 못했습니다",
+      retry: "다시 시도",
     } satisfies DashboardStrings,
     // ── ko.console.supportslo — 지원 SLO 설정·알림 (support-slo lane, §4-26) ──
     supportslo: {

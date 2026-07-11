@@ -305,6 +305,7 @@ export interface LeaveConsoleProps {
   selfUserId?: string;
   decide: (requestId: string, decision: "approve" | "reject", comment?: string) => Promise<LeaveDecideOutcome>;
   pushPromotion: (payload: {
+    branchId: string;
     targetUserId: string;
     targetEmployeeId: string;
     targetName: string;
@@ -401,11 +402,15 @@ export function LeaveConsole({ ledger, requests, selfUserId, decide, pushPromoti
     );
   }
 
-  async function sendPromotion(row: LeaveLedgerRow, round: 1 | 2, targetUserId: string): Promise<void> {
+  async function sendPromotion(row: LeaveLedgerRow, round: 1 | 2, candidate: LeaveRequestView): Promise<void> {
     setPushingId(row.id);
     setPushError(undefined);
     const outcome = await pushPromotion({
-      targetUserId,
+      // The push is branch-scoped server-side (employee_directory_manage in
+      // the target branch) — the branch lives on the linked request, never
+      // guessed (model.ts: no employee→branch lookup REST exists standalone).
+      branchId: candidate.branch_id,
+      targetUserId: candidate.requester_user_id,
       targetEmployeeId: row.id,
       targetName: row.name,
       round,
@@ -675,9 +680,15 @@ export function LeaveConsole({ ledger, requests, selfUserId, decide, pushPromoti
                             {row.code}
                           </button>
                           <p style={cellNameStyle}>{row.name}</p>
-                          <p style={cellMetaStyle}>{`${row.company} · ${row.employeeNumber}`}</p>
+                          {row.company !== undefined || row.employeeNumber !== undefined ? (
+                            <p style={cellMetaStyle}>
+                              {[row.company, row.employeeNumber].filter((v) => v !== undefined).join(" · ")}
+                            </p>
+                          ) : null}
                         </td>
-                        <td style={tdStyle}>{`${row.orgUnit} / ${row.position}`}</td>
+                        <td style={tdStyle}>
+                          {[row.orgUnit, row.position].filter((v) => v !== undefined).join(" / ") || "—"}
+                        </td>
                         <td style={tdStyle}>
                           <p style={cellNameStyle}>{tenureStage(row.hireDate)}</p>
                           <p style={cellMetaStyle}>{row.hireDate ?? "—"}</p>
@@ -698,7 +709,7 @@ export function LeaveConsole({ ledger, requests, selfUserId, decide, pushPromoti
                                     type="button"
                                     disabled={pushingId === row.id}
                                     aria-label={S.promotion.sendAria(row.name, nextRound)}
-                                    onClick={() => { void sendPromotion(row, nextRound, candidate.requester_user_id); }}
+                                    onClick={() => { void sendPromotion(row, nextRound, candidate); }}
                                     style={pushingId === row.id ? buttonDisabledStyle : buttonStyle}
                                   >
                                     {S.promotion.send(nextRound)}
@@ -739,9 +750,12 @@ export function LeaveConsole({ ledger, requests, selfUserId, decide, pushPromoti
                   const employeeName = ledgerById.get(request.subject_employee_id)?.name ?? S.self.unknownEmployee;
                   return requestRow(
                     request,
-                    // ponytail: SoD by omission — the decider's own request shows no
-                    // decide buttons (approver ≠ requester); backend also 403s.
-                    request.requester_user_id === selfUserId ? null : (
+                    // SoD by omission — the decider's own request shows no decide
+                    // buttons (approver ≠ requester); backend also 403s. S3 fix:
+                    // an unresolved identity (selfUserId undefined — session still
+                    // loading) fails CLOSED as self rather than open, so decide
+                    // controls never flash for an unverified caller.
+                    selfUserId === undefined || request.requester_user_id === selfUserId ? null : (
                       <PolicyGated
                         action={LEAVE_ACTIONS.requestDecide}
                         resource={{ kind: "leave_request", id: request.id }}
