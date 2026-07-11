@@ -12061,10 +12061,6 @@ export interface components {
         DebitCredit: "DEBIT" | "CREDIT";
         /** @enum {string} */
         VoucherStatus: "DRAFT" | "BALANCE_CHECKED" | "APPROVED" | "POSTED" | "REVERSED";
-        VoucherSourceRef: {
-            object_type: string;
-            object_id: string;
-        };
         VoucherLineInput: {
             account_code: string;
             side: components["schemas"]["DebitCredit"];
@@ -12085,7 +12081,6 @@ export interface components {
         CreateVoucherRequest: {
             branch_id: components["schemas"]["Uuid"];
             memo?: string;
-            source?: components["schemas"]["VoucherSourceRef"] | null;
             lines: components["schemas"]["VoucherLineInput"][];
         };
         ReverseVoucherRequest: {
@@ -12109,6 +12104,8 @@ export interface components {
             credit_total_won: number;
             lines: components["schemas"]["VoucherLineSummary"][];
             created_by: components["schemas"]["Uuid"];
+            /** Format: uuid */
+            approved_by?: string | null;
             /** Format: date-time */
             posted_at?: string | null;
             created_at: components["schemas"]["Timestamp"];

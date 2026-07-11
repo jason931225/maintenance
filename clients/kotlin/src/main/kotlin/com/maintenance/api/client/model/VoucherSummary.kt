@@ -48,6 +48,7 @@ import kotlinx.serialization.Contextual
  * @param sourceObjectId
  * @param reversalOfVoucherId
  * @param reversedByVoucherId
+ * @param approvedBy
  * @param postedAt
  */
 @Serializable
@@ -98,6 +99,9 @@ data class VoucherSummary (
 
     @Contextual @SerialName(value = "reversed_by_voucher_id")
     val reversedByVoucherId: java.util.UUID? = null,
+
+    @Contextual @SerialName(value = "approved_by")
+    val approvedBy: java.util.UUID? = null,
 
     @Contextual @SerialName(value = "posted_at")
     val postedAt: java.time.OffsetDateTime? = null

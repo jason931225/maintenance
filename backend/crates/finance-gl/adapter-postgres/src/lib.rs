@@ -62,11 +62,23 @@ impl PgVoucherStore {
         &self,
         command: CreateVoucherDraftCommand,
     ) -> Result<VoucherSummary, PgVoucherError> {
+        // S7: a hand-keyed voucher may NOT assert a source-document linkage. Source
+        // provenance is unverifiable from arbitrary caller input (a preparer could
+        // fabricate "derived from approved expense NONEXISTENT"), so it is only
+        // ever set by the trusted derive path [`create_draft_from_source`], which
+        // is called with a source the approval engine has already resolved.
+        if command.source.is_some() {
+            return Err(KernelError::validation(
+                "a hand-keyed voucher may not set a source reference; source \
+                 provenance is recorded only by the approval-derived path",
+            )
+            .into());
+        }
         self.insert_draft(
             command.actor,
             command.branch_id,
             &command.memo,
-            command.source.as_ref(),
+            None,
             &command.lines,
             None,
             "finance_gl.voucher.create",
@@ -146,11 +158,23 @@ impl PgVoucherStore {
             Box::pin(async move {
                 let original = lock_voucher(tx, command.voucher_id).await?;
                 validate_voucher_transition(original.status, VoucherStatus::Reversed)?;
+                // The original is POSTED, so it necessarily carries a distinct
+                // approver; assert it fail-closed before deriving the contra from it.
+                let Some(original_approver) = original.approved_by else {
+                    return Err(KernelError::conflict(
+                        "cannot reverse a voucher that has no recorded approver",
+                    )
+                    .into());
+                };
                 let lines = load_lines(tx, command.voucher_id).await?;
 
                 // Build the contra voucher: DRAFT, swapped lines, then straight to
                 // POSTED. It is balanced by construction (each side mirrors the
-                // original), so it clears the balance trigger.
+                // original), so it clears the balance trigger. The contra is the
+                // mechanical inverse of an already-two-person-authorized voucher, so
+                // it carries the ORIGINAL's preparer/approver forward — that keeps
+                // the SoD invariant (approved_by <> created_by) satisfied without a
+                // second approval step and without exempting contras from the CHECK.
                 let contra_no = next_voucher_no(command.occurred_at);
                 insert_voucher_row(
                     tx,
@@ -162,7 +186,8 @@ impl PgVoucherStore {
                     &command.memo,
                     original.source.as_ref(),
                     Some(command.voucher_id),
-                    command.actor,
+                    original.created_by,
+                    Some(original_approver),
                     None,
                     command.occurred_at,
                 )
@@ -186,6 +211,7 @@ impl PgVoucherStore {
                     tx,
                     contra_id,
                     VoucherStatus::Posted,
+                    None,
                     Some(command.occurred_at),
                     None,
                     command.occurred_at,
@@ -197,6 +223,7 @@ impl PgVoucherStore {
                     tx,
                     command.voucher_id,
                     VoucherStatus::Reversed,
+                    None,
                     None,
                     Some(contra_id),
                     command.occurred_at,
@@ -366,6 +393,7 @@ impl PgVoucherStore {
                     reversal_of,
                     actor,
                     None,
+                    None,
                     occurred_at,
                 )
                 .await?;
@@ -424,11 +452,34 @@ impl PgVoucherStore {
                     ensure_balanced(outcome)?;
                 }
 
+                // Separation of duties at 승인: the approver MUST differ from the
+                // 기표자 (created_by). Fail-closed here (clean 403) and at the DB
+                // CHECK (`approved_by <> created_by`). Matches the four-eyes idiom
+                // used for gov_approvals.
+                if target == VoucherStatus::Approved && command.actor == current.created_by {
+                    return Err(KernelError::forbidden(
+                        "self-approval is not allowed: the voucher approver must differ from its preparer",
+                    )
+                    .into());
+                }
+                // Defense in depth at 전기: a voucher cannot post without a recorded
+                // approver. The FSM only allows Approved → Posted, and 승인 stamps
+                // approved_by, so this only fires if that invariant were bypassed.
+                if target == VoucherStatus::Posted && current.approved_by.is_none() {
+                    return Err(KernelError::conflict(
+                        "voucher cannot be posted before it has been approved",
+                    )
+                    .into());
+                }
+
+                let approved_by =
+                    (target == VoucherStatus::Approved).then_some(command.actor);
                 let posted_at = (target == VoucherStatus::Posted).then_some(command.occurred_at);
                 set_voucher_status(
                     tx,
                     command.voucher_id,
                     target,
+                    approved_by,
                     posted_at,
                     None,
                     command.occurred_at,
@@ -460,6 +511,8 @@ struct VoucherRow {
     branch_id: BranchId,
     status: VoucherStatus,
     source: Option<VoucherSourceRef>,
+    created_by: UserId,
+    approved_by: Option<UserId>,
 }
 
 struct LineRow {
@@ -477,7 +530,8 @@ async fn lock_voucher(
 ) -> Result<VoucherRow, PgVoucherError> {
     let row = sqlx::query(
         r#"
-        SELECT branch_id, status, source_object_type, source_object_id
+        SELECT branch_id, status, source_object_type, source_object_id,
+               created_by, approved_by
         FROM finance_gl_vouchers
         WHERE id = $1
         FOR UPDATE
@@ -496,6 +550,10 @@ async fn lock_voucher(
             row.get::<Option<String>, _>("source_object_type"),
             row.get::<Option<String>, _>("source_object_id"),
         ),
+        created_by: UserId::from_uuid(row.get::<Uuid, _>("created_by")),
+        approved_by: row
+            .get::<Option<Uuid>, _>("approved_by")
+            .map(UserId::from_uuid),
     })
 }
 
@@ -540,6 +598,7 @@ async fn insert_voucher_row(
     source: Option<&VoucherSourceRef>,
     reversal_of: Option<VoucherId>,
     created_by: UserId,
+    approved_by: Option<UserId>,
     posted_at: Option<OffsetDateTime>,
     occurred_at: OffsetDateTime,
 ) -> Result<(), PgVoucherError> {
@@ -548,9 +607,9 @@ async fn insert_voucher_row(
         INSERT INTO finance_gl_vouchers (
             id, org_id, branch_id, voucher_no, status, memo,
             source_object_type, source_object_id, reversal_of_voucher_id,
-            created_by, posted_at, created_at, updated_at
+            created_by, approved_by, posted_at, created_at, updated_at
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $12)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13)
         "#,
     )
     .bind(*voucher_id.as_uuid())
@@ -563,6 +622,7 @@ async fn insert_voucher_row(
     .bind(source.map(|s| s.object_id.trim().to_owned()))
     .bind(reversal_of.map(|id| *id.as_uuid()))
     .bind(*created_by.as_uuid())
+    .bind(approved_by.map(|id| *id.as_uuid()))
     .bind(posted_at)
     .bind(occurred_at)
     .execute(tx.as_mut())
@@ -610,22 +670,27 @@ async fn set_voucher_status(
     tx: &mut Transaction<'_, Postgres>,
     voucher_id: VoucherId,
     status: VoucherStatus,
+    approved_by: Option<UserId>,
     posted_at: Option<OffsetDateTime>,
     reversed_by: Option<VoucherId>,
     occurred_at: OffsetDateTime,
 ) -> Result<(), PgVoucherError> {
+    // `approved_by` is write-once: COALESCE only stamps it when this transition is
+    // the 승인 step, and the DB trigger rejects any later change.
     sqlx::query(
         r#"
         UPDATE finance_gl_vouchers
         SET status = $2,
-            posted_at = COALESCE($3, posted_at),
-            reversed_by_voucher_id = COALESCE($4, reversed_by_voucher_id),
-            updated_at = $5
+            approved_by = COALESCE($3, approved_by),
+            posted_at = COALESCE($4, posted_at),
+            reversed_by_voucher_id = COALESCE($5, reversed_by_voucher_id),
+            updated_at = $6
         WHERE id = $1
         "#,
     )
     .bind(*voucher_id.as_uuid())
     .bind(status.as_db_str())
+    .bind(approved_by.map(|id| *id.as_uuid()))
     .bind(posted_at)
     .bind(reversed_by.map(|id| *id.as_uuid()))
     .bind(occurred_at)
@@ -644,7 +709,7 @@ async fn load_summary(
         SELECT id, voucher_no, branch_id, status, memo,
                source_object_type, source_object_id,
                reversal_of_voucher_id, reversed_by_voucher_id,
-               created_by, posted_at, created_at, updated_at
+               created_by, approved_by, posted_at, created_at, updated_at
         FROM finance_gl_vouchers
         WHERE id = $1
         "#,
@@ -710,6 +775,9 @@ async fn load_summary(
         credit_total_won,
         lines,
         created_by: UserId::from_uuid(row.get::<Uuid, _>("created_by")),
+        approved_by: row
+            .get::<Option<Uuid>, _>("approved_by")
+            .map(UserId::from_uuid),
         posted_at: row.get::<Option<OffsetDateTime>, _>("posted_at"),
         created_at: row.get::<OffsetDateTime, _>("created_at"),
         updated_at: row.get::<OffsetDateTime, _>("updated_at"),

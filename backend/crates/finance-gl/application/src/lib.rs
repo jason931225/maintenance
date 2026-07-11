@@ -103,6 +103,9 @@ pub struct VoucherSummary {
     pub credit_total_won: i64,
     pub lines: Vec<VoucherLineSummary>,
     pub created_by: UserId,
+    /// The distinct principal who approved the voucher at 승인 (separation of
+    /// duties: always `!= created_by`). `None` until approved.
+    pub approved_by: Option<UserId>,
     #[serde(with = "time::serde::rfc3339::option")]
     pub posted_at: Option<Timestamp>,
     #[serde(with = "time::serde::rfc3339")]

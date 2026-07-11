@@ -20,8 +20,8 @@
 
 use mnt_finance_gl_adapter_postgres::PgVoucherStore;
 use mnt_finance_gl_application::{
-    CreateVoucherDraftCommand, ReverseVoucherCommand, VoucherLineInput, VoucherSourceRef,
-    VoucherTransitionCommand,
+    CreateVoucherDraftCommand, CreateVoucherDraftFromSourceCommand, ReverseVoucherCommand,
+    VoucherLineInput, VoucherSourceRef, VoucherTransitionCommand,
 };
 use mnt_finance_gl_domain::{DebitCredit, VoucherId, VoucherStatus};
 use mnt_kernel_core::{BranchId, OrgId, TraceContext, UserId};
@@ -104,13 +104,14 @@ fn draft(
     actor: UserId,
     branch_id: BranchId,
     lines: Vec<VoucherLineInput>,
-    source: Option<VoucherSourceRef>,
 ) -> CreateVoucherDraftCommand {
     CreateVoucherDraftCommand {
         actor,
         branch_id,
         memo: "test voucher".to_owned(),
-        source,
+        // Hand-keyed drafts carry no source (S7); source flows only through the
+        // trusted derive path.
+        source: None,
         lines,
         trace: TraceContext::generate(),
         occurred_at: datetime!(2026-07-10 09:00 UTC),
@@ -126,34 +127,36 @@ fn step(actor: UserId, voucher_id: VoucherId) -> VoucherTransitionCommand {
     }
 }
 
-/// Drive a balanced draft all the way to POSTED and return its id.
+/// Drive a balanced draft all the way to POSTED and return its id. Separation of
+/// duties is honoured: `creator` files 기표 + 제출, a DISTINCT `approver` signs 승인,
+/// and 전기 posts it.
 async fn seed_posted_voucher(
     store: &PgVoucherStore,
     org: OrgId,
-    actor: UserId,
+    creator: UserId,
+    approver: UserId,
     branch_id: BranchId,
 ) -> VoucherId {
+    assert_ne!(creator, approver, "SoD: preparer and approver must differ");
     mnt_platform_request_context::scope_org(org, async {
         let created = store
             .create_draft(draft(
-                actor,
+                creator,
                 branch_id,
                 vec![
                     line("1000", DebitCredit::Debit, 10_000),
                     line("4000", DebitCredit::Credit, 10_000),
                 ],
-                Some(VoucherSourceRef {
-                    object_type: "expense_approval".to_owned(),
-                    object_id: "EXP-1".to_owned(),
-                }),
             ))
             .await
             .unwrap();
-        store.submit(step(actor, created.id)).await.unwrap();
-        store.approve(step(actor, created.id)).await.unwrap();
-        let posted = store.post(step(actor, created.id)).await.unwrap();
+        store.submit(step(creator, created.id)).await.unwrap();
+        let approved = store.approve(step(approver, created.id)).await.unwrap();
+        assert_eq!(approved.approved_by, Some(approver));
+        let posted = store.post(step(approver, created.id)).await.unwrap();
         assert_eq!(posted.status, VoucherStatus::Posted);
         assert!(posted.posted_at.is_some());
+        assert_eq!(posted.approved_by, Some(approver));
         created.id
     })
     .await
@@ -177,7 +180,6 @@ async fn balance_gate_blocks_unbalanced_advance(owner_pool: PgPool) {
                     line("1000", DebitCredit::Debit, 10_000),
                     line("4000", DebitCredit::Credit, 9_000),
                 ],
-                None,
             ))
             .await
             .unwrap();
@@ -218,11 +220,12 @@ async fn posted_voucher_is_immutable(owner_pool: PgPool) {
     seed_org(&owner_pool, ORG_A, "A").await;
     let branch = seed_branch(&owner_pool, ORG_A).await;
     let actor = seed_user(&owner_pool, ORG_A).await;
+    let approver = seed_user(&owner_pool, ORG_A).await;
     let rt = runtime_role_pool(&owner_pool).await;
     let store = PgVoucherStore::new(rt);
     let org = OrgId::from_uuid(ORG_A);
 
-    let posted_id = seed_posted_voucher(&store, org, actor, branch).await;
+    let posted_id = seed_posted_voucher(&store, org, actor, approver, branch).await;
 
     // No further FSM step except reverse (use-case gate).
     mnt_platform_request_context::scope_org(org, async {
@@ -283,11 +286,12 @@ async fn reversal_links_and_nets_to_zero(owner_pool: PgPool) {
     seed_org(&owner_pool, ORG_A, "A").await;
     let branch = seed_branch(&owner_pool, ORG_A).await;
     let actor = seed_user(&owner_pool, ORG_A).await;
+    let approver = seed_user(&owner_pool, ORG_A).await;
     let rt = runtime_role_pool(&owner_pool).await;
     let store = PgVoucherStore::new(rt);
     let org = OrgId::from_uuid(ORG_A);
 
-    let posted_id = seed_posted_voucher(&store, org, actor, branch).await;
+    let posted_id = seed_posted_voucher(&store, org, actor, approver, branch).await;
 
     mnt_platform_request_context::scope_org(org, async {
         let contra = store
@@ -360,7 +364,6 @@ async fn cross_org_isolation_and_fail_closed(owner_pool: PgPool) {
                     line("1000", DebitCredit::Debit, 5_000),
                     line("4000", DebitCredit::Credit, 5_000),
                 ],
-                None,
             ))
             .await
             .unwrap()
@@ -376,7 +379,6 @@ async fn cross_org_isolation_and_fail_closed(owner_pool: PgPool) {
                     line("7000", DebitCredit::Debit, 3_000),
                     line("8000", DebitCredit::Credit, 3_000),
                 ],
-                None,
             ))
             .await
             .unwrap()
@@ -409,4 +411,190 @@ async fn cross_org_isolation_and_fail_closed(owner_pool: PgPool) {
         store.list(None, None).await.is_err(),
         "list with unset app.current_org must fail closed"
     );
+}
+
+/// SEPARATION OF DUTIES (M2): the 기표자 cannot approve their own voucher; a
+/// distinct approver clears 승인, is recorded, and the voucher then posts.
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn self_approval_rejected_and_distinct_approver_posts(owner_pool: PgPool) {
+    seed_org(&owner_pool, ORG_A, "A").await;
+    let branch = seed_branch(&owner_pool, ORG_A).await;
+    let creator = seed_user(&owner_pool, ORG_A).await;
+    let approver = seed_user(&owner_pool, ORG_A).await;
+    let rt = runtime_role_pool(&owner_pool).await;
+    let store = PgVoucherStore::new(rt);
+    let org = OrgId::from_uuid(ORG_A);
+
+    mnt_platform_request_context::scope_org(org, async {
+        let created = store
+            .create_draft(draft(
+                creator,
+                branch,
+                vec![
+                    line("1000", DebitCredit::Debit, 8_000),
+                    line("4000", DebitCredit::Credit, 8_000),
+                ],
+            ))
+            .await
+            .unwrap();
+        store.submit(step(creator, created.id)).await.unwrap();
+
+        // 승인 by the 기표자 is rejected (fail-closed) before any write.
+        assert!(
+            store.approve(step(creator, created.id)).await.is_err(),
+            "the preparer must not be able to approve their own voucher"
+        );
+        // Still awaiting approval — no approver recorded.
+        let reread = store.get(created.id).await.unwrap();
+        assert_eq!(reread.status, VoucherStatus::BalanceChecked);
+        assert_eq!(reread.approved_by, None);
+
+        // A DISTINCT approver clears 승인 and is recorded.
+        let approved = store.approve(step(approver, created.id)).await.unwrap();
+        assert_eq!(approved.status, VoucherStatus::Approved);
+        assert_eq!(approved.approved_by, Some(approver));
+
+        // 전기 posts (no SoD on post) and keeps the recorded approver.
+        let posted = store.post(step(creator, created.id)).await.unwrap();
+        assert_eq!(posted.status, VoucherStatus::Posted);
+        assert_eq!(posted.approved_by, Some(approver));
+    })
+    .await;
+}
+
+/// `approved_by` is write-once: a raw UPDATE rewriting it (even to a THIRD, still-
+/// distinct user, so the SoD CHECK would pass) is rejected by the DB trigger.
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn approved_by_is_immutable(owner_pool: PgPool) {
+    seed_org(&owner_pool, ORG_A, "A").await;
+    let branch = seed_branch(&owner_pool, ORG_A).await;
+    let creator = seed_user(&owner_pool, ORG_A).await;
+    let approver = seed_user(&owner_pool, ORG_A).await;
+    let other = seed_user(&owner_pool, ORG_A).await;
+    let rt = runtime_role_pool(&owner_pool).await;
+    let store = PgVoucherStore::new(rt);
+    let org = OrgId::from_uuid(ORG_A);
+
+    let posted_id = seed_posted_voucher(&store, org, creator, approver, branch).await;
+
+    let mut tx = store.pool().begin().await.unwrap();
+    sqlx::query("SELECT set_config('app.current_org', $1, true)")
+        .bind(ORG_A.to_string())
+        .execute(tx.as_mut())
+        .await
+        .unwrap();
+    let rewrite = sqlx::query("UPDATE finance_gl_vouchers SET approved_by = $2 WHERE id = $1")
+        .bind(*posted_id.as_uuid())
+        .bind(*other.as_uuid())
+        .execute(tx.as_mut())
+        .await;
+    assert!(
+        rewrite.is_err(),
+        "approved_by must be immutable once recorded"
+    );
+    let _ = tx.rollback().await;
+}
+
+/// Defense in depth: a raw status advance to APPROVED with no recorded approver is
+/// rejected by the SoD CHECK, independent of the use-case gate.
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn advancing_without_approver_rejected_by_db(owner_pool: PgPool) {
+    seed_org(&owner_pool, ORG_A, "A").await;
+    let branch = seed_branch(&owner_pool, ORG_A).await;
+    let creator = seed_user(&owner_pool, ORG_A).await;
+    let rt = runtime_role_pool(&owner_pool).await;
+    let store = PgVoucherStore::new(rt);
+    let org = OrgId::from_uuid(ORG_A);
+
+    let balance_checked_id = mnt_platform_request_context::scope_org(org, async {
+        let created = store
+            .create_draft(draft(
+                creator,
+                branch,
+                vec![
+                    line("1000", DebitCredit::Debit, 6_000),
+                    line("4000", DebitCredit::Credit, 6_000),
+                ],
+            ))
+            .await
+            .unwrap();
+        store.submit(step(creator, created.id)).await.unwrap();
+        created.id
+    })
+    .await;
+
+    let mut tx = store.pool().begin().await.unwrap();
+    sqlx::query("SELECT set_config('app.current_org', $1, true)")
+        .bind(ORG_A.to_string())
+        .execute(tx.as_mut())
+        .await
+        .unwrap();
+    let raw = sqlx::query("UPDATE finance_gl_vouchers SET status = 'APPROVED' WHERE id = $1")
+        .bind(*balance_checked_id.as_uuid())
+        .execute(tx.as_mut())
+        .await;
+    assert!(
+        raw.is_err(),
+        "DB CHECK must reject APPROVED without a distinct approver"
+    );
+    let _ = tx.rollback().await;
+}
+
+/// S7: a hand-keyed voucher cannot assert an unverified source linkage; the
+/// trusted derive path (called by the approval engine) still records one.
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn hand_keyed_source_rejected_but_derive_path_allowed(owner_pool: PgPool) {
+    seed_org(&owner_pool, ORG_A, "A").await;
+    let branch = seed_branch(&owner_pool, ORG_A).await;
+    let actor = seed_user(&owner_pool, ORG_A).await;
+    let rt = runtime_role_pool(&owner_pool).await;
+    let store = PgVoucherStore::new(rt);
+    let org = OrgId::from_uuid(ORG_A);
+
+    mnt_platform_request_context::scope_org(org, async {
+        // A hand-keyed create that fabricates a "derived from approved expense"
+        // linkage is rejected outright.
+        let mut forged = draft(
+            actor,
+            branch,
+            vec![
+                line("1000", DebitCredit::Debit, 4_000),
+                line("4000", DebitCredit::Credit, 4_000),
+            ],
+        );
+        forged.source = Some(VoucherSourceRef {
+            object_type: "expense_approval".to_owned(),
+            object_id: "NONEXISTENT".to_owned(),
+        });
+        assert!(
+            store.create_draft(forged).await.is_err(),
+            "a hand-keyed voucher must not assert an unverified source linkage"
+        );
+
+        // The trusted derive path DOES record the source.
+        let derived = store
+            .create_draft_from_source(CreateVoucherDraftFromSourceCommand {
+                actor,
+                branch_id: branch,
+                memo: "derived".to_owned(),
+                source: VoucherSourceRef {
+                    object_type: "expense_approval".to_owned(),
+                    object_id: "EXP-1".to_owned(),
+                },
+                projected_lines: vec![
+                    line("1000", DebitCredit::Debit, 4_000),
+                    line("4000", DebitCredit::Credit, 4_000),
+                ],
+                trace: TraceContext::generate(),
+                occurred_at: datetime!(2026-07-10 09:00 UTC),
+            })
+            .await
+            .unwrap();
+        assert_eq!(
+            derived.source_object_type.as_deref(),
+            Some("expense_approval")
+        );
+        assert_eq!(derived.source_object_id.as_deref(), Some("EXP-1"));
+    })
+    .await;
 }
