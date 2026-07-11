@@ -6,64 +6,70 @@ import { createConsoleApiClient } from "../../api/client";
 import { GenericModuleScreen } from "../modules/GenericModuleScreen";
 import { financeModuleScreen } from "../modules/moduleScreens";
 import { PolicyGateProvider, type PolicyGate } from "../policy";
-import type { VoucherRecord } from "./financeApi";
+import type { VoucherSummary } from "./financeApi";
 
 const allowGate: PolicyGate = { can: () => true };
 
-const draftVoucher: VoucherRecord = {
-  id: "v-1",
-  code: "VC-1001",
-  title: "임대료 지급",
-  lifecycle_state: "draft",
-  lifecycle_version: 1,
-  posting_status: "unposted",
-  validation_status: "valid",
-  total_debit_won: 500_000,
-  total_credit_won: 500_000,
-  source_kind: "purchase",
-  source_code: "PS-9001",
-  source_id: "ps-9001",
-  lines: [
-    { line_no: 1, gl_account_id: "gl-101", gl_account_code: "101", debit_won: 500_000, credit_won: 0 },
-    { line_no: 2, gl_account_id: "gl-201", gl_account_code: "201", debit_won: 0, credit_won: 500_000 },
-  ],
-};
-
 const currentPeriod = new Date().toISOString().slice(0, 7);
 
-const postedVoucher: VoucherRecord = {
-  ...draftVoucher,
+// APPROVED (not DRAFT/BALANCE_CHECKED) so the offered row action lands on the
+// already-localized "postVoucher" label ("전기") rather than the new
+// wire-pending submitVoucher/approveVoucher labels — those transitions are
+// exhaustively covered against every status in financeModel.test.ts.
+const approvedVoucher: VoucherSummary = {
+  id: "v-1",
+  voucher_no: "VC-1001",
+  branch_id: "branch-1",
+  status: "APPROVED",
+  memo: "임대료 지급",
+  source_object_type: "purchase_request",
+  source_object_id: "ps-9001",
+  reversal_of_voucher_id: null,
+  reversed_by_voucher_id: null,
+  debit_total_won: 500_000,
+  credit_total_won: 500_000,
+  lines: [
+    { id: "line-1", line_no: 1, account_code: "101", side: "DEBIT", amount_won: 500_000, memo: "" },
+    { id: "line-2", line_no: 2, account_code: "201", side: "CREDIT", amount_won: 500_000, memo: "" },
+  ],
+  created_by: "user-1",
+  approved_by: null,
+  posted_at: null,
+  created_at: "2026-07-01T00:00:00Z",
+  updated_at: "2026-07-01T00:00:00Z",
+};
+
+const postedVoucher: VoucherSummary = {
+  ...approvedVoucher,
   id: "v-2",
-  code: "VC-1002",
-  lifecycle_state: "active",
-  period: currentPeriod,
-  posting_status: "posted",
-  posted_at: "2026-07-09T01:00:00Z",
+  voucher_no: "VC-1002",
+  status: "POSTED",
+  approved_by: "user-2",
+  posted_at: `${currentPeriod}-09T01:00:00Z`,
 };
 
 function createApi() {
   const api = createConsoleApiClient("finance-module-test-token");
   const GET = vi.spyOn(api, "GET").mockImplementation(async (path: unknown) => {
     await Promise.resolve();
-    if (path === "/api/v1/finance/vouchers") {
-      return { data: { items: [draftVoucher, postedVoucher], total: 2 } };
+    if (path === "/api/v1/finance-gl/vouchers") {
+      return { data: [approvedVoucher, postedVoucher] };
     }
-    if (path === `/api/v1/finance/vouchers/${draftVoucher.id}`) {
-      return { data: draftVoucher };
+    if (path === "/api/v1/finance-gl/vouchers/{voucher_id}") {
+      return { data: approvedVoucher };
     }
-    if (path === `/api/v1/finance/vouchers/${postedVoucher.id}`) {
-      return { data: postedVoucher };
+    if (path === "/api/v1/branches") {
+      return { data: [{ id: "branch-1", region_id: "region-1", name: "본사", deactivated_at: null, created_at: "2026-01-01T00:00:00Z" }] };
     }
     throw new Error(`unexpected GET ${String(path)}`);
   });
-  const POST = vi.spyOn(api, "POST").mockImplementation(async (path: unknown, opts: unknown) => {
+  const POST = vi.spyOn(api, "POST").mockImplementation(async (path: unknown) => {
     await Promise.resolve();
-    if (path === `/api/v1/finance/vouchers/${draftVoucher.id}/post`) {
-      return { data: { ...draftVoucher, posting_status: "posted", posted_at: "2026-07-09T02:00:00Z" } };
+    if (path === "/api/v1/finance-gl/vouchers/{voucher_id}/post") {
+      return { data: { ...approvedVoucher, status: "POSTED", posted_at: "2026-07-09T02:00:00Z" } };
     }
-    if (path === "/api/v1/finance/vouchers") {
-      const body = (opts as { body?: { title?: string } }).body;
-      return { data: { ...draftVoucher, id: "v-3", code: "VC-1003", title: body?.title ?? "" } };
+    if (path === "/api/v1/finance-gl/vouchers") {
+      return { data: { ...approvedVoucher, id: "v-3", voucher_no: "VC-1003", status: "DRAFT" } };
     }
     throw new Error(`unexpected POST ${String(path)}`);
   });
@@ -87,14 +93,13 @@ describe("financeModuleScreen — live (final-shape) surface", () => {
     expect(await screen.findByRole("button", { name: "VC-1001 상세 열기" })).toBeVisible();
     expect(screen.getByRole("button", { name: "VC-1002 상세 열기" })).toBeVisible();
 
-    // Real stat strip computed from the fetched vouchers, not hardcoded zeros.
-    expect(screen.getByText("검토 대기 1")).toBeVisible();
-    expect(screen.getByText("전기 완료 1")).toBeVisible();
-    expect(screen.getByText("원천 연결 2")).toBeVisible();
+    // Real stat strip computed from the fetched vouchers (§4-11: every stat
+    // drills, none hardcoded) — pending (approved-but-not-posted) = 1, this
+    // month's posted = 1, auto-derived (has a source) = 2.
+    expect(screen.getByText("미결전표 1")).toBeVisible();
+    expect(screen.getByText("당월 전기 1")).toBeVisible();
+    expect(screen.getByText("자동전표 2")).toBeVisible();
 
-    // Document-flow stepper steps render as real localized chips, not a
-    // placeholder. Scoped to the stepper list so the "전기" post step is not
-    // confused with the "전기" post action button.
     const detail = within(screen.getByLabelText("전표 상세"));
     await waitFor(() => {
       expect(detail.getByRole("list")).toBeVisible();
@@ -105,14 +110,14 @@ describe("financeModuleScreen — live (final-shape) surface", () => {
     expect(stepper.getByText("승인")).toBeVisible();
     expect(stepper.getByText("전기")).toBeVisible();
 
-    // Balance-check callout is ok for a balanced, valid draft.
+    // Balance-check callout is ok for a balanced voucher.
     expect(detail.getByText("차대 일치")).toBeVisible();
 
-    // Account-drill: one chip per GL line, using the real line data.
+    // Account-drill: one chip per line, using the real account codes.
     expect(detail.getByText("101")).toBeVisible();
     expect(detail.getByText("201")).toBeVisible();
 
-    // postVoucher is offered for the unposted+valid draft; reverseVoucher is not.
+    // postVoucher is offered once APPROVED; reverseVoucher is not.
     expect(screen.getByRole("button", { name: "전기" })).toBeVisible();
     expect(screen.queryByRole("button", { name: "반제" })).not.toBeInTheDocument();
   });
@@ -124,11 +129,12 @@ describe("financeModuleScreen — live (final-shape) surface", () => {
     await userEvent.click(postedRowButton);
 
     await waitFor(() => {
-      expect(screen.queryByRole("button", { name: "전기" })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "반제" })).toBeVisible();
     });
+    expect(screen.queryByRole("button", { name: "전기" })).not.toBeInTheDocument();
   });
 
-  it("posts a voucher through the real reversal/post wiring and reflects the new state without a page reload", async () => {
+  it("posts a voucher through the real finance-gl wiring and reflects the new state without a page reload", async () => {
     const { GET } = renderFinance();
 
     const postButton = await screen.findByRole("button", { name: "전기" });
@@ -159,7 +165,9 @@ describe("financeModuleScreen — live (final-shape) surface", () => {
     await userEvent.type(glInputs[1], "201");
     await userEvent.type(creditInputs[1], "30000");
 
-    expect(submit).not.toBeDisabled();
+    await waitFor(() => {
+      expect(submit).not.toBeDisabled();
+    });
     await userEvent.click(submit);
 
     await waitFor(() => {

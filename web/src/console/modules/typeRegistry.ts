@@ -115,15 +115,15 @@ const F = "console.modules.finance";
 const A = "console.modules.asset";
 const X = "console.modules.types";
 
+// S14 re-model: a direct mirror of the real backend `VoucherStatus` FSM
+// (finance-gl/domain: Draft → BalanceChecked → Approved → Posted → Reversed),
+// not the invented lifecycle/posting/validation vocabulary this used to carry.
 const financeStatusChoices: OntChoice[] = [
   { id: "draft", nameKey: `${F}.statuses.draft`, tone: "neutral" },
-  { id: "review", nameKey: `${F}.statuses.review`, tone: "warn" },
-  { id: "active", nameKey: `${F}.statuses.active`, tone: "ok" },
+  { id: "balance_checked", nameKey: `${F}.statuses.balance_checked`, tone: "info" },
+  { id: "approved", nameKey: `${F}.statuses.approved`, tone: "warn" },
   { id: "posted", nameKey: `${F}.statuses.posted`, tone: "ok" },
-  { id: "revision", nameKey: `${F}.statuses.revision`, tone: "info" },
-  { id: "archived", nameKey: `${F}.statuses.archived`, tone: "neutral" },
-  { id: "disposed", nameKey: `${F}.statuses.disposed`, tone: "danger" },
-  { id: "invalid", nameKey: `${F}.statuses.invalid`, tone: "danger" },
+  { id: "reversed", nameKey: `${F}.statuses.reversed`, tone: "purple" },
 ];
 
 const equipmentStatusChoices: OntChoice[] = [
@@ -151,20 +151,12 @@ export const ONT_TYPES: Readonly<Record<string, OntObjectType>> = {
       { id: "postedAt", nameKey: `${F}.columns.postedAt`, type: "datetime" },
       { id: "documentFlow", nameKey: `${F}.detail.documentFlow`, type: "stepper" },
       { id: "balanceCheck", nameKey: `${F}.detail.balanceCheck`, type: "balanceCheck" },
-      { id: "lifecyclePhase", nameKey: `${F}.detail.lifecycle`, type: "text" },
-      { id: "lifecycleVersion", nameKey: `${F}.detail.version`, type: "text" },
-      { id: "postingStatus", nameKey: `${F}.detail.postingStatus`, type: "text" },
-      { id: "period", nameKey: `${F}.detail.period`, type: "text" },
-      { id: "voucherDate", nameKey: `${F}.detail.voucherDate`, type: "date" },
       { id: "totalDebitWon", nameKey: `${F}.detail.totalDebit`, type: "currency", config: { unit: "KRW" } },
       { id: "totalCreditWon", nameKey: `${F}.detail.totalCredit`, type: "currency", config: { unit: "KRW" } },
-      { id: "sourceKind", nameKey: `${F}.detail.sourceKind`, type: "text" },
-      { id: "sourceCode", nameKey: `${F}.detail.sourceCode`, type: "code" },
       { id: "glAccountSummary", nameKey: `${F}.detail.glAccountSummary`, type: "text" },
-      { id: "orgScope", nameKey: `${F}.detail.orgScope`, type: "text" },
       { id: "branchScope", nameKey: `${F}.detail.branchScope`, type: "text" },
       { id: "createdBy", nameKey: `${F}.detail.createdBy`, type: "user" },
-      { id: "auditTraceId", nameKey: `${F}.detail.auditTrace`, type: "code" },
+      { id: "approvedBy", nameKey: `${F}.detail.approvedBy`, type: "user" },
     ],
     linkTypes: [
       { rel: "voucher_source", nameKey: `${F}.links.approval`, to: "approval", cardinality: "one_one", rev: "approval_voucher" },
@@ -172,6 +164,8 @@ export const ONT_TYPES: Readonly<Record<string, OntObjectType>> = {
     ],
     actions: [
       { key: "createVoucher", nameKey: `${F}.actions.createVoucher`, policyAction: "finance_voucher_create" },
+      { key: "submitVoucher", nameKey: `${F}.actions.submitVoucher`, policyAction: "finance_voucher_post" },
+      { key: "approveVoucher", nameKey: `${F}.actions.approveVoucher`, policyAction: "finance_voucher_post" },
       { key: "postVoucher", nameKey: `${F}.actions.postVoucher`, policyAction: "finance_voucher_post" },
       { key: "reverseVoucher", nameKey: `${F}.actions.reverseVoucher`, policyAction: "finance_voucher_post" },
     ],

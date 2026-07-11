@@ -67,8 +67,14 @@ const emptyFilters: Filters = {
 
 type ReadState = "idle" | "loading" | "error";
 
-/** Stat-strip drill keys (§4-11: every stat filters the list, never a dead number). */
-type Drill = "open" | "urgent" | "unassigned" | "resolved";
+/**
+ * Stat-strip drill keys (§4-11: every stat filters the list, never a dead
+ * number). Exported for reuse by the console screen composition
+ * (screens/support/SupportBody), which drives the same real ticket data
+ * through console-pure JSX (§4-18: one data model, two presentation layers —
+ * this page predates the carbon-copy console's shadcn ban).
+ */
+export type Drill = "open" | "urgent" | "unassigned" | "resolved";
 
 /** Shared pill-chip classes for stat drills and filter segments (≥44px target). */
 function chipClass(pressed: boolean): string {
@@ -605,7 +611,7 @@ function ChipGroup({
   );
 }
 
-interface SupportStats {
+export interface SupportStats {
   open: number;
   urgentOrBreached: number;
   unassigned: number;
@@ -636,7 +642,9 @@ function filterTickets(tickets: SupportTicketSummary[], searchTerm: string) {
   });
 }
 
-function buildSupportStats(
+// Pure data helper, reused (not duplicated) by the console screen's model.ts.
+// eslint-disable-next-line react-refresh/only-export-components
+export function buildSupportStats(
   tickets: SupportTicketSummary[],
   nowMs: number,
   sloRules: SloSettingState["active"],

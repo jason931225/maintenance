@@ -76,16 +76,22 @@ export const LEAVE_REASONS: readonly LeaveReason[] = [
   "sick",
 ];
 
-/** One 연차 원장 row — GET /api/v1/leave/balances, merged with the employee directory. */
+/**
+ * One 연차 원장 row — GET /api/v1/leave/balances (`LeaveRosterEntry`: id, name,
+ * team, grant/used/left, tone — no company/employee-number/position/hire-date
+ * join). Those richer HR-directory fields aren't in this endpoint's response,
+ * so they're optional here rather than fabricated; the table renders "—" when
+ * absent (§4-25-⑥).
+ */
 export interface LeaveLedgerRow {
   id: string;
-  /** Object code (JL-) carried in drag payloads / ObjectCard. */
+  /** Client-derived drag/object-card code — see `rosterToLedgerRow` header. */
   code: string;
   name: string;
-  company: string;
-  employeeNumber: string;
-  orgUnit: string;
-  position: string;
+  company?: string;
+  employeeNumber?: string;
+  orgUnit?: string;
+  position?: string;
   hireDate?: string;
   accrued: number;
   used: number;
@@ -93,6 +99,32 @@ export interface LeaveLedgerRow {
   /** Backend-computed §61 bucket — never re-derived client-side. */
   tone: LeaveRosterTone;
   active: boolean;
+}
+
+/**
+ * `LeaveRosterEntry` (GET /api/v1/leave/balances) → `LeaveLedgerRow`. The
+ * roster is a projected type with no backend-issued object code yet (no
+ * `leaveLedger` kind registered in composer/objectKinds.ts — that shared
+ * registry + its ko.ts label are wire-pending, since this lane cannot edit
+ * ko.ts). `LV-` is a stable client-derived short id (same pattern as
+ * console/forecast/series.ts's `FC-` codes for another projected type) —
+ * real data, not a fabricated business fact; it just won't resolve via
+ * `kindFromCode` until the registration lands (deny-by-omission, not broken).
+ * `active` defaults true: the endpoint only returns the current employee
+ * ledger and carries no separate exit flag.
+ */
+export function rosterToLedgerRow(entry: LeaveRosterEntry): LeaveLedgerRow {
+  return {
+    id: entry.employee_id,
+    code: `LV-${entry.employee_id.replace(/-/g, "").slice(0, 6).toUpperCase()}`,
+    name: entry.name,
+    orgUnit: entry.team ?? undefined,
+    accrued: entry.grant,
+    used: entry.used,
+    remaining: entry.left,
+    tone: entry.tone,
+    active: true,
+  };
 }
 
 export function isHalfDay(reason: LeaveReason | ""): boolean {

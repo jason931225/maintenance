@@ -1,0 +1,199 @@
+import { useMemo, useRef, useState, type CSSProperties } from "react";
+
+import { ko } from "../../../i18n/ko";
+import type { ConsoleApiClient } from "../../../api/client";
+import { ObjectExplorerScreen } from "../../explore";
+import { OntologyManagerScreen } from "../../ontology";
+import { BulkPolicyGateProvider } from "../../policy";
+import { WindowManagerProvider } from "../../window";
+import "../../tokens.css";
+import {
+  FeedbackBanner,
+  StatStrip,
+  WorkspaceEmpty,
+  WorkspaceError,
+  WorkspaceLoading,
+  type WorkspaceStat,
+} from "./WorkspaceChrome";
+import {
+  ONTOLOGY_GATE_ACTIONS,
+  useOntologyWorkspace,
+} from "./useOntologyWorkspace";
+
+const ON = ko.console.ontology;
+const TABS = ko.ontology.tabs;
+
+export type WorkspaceTab = "manager" | "graph";
+
+const rootStyle: CSSProperties = {
+  display: "grid",
+  gap: "var(--sp-5)",
+  padding: "var(--sp-6)",
+  minHeight: "100%",
+  background: "var(--canvas)",
+  color: "var(--ink)",
+  fontFamily: "var(--font-sans)",
+};
+
+const headerStyle: CSSProperties = {
+  display: "grid",
+  gap: "var(--sp-4)",
+};
+
+const titleStyle: CSSProperties = {
+  margin: 0,
+  color: "var(--ink)",
+  fontSize: "var(--text-h1)",
+  fontWeight: "var(--fw-strong)",
+  letterSpacing: "var(--tracking-tight)",
+};
+
+const tabBarStyle: CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  borderBottom: "1px solid var(--border)",
+};
+
+const tabStyle: CSSProperties = {
+  minHeight: 44,
+  padding: "0 var(--sp-4)",
+  border: 0,
+  borderBottom: "2px solid transparent",
+  background: "transparent",
+  color: "var(--steel)",
+  fontSize: "var(--text-sm)",
+  fontWeight: "var(--fw-strong)",
+  cursor: "pointer",
+};
+
+const tabActiveStyle: CSSProperties = {
+  ...tabStyle,
+  borderBottomColor: "var(--signal-deep)",
+  color: "var(--ink)",
+};
+
+export interface OntologyWorkspaceBodyProps {
+  api: ConsoleApiClient;
+  /** Screen title (온톨로지 for the manager, 객체 탐색 for the explorer). */
+  title: string;
+  /** Tab focused first; the explorer defaults to the graph. */
+  defaultTab: WorkspaceTab;
+  /** Whether the type-authoring 매니저 tab is offered (온톨로지 only). */
+  allowManager: boolean;
+}
+
+/**
+ * Shared ontology workspace — the graph explorer + object inspector both
+ * ontology screens center on (§4-18 reuse: one implementation, two mounts).
+ * `allowManager` adds the 타입·매니저 authoring tab (draft/publish); the
+ * explorer omits it and shows the graph alone.
+ *
+ * The inspector is the pinned ObjectCard: clicking a graph node opens it as the
+ * docked right panel via WindowManagerProvider. Projected instances that can't
+ * be resolved (S23) degrade to their graph fields inside the card — no
+ * fabricated properties.
+ */
+export function OntologyWorkspaceBody({
+  api,
+  title,
+  defaultTab,
+  allowManager,
+}: OntologyWorkspaceBodyProps) {
+  const ws = useOntologyWorkspace(api, { saveFailed: ko.users.form.saveFailed });
+  const [tab, setTab] = useState<WorkspaceTab>(allowManager ? defaultTab : "graph");
+  const graphRef = useRef<HTMLDivElement>(null);
+
+  const stats = useMemo<WorkspaceStat[]>(
+    () => [
+      { key: "types", label: ON.typeList.title, value: ws.stats.types, drillAria: `${ON.typeList.title} ${ON.count(ws.stats.types)}` },
+      { key: "instances", label: ON.subtabs.instances, value: ws.stats.instances, drillAria: `${ON.subtabs.instances} ${ON.count(ws.stats.instances)}` },
+      { key: "links", label: ON.subtabs.links, value: ws.stats.links, drillAria: `${ON.subtabs.links} ${ON.count(ws.stats.links)}` },
+    ],
+    [ws.stats],
+  );
+
+  function scrollGraphIntoView(): void {
+    // The lib type marks scrollIntoView as always-present, but jsdom (tests) and
+    // very old engines omit it — cast so the runtime guard is honest.
+    (graphRef.current as { scrollIntoView?: (opts: ScrollIntoViewOptions) => void } | null)
+      ?.scrollIntoView?.({ block: "nearest" });
+  }
+
+  function handleDrill(key: string): void {
+    // §4-11: every stat is a jump. In the manager the 타입 stat lands on the
+    // authoring tab; instances/relations land on the graph. The explorer has no
+    // tabs, so a stat scrolls the graph into view.
+    if (allowManager) {
+      setTab(key === "types" ? "manager" : "graph");
+      if (key !== "types") scrollGraphIntoView();
+    } else {
+      scrollGraphIntoView();
+    }
+  }
+
+  const showManagerTab = allowManager && tab === "manager";
+
+  return (
+    <section className="console" aria-label={title} style={rootStyle}>
+      <header style={headerStyle}>
+        <h1 style={titleStyle}>{title}</h1>
+        <StatStrip stats={stats} onDrill={handleDrill} ariaLabel={title} />
+        {allowManager ? (
+          <div role="tablist" aria-label={title} style={tabBarStyle}>
+            {(["manager", "graph"] as const).map((key) => (
+              <button
+                key={key}
+                type="button"
+                role="tab"
+                aria-selected={tab === key}
+                onClick={() => {
+                  setTab(key);
+                }}
+                style={tab === key ? tabActiveStyle : tabStyle}
+              >
+                {key === "manager" ? TABS.manager : TABS.graph}
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </header>
+
+      {ws.feedback ? (
+        <FeedbackBanner message={ws.feedback} onDismiss={ws.clearFeedback} />
+      ) : null}
+
+      {ws.readState === "loading" ? (
+        <WorkspaceLoading />
+      ) : ws.readState === "error" ? (
+        <WorkspaceError
+          onRetry={() => {
+            void ws.reload();
+          }}
+        />
+      ) : ws.isEmpty ? (
+        <WorkspaceEmpty />
+      ) : (
+        <BulkPolicyGateProvider actions={ONTOLOGY_GATE_ACTIONS}>
+          <WindowManagerProvider>
+            {showManagerTab ? (
+              <OntologyManagerScreen
+                registry={ws.registry}
+                onCreateType={ws.onCreateType}
+                onCommitRevision={ws.onCommitRevision}
+                resolveInstanceCard={ws.resolveInstanceCard}
+              />
+            ) : (
+              <div ref={graphRef}>
+                <ObjectExplorerScreen
+                  model={ws.explorerModel}
+                  onFocusChange={ws.onGraphFocusChange}
+                  resolveNodeDescriptor={ws.resolveNodeDescriptor}
+                />
+              </div>
+            )}
+          </WindowManagerProvider>
+        </BulkPolicyGateProvider>
+      )}
+    </section>
+  );
+}

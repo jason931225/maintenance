@@ -98,7 +98,11 @@ const ACT = {
 
 // Deny-by-omission action set, resolved at mount via
 // POST /api/v1/policy/authorize/bulk (arch §5c) — see BulkPolicyGateProvider.
-const AUTOMATE_GATE_ACTIONS: readonly string[] = Object.values(ACT);
+// Exported for reuse by the console screen composition (AutomateBody), which
+// wraps the same AutomateHub in its own BulkPolicyGateProvider (§4-18: one
+// hub, two mount points — the legacy route and the console screen).
+// eslint-disable-next-line react-refresh/only-export-components
+export const AUTOMATE_GATE_ACTIONS: readonly string[] = Object.values(ACT);
 
 // ── View models over the definition payloads ────────────────────────────────
 

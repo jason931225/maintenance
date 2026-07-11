@@ -9,6 +9,7 @@ import { Sidebar } from "./Sidebar";
 import type { NavBadge } from "./Sidebar";
 import { Topbar } from "./Topbar";
 import { markConsoleRoute } from "../rum/rum";
+import { SCREEN_REGISTRY } from "../screens/registry";
 import type { ThemeMode } from "./theme";
 
 const S = ko.console.shell;
@@ -72,6 +73,7 @@ export function ConsoleShell({
     screen && groups.some((g) => g.items.some((i) => i.screen === screen))
       ? screen
       : defaultScreen(grants);
+  const ScreenBody = SCREEN_REGISTRY[activeScreen];
 
   const routeSampleReady = useRef(false);
   const lastSampledScreen = useRef<string | undefined>(undefined);
@@ -197,13 +199,16 @@ export function ConsoleShell({
           userRoleLabel={userRoleLabelText}
         />
 
-        {/* Screen body — state.screen-driven slot. Screens compose here in later
-            slices; P0.1 renders the empty themed canvas for the active screen. */}
+        {/* Screen body — state.screen-driven slot, keyed off SCREEN_REGISTRY.
+            A screen with no registered body still renders the themed canvas
+            (chrome-only, unchanged from before content lanes landed). */}
         <section
           aria-label={S.body.label}
           data-cshell-screen={activeScreen}
           style={{ flex: "1 1 auto", minHeight: 0, minWidth: 0, background: "var(--canvas)" }}
-        />
+        >
+          {ScreenBody ? <ScreenBody /> : null}
+        </section>
       </main>
 
       {/* Comms rail — collapsed strip only (chrome). The interactive rail (open
