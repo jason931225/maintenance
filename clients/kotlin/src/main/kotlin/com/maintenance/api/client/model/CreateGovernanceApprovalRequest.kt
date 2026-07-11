@@ -33,6 +33,7 @@ import kotlinx.serialization.Contextual
  *
  * @param requestRef
  * @param kind
+ * @param targetRef The object this approval is FOR (a hold id, a workflow definition id, an ontology instance id). A four-eyes gate binds the approval to the action's target, so an approval decided for one object can never satisfy a gate for another. Omit for create-style actions with no pre-existing target.
  * @param payloadSummary
  */
 @Serializable
@@ -44,6 +45,10 @@ data class CreateGovernanceApprovalRequest (
 
     @SerialName(value = "kind")
     val kind: kotlin.String,
+
+    /* The object this approval is FOR (a hold id, a workflow definition id, an ontology instance id). A four-eyes gate binds the approval to the action's target, so an approval decided for one object can never satisfy a gate for another. Omit for create-style actions with no pre-existing target. */
+    @Contextual @SerialName(value = "target_ref")
+    val targetRef: java.util.UUID? = null,
 
     @Contextual @SerialName(value = "payload_summary")
     val payloadSummary: kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>? = null

@@ -95,6 +95,7 @@ async fn self_approval_is_rejected(pool: PgPool) {
                 request_ref,
                 kind: "override".to_owned(),
                 requested_by: requester,
+                target_ref: None,
                 decision: ApprovalDecision::Approved,
                 trace: trace(),
                 occurred_at: now(),
@@ -156,6 +157,7 @@ async fn distinct_approval_is_appended_and_immutable(pool: PgPool) {
                 request_ref,
                 kind: "override".to_owned(),
                 requested_by: requester,
+                target_ref: None,
                 decision: ApprovalDecision::Approved,
                 trace: trace(),
                 occurred_at: now(),
@@ -295,6 +297,7 @@ async fn gate_chain_fails_closed_without_four_eyes(pool: PgPool) {
                 request_ref,
                 kind: "lifecycle.dispose".to_owned(),
                 requested_by: requester,
+                target_ref: Some(object_type_id),
                 decision: ApprovalDecision::Approved,
                 trace: trace(),
                 occurred_at: now(),
@@ -328,7 +331,9 @@ async fn assess_dispose_gate(
     .unwrap()
     .expect("transition is configured");
     let four_eyes = scope_org(OrgId::from_uuid(ORG_A), async {
-        store.four_eyes_approved(request_ref).await
+        store
+            .four_eyes_approved(request_ref, "lifecycle.dispose", Some(object_type_id))
+            .await
     })
     .await
     .unwrap();

@@ -28,7 +28,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use mnt_governance_adapter_postgres::{
-    PgGovernanceError, PgGovernanceStore, authority_effect_from_cedar, four_eyes_approved_conn,
+    PgGovernanceError, PgGovernanceStore, authority_effect_from_cedar, four_eyes_consume_conn,
 };
 use mnt_governance_domain::{
     AuthorityEffect, GateChainConfig, GateChainOutcome, GateEvidence, LifecycleState,
@@ -620,6 +620,29 @@ impl OntologyRestState {
                     // A projected action with no target can never resolve a handler.
                     ActionError::NotWiredYet { target: None },
                 )?;
+                // The §16 chain (incl. the four-eyes peek) passed above, but a
+                // projected use-case owns its own tx we cannot join, so we bind-match
+                // AND consume the approval in our own committed step right before
+                // dispatch (single-use — a replay is denied). A failed dispatch spends
+                // the approval: fail-closed, the requester re-requests.
+                if let Some(request_ref) = command
+                    .four_eyes_request_ref
+                    .filter(|_| prepared.config.four_eyes)
+                {
+                    let (kind, bound_target) = action_four_eyes_binding(&prepared, &command);
+                    let consumed = self
+                        .governance
+                        .four_eyes_consume(request_ref, kind, Some(bound_target), principal.user_id)
+                        .await
+                        .map_err(|e| ActionError::Store(governance_to_ontology(e)))?;
+                    if consumed != Some(true) {
+                        return Err(ActionError::GateDenied(
+                            "four-eyes approval was already consumed or does not \
+                             match this action"
+                                .to_owned(),
+                        ));
+                    }
+                }
                 let projected = self
                     .projected_dispatch
                     .dispatch(ProjectedDispatch {
@@ -722,10 +745,13 @@ impl OntologyRestState {
         command: &ActionCommand,
     ) -> Result<GateChainOutcome, ActionError> {
         let authority = authority_effect(principal);
+        // Non-consuming peek only — the authoritative bind-match + single-use
+        // consume happens inside the writeback tx (`instance_revision_writeback`).
+        let (expected_kind, expected_target) = action_four_eyes_binding(prepared, command);
         let four_eyes_approved = match command.four_eyes_request_ref {
             Some(request_ref) => self
                 .governance
-                .four_eyes_approved(request_ref)
+                .four_eyes_approved(request_ref, expected_kind, Some(expected_target))
                 .await
                 .map_err(|e| ActionError::Store(governance_to_ontology(e)))?,
             None => None,
@@ -764,6 +790,26 @@ fn authority_effect(principal: &Principal) -> AuthorityEffect {
     );
     authority_effect_from_cedar(evaluate_legacy_contract(&request).effect)
 }
+
+/// The (action_kind, target) a four-eyes approval must be bound to for this action:
+/// the action's stable key, and the object it acts on — the instance for an edit,
+/// or the object type for a create (which has no instance target yet). Both are
+/// server-derived, never trusted from the caller, so an approval decided for a
+/// different action or object can never satisfy this gate.
+fn action_four_eyes_binding<'a>(
+    prepared: &'a Prepared,
+    command: &ActionCommand,
+) -> (&'a str, Uuid) {
+    let target = command
+        .instance_id
+        .map_or_else(|| *command.object_type_id.as_uuid(), |id| *id.as_uuid());
+    (prepared.action.stable_key.as_str(), target)
+}
+
+/// The four-eyes `kind` a lifecycle-transition approval is decided under. A
+/// lifecycle transition has no action key, so the kind is fixed and the approval
+/// binds to the specific instance (its `target_ref`).
+const LIFECYCLE_FOUR_EYES_KIND: &str = "ontology.lifecycle";
 
 async fn action_preflight(
     State(state): State<OntologyRestState>,
@@ -820,16 +866,26 @@ async fn instance_revision_writeback(
     let title = body.title.clone();
     let reason = body.reason.clone();
     let valid_from = body.valid_from;
+    let (expected_kind, expected_target) = action_four_eyes_binding(prepared, command);
+    let expected_kind = expected_kind.to_owned();
     let action_key = action_key.to_owned();
 
     with_audits::<_, InstanceState, PgOntologyError>(state.registry.pool(), org, move |tx| {
         Box::pin(async move {
-            // TOCTOU re-check: read four-eyes evidence inside THIS tx, re-run the
-            // whole chain. Anything not satisfied now ⇒ deny ⇒ rollback (0 rows).
+            // TOCTOU re-check: bind-match AND consume the four-eyes approval inside
+            // THIS tx, then re-run the whole chain. Anything not satisfied now ⇒ deny
+            // ⇒ rollback (0 rows, and the consumption rolls back too so a legitimate
+            // retry can re-use the approval).
             let four_eyes_approved = match four_eyes_ref {
-                Some(request_ref) => four_eyes_approved_conn(tx.as_mut(), request_ref)
-                    .await
-                    .map_err(governance_to_ontology)?,
+                Some(request_ref) => four_eyes_consume_conn(
+                    tx.as_mut(),
+                    request_ref,
+                    &expected_kind,
+                    Some(expected_target),
+                    actor,
+                )
+                .await
+                .map_err(governance_to_ontology)?,
                 None => None,
             };
             let evidence = GateEvidence {
@@ -1047,7 +1103,7 @@ impl OntologyRestState {
 
         // Fail-closed pre-tx gate evaluation.
         let gates = self
-            .evaluate_lifecycle_gates(principal, config, &command)
+            .evaluate_lifecycle_gates(principal, instance_id, config, &command)
             .await?;
         if !gates.allow {
             let reason = gates.first_blocking().map_or_else(
@@ -1071,14 +1127,20 @@ impl OntologyRestState {
     async fn evaluate_lifecycle_gates(
         &self,
         principal: &Principal,
+        instance_id: InstanceId,
         config: GateChainConfig,
         command: &LifecycleCommand,
     ) -> Result<GateChainOutcome, ActionError> {
         let authority = authority_effect(principal);
+        // Non-consuming peek only — the authoritative consume is in the writeback.
         let four_eyes_approved = match command.four_eyes_request_ref {
             Some(request_ref) => self
                 .governance
-                .four_eyes_approved(request_ref)
+                .four_eyes_approved(
+                    request_ref,
+                    LIFECYCLE_FOUR_EYES_KIND,
+                    Some(*instance_id.as_uuid()),
+                )
                 .await
                 .map_err(|e| ActionError::Store(governance_to_ontology(e)))?,
             None => None,
@@ -1128,14 +1190,22 @@ async fn lifecycle_writeback(
     let to = command.to_state;
     let reason = command.reason.clone();
     let expected_from = head.lifecycle_state;
+    let expected_target = *instance_id.as_uuid();
 
     with_audits::<_, InstanceHead, PgOntologyError>(state.registry.pool(), org, move |tx| {
         Box::pin(async move {
-            // TOCTOU re-check: read four-eyes evidence inside THIS tx, re-run the chain.
+            // TOCTOU re-check: bind-match AND consume the four-eyes approval inside
+            // THIS tx (single-use), re-run the chain. Not satisfied ⇒ rollback.
             let four_eyes_approved = match four_eyes_ref {
-                Some(request_ref) => four_eyes_approved_conn(tx.as_mut(), request_ref)
-                    .await
-                    .map_err(governance_to_ontology)?,
+                Some(request_ref) => four_eyes_consume_conn(
+                    tx.as_mut(),
+                    request_ref,
+                    LIFECYCLE_FOUR_EYES_KIND,
+                    Some(expected_target),
+                    actor,
+                )
+                .await
+                .map_err(governance_to_ontology)?,
                 None => None,
             };
             let evidence = GateEvidence {

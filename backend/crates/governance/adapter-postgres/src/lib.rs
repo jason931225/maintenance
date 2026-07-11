@@ -160,8 +160,8 @@ impl PgGovernanceStore {
                 sqlx::query(
                     r#"
                     INSERT INTO gov_approval_requests
-                        (id, org_id, request_ref, kind, requested_by, payload_summary, created_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7)
+                        (id, org_id, request_ref, kind, requested_by, target_ref, payload_summary, created_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
                     "#,
                 )
                 .bind(request_id)
@@ -169,6 +169,7 @@ impl PgGovernanceStore {
                 .bind(command.request_ref)
                 .bind(command.kind.trim())
                 .bind(*command.requester.as_uuid())
+                .bind(command.target_ref)
                 .bind(&command.payload_summary)
                 .bind(command.occurred_at)
                 .execute(tx.as_mut())
@@ -221,13 +222,19 @@ impl PgGovernanceStore {
         with_audit::<_, ApprovalSummary, PgGovernanceError>(&self.pool, event, |tx| {
             Box::pin(async move {
                 // If a pending request exists for this ref, its recorded requester
-                // is authoritative (never the client-supplied `requested_by`), so
-                // an approver cannot spoof the requester to dodge the self-approval
-                // bar. Read it in THIS tx (RLS-armed, TOCTOU-safe).
-                let requested_by =
-                    pending_request_requested_by_conn(tx.as_mut(), command.request_ref)
-                        .await?
-                        .unwrap_or(command.requested_by);
+                // AND target are authoritative (never the client-supplied values),
+                // so an approver can neither spoof the requester to dodge the
+                // self-approval bar nor redirect the binding target. Read it in THIS
+                // tx (RLS-armed, TOCTOU-safe).
+                let pending =
+                    pending_request_binding_conn(tx.as_mut(), command.request_ref).await?;
+                let requested_by = pending
+                    .as_ref()
+                    .map_or(command.requested_by, |p| p.requested_by);
+                let target_ref = pending
+                    .as_ref()
+                    .and_then(|p| p.target_ref)
+                    .or(command.target_ref);
                 // Self-approval is blocked here (fast, clear error) and at the DB
                 // CHECK (`approver_id <> requested_by`). Defense in depth.
                 if command.approver == requested_by {
@@ -239,8 +246,8 @@ impl PgGovernanceStore {
                 sqlx::query(
                     r#"
                     INSERT INTO gov_approvals
-                        (id, org_id, request_ref, kind, requested_by, approver_id, decision, decided_at)
-                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                        (id, org_id, request_ref, kind, requested_by, approver_id, target_ref, decision, decided_at)
+                    VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                     "#,
                 )
                 .bind(approval_id)
@@ -249,6 +256,7 @@ impl PgGovernanceStore {
                 .bind(command.kind.trim())
                 .bind(*requested_by.as_uuid())
                 .bind(*command.approver.as_uuid())
+                .bind(target_ref)
                 .bind(command.decision.as_db_str())
                 .bind(command.occurred_at)
                 .execute(tx.as_mut())
@@ -340,27 +348,68 @@ impl PgGovernanceStore {
         .await
     }
 
-    /// Four-eyes evidence for a request, read under the armed org.
+    /// Four-eyes evidence for a request, read under the armed org — a NON-consuming
+    /// peek for preview/preflight only (the committing gate uses
+    /// [`four_eyes_consume_conn`]). Binds to the action: the approval must match the
+    /// server-derived `expected_kind` and `expected_target` and be unconsumed.
     ///
-    /// `Some(true)`  — an `approved` decision by a distinct principal exists.
-    /// `Some(false)` — a `rejected`/`pending` decision exists (blocked).
-    /// `None`        — no decision yet (the caller's gate fails closed).
+    /// `Some(true)`  — a matching `approved`, unconsumed decision by a distinct
+    ///                 principal exists.
+    /// `Some(false)` — no matching unconsumed approval (wrong kind/target, not yet
+    ///                 approved, or already consumed) — the gate fails closed.
     pub async fn four_eyes_approved(
         &self,
         request_ref: Uuid,
+        expected_kind: &str,
+        expected_target: Option<Uuid>,
     ) -> Result<Option<bool>, PgGovernanceError> {
         let org = current_org().map_err(KernelError::from)?;
+        let expected_kind = expected_kind.to_owned();
         with_org_conn::<_, _, PgGovernanceError>(&self.pool, org, move |tx| {
-            Box::pin(async move { four_eyes_approved_conn(tx.as_mut(), request_ref).await })
+            Box::pin(async move {
+                four_eyes_check_conn(tx.as_mut(), request_ref, &expected_kind, expected_target)
+                    .await
+            })
+        })
+        .await
+    }
+
+    /// Bind-match AND consume a four-eyes approval in one committed step — for
+    /// gated actions whose mutation runs in a tx this crate does not own (docs hold
+    /// release, projected dispatch). Returns `Some(true)` iff a matching approval
+    /// was newly consumed; `Some(false)` if none matched or it was already consumed
+    /// (replay). Callers with their own write tx MUST use [`four_eyes_consume_conn`]
+    /// so the consumption is atomic with the mutation.
+    pub async fn four_eyes_consume(
+        &self,
+        request_ref: Uuid,
+        expected_kind: &str,
+        expected_target: Option<Uuid>,
+        consumed_by: UserId,
+    ) -> Result<Option<bool>, PgGovernanceError> {
+        let org = current_org().map_err(KernelError::from)?;
+        let expected_kind = expected_kind.to_owned();
+        with_org_conn::<_, _, PgGovernanceError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                four_eyes_consume_conn(
+                    tx.as_mut(),
+                    request_ref,
+                    &expected_kind,
+                    expected_target,
+                    consumed_by,
+                )
+                .await
+            })
         })
         .await
     }
 }
 
 // The `&mut PgConnection` readers below are shared by the `with_audit` /
-// `with_org_conn` closures (pass `tx.as_mut()`). The ontology action lane also
-// calls `four_eyes_approved_conn` inside its OWN writeback transaction to
-// re-check four-eyes evidence in the same tx as the mutation (TOCTOU-safe).
+// `with_org_conn` closures (pass `tx.as_mut()`). The gated-action lanes call
+// `four_eyes_consume_conn` inside their OWN writeback transaction to bind-match AND
+// consume the four-eyes approval in the same tx as the mutation (TOCTOU-safe,
+// single-use); `four_eyes_check_conn` is the non-consuming peek for previews.
 
 async fn override_row_conn(
     conn: &mut PgConnection,
@@ -409,18 +458,28 @@ async fn approval_request_row_conn(
     })
 }
 
-/// The recorded requester of a pending approval request, if one is open for
-/// `request_ref`. `None` = no pending request (decide falls back to the
-/// client-supplied requester). RLS-scoped by the caller's armed org.
-async fn pending_request_requested_by_conn(
+/// The authoritative (requester, target) binding of a pending approval request, if
+/// one is open for `request_ref`. `None` = no pending request (decide falls back to
+/// the client-supplied values). RLS-scoped by the caller's armed org.
+struct PendingRequestBinding {
+    requested_by: UserId,
+    target_ref: Option<Uuid>,
+}
+
+async fn pending_request_binding_conn(
     conn: &mut PgConnection,
     request_ref: Uuid,
-) -> Result<Option<UserId>, PgGovernanceError> {
-    let row = sqlx::query("SELECT requested_by FROM gov_approval_requests WHERE request_ref = $1")
-        .bind(request_ref)
-        .fetch_optional(conn)
-        .await?;
-    Ok(row.map(|row| UserId::from_uuid(row.get("requested_by"))))
+) -> Result<Option<PendingRequestBinding>, PgGovernanceError> {
+    let row = sqlx::query(
+        "SELECT requested_by, target_ref FROM gov_approval_requests WHERE request_ref = $1",
+    )
+    .bind(request_ref)
+    .fetch_optional(conn)
+    .await?;
+    Ok(row.map(|row| PendingRequestBinding {
+        requested_by: UserId::from_uuid(row.get("requested_by")),
+        target_ref: row.get("target_ref"),
+    }))
 }
 
 async fn approval_row_conn(
@@ -473,18 +532,78 @@ async fn transition_requirements_conn(
     }))
 }
 
-/// Public so the ontology action lane can re-check four-eyes evidence inside its
-/// writeback transaction (pass `tx.as_mut()`), keeping the gate TOCTOU-safe.
-pub async fn four_eyes_approved_conn(
+// The bound-approval predicate below is shared, word-for-word, by the peek and the
+// consume: an `approved` decision for THIS `request_ref` whose recorded (kind,
+// target) match the action's server-derived `expected_kind` / `expected_target`,
+// and which has not already been consumed. `target_ref IS NOT DISTINCT FROM $3`
+// matches a NULL expected target against a NULL bound target and nothing else — a
+// legacy/unbound row never satisfies a target-bound gate. RLS scopes every row to
+// the caller's org. It is inlined as a literal in each query (not a `const` +
+// `format!`) because sqlx only accepts `&'static str` SQL.
+
+/// Non-consuming peek: does a matching, unconsumed, approved decision exist? For
+/// preview/preflight only. `Some(true)` = the gate would pass now; `Some(false)` =
+/// it would fail closed (wrong kind/target, unapproved, or already consumed).
+pub async fn four_eyes_check_conn(
     conn: &mut PgConnection,
     request_ref: Uuid,
+    expected_kind: &str,
+    expected_target: Option<Uuid>,
 ) -> Result<Option<bool>, PgGovernanceError> {
-    let row = sqlx::query(r#"SELECT decision FROM gov_approvals WHERE request_ref = $1"#)
-        .bind(request_ref)
-        .fetch_optional(conn)
-        .await?;
-    Ok(row.map(|row| {
-        let decision: String = row.get("decision");
-        decision == "approved"
-    }))
+    let exists: bool = sqlx::query_scalar(
+        r#"
+        SELECT EXISTS(
+            SELECT 1 FROM gov_approvals a
+            WHERE a.request_ref = $1
+              AND a.kind = $2
+              AND a.target_ref IS NOT DISTINCT FROM $3
+              AND a.decision = 'approved'
+              AND NOT EXISTS (SELECT 1 FROM gov_approval_consumptions c WHERE c.approval_id = a.id)
+        )
+        "#,
+    )
+    .bind(request_ref)
+    .bind(expected_kind)
+    .bind(expected_target)
+    .fetch_one(conn)
+    .await?;
+    Ok(Some(exists))
+}
+
+/// Bind-match AND consume in ONE statement, inside the caller's write tx so the
+/// consumption is atomic with the gated mutation (a rolled-back action un-consumes
+/// the approval). The `INSERT … SELECT … ON CONFLICT DO NOTHING RETURNING` both
+/// enforces the binding predicate and makes the single-use atomic: two concurrent
+/// consumers of the same approval serialize on the `(org_id, approval_id)` unique
+/// index and exactly one gets a returned row — the other sees `Some(false)` (replay
+/// denied). `Some(true)` = newly consumed (gate passes); `Some(false)` = no match or
+/// already consumed (gate fails closed).
+pub async fn four_eyes_consume_conn(
+    conn: &mut PgConnection,
+    request_ref: Uuid,
+    expected_kind: &str,
+    expected_target: Option<Uuid>,
+    consumed_by: UserId,
+) -> Result<Option<bool>, PgGovernanceError> {
+    let consumed: Option<Uuid> = sqlx::query_scalar(
+        r#"
+        INSERT INTO gov_approval_consumptions (org_id, approval_id, consumed_by)
+        SELECT a.org_id, a.id, $4
+        FROM gov_approvals a
+        WHERE a.request_ref = $1
+          AND a.kind = $2
+          AND a.target_ref IS NOT DISTINCT FROM $3
+          AND a.decision = 'approved'
+          AND NOT EXISTS (SELECT 1 FROM gov_approval_consumptions c WHERE c.approval_id = a.id)
+        ON CONFLICT (org_id, approval_id) DO NOTHING
+        RETURNING approval_id
+        "#,
+    )
+    .bind(request_ref)
+    .bind(expected_kind)
+    .bind(expected_target)
+    .bind(*consumed_by.as_uuid())
+    .fetch_optional(conn)
+    .await?;
+    Ok(Some(consumed.is_some()))
 }

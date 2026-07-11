@@ -14,6 +14,13 @@ import { ApiCallError, parseGateChain, type GateChain } from "./ontologyActions"
 export interface GovernanceCreateApprovalRequest {
   request_ref: string;
   kind: string;
+  /**
+   * The object this approval is FOR (a hold id, a workflow definition id, an
+   * ontology instance id). A four-eyes gate binds the approval to the action's
+   * target and consumes it single-use, so it can never satisfy a gate for a
+   * different object or be replayed. Omit for create-style actions with no target.
+   */
+  target_ref?: string;
   payload_summary?: Record<string, unknown>;
 }
 
