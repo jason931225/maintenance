@@ -114,6 +114,50 @@ describe("FinanceModuleScreen", () => {
     expect(codeCell).toHaveStyle({ whiteSpace: "nowrap" });
   });
 
+  it("wraps the free-text 내용 column instead of forcing 금액 off the visible list track (verdict r13 finance amount clips)", () => {
+    const rowConfig: ModuleScreenConfig = {
+      ...liveRowConfig,
+      list: {
+        ...liveRowConfig.list,
+        columns: [
+          { key: "code", labelKey: "console.modules.finance.columns.code" },
+          { key: "title", labelKey: "console.modules.finance.columns.title", wrap: true },
+          { key: "amount", labelKey: "console.modules.finance.columns.amount", align: "end" },
+        ],
+      },
+      rows: [
+        {
+          id: "row-1",
+          code: "OBJ-1",
+          status: { labelKey: "console.modules.finance.statuses.active", tone: "ok" },
+          cells: {
+            title: "부산 지점 정기점검 부품비 — 유압 실린더/호스/베어링 일괄 교체",
+            amount: "₩62,340,000",
+          },
+          detail: { title: "실개체" },
+        },
+      ],
+    };
+
+    render(
+      <PolicyGateProvider gate={allowGate}>
+        <GenericModuleScreen config={rowConfig} />
+      </PolicyGateProvider>,
+    );
+
+    // The full, untruncated amount is in the DOM (CSS overflow, not JS
+    // truncation, was the bug — assert both halves of the fix).
+    const amountCell = screen.getByText("₩62,340,000").closest("td");
+    expect(amountCell).not.toBeNull();
+    expect(amountCell).toHaveStyle({ whiteSpace: "nowrap" });
+
+    const titleCell = screen
+      .getByText("부산 지점 정기점검 부품비 — 유압 실린더/호스/베어링 일괄 교체")
+      .closest("td");
+    expect(titleCell).not.toBeNull();
+    expect(titleCell).toHaveStyle({ whiteSpace: "normal" });
+  });
+
   it("gates primary, row, detail, and link affordances through PolicyGated", () => {
     const readOnlyGate: PolicyGate = {
       can: (action) => action === FINANCE_MODULE_ACTIONS.read,

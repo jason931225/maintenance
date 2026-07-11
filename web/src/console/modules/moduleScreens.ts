@@ -429,7 +429,10 @@ export const financeModuleScreen: ModuleScreenConfig = {
       { key: "code" },
       { key: "status" },
       { key: "source", variant: "source" },
-      { key: "title" },
+      // Free-text voucher 내용 (e.g. "부산 지점 정기점검 부품비") — let it wrap so
+      // it doesn't force the row (and 금액 after it) past the visible list
+      // track (verdict r13 "finance amount clips at panel edge").
+      { key: "title", wrap: true },
       { key: "amount", align: "end" },
       { key: "gl", variant: "mono" },
       { key: "links" },

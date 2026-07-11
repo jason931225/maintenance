@@ -9,7 +9,9 @@ import {
   railCategories,
   railGroups,
   timelineEntries,
+  todayPunch,
   type ActionInboxItem,
+  type EmployeeAttendanceRecord,
   type MailThreadSummary,
   type NotificationCountsSummary,
 } from "./overviewModel";
@@ -84,6 +86,67 @@ describe("timelineEntries", () => {
     expect(entries).toHaveLength(2);
     expect(entries[0].item.kind).toBe("dispatch");
     expect(entries[1].item.kind).toBe("approval");
+  });
+});
+
+describe("todayPunch", () => {
+  const now = new Date(2026, 6, 3, 9, 0);
+  const fmt = new Intl.DateTimeFormat("en-US", {
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  });
+  // work_date is a local business day; build it the same way the deriver does
+  // so the compare is TZ-independent in CI.
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const workDate = `${String(now.getFullYear())}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+
+  function rec(
+    over: Partial<EmployeeAttendanceRecord>,
+  ): EmployeeAttendanceRecord {
+    return {
+      id: "att-1",
+      employee_id: "emp-1",
+      employee_display_name: "Kim",
+      kind: "CLOCK_IN",
+      occurred_at: new Date(2026, 6, 3, 8, 52).toISOString(),
+      work_date: workDate,
+      state_after: "CLOCKED_IN",
+      payroll_material_ref_id: "ref-1",
+      payroll_link_status: "LINKED",
+      duplicate: false,
+      ...over,
+    };
+  }
+
+  it("labels the latest state on today's work_date with its clock time", () => {
+    const punch = todayPunch([rec({})], now, fmt, S);
+    expect(punch?.label).toBe(S.punch.in(fmt.format(new Date(2026, 6, 3, 8, 52))));
+  });
+
+  it("picks the most recent record of the day (clock-out after clock-in)", () => {
+    const punch = todayPunch(
+      [
+        rec({ id: "a", occurred_at: new Date(2026, 6, 3, 8, 52).toISOString() }),
+        rec({
+          id: "b",
+          kind: "CLOCK_OUT",
+          state_after: "OFF_DUTY",
+          occurred_at: new Date(2026, 6, 3, 18, 5).toISOString(),
+        }),
+      ],
+      now,
+      fmt,
+      S,
+    );
+    expect(punch?.label).toBe(S.punch.off(fmt.format(new Date(2026, 6, 3, 18, 5))));
+  });
+
+  it("returns undefined when no record falls on today", () => {
+    expect(
+      todayPunch([rec({ work_date: "2026-07-02" })], now, fmt, S),
+    ).toBeUndefined();
+    expect(todayPunch([], now, fmt, S)).toBeUndefined();
   });
 });
 

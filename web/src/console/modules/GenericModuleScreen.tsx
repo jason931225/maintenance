@@ -169,6 +169,11 @@ const tdStyle: CSSProperties = {
   // Code/identifier cells (전표 코드 GL-2026-0003) must not wrap to one char per
   // line when the master-detail split shrinks the list track (minmax(0,1fr));
   // the tableWrap's overflowX:auto scrolls instead. thStyle already nowraps.
+  // NOT applied to `wrap: true` columns below — see cellStyle: a free-text
+  // column (voucher 내용) inheriting this blanket nowrap instead ballooned to
+  // its full unbroken width and pushed later columns (금액) past the visible
+  // list track with no scroll affordance in view (verdict r13 "finance amount
+  // clips at panel edge").
   whiteSpace: "nowrap",
 };
 
@@ -411,6 +416,15 @@ function cellStyle(column: ModuleColumnConfig): CSSProperties {
     // Money/count columns must never wrap mid-number ("620,\n000"); keep the
     // formatted amount on one line (verdict R9).
     ...(numeric ? { whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" } : {}),
+    // A free-text column (voucher 내용/memo) opts into wrapping so it grows
+    // the row instead of inheriting tdStyle's blanket nowrap and ballooning
+    // the whole table past the visible list track — which pushed later
+    // columns (금액) off-canvas with no scroll affordance in view (verdict
+    // r13 "finance amount clips at panel edge"). No minWidth here on purpose:
+    // with the detail pin open the list track is narrow enough that giving
+    // 내용 a wide floor re-pushes 금액 past the edge — letting 내용 wrap as
+    // tight as it needs to is what keeps 금액 (the reported column) visible.
+    ...(column.wrap ? { whiteSpace: "normal", wordBreak: "break-word" } : {}),
   };
 }
 

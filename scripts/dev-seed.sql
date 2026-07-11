@@ -34,9 +34,13 @@ ON CONFLICT (id) DO NOTHING;
 -- phone='dev-auth:{org}:{role}' (DevPrincipalProvisioner), so pre-seeding the
 -- row with THIS id + phone makes the later `POST /dev-auth/session` mint
 -- ON CONFLICT (phone) DO UPDATE the SAME row — the session's user_id stays d001,
--- so the "me"-scoped rows below (notifications, assigned tickets) surface.
+-- so the "me"-scoped rows below (notifications, assigned tickets) surface. The
+-- dev-auth mint now defaults an unnamed persona to a production-shaped person
+-- (전성진 for SUPER_ADMIN, see auth-rest `dev_persona_display_name`), and the
+-- upsert leaves `team` untouched, so the identity chip reads 전성진 · 관리 —
+-- never a raw `dev:SUPER_ADMIN` debug label.
 INSERT INTO users (id, display_name, phone, roles, team, is_active, org_id, is_org_lead) VALUES
-  ('00000000-0000-0000-0000-00000000d001', '개발 최고관리자', 'dev-auth:00000000-0000-0000-0000-0000000000a1:SUPER_ADMIN', ARRAY['SUPER_ADMIN'], '관리', true, '00000000-0000-0000-0000-0000000000a1', true),
+  ('00000000-0000-0000-0000-00000000d001', '전성진', 'dev-auth:00000000-0000-0000-0000-0000000000a1:SUPER_ADMIN', ARRAY['SUPER_ADMIN'], '관리', true, '00000000-0000-0000-0000-0000000000a1', true),
   ('00000000-0000-0000-0000-00000000d002', '김정비', '01041110001', ARRAY['MECHANIC'], '정비', true, '00000000-0000-0000-0000-0000000000a1', false),
   ('00000000-0000-0000-0000-00000000d003', '박접수', '01041110002', ARRAY['RECEPTIONIST'], '접수', true, '00000000-0000-0000-0000-0000000000a1', false),
   ('00000000-0000-0000-0000-00000000d004', '이대표', '01041110003', ARRAY['EXECUTIVE'], '관리', true, '00000000-0000-0000-0000-0000000000a1', false),
@@ -199,10 +203,9 @@ SELECT
 FROM (VALUES
   (3,  '현장 CCTV 클립 — 지게차 유압 누유 정황', '창원센터 반입구 CCTV에서 확인된 누유 발생 시점 영상', 'external_document', 'ext-cctv-c207-0705', 'CAM-207', 'INTERNAL', '00000000-0000-0000-0000-00000000d002', 2),
   -- r11: record owner = the seeded human who owns the record, never the dev
-  -- SUPER_ADMIN principal (d001) — dev-auth's login upsert overwrites d001's
-  -- display_name to the raw principal label, so a d001-owned row rendered
-  -- "dev:SUPER_ADMIN" in the 작성/담당 column. Governance docs → 이대표 (d004,
-  -- executive); safety report → 김정비 (d002, 정비 주임).
+  -- SUPER_ADMIN principal (d001). d001 now reads as a real person (전성진), but
+  -- authorship still routes to the domain owners for a coherent org: governance
+  -- docs → 이대표 (d004, executive); safety report → 김정비 (d002, 정비 주임).
   (4,  '무단결근 소명 진술 녹취', '근태 이의 제기 건 소명 청취 녹취 파일', 'inbox_doc', 'inbox-hr-0630', 'HR-0630', 'SENSITIVE', '00000000-0000-0000-0000-00000000d004', 5),
   (5,  '하도급 서면실태조사 대응 자료', '공정위 서면실태조사 회신 첨부 문서', 'mail_attachment', 'mail-fair-0628', 'FAIR-0628', 'CONFIDENTIAL', '00000000-0000-0000-0000-00000000d004', 9),
   (6,  '정기 점검 완료 사진 — KNLFL-0001', '2.5톤 디젤 지게차 정기점검 완료 상태 사진', 'work_order_evidence_media', 'wo-media-ad0005', '20260601-005', 'GENERAL', '00000000-0000-0000-0000-00000000d002', 14),

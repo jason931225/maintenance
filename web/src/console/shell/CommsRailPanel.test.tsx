@@ -72,6 +72,30 @@ describe("CommsRailPanel", () => {
     expect(screen.getByText("—")).toBeInTheDocument();
   });
 
+  it("never renders raw unread-scope debug pills (untranslated key + raw count)", async () => {
+    // Even when the counts endpoint reports by-category unread, the rail must not
+    // surface the old '메신저1 / leave1 / support2' debug chips: the design ref
+    // has no such row (the per-group headers already carry the counts).
+    render(
+      <CommsRailPanel
+        api={stubApi({
+          loadNotificationCounts: vi.fn().mockResolvedValue({
+            total_unread: 3,
+            by_category: [
+              { category: "메신저", unread: 1 },
+              { category: "leave", unread: 1 },
+              { category: "support", unread: 2 },
+            ],
+          }),
+        })}
+      />,
+    );
+    await screen.findAllByText("새 알림이 없습니다");
+    expect(screen.queryByText("leave")).not.toBeInTheDocument();
+    expect(screen.queryByText("support")).not.toBeInTheDocument();
+    expect(screen.queryByText(/^메신저\s*1$/)).not.toBeInTheDocument();
+  });
+
   it("shows an empty-state per group when nothing is unread", async () => {
     render(<CommsRailPanel api={stubApi()} />);
     const empties = await screen.findAllByText("새 알림이 없습니다");

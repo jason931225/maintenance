@@ -68,10 +68,11 @@ interface AuthOverrides {
   catalogReject?: boolean;
   catalogPending?: boolean;
   employeeTotal?: number;
+  roles?: string[];
 }
 
 function setupAuth(overrides: AuthOverrides = {}) {
-  const { employeeTotal = 1284 } = overrides;
+  const { employeeTotal = 1284, roles = ["SUPER_ADMIN"] } = overrides;
   const GET = vi.fn(async (path: string) => {
     await Promise.resolve();
     if (path === "/api/v1/policy/catalog") {
@@ -93,7 +94,7 @@ function setupAuth(overrides: AuthOverrides = {}) {
   });
   mockUseAuth.mockReturnValue({
     api: { GET, POST },
-    session: { user_id: "self-user", org_id: "org-1", roles: ["SUPER_ADMIN"] },
+    session: { user_id: "self-user", org_id: "org-1", roles },
   });
   return { GET, POST };
 }
@@ -213,11 +214,40 @@ describe("PolicyBody", () => {
     renderBody();
     await screen.findByText("Work order view");
 
-    // The 새 정책 button lives behind <PolicyGated>, whose bulk-authorize gate
-    // resolves on a separate async chain from the catalog load that
-    // findByText("Work order view") awaits — so wait for the gated button to
-    // appear rather than grabbing it synchronously (deny-by-omission until Allow).
+    // The 새 정책 CTA lives behind a LOCAL role gate (not the Cedar
+    // bulk-authorize gate — see PolicyBody's module doc): synchronous on
+    // session.roles, so it renders immediately, no async authorize round
+    // trip to await.
     await userEvent.click(await screen.findByRole("button", { name: S.newPolicyName }));
     expect(await screen.findByLabelText(S.canvasLabel)).toBeVisible();
+  });
+
+  it("새 정책 CTA renders for the SUPER_ADMIN session this screen's nav gate already requires (verdict r13: CTA missing)", async () => {
+    setupAuth();
+    renderBody();
+    await screen.findByText("Work order view");
+    // Deny-by-omission would otherwise leave the CTA absent forever — Cedar
+    // has no enforced grant for policy.author for any principal yet (shadow
+    // lane). This screen's own nav entry is SUPER_ADMIN-only, so the one role
+    // that can reach it must see the CTA.
+    expect(screen.getByRole("button", { name: S.newPolicyName })).toBeVisible();
+  });
+
+  it("새 정책 CTA is absent for a role below this screen's own nav gate (deny-by-omission holds)", async () => {
+    setupAuth({ roles: ["ADMIN"] });
+    renderBody();
+    await screen.findByText("Work order view");
+    expect(screen.queryByRole("button", { name: S.newPolicyName })).toBeNull();
+  });
+
+  it("shows an aggregate 허용/금지 footer under the list (verdict r13 lower half sparse)", async () => {
+    setupAuth();
+    renderBody();
+    await screen.findByText("Work order view");
+    // 2 catalog entries (1 permit/enforced, 1 forbid/shadow) + 1 standalone
+    // draft (permit, unfiltered by the "all" default) = 3 rows: 2 permit, 1 forbid.
+    expect(
+      screen.getByText(`${S.effectLabels.permit} 2 · ${S.effectLabels.forbid} 1 · ${L.count(3)}`),
+    ).toBeVisible();
   });
 });

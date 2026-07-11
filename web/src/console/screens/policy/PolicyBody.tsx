@@ -17,7 +17,8 @@ import {
   ruleLine,
   type PolicyCanvasWireStrings,
 } from "../../policycanvas";
-import { BulkPolicyGateProvider, PolicyGated } from "../../policy";
+import { PolicyGateProvider, PolicyGated, type PolicyGate } from "../../policy";
+import { ROLES } from "../../shell/nav";
 import { screenHeaderStyle, screenTitleStyle } from "../screenHeader";
 import "../../tokens.css";
 
@@ -36,6 +37,15 @@ import "../../tokens.css";
  * `people` stays 명, reserved for the 적용 대상/org-headcount stat only) and
  * list.screenTitle ("권한·정책", replacing the studio's internal "정책 캔버스"
  * title on THIS list screen only — verdict R3 title rename).
+ *
+ * Gate: a LOCAL role-tier gate (mirrors ModuleFinanceScreenBody), not
+ * `BulkPolicyGateProvider` — this screen's own nav entry is already
+ * SUPER_ADMIN-only (`console/shell/nav.ts`'s ROLE_MANAGE_ROLES), and Cedar's
+ * bulk-authorize has no enforced grant for `policy.author`/`policy.approve`
+ * for ANY principal yet (shadow-only; legacy RBAC is the sole enforcer —
+ * see cedar-activation-status), so wiring the real gate here hid the "새
+ * 정책" CTA from every principal, including the one role permitted to reach
+ * the screen at all (verdict r13 "새 정책 CTA missing").
  */
 
 // The real, already-wired ko.console.policycanvas (title/effectLabels/
@@ -293,13 +303,35 @@ const bannerStyle: CSSProperties = {
   color: "var(--warn-tx)",
 };
 
-const GATE_ACTIONS = Object.values(POLICY_CANVAS_ACTIONS);
+// Aggregate footer under the list (verdict r13 "policy lower half sparse") —
+// a real breakdown of every row's effect, not filler: fills the card's
+// bottom instead of leaving it visually empty once the row count is short.
+const listFooterStyle: CSSProperties = {
+  margin: 0,
+  padding: "var(--sp-3) var(--sp-1) 0",
+  borderTop: "1px solid var(--border-soft)",
+  color: "var(--faint)",
+  fontSize: "var(--text-xs)",
+};
+
+// Mirrors console/shell/nav.ts's ROLE_MANAGE_ROLES — the same tier already
+// gates this screen's own nav entry, so anyone who can reach the screen can
+// author/approve a policy from it (see the module docstring above).
+const POLICY_AUTHOR_ROLES = new Set<string>([ROLES.SUPER_ADMIN]);
 
 type ReadState = "loading" | "idle" | "error";
 
 export function PolicyBody() {
   const { api, session } = useAuth();
   const L = listStrings();
+  const gate = useMemo<PolicyGate>(
+    () => ({
+      can: (action) =>
+        (action === POLICY_CANVAS_ACTIONS.author || action === POLICY_CANVAS_ACTIONS.approve) &&
+        (session?.roles?.some((role) => POLICY_AUTHOR_ROLES.has(role)) ?? false),
+    }),
+    [session?.roles],
+  );
   const [readState, setReadState] = useState<ReadState>("loading");
   const [catalog, setCatalog] = useState<PolicyCatalogEntry[]>([]);
   const [drafts, setDrafts] = useState<PolicyDraft[]>([]);
@@ -349,6 +381,8 @@ export function PolicyBody() {
 
   const activeCount = rows.filter((r) => r.bucket === "enforced").length;
   const draftCount = rows.filter((r) => r.bucket === "draft").length;
+  const permitCount = rows.filter((r) => r.effect === "permit").length;
+  const forbidCount = rows.filter((r) => r.effect === "forbid").length;
 
   const stats: { key: string; label: string; value: string; filter: Filter }[] = [
     { key: "active", label: L.activeStat, value: L.count(activeCount), filter: "enforced" },
@@ -380,7 +414,7 @@ export function PolicyBody() {
   }
 
   return (
-    <BulkPolicyGateProvider actions={GATE_ACTIONS}>
+    <PolicyGateProvider gate={gate}>
       <div style={rootStyle} data-cshell-screen-body="policy">
         <header style={headerStyle}>
           <h1 style={titleStyle}>{L.screenTitle}</h1>
@@ -496,10 +530,16 @@ export function PolicyBody() {
                   })}
                 </ul>
               )}
+              {rows.length > 0 ? (
+                <p style={listFooterStyle}>
+                  {S.effectLabels.permit} {permitCount} · {S.effectLabels.forbid} {forbidCount} ·{" "}
+                  {L.count(rows.length)}
+                </p>
+              ) : null}
             </section>
           </>
         )}
       </div>
-    </BulkPolicyGateProvider>
+    </PolicyGateProvider>
   );
 }

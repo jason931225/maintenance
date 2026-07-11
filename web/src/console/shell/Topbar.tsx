@@ -19,6 +19,7 @@ export function Topbar({
   userName,
   userInitial,
   userRoleLabel,
+  userTeamLabel,
 }: {
   kbdLabel: string;
   onOpenPalette: () => void;
@@ -32,6 +33,8 @@ export function Topbar({
   userName: string;
   userInitial: string;
   userRoleLabel: string;
+  /** Team affiliation, rendered as `team · role` when present (else role only). */
+  userTeamLabel?: string;
 }) {
   const scopeRef = useRef<HTMLDivElement>(null);
 
@@ -276,7 +279,7 @@ export function Topbar({
               whiteSpace: "nowrap",
             }}
           >
-            {userRoleLabel}
+            {[userTeamLabel, userRoleLabel].filter(Boolean).join(" · ")}
           </span>
         </span>
       </div>

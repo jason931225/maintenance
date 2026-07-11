@@ -69,6 +69,33 @@ describe("OverviewBody", () => {
     expect(screen.getByLabelText(S.timelineTitle)).toBeInTheDocument();
   });
 
+  it("shows an aggregate footer under the queue and timeline panels (verdict r13 overview lower region sparse)", async () => {
+    renderBody({
+      api: stubApi({
+        loadInbox: vi.fn().mockResolvedValue({
+          total: 3,
+          items: [
+            // `due` is exactly NOW so it lands on today regardless of the
+            // test runner's local timezone (a different-hour ISO string can
+            // roll to the adjacent local calendar day and flake).
+            item({ kind: "approval", id: "approval:1", title: "Approve budget", due: NOW.toISOString() }),
+            item({ kind: "dispatch", id: "dispatch:1", title: "Assign van" }),
+            item({ kind: "support", id: "support:1", title: "Reply ticket" }),
+          ],
+        }),
+      }),
+    });
+    await screen.findByText(S.stat.approval);
+
+    const queue = within(screen.getByRole("region", { name: S.queueTitle }));
+    // 3 fixture items, none filtered out by the default "all" chip.
+    expect(queue.getByText(S.footer.shown(3, 3))).toBeInTheDocument();
+
+    const timeline = within(screen.getByLabelText(S.timelineTitle));
+    // Only the approval item carries a `due` timestamp matching NOW's date.
+    expect(timeline.getByText(S.footer.shown(1, 3))).toBeInTheDocument();
+  });
+
   it("never renders a raw UUID as the row's ref badge (support tickets carry no human code)", async () => {
     renderBody({
       api: stubApi({
@@ -194,5 +221,42 @@ describe("OverviewBody", () => {
       screen.getByRole("button", { name: (n) => n.includes(S.stat.work) }),
     );
     expect(screen.getByText(S.empty.queue)).toBeInTheDocument();
+  });
+
+  it("shows the 출근 chip from the caller's latest attendance today, and none without it", async () => {
+    // Same local-day build the deriver uses, so the compare is TZ-independent.
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const workDate = `${String(NOW.getFullYear())}-${pad(NOW.getMonth() + 1)}-${pad(NOW.getDate())}`;
+    renderBody({
+      api: stubApi({
+        loadMyAttendance: vi.fn().mockResolvedValue([
+          {
+            id: "att-1",
+            employee_id: "emp-1",
+            employee_display_name: "Kim",
+            kind: "CLOCK_IN",
+            occurred_at: "2026-07-03T08:52:00Z",
+            work_date: workDate,
+            state_after: "CLOCKED_IN",
+            payroll_material_ref_id: "ref-1",
+            payroll_link_status: "LINKED",
+            duplicate: false,
+          },
+        ]),
+      }),
+    });
+    // the chip is a status role carrying the clock-in label
+    const chip = await screen.findByText((t) => t.startsWith("Clocked in"));
+    expect(chip).toBeInTheDocument();
+  });
+
+  it("renders no 출근 chip when the attendance read soft-fails to empty", async () => {
+    renderBody({
+      api: stubApi({ loadMyAttendance: vi.fn().mockResolvedValue([]) }),
+    });
+    await screen.findByRole("region", { name: S.queueTitle });
+    expect(
+      screen.queryByText((t) => t.startsWith("Clocked in")),
+    ).not.toBeInTheDocument();
   });
 });
