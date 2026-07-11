@@ -27,10 +27,8 @@ import {
   LEAVE_REASONS,
   leaveStrings,
   ledgerDescriptor,
-  ledgerStatus,
   requestDays,
   rowBurnRate,
-  tenureStage,
   type LeaveLedgerRow,
   type LeaveReason,
   type LedgerFilter,
@@ -374,7 +372,7 @@ export interface LeaveConsoleProps {
   requests: LeaveRequestView[];
   /** JWT `sub` — used only for the SoD hint + "내 신청" filter, never for authz. */
   selfUserId?: string;
-  decide: (requestId: string, decision: "approve" | "reject", comment?: string) => Promise<LeaveDecideOutcome>;
+  decide: (requestId: string, decision: "approve" | "return" | "reject", comment?: string) => Promise<LeaveDecideOutcome>;
   pushPromotion: (payload: {
     branchId: string;
     targetUserId: string;
@@ -396,9 +394,12 @@ export function LeaveConsole({ ledger, requests, selfUserId, decide, pushPromoti
 
   const [decidingId, setDecidingId] = useState<string>();
   const [decideError, setDecideError] = useState<string>();
-  const [rejectDraftId, setRejectDraftId] = useState<string>();
-  const [rejectComment, setRejectComment] = useState("");
-  const [rejectCommentError, setRejectCommentError] = useState<string>();
+  // 반려(return)/거부(reject) both require a comment (근로기준법 결재 감사) — one
+  // draft, tagged with which negative decision it will submit.
+  const [commentDraftId, setCommentDraftId] = useState<string>();
+  const [commentDecision, setCommentDecision] = useState<"return" | "reject">("reject");
+  const [commentText, setCommentText] = useState("");
+  const [commentError, setCommentError] = useState<string>();
 
   // Session-local §61 push tracking: no GET lists past pushes yet, so this
   // resets on reload rather than fabricating durable state (model.ts header).
@@ -434,7 +435,7 @@ export function LeaveConsole({ ledger, requests, selfUserId, decide, pushPromoti
     setValidated(true);
   }
 
-  async function runDecide(request: LeaveRequestView, decision: "approve" | "reject", comment?: string) {
+  async function runDecide(request: LeaveRequestView, decision: "approve" | "return" | "reject", comment?: string) {
     setDecidingId(request.id);
     setDecideError(undefined);
     const outcome = await decide(request.id, decision, comment);
@@ -443,25 +444,26 @@ export function LeaveConsole({ ledger, requests, selfUserId, decide, pushPromoti
       setDecideError(errorMessage(outcome.error, S.queue.decideFailed));
       return;
     }
-    setRejectDraftId(undefined);
-    setRejectComment("");
+    setCommentDraftId(undefined);
+    setCommentText("");
   }
 
-  function openReject(requestId: string): void {
-    setRejectDraftId(requestId);
-    setRejectComment("");
-    setRejectCommentError(undefined);
+  function openComment(requestId: string, decision: "return" | "reject"): void {
+    setCommentDraftId(requestId);
+    setCommentDecision(decision);
+    setCommentText("");
+    setCommentError(undefined);
     setDecideError(undefined);
   }
 
-  async function confirmReject(request: LeaveRequestView): Promise<void> {
-    const trimmed = rejectComment.trim();
+  async function confirmComment(request: LeaveRequestView): Promise<void> {
+    const trimmed = commentText.trim();
     if (trimmed === "") {
-      setRejectCommentError(S.queue.commentRequired);
+      setCommentError(S.queue.commentRequired);
       return;
     }
-    setRejectCommentError(undefined);
-    await runDecide(request, "reject", trimmed);
+    setCommentError(undefined);
+    await runDecide(request, commentDecision, trimmed);
   }
 
   function promotionCandidate(row: LeaveLedgerRow): LeaveRequestView | undefined {
@@ -545,7 +547,7 @@ export function LeaveConsole({ ledger, requests, selfUserId, decide, pushPromoti
 
   function requestRow(request: LeaveRequestView, cta: ReactNode): ReactNode {
     const employeeName = ledgerById.get(request.subject_employee_id)?.name ?? S.self.unknownEmployee;
-    const showRejectDraft = rejectDraftId === request.id;
+    const showCommentDraft = commentDraftId === request.id;
     return (
       <li key={request.id} style={rowStyle}>
         <span style={cellNameStyle}>{employeeName}</span>
@@ -558,32 +560,32 @@ export function LeaveConsole({ ledger, requests, selfUserId, decide, pushPromoti
           <span style={cellMetaStyle}>{request.decision_comment}</span>
         ) : null}
         {cta}
-        {showRejectDraft ? (
+        {showCommentDraft ? (
           <div style={{ ...formStyle, width: "100%" }}>
             <label style={{ ...labelStyle, flex: "1 1 240px" }}>
               {S.queue.commentLabel}
               <textarea
                 required
-                value={rejectComment}
+                value={commentText}
                 placeholder={S.queue.commentPlaceholder}
-                onChange={(event) => { setRejectComment(event.currentTarget.value); }}
+                onChange={(event) => { setCommentText(event.currentTarget.value); }}
                 style={textareaStyle}
               />
             </label>
-            {rejectCommentError !== undefined ? (
-              <StatusChip role="alert" tone="danger">{rejectCommentError}</StatusChip>
+            {commentError !== undefined ? (
+              <StatusChip role="alert" tone="danger">{commentError}</StatusChip>
             ) : null}
             <button
               type="button"
               disabled={decidingId === request.id}
-              onClick={() => { void confirmReject(request); }}
+              onClick={() => { void confirmComment(request); }}
               style={decidingId === request.id ? buttonDisabledStyle : primaryButtonStyle}
             >
-              {S.queue.reject}
+              {commentDecision === "return" ? S.requestState.returned : S.queue.reject}
             </button>
             <button
               type="button"
-              onClick={() => { setRejectDraftId(undefined); }}
+              onClick={() => { setCommentDraftId(undefined); }}
               style={buttonStyle}
             >
               {S.queue.cancel}
@@ -719,19 +721,20 @@ export function LeaveConsole({ ledger, requests, selfUserId, decide, pushPromoti
                 <thead>
                   <tr>
                     <th scope="col" style={thStyle}>{S.ledger.columns.employee}</th>
-                    <th scope="col" style={thStyle}>{S.ledger.columns.department}</th>
-                    <th scope="col" style={thStyle}>{S.ledger.columns.tenure}</th>
                     <th scope="col" style={thStyle}>{S.ledger.columns.accrued}</th>
                     <th scope="col" style={thStyle}>{S.ledger.columns.used}</th>
                     <th scope="col" style={thStyle}>{S.ledger.columns.remaining}</th>
                     <th scope="col" style={thStyle}>{D.burnRateColumn}</th>
-                    <th scope="col" style={thStyle}>{S.ledger.columns.status}</th>
                   </tr>
                 </thead>
                 <tbody>
                   {visibleLedger.map((row) => {
-                    const status = ledgerStatus(row);
                     const burnRate = rowBurnRate(row);
+                    // 부서(orgUnit)+직책(position) collapse into the name cell's
+                    // subtitle — the balances roster carries no hire-date, so the
+                    // tenure/상태 columns are dropped rather than shown as blanks
+                    // (§4-25-⑥ ref density): 이름·부여·사용·잔여·소진율 only.
+                    const subtitle = [row.orgUnit, row.position].filter((v) => v !== undefined).join(" · ");
                     return (
                       <tr key={row.id}>
                         <td style={tdStyle}>
@@ -746,18 +749,7 @@ export function LeaveConsole({ ledger, requests, selfUserId, decide, pushPromoti
                             {row.code}
                           </button>
                           <p style={cellNameStyle}>{row.name}</p>
-                          {row.company !== undefined || row.employeeNumber !== undefined ? (
-                            <p style={cellMetaStyle}>
-                              {[row.company, row.employeeNumber].filter((v) => v !== undefined).join(" · ")}
-                            </p>
-                          ) : null}
-                        </td>
-                        <td style={tdStyle}>
-                          {[row.orgUnit, row.position].filter((v) => v !== undefined).join(" / ") || "—"}
-                        </td>
-                        <td style={tdStyle}>
-                          <p style={cellNameStyle}>{tenureStage(row.hireDate)}</p>
-                          <p style={cellMetaStyle}>{row.hireDate ?? "—"}</p>
+                          {subtitle !== "" ? <p style={cellMetaStyle}>{subtitle}</p> : null}
                         </td>
                         <td style={tdStyle}>{dayLabel(row.accrued)}</td>
                         <td style={tdStyle}>{dayLabel(row.used)}</td>
@@ -772,9 +764,6 @@ export function LeaveConsole({ ledger, requests, selfUserId, decide, pushPromoti
                               <StatusChip tone="warn">{S.status.promote}</StatusChip>
                             ) : null}
                           </span>
-                        </td>
-                        <td style={tdStyle}>
-                          <StatusChip tone={status.tone}>{status.label}</StatusChip>
                         </td>
                       </tr>
                     );
@@ -801,14 +790,17 @@ export function LeaveConsole({ ledger, requests, selfUserId, decide, pushPromoti
               <ul aria-label={S.queue.aria} style={listStyle}>
                 {pendingRequests.map((request) => {
                   const employeeName = ledgerById.get(request.subject_employee_id)?.name ?? S.self.unknownEmployee;
-                  return requestRow(
-                    request,
-                    // SoD by omission — the decider's own request shows no decide
-                    // buttons (approver ≠ requester); backend also 403s. S3 fix:
-                    // an unresolved identity (selfUserId undefined — session still
-                    // loading) fails CLOSED as self rather than open, so decide
-                    // controls never flash for an unverified caller.
-                    selfUserId === undefined || request.requester_user_id === selfUserId ? null : (
+                  // SoD — approver ≠ requester is surfaced, not silently hidden:
+                  // the decider's own request shows a "내 신청" marker in place of
+                  // the decide controls (backend also 403s a self-decision). S3
+                  // fix: an unresolved identity (selfUserId undefined — session
+                  // still loading) fails CLOSED as self, so decide controls never
+                  // flash for an unverified caller.
+                  const isSelf = request.requester_user_id === selfUserId;
+                  const decideCta =
+                    selfUserId === undefined ? null : isSelf ? (
+                      <StatusChip tone="neutral">{S.self.myRequests}</StatusChip>
+                    ) : (
                       <PolicyGated
                         action={LEAVE_ACTIONS.requestDecide}
                         resource={{ kind: "leave_request", id: request.id }}
@@ -826,16 +818,25 @@ export function LeaveConsole({ ledger, requests, selfUserId, decide, pushPromoti
                           <button
                             type="button"
                             disabled={decidingId === request.id}
+                            aria-label={S.queue.decideAria(S.requestState.returned, employeeName)}
+                            onClick={() => { openComment(request.id, "return"); }}
+                            style={decidingId === request.id ? buttonDisabledStyle : buttonStyle}
+                          >
+                            {S.requestState.returned}
+                          </button>
+                          <button
+                            type="button"
+                            disabled={decidingId === request.id}
                             aria-label={S.queue.decideAria(S.queue.reject, employeeName)}
-                            onClick={() => { openReject(request.id); }}
+                            onClick={() => { openComment(request.id, "reject"); }}
                             style={decidingId === request.id ? buttonDisabledStyle : buttonStyle}
                           >
                             {S.queue.reject}
                           </button>
                         </span>
                       </PolicyGated>
-                    ),
-                  );
+                    );
+                  return requestRow(request, decideCta);
                 })}
               </ul>
             )}
