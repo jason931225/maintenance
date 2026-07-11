@@ -893,10 +893,22 @@ export function OntologyManagerScreen({
   const staged = isStaged(state, selectedId);
 
   function handleEdit(edit: SchemaEdit): void {
-    // Draft-type edits apply direct but stay client-local until published.
-    // wire-pending: HANDOFF §ontology-draft-update — no in-place draft update
-    // endpoint yet (PUT /object-types/{key} always stages an immutable v+1).
-    setState((current) => applySchemaEdit(current, selectedId, edit));
+    const editingDraft = committedOf(state, selectedId)?.lifecycleState === "draft";
+    const nextState = applySchemaEdit(state, selectedId, edit);
+    setState(nextState);
+    // A draft edits in place: persist the appended definition immediately via
+    // PUT /object-types/{key}, which appends the new child to the in-flight
+    // draft (§9.8 append-only) and reloads the registry. A non-draft edit
+    // accumulates on the staged v+1 copy and persists on 적용 승인 instead.
+    if (editingDraft && onCommitRevision) {
+      const editedDraft = viewOf(nextState, selectedId);
+      if (editedDraft) {
+        void onCommitRevision(editedDraft).catch(() => {
+          // The host surfaces the failure banner; the local edit stays visible
+          // until the next reload so the author can retry.
+        });
+      }
+    }
   }
 
   function handleTypeCreate(title: string): void {

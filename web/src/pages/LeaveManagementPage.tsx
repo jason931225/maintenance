@@ -12,6 +12,8 @@ import {
   type LeaveLedgerRow,
   type LeavePromotionOutcome,
 } from "../console/leave";
+import { createLeaveRequest } from "../console/leave/api";
+import type { LeaveCreateInput, LeaveCreateOutcome } from "../console/leave/LeaveConsole";
 import { BulkPolicyGateProvider } from "../console/policy";
 import { useActiveBranchId, useAuth } from "../context/auth";
 import { leaveManagementKo as copy } from "../i18n/hrWorkflows";
@@ -89,6 +91,18 @@ export function LeaveManagementPage() {
     [api, loadLeaveManagement],
   );
 
+  const createRequest = useCallback(
+    async (input: LeaveCreateInput): Promise<LeaveCreateOutcome> => {
+      const result = await createLeaveRequest(api, input);
+      if (!result.ok) return { ok: false, error: result.error };
+      // Server truth: the created pending request joins "내 신청" (and this
+      // manager's queue if it lands in their branch) — refetch for consistency.
+      await loadLeaveManagement();
+      return { ok: true };
+    },
+    [api, loadLeaveManagement],
+  );
+
   const pushPromotion = useCallback(
     async (payload: {
       targetUserId: string;
@@ -147,6 +161,7 @@ export function LeaveManagementPage() {
               requests={requests}
               selfUserId={session?.user_id}
               decide={decide}
+              createRequest={createRequest}
               pushPromotion={pushPromotion}
             />
           </BulkPolicyGateProvider>

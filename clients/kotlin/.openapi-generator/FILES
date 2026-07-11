@@ -356,6 +356,7 @@ src/main/kotlin/com/maintenance/api/client/model/KpiScope.kt
 src/main/kotlin/com/maintenance/api/client/model/LeaveBalanceItem.kt
 src/main/kotlin/com/maintenance/api/client/model/LeaveBalancePage.kt
 src/main/kotlin/com/maintenance/api/client/model/LeaveBalanceSummary.kt
+src/main/kotlin/com/maintenance/api/client/model/LeaveCreateRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/LeaveDecideRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/LeavePromotion.kt
 src/main/kotlin/com/maintenance/api/client/model/LeavePromotionRequest.kt

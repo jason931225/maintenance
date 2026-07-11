@@ -6,8 +6,10 @@
 // Requests are the generated typed client's schemas (CreateObjectTypeDraft) and
 // every call goes through the typed openapi-fetch paths, so URLs, params and
 // bodies are compile-checked. The object-type registry reads are still
-// declared free-form in the openapi (no ObjectTypeDetail schema component yet
-// — wire-pending: HANDOFF §ontology-response-schemas); the instance reads
+// declared free-form in the openapi (ObjectTypeSummary/ObjectTypeDetail schema
+// components are contracted in the ontology openapi fragment and adopted at
+// consolidation client-regen — until then the casts below narrow the payload);
+// the instance reads
 // (InstanceHead/RevisionSummary/InstanceState/Traversal*) and the
 // acting/resolve/lifecycle payloads DO have real generated schema components
 // (be2-ont-gaps), so those casts narrow to the generated types below instead
@@ -278,6 +280,25 @@ export async function getInstanceActing(
   const { data, error, response } = await api.GET(
     "/api/v1/ontology/instances/{id}/acting",
     { params: { path: { id } } },
+  );
+  if (!data) throwing(response.status, error);
+  return data;
+}
+
+/**
+ * GET /api/v1/ontology/object-types/{key}/acting — automations + policies bound
+ * to the TYPE (the 자동화 subtab, which is type-centric and may show a type with
+ * no instances). Same `ActingRule[]` payload as the instance-keyed read; the
+ * path is now in the generated client (ontology fragment merged), so it goes
+ * through the typed `api.GET` directly like its instance-keyed sibling.
+ */
+export async function getObjectTypeActing(
+  api: ConsoleApiClient,
+  key: string,
+): Promise<ActingRuleWire[]> {
+  const { data, error, response } = await api.GET(
+    "/api/v1/ontology/object-types/{key}/acting",
+    { params: { path: { key } } },
   );
   if (!data) throwing(response.status, error);
   return data;

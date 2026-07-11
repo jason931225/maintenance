@@ -3,12 +3,16 @@
 // decision queue and §61 촉진 push are REAL-wired to the leave engine
 // (backend/crates/leave — GET/POST /api/v1/leave/*); see LeaveConsole.tsx.
 //
-// BE gap (verified against backend/crates/leave/rest/src/lib.rs +
+// BE contract (verified against backend/crates/leave/rest/src/lib.rs +
 // openapi.yaml, both read directly — no REST is speculated):
-//   • No POST create-request endpoint exists anywhere (fragment or client).
-//     `CreateLeaveRequestCommand` is a crate-internal write port only, fed by
-//     the 기안/engine compose flow (not yet public). 신청 생성 stays a
-//     validated, fail-closed, NON-submitting form (§4-19) until that lands.
+//   • POST /api/v1/leave/requests (operationId createLeaveRequest) now exists —
+//     built + mnt_rt-tested in this lane (see rest::create_request +
+//     resolve_self_filing_context; fragment wave-mc-fragments/people.yaml). The
+//     본인 신청 form is REAL-submitting and fail-closed (§4-19): subject_employee_id
+//     + branch_id are resolved server-side from the caller, `days` derived
+//     server-side, never trusted from the client (leave/api.ts). Until
+//     consolidation regenerates @maintenance/api-client-ts from the fragment,
+//     leave/api.ts is the one localized boundary that types `api.POST`.
 //   • No employee→account(user_id) lookup REST exists, so a §61 push target
 //     can only be resolved from a REAL LeaveRequestView the employee is
 //     already attached to (requester_user_id + subject_employee_id together,

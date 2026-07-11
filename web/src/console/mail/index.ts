@@ -1,4 +1,5 @@
 export { MailScreen } from "./MailScreen";
+export { MailScreenBody } from "./MailScreenBody";
 export { MAIL_ACTIONS, mailScreenConfig } from "./mailScreenConfig";
 export type {
   ConsoleMailAttachment,

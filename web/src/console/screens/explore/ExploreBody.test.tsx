@@ -36,6 +36,9 @@ function seedRegistry(): void {
   mocked.getObjectType.mockResolvedValue(detailFixture);
   mocked.listInstances.mockResolvedValue([instanceFixture]);
   mocked.traverseInstance.mockResolvedValue(graphFixture);
+  // Supplementary acting read: reload .catch-degrades it, but the auto-mock
+  // returns undefined which throws on .catch — seed a resolved empty list.
+  mocked.getObjectTypeActing.mockResolvedValue([]);
 }
 
 afterEach(() => {

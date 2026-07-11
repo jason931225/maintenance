@@ -5,10 +5,12 @@ import {
   getInstance,
   getInstanceHistory,
   getObjectType,
+  getObjectTypeActing,
   listInstances,
   listObjectTypes,
   stageObjectTypeRevision,
   traverseInstance,
+  type ActingRuleWire,
   type InstanceStateWire,
   type ObjectTypeDetailWire,
   type TraversalGraphWire,
@@ -43,10 +45,12 @@ export const ONTOLOGY_GATE_ACTIONS: readonly string[] = [
   ...Object.values(OBJECT_EXPLORER_ACTIONS),
 ];
 
-/** One registry entry: the wire detail + its current-state instances. */
+/** One registry entry: the wire detail + its current-state instances + acting rules. */
 interface RegistryEntry {
   detail: ObjectTypeDetailWire;
   instances: InstanceStateWire[];
+  /** Automations + policies bound to the type (자동화 subtab). */
+  acting: ActingRuleWire[];
 }
 
 export interface OntologyWorkspaceStats {
@@ -104,11 +108,14 @@ export function useOntologyWorkspace(
       const summaries = await listObjectTypes(api);
       const loaded = await Promise.all(
         summaries.map(async (summary) => {
-          const [detail, instances] = await Promise.all([
+          const [detail, instances, acting] = await Promise.all([
             getObjectType(api, summary.stable_key),
             listInstances(api, summary.id),
+            // Acting rules are a supplementary read: a failure degrades the
+            // 자동화 subtab to empty, never the whole workspace.
+            getObjectTypeActing(api, summary.stable_key).catch(() => []),
           ]);
-          return { detail, instances } satisfies RegistryEntry;
+          return { detail, instances, acting } satisfies RegistryEntry;
         }),
       );
       setEntries(loaded);
@@ -174,7 +181,12 @@ export function useOntologyWorkspace(
   const registry = useMemo(
     () =>
       entries.map((entry) =>
-        objectTypeDefFromDetail(entry.detail, entry.instances, typeKeyById),
+        objectTypeDefFromDetail(
+          entry.detail,
+          entry.instances,
+          typeKeyById,
+          entry.acting,
+        ),
       ),
     [entries, typeKeyById],
   );

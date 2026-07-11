@@ -8,4 +8,9 @@ export {
   type ChartDatum,
   type ChartFormat,
 } from "./HonestMarks";
-export { ProjectionPanel, type ProjectionDrillPart, type ProjectionPanelProps } from "./ProjectionPanel";
+export {
+  ProjectionPanel,
+  type BackendProjection,
+  type ProjectionDrillPart,
+  type ProjectionPanelProps,
+} from "./ProjectionPanel";

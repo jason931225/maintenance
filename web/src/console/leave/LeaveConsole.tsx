@@ -64,6 +64,29 @@ function densityStrings(): {
   };
 }
 
+// ko.console.leave.self.{submit,submitting,submitFailed,submitted} land via the
+// koManifest (this lane cannot edit ko.ts). English fallbacks keep the real
+// inline submit working now — same defensive-pick pattern as densityStrings, and
+// non-Hangul so check-ui-strings stays green on this lane file.
+function submitStrings(): {
+  submit: string;
+  submitting: string;
+  submitFailed: string;
+  submitted: string;
+} {
+  const self = (ko.console.leave as unknown as { self?: Record<string, unknown> }).self;
+  const pick = (key: string, fallback: string): string => {
+    const value = self?.[key];
+    return typeof value === "string" ? value : fallback;
+  };
+  return {
+    submit: pick("submit", "Submit request"),
+    submitting: pick("submitting", "Submitting…"),
+    submitFailed: pick("submitFailed", "Could not submit the leave request."),
+    submitted: pick("submitted", "Leave request submitted."),
+  };
+}
+
 // ── Styles (tokens only, 8px grid via --sp-*, §4-25-⑧) ──────────────────────
 
 const rootStyle: CSSProperties = {
@@ -286,20 +309,6 @@ function KoDateField({ value, onChange, ariaLabel, required, disabled }: KoDateF
   );
 }
 
-const linkStyle: CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  minHeight: 44,
-  padding: "0 var(--sp-4)",
-  borderRadius: "var(--radius-md)",
-  border: "1px solid var(--border)",
-  background: "var(--surface)",
-  color: "var(--ink)",
-  fontSize: "var(--text-sm)",
-  fontWeight: "var(--fw-strong)",
-  textDecoration: "none",
-};
-
 const tableWrapStyle: CSSProperties = {
   overflowX: "auto",
   border: "1px solid var(--border-soft)",
@@ -439,6 +448,20 @@ export interface LeavePromotionOutcome {
   error?: unknown;
 }
 
+export interface LeaveCreateOutcome {
+  ok: boolean;
+  error?: unknown;
+}
+
+/** What the 본인 form sends: the subject employee + branch are resolved
+ *  server-side from the caller, never sent from here. */
+export interface LeaveCreateInput {
+  leave_type: "annual" | "half_day";
+  start_date: string;
+  end_date: string;
+  reason: string;
+}
+
 export interface LeaveConsoleProps {
   ledger: LeaveLedgerRow[];
   /** All requests visible to the caller's scope (every status) — server truth. */
@@ -446,6 +469,8 @@ export interface LeaveConsoleProps {
   /** JWT `sub` — used only for the SoD hint + "내 신청" filter, never for authz. */
   selfUserId?: string;
   decide: (requestId: string, decision: "approve" | "return" | "reject", comment?: string) => Promise<LeaveDecideOutcome>;
+  /** File a self-service 연차/반차 request (POST /api/v1/leave/requests). */
+  createRequest: (input: LeaveCreateInput) => Promise<LeaveCreateOutcome>;
   pushPromotion: (payload: {
     branchId: string;
     targetUserId: string;
@@ -456,12 +481,16 @@ export interface LeaveConsoleProps {
   }) => Promise<LeavePromotionOutcome>;
 }
 
-export function LeaveConsole({ ledger, requests, selfUserId, decide, pushPromotion }: LeaveConsoleProps) {
+export function LeaveConsole({ ledger, requests, selfUserId, decide, createRequest, pushPromotion }: LeaveConsoleProps) {
   const S = leaveStrings();
   const D = densityStrings();
+  const SUB = submitStrings();
   const windowManager = useOptionalWindowManager();
   const [filter, setFilter] = useState<LedgerFilter>("all");
   const [form, setForm] = useState<RequestForm>(EMPTY_FORM);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string>();
+  const [submitted, setSubmitted] = useState(false);
 
   // 사유 + 기간 validity is derived, not a manual "확인" step — the debug-looking
   // "입력값 확인" button is gone (verdict R9). "incomplete" hides the preview,
@@ -533,6 +562,39 @@ export function LeaveConsole({ ledger, requests, selfUserId, decide, pushPromoti
     }
     setCommentError(undefined);
     await runDecide(request, commentDecision, trimmed);
+  }
+
+  // Editing the form clears a prior submit's success/error so stale feedback
+  // never lingers over a fresh draft.
+  function patchForm(patch: Partial<RequestForm>): void {
+    setForm((prev) => ({ ...prev, ...patch }));
+    if (submitted) setSubmitted(false);
+    if (submitError !== undefined) setSubmitError(undefined);
+  }
+
+  async function submitRequest(): Promise<void> {
+    // Guard: only a derived-valid form submits (§4-19 fail-closed). The subject
+    // employee + branch are resolved server-side from the caller — never sent.
+    if (requestValidation.state !== "valid" || submitting) return;
+    const reason = form.reason;
+    if (reason === "") return;
+    setSubmitting(true);
+    setSubmitError(undefined);
+    setSubmitted(false);
+    const outcome = await createRequest({
+      leave_type: isHalfDay(reason) ? "half_day" : "annual",
+      start_date: form.startDate,
+      end_date: isHalfDay(reason) ? form.startDate : form.endDate,
+      // The typed 사유 label — the free-text reason the backend stores/validates.
+      reason: S.reasons[reason],
+    });
+    setSubmitting(false);
+    if (!outcome.ok) {
+      setSubmitError(errorMessage(outcome.error, SUB.submitFailed));
+      return;
+    }
+    setForm(EMPTY_FORM);
+    setSubmitted(true);
   }
 
   function promotionCandidate(row: LeaveLedgerRow): LeaveRequestView | undefined {
@@ -693,7 +755,10 @@ export function LeaveConsole({ ledger, requests, selfUserId, decide, pushPromoti
             <PolicyGated action={LEAVE_ACTIONS.requestCreate} resource={{ kind: "leave_request" }}>
               <form
                 aria-label={S.self.formAria}
-                onSubmit={(event) => { event.preventDefault(); }}
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void submitRequest();
+                }}
                 style={formStyle}
               >
                 <label style={labelStyle}>
@@ -703,7 +768,7 @@ export function LeaveConsole({ ledger, requests, selfUserId, decide, pushPromoti
                     value={form.reason}
                     onChange={(event) => {
                       const reason = event.currentTarget.value as LeaveReason | "";
-                      setForm((prev) => ({ ...prev, reason }));
+                      patchForm({ reason });
                     }}
                     style={inputStyle}
                   >
@@ -720,7 +785,7 @@ export function LeaveConsole({ ledger, requests, selfUserId, decide, pushPromoti
                     required
                     value={form.startDate}
                     onChange={(startDate) => {
-                      setForm((prev) => ({ ...prev, startDate }));
+                      patchForm({ startDate });
                     }}
                   />
                 </label>
@@ -732,21 +797,32 @@ export function LeaveConsole({ ledger, requests, selfUserId, decide, pushPromoti
                     disabled={isHalfDay(form.reason)}
                     value={isHalfDay(form.reason) ? form.startDate : form.endDate}
                     onChange={(endDate) => {
-                      setForm((prev) => ({ ...prev, endDate }));
+                      patchForm({ endDate });
                     }}
                   />
                 </label>
-                <a
-                  href="/approvals?template=annual-leave"
-                  style={requestValidation.state === "valid" ? primaryButtonStyle : linkStyle}
+                <button
+                  type="submit"
+                  disabled={requestValidation.state !== "valid" || submitting}
+                  style={
+                    requestValidation.state === "valid" && !submitting
+                      ? primaryButtonStyle
+                      : buttonDisabledStyle
+                  }
                 >
-                  {S.self.formLink}
-                </a>
+                  {submitting ? SUB.submitting : SUB.submit}
+                </button>
                 {requestValidation.state === "invalid" ? (
                   <StatusChip role="alert" tone="danger">{S.self.invalidRange}</StatusChip>
                 ) : null}
                 {requestValidation.state === "valid" ? (
                   <StatusChip tone="ok">{dayLabel(requestValidation.days)}</StatusChip>
+                ) : null}
+                {submitError !== undefined ? (
+                  <StatusChip role="alert" tone="danger">{submitError}</StatusChip>
+                ) : null}
+                {submitted ? (
+                  <StatusChip role="status" tone="ok">{SUB.submitted}</StatusChip>
                 ) : null}
               </form>
             </PolicyGated>

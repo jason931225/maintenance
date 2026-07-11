@@ -3,7 +3,14 @@ import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import type { LeaveRequestView } from "../../../api/types";
 import { useAuth } from "../../../context/auth";
 import { ko } from "../../../i18n/ko";
-import { LeaveConsole, type LeaveDecideOutcome, type LeavePromotionOutcome } from "../../leave/LeaveConsole";
+import { createLeaveRequest } from "../../leave/api";
+import {
+  LeaveConsole,
+  type LeaveCreateInput,
+  type LeaveCreateOutcome,
+  type LeaveDecideOutcome,
+  type LeavePromotionOutcome,
+} from "../../leave/LeaveConsole";
 import { LEAVE_RUNTIME_GATE, rosterToLedgerRow, type LeaveLedgerRow } from "../../leave/model";
 import { PolicyGateProvider } from "../../policy";
 import "../../tokens.css";
@@ -124,6 +131,19 @@ export function LeaveBody() {
     [api],
   );
 
+  const createRequest = useCallback(
+    async (input: LeaveCreateInput): Promise<LeaveCreateOutcome> => {
+      const result = await createLeaveRequest(api, input);
+      if (!result.ok || !result.data) return { ok: false, error: result.error };
+      const created = result.data;
+      // Server truth: the created pending request lands in "내 신청" (and, for a
+      // manager viewing their own branch, the queue) without a full refetch.
+      setRequests((current) => [created, ...current]);
+      return { ok: true };
+    },
+    [api],
+  );
+
   const pushPromotion = useCallback(
     async (payload: {
       branchId: string;
@@ -175,6 +195,7 @@ export function LeaveBody() {
             requests={requests}
             selfUserId={session?.user_id}
             decide={decide}
+            createRequest={createRequest}
             pushPromotion={pushPromotion}
           />
         </PolicyGateProvider>

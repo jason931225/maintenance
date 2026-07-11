@@ -2,7 +2,9 @@ import { render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { createConsoleApiClient } from "../../api/client";
+import { AuthContext, type AuthContextValue } from "../../context/auth";
 import { PolicyGateProvider, type PolicyGate } from "../policy";
+import { AssetModuleScreen } from "./AssetModuleScreen";
 import { GenericModuleScreen } from "./GenericModuleScreen";
 import { ASSET_MODULE_ACTIONS, assetModuleScreen, getModuleScreen } from "./moduleScreens";
 
@@ -215,5 +217,116 @@ describe("assetModuleScreen", () => {
     expect(calledPaths).not.toContain("/api/v1/object-actions/catalog");
     expect(screen.queryByText("오일 교체")).not.toBeInTheDocument();
     expect(screen.queryByRole("link", { name: "정보 수정" })).not.toBeInTheDocument();
+  });
+});
+
+// The registry-mountable body — proves nav→SCREEN_REGISTRY reachability. Mounted
+// bare (no PolicyGateProvider wrapper), exactly as ConsoleShell mounts it: the body
+// must supply its own gate or the whole surface renders blank (the prior debt: nav
+// click on 자산 = empty plane, because there was no SCREEN_REGISTRY entry at all).
+function renderBody(
+  getImpl: (path: unknown) => Promise<unknown>,
+  roles: readonly string[] = ["SUPER_ADMIN"],
+) {
+  const api = createConsoleApiClient("asset-body-test-token");
+  vi.spyOn(api, "GET").mockImplementation(getImpl as never);
+  const authValue = {
+    session: {
+      access_token: "asset-body-test-token",
+      roles,
+      feature_grants: [],
+      org_id: "org-1",
+      user_id: "user-1",
+    },
+    restoring: false,
+    login: vi.fn(),
+    logout: vi.fn(),
+    refresh: vi.fn(),
+    acceptTokens: vi.fn(),
+    clearPasskeySetup: vi.fn(),
+    api,
+    viewAs: undefined,
+    enterViewAs: vi.fn(),
+    exitViewAs: vi.fn(),
+  } as unknown as AuthContextValue;
+
+  return render(
+    <AuthContext.Provider value={authValue}>
+      <AssetModuleScreen />
+    </AuthContext.Provider>,
+  );
+}
+
+async function fullAssetGet(path: unknown) {
+  await Promise.resolve();
+  switch (path) {
+    case "/api/v1/equipment/list":
+      return { data: { items: [equipmentRow], total: 1, limit: 50, offset: 0 } };
+    case "/api/v1/equipment/{id}":
+      return { data: equipmentRow };
+    case "/api/v1/equipment/{id}/timeline-graph":
+      return { data: timelineGraph };
+    case "/api/v1/financial/equipment/{equipmentId}/cost-ledger":
+      return { data: costLedger };
+    case "/api/v1/financial/equipment/{equipmentId}/lifecycle-cost":
+      return { data: lifecycleCost };
+    case "/api/v1/object-actions/catalog":
+      return {
+        data: {
+          object_type: "equipment",
+          object_id: equipmentId,
+          actions: [
+            {
+              action_id: "equipment.update_profile",
+              object_type: "equipment",
+              object_id: equipmentId,
+              label: "정보 수정",
+              description: "프로필 수정",
+              submit_label: "저장",
+              requires_passkey_step_up: true,
+              risk_level: "sensitive_write",
+              fields: [],
+            },
+          ],
+        },
+      };
+    default:
+      return { data: undefined };
+  }
+}
+
+describe("AssetModuleScreen (registry body)", () => {
+  it("mounts bare (no ambient gate) and renders the real 자산 surface + cost ledger for a management role", async () => {
+    renderBody(fullAssetGet);
+
+    expect(screen.getByRole("heading", { name: "자산" })).toBeVisible();
+    expect(await screen.findByRole("button", { name: "EQ-900 상세 열기" })).toBeVisible();
+    // Management role's own gate unlocks costRead — the ledger drills real data.
+    expect(await screen.findByText("오일 교체")).toBeVisible();
+    // …and the managed object action surfaces as a real link, not a dead button.
+    expect(await screen.findByRole("link", { name: "정보 수정" })).toHaveAttribute(
+      "href",
+      `/equipment/${equipmentId}`,
+    );
+  });
+
+  it("stays blank for a role without module-read (deny-by-omission — no equipment leaks)", async () => {
+    renderBody(fullAssetGet, ["MEMBER"]);
+
+    await waitFor(() => {
+      expect(screen.queryByRole("heading", { name: "자산" })).toBeNull();
+    });
+    expect(screen.queryByRole("button", { name: "EQ-900 상세 열기" })).toBeNull();
+  });
+
+  it("shows the list-load error state (not a blank/frozen screen) when the real request fails", async () => {
+    renderBody(async () => {
+      await Promise.resolve();
+      throw new Error("network down");
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toBeVisible();
+    });
   });
 });

@@ -32,8 +32,13 @@ export function createMessengerConsoleApi(accessToken?: string): MessengerConsol
     },
     listPresence: async (threadId) => (await requestJson<{ items: ConsoleMessengerPresence[] }>(`/api/messenger/threads/${encodeURIComponent(threadId)}/presence`, { method: "GET" }, accessToken)).items,
     listMembers: async (branchId) => {
-      const params = new URLSearchParams({ limit: "100" });
-      if (branchId) params.set("branch_id", branchId);
+      // The member directory is branch-scoped (backend requires branch_id).
+      // A principal with no branch in scope (e.g. SUPER_ADMIN) has no
+      // branch-scoped directory — skip the request rather than fire one the
+      // backend rejects with 400 (deny-by-omission; composer @-mentions just
+      // have no member candidates until a branch is in scope).
+      if (!branchId) return [];
+      const params = new URLSearchParams({ limit: "100", branch_id: branchId });
       return (await requestJson<{ items: ConsoleMessengerMember[] }>(`/api/messenger/members?${params.toString()}`, { method: "GET" }, accessToken)).items;
     },
     searchMessages: async (query) => (await requestJson<{ items: ConsoleMessengerMessage[] }>(`/api/messenger/search?${new URLSearchParams({ q: query, limit: "20" }).toString()}`, { method: "GET" }, accessToken)).items,

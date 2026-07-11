@@ -464,6 +464,51 @@ async fn approve_rejects_when_days_exceed_remaining_balance(owner_pool: PgPool) 
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn self_service_create_resolves_subject_and_branch_from_caller(owner_pool: PgPool) {
+    let rt = runtime_role_pool(&owner_pool).await;
+    let knl = OrgId::knl();
+    let knl_uuid = *knl.as_uuid();
+
+    let branch = seed_branch(&owner_pool, knl_uuid).await;
+    let filer = seed_user(&owner_pool, knl_uuid).await;
+    let employee = seed_employee(&owner_pool, knl_uuid, 15.0, 0.0, 15.0).await;
+    link_user_to_employee_and_branch(&owner_pool, knl_uuid, filer, employee, branch).await;
+
+    let store = PgLeaveStore::new(rt.clone(), Arc::new(PgInboxStore::new(rt.clone())));
+
+    // The caller's OWN filing context is resolved from their account — not input.
+    let (subject, resolved_branch) = mnt_platform_request_context::scope_org(knl, async {
+        store.resolve_self_filing_context(filer).await
+    })
+    .await
+    .expect("linked filer resolves a subject + branch");
+    assert_eq!(subject, employee, "subject is the caller's own employee");
+    assert_eq!(resolved_branch, branch);
+
+    // Filing with that resolved context creates a pending, requester=self row.
+    let request = mnt_platform_request_context::scope_org(knl, async {
+        store
+            .create_request(create_cmd(resolved_branch, filer, subject, 3.0))
+            .await
+    })
+    .await
+    .expect("self-service create");
+    assert_eq!(request.status, LeaveStatus::Pending);
+    assert_eq!(request.requester_user_id, filer);
+    assert_eq!(request.subject_employee_id, employee);
+    assert_eq!(request.branch_id, branch);
+
+    // An account with NO linked employee cannot file (deny-by-omission → 422).
+    let unlinked = seed_user(&owner_pool, knl_uuid).await;
+    let denied = mnt_platform_request_context::scope_org(knl, async {
+        store.resolve_self_filing_context(unlinked).await
+    })
+    .await
+    .expect_err("an unlinked account cannot self-file leave");
+    assert_eq!(denied.kind(), ErrorKind::Validation);
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn statutory_push_delivers_receipt_doc_and_is_idempotent(owner_pool: PgPool) {
     let rt = runtime_role_pool(&owner_pool).await;
     let knl = OrgId::knl();

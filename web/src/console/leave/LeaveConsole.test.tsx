@@ -4,7 +4,13 @@ import { describe, expect, it, vi } from "vitest";
 import type { LeaveRequestView, LeaveRosterEntry } from "../../api/types";
 import { PolicyGateProvider, type PolicyGate } from "../policy";
 import { WindowManagerProvider } from "../window";
-import { LeaveConsole, type LeaveDecideOutcome, type LeavePromotionOutcome } from "./LeaveConsole";
+import {
+  LeaveConsole,
+  type LeaveCreateInput,
+  type LeaveCreateOutcome,
+  type LeaveDecideOutcome,
+  type LeavePromotionOutcome,
+} from "./LeaveConsole";
 import { KO_CONSOLE_LEAVE as S, LEAVE_ACTIONS, LEAVE_RUNTIME_GATE, type LeaveLedgerRow } from "./model";
 
 function makeLedger(): LeaveLedgerRow[] {
@@ -66,6 +72,7 @@ interface RenderOptions {
   requests?: LeaveRequestView[];
   selfUserId?: string;
   decide?: (id: string, decision: "approve" | "return" | "reject", comment?: string) => Promise<LeaveDecideOutcome>;
+  createRequest?: (input: LeaveCreateInput) => Promise<LeaveCreateOutcome>;
   pushPromotion?: (payload: {
     branchId: string;
     targetUserId: string;
@@ -78,6 +85,7 @@ interface RenderOptions {
 
 function renderConsole(options: RenderOptions = {}) {
   const decide = options.decide ?? (() => Promise.resolve({ ok: true }));
+  const createRequest = options.createRequest ?? (() => Promise.resolve({ ok: true }));
   const pushPromotion = options.pushPromotion ?? (() => Promise.resolve({ ok: true }));
   // `?? "self-user"` would coerce an explicit `selfUserId: undefined` (the S3
   // fail-closed case) back to a default — distinguish "omitted" from "asserted
@@ -91,6 +99,7 @@ function renderConsole(options: RenderOptions = {}) {
           requests={options.requests ?? []}
           selfUserId={selfUserId}
           decide={decide}
+          createRequest={createRequest}
           pushPromotion={pushPromotion}
         />
       </PolicyGateProvider>
@@ -265,6 +274,59 @@ describe("LeaveConsole (레인1 leave 카드 존, real-wired)", () => {
     expect(within(selfRegion).getByRole("alert")).toHaveTextContent(S.self.invalidRange);
     // Fail-closed: an invalid range never fabricates a queue row.
     expect(within(selfRegion).getByText(S.self.empty)).toBeVisible();
+  });
+
+  it("본인 신청: a valid 연차 form submits the derived self-service payload (subject/branch resolved server-side) and confirms", async () => {
+    const createRequest = vi.fn<(input: LeaveCreateInput) => Promise<LeaveCreateOutcome>>(() =>
+      Promise.resolve({ ok: true }),
+    );
+    renderConsole({ createRequest });
+    const selfRegion = screen.getByRole("region", { name: S.self.title });
+    fireEvent.change(within(selfRegion).getByLabelText(S.self.reasonLabel), {
+      target: { value: "annual" },
+    });
+    fireEvent.change(within(selfRegion).getByLabelText(S.self.startLabel), {
+      target: { value: "2026-07-06" },
+    });
+    fireEvent.change(within(selfRegion).getByLabelText(S.self.endLabel), {
+      target: { value: "2026-07-08" },
+    });
+    fireEvent.click(within(selfRegion).getByRole("button", { name: S.self.submit }));
+    // The FE never sends subject_employee_id/branch_id — the backend resolves
+    // them from the caller. days is derived server-side, so it isn't sent either.
+    await waitFor(() => {
+      expect(createRequest).toHaveBeenCalledWith({
+        leave_type: "annual",
+        start_date: "2026-07-06",
+        end_date: "2026-07-08",
+        reason: S.reasons.annual,
+      });
+    });
+    await within(selfRegion).findByText(S.self.submitted);
+  });
+
+  it("본인 신청: a 반차 maps to half_day on a single date, and a backend rejection surfaces verbatim", async () => {
+    const createRequest = vi.fn<(input: LeaveCreateInput) => Promise<LeaveCreateOutcome>>(() =>
+      Promise.resolve({ ok: false, error: { error: { message: "잔여 연차가 부족합니다" } } }),
+    );
+    renderConsole({ createRequest });
+    const selfRegion = screen.getByRole("region", { name: S.self.title });
+    fireEvent.change(within(selfRegion).getByLabelText(S.self.reasonLabel), {
+      target: { value: "half_am" },
+    });
+    fireEvent.change(within(selfRegion).getByLabelText(S.self.startLabel), {
+      target: { value: "2026-07-06" },
+    });
+    fireEvent.click(within(selfRegion).getByRole("button", { name: S.self.submit }));
+    await waitFor(() => {
+      expect(createRequest).toHaveBeenCalledWith({
+        leave_type: "half_day",
+        start_date: "2026-07-06",
+        end_date: "2026-07-06",
+        reason: S.reasons.half_am,
+      });
+    });
+    expect(await within(selfRegion).findByRole("alert")).toHaveTextContent("잔여 연차가 부족합니다");
   });
 
   it("사용촉진 발송: no linked request degrades gracefully (no misdelivery guess)", () => {

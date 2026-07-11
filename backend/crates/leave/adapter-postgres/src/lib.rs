@@ -179,6 +179,50 @@ impl PgLeaveStore {
         request_from_row(&row)
     }
 
+    /// Resolve the caller's OWN filing context for a self-service leave request:
+    /// the employee record linked to their account and the branch its approval
+    /// routes to. Both come from the caller's trusted server-side identity, never
+    /// from request input, so a caller can only ever file for their own employee.
+    /// Fail-closed: an account with no linked employee — or no branch membership —
+    /// cannot file (deny-by-omission, a 422 the REST layer surfaces).
+    // ponytail: a multi-branch employee routes to their lexicographically-first
+    // branch (all are valid approval queues for them); add a branch selector if
+    // multi-branch self-filing ever needs to target a specific one.
+    pub async fn resolve_self_filing_context(
+        &self,
+        user_id: UserId,
+    ) -> Result<(uuid::Uuid, uuid::Uuid), PgLeaveError> {
+        let org = current_org().map_err(KernelError::from)?;
+        let uid = *user_id.as_uuid();
+        let row = with_org_conn::<_, _, PgLeaveError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                Ok(sqlx::query(
+                    "SELECT u.employee_id, ub.branch_id \
+                     FROM users u \
+                     JOIN user_branches ub ON ub.user_id = u.id AND ub.org_id = u.org_id \
+                     WHERE u.id = $1 AND u.employee_id IS NOT NULL \
+                     ORDER BY ub.branch_id \
+                     LIMIT 1",
+                )
+                .bind(uid)
+                .fetch_optional(tx.as_mut())
+                .await?)
+            })
+        })
+        .await?;
+        match row {
+            Some(row) => {
+                let employee_id: uuid::Uuid = row.try_get("employee_id")?;
+                let branch_id: uuid::Uuid = row.try_get("branch_id")?;
+                Ok((employee_id, branch_id))
+            }
+            None => Err(KernelError::validation(
+                "no linked employee/branch for self-service leave filing",
+            )
+            .into()),
+        }
+    }
+
     // -----------------------------------------------------------------------
     // Queue read (branch-scoped)
     // -----------------------------------------------------------------------

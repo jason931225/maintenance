@@ -611,7 +611,10 @@ fn should_skip_dir(path: &Path) -> bool {
 
     components
         .iter()
-        .any(|part| part == "target" || part == ".git")
+        // `tests` dirs hold integration tests, never handlers — auditing them for
+        // AuditEvent/with_audit is a false positive (a test that exercises a
+        // state-changing path is not itself a state-changing handler).
+        .any(|part| part == "target" || part == ".git" || part == "tests")
         || components
             .windows(2)
             .any(|window| window[0] == "ci" && window[1] == "gates")

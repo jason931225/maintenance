@@ -896,4 +896,21 @@ INSERT INTO site_attendance_events (id, org_id, user_id, branch_id, work_order_i
   ('00000000-0000-0000-0000-000000ae0005', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000d002', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-000000ad0001', '00000000-0000-0000-0000-000000c10001', 'ARRIVAL', now() - interval '8 hours')
 ON CONFLICT (id, org_id) DO NOTHING;
 
+-- ── 내 업무 (todos) + 개인 수신함 (inbox_docs) for d001 ─────────────────────
+-- Backs the 개요/내 업무/개인 수신함 screens so a fresh dev-auth session (d001)
+-- sees real rows instead of empty states. Deterministic ids + ON CONFLICT so
+-- re-runs stay idempotent (file idiom).
+INSERT INTO todos (id, org_id, owner_user_id, body, done, done_at) VALUES
+  ('00000000-0000-0000-0000-000000f0d001', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000d001', '리프트 3호기 유압 점검 일정 확정', false, NULL),
+  ('00000000-0000-0000-0000-000000f0d002', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000d001', '주간 안전점검 보고서 검토', true, now())
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO inbox_docs (id, org_id, recipient_user_id, kind, title, payload) VALUES
+  ('00000000-0000-0000-0000-000000f1d001', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000d001', 'payslip', '2026년 6월 급여명세서', '{"기본급":"3,200,000","식대":"200,000","공제계":"420,000","실지급액":"2,980,000"}'::jsonb)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO inbox_docs (id, org_id, recipient_user_id, kind, notice_type, title, payload, legal_basis) VALUES
+  ('00000000-0000-0000-0000-000000f1d002', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000d001', 'legal_notice', '연차촉진', '2026년 연차휴가 사용촉진 통지', '{"paragraphs":["귀하의 미사용 연차 5일에 대해 근로기준법 제61조에 따라 사용을 촉진합니다.","사용 시기를 지정하여 회신하여 주시기 바랍니다."]}'::jsonb, '근로기준법 §61')
+ON CONFLICT (id) DO NOTHING;
+
 COMMIT;

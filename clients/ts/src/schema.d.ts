@@ -3519,7 +3519,11 @@ export interface paths {
          */
         get: operations["listLeaveRequests"];
         put?: never;
-        post?: never;
+        /**
+         * File a self-service 연차/반차 request (본인 연차 신청)
+         * @description The caller files a leave request for THEMSELVES. `subject_employee_id` and the routing `branch_id` are resolved server-side from the caller's own account (users.employee_id + user_branches) — never from input — so a caller can only file for their own employee record. No directory feature is required (filing one's own leave is a base employee capability); the gate is the employee link itself, so an account with no linked employee / branch is 422 (deny-by-omission). `days` is derived server-side (반차 = 0.5 on one date; 연차 = inclusive calendar-day span) and never trusted from the client. The created request is `pending` and moves no ledger until a separate approver decides it (SoD).
+         */
+        post: operations["createLeaveRequest"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5830,6 +5834,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ontology/object-types/{key}/acting": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Acting rules keyed by object-type
+         * @description Automations (bound workflow definitions) and object policies acting on the object type identified by stable key. Type-centric sibling of /instances/{id}/acting — it may return rules for a type that has no instances yet. An unknown key is 404 (deny-by-omission, RLS-scoped).
+         */
+        get: operations["listObjectTypeActing"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ontology/instances": {
         parameters: {
             query?: never;
@@ -6821,6 +6845,22 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @description A self-service leave-request filing. The subject employee and branch are NOT accepted here — they are resolved from the authenticated caller. */
+        LeaveCreateRequest: {
+            /**
+             * @description 연차 (full-day span) or 반차 (half day, 0.5 on one date).
+             * @enum {string}
+             */
+            leave_type: "annual" | "half_day";
+            /**
+             * Format: date
+             * @description YYYY-MM-DD. For a half day the end is forced equal server-side.
+             */
+            start_date: string;
+            /** Format: date */
+            end_date: string;
+            reason: string;
+        };
         ProjectionRequest: {
             /** @description Ordered historical values, oldest first (min 3). */
             series: number[];
@@ -17567,6 +17607,50 @@ export interface operations {
             };
         };
     };
+    createLeaveRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeaveCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description The created pending leave request. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeaveRequestView"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description Invalid leave_type/date, a domain-invalid request (e.g. 반차 spanning dates), or no linked employee/branch for the caller. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     decideLeaveRequest: {
         parameters: {
             query?: never;
@@ -21829,6 +21913,31 @@ export interface operations {
             409: components["responses"]["Conflict"];
             422: components["responses"]["ValidationError"];
             503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    listObjectTypeActing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description automation rules + policies acting on the object type */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActingRule"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     listOntologyInstances: {

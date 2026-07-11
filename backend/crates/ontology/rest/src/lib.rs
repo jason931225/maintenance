@@ -179,6 +179,7 @@ impl ProjectedDispatchRegistry {
 
 pub const OBJECT_TYPES_PATH: &str = "/api/v1/ontology/object-types";
 pub const OBJECT_TYPE_KEY_PATH: &str = "/api/v1/ontology/object-types/{key}";
+pub const OBJECT_TYPE_ACTING_PATH: &str = "/api/v1/ontology/object-types/{key}/acting";
 pub const INSTANCES_PATH: &str = "/api/v1/ontology/instances";
 pub const INSTANCE_ID_PATH: &str = "/api/v1/ontology/instances/{id}";
 pub const INSTANCE_HISTORY_PATH: &str = "/api/v1/ontology/instances/{id}/history";
@@ -192,6 +193,7 @@ pub const ACTION_EXECUTE_PATH: &str = "/api/v1/ontology/actions/{action_key}/exe
 pub const ONTOLOGY_ROUTE_PATHS: &[&str] = &[
     OBJECT_TYPES_PATH,
     OBJECT_TYPE_KEY_PATH,
+    OBJECT_TYPE_ACTING_PATH,
     INSTANCES_PATH,
     INSTANCE_ID_PATH,
     INSTANCE_HISTORY_PATH,
@@ -215,6 +217,7 @@ pub fn router(state: OntologyRestState) -> Router {
             OBJECT_TYPE_KEY_PATH,
             get(get_object_type).put(stage_object_type_revision),
         )
+        .route(OBJECT_TYPE_ACTING_PATH, get(object_type_acting))
         .route(INSTANCES_PATH, get(list_instances))
         .route(INSTANCE_ID_PATH, get(get_instance))
         .route(INSTANCE_HISTORY_PATH, get(get_instance_history))
@@ -1282,6 +1285,20 @@ async fn instance_acting(
     let acting = state
         .registry
         .acting_on_instance(id)
+        .await
+        .map_err(RestError::from_ontology)?;
+    Ok(Json(acting))
+}
+
+async fn object_type_acting(
+    State(state): State<OntologyRestState>,
+    headers: HeaderMap,
+    Path(key): Path<String>,
+) -> Result<Json<Vec<ActingRule>>, RestError> {
+    authorize_ontology(&state, &headers).await?;
+    let acting = state
+        .registry
+        .acting_on_type(&key)
         .await
         .map_err(RestError::from_ontology)?;
     Ok(Json(acting))

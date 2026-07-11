@@ -289,10 +289,19 @@ impl PgOntologyStore {
             );
         }
         validate_draft(&draft)?;
-        let object_type_id = ObjectTypeId::new();
         let org = current_org().map_err(KernelError::from)?;
         let org_uuid = *org.as_uuid();
         let stable_key = stable_key.to_owned();
+
+        // An unpublished head (the one in-flight draft the partial unique index
+        // permits per key) is edited IN PLACE: the head fields are updated and
+        // the draft's newly-introduced children are appended (the child tables are
+        // append-only for the runtime role — §9.8 — and the draft editor only
+        // adds definitions). Staging an immutable v+1 is impossible here anyway
+        // (the one-draft index would reject a second draft version for the key).
+        // Resolved up front so the audit event targets the row we actually write.
+        let existing_draft = self.draft_head_id(&stable_key).await?;
+        let object_type_id = existing_draft.unwrap_or_else(ObjectTypeId::new);
         let event = ontology_audit_event(
             "ontology.object_type.stage_revision",
             actor,
@@ -304,26 +313,56 @@ impl PgOntologyStore {
 
         with_audit::<_, ObjectTypeSummary, PgOntologyError>(&self.pool, event, |tx| {
             Box::pin(async move {
-                let current_max: Option<i64> = sqlx::query_scalar(
-                    "SELECT MAX(schema_version) FROM ont_object_types WHERE stable_key = $1",
+                if existing_draft.is_some() {
+                    update_draft_head_tx(tx, object_type_id, &draft, occurred_at).await?;
+                    append_new_draft_children_tx(tx, object_type_id, org_uuid, &draft).await?;
+                } else {
+                    let current_max: Option<i64> = sqlx::query_scalar(
+                        "SELECT MAX(schema_version) FROM ont_object_types WHERE stable_key = $1",
+                    )
+                    .bind(&stable_key)
+                    .fetch_one(tx.as_mut())
+                    .await?;
+                    let next_version = current_max.ok_or_else(|| {
+                        KernelError::not_found("no existing object type for that key to revise")
+                    })? + 1;
+                    insert_object_type_version_tx(
+                        tx,
+                        object_type_id,
+                        org_uuid,
+                        actor,
+                        &draft,
+                        next_version,
+                        occurred_at,
+                    )
+                    .await?;
+                }
+                object_type_summary_by_id_tx(tx, object_type_id).await
+            })
+        })
+        .await
+    }
+
+    /// The one in-flight draft/review head for a key (partial unique index
+    /// guarantees at most one), RLS-scoped. `None` when the head is published.
+    async fn draft_head_id(
+        &self,
+        stable_key: &str,
+    ) -> Result<Option<ObjectTypeId>, PgOntologyError> {
+        let org = current_org().map_err(KernelError::from)?;
+        let stable_key = stable_key.to_owned();
+        with_org_conn::<_, Option<ObjectTypeId>, PgOntologyError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                let id: Option<uuid::Uuid> = sqlx::query_scalar(
+                    r#"
+                    SELECT id FROM ont_object_types
+                    WHERE stable_key = $1 AND lifecycle_state IN ('draft', 'review_pending')
+                    "#,
                 )
                 .bind(&stable_key)
-                .fetch_one(tx.as_mut())
+                .fetch_optional(tx.as_mut())
                 .await?;
-                let next_version = current_max.ok_or_else(|| {
-                    KernelError::not_found("no existing object type for that key to revise")
-                })? + 1;
-                insert_object_type_version_tx(
-                    tx,
-                    object_type_id,
-                    org_uuid,
-                    actor,
-                    &draft,
-                    next_version,
-                    occurred_at,
-                )
-                .await?;
-                object_type_summary_by_id_tx(tx, object_type_id).await
+                Ok(id.map(ObjectTypeId::from_uuid))
             })
         })
         .await
@@ -605,60 +644,40 @@ impl PgOntologyStore {
                 .ok_or_else(|| KernelError::not_found("instance was not found"))?;
                 let stable_key: String = type_row.try_get("stable_key")?;
                 let object_type_id: uuid::Uuid = type_row.try_get("object_type_id")?;
+                acting_rules_tx(tx, &stable_key, object_type_id).await
+            })
+        })
+        .await
+    }
 
-                let mut acting = Vec::new();
-
-                // Automations: live workflow definitions bound to the type key.
-                let automations = sqlx::query(
+    /// The same §2 "dynamics" read as `acting_on_instance`, keyed by the object
+    /// type itself (the 자동화 subtab of the Ontology Manager, which is
+    /// type-centric and may have no instances). RLS-scoped; an unknown key yields
+    /// `NotFound`. Resolves the key to its head version so property-policy
+    /// attachments (per-version `property_def_id`) line up with the shown schema.
+    pub async fn acting_on_type(
+        &self,
+        stable_key: &str,
+    ) -> Result<Vec<ActingRule>, PgOntologyError> {
+        let org = current_org().map_err(KernelError::from)?;
+        let stable_key = stable_key.to_owned();
+        with_org_conn::<_, Vec<ActingRule>, PgOntologyError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                // Head version (published preferred, else highest) — same
+                // resolution as get_object_type, RLS-scoped.
+                let object_type_id: uuid::Uuid = sqlx::query_scalar(
                     r#"
-                    SELECT id, display_name
-                    FROM workflow_definitions
-                    WHERE object_type = $1 AND status <> 'RETIRED'
-                    ORDER BY updated_at DESC
+                    SELECT id FROM ont_object_types
+                    WHERE stable_key = $1
+                    ORDER BY (lifecycle_state = 'published') DESC, schema_version DESC
+                    LIMIT 1
                     "#,
                 )
                 .bind(&stable_key)
-                .fetch_all(tx.as_mut())
-                .await?;
-                for row in &automations {
-                    acting.push(ActingRule {
-                        id: row.try_get("id")?,
-                        label: row.try_get("display_name")?,
-                        kind: ActingKind::Automation,
-                    });
-                }
-
-                // Policies: object-policy (row) + property-policy (field) attachments
-                // for this type, labelled by the authored catalog title.
-                let policies = sqlx::query(
-                    r#"
-                    SELECT c.id AS id, c.title AS title
-                    FROM ont_object_policies a
-                    JOIN cedar_policy_catalog_entries c
-                      ON c.id = a.cedar_policy_id AND c.org_id = a.org_id
-                    WHERE a.object_type_id = $1
-                    UNION
-                    SELECT c.id AS id, c.title AS title
-                    FROM ont_property_policies a
-                    JOIN cedar_policy_catalog_entries c
-                      ON c.id = a.cedar_policy_id AND c.org_id = a.org_id
-                    WHERE a.property_def_id IN (
-                        SELECT id FROM ont_property_defs WHERE object_type_id = $1
-                    )
-                    "#,
-                )
-                .bind(object_type_id)
-                .fetch_all(tx.as_mut())
-                .await?;
-                for row in &policies {
-                    acting.push(ActingRule {
-                        id: row.try_get("id")?,
-                        label: row.try_get("title")?,
-                        kind: ActingKind::Policy,
-                    });
-                }
-
-                Ok(acting)
+                .fetch_optional(tx.as_mut())
+                .await?
+                .ok_or_else(|| KernelError::not_found("object type was not found"))?;
+                acting_rules_tx(tx, &stable_key, object_type_id).await
             })
         })
         .await
@@ -846,6 +865,169 @@ async fn insert_object_type_version_tx(
     .execute(tx.as_mut())
     .await?;
 
+    insert_object_type_children_tx(tx, object_type_id, org_uuid, draft).await
+}
+
+/// §2 dynamics for one object type: live workflow definitions bound to its key
+/// (automations) plus object-/property-policy attachments (policies), labelled by
+/// the authored catalog title. Shared by the instance- and type-keyed reads.
+async fn acting_rules_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    stable_key: &str,
+    object_type_id: uuid::Uuid,
+) -> Result<Vec<ActingRule>, PgOntologyError> {
+    let mut acting = Vec::new();
+
+    let automations = sqlx::query(
+        r#"
+        SELECT id, display_name
+        FROM workflow_definitions
+        WHERE object_type = $1 AND status <> 'RETIRED'
+        ORDER BY updated_at DESC
+        "#,
+    )
+    .bind(stable_key)
+    .fetch_all(tx.as_mut())
+    .await?;
+    for row in &automations {
+        acting.push(ActingRule {
+            id: row.try_get("id")?,
+            label: row.try_get("display_name")?,
+            kind: ActingKind::Automation,
+        });
+    }
+
+    let policies = sqlx::query(
+        r#"
+        SELECT c.id AS id, c.title AS title
+        FROM ont_object_policies a
+        JOIN cedar_policy_catalog_entries c
+          ON c.id = a.cedar_policy_id AND c.org_id = a.org_id
+        WHERE a.object_type_id = $1
+        UNION
+        SELECT c.id AS id, c.title AS title
+        FROM ont_property_policies a
+        JOIN cedar_policy_catalog_entries c
+          ON c.id = a.cedar_policy_id AND c.org_id = a.org_id
+        WHERE a.property_def_id IN (
+            SELECT id FROM ont_property_defs WHERE object_type_id = $1
+        )
+        "#,
+    )
+    .bind(object_type_id)
+    .fetch_all(tx.as_mut())
+    .await?;
+    for row in &policies {
+        acting.push(ActingRule {
+            id: row.try_get("id")?,
+            label: row.try_get("title")?,
+            kind: ActingKind::Policy,
+        });
+    }
+
+    Ok(acting)
+}
+
+/// Rewrite an in-flight draft's head fields in place (schema_version,
+/// lifecycle_state, stable_key and authorship are immutable and left untouched).
+async fn update_draft_head_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    object_type_id: ObjectTypeId,
+    draft: &CreateObjectTypeDraft,
+    occurred_at: OffsetDateTime,
+) -> Result<(), PgOntologyError> {
+    sqlx::query(
+        r#"
+        UPDATE ont_object_types
+        SET title = $2, title_property_key = $3, backing_kind = $4,
+            backing_table = $5, primary_key_property = $6, updated_at = $7
+        WHERE id = $1
+        "#,
+    )
+    .bind(*object_type_id.as_uuid())
+    .bind(draft.title.trim())
+    .bind(draft.title_property_key.as_deref())
+    .bind(draft.backing_kind.as_db_str())
+    .bind(draft.backing_table.as_deref())
+    .bind(draft.primary_key_property.as_deref())
+    .bind(occurred_at)
+    .execute(tx.as_mut())
+    .await?;
+    Ok(())
+}
+
+/// Append the child definitions a draft edit introduces, skipping those already
+/// present. The schema child tables grant the runtime role INSERT only (§9.8: no
+/// UPDATE/DELETE), and the draft editor only adds definitions — so an in-place
+/// draft edit inserts the new children and leaves existing ones untouched
+/// (re-sent existing keys are no-ops, so the caller may resend its full snapshot).
+async fn append_new_draft_children_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    object_type_id: ObjectTypeId,
+    org_uuid: uuid::Uuid,
+    draft: &CreateObjectTypeDraft,
+) -> Result<(), PgOntologyError> {
+    let id = *object_type_id.as_uuid();
+    let props: Vec<String> =
+        sqlx::query_scalar("SELECT key FROM ont_property_defs WHERE object_type_id = $1")
+            .bind(id)
+            .fetch_all(tx.as_mut())
+            .await?;
+    let links: Vec<String> =
+        sqlx::query_scalar("SELECT stable_key FROM ont_link_types WHERE object_type_id = $1")
+            .bind(id)
+            .fetch_all(tx.as_mut())
+            .await?;
+    let actions: Vec<String> =
+        sqlx::query_scalar("SELECT stable_key FROM ont_action_types WHERE object_type_id = $1")
+            .bind(id)
+            .fetch_all(tx.as_mut())
+            .await?;
+    let analytics: Vec<String> =
+        sqlx::query_scalar("SELECT key FROM ont_analytics WHERE object_type_id = $1")
+            .bind(id)
+            .fetch_all(tx.as_mut())
+            .await?;
+
+    let appended = CreateObjectTypeDraft {
+        properties: draft
+            .properties
+            .iter()
+            .filter(|p| !props.iter().any(|e| e == p.key.trim()))
+            .cloned()
+            .collect(),
+        links: draft
+            .links
+            .iter()
+            .filter(|l| !links.iter().any(|e| e == l.stable_key.trim()))
+            .cloned()
+            .collect(),
+        actions: draft
+            .actions
+            .iter()
+            .filter(|a| !actions.iter().any(|e| e == a.stable_key.trim()))
+            .cloned()
+            .collect(),
+        analytics: draft
+            .analytics
+            .iter()
+            .filter(|a| !analytics.iter().any(|e| e == a.key.trim()))
+            .cloned()
+            .collect(),
+        ..draft.clone()
+    };
+    insert_object_type_children_tx(tx, object_type_id, org_uuid, &appended).await
+}
+
+/// Insert the child definitions (properties / links / actions / analytics) for
+/// an object-type version. Shared by the fresh-version insert above and the
+/// in-place draft rewrite (replace-children semantics) in `stage_revision`.
+async fn insert_object_type_children_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    object_type_id: ObjectTypeId,
+    org_uuid: uuid::Uuid,
+    draft: &CreateObjectTypeDraft,
+) -> Result<(), PgOntologyError> {
     for property in &draft.properties {
         sqlx::query(
             r#"

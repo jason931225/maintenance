@@ -5,6 +5,7 @@
 // staging never wipes fields the editor does not surface).
 import {
   revisionHashVerified,
+  type ActingRuleWire,
   type CreateObjectTypeDraft,
   type InstanceStateWire,
   type ObjectTypeDetailWire,
@@ -106,6 +107,7 @@ export function objectTypeDefFromDetail(
   detail: ObjectTypeDetailWire,
   instances: InstanceStateWire[],
   typeKeyById: ReadonlyMap<string, string>,
+  acting: readonly ActingRuleWire[] = [],
 ): OntObjectTypeDef {
   const head = detail.object_type;
   return {
@@ -148,9 +150,14 @@ export function objectTypeDefFromDetail(
       formula: formulaText(analytic.formula),
     })),
     instances: instances.map(instanceRowFromState),
-    // Acting automation/policy bindings have no registry read yet.
-    // wire-pending: HANDOFF §ontology-acting GET /api/v1/ontology/object-types/{key}/acting
-    acting: [],
+    // Automations + PBAC policies bound to the type (자동화 subtab), from
+    // GET /api/v1/ontology/object-types/{key}/acting. ActingRule {id,label,kind}
+    // maps straight onto the ObjectCard acting chip (kind is a subset).
+    acting: acting.map((rule) => ({
+      id: rule.id,
+      label: rule.label,
+      kind: rule.kind,
+    })),
   };
 }
 

@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties } from "react";
+import { useState, type CSSProperties } from "react";
 
 import { ko } from "../../i18n/ko";
 import { StatusChip } from "../components";
@@ -6,7 +6,6 @@ import { PolicyGated, usePolicyGate } from "../policy";
 import "../tokens.css";
 import { CanvasBlock } from "./CanvasBlock";
 import { RunLogTimeline } from "./RunLogTimeline";
-import { createWorkflowAutoStubModel } from "./stubModel";
 import {
   WORKFLOW_AUTO_ACTIONS,
   type ScheduleDraft,
@@ -22,7 +21,9 @@ const T = ko.console.workflows;
 type StatusTone = "neutral" | "ok" | "warn" | "danger" | "info" | "accent";
 
 export interface WorkflowAutoScreenProps {
-  model?: WorkflowAutoModel;
+  /** Real definition-backed model (WorkflowStudioPage supplies it). Required —
+   *  the screen never fabricates its own data. */
+  model: WorkflowAutoModel;
   initialTab?: WorkflowAutoTab;
   selectedWorkflowId?: string;
   selectedScheduleId?: string;
@@ -670,7 +671,7 @@ function ScheduleDetail({
 
 export function WorkflowAutoScreen(props: WorkflowAutoScreenProps) {
   const gate = usePolicyGate();
-  const model = useMemo(() => props.model ?? createWorkflowAutoStubModel(), [props.model]);
+  const model = props.model;
   const [tab, setTab] = useState<WorkflowAutoTab>(props.initialTab ?? "workflow");
   const [workflowId, setWorkflowId] = useState<string | undefined>(
     props.selectedWorkflowId ?? model.workflows[0]?.id,

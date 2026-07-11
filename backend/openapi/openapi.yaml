@@ -6100,6 +6100,55 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
+    post:
+      tags:
+        - leave
+      operationId: createLeaveRequest
+      summary: File a self-service 연차/반차 request (본인 연차 신청)
+      description: >-
+        The caller files a leave request for THEMSELVES. `subject_employee_id`
+        and the routing `branch_id` are resolved server-side from the caller's
+        own account (users.employee_id + user_branches) — never from input — so a
+        caller can only file for their own employee record. No directory feature
+        is required (filing one's own leave is a base employee capability); the
+        gate is the employee link itself, so an account with no linked employee /
+        branch is 422 (deny-by-omission). `days` is derived server-side (반차 =
+        0.5 on one date; 연차 = inclusive calendar-day span) and never trusted
+        from the client. The created request is `pending` and moves no ledger
+        until a separate approver decides it (SoD).
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LeaveCreateRequest'
+      responses:
+        '201':
+          description: The created pending leave request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaveRequestView'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          description: >-
+            Invalid leave_type/date, a domain-invalid request (e.g. 반차 spanning
+            dates), or no linked employee/branch for the caller.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
   /api/v1/leave/requests/{id}/decide:
     post:
       tags:
@@ -10984,6 +11033,40 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/ontology/object-types/{key}/acting:
+    get:
+      tags:
+        - Ontology
+      operationId: listObjectTypeActing
+      summary: Acting rules keyed by object-type
+      description: >
+        Automations (bound workflow definitions) and object policies acting on
+        the object type identified by stable key. Type-centric sibling of
+        /instances/{id}/acting — it may return rules for a type that has no
+        instances yet. An unknown key is 404 (deny-by-omission, RLS-scoped).
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: automation rules + policies acting on the object type
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ActingRule'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /api/v1/ontology/instances:
     get:
       operationId: listOntologyInstances
@@ -12962,6 +13045,33 @@ components:
           schema:
             $ref: '#/components/schemas/ErrorBody'
   schemas:
+    LeaveCreateRequest:
+      type: object
+      description: >-
+        A self-service leave-request filing. The subject employee and branch are
+        NOT accepted here — they are resolved from the authenticated caller.
+      additionalProperties: false
+      required:
+        - leave_type
+        - start_date
+        - end_date
+        - reason
+      properties:
+        leave_type:
+          type: string
+          enum: [annual, half_day]
+          description: 연차 (full-day span) or 반차 (half day, 0.5 on one date).
+        start_date:
+          type: string
+          format: date
+          description: YYYY-MM-DD. For a half day the end is forced equal server-side.
+        end_date:
+          type: string
+          format: date
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
     ProjectionRequest:
       type: object
       required: [series, horizon, kind]

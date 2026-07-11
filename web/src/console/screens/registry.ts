@@ -4,12 +4,21 @@
 // same as every screen before this wire — content lands lane by lane).
 import type { ComponentType } from "react";
 
+import { ApprovalScreenBody } from "../appr/ApprovalScreenBody";
+import { AuditScreenBody } from "../audit/AuditScreenBody";
+import { MailScreenBody } from "../mail";
+import { MessengerScreenBody } from "../messenger";
+import { AssetModuleScreen } from "../modules/AssetModuleScreen";
 import { AutomateBody } from "./automate/AutomateBody";
 import { DashboardBody } from "./dashboard";
 import { EvidenceScreenBody } from "./evidence/EvidenceScreenBody";
 import ExploreScreen from "./explore/ExploreBody";
+import { ForecastBody } from "./forecast";
+import InboxScreen from "./inbox/InboxScreen";
+import { LaborCostBody } from "./laborcost";
 import { LeaveBody } from "./leave/LeaveBody";
 import { ModuleFinanceScreenBody } from "./module-finance/ModuleFinanceScreenBody";
+import MyWorkScreen from "./mywork/MyWorkScreen";
 import OntologyManagerScreenBody from "./ontology-manager/OntologyManagerBody";
 import OverviewScreen from "./overview/OverviewScreen";
 import { PolicyBody } from "./policy/PolicyBody";
@@ -17,9 +26,16 @@ import { SupportBody } from "./support/SupportBody";
 
 export const SCREEN_REGISTRY: Readonly<Partial<Record<string, ComponentType>>> = {
   overview: OverviewScreen,
+  mywork: MyWorkScreen,
+  inbox: InboxScreen,
   dashboard: DashboardBody,
+  laborcost: LaborCostBody,
+  forecast: ForecastBody,
   finance: ModuleFinanceScreenBody,
+  asset: AssetModuleScreen,
   docs: EvidenceScreenBody,
+  appr: ApprovalScreenBody,
+  audit: AuditScreenBody,
   leave: LeaveBody,
   policy: PolicyBody,
   // nav label "객체 탐색" — the read-only graph explorer (no type authoring).
@@ -31,4 +47,6 @@ export const SCREEN_REGISTRY: Readonly<Partial<Record<string, ComponentType>>> =
   workflow: AutomateBody,
   scheduled: AutomateBody,
   support: SupportBody,
+  messenger: MessengerScreenBody,
+  mail: MailScreenBody,
 };

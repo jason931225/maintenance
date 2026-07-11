@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import type { components } from "@maintenance/api-client-ts";
 
 import { ko } from "../../i18n/ko";
 import { StatusChip } from "../components";
@@ -10,13 +11,25 @@ const T = ko.console.charts;
 
 export type ProjectionDrillPart = "point" | "ci95" | "cvar95" | "sample";
 
+/** Backend Monte-Carlo/EVT result (POST /api/v1/analytics/projection, HANDOFF §18). */
+export type BackendProjection = components["schemas"]["ProjectionResult"];
+
 export interface ProjectionPanelProps {
   /** Field name the projection is over, e.g. 월 정비비. */
   title: string;
   /** §4-19 typed field: controls formatting. */
   kind: "money" | "percent";
-  /** wire-pending: Phase C — sample arrives from backend Monte-Carlo/EVT (HANDOFF §18). */
+  /** The real historical series (drives the spark and, when no backend result is
+   *  supplied, the deterministic client-side estimate below). */
   sample: number[];
+  /**
+   * Backend Monte-Carlo/EVT projection over `sample` (HANDOFF §18, wired via
+   * POST /api/v1/analytics/projection). When present it is the source of truth
+   * for point/CI95/CVaR95; when absent (in-flight, denied, or a non-money/percent
+   * field the endpoint doesn't serve) the panel falls back to the deterministic
+   * client `project()` math over `sample` — same shape, no fabrication.
+   */
+  backendResult?: BackendProjection;
   lambda?: number;
   onDrill: (part: ProjectionDrillPart) => void;
   /** §4-22 in-place add path for the underlying sample. */
@@ -27,6 +40,35 @@ export interface ProjectionPanelProps {
    * formatter chosen by `kind` when omitted.
    */
   format?: ChartFormat;
+}
+
+/** Unified render shape derived from either the backend result or client math. */
+interface ProjectionView {
+  point: number;
+  ci95: readonly [number, number];
+  cvar95: number;
+  n: number;
+  lambda: number;
+}
+
+function toView(
+  backendResult: BackendProjection | undefined,
+  sample: number[],
+  lambda: number,
+): ProjectionView | null {
+  if (backendResult) {
+    return {
+      point: backendResult.point_estimate,
+      ci95: [backendResult.ci95_low, backendResult.ci95_high],
+      cvar95: backendResult.cvar95,
+      n: sample.filter((v) => Number.isFinite(v)).length,
+      lambda,
+    };
+  }
+  const p = project(sample, lambda);
+  return p
+    ? { point: p.point, ci95: p.ci95, cvar95: p.cvar95, n: p.n, lambda: p.lambda }
+    : null;
 }
 
 const formatPercent: ChartFormat = (value) => `${value.toFixed(1)}%`;
@@ -63,9 +105,9 @@ const statValueStyle: CSSProperties = {
  * DESIGN change-log (68) 정량 투영: deterministic point estimate + CI95 band
  * + CVaR95 fat-tail over a money/percent field. Every number drills (§4.7-9).
  */
-export function ProjectionPanel({ title, kind, sample, lambda = DEFAULT_LAMBDA, onDrill, onAddSample, format: formatOverride }: ProjectionPanelProps) {
+export function ProjectionPanel({ title, kind, sample, backendResult, lambda = DEFAULT_LAMBDA, onDrill, onAddSample, format: formatOverride }: ProjectionPanelProps) {
   const format = formatOverride ?? (kind === "money" ? formatWon : formatPercent);
-  const p = project(sample, lambda);
+  const p = toView(backendResult, sample, lambda);
 
   return (
     <section
@@ -172,7 +214,7 @@ export function ProjectionPanel({ title, kind, sample, lambda = DEFAULT_LAMBDA, 
 }
 
 /** CI95 band with point and CVaR95 ticks on a shared horizontal axis. */
-function ProjectionBand({ projection }: { projection: NonNullable<ReturnType<typeof project>> }) {
+function ProjectionBand({ projection }: { projection: ProjectionView }) {
   const lo = Math.min(projection.cvar95, projection.ci95[0]);
   const hi = projection.ci95[1];
   const span = hi - lo;

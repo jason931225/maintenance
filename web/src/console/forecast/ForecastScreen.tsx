@@ -1,7 +1,7 @@
 import type { CSSProperties } from "react";
 
 import type { AssetLifecycleCostSummary, EquipmentListItem } from "../../api/types";
-import { ProjectionPanel, type ProjectionDrillPart } from "../charts";
+import { ProjectionPanel, type BackendProjection, type ProjectionDrillPart } from "../charts";
 import { StatusChip } from "../components";
 import "../tokens.css";
 import { ko } from "../../i18n/ko";
@@ -24,6 +24,12 @@ export interface ForecastScreenProps {
   whatIfPct: number;
   onWhatIfChange: (pct: number) => void;
   onDrill: (part: ProjectionDrillPart) => void;
+  /**
+   * Backend Monte-Carlo/EVT projection over the current cost sample (HANDOFF §18).
+   * Undefined while in-flight / for an insufficient sample — ProjectionPanel then
+   * shows the deterministic client estimate over the same real series.
+   */
+  projectionResult?: BackendProjection;
 }
 
 const rootStyle: CSSProperties = {
@@ -154,6 +160,7 @@ export function ForecastScreen({
   whatIfPct,
   onWhatIfChange,
   onDrill,
+  projectionResult,
 }: ForecastScreenProps) {
   if (!selectedEquipment) {
     return (
@@ -266,6 +273,7 @@ export function ForecastScreen({
         title={S.seriesTitle(selectedEquipment.equipment_no)}
         kind="money"
         sample={sample}
+        backendResult={projectionResult}
         onDrill={onDrill}
       />
     </div>

@@ -19,12 +19,15 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use mnt_kernel_core::{BranchScope, ErrorKind, KernelError, LeaveRequestId, TraceContext, UserId};
+use mnt_kernel_core::{
+    BranchScope, Date, ErrorKind, KernelError, LeaveRequestId, TraceContext, UserId,
+};
 use mnt_leave_adapter_postgres::{PgLeaveError, PgLeaveStore};
 use mnt_leave_application::{
-    DecideLeaveRequestCommand, ListLeaveRequestsQuery, StatutoryPushCommand,
+    CreateLeaveRequestCommand, DecideLeaveRequestCommand, ListLeaveRequestsQuery,
+    StatutoryPushCommand,
 };
-use mnt_leave_domain::{LeaveDecision, LeaveStatus, PromotionKind};
+use mnt_leave_domain::{LeaveDecision, LeaveStatus, LeaveType, NewLeaveRequest, PromotionKind};
 use mnt_platform_auth::JwtVerifier;
 use mnt_platform_authz::{Action, Feature, Principal, authorize, authorize_org_wide};
 use mnt_platform_request_context::RequestContextError;
@@ -73,7 +76,7 @@ pub fn router(state: LeaveRestState) -> Router {
     let verifier = state.jwt_verifier.clone();
     let pool = state.store.pool().clone();
     let router = Router::new()
-        .route(LEAVE_REQUESTS_PATH, get(list_requests))
+        .route(LEAVE_REQUESTS_PATH, get(list_requests).post(create_request))
         .route(LEAVE_DECIDE_PATH_TEMPLATE, post(decide))
         .route(LEAVE_BALANCES_PATH, get(list_balances))
         .route(LEAVE_PROMOTIONS_PATH, post(push_promotion))
@@ -109,6 +112,92 @@ async fn list_requests(
         .await
         .map_err(RestError::from_store)?;
     Ok(Json(page).into_response())
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateRequestBody {
+    /// `annual` (full-day span) or `half_day` (반차, 0.5 on one date).
+    leave_type: String,
+    /// `YYYY-MM-DD`. For a half day the end is forced equal server-side.
+    start_date: String,
+    end_date: String,
+    reason: String,
+}
+
+/// Derive the (end_date, days) a request will carry from its type + dates.
+/// The server NEVER trusts a client-supplied day count: a 반차 is always 0.5 on
+/// its start date; a 연차 span is the inclusive calendar-day count. Domain
+/// bounds (positive, ≤ 366, end ≥ start) are re-checked by `NewLeaveRequest`.
+fn derive_span(
+    leave_type: LeaveType,
+    start_date: Date,
+    end_date: Date,
+) -> Result<(Date, f64), KernelError> {
+    match leave_type {
+        LeaveType::HalfDay => Ok((start_date, 0.5)),
+        LeaveType::Annual => {
+            if end_date < start_date {
+                return Err(KernelError::validation(
+                    "leave end date must not precede the start date",
+                ));
+            }
+            let days = (end_date - start_date).whole_days() + 1;
+            Ok((end_date, days as f64))
+        }
+    }
+}
+
+fn parse_iso_date(value: &str, field: &'static str) -> Result<Date, RestError> {
+    Date::parse(value, &time::format_description::well_known::Iso8601::DATE).map_err(|_| {
+        RestError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "validation",
+            format!("{field} must be a YYYY-MM-DD date"),
+        )
+    })
+}
+
+/// Self-service 연차/반차 신청 (POST /api/v1/leave/requests). The caller files a
+/// request for THEMSELVES: `subject_employee_id` and the routing `branch_id` are
+/// resolved server-side from the caller's own account (users.employee_id +
+/// user_branches), never from input, so a caller can only ever file for their
+/// own employee record. No directory feature is required — filing your own leave
+/// is a base employee capability; the gate is the employee link itself (an
+/// unlinked account is 422, deny-by-omission). The created request is `pending`
+/// and moves no ledger until a *separate* approver decides it (SoD).
+async fn create_request(
+    State(state): State<LeaveRestState>,
+    headers: HeaderMap,
+    Json(body): Json<CreateRequestBody>,
+) -> Result<Response, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    let (subject_employee_id, branch_id) = state
+        .store
+        .resolve_self_filing_context(principal.user_id)
+        .await
+        .map_err(RestError::from_store)?;
+
+    let leave_type = LeaveType::parse(&body.leave_type).map_err(RestError::from_kernel)?;
+    let start_date = parse_iso_date(&body.start_date, "start_date")?;
+    let end_date = parse_iso_date(&body.end_date, "end_date")?;
+    let (end_date, days) =
+        derive_span(leave_type, start_date, end_date).map_err(RestError::from_kernel)?;
+    let request = NewLeaveRequest::new(leave_type, days, start_date, end_date, &body.reason)
+        .map_err(RestError::from_kernel)?;
+
+    let view = state
+        .store
+        .create_request(CreateLeaveRequestCommand {
+            branch_id,
+            requester_user_id: principal.user_id,
+            subject_employee_id,
+            request,
+            trace: TraceContext::generate(),
+            occurred_at: time::OffsetDateTime::now_utc(),
+        })
+        .await
+        .map_err(RestError::from_store)?;
+    Ok((StatusCode::CREATED, Json(view)).into_response())
 }
 
 #[derive(Debug, Deserialize)]
@@ -434,6 +523,25 @@ mod tests {
             StatusCode::FORBIDDEN,
             "a MEMBER cannot decide leave"
         );
+    }
+
+    #[test]
+    fn derive_span_never_trusts_a_client_day_count() {
+        use time::Month;
+        let d = |y, m, day| Date::from_calendar_date(y, Month::try_from(m).unwrap(), day).unwrap();
+        // A 반차 is always 0.5 on its start date, whatever end was sent.
+        let (end, days) = derive_span(LeaveType::HalfDay, d(2026, 7, 6), d(2026, 7, 9)).unwrap();
+        assert_eq!(end, d(2026, 7, 6));
+        assert!((days - 0.5).abs() < f64::EPSILON);
+        // A 연차 span is the INCLUSIVE calendar-day count (6th..=8th = 3 days).
+        let (end, days) = derive_span(LeaveType::Annual, d(2026, 7, 6), d(2026, 7, 8)).unwrap();
+        assert_eq!(end, d(2026, 7, 8));
+        assert!((days - 3.0).abs() < f64::EPSILON);
+        // A single-day 연차 is 1.0, not 0.
+        let (_, days) = derive_span(LeaveType::Annual, d(2026, 7, 6), d(2026, 7, 6)).unwrap();
+        assert!((days - 1.0).abs() < f64::EPSILON);
+        // An inverted 연차 span is rejected before it reaches the domain.
+        assert!(derive_span(LeaveType::Annual, d(2026, 7, 8), d(2026, 7, 6)).is_err());
     }
 
     #[test]

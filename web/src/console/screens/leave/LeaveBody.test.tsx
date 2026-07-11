@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -47,6 +47,7 @@ interface AuthOverrides {
   balancesPending?: boolean;
   onDecide?: (path: string, opts: unknown) => unknown;
   onPromote?: (path: string, opts: unknown) => unknown;
+  onCreate?: (path: string, opts: unknown) => unknown;
 }
 
 function setupAuth(overrides: AuthOverrides = {}) {
@@ -72,6 +73,21 @@ function setupAuth(overrides: AuthOverrides = {}) {
       // not the gate resolve itself.
       const checks = (opts as { body: { checks: { action: string }[] } }).body.checks;
       return { data: { decisions: checks.map(() => ({ effect: "allow" })) } };
+    }
+    if (path === "/api/v1/leave/requests") {
+      return (
+        overrides.onCreate?.(path, opts) ?? {
+          data: makeRequest({
+            id: "req-new",
+            requester_user_id: "self-user",
+            subject_employee_id: "emp-1",
+            status: "pending",
+            start_date: "2026-08-03",
+            end_date: "2026-08-05",
+            created_at: "2026-07-11T00:00:00Z",
+          }),
+        }
+      );
     }
     if (path === "/api/v1/leave/requests/{id}/decide") {
       return overrides.onDecide?.(path, opts) ?? { data: makeRequest({ status: "approved" }) };
@@ -149,6 +165,39 @@ describe("LeaveBody", () => {
     await waitFor(() => {
       expect(within(ledgerRegion).getByRole("table").textContent).toContain("김현장");
     });
+  });
+
+  it("본인 신청: submits the self-service create payload and the new pending request appears in 내 신청", async () => {
+    const { POST } = setupAuth({ requests: [] });
+    renderBody();
+
+    const selfRegion = await screen.findByRole("region", { name: S.self.title });
+    fireEvent.change(within(selfRegion).getByLabelText(S.self.reasonLabel), {
+      target: { value: "annual" },
+    });
+    fireEvent.change(within(selfRegion).getByLabelText(S.self.startLabel), {
+      target: { value: "2026-08-03" },
+    });
+    fireEvent.change(within(selfRegion).getByLabelText(S.self.endLabel), {
+      target: { value: "2026-08-05" },
+    });
+    fireEvent.click(within(selfRegion).getByRole("button", { name: S.self.submit }));
+
+    // The FE sends only leave_type + dates + reason — subject_employee_id and
+    // branch_id are resolved server-side from the caller, never sent.
+    await waitFor(() => {
+      expect(POST).toHaveBeenCalledWith("/api/v1/leave/requests", {
+        body: {
+          leave_type: "annual",
+          start_date: "2026-08-03",
+          end_date: "2026-08-05",
+          reason: S.reasons.annual,
+        },
+      });
+    });
+    // Server truth: the returned pending request lands in 내 신청 immediately.
+    const myList = await within(selfRegion).findByLabelText(S.self.myRequests);
+    expect(within(myList).getByText("2026-08-03 ~ 2026-08-05")).toBeVisible();
   });
 
   it("결재 approve posts the real decide payload (branch-resolved by the request, not guessed)", async () => {

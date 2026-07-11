@@ -527,6 +527,79 @@ open class OntologyApi(basePath: kotlin.String = defaultBasePath, client: Call.F
     }
 
     /**
+     * GET /api/v1/ontology/object-types/{key}/acting
+     * Acting rules keyed by object-type
+     * Automations (bound workflow definitions) and object policies acting on the object type identified by stable key. Type-centric sibling of /instances/{id}/acting — it may return rules for a type that has no instances yet. An unknown key is 404 (deny-by-omission, RLS-scoped).
+     * @param key
+     * @return kotlin.collections.List<ActingRule>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listObjectTypeActing(key: kotlin.String) : kotlin.collections.List<ActingRule> = withContext(Dispatchers.IO) {
+        val localVarResponse = listObjectTypeActingWithHttpInfo(key = key)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.List<ActingRule>
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/ontology/object-types/{key}/acting
+     * Acting rules keyed by object-type
+     * Automations (bound workflow definitions) and object policies acting on the object type identified by stable key. Type-centric sibling of /instances/{id}/acting — it may return rules for a type that has no instances yet. An unknown key is 404 (deny-by-omission, RLS-scoped).
+     * @param key
+     * @return ApiResponse<kotlin.collections.List<ActingRule>?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listObjectTypeActingWithHttpInfo(key: kotlin.String) : ApiResponse<kotlin.collections.List<ActingRule>?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listObjectTypeActingRequestConfig(key = key)
+
+        return@withContext request<Unit, kotlin.collections.List<ActingRule>>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listObjectTypeActing
+     *
+     * @param key
+     * @return RequestConfig
+     */
+    fun listObjectTypeActingRequestConfig(key: kotlin.String) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/ontology/object-types/{key}/acting".replace("{"+"key"+"}", encodeURIComponent(key.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * GET /api/v1/ontology/object-types
      * List ontology object types
      * Lists the tenant&#39;s registry object types (Cedar-filtered) with their current schema version and lifecycle state.

@@ -28,6 +28,7 @@ import okhttp3.Call
 import okhttp3.HttpUrl
 
 import com.maintenance.api.client.model.ErrorBody
+import com.maintenance.api.client.model.LeaveCreateRequest
 import com.maintenance.api.client.model.LeaveDecideRequest
 import com.maintenance.api.client.model.LeavePromotionRequest
 import com.maintenance.api.client.model.LeaveRefusalRequest
@@ -62,6 +63,80 @@ open class LeaveApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
         val defaultBasePath: String by lazy {
             System.getProperties().getProperty(ApiClient.BASE_URL_KEY, "http://localhost")
         }
+    }
+
+    /**
+     * POST /api/v1/leave/requests
+     * File a self-service 연차/반차 request (본인 연차 신청)
+     * The caller files a leave request for THEMSELVES. &#x60;subject_employee_id&#x60; and the routing &#x60;branch_id&#x60; are resolved server-side from the caller&#39;s own account (users.employee_id + user_branches) — never from input — so a caller can only file for their own employee record. No directory feature is required (filing one&#39;s own leave is a base employee capability); the gate is the employee link itself, so an account with no linked employee / branch is 422 (deny-by-omission). &#x60;days&#x60; is derived server-side (반차 &#x3D; 0.5 on one date; 연차 &#x3D; inclusive calendar-day span) and never trusted from the client. The created request is &#x60;pending&#x60; and moves no ledger until a separate approver decides it (SoD).
+     * @param leaveCreateRequest
+     * @return LeaveRequestView
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun createLeaveRequest(leaveCreateRequest: LeaveCreateRequest) : LeaveRequestView = withContext(Dispatchers.IO) {
+        val localVarResponse = createLeaveRequestWithHttpInfo(leaveCreateRequest = leaveCreateRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as LeaveRequestView
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/leave/requests
+     * File a self-service 연차/반차 request (본인 연차 신청)
+     * The caller files a leave request for THEMSELVES. &#x60;subject_employee_id&#x60; and the routing &#x60;branch_id&#x60; are resolved server-side from the caller&#39;s own account (users.employee_id + user_branches) — never from input — so a caller can only file for their own employee record. No directory feature is required (filing one&#39;s own leave is a base employee capability); the gate is the employee link itself, so an account with no linked employee / branch is 422 (deny-by-omission). &#x60;days&#x60; is derived server-side (반차 &#x3D; 0.5 on one date; 연차 &#x3D; inclusive calendar-day span) and never trusted from the client. The created request is &#x60;pending&#x60; and moves no ledger until a separate approver decides it (SoD).
+     * @param leaveCreateRequest
+     * @return ApiResponse<LeaveRequestView?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun createLeaveRequestWithHttpInfo(leaveCreateRequest: LeaveCreateRequest) : ApiResponse<LeaveRequestView?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = createLeaveRequestRequestConfig(leaveCreateRequest = leaveCreateRequest)
+
+        return@withContext request<LeaveCreateRequest, LeaveRequestView>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation createLeaveRequest
+     *
+     * @param leaveCreateRequest
+     * @return RequestConfig
+     */
+    fun createLeaveRequestRequestConfig(leaveCreateRequest: LeaveCreateRequest) : RequestConfig<LeaveCreateRequest> {
+        val localVariableBody = leaveCreateRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/leave/requests",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
     }
 
     /**
