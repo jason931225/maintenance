@@ -4,6 +4,7 @@ import { MemoryRouter } from "react-router-dom";
 
 import { AuthTestProvider } from "../../test/AuthTestProvider";
 import type { AuthSession } from "../../context/auth";
+import type { ConsoleApiClient } from "../../api/client";
 import { ConsoleApp } from "../ConsoleApp";
 import { Sidebar } from "./Sidebar";
 import type { ThemeMode } from "./theme";
@@ -53,6 +54,30 @@ describe("ConsoleShell chrome", () => {
     expect(screen.getByRole("complementary", { name: "커뮤니케이션" })).toBeInTheDocument();
     // screen body slot
     expect(screen.getByLabelText("화면 본문")).toBeInTheDocument();
+  });
+
+  it("identity chip renders person + team · role from the self-profile (never a raw dev label)", async () => {
+    // A dev-auth session with no JWT `name`: the chip must resolve the person
+    // and team from GET /api/v1/users/me, not fall back to a debug string.
+    const api = {
+      GET: vi.fn().mockResolvedValue({
+        data: { display_name: "전성진", team: "MANAGEMENT", employee_company: "KnL" },
+      }),
+    } as unknown as ConsoleApiClient;
+    render(
+      <MemoryRouter>
+        <AuthTestProvider
+          session={{ access_token: "t", roles: ["ADMIN"], org_id: "org-1" }}
+          overrides={{ api }}
+        >
+          <ConsoleApp />
+        </AuthTestProvider>
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText("전성진")).toBeInTheDocument();
+    // second line: team label · role label (관리 · 관리자), joined — no "dev:" text
+    expect(await screen.findByText("관리 · 관리자")).toBeInTheDocument();
+    expect(screen.queryByText(/dev:/)).not.toBeInTheDocument();
   });
 
   it("comms rail is expanded by default on every screen, and the toggle collapses/expands it", () => {

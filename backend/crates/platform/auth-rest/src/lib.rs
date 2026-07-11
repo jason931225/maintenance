@@ -2392,6 +2392,21 @@ const DEV_AUTH_MAX_FEATURE_GRANT_LEN: usize = 100;
 #[cfg(feature = "dev-auth")]
 const DEV_AUTH_MAX_DISPLAY_NAME_LEN: usize = 200;
 
+/// Production-shaped display name for a dev-auth persona whose caller supplied
+/// none. Keeps the identity chrome free of raw `dev:<ROLE>` debug labels — a
+/// role-switch session reads as a real person (matching the dev seed roster),
+/// exactly like a production login would. Dev-only (feature-gated) chrome.
+#[cfg(feature = "dev-auth")]
+fn dev_persona_display_name(role: &Role) -> &'static str {
+    match role.as_str() {
+        "SUPER_ADMIN" => "전성진",
+        "EXECUTIVE" => "이대표",
+        "MECHANIC" => "김정비",
+        "RECEPTIONIST" => "박접수",
+        _ => "개발 담당자",
+    }
+}
+
 /// Mint a local role-switch session for any role/org/branch/feature-grant
 /// combo. Unauthenticated by design (like `otp/redeem`/`signup`): it IS the
 /// entry point, gated instead by not existing in a release build. Fails closed
@@ -2426,7 +2441,7 @@ async fn dev_auth_session(
     }
     let display_name = body
         .display_name
-        .unwrap_or_else(|| format!("dev:{}", role.as_str()));
+        .unwrap_or_else(|| dev_persona_display_name(&role).to_owned());
     let display_name = display_name.trim();
     if display_name.is_empty() || display_name.len() > DEV_AUTH_MAX_DISPLAY_NAME_LEN {
         return Err(RestError::bad_request(
@@ -3886,5 +3901,35 @@ mod tests {
         .await
         .expect_err("GROUP_VIEWER must not manage subsidiaries");
         assert_eq!(viewer_error.status, StatusCode::FORBIDDEN);
+    }
+}
+
+#[cfg(all(test, feature = "dev-auth"))]
+mod dev_auth_persona_tests {
+    use super::{Role, dev_persona_display_name};
+    use std::str::FromStr;
+
+    #[test]
+    fn dev_persona_name_is_a_real_person_never_a_dev_debug_label() {
+        for code in [
+            "SUPER_ADMIN",
+            "ADMIN",
+            "EXECUTIVE",
+            "MECHANIC",
+            "RECEPTIONIST",
+            "MEMBER",
+        ] {
+            let role = Role::from_str(code).expect("known role code");
+            let name = dev_persona_display_name(&role);
+            assert!(
+                !name.starts_with("dev:") && !name.is_empty(),
+                "role {code} still renders a raw debug label: {name:?}"
+            );
+        }
+        // The SUPER_ADMIN persona is the identity-chip reference (전성진 · 관리).
+        assert_eq!(
+            dev_persona_display_name(&Role::from_str("SUPER_ADMIN").unwrap()),
+            "전성진"
+        );
     }
 }

@@ -7,12 +7,16 @@
 import type { NotificationSummary } from "../../../api/types";
 import type {
   ActionInboxResponse,
+  EmployeeAttendanceRecord,
   MailThreadSummary,
   NotificationCountsSummary,
 } from "./overviewModel";
 
 export interface OverviewApi {
   loadInbox(): Promise<ActionInboxResponse>;
+  /** Soft-fail self-service attendance backing the 출근 chip. Optional so a
+   *  test double can omit it; non-employee/HR-less callers 403 → []. */
+  loadMyAttendance?(): Promise<EmployeeAttendanceRecord[]>;
 }
 
 /** The comms rail's own data needs — shared by the shell-level rail (every
@@ -53,6 +57,16 @@ export function createOverviewApi(accessToken?: string): OverviewApi {
   return {
     loadInbox: () =>
       requestJson<ActionInboxResponse>("/api/v1/me/action-inbox", accessToken),
+    // Soft-fail like the mail rail: attendance is a self-service HR read the
+    // caller may not be entitled to (403) or may have no linked employee row —
+    // the 출근 chip then simply doesn't render.
+    loadMyAttendance: () =>
+      requestJson<{ items: EmployeeAttendanceRecord[] }>(
+        "/api/v1/hr/attendance-records/me?limit=20",
+        accessToken,
+      )
+        .then((page) => page.items)
+        .catch(() => []),
   };
 }
 

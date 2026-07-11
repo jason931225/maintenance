@@ -70,6 +70,15 @@ export interface ModuleColumnConfig {
   /** Optional override; default derives from the property's field type. */
   variant?: ModuleColumnVariant;
   align?: "start" | "end";
+  /**
+   * Free-text columns (voucher memo, description) opt into wrapping so a long
+   * value grows the row instead of forcing the whole table wider than the
+   * list track when a detail pin is open — every other column stays the
+   * single-line default (identifier/code/date cells must not wrap to one
+   * char per line; see GenericModuleScreen's `tableWrapStyle` overflowX:auto
+   * for genuinely-overflowing content). Default false.
+   */
+  wrap?: boolean;
 }
 
 export interface ModuleStatusValue {

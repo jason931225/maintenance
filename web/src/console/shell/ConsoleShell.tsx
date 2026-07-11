@@ -9,6 +9,7 @@ import { Icon } from "./icons";
 import { defaultScreen, visibleConsoleNav } from "./nav";
 import { useNavBadges } from "./navBadges";
 import { Sidebar } from "./Sidebar";
+import { useSelfProfile } from "./useSelfProfile";
 import { Topbar } from "./Topbar";
 import { markConsoleRoute } from "../rum/rum";
 import { SCREEN_REGISTRY } from "../screens/registry";
@@ -151,9 +152,12 @@ export function ConsoleShell({
   const selectedLabel =
     scopeOptions.find((o) => o.id === selectedScopeId)?.label ?? S.scope.all;
 
-  const userName = session?.display_name ?? session?.email ?? S.user.unknown;
+  const profile = useSelfProfile();
+  const userName =
+    profile.displayName ?? session?.display_name ?? session?.email ?? S.user.unknown;
   const userInitial = Array.from(userName.trim())[0] ?? "·";
   const userRoleLabelText = roleLabel(session?.roles ?? [], session?.group_roles ?? []);
+  const userTeamLabel = profile.team ? ko.users.teams[profile.team] : undefined;
 
   // Real nav count badges from the caller's action inbox + unread summary
   // (navBadges.ts). Fails soft to an empty map, so the shell never depends on it.
@@ -207,6 +211,7 @@ export function ConsoleShell({
           userName={userName}
           userInitial={userInitial}
           userRoleLabel={userRoleLabelText}
+          userTeamLabel={userTeamLabel}
         />
 
         {/* Screen body — state.screen-driven slot, keyed off SCREEN_REGISTRY.

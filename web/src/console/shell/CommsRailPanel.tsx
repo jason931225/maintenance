@@ -8,9 +8,7 @@ import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { formatKoreanTime } from "../../lib/datetime";
 import { StatusChip } from "../components";
 import {
-  railCategories,
   railGroups,
-  type NotificationCountsSummary,
   type MailThreadSummary,
 } from "../screens/overview/overviewModel";
 import { overviewStrings, railCategoryStrings } from "../screens/overview/strings";
@@ -21,7 +19,6 @@ import {
 import type { NotificationSummary } from "../../api/types";
 
 interface RailData {
-  counts: NotificationCountsSummary;
   notifications: NotificationSummary[];
   mailThreads: MailThreadSummary[];
 }
@@ -42,10 +39,10 @@ export function CommsRailPanel({ accessToken, api }: CommsRailPanelProps) {
 
   useEffect(() => {
     let live = true;
-    Promise.all([client.loadNotificationCounts(), client.loadNotifications(), client.loadMailThreads()])
-      .then(([counts, notifications, mailThreads]) => {
+    Promise.all([client.loadNotifications(), client.loadMailThreads()])
+      .then(([notifications, mailThreads]) => {
         if (!live) return;
-        setData({ counts, notifications, mailThreads });
+        setData({ notifications, mailThreads });
         setState("ready");
       })
       .catch(() => {
@@ -64,20 +61,10 @@ export function CommsRailPanel({ accessToken, api }: CommsRailPanelProps) {
     return <p style={emptyStyle}>{S.loading}</p>;
   }
 
-  const categories = railCategories(data.counts);
   const groups = railGroups(data.notifications, data.mailThreads, railCategoryStrings());
 
   return (
     <div style={rootStyle}>
-      {categories.length > 0 ? (
-        <div style={chipRowStyle}>
-          {categories.map((c) => (
-            <StatusChip key={c.category} tone="info">
-              {c.category} {c.unread}
-            </StatusChip>
-          ))}
-        </div>
-      ) : null}
       {groups.map((group) => (
         <div key={group.key} style={railGroupStyle}>
           <div style={groupHeadStyle}>
@@ -118,12 +105,6 @@ const rootStyle: CSSProperties = {
   padding: "var(--sp-3) var(--sp-4)",
   overflow: "auto",
   minHeight: 0,
-};
-
-const chipRowStyle: CSSProperties = {
-  display: "flex",
-  flexWrap: "wrap",
-  gap: "var(--sp-2)",
 };
 
 const listStyle: CSSProperties = {

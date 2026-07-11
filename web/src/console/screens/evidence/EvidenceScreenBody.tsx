@@ -141,6 +141,14 @@ const tdStyle: CSSProperties = {
   color: "var(--ink)",
   fontSize: "var(--text-sm)",
 };
+// Aggregate footer row (verdict r13 "evidence lower region sparse") — a real
+// rollup of the stat strip above, not filler: fills the table's bottom
+// instead of leaving a blank card once the row count is short.
+const tfootRowStyle: CSSProperties = {
+  padding: "var(--sp-3) var(--sp-4)",
+  color: "var(--faint)",
+  fontSize: "var(--text-xs)",
+};
 const errorPaneStyle: CSSProperties = {
   display: "grid",
   gap: "var(--sp-2)",
@@ -463,6 +471,14 @@ export function EvidenceScreenBody() {
                 );
               })}
             </tbody>
+            <tfoot>
+              <tr>
+                <td colSpan={6} style={tfootRowStyle}>
+                  {T.stats.total} {stats.total} · {T.stats.registeredThisMonth} {stats.registeredThisMonth} ·{" "}
+                  {T.stats.retentionExpiring} {stats.expiring}
+                </td>
+              </tr>
+            </tfoot>
           </table>
         </div>
       )}

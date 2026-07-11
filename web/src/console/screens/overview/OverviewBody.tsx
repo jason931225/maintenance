@@ -22,8 +22,10 @@ import {
   overviewStats,
   queueChips,
   timelineEntries,
+  todayPunch,
   type ActionInboxItem,
   type ActionInboxResponse,
+  type PunchStatus,
   type QueueFilter,
 } from "./overviewModel";
 
@@ -55,6 +57,7 @@ export function OverviewBody({ accessToken, api, now, onOpen }: OverviewBodyProp
   const [data, setData] = useState<OverviewData | null>(null);
   const [filter, setFilter] = useState<QueueFilter>("all");
   const [reloadKey, setReloadKey] = useState(0);
+  const [punch, setPunch] = useState<PunchStatus | undefined>();
 
   useEffect(() => {
     let live = true;
@@ -103,6 +106,25 @@ export function OverviewBody({ accessToken, api, now, onOpen }: OverviewBodyProp
     () => new Intl.DateTimeFormat("ko-KR", { weekday: "narrow" }),
     [],
   );
+
+  // 출근 chip — an independent, soft-failing self-service read. It never blocks
+  // or errors the main inbox load; a caller without an attendance record just
+  // gets no chip (deny-by-omission).
+  useEffect(() => {
+    const pending = client.loadMyAttendance?.();
+    if (!pending) return;
+    let live = true;
+    pending
+      .then((records) => {
+        if (live) setPunch(todayPunch(records, today, timeFmt, S));
+      })
+      .catch(() => {
+        if (live) setPunch(undefined);
+      });
+    return () => {
+      live = false;
+    };
+  }, [client, today, timeFmt, S]);
   // The Mon–Sun week that contains `today`, giving the agenda a temporal ribbon
   // (real dates only — no per-day counts are fabricated).
   const weekDays = useMemo(() => {
@@ -181,10 +203,12 @@ export function OverviewBody({ accessToken, api, now, onOpen }: OverviewBodyProp
               }}
             >
               <span style={statLabelStyle}>{stat.label}</span>
-              <span style={statValueStyle}>{stat.value}</span>
-              {stat.sub ? (
-                <StatusChip tone={stat.sub.tone}>{stat.sub.text}</StatusChip>
-              ) : null}
+              <span style={statValueRowStyle}>
+                <span style={statValueStyle}>{stat.value}</span>
+                {stat.sub ? (
+                  <StatusChip tone={stat.sub.tone}>{stat.sub.text}</StatusChip>
+                ) : null}
+              </span>
             </button>
           );
         })}
@@ -234,11 +258,12 @@ export function OverviewBody({ accessToken, api, now, onOpen }: OverviewBodyProp
                   item.site ?? kindLabel(item.kind, S),
                 );
                 const siteInTitle = resolved.title === item.site;
-                const meta = [
-                  resolved.code,
-                  siteInTitle ? undefined : item.site,
-                  item.who,
-                ]
+                // The code now leads the title line as a mono secondary (§4-18),
+                // so the meta line carries the remaining real fields only
+                // (site — unless it was promoted into the title — and the
+                // responsible person). No team/amount field exists on the inbox
+                // item, so none is fabricated (deny-by-omission).
+                const meta = [siteInTitle ? undefined : item.site, item.who]
                   .filter(Boolean)
                   .join(" · ");
                 return (
@@ -247,7 +272,12 @@ export function OverviewBody({ accessToken, api, now, onOpen }: OverviewBodyProp
                     {kindLabel(item.kind, S)}
                   </StatusChip>
                   <div style={{ minWidth: 0, flex: 1 }}>
-                    <div style={rowTitleStyle}>{resolved.title}</div>
+                    <div style={rowTitleStyle}>
+                      <span style={titleTextStyle}>{resolved.title}</span>
+                      {resolved.code ? (
+                        <span style={rowCodeStyle}>{resolved.code}</span>
+                      ) : null}
+                    </div>
                     {meta ? <div style={rowMetaStyle}>{meta}</div> : null}
                   </div>
                   {item.due ? (
@@ -268,6 +298,9 @@ export function OverviewBody({ accessToken, api, now, onOpen }: OverviewBodyProp
               })}
             </ul>
           )}
+          {items.length > 0 ? (
+            <p style={panelFootStyle}>{S.footer.shown(rows.length, items.length)}</p>
+          ) : null}
         </section>
 
         {/* 오늘 — agenda for items due today: a week ribbon + per-item rows with a
@@ -276,6 +309,13 @@ export function OverviewBody({ accessToken, api, now, onOpen }: OverviewBodyProp
           <div style={panelHeadStyle}>
             <h2 style={panelTitleStyle}>{S.timelineTitle}</h2>
             <span style={countBadgeStyle}>{timeline.length}</span>
+            {punch ? (
+              <span style={{ marginLeft: "auto" }}>
+                <StatusChip tone="ok" role="status">
+                  {punch.label}
+                </StatusChip>
+              </span>
+            ) : null}
           </div>
           <div style={weekStripStyle} aria-hidden="true">
             {weekDays.map((day) => {
@@ -292,12 +332,21 @@ export function OverviewBody({ accessToken, api, now, onOpen }: OverviewBodyProp
             <p style={emptyStyle}>{S.empty.timeline}</p>
           ) : (
             <ol style={{ ...listStyle, listStyle: "none" }}>
-              {timeline.map(({ item, time }) => (
+              {timeline.map(({ item, time }) => {
+                // Same resolver as the queue so a code-only agenda item leads
+                // with its human subject and demotes the code to a mono meta.
+                const resolved = resolveRowTitle(
+                  item.title,
+                  item.ref,
+                  item.site ?? kindLabel(item.kind, S),
+                );
+                return (
                 <li key={item.id} style={timelineRowStyle}>
                   <span aria-hidden="true" style={checkboxStyle(item.done)}>
                     {item.done ? "✓" : ""}
                   </span>
                   <span style={timelineTimeStyle}>{time}</span>
+                  <StatusChip tone="neutral">{kindLabel(item.kind, S)}</StatusChip>
                   <button
                     type="button"
                     data-window-control="true"
@@ -306,15 +355,22 @@ export function OverviewBody({ accessToken, api, now, onOpen }: OverviewBodyProp
                       openItem(item);
                     }}
                   >
-                    {resolveRowTitle(item.title, item.ref, item.site ?? kindLabel(item.kind, S)).title}
+                    {resolved.title}
                   </button>
+                  {resolved.code ? (
+                    <span style={rowCodeStyle}>{resolved.code}</span>
+                  ) : null}
                   {item.who ? (
                     <StatusChip tone="neutral">{item.who}</StatusChip>
                   ) : null}
                 </li>
-              ))}
+                );
+              })}
             </ol>
           )}
+          {items.length > 0 ? (
+            <p style={panelFootStyle}>{S.footer.shown(timeline.length, items.length)}</p>
+          ) : null}
         </section>
       </div>
     </div>
@@ -341,26 +397,24 @@ const titleStyle = screenTitleStyle;
 
 const stripStyle: CSSProperties = {
   display: "flex",
-  overflowX: "auto",
-  border: "var(--border-hairline)",
-  borderRadius: "var(--radius-card)",
-  background: "var(--surface)",
-  boxShadow: "var(--shadow)",
+  flexWrap: "wrap",
+  gap: "var(--sp-3)",
 };
 
 function statStyle(active: boolean): CSSProperties {
   return {
     display: "grid",
-    alignContent: "center",
     gap: "var(--sp-1)",
-    // Grow to share the strip evenly so a 4-stat row fills the width instead of
-    // leaving a phantom empty tile at the end (verdict R9).
-    flex: "1 1 10rem",
-    minWidth: "10rem",
-    padding: "var(--sp-4) var(--sp-5)",
-    borderRight: "1px solid var(--border-soft)",
-    borderBottom: active ? "2px solid var(--ink)" : "2px solid transparent",
-    background: active ? "var(--muted)" : "transparent",
+    // Compact, content-width cards packed to the left (§4-11 stat strip) — not
+    // stretched to share the full row, which left each stat oversized and
+    // near-empty (verdict R13). Each card owns its border/radius now.
+    flex: "0 1 auto",
+    minWidth: "8.5rem",
+    padding: "var(--sp-3) var(--sp-4)",
+    border: `1px solid ${active ? "var(--ink)" : "var(--border)"}`,
+    borderRadius: "var(--radius-card)",
+    background: active ? "var(--muted)" : "var(--surface)",
+    boxShadow: "var(--shadow)",
     textAlign: "left",
     cursor: "pointer",
     whiteSpace: "nowrap",
@@ -371,6 +425,12 @@ const statLabelStyle: CSSProperties = {
   fontSize: "var(--text-sm)",
   color: "var(--faint)",
   letterSpacing: "var(--tracking-label)",
+};
+
+const statValueRowStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "baseline",
+  gap: "var(--sp-2)",
 };
 
 const statValueStyle: CSSProperties = {
@@ -466,6 +526,22 @@ const rowTitleStyle: CSSProperties = {
   minWidth: 0,
 };
 
+const titleTextStyle: CSSProperties = {
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
+  minWidth: 0,
+};
+
+// §4-18 secondary code: mono, faint, never shrinks below its content.
+const rowCodeStyle: CSSProperties = {
+  flex: "none",
+  fontFamily: "var(--font-mono)",
+  fontSize: "var(--text-sm)",
+  fontWeight: "var(--fw-body)",
+  color: "var(--faint)",
+};
+
 const rowMetaStyle: CSSProperties = {
   fontSize: "var(--text-sm)",
   color: "var(--steel)",
@@ -489,6 +565,17 @@ const emptyStyle: CSSProperties = {
   padding: "var(--sp-4) 0",
   color: "var(--faint)",
   fontSize: "var(--text-sm)",
+};
+
+// Aggregate footer under each panel's list (verdict r13 "overview lower
+// region sparse") — a real rollup, not filler: fills the panel's bottom
+// instead of leaving it visually empty once the row count is short.
+const panelFootStyle: CSSProperties = {
+  margin: 0,
+  padding: "var(--sp-3) 0 0",
+  borderTop: "1px solid var(--border-soft)",
+  color: "var(--faint)",
+  fontSize: "var(--text-xs)",
 };
 
 const timelineRowStyle: CSSProperties = {
@@ -557,6 +644,7 @@ const timelineTimeStyle: CSSProperties = {
 };
 
 const timelineTitleBtnStyle: CSSProperties = {
+  flex: 1,
   border: "none",
   background: "transparent",
   padding: 0,
@@ -565,5 +653,8 @@ const timelineTitleBtnStyle: CSSProperties = {
   fontSize: "var(--text-body)",
   cursor: "pointer",
   minWidth: 0,
+  overflow: "hidden",
+  textOverflow: "ellipsis",
+  whiteSpace: "nowrap",
 };
 

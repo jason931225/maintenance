@@ -45,4 +45,20 @@ describe("layoutObjectExplorerNodes", () => {
     }
     expect(min).toBeGreaterThan(14);
   });
+
+  it("clamps node coordinates well inside the canvas so edge labels never clip (verdict r13 explore left-edge clip)", () => {
+    // A large ring pushes radius up to RING_MAX (47) with node angles spanning
+    // the full circle, including near-cardinal points where a pre-clamp x/y
+    // would land at ~3% or ~97% — a percent anchor nowhere near half a real
+    // ~96–140px pill's pixel width, so the canvas's overflow:hidden clipped
+    // the label (e.g. A0008/90002). The clamp keeps every anchor within a
+    // real margin regardless of how wide the ring spreads.
+    const layout = layoutObjectExplorerNodes(buildObjectExplorerView(hub(24), "hub"));
+    for (const node of layout) {
+      expect(node.x).toBeGreaterThanOrEqual(20);
+      expect(node.x).toBeLessThanOrEqual(80);
+      expect(node.y).toBeGreaterThanOrEqual(12);
+      expect(node.y).toBeLessThanOrEqual(88);
+    }
+  });
 });

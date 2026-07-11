@@ -26,12 +26,17 @@
 //   action.work        "확인"
 //   action.support     "회신"
 //   rail.unread        (n) => `안 읽음 ${n}`
+//   punch.in           (t) => `출근 ${t}`
+//   punch.out          (t) => `외근 ${t}`
+//   punch.trip         (t) => `출장 ${t}`
+//   punch.off          (t) => `퇴근 ${t}`
 //   empty.queue        "처리할 항목이 없습니다"
 //   empty.timeline     "오늘 마감 업무가 없습니다"
 //   empty.rail         "새 알림이 없습니다"
 //   error              "개요를 불러오지 못했습니다"
 //   retry              "다시 시도"
 //   loading            "불러오는 중"
+//   footer.shown       (shown, total) => `전체 ${total}건 중 ${shown}건 표시`
 import { ko } from "../../../i18n/ko";
 
 export interface OverviewStrings {
@@ -61,7 +66,14 @@ export interface OverviewStrings {
     support: string;
   };
   rail: { unread: (n: number) => string };
+  punch: {
+    in: (time: string) => string;
+    out: (time: string) => string;
+    trip: (time: string) => string;
+    off: (time: string) => string;
+  };
   empty: { queue: string; timeline: string; rail: string };
+  footer: { shown: (shown: number, total: number) => string };
   error: string;
   retry: string;
   loading: string;
@@ -94,22 +106,40 @@ const FALLBACK: OverviewStrings = {
     support: "Reply",
   },
   rail: { unread: (n) => `Unread ${String(n)}` },
+  punch: {
+    in: (t) => `Clocked in ${t}`,
+    out: (t) => `On site ${t}`,
+    trip: (t) => `Business trip ${t}`,
+    off: (t) => `Clocked out ${t}`,
+  },
   empty: {
     queue: "Nothing awaiting action",
     timeline: "Nothing due today",
     rail: "No new notifications",
   },
+  footer: { shown: (shown, total) => `Showing ${String(shown)} of ${String(total)}` },
   error: "Could not load the overview",
   retry: "Retry",
   loading: "Loading",
 };
 
-/** ko.console.overviewBody accessor with the English fallback. */
+/** ko.console.overviewBody accessor with the English fallback.
+ *
+ * `punch`/`footer` are backfilled per-field: ko.console.overviewBody is
+ * already wired (title/stat/chip/… are Korean) but the 출근 chip keys and the
+ * r13 `footer` rollup are NEW and the serial i18n wire applies them to ko.ts
+ * separately (see koManifest above). Until then the wired object lacks them,
+ * so we merge the English default in — same defensive convention as
+ * rail.categories — rather than let S.punch/S.footer be undefined. */
 export function overviewStrings(): OverviewStrings {
-  return (
-    (ko.console as unknown as { overviewBody?: OverviewStrings }).overviewBody ??
-    FALLBACK
-  );
+  const wired = (ko.console as unknown as { overviewBody?: Partial<OverviewStrings> })
+    .overviewBody;
+  if (!wired) return FALLBACK;
+  return {
+    ...wired,
+    punch: wired.punch ?? FALLBACK.punch,
+    footer: wired.footer ?? FALLBACK.footer,
+  } as OverviewStrings;
 }
 
 // ko.console.overviewBody.rail.categories is now real (wired in ko.ts,

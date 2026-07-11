@@ -96,6 +96,11 @@ describe("EvidenceScreenBody", () => {
     await waitFor(() => {
       expect(expiringButton).toHaveTextContent("1");
     });
+
+    // Aggregate footer under the table (verdict r13 "evidence lower region
+    // sparse") — the same rollup as the stat strip, so a short row count
+    // still ends the table on real information instead of blank space.
+    expect(await screen.findByText("총 기록물 1 · 이번달 등록 1 · 보존 만료 임박 1")).toBeVisible();
   });
 
   it("renders each row's real 유형 from its source_type, not a hardcoded 증거 chip on every row", async () => {

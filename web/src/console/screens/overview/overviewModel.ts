@@ -22,6 +22,8 @@ export type NotificationCountsSummary =
 export type NotificationCategoryCount =
   components["schemas"]["NotificationCategoryCount"];
 export type MailThreadSummary = components["schemas"]["MailThreadView"];
+export type EmployeeAttendanceRecord =
+  components["schemas"]["EmployeeAttendanceRecord"];
 
 export type InboxKind = ActionInboxItem["kind"]; // "approval" | "dispatch" | "work" | "support"
 export type QueueFilter = "all" | InboxKind | "today";
@@ -173,6 +175,56 @@ export function timelineEntries(
     )
     .sort((a, b) => a.at.getTime() - b.at.getTime())
     .map(({ item, at }) => ({ item, time: timeFmt.format(at) }));
+}
+
+// ── attendance chip (출근): the caller's latest punch today ───────────────────
+// A real self-service fact from /api/v1/hr/attendance-records/me (soft-fail —
+// non-employee callers 403 and the chip is simply absent). We surface only the
+// latest state on today's work_date, mapped to a human label + its clock time.
+
+export interface PunchStatus {
+  label: string;
+}
+
+const PUNCH_LABEL: Record<
+  EmployeeAttendanceRecord["state_after"],
+  (S: OverviewStrings, time: string) => string
+> = {
+  CLOCKED_IN: (S, t) => S.punch.in(t),
+  OUT_FOR_WORK: (S, t) => S.punch.out(t),
+  BUSINESS_TRIP: (S, t) => S.punch.trip(t),
+  OFF_DUTY: (S, t) => S.punch.off(t),
+};
+
+/** Local Y-M-D so the compare matches the record's business `work_date`. */
+function localDate(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${String(d.getFullYear())}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+export function todayPunch(
+  records: readonly EmployeeAttendanceRecord[],
+  now: Date,
+  timeFmt: Intl.DateTimeFormat,
+  S: OverviewStrings,
+): PunchStatus | undefined {
+  const today = localDate(now);
+  // `.at(0)` (not `[0]`) so `latest` is typed `… | undefined` — the empty-set
+  // case is real (no punch today) and the guard below must not read as dead.
+  const latest = records
+    .filter((r) => r.work_date === today)
+    .sort(
+      (a, b) =>
+        new Date(b.occurred_at).getTime() - new Date(a.occurred_at).getTime(),
+    )
+    .at(0);
+  if (!latest) return undefined;
+  return {
+    label: PUNCH_LABEL[latest.state_after](
+      S,
+      timeFmt.format(new Date(latest.occurred_at)),
+    ),
+  };
 }
 
 // ── comms rail (커뮤니케이션): unread-by-category + the feed ───────────────────

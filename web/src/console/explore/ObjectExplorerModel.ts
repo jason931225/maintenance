@@ -178,6 +178,20 @@ const VERTICAL_SQUASH = 0.9; // the viewport is wider than tall — keep rings i
 // pushed outward until its chord spans at least this, so neighbours stop
 // overlapping (verdict R10 "explore graph overlap"), still capped by RING_MAX.
 const NODE_ARC = 20;
+// RING_MAX's own comment assumed a pill is "~50% off-centre" of its percent
+// anchor, but the pill is a fixed 96–140px box (GraphExplorer's pillStyle)
+// centred on that anchor via translate(-50%,-50%) — at the canvas's real
+// pixel width, a few *percent* of margin is nowhere near half a pill's
+// *pixel* width, so a node landing near x≈3% (RING_MAX's edge) had its label
+// clipped by the canvas's `overflow: hidden` (verdict r13 "explore left-edge
+// labels clip", e.g. A0008/90002). Clamp the final coordinate — inset more on
+// x (pill width) than y (pill height, and VERTICAL_SQUASH already tightens y).
+const EDGE_INSET_X = 20;
+const EDGE_INSET_Y = 12;
+
+function clampPercent(value: number, inset: number): number {
+  return Math.min(100 - inset, Math.max(inset, value));
+}
 
 function ringRadius(depth: number, count: number): number {
   const byDepth = RING_BASE + RING_STEP * (depth - 1);
@@ -247,8 +261,8 @@ export function layoutObjectExplorerNodes(view: ObjectExplorerView): ObjectExplo
       layouts.push({
         id: node.id,
         node,
-        x: 50 + radius * Math.cos(angle),
-        y: 50 + radius * VERTICAL_SQUASH * Math.sin(angle),
+        x: clampPercent(50 + radius * Math.cos(angle), EDGE_INSET_X),
+        y: clampPercent(50 + radius * VERTICAL_SQUASH * Math.sin(angle), EDGE_INSET_Y),
         role: roleOf(node.id),
       });
     });
