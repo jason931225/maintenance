@@ -1,5 +1,28 @@
 # Changelog
 
+## [0.1.60](https://github.com/jason931225/maintenance/compare/v0.1.59...v0.1.60) (2026-07-11)
+
+
+### Features
+
+* **console:** round 11 — global resolver/i18n, dashboard centerpieces, localization, seed depth ([#464](https://github.com/jason931225/maintenance/issues/464)) ([28a939a](https://github.com/jason931225/maintenance/commit/28a939aad3f4ce28d770af506de6d997c8c96aa8))
+* **console:** round 12 — table wrap fix, global resolver/i18n, overview density, seed variety ([#465](https://github.com/jason931225/maintenance/issues/465)) ([4f0a083](https://github.com/jason931225/maintenance/commit/4f0a083f60fb505678a801ed4a3d80d76380b0a5))
+* **console:** round 13 — rail/identity polish, overview density, clip fixes ([#466](https://github.com/jason931225/maintenance/issues/466)) ([3197b15](https://github.com/jason931225/maintenance/commit/3197b157a76571053136a917c70bbce211cf1136))
+* **console:** round 14 — finance structure, rail density, overview agenda, seed depth ([#467](https://github.com/jason931225/maintenance/issues/467)) ([ad4b29a](https://github.com/jason931225/maintenance/commit/ad4b29ae8a111976562a7da183004d646b19e40a))
+* **console:** round 3 — mount content planes into the carbon-copy shell (10 screens) ([#458](https://github.com/jason931225/maintenance/issues/458)) ([1e6d80f](https://github.com/jason931225/maintenance/commit/1e6d80f5b7ac638dbe182bf1ebcb4b283523519c))
+* **console:** round 4 — data surfacing, blank-body fixes, graph explorer, density/polish ([#459](https://github.com/jason931225/maintenance/issues/459)) ([2e8a05b](https://github.com/jason931225/maintenance/commit/2e8a05bc36d467e22559d790b0d769c8054513f7))
+* **console:** round 5 — surface evidence/policy/leave/dashboard, kill UUID/i18n leaks, dense seeds ([#460](https://github.com/jason931225/maintenance/issues/460)) ([990030a](https://github.com/jason931225/maintenance/commit/990030aa46ea058602f3d6dcf473996fa3f964a7))
+* **console:** round 6 — dev-auth org scope, leave body, Foundry density ([#461](https://github.com/jason931225/maintenance/issues/461)) ([e8e16b4](https://github.com/jason931225/maintenance/commit/e8e16b410154e24280c59f7b62ab3dc1ca45da9c))
+* **console:** round 9 — verdict-driven fixes ([#463](https://github.com/jason931225/maintenance/issues/463)) ([6342037](https://github.com/jason931225/maintenance/commit/634203768beb4556d1728468d596c7814cda3fb4))
+
+
+### Bug Fixes
+
+* **console:** never-throwing rail time format + rail-scoped error boundary (P0 shell crash) ([#462](https://github.com/jason931225/maintenance/issues/462)) ([f65ae3a](https://github.com/jason931225/maintenance/commit/f65ae3ab88e840c78e77d94656c2dc0a0c396710))
+* **evidence:** remove client-fabricated custody state; fail-closed fixity/TSA chips ([#448](https://github.com/jason931225/maintenance/issues/448)) ([286103f](https://github.com/jason931225/maintenance/commit/286103f1b931c32498ea081f64c33998ade6a901))
+* **finance-gl:** enforce approver≠preparer SoD on vouchers + verified source provenance ([#451](https://github.com/jason931225/maintenance/issues/451)) ([011abaf](https://github.com/jason931225/maintenance/commit/011abaf6be337c95967db09f142f1dd329d016ed))
+* **governance:** bind and consume four-eyes approvals — close the unbound-ref replay bypass ([#456](https://github.com/jason931225/maintenance/issues/456)) ([e3e391a](https://github.com/jason931225/maintenance/commit/e3e391a95e4813795e5d97c2ea4f927414c7c70e))
+
 ## [0.1.59](https://github.com/jason931225/maintenance/compare/v0.1.58...v0.1.59) (2026-07-10)
 
 
