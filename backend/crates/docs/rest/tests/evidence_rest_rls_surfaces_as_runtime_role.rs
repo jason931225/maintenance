@@ -387,8 +387,11 @@ async fn hold_blocks_disposal_and_release_requires_a_distinct_approver(owner_poo
             .decide_approval(DecideApprovalCommand {
                 approver,
                 request_ref,
-                kind: "evidence_legal_hold_release".to_owned(),
+                // Must match the release gate's server-derived binding: the console
+                // kind `evidence.hold.release` bound to the hold being released.
+                kind: "evidence.hold.release".to_owned(),
                 requested_by: requester,
+                target_ref: Some(*hold.id.as_uuid()),
                 decision: ApprovalDecision::Approved,
                 trace: TraceContext::generate(),
                 occurred_at: now(),

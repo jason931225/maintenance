@@ -251,6 +251,9 @@ export async function requestHoldReleaseApproval(
     body: {
       request_ref: requestRef,
       kind: "evidence.hold.release",
+      // Binds the approval to THIS hold — the release gate consumes it only when
+      // its target matches the hold being released (single-use, no cross-hold reuse).
+      target_ref: holdId,
       payload_summary: { evidence_object_id: evidenceObjectId, hold_id: holdId },
     },
   });

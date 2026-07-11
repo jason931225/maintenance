@@ -79,6 +79,7 @@ async fn create_then_decide_by_distinct_approver(pool: PgPool) {
     let approver = seed_user(&pool, ORG_A, "Approver").await;
     let store = PgGovernanceStore::new(runtime_role_pool(&pool).await);
     let request_ref = Uuid::new_v4();
+    let bound_target = Uuid::new_v4();
 
     let request = scope_org(OrgId::from_uuid(ORG_A), async {
         store
@@ -86,6 +87,7 @@ async fn create_then_decide_by_distinct_approver(pool: PgPool) {
                 requester,
                 request_ref,
                 kind: "console_view.team_deploy".to_owned(),
+                target_ref: Some(bound_target),
                 payload_summary: json!({"screen_key": "ops.dashboard", "scope": "team"}),
                 trace: trace(),
                 occurred_at: now(),
@@ -98,7 +100,9 @@ async fn create_then_decide_by_distinct_approver(pool: PgPool) {
     assert_eq!(request.request_ref, request_ref);
 
     // Decide by the distinct approver. Note the command LIES about requested_by
-    // (claims the approver) — the store must ignore it and use the request's.
+    // (claims the approver) AND supplies no target — the store must ignore the
+    // spoofed requester and source BOTH the requester and the binding target from
+    // the pending request row.
     let decision = scope_org(OrgId::from_uuid(ORG_A), async {
         store
             .decide_approval(DecideApprovalCommand {
@@ -106,6 +110,7 @@ async fn create_then_decide_by_distinct_approver(pool: PgPool) {
                 request_ref,
                 kind: "console_view.team_deploy".to_owned(),
                 requested_by: approver, // spoofed; must be ignored
+                target_ref: None,       // sourced authoritatively from the request
                 decision: ApprovalDecision::Approved,
                 trace: trace(),
                 occurred_at: now(),
@@ -120,6 +125,17 @@ async fn create_then_decide_by_distinct_approver(pool: PgPool) {
         "authoritative requester comes from the pending request, not the client"
     );
     assert_eq!(decision.approver_id, approver);
+    let recorded_target: Option<Uuid> =
+        sqlx::query_scalar("SELECT target_ref FROM gov_approvals WHERE request_ref = $1")
+            .bind(request_ref)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        recorded_target,
+        Some(bound_target),
+        "the binding target is sourced from the pending request, not the decide body"
+    );
 }
 
 // (b) self-decide is rejected: the approver IS the request's recorded requester,
@@ -138,6 +154,7 @@ async fn self_decide_is_rejected_against_recorded_requester(pool: PgPool) {
                 requester,
                 request_ref,
                 kind: "override".to_owned(),
+                target_ref: None,
                 payload_summary: json!({}),
                 trace: trace(),
                 occurred_at: now(),
@@ -154,6 +171,7 @@ async fn self_decide_is_rejected_against_recorded_requester(pool: PgPool) {
                 request_ref,
                 kind: "override".to_owned(),
                 requested_by: other, // lie: claim someone else asked
+                target_ref: None,
                 decision: ApprovalDecision::Approved,
                 trace: trace(),
                 occurred_at: now(),
@@ -185,6 +203,7 @@ async fn pending_request_is_append_only(pool: PgPool) {
                 requester,
                 request_ref: Uuid::new_v4(),
                 kind: "override".to_owned(),
+                target_ref: None,
                 payload_summary: json!({"note": "x"}),
                 trace: trace(),
                 occurred_at: now(),
@@ -227,6 +246,7 @@ async fn cross_org_requests_are_invisible(pool: PgPool) {
                 requester: requester_a,
                 request_ref,
                 kind: "override".to_owned(),
+                target_ref: None,
                 payload_summary: json!({}),
                 trace: trace(),
                 occurred_at: now(),
@@ -252,6 +272,7 @@ async fn cross_org_requests_are_invisible(pool: PgPool) {
                 request_ref,
                 kind: "override".to_owned(),
                 requested_by: requester_b,
+                target_ref: None,
                 decision: ApprovalDecision::Approved,
                 trace: trace(),
                 occurred_at: now(),

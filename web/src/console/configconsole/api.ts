@@ -178,6 +178,8 @@ export async function deployConsoleView(
   const approval = await createGovernanceApproval(api, {
     request_ref: view.instanceId,
     kind: "console_view.deploy",
+    // Binds the deploy approval to this console_view instance.
+    target_ref: view.instanceId,
     payload_summary: { screen_key: view.screenKey, version: view.version },
   });
   return { approvalId: approval.id, requestRef: approval.requestRef, createdAt: approval.createdAt };

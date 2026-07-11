@@ -265,15 +265,20 @@ fn exec_definition_scoped(owner_scope: &str) -> Value {
     })
 }
 
-/// Seed an approved four-eyes decision (`gov_approvals`, distinct approver)
-/// under `org` and return its `request_ref` — mirrors the ontology action
-/// lane's `PgGovernanceStore::decide_approval` test pattern. The approver must
-/// be a real seeded user (`gov_approvals.approver_id` FKs to `users`).
+/// Seed an approved four-eyes decision (`gov_approvals`, distinct approver) bound
+/// to (`kind`, `target`) under `org`, returning its `request_ref` — mirrors the
+/// ontology action lane's `PgGovernanceStore::decide_approval` test pattern. The
+/// gate now binds the approval to the exact action kind and target object, so the
+/// seed must match what the publish/run gate derives server-side (the workflow
+/// definition id). The approver must be a real seeded user
+/// (`gov_approvals.approver_id` FKs to `users`).
 async fn seed_four_eyes_approval(
     owner_pool: &PgPool,
     rt: &PgPool,
     org: OrgId,
     requested_by: UserId,
+    kind: &str,
+    target: uuid::Uuid,
 ) -> uuid::Uuid {
     let request_ref = uuid::Uuid::new_v4();
     let approver = UserId::new();
@@ -283,8 +288,9 @@ async fn seed_four_eyes_approval(
             .decide_approval(DecideApprovalCommand {
                 approver,
                 request_ref,
-                kind: "workflow.publish".to_owned(),
+                kind: kind.to_owned(),
                 requested_by,
+                target_ref: Some(target),
                 decision: ApprovalDecision::Approved,
                 trace: TraceContext::generate(),
                 occurred_at: OffsetDateTime::now_utc(),
@@ -328,12 +334,15 @@ async fn create_and_activate(
     let id = created.json["id"].as_str().unwrap().to_owned();
 
     // Direct activate (never-published definition). exec_definition() is
-    // org-scope, so the §16 gate needs a distinct four-eyes approval too.
+    // org-scope, so the §16 gate needs a distinct four-eyes approval too, bound to
+    // THIS definition (the publish gate derives target = the definition id).
     let request_ref = seed_four_eyes_approval(
         owner_pool,
         &runtime_role_pool(owner_pool).await,
         OrgId::knl(),
         requester,
+        "workflow.publish",
+        id.parse().unwrap(),
     )
     .await;
     let mut body = step_up(owner_pool, svc, authenticator, cred_id).await;
@@ -874,12 +883,15 @@ async fn org_scope_direct_activate_requires_four_eyes(owner_pool: PgPool) {
         "a denied gate must write zero rows"
     );
 
-    // With an approved four-eyes ref, the same publish call now activates.
+    // With an approved four-eyes ref bound to this definition, the same publish
+    // call now activates.
     let request_ref = seed_four_eyes_approval(
         &owner_pool,
         &runtime_role_pool(&owner_pool).await,
         OrgId::knl(),
         publisher,
+        "workflow.publish",
+        id.parse().unwrap(),
     )
     .await;
     let mut body = step_up(&owner_pool, &svc, &mut auth, &cred).await;
@@ -979,12 +991,14 @@ async fn org_scope_run_requires_four_eyes(owner_pool: PgPool) {
             .unwrap();
     assert_eq!(runs, 0, "a denied run gate must write zero rows");
 
-    // With an approved four-eyes ref, the run triggers.
+    // With an approved four-eyes ref bound to this definition, the run triggers.
     let request_ref = seed_four_eyes_approval(
         &owner_pool,
         &runtime_role_pool(&owner_pool).await,
         OrgId::knl(),
         publisher,
+        "workflow.run",
+        id.parse().unwrap(),
     )
     .await;
     let admitted = send(
@@ -997,4 +1011,73 @@ async fn org_scope_run_requires_four_eyes(owner_pool: PgPool) {
     .await;
     assert_eq!(admitted.status, StatusCode::OK, "{:?}", admitted.json);
     assert_eq!(admitted.json["status"], "RUNNING");
+}
+
+/// A run four-eyes ref is SINGLE-USE: once a run consumes it, replaying the same
+/// ref on a fresh run is denied — the M1 replay hole closed end-to-end.
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn org_scope_run_four_eyes_ref_is_single_use(owner_pool: PgPool) {
+    let keys = keys();
+    let svc = passkey_service();
+    let publisher = UserId::new();
+    seed_super_admin(&owner_pool, publisher, "run-replay").await;
+    let (mut auth, cred) = register_passkey(&owner_pool, &svc, publisher, "run-replay").await;
+    let service = build_router(app_state(runtime_role_pool(&owner_pool).await, &keys));
+    let token = bearer(&keys, publisher);
+
+    let id = create_and_activate(
+        &service,
+        &owner_pool,
+        &svc,
+        &token,
+        &mut auth,
+        &cred,
+        "four.eyes.run.replay",
+        publisher,
+    )
+    .await;
+
+    let request_ref = seed_four_eyes_approval(
+        &owner_pool,
+        &runtime_role_pool(&owner_pool).await,
+        OrgId::knl(),
+        publisher,
+        "workflow.run",
+        id.parse().unwrap(),
+    )
+    .await;
+
+    // First run consumes the approval.
+    let first = send(
+        service.clone(),
+        "POST",
+        &format!("/api/v1/workflow-studio/definitions/{id}/run"),
+        &token,
+        Some(json!({ "four_eyes_request_ref": request_ref })),
+    )
+    .await;
+    assert_eq!(first.status, StatusCode::OK, "{:?}", first.json);
+
+    // Replaying the SAME ref on a fresh run is denied (already consumed).
+    let replay = send(
+        service.clone(),
+        "POST",
+        &format!("/api/v1/workflow-studio/definitions/{id}/run"),
+        &token,
+        Some(json!({ "four_eyes_request_ref": request_ref })),
+    )
+    .await;
+    assert_eq!(
+        replay.status,
+        StatusCode::FORBIDDEN,
+        "a consumed four-eyes ref must not admit a second run: {:?}",
+        replay.json
+    );
+    let runs: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM workflow_runs WHERE definition_id = $1::uuid")
+            .bind(&id)
+            .fetch_one(&owner_pool)
+            .await
+            .unwrap();
+    assert_eq!(runs, 1, "the replay must have written no second run");
 }

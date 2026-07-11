@@ -65,6 +65,11 @@ pub struct CreateApprovalCommand {
     pub requester: UserId,
     pub request_ref: Uuid,
     pub kind: String,
+    /// The object this approval is FOR (a hold id, a workflow definition id, an
+    /// ontology instance id, …). A gate binds the approval to the action's target,
+    /// so an approval decided for one object can never satisfy a gate for another.
+    /// `None` for create-style actions with no pre-existing target.
+    pub target_ref: Option<Uuid>,
     /// Human/UI summary of the change awaiting approval (JSON object).
     pub payload_summary: serde_json::Value,
     pub trace: TraceContext,
@@ -83,6 +88,12 @@ pub struct DecideApprovalCommand {
     pub request_ref: Uuid,
     pub kind: String,
     pub requested_by: UserId,
+    /// Fallback binding target when no pending request row exists for this ref
+    /// (e.g. a direct-seeded decision in a test). When a pending
+    /// [`CreateApprovalCommand`] request IS open, that request's `target_ref` is
+    /// authoritative — the approver can no more redirect the target than spoof the
+    /// requester.
+    pub target_ref: Option<Uuid>,
     pub decision: ApprovalDecision,
     pub trace: TraceContext,
     pub occurred_at: OffsetDateTime,
