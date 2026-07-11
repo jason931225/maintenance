@@ -162,54 +162,89 @@ export function buildObjectExplorerView(model: ObjectExplorerModel, focusId?: st
   };
 }
 
-function distribute(count: number, index: number): number {
-  return Math.round(((index + 1) * 100) / (count + 1));
+// Concentric-ring radial layout: the focus sits at the centre and every other
+// node is placed on a ring whose radius grows with its graph distance (BFS
+// hops) from the focus, spread evenly by angle around that ring. This replaces
+// the old left/right-column + bottom-band placement, which piled deep neighbours
+// into an unreadable vertical cluster and a false "timeline" strip along the
+// base (R9 explore verdict). Percent coordinates (0–100) drive both the pill
+// `left/top` and the SVG edge `viewBox="0 0 100 100"`.
+const RING_BASE = 30; // ring-1 radius: wide enough that direct neighbours don't collide
+const RING_STEP = 14; // each extra hop pushes the ring out …
+const RING_MAX = 46; // … but never past the viewport edge (pills are ~50% off-centre)
+const VERTICAL_SQUASH = 0.9; // the viewport is wider than tall — keep rings inside it
+
+function ringRadius(depth: number): number {
+  return Math.min(RING_MAX, RING_BASE + RING_STEP * (depth - 1));
+}
+
+/** Undirected BFS hop count from the focus to every reachable node. */
+function graphDepths(view: ObjectExplorerView): Map<string, number> {
+  const adjacency = new Map<string, string[]>();
+  const link = (a: string, b: string): void => {
+    const list = adjacency.get(a);
+    if (list) list.push(b);
+    else adjacency.set(a, [b]);
+  };
+  for (const edge of view.links) {
+    link(edge.source_id, edge.target_id);
+    link(edge.target_id, edge.source_id);
+  }
+  const depths = new Map<string, number>([[view.focus.id, 0]]);
+  const queue: string[] = [view.focus.id];
+  while (queue.length > 0) {
+    const current = queue.shift() as string;
+    const depth = depths.get(current) ?? 0;
+    for (const next of adjacency.get(current) ?? []) {
+      if (!depths.has(next)) {
+        depths.set(next, depth + 1);
+        queue.push(next);
+      }
+    }
+  }
+  return depths;
 }
 
 export function layoutObjectExplorerNodes(view: ObjectExplorerView): ObjectExplorerNodeLayout[] {
   const layouts: ObjectExplorerNodeLayout[] = [
-    {
-      id: view.focus.id,
-      node: view.focus,
-      x: 50,
-      y: 50,
-      role: "focus",
-    },
+    { id: view.focus.id, node: view.focus, x: 50, y: 50, role: "focus" },
   ];
-  const placed = new Set<string>([view.focus.id]);
 
-  view.upstream.forEach((relation, index) => {
-    layouts.push({
-      id: relation.node.id,
-      node: relation.node,
-      x: 18,
-      y: distribute(view.upstream.length, index),
-      role: "upstream",
-    });
-    placed.add(relation.node.id);
-  });
+  const upstreamIds = new Set(view.upstream.map((relation) => relation.node.id));
+  const downstreamIds = new Set(view.downstream.map((relation) => relation.node.id));
+  const roleOf = (id: string): ObjectExplorerNodeLayout["role"] =>
+    upstreamIds.has(id) ? "upstream" : downstreamIds.has(id) ? "downstream" : "related";
 
-  view.downstream.forEach((relation, index) => {
-    layouts.push({
-      id: relation.node.id,
-      node: relation.node,
-      x: 82,
-      y: distribute(view.downstream.length, index),
-      role: "downstream",
-    });
-    placed.add(relation.node.id);
-  });
+  const depths = graphDepths(view);
+  const maxDepth = Math.max(0, ...depths.values());
 
-  const relatedNodes = view.nodes.filter((node) => !placed.has(node.id));
-  relatedNodes.forEach((node, index) => {
-    layouts.push({
-      id: node.id,
-      node,
-      x: distribute(relatedNodes.length, index),
-      y: 84,
-      role: "related",
+  // Group the non-focus nodes by ring so we can spread each ring by angle.
+  const rings = new Map<number, ObjectExplorerNode[]>();
+  for (const node of view.nodes) {
+    if (node.id === view.focus.id) continue;
+    // Nodes with no path to the focus (should not occur post-reachability
+    // filter) land on an outermost ring rather than the centre.
+    const depth = depths.get(node.id) ?? maxDepth + 1;
+    const ring = rings.get(depth);
+    if (ring) ring.push(node);
+    else rings.set(depth, [node]);
+  }
+
+  for (const [depth, nodes] of rings) {
+    const radius = ringRadius(depth);
+    // Stagger alternate rings by a half-step so nodes don't line up radially.
+    const offset = depth % 2 === 0 ? Math.PI / nodes.length : 0;
+    nodes.forEach((node, index) => {
+      const angle = offset - Math.PI / 2 + (2 * Math.PI * index) / nodes.length;
+      layouts.push({
+        id: node.id,
+        node,
+        x: 50 + radius * Math.cos(angle),
+        y: 50 + radius * VERTICAL_SQUASH * Math.sin(angle),
+        role: roleOf(node.id),
+      });
     });
-  });
+  }
 
   return layouts;
 }
@@ -244,7 +279,15 @@ function objectIdSlug(label: string): string {
  * an internal database id" (§4-25-⑥ no fabricated business codes, but also
  * no raw-id leaks). */
 export function shortId(id: string): string {
-  return id.slice(0, 8).toUpperCase();
+  // Native ontology instance UUIDs share a long all-zero prefix
+  // (00000000-0000-0000-0000-000000a90001), so a plain leading slice collapses
+  // every node to "00000000". Drop the dashes and the leading-zero padding, then
+  // take the first distinguishing hex chars — that yields a distinct token for
+  // those structured ids AND leaves random v4 ids on their head slice unchanged.
+  // (§4-25-⑥: derived reference token, never a fabricated business code.)
+  const hex = id.replace(/-/g, "");
+  const distinguishing = hex.replace(/^0+/, "") || hex;
+  return distinguishing.slice(0, 8).toUpperCase();
 }
 
 function instancePhase(state: WireInstanceLifecycle): ObjectLifecyclePhase {

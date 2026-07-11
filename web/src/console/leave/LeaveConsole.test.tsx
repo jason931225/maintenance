@@ -231,12 +231,32 @@ describe("LeaveConsole (레인1 leave 카드 존, real-wired)", () => {
     expect(within(table).getByText("박기사")).toBeVisible();
   });
 
-  it("create-request is fail-closed on a missing enum 사유 (§4-19) and never fabricates a queue entry", () => {
+  it("create-request is fail-closed on an incomplete form (§4-19) and never fabricates a queue entry", () => {
     renderConsole();
     const selfRegion = screen.getByRole("region", { name: S.self.title });
-    fireEvent.submit(within(selfRegion).getByRole("form", { name: S.self.formAria }));
-    expect(within(selfRegion).getByRole("alert")).toHaveTextContent(S.self.required);
-    // Fail-closed: an invalid submit never grows "내 신청" with a fabricated row.
+    // Validation is derived from the fields, not a manual step — the
+    // debug-looking "입력값 확인" button is gone (verdict R9).
+    expect(within(selfRegion).queryByText(S.self.validate)).not.toBeInTheDocument();
+    // An incomplete form (no 사유/기간) previews nothing and never grows "내
+    // 신청" with a fabricated row.
+    expect(within(selfRegion).queryByRole("alert")).not.toBeInTheDocument();
+    expect(within(selfRegion).getByText(S.self.empty)).toBeVisible();
+  });
+
+  it("create-request surfaces the derived range error when 종료일 precedes 시작일 (§4-19)", () => {
+    renderConsole();
+    const selfRegion = screen.getByRole("region", { name: S.self.title });
+    fireEvent.change(within(selfRegion).getByLabelText(S.self.reasonLabel), {
+      target: { value: "annual" },
+    });
+    fireEvent.change(within(selfRegion).getByLabelText(S.self.startLabel), {
+      target: { value: "2026-07-10" },
+    });
+    fireEvent.change(within(selfRegion).getByLabelText(S.self.endLabel), {
+      target: { value: "2026-07-01" },
+    });
+    expect(within(selfRegion).getByRole("alert")).toHaveTextContent(S.self.invalidRange);
+    // Fail-closed: an invalid range never fabricates a queue row.
     expect(within(selfRegion).getByText(S.self.empty)).toBeVisible();
   });
 

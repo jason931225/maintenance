@@ -14,7 +14,6 @@ import { useMemo, useState, type CSSProperties, type ReactNode } from "react";
 import type { LeaveRequestView, LeaveStatutoryPushView } from "../../api/types";
 import { ko } from "../../i18n/ko";
 import { StatusChip } from "../components";
-import { HonestBar, type ChartDatum } from "../charts";
 import { objectCardWindowEntry } from "../objectcard";
 import { PolicyGated } from "../policy";
 import "../tokens.css";
@@ -353,8 +352,6 @@ interface RequestForm {
 
 const EMPTY_FORM: RequestForm = { reason: "", startDate: "", endDate: "" };
 
-type SubmitEventLike = { preventDefault: () => void };
-
 export interface LeaveDecideOutcome {
   ok: boolean;
   error?: unknown;
@@ -389,8 +386,23 @@ export function LeaveConsole({ ledger, requests, selfUserId, decide, pushPromoti
   const windowManager = useOptionalWindowManager();
   const [filter, setFilter] = useState<LedgerFilter>("all");
   const [form, setForm] = useState<RequestForm>(EMPTY_FORM);
-  const [formError, setFormError] = useState<string>();
-  const [validated, setValidated] = useState(false);
+
+  // 사유 + 기간 validity is derived, not a manual "확인" step — the debug-looking
+  // "입력값 확인" button is gone (verdict R9). "incomplete" hides the preview,
+  // "invalid" surfaces the range error, "valid" activates the 제출 link + day
+  // count. §4-19 fail-closed: a typed enum 사유 and a start date are required.
+  const requestValidation = useMemo(():
+    | { state: "incomplete" }
+    | { state: "invalid" }
+    | { state: "valid"; days: number } => {
+    const { reason, startDate } = form;
+    if (reason === "" || startDate === "" || (!isHalfDay(reason) && form.endDate === "")) {
+      return { state: "incomplete" };
+    }
+    const endDate = isHalfDay(reason) ? startDate : form.endDate;
+    if (endDate < startDate) return { state: "invalid" };
+    return { state: "valid", days: requestDays(reason, startDate, endDate) };
+  }, [form]);
 
   const [decidingId, setDecidingId] = useState<string>();
   const [decideError, setDecideError] = useState<string>();
@@ -415,25 +427,6 @@ export function LeaveConsole({ ledger, requests, selfUserId, decide, pushPromoti
   const ledgerById = useMemo(() => new Map(ledger.map((row) => [row.id, row])), [ledger]);
 
   // ── Mutations ────────────────────────────────────────────────────────────
-
-  function validateRequest(event: SubmitEventLike): void {
-    event.preventDefault();
-    const { reason, startDate } = form;
-    // §4-19 fail-closed: typed enum 사유 + 기간 are required.
-    if (reason === "" || startDate === "" || (!isHalfDay(reason) && form.endDate === "")) {
-      setFormError(S.self.required);
-      setValidated(false);
-      return;
-    }
-    const endDate = isHalfDay(reason) ? startDate : form.endDate;
-    if (endDate < startDate) {
-      setFormError(S.self.invalidRange);
-      setValidated(false);
-      return;
-    }
-    setFormError(undefined);
-    setValidated(true);
-  }
 
   async function runDecide(request: LeaveRequestView, decision: "approve" | "return" | "reject", comment?: string) {
     setDecidingId(request.id);
@@ -524,10 +517,6 @@ export function LeaveConsole({ ledger, requests, selfUserId, decide, pushPromoti
       return true;
     })
     .slice(0, 80);
-
-  const usageBarData: ChartDatum[] = visibleLedger
-    .slice(0, 15)
-    .map((row) => ({ id: row.id, label: row.name, value: row.remaining }));
 
   const myRequests = selfUserId
     ? requests
@@ -626,7 +615,11 @@ export function LeaveConsole({ ledger, requests, selfUserId, decide, pushPromoti
               <h2 id="leave-self-title" style={sectionTitleStyle}>{S.self.title}</h2>
             </div>
             <PolicyGated action={LEAVE_ACTIONS.requestCreate} resource={{ kind: "leave_request" }}>
-              <form aria-label={S.self.formAria} onSubmit={validateRequest} style={formStyle}>
+              <form
+                aria-label={S.self.formAria}
+                onSubmit={(event) => { event.preventDefault(); }}
+                style={formStyle}
+              >
                 <label style={labelStyle}>
                   {S.self.reasonLabel}
                   <select
@@ -635,7 +628,6 @@ export function LeaveConsole({ ledger, requests, selfUserId, decide, pushPromoti
                     onChange={(event) => {
                       const reason = event.currentTarget.value as LeaveReason | "";
                       setForm((prev) => ({ ...prev, reason }));
-                      setValidated(false);
                     }}
                     style={inputStyle}
                   >
@@ -647,14 +639,17 @@ export function LeaveConsole({ ledger, requests, selfUserId, decide, pushPromoti
                 </label>
                 <label style={labelStyle}>
                   {S.self.startLabel}
+                  {/* lang="ko" localizes the native date control's segments/
+                      placeholder (연도. 월. 일) — no picker library (verdict R9:
+                      was the browser-default English mm/dd/yyyy). */}
                   <input
                     type="date"
+                    lang="ko"
                     required
                     value={form.startDate}
                     onChange={(event) => {
                       const startDate = event.currentTarget.value;
                       setForm((prev) => ({ ...prev, startDate }));
-                      setValidated(false);
                     }}
                     style={inputStyle}
                   />
@@ -663,26 +658,28 @@ export function LeaveConsole({ ledger, requests, selfUserId, decide, pushPromoti
                   {S.self.endLabel}
                   <input
                     type="date"
+                    lang="ko"
                     required={!isHalfDay(form.reason)}
                     disabled={isHalfDay(form.reason)}
                     value={isHalfDay(form.reason) ? form.startDate : form.endDate}
                     onChange={(event) => {
                       const endDate = event.currentTarget.value;
                       setForm((prev) => ({ ...prev, endDate }));
-                      setValidated(false);
                     }}
                     style={inputStyle}
                   />
                 </label>
-                <button type="submit" style={buttonStyle}>{S.self.validate}</button>
-                <a href="/approvals?template=annual-leave" style={validated ? primaryButtonStyle : linkStyle}>
+                <a
+                  href="/approvals?template=annual-leave"
+                  style={requestValidation.state === "valid" ? primaryButtonStyle : linkStyle}
+                >
                   {S.self.formLink}
                 </a>
-                {formError !== undefined ? (
-                  <StatusChip role="alert" tone="danger">{formError}</StatusChip>
+                {requestValidation.state === "invalid" ? (
+                  <StatusChip role="alert" tone="danger">{S.self.invalidRange}</StatusChip>
                 ) : null}
-                {validated ? (
-                  <StatusChip tone="ok">{dayLabel(requestDays(form.reason as LeaveReason, form.startDate, isHalfDay(form.reason) ? form.startDate : form.endDate))}</StatusChip>
+                {requestValidation.state === "valid" ? (
+                  <StatusChip tone="ok">{dayLabel(requestValidation.days)}</StatusChip>
                 ) : null}
               </form>
             </PolicyGated>
@@ -705,17 +702,6 @@ export function LeaveConsole({ ledger, requests, selfUserId, decide, pushPromoti
               <h2 id="leave-ledger-title" style={sectionTitleStyle}>{S.ledger.title}</h2>
               <StatusChip tone="neutral">{S.count(visibleLedger.length)}</StatusChip>
             </div>
-            {usageBarData.length > 0 ? (
-              <HonestBar
-                label={S.ledger.usageTitle}
-                data={usageBarData}
-                format={dayLabel}
-                onDrill={(id) => {
-                  const row = ledgerById.get(id);
-                  if (row) openLedgerCard(row);
-                }}
-              />
-            ) : null}
             <div style={tableWrapStyle}>
               <table aria-label={S.ledger.listAria} style={tableStyle}>
                 <thead>

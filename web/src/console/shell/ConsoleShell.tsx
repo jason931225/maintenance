@@ -7,8 +7,8 @@ import { CommsRailPanel, CommsRailFallback } from "./CommsRailPanel";
 import { ErrorBoundary } from "../../components/ErrorBoundary";
 import { Icon } from "./icons";
 import { defaultScreen, visibleConsoleNav } from "./nav";
+import { useNavBadges } from "./navBadges";
 import { Sidebar } from "./Sidebar";
-import type { NavBadge } from "./Sidebar";
 import { Topbar } from "./Topbar";
 import { markConsoleRoute } from "../rum/rum";
 import { SCREEN_REGISTRY } from "../screens/registry";
@@ -155,8 +155,9 @@ export function ConsoleShell({
   const userInitial = Array.from(userName.trim())[0] ?? "·";
   const userRoleLabelText = roleLabel(session?.roles ?? [], session?.group_roles ?? []);
 
-  // No live count sources in P0.1 — badges wire in with their screens (P1/P2).
-  const badges: Record<string, NavBadge | undefined> = {};
+  // Real nav count badges from the caller's action inbox + unread summary
+  // (navBadges.ts). Fails soft to an empty map, so the shell never depends on it.
+  const badges = useNavBadges(session?.access_token);
 
   return (
     <div

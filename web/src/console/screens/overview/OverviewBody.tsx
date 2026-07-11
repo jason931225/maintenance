@@ -99,6 +99,25 @@ export function OverviewBody({ accessToken, api, now, onOpen }: OverviewBodyProp
     () => new Intl.DateTimeFormat("ko-KR", { hour: "2-digit", minute: "2-digit", hour12: false }),
     [],
   );
+  const dowFmt = useMemo(
+    () => new Intl.DateTimeFormat("ko-KR", { weekday: "narrow" }),
+    [],
+  );
+  // The Mon–Sun week that contains `today`, giving the agenda a temporal ribbon
+  // (real dates only — no per-day counts are fabricated).
+  const weekDays = useMemo(() => {
+    const monday = new Date(today);
+    monday.setDate(today.getDate() - ((today.getDay() + 6) % 7));
+    return Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(monday);
+      d.setDate(monday.getDate() + i);
+      return d;
+    });
+  }, [today]);
+  const sameDay = (a: Date, b: Date) =>
+    a.getFullYear() === b.getFullYear() &&
+    a.getMonth() === b.getMonth() &&
+    a.getDate() === b.getDate();
 
   if (state === "error") {
     return (
@@ -238,11 +257,23 @@ export function OverviewBody({ accessToken, api, now, onOpen }: OverviewBodyProp
           )}
         </section>
 
-        {/* 오늘 — timeline of items due today */}
+        {/* 오늘 — agenda for items due today: a week ribbon + per-item rows with a
+            done marker, time, title and the responsible person (all real fields). */}
         <section style={panelStyle} aria-label={S.timelineTitle}>
           <div style={panelHeadStyle}>
             <h2 style={panelTitleStyle}>{S.timelineTitle}</h2>
             <span style={countBadgeStyle}>{timeline.length}</span>
+          </div>
+          <div style={weekStripStyle} aria-hidden="true">
+            {weekDays.map((day) => {
+              const active = sameDay(day, today);
+              return (
+                <span key={day.toISOString()} style={weekCellStyle(active)}>
+                  <span style={weekDowStyle}>{dowFmt.format(day)}</span>
+                  <span style={weekNumStyle(active)}>{day.getDate()}</span>
+                </span>
+              );
+            })}
           </div>
           {timeline.length === 0 ? (
             <p style={emptyStyle}>{S.empty.timeline}</p>
@@ -250,6 +281,9 @@ export function OverviewBody({ accessToken, api, now, onOpen }: OverviewBodyProp
             <ol style={{ ...listStyle, listStyle: "none" }}>
               {timeline.map(({ item, time }) => (
                 <li key={item.id} style={timelineRowStyle}>
+                  <span aria-hidden="true" style={checkboxStyle(item.done)}>
+                    {item.done ? "✓" : ""}
+                  </span>
                   <span style={timelineTimeStyle}>{time}</span>
                   <button
                     type="button"
@@ -261,6 +295,9 @@ export function OverviewBody({ accessToken, api, now, onOpen }: OverviewBodyProp
                   >
                     {item.title}
                   </button>
+                  {item.who ? (
+                    <StatusChip tone="neutral">{item.who}</StatusChip>
+                  ) : null}
                 </li>
               ))}
             </ol>
@@ -303,6 +340,9 @@ function statStyle(active: boolean): CSSProperties {
     display: "grid",
     alignContent: "center",
     gap: "var(--sp-1)",
+    // Grow to share the strip evenly so a 4-stat row fills the width instead of
+    // leaving a phantom empty tile at the end (verdict R9).
+    flex: "1 1 10rem",
     minWidth: "10rem",
     padding: "var(--sp-4) var(--sp-5)",
     borderRight: "1px solid var(--border-soft)",
@@ -446,11 +486,60 @@ const emptyStyle: CSSProperties = {
 
 const timelineRowStyle: CSSProperties = {
   display: "flex",
-  alignItems: "baseline",
+  alignItems: "center",
   gap: "var(--sp-3)",
   padding: "var(--sp-2) 0",
   borderTop: "1px solid var(--border-soft)",
 };
+
+const weekStripStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(7, 1fr)",
+  gap: "var(--sp-1)",
+  paddingBottom: "var(--sp-2)",
+};
+
+function weekCellStyle(active: boolean): CSSProperties {
+  return {
+    display: "grid",
+    justifyItems: "center",
+    gap: 2,
+    padding: "var(--sp-2) 0",
+    borderRadius: "var(--radius-sm)",
+    background: active ? "var(--muted)" : "transparent",
+  };
+}
+
+const weekDowStyle: CSSProperties = {
+  fontSize: "var(--text-xs)",
+  color: "var(--faint)",
+};
+
+function weekNumStyle(active: boolean): CSSProperties {
+  return {
+    fontSize: "var(--text-sm)",
+    fontVariantNumeric: "tabular-nums",
+    fontWeight: active ? "var(--fw-strong)" : "var(--fw-body)",
+    color: active ? "var(--ink)" : "var(--steel)",
+  };
+}
+
+function checkboxStyle(done: boolean): CSSProperties {
+  return {
+    flex: "none",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: 16,
+    height: 16,
+    borderRadius: 4,
+    border: `1px solid ${done ? "var(--ok-tx)" : "var(--border)"}`,
+    background: done ? "var(--ok-tx)" : "var(--surface)",
+    color: "var(--surface)",
+    fontSize: 11,
+    lineHeight: 1,
+  };
+}
 
 const timelineTimeStyle: CSSProperties = {
   flex: "none",
