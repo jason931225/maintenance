@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildObjectExplorerView,
+  edgeLabelOccluded,
   layoutObjectExplorerNodes,
   type ObjectExplorerModel,
+  type ObjectExplorerNodeLayout,
 } from "./ObjectExplorerModel";
 
 // A hub with `n` direct neighbours — the shape that made the graph overlap
@@ -60,5 +62,29 @@ describe("layoutObjectExplorerNodes", () => {
       expect(node.y).toBeGreaterThanOrEqual(12);
       expect(node.y).toBeLessThanOrEqual(88);
     }
+  });
+});
+
+describe("edgeLabelOccluded", () => {
+  const node = (id: string, x: number, y: number): ObjectExplorerNodeLayout => ({
+    id,
+    node: { id, type: "t", code: id, label: id },
+    x,
+    y,
+    role: "related",
+  });
+
+  it("flags a label a non-endpoint pill sits on top of", () => {
+    const nodes = [node("a", 20, 50), node("b", 80, 50), node("c", 50, 50)];
+    // edge a→b runs through the middle where c sits — c occludes the label.
+    expect(edgeLabelOccluded({ x: 50, y: 50 }, nodes, ["a", "b"])).toBe(true);
+  });
+
+  it("ignores the edge's own endpoints and far-off pills", () => {
+    const nodes = [node("a", 20, 50), node("b", 80, 50)];
+    // only the endpoints are near the midpoint — never self-occlude.
+    expect(edgeLabelOccluded({ x: 20, y: 50 }, nodes, ["a", "b"])).toBe(false);
+    // a third pill well clear of the midpoint box does not occlude.
+    expect(edgeLabelOccluded({ x: 50, y: 50 }, [...nodes, node("c", 50, 80)], ["a", "b"])).toBe(false);
   });
 });

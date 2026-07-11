@@ -165,9 +165,13 @@ describe("DashboardScreen", () => {
     const user = userEvent.setup();
     renderScreen();
 
-    // Delay reasons come from the API distribution of the selected rollup.
+    // Delay reasons come from the API distribution of the selected rollup —
+    // keyed by the raw enum variant, localized for display (never shown raw).
     const delayChart = screen.getByRole("group", { name: S.delayReasons });
-    expect(within(delayChart).getByText("부품 대기")).toBeVisible();
+    expect(within(delayChart).getByText(S.delayReasonLabels.PART_WAITING)).toBeVisible();
+    expect(within(delayChart).getByText(S.delayReasonLabels.ADDITIONAL_FAULT_FOUND)).toBeVisible();
+    // The raw enum key must never leak into the chart.
+    expect(within(delayChart).queryByText("ADDITIONAL_FAULT_FOUND")).toBeNull();
 
     const scopeChart = screen.getByRole("group", { name: S.completionByScope });
     // Drilling a scope row selects that scope in the strip.
@@ -175,6 +179,42 @@ describe("DashboardScreen", () => {
       within(scopeChart).getByRole("button", { name: /김정비.+4건/ }),
     );
     expect(screen.getByText("승인 보고 4건", { exact: false })).toBeVisible();
+  });
+
+  it("localizes every delay_reason enum variant (never the raw key)", () => {
+    // The full work_order.delay_reason enum — migration 0008_create_work_orders.sql.
+    const DELAY_REASON_VARIANTS = [
+      "PART_WAITING",
+      "CUSTOMER_ABSENT",
+      "EQUIPMENT_IN_USE",
+      "MECHANIC_OVERLOADED",
+      "OUTSOURCE_DELAY",
+      "ADDITIONAL_FAULT_FOUND",
+      "SAFETY_ISSUE",
+      "OTHER",
+    ] as const;
+    for (const variant of DELAY_REASON_VARIANTS) {
+      const label = S.delayReasonLabels[variant];
+      expect(label).toBeTruthy();
+      expect(label).not.toBe(variant);
+    }
+  });
+
+  it("fails closed to a neutral label for an unknown/retired delay_reason variant", () => {
+    renderScreen({
+      report: {
+        ...kpiReport,
+        rollups: [
+          {
+            ...kpiReport.rollups[0],
+            delay_reason_distribution: { RETIRED_LEGACY_REASON: 3 },
+          },
+        ],
+      },
+    });
+    const delayChart = screen.getByRole("group", { name: S.delayReasons });
+    expect(within(delayChart).getByText(S.delayReasonUnknown)).toBeVisible();
+    expect(within(delayChart).queryByText("RETIRED_LEGACY_REASON")).toBeNull();
   });
 
   it("omits fabricated sections and deleted explanatory copy", () => {

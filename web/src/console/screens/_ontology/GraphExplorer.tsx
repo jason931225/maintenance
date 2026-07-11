@@ -4,6 +4,7 @@ import { ko } from "../../../i18n/ko";
 import { StatusChip } from "../../components";
 import {
   buildObjectExplorerView,
+  edgeLabelOccluded,
   layoutObjectExplorerNodes,
   type ObjectExplorerModel,
   type ObjectExplorerNode,
@@ -478,11 +479,15 @@ export function GraphExplorer({
             const from = posById.get(link.source_id);
             const to = posById.get(link.target_id);
             if (!from || !to) return null;
+            const mid = { x: (from.x + to.x) / 2, y: (from.y + to.y) / 2 };
+            // Fade a label a non-endpoint pill paints over — a half-clipped
+            // sliver reads worse than a de-emphasized one (r15 explore verdict).
+            const occluded = edgeLabelOccluded(mid, layout, [link.source_id, link.target_id]);
             return (
               <span
                 key={`label-${link.id}`}
                 aria-hidden="true"
-                style={{ ...edgeLabelStyle, left: `${String((from.x + to.x) / 2)}%`, top: `${String((from.y + to.y) / 2)}%` }}
+                style={{ ...edgeLabelStyle, left: `${String(mid.x)}%`, top: `${String(mid.y)}%`, opacity: occluded ? 0.3 : 1 }}
               >
                 {link.relation}
               </span>

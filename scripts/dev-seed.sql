@@ -319,6 +319,14 @@ INSERT INTO cedar_policy_catalog_entries (
 ON CONFLICT (id) DO NOTHING;
 
 -- ── workflow studio definitions (자동화 / 워크플로) ──────────────────────────
+-- f00003 is an Automate rule (hub envelope): a typed predicate condition +
+-- object-monitor trigger over the seeded 정비 계약 (maintenance_contract) type,
+-- so the 자동화 허브 renders a CONFIGURED flow (trigger body = 정비 계약, condition
+-- chips = 상태/인건비율) instead of a skeletal one. updated_at is pinned latest so
+-- it is the default-selected rule (list orders updated_at DESC).
+INSERT INTO workflow_definitions (id, org_id, workflow_key, display_name, object_type, status, latest_version, active_version, created_by, updated_at) VALUES
+  ('00000000-0000-0000-0000-000000f00003', '00000000-0000-0000-0000-0000000000a1', 'automate.contract_renewal_watch', '고인건비 계약 갱신 감시', 'maintenance_contract', 'ACTIVE', 1, 1, '00000000-0000-0000-0000-00000000d001', now() + interval '1 minute')
+ON CONFLICT (id) DO NOTHING;
 INSERT INTO workflow_definitions (id, org_id, workflow_key, display_name, object_type, status, latest_version, active_version, created_by) VALUES
   ('00000000-0000-0000-0000-000000f00001', '00000000-0000-0000-0000-0000000000a1', 'work_order.approval', '작업지시 승인 흐름', 'work_order', 'ACTIVE', 1, 1, '00000000-0000-0000-0000-00000000d001'),
   ('00000000-0000-0000-0000-000000f00002', '00000000-0000-0000-0000-0000000000a1', 'leave.promotion', '연차 촉진 통보', 'leave_obligation', 'DRAFT', 1, NULL, '00000000-0000-0000-0000-00000000d001')
@@ -328,6 +336,7 @@ INSERT INTO workflow_definition_versions (
   id, org_id, definition_id, version, status, definition, approval_line, payment_line,
   notification_rules, action_allowlist, required_approval_line, required_payment_line, created_by
 ) VALUES
+  ('00000000-0000-0000-0000-000000fa0003', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000f00003', 1, 'PUBLISHED', '{"schema_version":"workflow.definition.v1","trigger":"maintenance_contract.monitor","steps":[],"automate":{"scope":"org","doc":null,"condition":{"join":"and","predicates":[{"id":"p-mc-status","field":"status","op":"eq","value":{"kind":"enum","value":"active"}},{"id":"p-mc-labor","field":"labor_cost_ratio_pct","op":"gte","value":{"kind":"number","value":40}}]},"monitor":{"object_type":"maintenance_contract","action_key":"renew"}}}'::jsonb, '[]'::jsonb, '[]'::jsonb, '[]'::jsonb, '["maintenance_contract.renew"]'::jsonb, false, false, '00000000-0000-0000-0000-00000000d001'),
   ('00000000-0000-0000-0000-000000fa0001', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000f00001', 1, 'PUBLISHED', '{"nodes":[{"id":"start","type":"start"},{"id":"approve","type":"approval"},{"id":"end","type":"end"}]}'::jsonb, '[{"step":1,"role":"branch_manager"}]'::jsonb, '[]'::jsonb, '[]'::jsonb, '["work_order.complete"]'::jsonb, true, false, '00000000-0000-0000-0000-00000000d001'),
   ('00000000-0000-0000-0000-000000fa0002', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000f00002', 1, 'DRAFT', '{"nodes":[{"id":"start","type":"start"},{"id":"notify","type":"notification"},{"id":"end","type":"end"}]}'::jsonb, '[]'::jsonb, '[]'::jsonb, '[{"channel":"in_app"}]'::jsonb, '[]'::jsonb, false, false, '00000000-0000-0000-0000-00000000d001')
 ON CONFLICT (id) DO NOTHING;

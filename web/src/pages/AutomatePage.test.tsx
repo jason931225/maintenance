@@ -420,6 +420,11 @@ describe("AutomatePage (Phase C — real workflow-studio wiring)", () => {
     // builder canvas = the definition JSON's automate.doc, block for block.
     const builder = screen.getByRole("region", { name: overdueRule.display_name });
     expect(within(builder).getByText(S.samples.trigger)).toBeVisible();
+    // The trigger node body reads its configured object type (the persisted doc
+    // authors only the title), so the node is never a skeletal placeholder.
+    const triggerNode = builder.querySelector('[data-canvas-node-kind="trigger"]');
+    expect(triggerNode).not.toBeNull();
+    expect(within(triggerNode as HTMLElement).getByText("작업지시")).toBeVisible();
     expect(within(builder).getByText(S.labels.branchMet)).toBeVisible();
     expect(within(builder).getByText(S.labels.branchUnmet)).toBeVisible();
     expect(within(builder).getAllByText("경과일 ≥ 7").length).toBeGreaterThan(0);

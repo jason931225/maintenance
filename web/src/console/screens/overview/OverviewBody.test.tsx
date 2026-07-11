@@ -96,6 +96,31 @@ describe("OverviewBody", () => {
     expect(timeline.getByText(S.footer.shown(1, 3))).toBeInTheDocument();
   });
 
+  it("gives 오늘 agenda rows owner parity with the queue — site and person, not person alone (verdict r15)", async () => {
+    renderBody({
+      api: stubApi({
+        loadInbox: vi.fn().mockResolvedValue({
+          total: 1,
+          items: [
+            item({
+              kind: "approval",
+              id: "approval:9",
+              title: "급여 소급분 검증 요청",
+              due: NOW.toISOString(),
+              site: "경영지원팀",
+              who: "@김성아",
+            }),
+          ],
+        }),
+      }),
+    });
+    const timeline = within(await screen.findByLabelText(S.timelineTitle));
+    // the agenda row now surfaces the owner site (team) and the person, matching
+    // the 처리 대기 row's meta — previously only the person showed.
+    expect(timeline.getByText("경영지원팀")).toBeInTheDocument();
+    expect(timeline.getByText("@김성아")).toBeInTheDocument();
+  });
+
   it("never renders a raw UUID as the row's ref badge (support tickets carry no human code)", async () => {
     renderBody({
       api: stubApi({
