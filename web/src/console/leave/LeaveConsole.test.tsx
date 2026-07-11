@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { LeaveRequestView, LeaveRosterEntry } from "../../api/types";
@@ -65,7 +65,7 @@ interface RenderOptions {
   gate?: PolicyGate;
   requests?: LeaveRequestView[];
   selfUserId?: string;
-  decide?: (id: string, decision: "approve" | "reject", comment?: string) => Promise<LeaveDecideOutcome>;
+  decide?: (id: string, decision: "approve" | "return" | "reject", comment?: string) => Promise<LeaveDecideOutcome>;
   pushPromotion?: (payload: {
     branchId: string;
     targetUserId: string;
@@ -172,6 +172,44 @@ describe("LeaveConsole (레인1 leave 카드 존, real-wired)", () => {
     expect(decide).toHaveBeenCalledWith("req-7", "reject", "일정 재조정 필요");
   });
 
+  it("보류(return) is a third, distinct decision that also requires a comment (승인/반려/거부)", async () => {
+    const decide = vi.fn<() => Promise<LeaveDecideOutcome>>(() => Promise.resolve({ ok: true }));
+    renderConsole({
+      requests: [makeRequest({ id: "req-ret", requester_user_id: "employee-2", subject_employee_id: "employee-2" })],
+      selfUserId: "someone-else",
+      decide,
+    });
+    const queue = screen.getByRole("region", { name: S.queue.title });
+    fireEvent.click(
+      within(queue).getByRole("button", { name: S.queue.decideAria(S.requestState.returned, "이정비") }),
+    );
+
+    // Fail-closed: 보류 with no comment never calls decide.
+    fireEvent.click(within(queue).getByRole("button", { name: S.requestState.returned }));
+    expect(decide).not.toHaveBeenCalled();
+    expect(within(queue).getByText(S.queue.commentRequired)).toBeVisible();
+
+    fireEvent.change(within(queue).getByLabelText(S.queue.commentLabel), {
+      target: { value: "서류 보완 요청" },
+    });
+    fireEvent.click(within(queue).getByRole("button", { name: S.requestState.returned }));
+    await waitFor(() => {
+      expect(decide).toHaveBeenCalledWith("req-ret", "return", "서류 보완 요청");
+    });
+  });
+
+  it("SoD surfaces 내 신청 on the caller's own pending request (approver ≠ requester made visible)", () => {
+    renderConsole({
+      requests: [makeRequest({ id: "req-self", requester_user_id: "self-user", subject_employee_id: "employee-1" })],
+      selfUserId: "self-user",
+    });
+    const queue = screen.getByRole("region", { name: S.queue.title });
+    expect(within(queue).getByText(S.self.myRequests)).toBeVisible();
+    expect(
+      within(queue).queryByRole("button", { name: S.queue.decideAria(S.queue.approve, "김현장") }),
+    ).toBeNull();
+  });
+
   it("연차 원장 rows are objDrag sources and open the ObjectCard right pin (§4.7-3)", () => {
     renderConsole();
     const code = screen.getByRole("button", { name: S.openObject("JL-A001") });
@@ -256,11 +294,11 @@ describe("LeaveConsole (레인1 leave 카드 존, real-wired)", () => {
     const table = within(ledgerRegion).getByRole("table");
     const promoteRow = within(table).getByText("박기사").closest("tr");
     expect(promoteRow).not.toBeNull();
-    // employee-3: used 5 / accrued 15 = 33%. The "사용촉진 대상" label appears
-    // twice on a promote-tone row: the inline meter chip AND the 상태 column
-    // (ledgerStatus() also resolves to the same label — both real, not a dup bug).
+    // employee-3: used 5 / accrued 15 = 33%. The trimmed ref-density table
+    // (이름·부여·사용·잔여·소진율, no 상태 column) carries the "사용촉진 대상"
+    // label once — the inline meter chip on the promote-tone row.
     expect(within(promoteRow as HTMLElement).getByText(S.stats.percent(33))).toBeVisible();
-    expect(within(promoteRow as HTMLElement).getAllByText(S.status.promote)).toHaveLength(2);
+    expect(within(promoteRow as HTMLElement).getAllByText(S.status.promote)).toHaveLength(1);
 
     const okRow = within(table).getByText("김현장").closest("tr");
     expect(within(okRow as HTMLElement).queryByText(S.status.promote)).toBeNull();

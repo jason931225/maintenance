@@ -76,7 +76,7 @@ export function LeaveManagementPage() {
   }, [loadLeaveManagement]);
 
   const decide = useCallback(
-    async (requestId: string, decision: "approve" | "reject", comment?: string): Promise<LeaveDecideOutcome> => {
+    async (requestId: string, decision: "approve" | "return" | "reject", comment?: string): Promise<LeaveDecideOutcome> => {
       const response = await api.POST("/api/v1/leave/requests/{id}/decide", {
         params: { path: { id: requestId } },
         body: { decision, comment },

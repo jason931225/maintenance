@@ -4,11 +4,9 @@ import type { LeaveRequestView } from "../../../api/types";
 import { useAuth } from "../../../context/auth";
 import { ko } from "../../../i18n/ko";
 import { LeaveConsole, type LeaveDecideOutcome, type LeavePromotionOutcome } from "../../leave/LeaveConsole";
-import { LEAVE_ACTIONS, rosterToLedgerRow, type LeaveLedgerRow } from "../../leave/model";
-import { BulkPolicyGateProvider } from "../../policy";
+import { LEAVE_RUNTIME_GATE, rosterToLedgerRow, type LeaveLedgerRow } from "../../leave/model";
+import { PolicyGateProvider } from "../../policy";
 import "../../tokens.css";
-
-const LEAVE_GATE_ACTIONS = Object.values(LEAVE_ACTIONS);
 
 /**
  * 연차 screen body (ConsoleShell nav "leave") — composes the existing,
@@ -16,12 +14,20 @@ const LEAVE_GATE_ACTIONS = Object.values(LEAVE_ACTIONS);
  * console shell's screen slot. Self-contained: owns the roster/queue fetch
  * (GET /api/v1/leave/balances + /leave/requests), the roster→ledger mapping
  * (`rosterToLedgerRow`, model.ts), and the decide/§61-push REST calls
- * LeaveConsole's props contract expects. This is also the real Phase-C PBAC
- * wire model.ts flagged as wire-pending: `BulkPolicyGateProvider` replaces
- * the local `LEAVE_RUNTIME_GATE` allow-list stub with real
- * POST /api/v1/policy/authorize/bulk decisions (same upgrade AutomateBody
- * made for AUTOMATE_RUNTIME_GATE). The serial wire mounts `<LeaveBody />`
- * with no props.
+ * LeaveConsole's props contract expects.
+ *
+ * Render-gate: `LEAVE_RUNTIME_GATE` (model.ts), the documented Phase-C interim
+ * allow-list. An earlier lane swapped this to `BulkPolicyGateProvider`
+ * (POST /api/v1/policy/authorize/bulk) prematurely — but the bulk evaluator's
+ * authoring schema only authorizes the fixed object/property/console actions
+ * (`view`/`edit`/`read_field`/`console:configure`/`console:deploy`), so every
+ * dotted `console.leave.*` action fell through deny-by-omission and the whole
+ * body (ledger/queue/촉진) unmounted, leaving only the ungated stat pills. The
+ * management surfaces are still authorized for real where it counts — the
+ * backend enforces `decide` (require_manage + SoD) and the §61 push
+ * (EmployeeDirectoryManage against the target branch) regardless of this
+ * render-gate. Re-wire to the bulk gate once `console.leave.*` is a first-class
+ * authorizable action set. The serial wire mounts `<LeaveBody />` with no props.
  */
 
 type ReadState = "loading" | "idle" | "error";
@@ -105,7 +111,7 @@ export function LeaveBody() {
   }, [load]);
 
   const decide = useCallback(
-    async (requestId: string, decision: "approve" | "reject", comment?: string): Promise<LeaveDecideOutcome> => {
+    async (requestId: string, decision: "approve" | "return" | "reject", comment?: string): Promise<LeaveDecideOutcome> => {
       const result = await api.POST("/api/v1/leave/requests/{id}/decide", {
         params: { path: { id: requestId } },
         body: { decision, comment },
@@ -163,7 +169,7 @@ export function LeaveBody() {
       ) : readState === "loading" ? (
         <p style={{ color: "var(--steel)", fontFamily: "var(--font-sans)" }}>{S.loading}</p>
       ) : (
-        <BulkPolicyGateProvider actions={LEAVE_GATE_ACTIONS}>
+        <PolicyGateProvider gate={LEAVE_RUNTIME_GATE}>
           <LeaveConsole
             ledger={ledger}
             requests={requests}
@@ -171,7 +177,7 @@ export function LeaveBody() {
             decide={decide}
             pushPromotion={pushPromotion}
           />
-        </BulkPolicyGateProvider>
+        </PolicyGateProvider>
       )}
     </div>
   );
