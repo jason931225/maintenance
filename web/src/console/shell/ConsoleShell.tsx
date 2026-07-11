@@ -276,7 +276,7 @@ export function ConsoleShell({
                 <Icon name="chevronsRight" size={15} strokeWidth={2} />
               </button>
             </div>
-            <CommsRailPanel />
+            <CommsRailPanel accessToken={session?.access_token} />
           </>
         ) : (
           <div
