@@ -27,6 +27,11 @@ function resetDispatchWo() {
   sql(
     `BEGIN;
      SELECT set_config('app.current_org', '${ORG_ID}', true);
+     -- mech-16-profile-location renames this mechanic to "E2E 정비사 수정" earlier
+     -- in the run and never restores it, so the assign roster button label drifts
+     -- off the seeded name. Restore it so this spec stays order-independent.
+     UPDATE users SET display_name = 'E2E Mechanic'
+       WHERE id = '${MECH_ID}' AND org_id = '${ORG_ID}';
      DELETE FROM work_order_assignments WHERE work_order_id = '${WO_ID}';
      DELETE FROM target_change_requests WHERE work_order_id = '${WO_ID}';
      UPDATE work_orders SET status = 'RECEIVED', priority = 'P1', target_due_at = NULL
