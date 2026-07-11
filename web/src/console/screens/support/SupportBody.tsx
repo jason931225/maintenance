@@ -16,8 +16,11 @@
 import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
 
 import type {
+  CreateInternalTicketRequest,
+  SupportTicketCategory,
   SupportTicketComment,
   SupportTicketDetail as SupportTicketDetailModel,
+  SupportTicketPriority,
   SupportTicketStatus,
   SupportTicketSummary,
 } from "../../../api/types";
@@ -27,12 +30,18 @@ import {
   formatDateTime,
   originLabel,
   priorityLabel,
+  SUPPORT_CATEGORIES,
+  SUPPORT_PRIORITIES,
   SUPPORT_STATUSES,
   sloTimerChip,
   statusLabel,
   ticketCode,
   transitionActionLabel,
 } from "../../../features/support/support-format";
+// §4-18: reuse the REAL multi-field ticket search the legacy support desk
+// proved (title/requester/assignee/category/origin/priority/status), not a
+// re-implemented title-only match.
+import { filterTickets } from "../../../pages/SupportPage";
 import {
   defaultSloSettings,
   sloPosture,
@@ -224,6 +233,35 @@ const buttonStyle: CSSProperties = {
 
 const buttonDisabledStyle: CSSProperties = { ...buttonStyle, cursor: "not-allowed", opacity: 0.5 };
 
+const primaryButtonStyle: CSSProperties = {
+  ...buttonStyle,
+  border: "1px solid var(--signal-deep)",
+  background: "var(--signal)",
+  color: "var(--accent-tx)",
+};
+
+const searchInputStyle: CSSProperties = {
+  minHeight: 44,
+  minWidth: 0,
+  borderRadius: "var(--radius-md)",
+  border: "1px solid var(--border)",
+  background: "var(--surface)",
+  color: "var(--ink)",
+  padding: "0 var(--sp-3)",
+  fontFamily: "var(--font-sans)",
+  fontSize: "var(--text-sm)",
+};
+
+const selectStyle: CSSProperties = { ...searchInputStyle, cursor: "pointer" };
+
+const fieldLabelStyle: CSSProperties = {
+  display: "grid",
+  gap: "var(--sp-1)",
+  color: "var(--steel)",
+  fontSize: "var(--text-xs)",
+  fontWeight: "var(--fw-strong)",
+};
+
 const linkStyle: CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
@@ -279,6 +317,15 @@ export function SupportBody() {
   const [transitionBusy, setTransitionBusy] = useState<SupportTicketStatus | null>(null);
   const [assignBusy, setAssignBusy] = useState(false);
   const [actionFailed, setActionFailed] = useState(false);
+
+  const [search, setSearch] = useState("");
+  const [showCreate, setShowCreate] = useState(false);
+  const [createTitle, setCreateTitle] = useState("");
+  const [createBody, setCreateBody] = useState("");
+  const [createCategory, setCreateCategory] = useState<SupportTicketCategory>(SUPPORT_CATEGORIES[0]);
+  const [createPriority, setCreatePriority] = useState<SupportTicketPriority>("MEDIUM");
+  const [createBusy, setCreateBusy] = useState(false);
+  const [createFailed, setCreateFailed] = useState(false);
 
   const loadTickets = useCallback(async () => {
     setListState("loading");
@@ -339,9 +386,10 @@ export function SupportBody() {
   const items = useMemo(() => drillItems(stats), [stats]);
 
   const visibleTickets = useMemo(() => {
+    const searched = filterTickets(tickets, search.trim());
     const byStatus = statusFilter
-      ? tickets.filter((t) => t.status === statusFilter)
-      : tickets;
+      ? searched.filter((t) => t.status === statusFilter)
+      : searched;
     if (!drill) return byStatus;
     return byStatus.filter((ticket) => {
       switch (drill) {
@@ -358,7 +406,35 @@ export function SupportBody() {
           return ticket.status === "RESOLVED" || ticket.status === "CLOSED";
       }
     });
-  }, [tickets, statusFilter, drill, sloRules, nowMs]);
+  }, [tickets, search, statusFilter, drill, sloRules, nowMs]);
+
+  async function createTicket(): Promise<void> {
+    if (!branchId || createTitle.trim().length === 0 || createBody.trim().length === 0) return;
+    setCreateBusy(true);
+    setCreateFailed(false);
+    const body: CreateInternalTicketRequest = {
+      branch_id: branchId,
+      category: createCategory,
+      priority: createPriority,
+      title: createTitle.trim(),
+      body: createBody.trim(),
+    };
+    const response = await api
+      .POST("/api/v1/support/tickets", { body })
+      .catch(() => undefined);
+    setCreateBusy(false);
+    if (!response?.data) {
+      setCreateFailed(true);
+      return;
+    }
+    setShowCreate(false);
+    setCreateTitle("");
+    setCreateBody("");
+    setCreateCategory(SUPPORT_CATEGORIES[0]);
+    setCreatePriority("MEDIUM");
+    await loadTickets();
+    setSelectedId(response.data.id);
+  }
 
   async function runTransition(to: SupportTicketStatus): Promise<void> {
     if (!selectedId) return;
@@ -419,6 +495,28 @@ export function SupportBody() {
     <div style={rootStyle}>
       <div style={headRowStyle}>
         <h1 style={titleStyle}>{SCREEN_TITLE}</h1>
+        <div style={{ display: "flex", alignItems: "center", gap: "var(--sp-2)", marginLeft: "auto" }}>
+          <input
+            type="search"
+            value={search}
+            aria-label={S.searchAria}
+            placeholder={S.searchPlaceholder}
+            onChange={(event) => {
+              setSearch(event.currentTarget.value);
+            }}
+            style={searchInputStyle}
+          />
+          <button
+            type="button"
+            aria-expanded={showCreate}
+            onClick={() => {
+              setShowCreate((current) => !current);
+            }}
+            style={primaryButtonStyle}
+          >
+            {S.createTitle}
+          </button>
+        </div>
         <div role="group" aria-label={ko.console.supportdesk.statsAria} style={chipRowStyle}>
           {items.map((item) => (
             <button
@@ -439,6 +537,110 @@ export function SupportBody() {
           ))}
         </div>
       </div>
+
+      {showCreate ? (
+        <form
+          aria-label={S.createTitle}
+          onSubmit={(event) => {
+            event.preventDefault();
+            void createTicket();
+          }}
+          style={{ ...cardStyle, gap: "var(--sp-3)" }}
+        >
+          <h2 style={{ margin: 0, fontSize: "var(--text-card-title)" }}>{S.createTitle}</h2>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(2, minmax(0, 1fr))", gap: "var(--sp-3)" }}>
+            <label style={fieldLabelStyle}>
+              {S.form.category}
+              <select
+                value={createCategory}
+                onChange={(event) => {
+                  setCreateCategory(event.currentTarget.value as SupportTicketCategory);
+                }}
+                style={selectStyle}
+              >
+                {SUPPORT_CATEGORIES.map((category) => (
+                  <option key={category} value={category}>
+                    {categoryLabel(category)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label style={fieldLabelStyle}>
+              {S.form.priority}
+              <select
+                value={createPriority}
+                onChange={(event) => {
+                  setCreatePriority(event.currentTarget.value as SupportTicketPriority);
+                }}
+                style={selectStyle}
+              >
+                {SUPPORT_PRIORITIES.map((priority) => (
+                  <option key={priority} value={priority}>
+                    {priorityLabel(priority)}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+          <label style={fieldLabelStyle}>
+            {S.form.ticketTitle}
+            <input
+              value={createTitle}
+              placeholder={S.form.titlePlaceholder}
+              onChange={(event) => {
+                setCreateTitle(event.currentTarget.value);
+              }}
+              style={searchInputStyle}
+            />
+          </label>
+          <label style={fieldLabelStyle}>
+            {S.form.body}
+            <textarea
+              value={createBody}
+              placeholder={S.form.bodyPlaceholder}
+              onChange={(event) => {
+                setCreateBody(event.currentTarget.value);
+              }}
+              style={textareaStyle}
+            />
+          </label>
+          {createFailed ? (
+            <StatusChip tone="danger" role="alert">
+              {S.form.submitFailed}
+            </StatusChip>
+          ) : null}
+          <div style={chipRowStyle}>
+            <button
+              type="submit"
+              disabled={
+                createBusy ||
+                !branchId ||
+                createTitle.trim().length === 0 ||
+                createBody.trim().length === 0
+              }
+              style={
+                createBusy ||
+                !branchId ||
+                createTitle.trim().length === 0 ||
+                createBody.trim().length === 0
+                  ? buttonDisabledStyle
+                  : primaryButtonStyle
+              }
+            >
+              {createBusy ? S.form.submitting : S.form.submit}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setShowCreate(false);
+              }}
+              style={buttonStyle}
+            >
+              {ko.common.cancel}
+            </button>
+          </div>
+        </form>
+      ) : null}
 
       <div style={splitStyle}>
         <section aria-labelledby="support-ticket-list-title" style={cardStyle}>

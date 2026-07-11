@@ -25,9 +25,15 @@ import {
   type OntObjectTypeDef,
 } from "./types";
 
-/** Short display handle for a UUID (drag-token code). API-derived, no fabrication. */
+/** Short display handle for a UUID (drag-token code). API-derived, no fabrication.
+ * Native ontology instance UUIDs share a long all-zero prefix
+ * (00000000-…-000000a90001), so a plain leading slice collapses every instance
+ * to "00000000"; dropping the dashes + leading-zero padding first keeps the
+ * token distinct (mirrors explore/shortId). */
 export function instanceCode(id: string): string {
-  return id.slice(0, 8).toUpperCase();
+  const hex = id.replace(/-/g, "");
+  const distinguishing = hex.replace(/^0+/, "") || hex;
+  return distinguishing.slice(0, 8).toUpperCase();
 }
 
 // `YYYY-MM-DD HH:mm` in KST — mirrors lib/datetime's formatKoreanDateTime,

@@ -113,6 +113,17 @@ const tabButtonStyle: CSSProperties = {
   cursor: "pointer",
 };
 const tabButtonActiveStyle: CSSProperties = { ...tabButtonStyle, border: "1px solid var(--signal)", background: "var(--signal)" };
+const searchInputStyle: CSSProperties = {
+  minHeight: 44,
+  minWidth: 0,
+  flex: "0 1 260px",
+  borderRadius: "var(--radius-md)",
+  border: "1px solid var(--border)",
+  background: "var(--surface)",
+  color: "var(--ink)",
+  padding: "0 var(--sp-3)",
+  fontSize: "var(--text-sm)",
+};
 const tableWrapStyle: CSSProperties = { overflowX: "auto", border: "1px solid var(--border-soft)", borderRadius: "var(--radius)" };
 const tableStyle: CSSProperties = { width: "100%", borderCollapse: "collapse" };
 const thStyle: CSSProperties = {
@@ -179,6 +190,7 @@ export function EvidenceScreenBody() {
   const [retention, setRetention] = useState<Map<string, RetentionEntry>>(new Map());
   const [tab, setTab] = useState<TypeTab>("ALL");
   const [statFilter, setStatFilter] = useState<StatFilter>("ALL");
+  const [search, setSearch] = useState("");
   const [registerNotice, setRegisterNotice] = useState(false);
 
   useEffect(() => {
@@ -242,6 +254,10 @@ export function EvidenceScreenBody() {
 
   const resolveOwner = (id: string): string => users.get(id) ?? id;
 
+  // 코드·제목·작성자 search label composed from existing column i18n keys
+  // (§check-ui-strings bans Hangul literals in lane files — reuse, don't add).
+  const searchLabel = `${T.columns.code}·${T.columns.title}·${T.columns.owner}`;
+
   const stats = useMemo(() => {
     const registeredThisMonth = rows.filter((row) => inCurrentMonth(row.registeredAt)).length;
     const expiring = rows.filter((row) => {
@@ -261,8 +277,17 @@ export function EvidenceScreenBody() {
         return entry?.retentionUntil != null && isExpiringSoon(entry.retentionUntil);
       });
     }
+    const needle = search.trim().toLocaleLowerCase("ko-KR");
+    if (needle.length > 0) {
+      visible = visible.filter((row) =>
+        [row.code, row.title, users.get(row.custodian) ?? row.custodian]
+          .join(" ")
+          .toLocaleLowerCase("ko-KR")
+          .includes(needle),
+      );
+    }
     return visible;
-  }, [rows, tab, statFilter, retention]);
+  }, [rows, tab, statFilter, retention, search, users]);
 
   function toggleStat(next: StatFilter) {
     setStatFilter((current) => (current === next ? "ALL" : next));
@@ -341,21 +366,33 @@ export function EvidenceScreenBody() {
         </button>
       </div>
 
-      <div role="tablist" aria-label={T.columns.type} style={barStyle}>
-        {TAB_ORDER.map((key) => (
-          <button
-            key={key}
-            type="button"
-            role="tab"
-            aria-selected={tab === key}
-            style={tab === key ? tabButtonActiveStyle : tabButtonStyle}
-            onClick={() => {
-              setTab(key);
-            }}
-          >
-            {T.types[key]}
-          </button>
-        ))}
+      <div style={{ ...barStyle, justifyContent: "space-between" }}>
+        <div role="tablist" aria-label={T.columns.type} style={barStyle}>
+          {TAB_ORDER.map((key) => (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={tab === key}
+              style={tab === key ? tabButtonActiveStyle : tabButtonStyle}
+              onClick={() => {
+                setTab(key);
+              }}
+            >
+              {T.types[key]}
+            </button>
+          ))}
+        </div>
+        <input
+          type="search"
+          value={search}
+          aria-label={searchLabel}
+          placeholder={searchLabel}
+          onChange={(event) => {
+            setSearch(event.currentTarget.value);
+          }}
+          style={searchInputStyle}
+        />
       </div>
 
       {listState === "loading" && rows.length === 0 ? (

@@ -131,6 +131,26 @@ describe("EvidenceScreenBody", () => {
     expect(screen.getByText("EV-101")).toBeVisible();
   });
 
+  it("filters the table by the 코드·제목·작성자 search input", async () => {
+    const second = { ...evidenceObjectView, id: "ev-2", code: "EV-202", title: "무단결근 소명 녹취" };
+    renderBody(async (path: unknown) => {
+      await Promise.resolve();
+      if (path === "/api/v1/evidence/objects") {
+        return { data: { items: [evidenceObjectView, second], limit: 200, offset: 0, total: 2 } };
+      }
+      if (path === "/api/v1/users") return { data: { items: [] } };
+      return { data: undefined, response: { status: 404 } };
+    });
+
+    expect(await screen.findByText("EV-101")).toBeVisible();
+    expect(screen.getByText("EV-202")).toBeVisible();
+
+    const searchLabel = `${ko.console.documents.columns.code}·${ko.console.documents.columns.title}·${ko.console.documents.columns.owner}`;
+    await userEvent.type(screen.getByRole("searchbox", { name: searchLabel }), "무단결근");
+    expect(screen.queryByText("EV-101")).not.toBeInTheDocument();
+    expect(screen.getByText("EV-202")).toBeVisible();
+  });
+
   it("shows an empty-until-backend chip for a 유형 tab with no real domain wired (never fabricates rows)", async () => {
     renderBody(async (path: unknown) => {
       await Promise.resolve();

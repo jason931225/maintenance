@@ -168,11 +168,14 @@ export function formatDateTime(value: string | null): string {
 /**
  * SUP- object code derived from the ticket's API id (§4-25-⑥; same derivation
  * pattern as the leave console's JL- codes). Alnum-only so the code is safe in
- * the §4-20 drag-reference token grammar.
+ * the §4-20 drag-reference token grammar. Uses the id's TAIL, not its head:
+ * seeded/sequential UUIDs zero-pad the leading bytes and carry the distinctive
+ * suffix last (…5c0001/…5c0002/…5c0003), so a head slice collapses every row to
+ * the same "SUP-0000" placeholder while the tail gives distinct real codes.
  */
 export function ticketCode(id: string): string {
   const cleaned = id.replaceAll(/[^0-9A-Za-z]/gu, "");
-  return `SUP-${cleaned.slice(0, 4).toUpperCase()}`;
+  return `SUP-${cleaned.slice(-4).toUpperCase()}`;
 }
 
 const HOUR_MS = 60 * 60 * 1000;

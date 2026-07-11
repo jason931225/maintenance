@@ -62,16 +62,27 @@ describe("GraphExplorer", () => {
     expect(screen.getByText(G.zoomLevel(110))).toBeInTheDocument();
   });
 
-  it("resolves the docked inspector card when a node is activated", async () => {
+  it("resolves the focus-node inspector card on mount, before any click", async () => {
     const resolve = vi.fn((node: ObjectExplorerNode) => Promise.resolve(resolvedDescriptor(node)));
     render(<GraphExplorer model={model} resolveNodeDescriptor={resolve} />);
-    // Default inspector is the degraded focus card — no fabricated properties.
-    expect(screen.queryByText("월 계약금")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: ko.console.explore.actions.recenter("NK보안 경비용역") }));
+    // The docked inspector opens with the focus node's real card — no click, so
+    // the relation/property rows are never falsely empty (관계 0개) on landing.
     await waitFor(() => {
       expect(screen.getByText("월 계약금")).toBeInTheDocument();
     });
-    expect(resolve).toHaveBeenCalledTimes(1);
+    expect(resolve).toHaveBeenCalledWith(expect.objectContaining({ id: "n1" }));
+  });
+
+  it("resolves a second node's card when it is activated", async () => {
+    const resolve = vi.fn((node: ObjectExplorerNode) => Promise.resolve(resolvedDescriptor(node)));
+    render(<GraphExplorer model={model} resolveNodeDescriptor={resolve} />);
+    await waitFor(() => {
+      expect(resolve).toHaveBeenCalledWith(expect.objectContaining({ id: "n1" }));
+    });
+    fireEvent.click(screen.getByRole("button", { name: ko.console.explore.actions.recenter("경비 근무 장구") }));
+    await waitFor(() => {
+      expect(resolve).toHaveBeenCalledWith(expect.objectContaining({ id: "n2" }));
+    });
   });
 
   it("shows the honest 조회 전용 state for a projected node and never resolves it", () => {

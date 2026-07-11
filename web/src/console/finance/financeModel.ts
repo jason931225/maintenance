@@ -43,7 +43,7 @@ const wonFormatter = new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 0 }
 const dateFormatter = new Intl.DateTimeFormat("ko-KR", { dateStyle: "short" });
 
 export function formatWon(value: number | null | undefined): string | undefined {
-  return typeof value === "number" ? wonFormatter.format(value) : undefined;
+  return typeof value === "number" ? `₩${wonFormatter.format(value)}` : undefined;
 }
 
 function formatDate(value: string | null | undefined): string | undefined {
@@ -296,7 +296,7 @@ export function toCreateRequest(branchId: string, memo: string, lines: DraftLine
  * revenue/expense account classification (account_code is a free-form string,
  * no chart-of-accounts type field on the wire) — inventing one would be
  * fabricated data, not a real stat. */
-function voucherStats(items: VoucherSummary[]): Record<string, number> {
+function voucherStats(items: VoucherSummary[]): Record<string, string | number> {
   const currentPeriod = new Date().toISOString().slice(0, 7);
   let pending = 0;
   let postedThisMonth = 0;
@@ -310,7 +310,14 @@ function voucherStats(items: VoucherSummary[]): Record<string, number> {
     }
     if (item.source_object_type) auto += 1;
   }
-  return { pending, postedThisMonth, postedAmountThisMonth, auto };
+  // The amount stat is money, not a count — render it as ₩ (verdict R9: it was
+  // leaking the raw integer "850000"). Counts stay numeric.
+  return {
+    pending,
+    postedThisMonth,
+    postedAmountThisMonth: `₩${wonFormatter.format(postedAmountThisMonth)}`,
+    auto,
+  };
 }
 
 export function makeFinanceDataAdapter(

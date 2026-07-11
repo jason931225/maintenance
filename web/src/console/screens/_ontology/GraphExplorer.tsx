@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 
 import { ko } from "../../../i18n/ko";
 import { StatusChip } from "../../components";
@@ -374,6 +374,17 @@ export function GraphExplorer({
     },
     [resolveNodeDescriptor, isProjected, resolved, failed],
   );
+
+  // Resolve the currently-selected node (the focus on first mount) so the docked
+  // inspector opens with its real relations/properties instead of the degraded
+  // 관계 0개 card — the summary already claims the relation count, so the card
+  // must not read empty before the user clicks. Guarded (projected/resolved/
+  // failed) inside `resolve`, so this is a no-op once a node is loaded.
+  useEffect(() => {
+    if (!view) return;
+    const target = view.nodes.find((node) => node.id === (selectedId ?? focusId)) ?? view.focus;
+    resolve(target);
+  }, [view, selectedId, focusId, resolve]);
 
   const onNodeActivate = useCallback(
     (node: ObjectExplorerNode): void => {

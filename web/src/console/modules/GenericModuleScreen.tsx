@@ -43,6 +43,11 @@ const T = ko.console.modules.common;
 const rootStyle: CSSProperties = {
   minHeight: "100%",
   display: "grid",
+  // Pack rows at the top: with minHeight 100% and implicit auto rows, the grid's
+  // default align-content stretches the tracks to fill the tall canvas, opening
+  // a phantom band between the header and the stat chips (verdict R9). Start-pack
+  // keeps sections at their natural spacing.
+  alignContent: "start",
   gap: "var(--sp-5)",
   padding: "var(--sp-6)",
   background: "var(--canvas)",
@@ -390,9 +395,13 @@ function isScalarDetailValue(value: ModuleDetailValue): value is string | number
 }
 
 function cellStyle(column: ModuleColumnConfig): CSSProperties {
+  const numeric = column.align === "end";
   return {
     ...tdStyle,
-    textAlign: column.align === "end" ? "right" : "left",
+    textAlign: numeric ? "right" : "left",
+    // Money/count columns must never wrap mid-number ("620,\n000"); keep the
+    // formatted amount on one line (verdict R9).
+    ...(numeric ? { whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" } : {}),
   };
 }
 

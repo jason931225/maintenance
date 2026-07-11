@@ -119,9 +119,21 @@ describe("ObjectExplorerScreen", () => {
     expect(view.focus.id).toBe("att_cho");
     expect(view.upstream.map((link) => link.node.id)).toEqual(["c207", "audit_cho"]);
     expect(view.downstream.map((link) => link.node.id)).toEqual(["pay_cho"]);
+    // Focus is centred; every other node is spread on a radial ring around it
+    // (non-zero distance from centre) with no two nodes sharing a position —
+    // the fix for the old column/bottom-band pile-up.
     expect(layout.find((node) => node.id === "att_cho")).toMatchObject({ x: 50, y: 50 });
-    expect(layout.find((node) => node.id === "c207")?.x).toBeLessThan(50);
-    expect(layout.find((node) => node.id === "pay_cho")?.x).toBeGreaterThan(50);
+    const neighbours = layout.filter((node) => node.id !== "att_cho");
+    for (const node of neighbours) {
+      const distance = Math.hypot(node.x - 50, node.y - 50);
+      expect(distance).toBeGreaterThan(0);
+      expect(node.x).toBeGreaterThanOrEqual(0);
+      expect(node.x).toBeLessThanOrEqual(100);
+      expect(node.y).toBeGreaterThanOrEqual(0);
+      expect(node.y).toBeLessThanOrEqual(100);
+    }
+    const positions = new Set(neighbours.map((node) => `${node.x.toFixed(2)},${node.y.toFixed(2)}`));
+    expect(positions.size).toBe(neighbours.length);
   });
 
   it("renders upstream/downstream relation controls and re-centers from real object_links", () => {

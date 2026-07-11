@@ -122,7 +122,7 @@ ON CONFLICT (id) DO NOTHING;
 --     that diverges from the real write). Sourced from the two seeded
 --     evidence_media rows above (source_type='work_order_evidence_media'). ────
 INSERT INTO docs_evidence_code_counters (org_id, object_prefix, next_value) VALUES
-  ('00000000-0000-0000-0000-0000000000a1', 'EV', 3)
+  ('00000000-0000-0000-0000-0000000000a1', 'EV', 13)
 ON CONFLICT (org_id, object_prefix) DO NOTHING;
 
 INSERT INTO docs_evidence_objects (
@@ -147,6 +147,71 @@ ON CONFLICT (id) DO NOTHING;
 INSERT INTO object_lifecycles (id, org_id, object_type, object_id, current_state, legal_hold, retention_until) VALUES
   ('00000000-0000-0000-0000-0000001c0003', '00000000-0000-0000-0000-0000000000a1', 'evidence_object', '00000000-0000-0000-0000-000000ef0001', 'registered', false, (current_date + 60)),
   ('00000000-0000-0000-0000-0000001c0004', '00000000-0000-0000-0000-0000000000a1', 'evidence_object', '00000000-0000-0000-0000-000000ef0002', 'registered', false, (current_date + 1095))
+ON CONFLICT (id) DO NOTHING;
+
+-- ── evidence depth (r9): two evidence objects left the 증거 table nearly empty
+-- against the reference's dense record list. Add ten more registered records
+-- (varied source_type/classification/owner, registration dates spread over
+-- recent months) so the table reads populated and the 총 기록물 / 이번달 등록
+-- stats compute real counts. Each object carries its REGISTERED custody event,
+-- exactly as the domain's create path writes it (counter → object → custody).
+INSERT INTO docs_evidence_objects (
+  id, org_id, code, title, description, source_type, source_id, source_code,
+  classification, record_owner_user_id, created_by, updated_by, created_at
+)
+SELECT
+  ('00000000-0000-0000-0000-000000ef0' || lpad(v.seq::text, 3, '0'))::uuid,
+  '00000000-0000-0000-0000-0000000000a1',
+  'EV-' || lpad(v.seq::text, 6, '0'),
+  v.title, v.descr, v.stype, v.sid, v.scode, v.cls,
+  v.owner::uuid, v.owner::uuid, v.owner::uuid,
+  now() - (v.days_ago || ' days')::interval
+FROM (VALUES
+  (3,  '현장 CCTV 클립 — 지게차 유압 누유 정황', '창원센터 반입구 CCTV에서 확인된 누유 발생 시점 영상', 'external_document', 'ext-cctv-c207-0705', 'CAM-207', 'INTERNAL', '00000000-0000-0000-0000-00000000d002', 2),
+  (4,  '무단결근 소명 진술 녹취', '근태 이의 제기 건 소명 청취 녹취 파일', 'inbox_doc', 'inbox-hr-0630', 'HR-0630', 'SENSITIVE', '00000000-0000-0000-0000-00000000d001', 5),
+  (5,  '하도급 서면실태조사 대응 자료', '공정위 서면실태조사 회신 첨부 문서', 'mail_attachment', 'mail-fair-0628', 'FAIR-0628', 'CONFIDENTIAL', '00000000-0000-0000-0000-00000000d001', 9),
+  (6,  '정기 점검 완료 사진 — KNLFL-0001', '2.5톤 디젤 지게차 정기점검 완료 상태 사진', 'work_order_evidence_media', 'wo-media-ad0005', '20260601-005', 'GENERAL', '00000000-0000-0000-0000-00000000d002', 14),
+  (7,  '브레이크 패드 교체 전후 비교 사진', '제동 성능 저하 정비 증빙', 'work_order_evidence_media', 'wo-media-ad0007', '20260401-007', 'INTERNAL', '00000000-0000-0000-0000-00000000d002', 22),
+  (8,  '임대 계약 갱신 합의서 스캔본', '한성물류 지게차 임대 계약 갱신 서명본', 'record_archive', 'arch-contract-c209', 'C-209', 'CONFIDENTIAL', '00000000-0000-0000-0000-00000000d003', 33),
+  (9,  '유압 호스 교체 부품 수령 증빙', '작동유 누유 정비 부품 입고 확인 사진', 'work_order_evidence_media', 'wo-media-ad0009', '20260201-009', 'GENERAL', '00000000-0000-0000-0000-00000000d002', 45),
+  (10, '고객 클레임 대응 이메일 스레드', '부산 창고 유압 누유 재발 클레임 대응 기록', 'mail_attachment', 'mail-claim-0210', 'SUP-5C0003', 'INTERNAL', '00000000-0000-0000-0000-00000000d003', 62),
+  (11, '전조등 교체 작업 완료 확인서', '야간 작업등 불량 정비 완료 확인 서명', 'record_archive', 'arch-wo-ad0008', '20260301-008', 'GENERAL', '00000000-0000-0000-0000-00000000d002', 88),
+  (12, '2026 상반기 정기 안전점검 보고서', '반기 안전점검 결과 종합 보고 문서', 'record_archive', 'arch-safety-2026h1', 'SAFE-2026H1', 'INTERNAL', '00000000-0000-0000-0000-00000000d001', 120)
+) AS v(seq, title, descr, stype, sid, scode, cls, owner, days_ago)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO docs_evidence_custody_events (
+  id, org_id, evidence_object_id, stage, actor_user_id, reason, source_ref,
+  event_digest_sha256, occurred_at
+)
+SELECT
+  ('00000000-0000-0000-0000-000000ef1' || lpad(v.seq::text, 3, '0'))::uuid,
+  '00000000-0000-0000-0000-0000000000a1',
+  ('00000000-0000-0000-0000-000000ef0' || lpad(v.seq::text, 3, '0'))::uuid,
+  'REGISTERED', v.owner::uuid, '기록물 등재',
+  jsonb_build_object('source_type', v.stype, 'source_id', v.sid, 'source_code', v.scode),
+  encode(sha256(('ev-' || lpad(v.seq::text, 6, '0') || '-registered')::bytea), 'hex'),
+  now() - (v.days_ago || ' days')::interval
+FROM (VALUES
+  (3,  'external_document', 'ext-cctv-c207-0705', 'CAM-207', '00000000-0000-0000-0000-00000000d002', 2),
+  (4,  'inbox_doc', 'inbox-hr-0630', 'HR-0630', '00000000-0000-0000-0000-00000000d001', 5),
+  (5,  'mail_attachment', 'mail-fair-0628', 'FAIR-0628', '00000000-0000-0000-0000-00000000d001', 9),
+  (6,  'work_order_evidence_media', 'wo-media-ad0005', '20260601-005', '00000000-0000-0000-0000-00000000d002', 14),
+  (7,  'work_order_evidence_media', 'wo-media-ad0007', '20260401-007', '00000000-0000-0000-0000-00000000d002', 22),
+  (8,  'record_archive', 'arch-contract-c209', 'C-209', '00000000-0000-0000-0000-00000000d003', 33),
+  (9,  'work_order_evidence_media', 'wo-media-ad0009', '20260201-009', '00000000-0000-0000-0000-00000000d002', 45),
+  (10, 'mail_attachment', 'mail-claim-0210', 'SUP-5C0003', '00000000-0000-0000-0000-00000000d003', 62),
+  (11, 'record_archive', 'arch-wo-ad0008', '20260301-008', '00000000-0000-0000-0000-00000000d002', 88),
+  (12, 'record_archive', 'arch-safety-2026h1', 'SAFE-2026H1', '00000000-0000-0000-0000-00000000d001', 120)
+) AS v(seq, stype, sid, scode, owner, days_ago)
+ON CONFLICT (id) DO NOTHING;
+
+-- Retention for a few of the new records; EV-000004 sits inside the 90-day
+-- window so the 보존 만료 임박 stat reflects more than one object.
+INSERT INTO object_lifecycles (id, org_id, object_type, object_id, current_state, legal_hold, retention_until) VALUES
+  ('00000000-0000-0000-0000-0000001c0005', '00000000-0000-0000-0000-0000000000a1', 'evidence_object', '00000000-0000-0000-0000-000000ef0004', 'registered', false, (current_date + 45)),
+  ('00000000-0000-0000-0000-0000001c0006', '00000000-0000-0000-0000-0000000000a1', 'evidence_object', '00000000-0000-0000-0000-000000ef0008', 'registered', false, (current_date + 1825)),
+  ('00000000-0000-0000-0000-0000001c0007', '00000000-0000-0000-0000-0000000000a1', 'evidence_object', '00000000-0000-0000-0000-000000ef0012', 'registered', false, (current_date + 730))
 ON CONFLICT (id) DO NOTHING;
 
 -- ── policy roles + permissions + version (거버넌스 / 정책) ───────────────────
@@ -428,6 +493,22 @@ INSERT INTO workflow_waiting_tasks (
   ('00000000-0000-0000-0000-000000e90001', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000e80001', 'approve_completion', '작업지시 완료 승인 요청', 'CLAIMED', 'branch_manager', 'work_order', '00000000-0000-0000-0000-000000ad0002', now() + interval '6 hours', '00000000-0000-0000-0000-00000000d001', now())
 ON CONFLICT (id) DO NOTHING;
 
+-- ── workflow run history (자동화 → 워크플로 스튜디오 실행 이력, r9): the
+-- run-log panel reads settled workflow_runs (SUCCEEDED/FAILED) with a duration
+-- (started_at→completed_at/failed_at) and output_payload.generated_objects for
+-- the object chips. With only the single WAITING run above the 실행 이력 stays
+-- empty; seed a handful of settled runs so the panel shows real executions with
+-- durations and generated-object chips (the real run write shape).
+INSERT INTO workflow_runs (
+  id, org_id, definition_id, definition_version, status, trigger_type, object_type, object_id,
+  idempotency_key, correlation_id, initiated_by, output_payload, error_payload, started_at, updated_at, completed_at, failed_at
+) VALUES
+  ('00000000-0000-0000-0000-000000e80002', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000f00001', 1, 'SUCCEEDED', 'OBJECT_EVENT', 'work_order', '00000000-0000-0000-0000-000000ad0001', 'seed-run-ad0001-approve', 'seed-corr-run-ad0001', '00000000-0000-0000-0000-00000000d003', '{"generated_objects":["20260701-001"]}'::jsonb, NULL, now() - interval '6 hours', now() - interval '6 hours' + interval '800 milliseconds', now() - interval '6 hours' + interval '800 milliseconds', NULL),
+  ('00000000-0000-0000-0000-000000e80003', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000f00001', 1, 'SUCCEEDED', 'MANUAL', 'work_order', '00000000-0000-0000-0000-000000ad0005', 'seed-run-ad0005-approve', 'seed-corr-run-ad0005', '00000000-0000-0000-0000-00000000d001', '{"generated_objects":["20260601-005"]}'::jsonb, NULL, now() - interval '2 days', now() - interval '2 days' + interval '600 milliseconds', now() - interval '2 days' + interval '600 milliseconds', NULL),
+  ('00000000-0000-0000-0000-000000e80004', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000f00001', 1, 'SUCCEEDED', 'OBJECT_EVENT', 'work_order', '00000000-0000-0000-0000-000000ad0006', 'seed-run-ad0006-approve', 'seed-corr-run-ad0006', '00000000-0000-0000-0000-00000000d003', '{"generated_objects":["20260501-006"]}'::jsonb, NULL, now() - interval '9 days', now() - interval '9 days' + interval '1200 milliseconds', now() - interval '9 days' + interval '1200 milliseconds', NULL),
+  ('00000000-0000-0000-0000-000000e80005', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000f00001', 1, 'FAILED', 'OBJECT_EVENT', 'work_order', '00000000-0000-0000-0000-000000ad0007', 'seed-run-ad0007-approve', 'seed-corr-run-ad0007', '00000000-0000-0000-0000-00000000d003', '{}'::jsonb, '{"error":"승인자 부재로 자동 반려"}'::jsonb, now() - interval '15 days', now() - interval '15 days' + interval '400 milliseconds', NULL, now() - interval '15 days' + interval '400 milliseconds')
+ON CONFLICT (id) DO NOTHING;
+
 -- ── messenger threads (커뮤니케이션 / 메신저) — two named branch channels, one
 --    work-order auto-thread, one DM, dense with real message rows. ─────────
 INSERT INTO messenger_threads (id, org_id, kind, branch_id, work_order_id, title, created_by, visibility) VALUES
@@ -545,6 +626,53 @@ INSERT INTO work_order_approval_steps (id, org_id, work_order_id, step_order, ro
   ('00000000-0000-0000-0000-000000af0007', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000ad0007', 1, 'EXECUTIVE', '00000000-0000-0000-0000-00000000d004', 'APPROVED', date_trunc('month', now()) - interval '3 months' + interval '9 days', date_trunc('month', now()) - interval '3 months' + interval '10 days', '00000000-0000-0000-0000-00000000d004'),
   ('00000000-0000-0000-0000-000000af0008', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000ad0008', 1, 'EXECUTIVE', '00000000-0000-0000-0000-00000000d004', 'APPROVED', date_trunc('month', now()) - interval '4 months' + interval '9 days', date_trunc('month', now()) - interval '4 months' + interval '10 days', '00000000-0000-0000-0000-00000000d004'),
   ('00000000-0000-0000-0000-000000af0009', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000ad0009', 1, 'EXECUTIVE', '00000000-0000-0000-0000-00000000d004', 'APPROVED', date_trunc('month', now()) - interval '5 months' + interval '9 days', date_trunc('month', now()) - interval '5 months' + interval '10 days', '00000000-0000-0000-0000-00000000d004')
+ON CONFLICT (id) DO NOTHING;
+
+-- ── dashboard trend depth (r9): the six completions above give exactly ONE
+-- approval per trailing month — a FLAT all-1s series the 완료 추이 panel draws
+-- as a degenerate sparkline, and a current-month stat strip stuck at 1건. Add
+-- EXTRA completions so the per-month count VARIES (2→5) and route ~1/3 to
+-- 부산 지점 (c2) so the 범위별 완료 bars differ per scope instead of reading an
+-- identical 1건. Same real completion write shape: FINAL_COMPLETED + an
+-- EXECUTIVE approval APPROVED within the month (the KPI rollup's count key).
+INSERT INTO registry_customers (id, branch_id, name, org_id) VALUES
+  ('00000000-0000-0000-0000-000000c00002', '00000000-0000-0000-0000-0000000000c2', '부산해운대물류㈜', '00000000-0000-0000-0000-0000000000a1')
+ON CONFLICT (id) DO NOTHING;
+INSERT INTO registry_sites (id, branch_id, customer_id, name, org_id, address, province, city) VALUES
+  ('00000000-0000-0000-0000-000000c10002', '00000000-0000-0000-0000-0000000000c2', '00000000-0000-0000-0000-000000c00002', '부산해운대물류 센터', '00000000-0000-0000-0000-0000000000a1', '부산 해운대구 센텀중앙로 55', '부산광역시', '부산광역시')
+ON CONFLICT (id) DO NOTHING;
+INSERT INTO registry_equipment (id, branch_id, customer_id, site_id, equipment_no, manufacturer_code, kind_code, power_code, status, specification, ton_text, source_sheet, source_row, org_id) VALUES
+  ('00000000-0000-0000-0000-000000c20003', '00000000-0000-0000-0000-0000000000c2', '00000000-0000-0000-0000-000000c00002', '00000000-0000-0000-0000-000000c10002', 'KNLFL-0003', 'CLARK', 'FORKLIFT', 'DIESEL', '임대', '디젤 지게차 3.0톤', '3.0톤', '장비대장', 4, '00000000-0000-0000-0000-0000000000a1')
+ON CONFLICT (id) DO NOTHING;
+
+-- Extra completed work orders: extra[ago] = {5:1,4:2,3:2,2:3,1:4,0:3}; combined
+-- with the one existing completion per month the series becomes 2,3,3,4,5,4.
+INSERT INTO work_orders (id, request_no, branch_id, equipment_id, customer_id, site_id, requested_by, status, priority, symptom, customer_request, result_type, kpi_excluded, evidence_verified, org_id)
+SELECT
+  ('00000000-0000-0000-0000-e5' || lpad((p.ago * 100 + g.n)::text, 10, '0'))::uuid,
+  to_char(date_trunc('month', now()) - (p.ago || ' months')::interval, 'YYYYMM') || '20-' || lpad((600 + p.ago * 20 + g.n)::text, 3, '0'),
+  (CASE WHEN (p.ago + g.n) % 3 = 0 THEN '00000000-0000-0000-0000-0000000000c2' ELSE '00000000-0000-0000-0000-0000000000c1' END)::uuid,
+  (CASE WHEN (p.ago + g.n) % 3 = 0 THEN '00000000-0000-0000-0000-000000c20003'
+       WHEN g.n % 2 = 0 THEN '00000000-0000-0000-0000-000000c20002'
+       ELSE '00000000-0000-0000-0000-000000c20001' END)::uuid,
+  (CASE WHEN (p.ago + g.n) % 3 = 0 THEN '00000000-0000-0000-0000-000000c00002' ELSE '00000000-0000-0000-0000-000000c00001' END)::uuid,
+  (CASE WHEN (p.ago + g.n) % 3 = 0 THEN '00000000-0000-0000-0000-000000c10002' ELSE '00000000-0000-0000-0000-000000c10001' END)::uuid,
+  '00000000-0000-0000-0000-00000000d003'::uuid, 'FINAL_COMPLETED', 'P2', '정기 정비 완료', '정기 점검 및 소모품 교체', 'COMPLETED', false, true, '00000000-0000-0000-0000-0000000000a1'::uuid
+FROM (VALUES (5, 1), (4, 2), (3, 2), (2, 3), (1, 4), (0, 3)) AS p(ago, extra),
+     LATERAL generate_series(1, p.extra) AS g(n)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO work_order_approval_steps (id, org_id, work_order_id, step_order, role, approver_id, status, requested_at, approved_at, approved_by_id)
+SELECT
+  ('00000000-0000-0000-0000-e6' || lpad((p.ago * 100 + g.n)::text, 10, '0'))::uuid,
+  '00000000-0000-0000-0000-0000000000a1'::uuid,
+  ('00000000-0000-0000-0000-e5' || lpad((p.ago * 100 + g.n)::text, 10, '0'))::uuid,
+  1, 'EXECUTIVE', '00000000-0000-0000-0000-00000000d004'::uuid, 'APPROVED',
+  LEAST(now() - interval '2 hours', date_trunc('month', now()) - (p.ago || ' months')::interval + interval '9 days' + (g.n || ' hours')::interval),
+  LEAST(now() - interval '1 hour', date_trunc('month', now()) - (p.ago || ' months')::interval + interval '10 days' + (g.n || ' hours')::interval),
+  '00000000-0000-0000-0000-00000000d004'::uuid
+FROM (VALUES (5, 1), (4, 2), (3, 2), (2, 3), (1, 4), (0, 3)) AS p(ago, extra),
+     LATERAL generate_series(1, p.extra) AS g(n)
 ON CONFLICT (id) DO NOTHING;
 
 -- ── site attendance events (대시보드 사업장 커버리지 card) ─────────────────────

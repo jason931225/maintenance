@@ -618,7 +618,8 @@ export interface SupportStats {
   resolvedHistory: number;
 }
 
-function filterTickets(tickets: SupportTicketSummary[], searchTerm: string) {
+// eslint-disable-next-line react-refresh/only-export-components
+export function filterTickets(tickets: SupportTicketSummary[], searchTerm: string) {
   if (searchTerm.length === 0) {
     return tickets;
   }

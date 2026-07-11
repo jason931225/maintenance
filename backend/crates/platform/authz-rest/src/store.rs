@@ -52,6 +52,7 @@ pub struct CatalogEntry {
     pub status: String,
     pub source: String,
     pub validation_status: String,
+    #[serde(with = "time::serde::rfc3339")]
     pub updated_at: time::OffsetDateTime,
 }
 
@@ -67,7 +68,9 @@ pub struct DraftRecord {
     pub review_status: String,
     pub reviewer_id: Option<Uuid>,
     pub created_by: Uuid,
+    #[serde(with = "time::serde::rfc3339")]
     pub created_at: time::OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
     pub updated_at: time::OffsetDateTime,
 }
 
@@ -688,4 +691,60 @@ fn errors_json(validation: &DraftValidation) -> serde_json::Value {
             .map(|e| serde_json::Value::String(e.clone()))
             .collect(),
     )
+}
+
+#[cfg(test)]
+mod serde_tests {
+    use super::*;
+
+    // Regression guard (R9 policy HARD FAIL): `time::OffsetDateTime` with serde's
+    // default impl serializes as a numeric `[year, ordinal, hour, …]` array, which
+    // the web client's `str(row, "updated_at")` parser rejects → the whole 권한·정책
+    // surface collapsed to its error banner. Every timestamp the policy REST reads
+    // back MUST serialize as an RFC3339 string (the openapi/client contract).
+    #[test]
+    fn policy_timestamps_serialize_as_rfc3339_strings() {
+        let now = OffsetDateTime::now_utc();
+
+        let catalog = CatalogEntry {
+            id: Uuid::nil(),
+            stable_key: "policy.wo_view".into(),
+            title: "Work order view".into(),
+            effect: "permit".into(),
+            status: "enforced".into(),
+            source: "seed".into(),
+            validation_status: "valid".into(),
+            updated_at: now,
+        };
+        let value = serde_json::to_value(&catalog).expect("catalog serializes");
+        assert!(
+            value["updated_at"].is_string(),
+            "catalog updated_at must be a string, got {}",
+            value["updated_at"]
+        );
+
+        let draft = DraftRecord {
+            id: Uuid::nil(),
+            draft_key: "policy.x".into(),
+            title: "Draft".into(),
+            normalized_row: serde_json::json!({}),
+            generated_policy_text: "permit(principal, action, resource);".into(),
+            validation_status: "valid".into(),
+            validation_errors: serde_json::json!([]),
+            review_status: "draft".into(),
+            reviewer_id: None,
+            created_by: Uuid::nil(),
+            created_at: now,
+            updated_at: now,
+        };
+        let value = serde_json::to_value(&draft).expect("draft serializes");
+        assert!(
+            value["created_at"].is_string(),
+            "draft created_at must be a string"
+        );
+        assert!(
+            value["updated_at"].is_string(),
+            "draft updated_at must be a string"
+        );
+    }
 }

@@ -158,4 +158,57 @@ describe("SupportBody (console screen composition)", () => {
     await userEvent.click(screen.getByText(second.title));
     expect(await screen.findByRole("heading", { name: second.title })).toBeVisible();
   });
+
+  it("filters the ticket list by the header search input (title/requester/…)", async () => {
+    const second = { ...openTicket, id: "33333333-3333-4333-8333-333333333333", title: "배터리 방전 문의" };
+    installHandlers([openTicket, second]);
+    server.use(
+      http.get("*/api/v1/support/tickets/:id", ({ params }) =>
+        HttpResponse.json({
+          ticket: params.id === openTicket.id ? openTicket : second,
+          comments: [],
+        }),
+      ),
+    );
+    renderBody();
+
+    const list = screen.getByRole("region", { name: ko.support.listTitle });
+    expect(await within(list).findByText(openTicket.title)).toBeVisible();
+    expect(within(list).getByText(second.title)).toBeVisible();
+
+    // Search filters the LIST (the detail pane keeps its selection).
+    await userEvent.type(screen.getByRole("searchbox", { name: ko.support.searchAria }), "배터리");
+    expect(within(list).queryByText(openTicket.title)).not.toBeInTheDocument();
+    expect(within(list).getByText(second.title)).toBeVisible();
+  });
+
+  it("opens the 티켓 접수 create form and POSTs a real internal ticket", async () => {
+    installHandlers([]);
+    const created = { ...openTicket, id: "44444444-4444-4444-8444-444444444444", title: "새 티켓" };
+    let posted: unknown;
+    server.use(
+      http.post("*/api/v1/support/tickets", async ({ request }) => {
+        posted = await request.json();
+        return HttpResponse.json(created);
+      }),
+      http.get("*/api/v1/support/tickets/:id", () =>
+        HttpResponse.json({ ticket: created, comments: [] }),
+      ),
+    );
+    renderBody();
+
+    await screen.findByText(ko.support.empty);
+    await userEvent.click(screen.getByRole("button", { name: ko.support.createTitle, expanded: false }));
+    await userEvent.type(screen.getByLabelText(ko.support.form.ticketTitle), "새 티켓");
+    await userEvent.type(screen.getByLabelText(ko.support.form.body), "증상 상세");
+    await userEvent.click(screen.getByRole("button", { name: ko.support.form.submit }));
+
+    expect(await screen.findByRole("heading", { name: created.title })).toBeVisible();
+    expect(posted).toMatchObject({
+      branch_id: session.branches[0],
+      title: "새 티켓",
+      body: "증상 상세",
+      priority: "MEDIUM",
+    });
+  });
 });
