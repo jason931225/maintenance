@@ -425,18 +425,16 @@ export const financeModuleScreen: ModuleScreenConfig = {
     laneGroupBy: "status",
     // Labels/variants derive from ONT_TYPES.finance_voucher.propSchema; only
     // surface-specific overrides (source render, alignment) stay in config.
+    // r14: cut to the essential master-list set (code/title/amount) — status
+    // and source fold into the title cell as a "titleMeta" chip row instead
+    // of owning their own columns; gl/links/postedAt move to the detail pane
+    // only. 8 columns crammed into the shrinking list track (beside the
+    // detail pin) is what forced 내용 to wrap one 글자 per line — structure,
+    // not cell styling, was the bug (verdict r14 "finance master illegible").
     columns: [
       { key: "code" },
-      { key: "status" },
-      { key: "source", variant: "source" },
-      // Free-text voucher 내용 (e.g. "부산 지점 정기점검 부품비") — let it wrap so
-      // it doesn't force the row (and 금액 after it) past the visible list
-      // track (verdict r13 "finance amount clips at panel edge").
-      { key: "title", wrap: true },
+      { key: "title", variant: "titleMeta", wrap: true },
       { key: "amount", align: "end" },
-      { key: "gl", variant: "mono" },
-      { key: "links" },
-      { key: "postedAt", variant: "mono" },
     ],
   },
   detail: {

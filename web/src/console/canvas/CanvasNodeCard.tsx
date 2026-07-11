@@ -125,13 +125,25 @@ export interface CanvasNodeCardProps {
   onActivate?: () => void;
 }
 
+// A non-branch node's single output has no product-defined port name — its only
+// key is the internal "out". Show a neutral flow glyph, never the raw machine
+// key (verdict r13 "'out' port label"). Branch ports keep their real names
+// (met/unmet, approved/rejected) since those ARE meaningful to the reader.
+const IMPLICIT_OUTPUT_GLYPH = "→";
+
 /** Which ports this node renders as connect handles. */
-function handlePorts(node: CanvasNode): { port: string; label: string }[] {
+function handlePorts(
+  node: CanvasNode,
+): { port: string; label: string; implicit: boolean }[] {
   if (node.outputs && node.outputs.length > 0) {
-    return node.outputs.map((o) => ({ port: o.port, label: o.label }));
+    return node.outputs.map((o) => ({ port: o.port, label: o.label, implicit: false }));
   }
   // Non-branch kinds carry a single implicit output; branch is validated ≥2.
-  return nodePorts(node).map((port) => ({ port, label: port }));
+  return nodePorts(node).map((port) => ({
+    port,
+    label: IMPLICIT_OUTPUT_GLYPH,
+    implicit: true,
+  }));
 }
 
 export function CanvasNodeCard({
@@ -181,7 +193,7 @@ export function CanvasNodeCard({
       ) : null}
       {showPorts && ports.length > 0 ? (
         <div aria-label={strings.outputsLabel} style={portListStyle}>
-          {ports.map(({ port, label }) => (
+          {ports.map(({ port, label, implicit }) => (
             <button
               key={port}
               type="button"
@@ -204,7 +216,11 @@ export function CanvasNodeCard({
               }}
             >
               <span>{label}</span>
-              <StatusChip tone={activePort === port ? "accent" : "neutral"}>{port}</StatusChip>
+              {/* The machine key chip is only informative for named branch ports;
+                  for the implicit single output it would just re-print "out". */}
+              {implicit ? null : (
+                <StatusChip tone={activePort === port ? "accent" : "neutral"}>{port}</StatusChip>
+              )}
             </button>
           ))}
         </div>

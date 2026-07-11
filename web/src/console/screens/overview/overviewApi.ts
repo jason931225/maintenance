@@ -27,6 +27,8 @@ export interface CommsRailApi {
   loadNotificationCounts(): Promise<NotificationCountsSummary>;
   loadNotifications(): Promise<NotificationSummary[]>;
   loadMailThreads(): Promise<MailThreadSummary[]>;
+  /** 모두 읽음 — mark every unread notification read (server-scoped to the caller). */
+  markAllNotificationsRead(): Promise<void>;
 }
 
 export function createCommsRailApi(accessToken?: string): CommsRailApi {
@@ -50,6 +52,8 @@ export function createCommsRailApi(accessToken?: string): CommsRailApi {
       requestJson<MailThreadSummary[]>("/api/v1/mail/threads?unread=true&limit=5", accessToken).catch(
         () => [],
       ),
+    markAllNotificationsRead: () =>
+      requestVoid("/api/v1/me/notifications/read-all", accessToken),
   };
 }
 
@@ -78,4 +82,14 @@ async function requestJson<T>(path: string, accessToken?: string): Promise<T> {
     throw new Error(`overview request failed ${String(response.status)}`);
   }
   return (await response.json()) as T;
+}
+
+/** POST with no response body (idempotent mutations like read-all). */
+async function requestVoid(path: string, accessToken?: string): Promise<void> {
+  const headers = new Headers();
+  if (accessToken) headers.set("Authorization", `Bearer ${accessToken}`);
+  const response = await fetch(path, { method: "POST", headers, credentials: "include" });
+  if (!response.ok) {
+    throw new Error(`overview request failed ${String(response.status)}`);
+  }
 }

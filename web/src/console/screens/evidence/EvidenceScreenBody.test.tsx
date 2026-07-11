@@ -121,8 +121,15 @@ describe("EvidenceScreenBody", () => {
     });
 
     await screen.findByText("EV-101");
-    expect(screen.getByText(ko.console.evidence.sourceTypes.external_document)).toBeVisible();
-    expect(screen.getByText(ko.console.evidence.sourceTypes.inbox_doc)).toBeVisible();
+    const externalChip = screen.getByText(ko.console.evidence.sourceTypes.external_document);
+    const inboxChip = screen.getByText(ko.console.evidence.sourceTypes.inbox_doc);
+    expect(externalChip).toBeVisible();
+    expect(inboxChip).toBeVisible();
+    // …and each 유형 carries its OWN chip color (categorical legend), not one
+    // flat tone on every row — different source_type ⇒ different chip color.
+    expect(externalChip.style.color).not.toBe("");
+    expect(inboxChip.style.color).not.toBe("");
+    expect(externalChip.style.color).not.toBe(inboxChip.style.color);
   });
 
   it("drills the 보존 만료 임박 stat into a filtered table", async () => {

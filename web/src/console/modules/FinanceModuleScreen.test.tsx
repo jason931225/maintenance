@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { PolicyGateProvider, type PolicyGate } from "../policy";
@@ -156,6 +156,43 @@ describe("FinanceModuleScreen", () => {
       .closest("td");
     expect(titleCell).not.toBeNull();
     expect(titleCell).toHaveStyle({ whiteSpace: "normal" });
+  });
+
+  it("folds status + source into the title cell as chips (titleMeta), matching the real financeModuleScreen list shape", () => {
+    const rowConfig: ModuleScreenConfig = {
+      ...liveRowConfig,
+      list: {
+        ...liveRowConfig.list,
+        columns: financeModuleScreen.list.columns,
+      },
+      rows: [
+        {
+          id: "row-1",
+          code: "VC-1001",
+          status: { labelKey: "console.modules.finance.statuses.active", tone: "ok" },
+          source: {
+            labelKey: "console.modules.finance.links.purchase",
+            tone: "info",
+            code: "PS-9001",
+            kind: "purchase_request",
+            id: "ps-9001",
+          },
+          cells: { title: "임대료 지급", amount: "₩500,000" },
+          detail: { title: "임대료 지급" },
+        },
+      ],
+    };
+
+    render(
+      <PolicyGateProvider gate={allowGate}>
+        <GenericModuleScreen config={rowConfig} />
+      </PolicyGateProvider>,
+    );
+
+    const titleCell = within(screen.getByRole("table")).getByText("임대료 지급").closest("td");
+    expect(titleCell).not.toBeNull();
+    expect(titleCell).toHaveTextContent("활성");
+    expect(titleCell).toHaveTextContent("PS-9001");
   });
 
   it("gates primary, row, detail, and link affordances through PolicyGated", () => {

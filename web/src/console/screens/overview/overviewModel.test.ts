@@ -6,14 +6,18 @@ import {
   filterQueue,
   overviewStats,
   queueChips,
+  railAvatarTone,
   railCategories,
   railGroups,
+  railGroupUnread,
+  railInitial,
   timelineEntries,
   todayPunch,
   type ActionInboxItem,
   type EmployeeAttendanceRecord,
   type MailThreadSummary,
   type NotificationCountsSummary,
+  type RailItem,
 } from "./overviewModel";
 
 const S = overviewStrings();
@@ -209,13 +213,49 @@ describe("railGroups", () => {
     expect(byKey.notification.items).toHaveLength(1);
     expect(byKey.notification.items[0].id).toBe(notifications[2].id);
     expect(byKey.mail.items).toEqual([
-      { id: "mail-1", text: "견적 회신", createdAt: "2026-07-03T07:00:00Z", unread: true },
+      { id: "mail-1", text: "견적 회신", createdAt: "2026-07-03T07:00:00Z", unread: true, category: "mail" },
     ]);
+  });
+
+  it("carries each notification's raw category onto its rail item (per-item chip source)", () => {
+    const groups = railGroups([notification({ category: "결재", id: "keep" })], [], L);
+    const byKey = Object.fromEntries(groups.map((g) => [g.key, g]));
+    expect(byKey.notification.items[0].category).toBe("결재");
   });
 
   it("every group renders even when empty (no filler, but no missing panel either)", () => {
     const groups = railGroups([], [], L);
     expect(groups).toHaveLength(4);
     expect(groups.every((g) => g.items.length === 0)).toBe(true);
+  });
+});
+
+describe("railGroupUnread", () => {
+  const row = (unread: boolean): RailItem => ({
+    id: Math.random().toString(36).slice(2),
+    text: "t",
+    createdAt: "2026-07-03T08:00:00Z",
+    unread,
+    category: "결재",
+  });
+
+  it("counts only the unread rows", () => {
+    expect(railGroupUnread([row(true), row(false), row(true)])).toBe(2);
+    expect(railGroupUnread([])).toBe(0);
+  });
+});
+
+describe("railInitial + railAvatarTone", () => {
+  it("takes the first visible grapheme past mention/punctuation noise", () => {
+    expect(railInitial("@전성진 님이 멘션했습니다")).toBe("전");
+    expect(railInitial("대한제강 구매팀")).toBe("대");
+    expect(railInitial("  · WO-2643")).toBe("W");
+    expect(railInitial("")).toBe("·");
+  });
+
+  it("is deterministic and within the tone set", () => {
+    const tones = new Set(["purple", "info", "ok", "danger", "accent"]);
+    expect(railAvatarTone("MT-2608")).toBe(railAvatarTone("MT-2608"));
+    expect(tones.has(railAvatarTone("배차 관제"))).toBe(true);
   });
 });

@@ -34,6 +34,7 @@ function mapSource(view: EvidenceObjectView): EvidenceSourceRef {
   return {
     code: view.source.source_code ?? view.source.source_id,
     title: T.sourceTypes[view.source.source_type],
+    kind: view.source.source_type,
   };
 }
 
