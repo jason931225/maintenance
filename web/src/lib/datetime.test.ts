@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   formatKoreanDate,
   formatKoreanDateTime,
+  formatKoreanTime,
   formatRelativeKo,
 } from "./datetime";
 
@@ -45,6 +46,22 @@ describe("formatKoreanDate", () => {
   it("returns the em-dash placeholder for missing/invalid input", () => {
     expect(formatKoreanDate(null)).toBe("—");
     expect(formatKoreanDate("nope")).toBe("—");
+  });
+});
+
+describe("formatKoreanTime", () => {
+  it("renders a UTC instant at the KST wall clock (UTC+9)", () => {
+    // 08:50 UTC is 17:50 in Asia/Seoul.
+    expect(formatKoreanTime("2026-07-03T08:50:00Z")).toBe("17:50");
+  });
+
+  it("returns the em-dash placeholder for null/empty/invalid input", () => {
+    // Guards the comms-rail crash: an unparseable timestamp must degrade to a
+    // placeholder, never throw a RangeError out of Intl.format.
+    expect(formatKoreanTime(null)).toBe("—");
+    expect(formatKoreanTime(undefined)).toBe("—");
+    expect(formatKoreanTime("")).toBe("—");
+    expect(formatKoreanTime("not-a-date")).toBe("—");
   });
 });
 

@@ -5,6 +5,7 @@
 // open/collapsed chrome around it (§ single landmark, unchanged from #459).
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 
+import { formatKoreanTime } from "../../lib/datetime";
 import { StatusChip } from "../components";
 import {
   railCategories,
@@ -38,10 +39,6 @@ export function CommsRailPanel({ accessToken, api }: CommsRailPanelProps) {
   const client = useMemo(() => api ?? createCommsRailApi(accessToken), [api, accessToken]);
   const [state, setState] = useState<LoadState>("loading");
   const [data, setData] = useState<RailData | null>(null);
-  const timeFmt = useMemo(
-    () => new Intl.DateTimeFormat("ko-KR", { hour: "2-digit", minute: "2-digit", hour12: false }),
-    [],
-  );
 
   useEffect(() => {
     let live = true;
@@ -95,7 +92,7 @@ export function CommsRailPanel({ accessToken, api }: CommsRailPanelProps) {
                 <li key={item.id} style={notifRowStyle} data-unread={item.unread || undefined}>
                   <div style={notifHeadStyle}>
                     <StatusChip tone={item.unread ? "accent" : "neutral"}>{group.title}</StatusChip>
-                    <span style={notifTimeStyle}>{timeFmt.format(new Date(item.createdAt))}</span>
+                    <span style={notifTimeStyle}>{formatKoreanTime(item.createdAt)}</span>
                   </div>
                   <div style={notifTextStyle}>{item.text}</div>
                 </li>
@@ -106,6 +103,13 @@ export function CommsRailPanel({ accessToken, api }: CommsRailPanelProps) {
       ))}
     </div>
   );
+}
+
+/** Boundary fallback: a render crash in the rail degrades to the same quiet
+ * "couldn't load" reason the fetch-error path shows, so a rail failure never
+ * escapes to the route boundary and takes down the whole console shell. */
+export function CommsRailFallback() {
+  return <p style={emptyStyle}>{overviewStrings().error}</p>;
 }
 
 const rootStyle: CSSProperties = {

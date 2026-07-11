@@ -41,6 +41,35 @@ describe("CommsRailPanel", () => {
       />,
     );
     expect(await screen.findByText("New assignment")).toBeInTheDocument();
+    // 08:50 UTC renders at the KST wall clock (17:50); locks the date path that
+    // used to throw a RangeError and take down the whole console shell.
+    expect(screen.getByText("17:50")).toBeInTheDocument();
+  });
+
+  it("renders a row with a garbage created_at without throwing", async () => {
+    const notifications: NotificationSummary[] = [
+      {
+        id: "n1",
+        recipient_user_id: "u1",
+        category: "messenger",
+        kind: "info",
+        text: "Broken timestamp",
+        link: { kind: "work_order", id: "wo1" } as NotificationSummary["link"],
+        unread: true,
+        // A malformed timestamp must degrade this one row to an empty time
+        // label, never throw out of Intl.format.
+        created_at: "not-a-date",
+        read_at: null,
+        resolved_at: null,
+      },
+    ];
+    render(
+      <CommsRailPanel
+        api={stubApi({ loadNotifications: vi.fn().mockResolvedValue(notifications) })}
+      />,
+    );
+    expect(await screen.findByText("Broken timestamp")).toBeInTheDocument();
+    expect(screen.getByText("—")).toBeInTheDocument();
   });
 
   it("shows an empty-state per group when nothing is unread", async () => {

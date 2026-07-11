@@ -3,7 +3,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ko } from "../../i18n/ko";
 import { useAuth } from "../../context/auth";
 import { useConsoleAuthz, useConsoleScopes, UNION_SCOPE_ID } from "./authz";
-import { CommsRailPanel } from "./CommsRailPanel";
+import { CommsRailPanel, CommsRailFallback } from "./CommsRailPanel";
+import { ErrorBoundary } from "../../components/ErrorBoundary";
 import { Icon } from "./icons";
 import { defaultScreen, visibleConsoleNav } from "./nav";
 import { Sidebar } from "./Sidebar";
@@ -276,7 +277,9 @@ export function ConsoleShell({
                 <Icon name="chevronsRight" size={15} strokeWidth={2} />
               </button>
             </div>
-            <CommsRailPanel accessToken={session?.access_token} />
+            <ErrorBoundary fallback={<CommsRailFallback />}>
+              <CommsRailPanel accessToken={session?.access_token} />
+            </ErrorBoundary>
           </>
         ) : (
           <div

@@ -31,6 +31,13 @@ const DATE_FORMAT = new Intl.DateTimeFormat("ko-KR", {
   day: "2-digit",
 });
 
+const TIME_FORMAT = new Intl.DateTimeFormat("ko-KR", {
+  timeZone: "Asia/Seoul",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+});
+
 /** Parse to a valid Date, or `null` for null/empty/invalid input. */
 function toDate(iso: string | null | undefined): Date | null {
   if (!iso) return null;
@@ -65,6 +72,14 @@ export function formatKoreanDate(iso: string | null | undefined): string {
   if (!date) return EMPTY;
   const p = isoParts(DATE_FORMAT.formatToParts(date));
   return `${p.year}-${p.month}-${p.day}`;
+}
+
+/** `HH:mm` in KST. Empty placeholder for missing/invalid input. */
+export function formatKoreanTime(iso: string | null | undefined): string {
+  const date = toDate(iso);
+  if (!date) return EMPTY;
+  const p = isoParts(TIME_FORMAT.formatToParts(date));
+  return `${p.hour}:${p.minute}`;
 }
 
 const RELATIVE = new Intl.RelativeTimeFormat("ko-KR", { numeric: "auto" });
