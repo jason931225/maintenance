@@ -22,6 +22,8 @@ export const financeKoManifest = {
     approveVoucher: F.actions.approveVoucher,
   },
   detail: {
+    documentFlow: F.detail.documentFlow,
+    balanceCheck: F.detail.balanceCheck,
     approvedBy: F.detail.approvedBy,
   },
   links: {

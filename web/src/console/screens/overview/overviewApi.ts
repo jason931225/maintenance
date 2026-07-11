@@ -13,15 +13,20 @@ import type {
 
 export interface OverviewApi {
   loadInbox(): Promise<ActionInboxResponse>;
+}
+
+/** The comms rail's own data needs — shared by the shell-level rail (every
+ * screen) and composed into `createOverviewApi` below (the overview screen's
+ * action-inbox load has no overlap with these, but historically shared one
+ * Promise.all; the shell rail now owns this fetch independently). */
+export interface CommsRailApi {
   loadNotificationCounts(): Promise<NotificationCountsSummary>;
   loadNotifications(): Promise<NotificationSummary[]>;
   loadMailThreads(): Promise<MailThreadSummary[]>;
 }
 
-export function createOverviewApi(accessToken?: string): OverviewApi {
+export function createCommsRailApi(accessToken?: string): CommsRailApi {
   return {
-    loadInbox: () =>
-      requestJson<ActionInboxResponse>("/api/v1/me/action-inbox", accessToken),
     loadNotificationCounts: () =>
       requestJson<NotificationCountsSummary>(
         "/api/v1/me/notifications/summary",
@@ -36,11 +41,18 @@ export function createOverviewApi(accessToken?: string): OverviewApi {
       ).items,
     // Soft-fail: mail is a caller-scoped, licensable feature (MailUse) — a
     // 403/unavailable mailbox degrades to an empty 메일 rail panel rather than
-    // failing the whole overview load (unlike the three REQUIRED sources above).
+    // failing the whole rail load (unlike the two REQUIRED sources above).
     loadMailThreads: () =>
       requestJson<MailThreadSummary[]>("/api/v1/mail/threads?unread=true&limit=5", accessToken).catch(
         () => [],
       ),
+  };
+}
+
+export function createOverviewApi(accessToken?: string): OverviewApi {
+  return {
+    loadInbox: () =>
+      requestJson<ActionInboxResponse>("/api/v1/me/action-inbox", accessToken),
   };
 }
 

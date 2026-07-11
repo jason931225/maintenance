@@ -587,5 +587,6 @@ export type WorkflowTaskSummary =
 export type MyDispatchOffer = components["schemas"]["MyDispatchOffer"];
 export type AttendanceSummaryItem =
   components["schemas"]["AttendanceSummaryItem"];
+export type MyPayrollLine = components["schemas"]["MyPayrollLine"];
 export type TodoSummary = components["schemas"]["TodoSummary"];
 export type TodoRef = components["schemas"]["TodoRef"];

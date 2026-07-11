@@ -1,4 +1,5 @@
 import type { ConsoleApiClient } from "../../api/client";
+import { safeLabel } from "../../lib/utils";
 import { choiceStatus, resolveText } from "../modules/typeRegistry";
 import type {
   ModuleActionConfig,
@@ -216,9 +217,14 @@ export function voucherRow(record: VoucherSummary): ModuleRow {
       totalDebitWon: formatWon(record.debit_total_won),
       totalCreditWon: formatWon(record.credit_total_won),
       postedAt: formatDate(record.posted_at),
-      createdBy: record.created_by,
-      approvedBy: record.approved_by ?? undefined,
-      branchScope: record.branch_id,
+      // Never the raw id: resolved via the backend's same-org correlated
+      // lookup (round-5 leaks-polish); safeLabel is the last-resort guard if
+      // a row's *_name somehow came back null (deleted user/branch row).
+      createdBy: safeLabel(record.created_by_name, record.created_by),
+      approvedBy: record.approved_by
+        ? safeLabel(record.approved_by_name, record.approved_by)
+        : undefined,
+      branchScope: safeLabel(record.branch_name, record.branch_id),
       glAccountSummary: glAccountSummary(record),
       documentFlow: documentFlowStepper(record),
       balanceCheck: balanceCheckValue(record),

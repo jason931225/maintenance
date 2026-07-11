@@ -3,7 +3,11 @@ import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
-import type { OpsSummary } from "../../api/types";
+import type {
+  AttendanceSummaryItem,
+  MyPayrollLine,
+  OpsSummary,
+} from "../../api/types";
 import { DashboardScreen } from "./DashboardScreen";
 import { dashboardStrings } from "./strings";
 import { kpiReport } from "../../test/fixtures";
@@ -203,5 +207,73 @@ describe("DashboardScreen", () => {
     );
     // No fabricated stats or chart panels against an empty backend.
     expect(screen.queryByRole("group", { name: S.completionByScope })).not.toBeInTheDocument();
+  });
+
+  it("shows the §4-24 honest completion-projection panel for a real ≥3-month series", () => {
+    renderScreen({ trend: [10, 12, 15] });
+    // ProjectionPanel titles the region "<field> 정량 투영"; the projection is
+    // over real data, so the insufficient-sample chip must NOT appear.
+    expect(
+      screen.getByRole("region", { name: new RegExp(S.trendTitle) }),
+    ).toBeVisible();
+    expect(screen.queryByText("표본 부족")).not.toBeInTheDocument();
+  });
+
+  it("omits the projection entirely below the honest 3-point floor (never over-claims)", () => {
+    renderScreen({ trend: [10, 12] });
+    expect(
+      screen.queryByRole("region", { name: new RegExp(S.trendTitle) }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("renders the coverage card from real attendance facts and drills to attendance", () => {
+    const coverage: AttendanceSummaryItem[] = [
+      { user_id: "u1", display_name: "김정비", arrivals: 3, departures: 2 },
+    ];
+    renderScreen({ coverage });
+    const card = screen.getByRole("link", { name: S.coverageTitle });
+    expect(card).toHaveAttribute("href", "/attendance");
+    expect(within(card).getByText("김정비")).toBeVisible();
+    expect(within(card).getByText(/3건.+2건/)).toBeVisible();
+  });
+
+  it("renders the coverage empty state when authorized but no attendance rows", () => {
+    renderScreen({ coverage: [] });
+    expect(screen.getByText(S.coverageEmpty)).toBeVisible();
+  });
+
+  it("omits the coverage card entirely when the viewer is not authorized (deny-by-omission)", () => {
+    renderScreen();
+    expect(
+      screen.queryByRole("link", { name: S.coverageTitle }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("renders my-metrics readiness honestly (period + status chip, no fabricated ₩)", () => {
+    const myMetrics: MyPayrollLine[] = [
+      {
+        run_id: "r1",
+        period_start: "2026-06-01",
+        period_end: "2026-07-01",
+        run_status: "APPROVED",
+        calculation_status: "APPROVED",
+        gross_pay_source_present: true,
+        net_pay_source_present: true,
+      },
+    ];
+    renderScreen({ myMetrics });
+    const card = screen.getByRole("link", { name: S.myMetricsTitle });
+    expect(card).toHaveAttribute("href", "/payroll");
+    expect(within(card).getByText(S.myMetricsReady)).toBeVisible();
+    // No fabricated take-home number is invented from a source-present flag.
+    expect(within(card).queryByText(/₩/)).not.toBeInTheDocument();
+  });
+
+  it("names the aggregates that have no backing endpoint as typed wire-pending markers", () => {
+    renderScreen();
+    const pending = screen.getByRole("region", { name: S.pendingTitle });
+    expect(within(pending).getByText(S.pendingLaborCost)).toBeVisible();
+    expect(within(pending).getByText(S.pendingContracts)).toBeVisible();
+    expect(within(pending).getByText(S.pendingInsights)).toBeVisible();
   });
 });

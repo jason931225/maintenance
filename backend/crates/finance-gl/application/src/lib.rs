@@ -93,6 +93,12 @@ pub struct VoucherSummary {
     pub id: VoucherId,
     pub voucher_no: String,
     pub branch_id: BranchId,
+    /// The branch's display name, resolved via a same-org correlated lookup on
+    /// `branches` (RLS-scoped, mirrors support's `assignee_name` pattern).
+    /// `None` only if the branch row itself is gone, which FK RESTRICT on
+    /// `finance_gl_vouchers.branch_id` never allows in practice.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub branch_name: Option<String>,
     pub status: VoucherStatus,
     pub memo: String,
     pub source_object_type: Option<String>,
@@ -103,9 +109,17 @@ pub struct VoucherSummary {
     pub credit_total_won: i64,
     pub lines: Vec<VoucherLineSummary>,
     pub created_by: UserId,
+    /// `created_by`'s display name, resolved via a same-org correlated lookup
+    /// on `users`. `None` only for a deleted user.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_by_name: Option<String>,
     /// The distinct principal who approved the voucher at 승인 (separation of
     /// duties: always `!= created_by`). `None` until approved.
     pub approved_by: Option<UserId>,
+    /// `approved_by`'s display name (same resolution as `created_by_name`).
+    /// `None` until approved or for a deleted approver.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub approved_by_name: Option<String>,
     #[serde(with = "time::serde::rfc3339::option")]
     pub posted_at: Option<Timestamp>,
     #[serde(with = "time::serde::rfc3339")]

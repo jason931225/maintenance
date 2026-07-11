@@ -134,4 +134,28 @@ describe("SupportBody (console screen composition)", () => {
     const flowRail = await screen.findByRole("navigation", { name: ko.support.objectRail.title });
     expect(within(flowRail).getByRole("link", { name: ko.support.objectRail.workOrder })).toBeVisible();
   });
+
+  it("pre-selects the first ticket on load, so the 3rd pane reads populated without a click", async () => {
+    const second = { ...openTicket, id: "33333333-3333-4333-8333-333333333333", title: "두번째 티켓" };
+    installHandlers([openTicket, second]);
+    server.use(
+      http.get("*/api/v1/support/tickets/:id", ({ params }) =>
+        HttpResponse.json({
+          ticket: params.id === openTicket.id ? openTicket : second,
+          comments: [],
+        }),
+      ),
+    );
+    renderBody();
+
+    // The detail pane shows the FIRST ticket's title without the user clicking
+    // anything, never the "select a ticket" prompt.
+    expect(await screen.findByRole("heading", { name: openTicket.title })).toBeVisible();
+    expect(screen.queryByText(ko.support.selectPrompt)).not.toBeInTheDocument();
+
+    // A later refetch (e.g. a transition) never clobbers a since-changed
+    // selection — clicking the second row still switches the pane.
+    await userEvent.click(screen.getByText(second.title));
+    expect(await screen.findByRole("heading", { name: second.title })).toBeVisible();
+  });
 });

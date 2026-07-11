@@ -39,7 +39,7 @@ describe("ConsoleShell chrome", () => {
     markConsoleRoute.mockClear();
   });
 
-  it("renders the grouped nav, topbar and comms-rail strip", () => {
+  it("renders the grouped nav, topbar and comms rail", () => {
     renderConsole(ADMIN);
     const nav = screen.getByRole("navigation", { name: "주 메뉴" });
     expect(within(nav).getByRole("button", { name: "통합 개요" })).toBeInTheDocument();
@@ -48,10 +48,38 @@ describe("ConsoleShell chrome", () => {
     // topbar identity + scope
     expect(screen.getByText("전성진")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "범위 선택" })).toBeInTheDocument();
-    // comms rail strip present (chrome only)
+    // comms rail — the single "커뮤니케이션" complementary landmark, unchanged
+    // from #459's dedupe
     expect(screen.getByRole("complementary", { name: "커뮤니케이션" })).toBeInTheDocument();
     // screen body slot
     expect(screen.getByLabelText("화면 본문")).toBeInTheDocument();
+  });
+
+  it("comms rail is expanded by default on every screen, and the toggle collapses/expands it", () => {
+    renderConsole(ADMIN);
+    const rail = document.querySelector("[data-cshell-rail]");
+    expect(rail).toHaveAttribute("data-cshell-rail-open", "true");
+    // Expanded chrome: the collapse control + group icon glyphs are gone,
+    // replaced by the panel title and its own collapse button.
+    expect(screen.getByRole("button", { name: "커뮤니케이션 접기" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "커뮤니케이션 접기" }));
+    expect(rail).not.toHaveAttribute("data-cshell-rail-open");
+    expect(screen.getByRole("button", { name: "커뮤니케이션 펼치기" })).toBeInTheDocument();
+    // still a single landmark, still present, just the collapsed icon strip now
+    expect(screen.getByRole("complementary", { name: "커뮤니케이션" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "커뮤니케이션 펼치기" }));
+    expect(rail).toHaveAttribute("data-cshell-rail-open", "true");
+  });
+
+  it("switching the active screen keeps the comms rail expanded (shell-level, not per-screen)", () => {
+    renderConsole(ADMIN);
+    const rail = document.querySelector("[data-cshell-rail]");
+    expect(rail).toHaveAttribute("data-cshell-rail-open", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "감사 로그" }));
+    expect(rail).toHaveAttribute("data-cshell-rail-open", "true");
   });
 
   it("nav clicks switch the active screen (aria-current)", () => {

@@ -121,13 +121,14 @@ function draftRow(draft: PolicyDraft): PolicyListRow {
   };
 }
 
+// Shared screen-body grammar (same as EvidenceScreenBody): a content-height
+// grid that packs to the top of the shell's canvas slot. It must NOT set
+// `height: 100%` — a full-height grid stretches its auto rows (align-content
+// resolves to stretch), which floated the header mid-page and stretched the
+// empty-state chip into a tall grey "placeholder rail" (verdict R4).
 const rootStyle: CSSProperties = {
   display: "grid",
   gap: "var(--sp-5)",
-  padding: "var(--sp-6)",
-  height: "100%",
-  overflowY: "auto",
-  background: "var(--canvas)",
   color: "var(--ink)",
   fontFamily: "var(--font-sans)",
 };

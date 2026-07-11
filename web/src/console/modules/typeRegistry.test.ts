@@ -9,12 +9,23 @@ import {
   detailVariantFor,
   getObjectType,
   getProperty,
+  resolveText,
   rowCardDescriptor,
   typeCardDescriptor,
   type OntProperty,
 } from "./typeRegistry";
 
 describe("typeRegistry", () => {
+  it("every propSchema nameKey resolves to real ko copy, never a raw dotted key (regression: finance's detail.documentFlow/detail.balanceCheck once had no ko entry and rendered the literal key)", () => {
+    for (const type of Object.values(ONT_TYPES)) {
+      for (const prop of type.propSchema) {
+        expect(resolveText(prop.nameKey), `${type.key}.${prop.id} nameKey ${prop.nameKey}`).not.toBe(
+          prop.nameKey,
+        );
+      }
+    }
+  });
+
   it("defines every field the module screen configs consume (drift guard)", () => {
     for (const config of Object.values(MOD_SCREENS)) {
       const type = getObjectType(config.typeKey);

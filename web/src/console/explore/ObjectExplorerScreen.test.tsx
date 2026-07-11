@@ -327,6 +327,39 @@ describe("ObjectExplorerScreen", () => {
     );
     expect(onFocusChange).toHaveBeenCalledWith("wo-endpoint");
   });
+
+  it("never renders a raw UUID for a search hit with no canonical code (support tickets today)", async () => {
+    server.use(
+      http.get("*/api/v1/search", () =>
+        HttpResponse.json({
+          results: [
+            {
+              kind: "support_ticket",
+              id: "3fa85f64-5717-4562-b3fc-2c963f66afa6",
+              title: "코드 없는 티켓",
+              status: "OPEN",
+              exists: true,
+            },
+          ],
+        }),
+      ),
+    );
+
+    render(
+      <PolicyGateProvider gate={allowGate}>
+        <ObjectExplorerScreen bearerToken={TOKEN} model={graphModel} initialFocusId="c207" />
+      </PolicyGateProvider>,
+    );
+
+    fireEvent.change(screen.getByLabelText("객체 검색"), { target: { value: "코드" } });
+    fireEvent.click(screen.getByRole("button", { name: "검색" }));
+
+    const results = await screen.findByRole("region", { name: "검색 결과" });
+    expect(within(results).getByText("코드 없는 티켓")).toBeVisible();
+    expect(
+      within(results).queryByText("3fa85f64-5717-4562-b3fc-2c963f66afa6"),
+    ).not.toBeInTheDocument();
+  });
 });
 
 describe("ObjectExplorerScreen pinned-window integration (§4.7 catalog #2)", () => {
