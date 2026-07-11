@@ -1,42 +1,8 @@
-// UI copy for 업무·운영 개요 (the operations overview). check-ui-strings forbids
-// Hangul in lane files and this lane must not edit ko.ts — the serial i18n
-// wire-up applies the koManifest below as ko.console.overviewBody; until it
-// lands these English defaults keep the surface mountable and testable.
-// (ko.console.overview is already taken by the group-scope picker, hence the
-// distinct overviewBody key.)
-//
-// koManifest (proposed Korean for the wire-up, keyed ko.console.overviewBody):
-//   title              "업무·운영 개요"
-//   queueTitle         "처리 대기"
-//   timelineTitle      "오늘"
-//   railTitle          "커뮤니케이션"
-//   stat.approval      "결재 대기"
-//   stat.dispatch      "미배정 배차"
-//   stat.today         "오늘 마감"
-//   stat.work          "미확인 업무"
-//   stat.urgent        (n) => `긴급 ${n}`
-//   stat.slaImminent   (n) => `SLA 임박 ${n}`
-//   chip.all           "전체"
-//   chip.approval      "결재"
-//   chip.dispatch      "배차"
-//   chip.work          "정비"
-//   chip.support       "회신"
-//   action.approval    "검토"
-//   action.dispatch    "배차"
-//   action.work        "확인"
-//   action.support     "회신"
-//   rail.unread        (n) => `안 읽음 ${n}`
-//   punch.in           (t) => `출근 ${t}`
-//   punch.out          (t) => `외근 ${t}`
-//   punch.trip         (t) => `출장 ${t}`
-//   punch.off          (t) => `퇴근 ${t}`
-//   empty.queue        "처리할 항목이 없습니다"
-//   empty.timeline     "오늘 마감 업무가 없습니다"
-//   empty.rail         "새 알림이 없습니다"
-//   error              "개요를 불러오지 못했습니다"
-//   retry              "다시 시도"
-//   loading            "불러오는 중"
-//   footer.shown       (shown, total) => `전체 ${total}건 중 ${shown}건 표시`
+// UI copy for 업무·운영 개요 (the operations overview), wired to
+// ko.console.overviewBody. (ko.console.overview is already taken by the
+// group-scope picker, hence the distinct overviewBody key.) The English
+// FALLBACK below only guards a future ko.ts regression — same defensive
+// convention as railCategoryStrings — not pending keys.
 import { ko } from "../../../i18n/ko";
 
 export interface OverviewStrings {
@@ -123,23 +89,11 @@ const FALLBACK: OverviewStrings = {
   loading: "Loading",
 };
 
-/** ko.console.overviewBody accessor with the English fallback.
- *
- * `punch`/`footer` are backfilled per-field: ko.console.overviewBody is
- * already wired (title/stat/chip/… are Korean) but the 출근 chip keys and the
- * r13 `footer` rollup are NEW and the serial i18n wire applies them to ko.ts
- * separately (see koManifest above). Until then the wired object lacks them,
- * so we merge the English default in — same defensive convention as
- * rail.categories — rather than let S.punch/S.footer be undefined. */
+/** ko.console.overviewBody accessor with the English fallback (regression guard only). */
 export function overviewStrings(): OverviewStrings {
   const wired = (ko.console as unknown as { overviewBody?: Partial<OverviewStrings> })
     .overviewBody;
-  if (!wired) return FALLBACK;
-  return {
-    ...wired,
-    punch: wired.punch ?? FALLBACK.punch,
-    footer: wired.footer ?? FALLBACK.footer,
-  } as OverviewStrings;
+  return wired ? { ...FALLBACK, ...wired } : FALLBACK;
 }
 
 // ko.console.overviewBody.rail.categories is now real (wired in ko.ts,

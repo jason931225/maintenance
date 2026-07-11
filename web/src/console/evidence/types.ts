@@ -85,10 +85,22 @@ export interface EvidenceLegalHold {
   releasedAt?: string;
 }
 
+/** Upstream source object type — drives the 유형 chip color. Mirrors the wire
+ *  EvidenceSourceType enum (clients/ts schema). */
+export type EvidenceSourceKind =
+  | "record_archive"
+  | "inbox_doc"
+  | "mail_attachment"
+  | "ingest_job"
+  | "work_order_evidence_media"
+  | "external_document";
+
 /** Upstream source object reference (drag-able object code + title). */
 export interface EvidenceSourceRef {
   code: string;
   title: string;
+  /** Raw source type, so the 유형 chip can differentiate color per type. */
+  kind: EvidenceSourceKind;
 }
 
 /** The EV- object as the console renders it (list row + detail). */

@@ -120,9 +120,13 @@ const actionButtonStyle: CSSProperties = {
 
 const bodyGridStyle: CSSProperties = {
   display: "grid",
-  // Detail pane is wide enough that voucher ids (VC-…) and GL account codes
-  // (GL-2026-0003, "5104, 1102") no longer wrap mid-token in the key/value rows.
-  gridTemplateColumns: "minmax(0, 1fr) minmax(320px, 420px)",
+  // Master list gets a real floor (min(100%, 460px)) instead of `minmax(0,
+  // 1fr)` — with the detail pin open, a shrink-to-zero track let dense
+  // configs (finance's 8 columns) get crammed into a sliver and wrap every
+  // cell one char per line. Detail pin narrows slightly (280–360px) to give
+  // the floor room; it still never truncates key/value rows (verdict r14
+  // "finance master illegible beside detail pin").
+  gridTemplateColumns: "minmax(min(100%, 460px), 1fr) minmax(280px, 360px)",
   gap: "var(--sp-5)",
   alignItems: "start",
 };
@@ -635,6 +639,25 @@ function renderDetailValue(field: ModuleDetailFieldConfig, value: ModuleDetailVa
   return formatCellValue(isScalarDetailValue(value) ? value : undefined);
 }
 
+/** Shared by the standalone "source" column and the folded "titleMeta" chip row. */
+function renderSourceChip(source: ModuleRow["source"]): ReactNode {
+  if (!source) return null;
+  const label = resolveText(source.labelKey);
+  const chip = <StatusChip tone={source.tone}>{source.code ?? label}</StatusChip>;
+  const ariaLabel = source.code ? `${label} ${source.code}` : label;
+  return (
+    <PolicyGated action={source.policyAction} resource={{ kind: source.kind, id: source.id }}>
+      {source.href ? (
+        <a href={source.href} style={{ color: "inherit", textDecoration: "none" }} aria-label={ariaLabel}>
+          {chip}
+        </a>
+      ) : (
+        chip
+      )}
+    </PolicyGated>
+  );
+}
+
 function renderCell(
   config: ModuleScreenConfig,
   row: ModuleRow,
@@ -645,20 +668,21 @@ function renderCell(
     return row.status ? <StatusChip tone={row.status.tone}>{resolveText(row.status.labelKey)}</StatusChip> : "—";
   }
   if (column.variant === "source") {
-    if (!row.source) return "—";
-    const label = resolveText(row.source.labelKey);
-    const chip = <StatusChip tone={row.source.tone}>{row.source.code ?? label}</StatusChip>;
-    const ariaLabel = row.source.code ? `${label} ${row.source.code}` : label;
+    return row.source ? renderSourceChip(row.source) : "—";
+  }
+  if (column.variant === "titleMeta") {
+    const title = formatCellValue(column.key === "code" ? row.code : row.cells[column.key]);
+    const hasMeta = Boolean(row.status || row.source);
     return (
-      <PolicyGated action={row.source.policyAction} resource={{ kind: row.source.kind, id: row.source.id }}>
-        {row.source.href ? (
-          <a href={row.source.href} style={{ color: "inherit", textDecoration: "none" }} aria-label={ariaLabel}>
-            {chip}
-          </a>
-        ) : (
-          chip
-        )}
-      </PolicyGated>
+      <span style={detailStackStyle}>
+        <span>{title}</span>
+        {hasMeta ? (
+          <span style={chipRowStyle}>
+            {row.status ? <StatusChip tone={row.status.tone}>{resolveText(row.status.labelKey)}</StatusChip> : null}
+            {renderSourceChip(row.source)}
+          </span>
+        ) : null}
+      </span>
     );
   }
   if (column.variant === "linkChips") {

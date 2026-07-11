@@ -246,7 +246,7 @@ describe("OverviewBody", () => {
       }),
     });
     // the chip is a status role carrying the clock-in label
-    const chip = await screen.findByText((t) => t.startsWith("Clocked in"));
+    const chip = await screen.findByText((t) => t.startsWith(S.punch.in("").trim()));
     expect(chip).toBeInTheDocument();
   });
 
@@ -256,7 +256,7 @@ describe("OverviewBody", () => {
     });
     await screen.findByRole("region", { name: S.queueTitle });
     expect(
-      screen.queryByText((t) => t.startsWith("Clocked in")),
+      screen.queryByText((t) => t.startsWith(S.punch.in("").trim())),
     ).not.toBeInTheDocument();
   });
 });

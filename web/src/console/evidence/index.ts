@@ -40,6 +40,7 @@ export {
   type EvidenceCopy,
   type EvidenceLegalHold,
   type EvidenceObjectDetail,
+  type EvidenceSourceKind,
   type EvidenceSourceRef,
   type FixityStatus,
   type ReleaseFlowState,

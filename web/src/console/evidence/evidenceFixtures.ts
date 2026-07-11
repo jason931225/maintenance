@@ -47,7 +47,7 @@ export function evidenceFixtures(): [EvidenceObjectDetail, EvidenceObjectDetail]
       fixity: "VERIFIED",
       tsa: "VERIFIED",
       disposed: false,
-      source: { code: "WO-2643", title: S.video.source },
+      source: { code: "WO-2643", title: S.video.source, kind: "work_order_evidence_media" },
       copies: [
         {
           id: "cp-12-orig",
@@ -109,7 +109,7 @@ export function evidenceFixtures(): [EvidenceObjectDetail, EvidenceObjectDetail]
       fixity: "VERIFIED",
       tsa: "PENDING",
       disposed: false,
-      source: { code: "AP-3121", title: S.statement.source },
+      source: { code: "AP-3121", title: S.statement.source, kind: "record_archive" },
       copies: [
         {
           id: "cp-13-orig",

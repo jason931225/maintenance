@@ -18,7 +18,25 @@ import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import { useAuth } from "../../../context/auth";
 import { ko } from "../../../i18n/ko";
 import { StatusChip } from "../../components";
-import { listEvidenceObjects, type EvidenceObjectDetail } from "../../evidence";
+import {
+  listEvidenceObjects,
+  type EvidenceObjectDetail,
+  type EvidenceSourceKind,
+} from "../../evidence";
+
+// 유형 chip color per source type — a distinct token per kind so 계약/증거/
+// 업무일지/공지/접수-class records read apart at a glance (verdict r13), instead
+// of one flat purple chip on every row. Colors carry no status meaning here;
+// they are a categorical legend drawn from the shared chip palette.
+type ChipTone = "neutral" | "ok" | "warn" | "danger" | "info" | "accent" | "purple";
+const SOURCE_TONE: Record<EvidenceSourceKind, ChipTone> = {
+  work_order_evidence_media: "ok", // 작업 증빙 (증거)
+  record_archive: "info", // 기록물 보관함 (계약·기록)
+  inbox_doc: "accent", // 접수 문서
+  mail_attachment: "purple", // 메일 첨부
+  ingest_job: "warn", // 수집 작업
+  external_document: "neutral", // 외부 문서
+};
 import { documentsKoManifest as T } from "./koManifest";
 import { screenHeaderStyle, screenTitleStyle } from "../screenHeader";
 
@@ -462,7 +480,9 @@ export function EvidenceScreenBody() {
                           external_document) instead of a hardcoded "증거" chip on
                           every row — the field already existed on EvidenceObjectDetail
                           (evidenceApi.mapSource) and was simply unused here. */}
-                      <StatusChip tone="purple">{row.source?.title ?? ko.console.evidence.title}</StatusChip>
+                      <StatusChip tone={row.source ? SOURCE_TONE[row.source.kind] : "purple"}>
+                        {row.source?.title ?? ko.console.evidence.title}
+                      </StatusChip>
                     </td>
                     <td style={tdStyle}>{resolveOwner(row.custodian)}</td>
                     <td style={tdStyle}>{formatDate(row.registeredAt)}</td>

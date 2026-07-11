@@ -247,6 +247,9 @@ export interface RailItem {
   text: string;
   createdAt: string;
   unread: boolean;
+  /** Raw producer category (e.g. `결재`/`leave`/`메신저`) — the per-item chip
+   * localizes it via `categoryLabel`; `mail` for the separate mail source. */
+  category: string;
 }
 
 export type RailGroupKey = "messenger" | "mail" | "notification" | "notice";
@@ -263,7 +266,13 @@ function notificationItems(
 ): RailItem[] {
   return notifications
     .filter(predicate)
-    .map((n) => ({ id: n.id, text: n.text, createdAt: n.created_at, unread: n.unread }));
+    .map((n) => ({
+      id: n.id,
+      text: n.text,
+      createdAt: n.created_at,
+      unread: n.unread,
+      category: n.category,
+    }));
 }
 
 export function railGroups(
@@ -283,6 +292,7 @@ export function railGroups(
         text: t.subject,
         createdAt: t.last_message_at,
         unread: t.unread_count > 0,
+        category: "mail",
       })),
     },
     {
@@ -292,4 +302,38 @@ export function railGroups(
     },
     { key: "notice", title: categoryLabels.notice, items: notificationItems(notifications, isNotice) },
   ];
+}
+
+/** Count of unread rows in a rail group — the section's colored badge. */
+export function railGroupUnread(items: readonly RailItem[]): number {
+  return items.reduce((n, item) => (item.unread ? n + 1 : n), 0);
+}
+
+// ── per-item sender avatar (colored monogram) ────────────────────────────────
+// The feed carries no sender identity, so the avatar is a deterministic monogram
+// of the row's own text: a stable initial + one of a fixed tone set (hashed), so
+// the same row always draws the same colored circle across renders and screens.
+
+export type RailAvatarTone = "purple" | "info" | "ok" | "danger" | "accent";
+
+const AVATAR_TONES: readonly RailAvatarTone[] = [
+  "purple",
+  "info",
+  "ok",
+  "danger",
+  "accent",
+];
+
+/** First visible grapheme of `text`, past leading mention/punctuation noise. */
+export function railInitial(text: string): string {
+  const cleaned = text.replace(/^[\s@#·:\-—[\]()]+/u, "").trim();
+  const first = Array.from(cleaned)[0];
+  return first ? first.toUpperCase() : "·";
+}
+
+/** Deterministic avatar tone from a seed (the row's text). */
+export function railAvatarTone(seed: string): RailAvatarTone {
+  let hash = 0;
+  for (const ch of seed) hash = (hash * 31 + (ch.codePointAt(0) ?? 0)) >>> 0;
+  return AVATAR_TONES[hash % AVATAR_TONES.length];
 }

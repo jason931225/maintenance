@@ -187,12 +187,19 @@ describe("validateDraft", () => {
 });
 
 describe("financeModuleScreen fidelity", () => {
-  it("marks voucher/GL identifiers + 전기 시각 as mono so codes never wrap mid-token", () => {
-    const col = (key: string) => financeModuleScreen.list.columns.find((c) => c.key === key);
+  it("marks GL identifiers + 전기 시각 as mono in the detail pane so codes never wrap mid-token", () => {
+    // r14: gl/postedAt moved off the master list (folded/detail-only — see
+    // the list.columns test below); the mono requirement now lives on the
+    // detail fields that still render them.
     const field = (key: string) => financeModuleScreen.detail.fields.find((f) => f.key === key);
-    expect(col("gl")?.variant).toBe("mono");
-    expect(col("postedAt")?.variant).toBe("mono");
     expect(field("glAccountSummary")?.variant).toBe("mono");
     expect(field("postedAt")?.variant).toBe("mono");
+  });
+
+  it("keeps the master list to the essential code/title/amount set, folding status+source into the title cell (verdict r14 finance master illegible)", () => {
+    expect(financeModuleScreen.list.columns.map((c) => c.key)).toEqual(["code", "title", "amount"]);
+    const titleCol = financeModuleScreen.list.columns.find((c) => c.key === "title");
+    expect(titleCol?.variant).toBe("titleMeta");
+    expect(titleCol?.wrap).toBe(true);
   });
 });

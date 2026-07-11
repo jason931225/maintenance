@@ -3038,10 +3038,19 @@ export const ko = {
           notice: "공지",
         },
       },
+      punch: {
+        in: (t: string) => `출근 ${t}`,
+        out: (t: string) => `외근 ${t}`,
+        trip: (t: string) => `출장 ${t}`,
+        off: (t: string) => `퇴근 ${t}`,
+      },
       empty: {
         queue: "처리할 항목이 없습니다",
         timeline: "오늘 마감 업무가 없습니다",
         rail: "새 알림이 없습니다",
+      },
+      footer: {
+        shown: (shown: number, total: number) => `전체 ${String(total)}건 중 ${String(shown)}건 표시`,
       },
       error: "개요를 불러오지 못했습니다",
       retry: "다시 시도",

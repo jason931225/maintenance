@@ -59,7 +59,7 @@ export interface ModuleSearchConfig {
   requiresRows?: boolean;
 }
 
-export type ModuleColumnVariant = "text" | "mono" | "status" | "source" | "linkChips";
+export type ModuleColumnVariant = "text" | "mono" | "status" | "source" | "linkChips" | "titleMeta";
 export type ModuleDetailFieldVariant = "text" | "mono" | "timeline" | "graph" | "ledger" | "stepper" | "balanceCheck";
 
 export interface ModuleColumnConfig {

@@ -303,6 +303,21 @@ INSERT INTO cedar_policy_catalog_entries (
   ('00000000-0000-0000-0000-000000ca0007', '00000000-0000-0000-0000-0000000000a1', 'dispatch.coordinator_scope', '파견 코디네이터는 배정 현장 인원만 조회한다', '파견 코디네이터 역할은 자신이 배정된 현장의 인원만 조회할 수 있습니다.', 'permit', 'draft', 'no_code_draft', '{"role":"dispatch_coordinator"}'::jsonb, '{"action_key":"workforce.read"}'::jsonb, '{"resource_type":"workforce_roster","scope":"assigned_site"}'::jsonb, 'valid', NULL, NULL, NULL, '00000000-0000-0000-0000-00000000d001', '00000000-0000-0000-0000-00000000d001')
 ON CONFLICT (id) DO NOTHING;
 
+-- ── policy catalog depth (r14): the 권한·정책 list held 6 enforced + 1 draft, so
+-- the panel's lower half read empty against the reference's ~9 활성 rows. Seed
+-- three more enforced rules (each with the real promotion triad the CHECK
+-- requires) so the list fills to 활성 9 · 초안 1 and reads as a governed policy
+-- set, not a stub. Distinct stable_keys, so re-runs stay idempotent.
+INSERT INTO cedar_policy_catalog_entries (
+  id, org_id, stable_key, title, natural_language_rule, effect, status, source,
+  principal, action, resource, validation_status,
+  policy_version, schema_version, bundle_digest, created_by, updated_by
+) VALUES
+  ('00000000-0000-0000-0000-000000ca0008', '00000000-0000-0000-0000-0000000000a1', 'audit.post_settle_reject', '감사팀은 최종승인·종결 건도 사후 반려할 수 있다', '감사팀 역할은 이미 최종승인되거나 종결된 건에 대해서도 사후 반려를 수행할 수 있습니다.', 'permit', 'enforced', 'imported_fixture', '{"role":"audit_lead"}'::jsonb, '{"action_key":"approval.post_settle.reject"}'::jsonb, '{"resource_type":"approval","scope":"org"}'::jsonb, 'valid', 1, '1', 'sha256:' || encode(sha256('cedar-bundle-audit-post-settle'), 'hex'), '00000000-0000-0000-0000-00000000d001', '00000000-0000-0000-0000-00000000d001'),
+  ('00000000-0000-0000-0000-000000ca0009', '00000000-0000-0000-0000-0000000000a1', 'workforce.pool_hr_scope', '인력풀(비상근) 인사정보는 인사·파견운영·배정 현장 반장만 열람한다', '비상근 인력풀의 인사정보는 인사 책임자, 파견운영 담당, 배정 현장 반장 역할에 한해 열람할 수 있습니다.', 'permit', 'enforced', 'imported_fixture', '{"role":["hr_lead","dispatch_ops","site_foreman"]}'::jsonb, '{"action_key":"workforce.pool.read"}'::jsonb, '{"resource_type":"workforce_roster","scope":"pool"}'::jsonb, 'valid', 1, '1', 'sha256:' || encode(sha256('cedar-bundle-workforce-pool-scope'), 'hex'), '00000000-0000-0000-0000-00000000d001', '00000000-0000-0000-0000-00000000d001'),
+  ('00000000-0000-0000-0000-000000ca000a', '00000000-0000-0000-0000-0000000000a1', 'recruit.applicant_notice_hidden', '외부 인원(지원자)은 내부 공모 공고를 열람할 수 없다 — 존재 자체 비노출', '외부 지원자 신분의 인원은 내부 공모 공고를 열람할 수 없으며 공고의 존재 자체가 노출되지 않습니다.', 'forbid', 'enforced', 'imported_fixture', '{"role":"external_applicant"}'::jsonb, '{"action_key":"recruit.internal_notice.read"}'::jsonb, '{"resource_type":"recruit_notice","scope":"internal"}'::jsonb, 'valid', 1, '1', 'sha256:' || encode(sha256('cedar-bundle-recruit-notice-hidden'), 'hex'), '00000000-0000-0000-0000-00000000d001', '00000000-0000-0000-0000-00000000d001')
+ON CONFLICT (id) DO NOTHING;
+
 -- ── workflow studio definitions (자동화 / 워크플로) ──────────────────────────
 INSERT INTO workflow_definitions (id, org_id, workflow_key, display_name, object_type, status, latest_version, active_version, created_by) VALUES
   ('00000000-0000-0000-0000-000000f00001', '00000000-0000-0000-0000-0000000000a1', 'work_order.approval', '작업지시 승인 흐름', 'work_order', 'ACTIVE', 1, 1, '00000000-0000-0000-0000-00000000d001'),
@@ -585,6 +600,29 @@ INSERT INTO workflow_waiting_tasks (
   ('00000000-0000-0000-0000-000000e90001', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000e80001', 'approve_completion', '작업지시 완료 승인 요청', 'CLAIMED', 'branch_manager', 'work_order', '00000000-0000-0000-0000-000000ad0002', now() + interval '6 hours', '00000000-0000-0000-0000-00000000d001', now())
 ON CONFLICT (id) DO NOTHING;
 
+-- ── overview 결재 대기 depth (r14): one waiting task (e90001) left the queue
+-- with a single 결재 row and NO 긴급 sub-value on the stat strip (긴급 = an
+-- approval whose due_at is already past → urg "now"). Seed four more CLAIMED-by
+-- -me tasks under one WAITING run: two OVERDUE (긴급 2) + two due later today,
+-- so 결재 대기 reads 5 · 긴급 2 and today's agenda carries real approval rows.
+-- Same real shape as e90001 (CLAIMED + claimed_by = d001, branch_manager line).
+INSERT INTO workflow_runs (
+  id, org_id, definition_id, definition_version, status, trigger_type, object_type, object_id,
+  idempotency_key, correlation_id, initiated_by, started_at, updated_at
+) VALUES
+  ('00000000-0000-0000-0000-000000e80006', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000f00001', 1, 'WAITING', 'OBJECT_EVENT', 'work_order', '00000000-0000-0000-0000-000000ad0005', 'seed-approval-volume-run-ad0005', 'seed-corr-approval-volume-ad0005', '00000000-0000-0000-0000-00000000d003', now(), now())
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO workflow_waiting_tasks (
+  id, org_id, run_id, waiting_key, title, status, assignee_role_key, source_object_type, source_object_id,
+  due_at, claimed_by, claimed_at
+) VALUES
+  ('00000000-0000-0000-0000-000000e90002', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000e80006', 'approve_completion_v1', '월 정비비 정산 승인 요청', 'CLAIMED', 'branch_manager', 'work_order', '00000000-0000-0000-0000-000000ad0005', now() - interval '3 hours', '00000000-0000-0000-0000-00000000d001', now()),
+  ('00000000-0000-0000-0000-000000e90003', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000e80006', 'approve_completion_v2', '외주 정비 대금 지급 승인', 'CLAIMED', 'branch_manager', 'work_order', '00000000-0000-0000-0000-000000ad0006', now() - interval '1 hour', '00000000-0000-0000-0000-00000000d001', now()),
+  ('00000000-0000-0000-0000-000000e90004', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000e80006', 'approve_completion_v3', '긴급 부품 발주 승인', 'CLAIMED', 'branch_manager', 'work_order', '00000000-0000-0000-0000-000000ad0007', now() + interval '2 hours', '00000000-0000-0000-0000-00000000d001', now()),
+  ('00000000-0000-0000-0000-000000e90005', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000e80006', 'approve_completion_v4', '연장근로 시간 승인', 'CLAIMED', 'branch_manager', 'work_order', '00000000-0000-0000-0000-000000ad0008', now() + interval '5 hours', '00000000-0000-0000-0000-00000000d001', now())
+ON CONFLICT (id) DO NOTHING;
+
 -- ── workflow run history (자동화 → 워크플로 스튜디오 실행 이력, r9): the
 -- run-log panel reads settled workflow_runs (SUCCEEDED/FAILED) with a duration
 -- (started_at→completed_at/failed_at) and output_payload.generated_objects for
@@ -771,6 +809,27 @@ SELECT
   '00000000-0000-0000-0000-00000000d004'::uuid
 FROM (VALUES (5, 1), (4, 2), (3, 2), (2, 3), (1, 4), (0, 3)) AS p(ago, extra),
      LATERAL generate_series(1, p.extra) AS g(n)
+ON CONFLICT (id) DO NOTHING;
+
+-- ── dashboard 재방문율 / 지연율 depth (r14): every seeded completion carried
+-- result_type='COMPLETED' and a NULL delay_reason, so the KPI rollup's
+-- revisit_count and delay_count were both 0 → 재방문율 0% / 지연율 0% on the
+-- board. Seed two approved completions (current + prior month) that carry the
+-- real revisit/delay signal the rollup counts: result_type='REVISIT_REQUIRED'
+-- (revisit_count) + a non-null delay_reason (delay_count). Approved within the
+-- month by 이대표 (d004, EXECUTIVE) — the same completion-approval key the
+-- rollup joins on — so both rates read a real non-zero value per period.
+INSERT INTO work_orders (
+  id, request_no, branch_id, equipment_id, customer_id, site_id, requested_by, status, priority,
+  symptom, customer_request, result_type, delay_reason, kpi_excluded, evidence_verified, org_id, created_at, target_due_at
+) VALUES
+  ('00000000-0000-0000-0000-000000ad00e1', to_char(date_trunc('month', now()), 'YYYYMM') || '15-901', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-000000c20001', '00000000-0000-0000-0000-000000c00001', '00000000-0000-0000-0000-000000c10001', '00000000-0000-0000-0000-00000000d003', 'FINAL_COMPLETED', 'P2', '재점검 필요 — 추가 결함 발견', '동일 증상 재발로 재방문 필요', 'REVISIT_REQUIRED', 'ADDITIONAL_FAULT_FOUND', false, true, '00000000-0000-0000-0000-0000000000a1', date_trunc('month', now()) + interval '5 days', date_trunc('month', now()) + interval '6 days'),
+  ('00000000-0000-0000-0000-000000ad00e2', to_char(date_trunc('month', now()) - interval '1 month', 'YYYYMM') || '15-902', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-000000c20002', '00000000-0000-0000-0000-000000c00001', '00000000-0000-0000-0000-000000c10001', '00000000-0000-0000-0000-00000000d003', 'FINAL_COMPLETED', 'P3', '부품 대기로 지연 — 재방문', '부품 미입고로 재방문 처리', 'REVISIT_REQUIRED', 'PART_WAITING', false, true, '00000000-0000-0000-0000-0000000000a1', date_trunc('month', now()) - interval '1 month' + interval '5 days', date_trunc('month', now()) - interval '1 month' + interval '4 days')
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO work_order_approval_steps (id, org_id, work_order_id, step_order, role, approver_id, status, requested_at, approved_at, approved_by_id) VALUES
+  ('00000000-0000-0000-0000-000000af00e1', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000ad00e1', 1, 'EXECUTIVE', '00000000-0000-0000-0000-00000000d004', 'APPROVED', date_trunc('month', now()) + interval '6 days', LEAST(now() - interval '1 hour', date_trunc('month', now()) + interval '7 days'), '00000000-0000-0000-0000-00000000d004'),
+  ('00000000-0000-0000-0000-000000af00e2', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000ad00e2', 1, 'EXECUTIVE', '00000000-0000-0000-0000-00000000d004', 'APPROVED', date_trunc('month', now()) - interval '1 month' + interval '6 days', date_trunc('month', now()) - interval '1 month' + interval '7 days', '00000000-0000-0000-0000-00000000d004')
 ON CONFLICT (id) DO NOTHING;
 
 -- ── dashboard KPI depth r12: 응답 속도 / 점검 계획 이행률 / P1 수락률 were
