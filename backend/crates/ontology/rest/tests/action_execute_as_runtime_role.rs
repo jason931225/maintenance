@@ -273,8 +273,11 @@ async fn missing_four_eyes_denies_and_writes_zero_rows(owner_pool: PgPool) {
             .decide_approval(DecideApprovalCommand {
                 approver,
                 request_ref,
-                kind: "ontology.action".to_owned(),
+                // Bound to the action being executed: kind = the action key,
+                // target = the object type (a create has no instance target).
+                kind: "set_priority".to_owned(),
                 requested_by: actor,
+                target_ref: Some(*type_id.as_uuid()),
                 decision: ApprovalDecision::Approved,
                 trace: TraceContext::generate(),
                 occurred_at: AT,

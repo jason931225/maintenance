@@ -3,7 +3,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, patch, post};
 use axum::{Extension, Json, Router};
-use mnt_governance_adapter_postgres::{PgGovernanceError, four_eyes_approved_conn};
+use mnt_governance_adapter_postgres::{PgGovernanceError, four_eyes_consume_conn};
 use mnt_governance_domain::{GateChainConfig, GateEvidence, evaluate_gate_chain};
 use mnt_kernel_core::{
     AuditAction, AuditEvent, BranchId, BranchScope, ErrorKind, KernelError, TraceContext, UserId,
@@ -3189,10 +3189,18 @@ async fn trigger_definition_run(
             // above already passed the gate when the run was first created).
             // Personal-scope (§3.9.0-①) skips the gate.
             let owner_scope_is_org = workflow_owner_scope_is_org(&current.definition);
+            // Bind-match AND consume inside this run tx (single-use, TOCTOU-safe):
+            // the approval must be decided for THIS definition (`id`).
             let four_eyes_approved = match four_eyes_request_ref {
-                Some(request_ref) => four_eyes_approved_conn(tx.as_mut(), request_ref)
-                    .await
-                    .map_err(governance_to_workflow_studio)?,
+                Some(request_ref) => four_eyes_consume_conn(
+                    tx.as_mut(),
+                    request_ref,
+                    WORKFLOW_RUN_FOUR_EYES_KIND,
+                    Some(id),
+                    actor,
+                )
+                .await
+                .map_err(governance_to_workflow_studio)?,
                 None => None,
             };
             let gate_outcome = evaluate_automation_four_eyes_gate(owner_scope_is_org, four_eyes_approved);
@@ -3369,10 +3377,18 @@ async fn publish_definition(
                     // inside this writeback tx, so the gate is TOCTOU-safe.
                     // Personal-scope (§3.9.0-①) skips the gate and stays direct.
                     let owner_scope_is_org = workflow_owner_scope_is_org(&current.definition);
+                    // Bind-match AND consume inside this publish tx (single-use,
+                    // TOCTOU-safe): the approval must be decided for THIS definition.
                     let four_eyes_approved = match four_eyes_request_ref {
-                        Some(request_ref) => four_eyes_approved_conn(tx.as_mut(), request_ref)
-                            .await
-                            .map_err(governance_to_workflow_studio)?,
+                        Some(request_ref) => four_eyes_consume_conn(
+                            tx.as_mut(),
+                            request_ref,
+                            WORKFLOW_PUBLISH_FOUR_EYES_KIND,
+                            Some(id),
+                            actor,
+                        )
+                        .await
+                        .map_err(governance_to_workflow_studio)?,
                         None => None,
                     };
                     let gate_outcome =
@@ -7392,6 +7408,12 @@ fn governance_to_workflow_studio(error: PgGovernanceError) -> WorkflowStudioErro
         PgGovernanceError::Domain(kernel) => WorkflowStudioError::from(kernel),
     }
 }
+
+/// The four-eyes `kind`s org-scope automation approvals are decided under. The
+/// approval binds to the workflow definition id (`target_ref`), so an approval to
+/// publish one definition can never authorize publishing/running another.
+const WORKFLOW_PUBLISH_FOUR_EYES_KIND: &str = "workflow.publish";
+const WORKFLOW_RUN_FOUR_EYES_KIND: &str = "workflow.run";
 
 /// Evaluate the §16 four-eyes gate for an org-scope automation action.
 /// Personal-scope automations (`owner_scope_is_org == false`) skip the gate

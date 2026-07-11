@@ -22590,6 +22590,11 @@ export interface operations {
                     /** Format: uuid */
                     request_ref: string;
                     kind: string;
+                    /**
+                     * Format: uuid
+                     * @description The object this approval is FOR (a hold id, a workflow definition id, an ontology instance id). A four-eyes gate binds the approval to the action's target, so an approval decided for one object can never satisfy a gate for another. Omit for create-style actions with no pre-existing target.
+                     */
+                    target_ref?: string | null;
                     payload_summary?: {
                         [key: string]: unknown;
                     };

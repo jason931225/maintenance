@@ -432,9 +432,12 @@ impl DocsRestState {
     }
 
     /// Release a legal hold — fail-closed behind a DISTINCT-approver four-eyes
-    /// decision. The approval is read from the governance store under the armed
-    /// org; only a recorded `approved` decision by a principal other than the
-    /// requester (the store + DB CHECK enforce distinctness) admits the release.
+    /// decision that is BOUND to this hold and SINGLE-USE. The approval must be
+    /// decided under `kind = evidence.hold.release` with its `target_ref` equal to
+    /// the hold being released (both the gate and the release act on the same
+    /// `command.hold_id`), and it is consumed here so it can never release a second
+    /// hold (replay denied). Consumed in its own committed step ahead of the release
+    /// tx: a release failure spends the approval (fail-closed; re-request).
     pub async fn release_hold(
         &self,
         four_eyes_request_ref: Uuid,
@@ -442,7 +445,12 @@ impl DocsRestState {
     ) -> Result<LegalHoldRecordView, HoldError> {
         match self
             .governance
-            .four_eyes_approved(four_eyes_request_ref)
+            .four_eyes_consume(
+                four_eyes_request_ref,
+                EVIDENCE_HOLD_RELEASE_FOUR_EYES_KIND,
+                Some(*command.hold_id.as_uuid()),
+                command.actor,
+            )
             .await
             .map_err(HoldError::governance)?
         {
@@ -455,6 +463,10 @@ impl DocsRestState {
             .map_err(HoldError::Docs)
     }
 }
+
+/// The four-eyes `kind` a hold-release approval is decided under — must match the
+/// `kind` the console opens the approval with (`web/.../evidenceApi.ts`).
+const EVIDENCE_HOLD_RELEASE_FOUR_EYES_KIND: &str = "evidence.hold.release";
 
 async fn hold_object(
     State(state): State<DocsRestState>,

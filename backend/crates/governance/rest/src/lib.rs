@@ -91,6 +91,11 @@ struct OpenOverrideRequest {
 struct CreateApprovalRequest {
     request_ref: Uuid,
     kind: String,
+    /// The object this approval is FOR — a gate binds the approval to the action's
+    /// target so it can never satisfy a gate for a different object. `None` for
+    /// create-style actions with no pre-existing target.
+    #[serde(default)]
+    target_ref: Option<Uuid>,
     #[serde(default = "empty_object")]
     payload_summary: serde_json::Value,
 }
@@ -186,6 +191,7 @@ async fn create_approval(
             requester: principal.user_id,
             request_ref: body.request_ref,
             kind: body.kind,
+            target_ref: body.target_ref,
             payload_summary: body.payload_summary,
             trace: TraceContext::generate(),
             occurred_at: time::OffsetDateTime::now_utc(),
@@ -208,6 +214,9 @@ async fn decide_approval(
             request_ref: body.request_ref,
             kind: body.kind,
             requested_by: UserId::from_uuid(body.requested_by),
+            // The binding target is sourced authoritatively from the pending request
+            // row (the approver can't redirect it), so the decide body carries none.
+            target_ref: None,
             decision: body.decision,
             trace: TraceContext::generate(),
             occurred_at: time::OffsetDateTime::now_utc(),
@@ -283,11 +292,14 @@ async fn lifecycle_preflight(
         egress_dlp: false,
     };
 
-    // Read four-eyes evidence from the DB (never trust the client for it).
+    // Read four-eyes evidence from the DB (never trust the client for it). This is
+    // an advisory, config-level preview (no concrete instance), so it peeks the
+    // approval bound to the object type; the enforcing gate in the ontology
+    // lifecycle writeback binds to the specific instance and consumes single-use.
     let four_eyes_approved = match body.four_eyes_request_ref {
         Some(request_ref) => state
             .store
-            .four_eyes_approved(request_ref)
+            .four_eyes_approved(request_ref, "ontology.lifecycle", Some(body.object_type_id))
             .await
             .map_err(RestError::from_store)?,
         None => None,
