@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { financeModuleScreen } from "../modules/moduleScreens";
 import type { VoucherSummary } from "./financeApi";
 import { balanceCheckValue, documentFlowStepper, validateDraft, voucherRow, voucherStatusId, type DraftLine } from "./financeModel";
 
@@ -121,6 +122,16 @@ describe("voucherRow", () => {
     expect(row.detail?.approvedBy).toBeUndefined();
   });
 
+  it("fills 전기 시각 with the full post instant when posted, and omits it before posting", () => {
+    const posted = voucherRow(record({ status: "POSTED", posted_at: "2026-07-09T05:30:00Z" }));
+    // A posting *instant* (YYYY-MM-DD HH:mm), not a bare date — "시각" is a time.
+    expect(posted.detail?.postedAt).toMatch(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/);
+    expect(posted.cells.postedAt).toBe(posted.detail?.postedAt);
+    // Not yet posted ⇒ omitted (deny-by-omission), never a placeholder timestamp.
+    expect(voucherRow(record({ posted_at: null })).detail?.postedAt).toBeUndefined();
+    expect(voucherRow(record({ posted_at: null })).cells.postedAt).toBeUndefined();
+  });
+
   it("offers submitVoucher only while draft", () => {
     expect(voucherRow(record({ status: "DRAFT" })).actions?.map((a) => a.key)).toEqual(["submitVoucher"]);
     expect(voucherRow(record({ status: "BALANCE_CHECKED" })).actions?.map((a) => a.key)).toEqual(["approveVoucher"]);
@@ -172,5 +183,16 @@ describe("validateDraft", () => {
       { line_no: 2, account_code: "201", memo: "", debit_won: "", credit_won: "10" },
     ];
     expect(validateDraft("t", lines).reasonKey).toBe("console.modules.finance.compose.errors.onesided");
+  });
+});
+
+describe("financeModuleScreen fidelity", () => {
+  it("marks voucher/GL identifiers + 전기 시각 as mono so codes never wrap mid-token", () => {
+    const col = (key: string) => financeModuleScreen.list.columns.find((c) => c.key === key);
+    const field = (key: string) => financeModuleScreen.detail.fields.find((f) => f.key === key);
+    expect(col("gl")?.variant).toBe("mono");
+    expect(col("postedAt")?.variant).toBe("mono");
+    expect(field("glAccountSummary")?.variant).toBe("mono");
+    expect(field("postedAt")?.variant).toBe("mono");
   });
 });

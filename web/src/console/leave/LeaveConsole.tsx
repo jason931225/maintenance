@@ -213,6 +213,79 @@ const inputStyle: CSSProperties = {
   fontWeight: "var(--fw-body)",
 };
 
+// Covers ONLY the native date input's empty-blurred placeholder (the browser
+// locale's format text), leaving the right-edge calendar-picker indicator
+// visible. Opaque surface bg so the native "mm/dd/yyyy" underneath never shows.
+const dateHintStyle: CSSProperties = {
+  position: "absolute",
+  insetBlock: 1,
+  insetInlineStart: 1,
+  insetInlineEnd: 34,
+  display: "flex",
+  alignItems: "center",
+  paddingInlineStart: "var(--sp-3)",
+  borderRadius: "var(--radius-md)",
+  background: "var(--surface)",
+  color: "var(--faint)",
+  fontFamily: "var(--font-sans)",
+  fontSize: "var(--text-sm)",
+  pointerEvents: "none",
+};
+
+// Native `<input type="date">` renders its empty placeholder in the BROWSER's
+// locale — "mm/dd/yyyy" under en-US, regardless of the `lang` attribute
+// (Chromium ignores content `lang` for date fields; the R9 `lang="ko"` fix did
+// not take). Rather than pull in a date-picker library (ponytail: native
+// platform feature before a dep), keep the native control — calendar popup, real
+// YYYY-MM-DD value, keyboard entry, the 시작일/종료일 label's implicit a11y name —
+// and cover only its empty-blurred placeholder with a locale-neutral ISO hint so
+// the field never shows English-locale format text. On focus or once filled the
+// native control takes over unchanged: zero interaction regression. (No Hangul
+// literal — check-ui-strings bans it in lane files and this lane cannot edit
+// ko.ts; the visible Korean field label already localizes the control.)
+interface KoDateFieldProps {
+  value: string;
+  onChange: (value: string) => void;
+  /** The Korean field label (from ko.ts via the caller) — set as the input's
+   *  accessible name, since the wrapper span breaks the enclosing <label>'s
+   *  implicit control association. */
+  ariaLabel: string;
+  required?: boolean;
+  disabled?: boolean;
+}
+
+function KoDateField({ value, onChange, ariaLabel, required, disabled }: KoDateFieldProps) {
+  const [focused, setFocused] = useState(false);
+  const showHint = !focused && !disabled && value === "";
+  return (
+    <span style={{ position: "relative", display: "grid" }}>
+      <input
+        type="date"
+        lang="ko"
+        aria-label={ariaLabel}
+        required={required}
+        disabled={disabled}
+        value={value}
+        onFocus={() => {
+          setFocused(true);
+        }}
+        onBlur={() => {
+          setFocused(false);
+        }}
+        onChange={(event) => {
+          onChange(event.currentTarget.value);
+        }}
+        style={inputStyle}
+      />
+      {showHint ? (
+        <span aria-hidden="true" style={dateHintStyle}>
+          YYYY-MM-DD
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
 const linkStyle: CSSProperties = {
   display: "inline-flex",
   alignItems: "center",
@@ -639,34 +712,25 @@ export function LeaveConsole({ ledger, requests, selfUserId, decide, pushPromoti
                 </label>
                 <label style={labelStyle}>
                   {S.self.startLabel}
-                  {/* lang="ko" localizes the native date control's segments/
-                      placeholder (연도. 월. 일) — no picker library (verdict R9:
-                      was the browser-default English mm/dd/yyyy). */}
-                  <input
-                    type="date"
-                    lang="ko"
+                  <KoDateField
+                    ariaLabel={S.self.startLabel}
                     required
                     value={form.startDate}
-                    onChange={(event) => {
-                      const startDate = event.currentTarget.value;
+                    onChange={(startDate) => {
                       setForm((prev) => ({ ...prev, startDate }));
                     }}
-                    style={inputStyle}
                   />
                 </label>
                 <label style={labelStyle}>
                   {S.self.endLabel}
-                  <input
-                    type="date"
-                    lang="ko"
+                  <KoDateField
+                    ariaLabel={S.self.endLabel}
                     required={!isHalfDay(form.reason)}
                     disabled={isHalfDay(form.reason)}
                     value={isHalfDay(form.reason) ? form.startDate : form.endDate}
-                    onChange={(event) => {
-                      const endDate = event.currentTarget.value;
+                    onChange={(endDate) => {
                       setForm((prev) => ({ ...prev, endDate }));
                     }}
-                    style={inputStyle}
                   />
                 </label>
                 <a

@@ -39,7 +39,14 @@ INSERT INTO users (id, display_name, phone, roles, team, is_active, org_id, is_o
   ('00000000-0000-0000-0000-00000000d001', '개발 최고관리자', 'dev-auth:00000000-0000-0000-0000-0000000000a1:SUPER_ADMIN', ARRAY['SUPER_ADMIN'], '관리', true, '00000000-0000-0000-0000-0000000000a1', true),
   ('00000000-0000-0000-0000-00000000d002', '김정비', '01041110001', ARRAY['MECHANIC'], '정비', true, '00000000-0000-0000-0000-0000000000a1', false),
   ('00000000-0000-0000-0000-00000000d003', '박접수', '01041110002', ARRAY['RECEPTIONIST'], '접수', true, '00000000-0000-0000-0000-0000000000a1', false),
-  ('00000000-0000-0000-0000-00000000d004', '이대표', '01041110003', ARRAY['EXECUTIVE'], '관리', true, '00000000-0000-0000-0000-0000000000a1', false)
+  ('00000000-0000-0000-0000-00000000d004', '이대표', '01041110003', ARRAY['EXECUTIVE'], '관리', true, '00000000-0000-0000-0000-0000000000a1', false),
+  -- r11: four more human staff so evidence authors / support requesters read as
+  -- real people, never the dev SUPER_ADMIN principal. Names mirror the roster
+  -- adds below (한지민/오세훈/강도영/윤서준) for a coherent org.
+  ('00000000-0000-0000-0000-00000000d005', '한지민', '01041110005', ARRAY['RECEPTIONIST'], '접수', true, '00000000-0000-0000-0000-0000000000a1', false),
+  ('00000000-0000-0000-0000-00000000d006', '오세훈', '01041110006', ARRAY['MECHANIC'], '정비', true, '00000000-0000-0000-0000-0000000000a1', false),
+  ('00000000-0000-0000-0000-00000000d007', '강도영', '01041110007', ARRAY['RECEPTIONIST'], '접수', true, '00000000-0000-0000-0000-0000000000a1', false),
+  ('00000000-0000-0000-0000-00000000d008', '윤서준', '01041110008', ARRAY['ADMIN'], '관리', true, '00000000-0000-0000-0000-0000000000a1', false)
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO user_branches (user_id, branch_id, org_id)
@@ -48,7 +55,11 @@ FROM unnest(ARRAY[
   '00000000-0000-0000-0000-00000000d001'::uuid,
   '00000000-0000-0000-0000-00000000d002'::uuid,
   '00000000-0000-0000-0000-00000000d003'::uuid,
-  '00000000-0000-0000-0000-00000000d004'::uuid]) u
+  '00000000-0000-0000-0000-00000000d004'::uuid,
+  '00000000-0000-0000-0000-00000000d005'::uuid,
+  '00000000-0000-0000-0000-00000000d006'::uuid,
+  '00000000-0000-0000-0000-00000000d007'::uuid,
+  '00000000-0000-0000-0000-00000000d008'::uuid]) u
 ON CONFLICT (user_id, branch_id) DO NOTHING;
 
 -- ── employees (roster → leave + policy 인원 count) ───────────────────────────
@@ -61,7 +72,18 @@ INSERT INTO employees (
   ('00000000-0000-0000-0000-000000ee0001', '00000000-0000-0000-0000-0000000000a1', 'KNL로지스틱스', '김정비', 'roster_2026.xlsx', '정규직', 2, 'emp-1001', '{}'::jsonb, '{}'::jsonb, 'ACTIVE', '1001', '정비팀', '지게차 정비', '주임', '창원 본사', '2019-03-04', 15, 4, 11, 'employee_number', 'high', false, false),
   ('00000000-0000-0000-0000-000000ee0002', '00000000-0000-0000-0000-0000000000a1', 'KNL로지스틱스', '박접수', 'roster_2026.xlsx', '정규직', 3, 'emp-1002', '{}'::jsonb, '{}'::jsonb, 'ACTIVE', '1002', '접수팀', '고객 접수', '사원', '창원 본사', '2021-07-12', 15, 9, 6, 'employee_number', 'high', false, false),
   ('00000000-0000-0000-0000-000000ee0003', '00000000-0000-0000-0000-0000000000a1', 'KNL로지스틱스', '최현장', 'roster_2026.xlsx', '정규직', 4, 'emp-1003', '{}'::jsonb, '{}'::jsonb, 'ACTIVE', '1003', '정비팀', '현장 정비', '반장', '부산 지점', '2016-01-20', 20, 2, 18, 'employee_number', 'high', false, false),
-  ('00000000-0000-0000-0000-000000ee0004', '00000000-0000-0000-0000-0000000000a1', 'KNL로지스틱스', '정관리', 'roster_2026.xlsx', '정규직', 5, 'emp-1004', '{}'::jsonb, '{}'::jsonb, 'ACTIVE', '1004', '관리팀', '운영 관리', '과장', '창원 본사', '2014-09-01', 22, 15, 7, 'employee_number', 'high', false, false)
+  ('00000000-0000-0000-0000-000000ee0004', '00000000-0000-0000-0000-0000000000a1', 'KNL로지스틱스', '정관리', 'roster_2026.xlsx', '정규직', 5, 'emp-1004', '{}'::jsonb, '{}'::jsonb, 'ACTIVE', '1004', '관리팀', '운영 관리', '과장', '창원 본사', '2014-09-01', 22, 15, 7, 'employee_number', 'high', false, false),
+  -- roster depth (r11): 4 people read thin against the reference's dense 직원별
+  -- 연차 현황 list. Add eight more across both branches / teams with varied
+  -- 부여·사용·잔여 so the 소진율 meters and 촉진 대상 flags spread realistically.
+  ('00000000-0000-0000-0000-000000ee0005', '00000000-0000-0000-0000-0000000000a1', 'KNL로지스틱스', '한지민', 'roster_2026.xlsx', '정규직', 6, 'emp-1005', '{}'::jsonb, '{}'::jsonb, 'ACTIVE', '1005', '영업팀', '고객 영업', '대리', '창원 본사', '2020-05-11', 17, 3, 14, 'employee_number', 'high', false, false),
+  ('00000000-0000-0000-0000-000000ee0006', '00000000-0000-0000-0000-0000000000a1', 'KNL로지스틱스', '오세훈', 'roster_2026.xlsx', '정규직', 7, 'emp-1006', '{}'::jsonb, '{}'::jsonb, 'ACTIVE', '1006', '정비팀', '지게차 정비', '사원', '부산 지점', '2022-02-14', 15, 1, 14, 'employee_number', 'high', false, false),
+  ('00000000-0000-0000-0000-000000ee0007', '00000000-0000-0000-0000-0000000000a1', 'KNL로지스틱스', '강도영', 'roster_2026.xlsx', '정규직', 8, 'emp-1007', '{}'::jsonb, '{}'::jsonb, 'ACTIVE', '1007', '접수팀', '고객 접수', '주임', '부산 지점', '2018-11-03', 19, 12, 7, 'employee_number', 'high', false, false),
+  ('00000000-0000-0000-0000-000000ee0008', '00000000-0000-0000-0000-0000000000a1', 'KNL로지스틱스', '윤서준', 'roster_2026.xlsx', '정규직', 9, 'emp-1008', '{}'::jsonb, '{}'::jsonb, 'ACTIVE', '1008', '관리팀', '경영 지원', '대리', '창원 본사', '2019-08-19', 18, 8, 10, 'employee_number', 'high', false, false),
+  ('00000000-0000-0000-0000-000000ee0009', '00000000-0000-0000-0000-0000000000a1', 'KNL로지스틱스', '임하늘', 'roster_2026.xlsx', '정규직', 10, 'emp-1009', '{}'::jsonb, '{}'::jsonb, 'ACTIVE', '1009', '정비팀', '현장 정비', '사원', '창원 본사', '2023-01-09', 15, 13, 2, 'employee_number', 'high', false, false),
+  ('00000000-0000-0000-0000-000000ee0010', '00000000-0000-0000-0000-0000000000a1', 'KNL로지스틱스', '배정후', 'roster_2026.xlsx', '정규직', 11, 'emp-1010', '{}'::jsonb, '{}'::jsonb, 'ACTIVE', '1010', '영업팀', '고객 영업', '과장', '부산 지점', '2015-06-22', 21, 6, 15, 'employee_number', 'high', false, false),
+  ('00000000-0000-0000-0000-000000ee0011', '00000000-0000-0000-0000-0000000000a1', 'KNL로지스틱스', '신라온', 'roster_2026.xlsx', '정규직', 12, 'emp-1011', '{}'::jsonb, '{}'::jsonb, 'ACTIVE', '1011', '정비팀', '지게차 정비', '주임', '창원 본사', '2017-04-17', 20, 16, 4, 'employee_number', 'high', false, false),
+  ('00000000-0000-0000-0000-000000ee0012', '00000000-0000-0000-0000-0000000000a1', 'KNL로지스틱스', '문가온', 'roster_2026.xlsx', '정규직', 13, 'emp-1012', '{}'::jsonb, '{}'::jsonb, 'ACTIVE', '1012', '접수팀', '고객 접수', '사원', '부산 지점', '2021-10-05', 15, 5, 10, 'employee_number', 'high', false, false)
 ON CONFLICT (id) DO NOTHING;
 
 -- ── leave: annual obligations + a couple of pending requests ─────────────────
@@ -168,15 +190,20 @@ SELECT
   now() - (v.days_ago || ' days')::interval
 FROM (VALUES
   (3,  '현장 CCTV 클립 — 지게차 유압 누유 정황', '창원센터 반입구 CCTV에서 확인된 누유 발생 시점 영상', 'external_document', 'ext-cctv-c207-0705', 'CAM-207', 'INTERNAL', '00000000-0000-0000-0000-00000000d002', 2),
-  (4,  '무단결근 소명 진술 녹취', '근태 이의 제기 건 소명 청취 녹취 파일', 'inbox_doc', 'inbox-hr-0630', 'HR-0630', 'SENSITIVE', '00000000-0000-0000-0000-00000000d001', 5),
-  (5,  '하도급 서면실태조사 대응 자료', '공정위 서면실태조사 회신 첨부 문서', 'mail_attachment', 'mail-fair-0628', 'FAIR-0628', 'CONFIDENTIAL', '00000000-0000-0000-0000-00000000d001', 9),
+  -- r11: record owner = the seeded human who owns the record, never the dev
+  -- SUPER_ADMIN principal (d001) — dev-auth's login upsert overwrites d001's
+  -- display_name to the raw principal label, so a d001-owned row rendered
+  -- "dev:SUPER_ADMIN" in the 작성/담당 column. Governance docs → 이대표 (d004,
+  -- executive); safety report → 김정비 (d002, 정비 주임).
+  (4,  '무단결근 소명 진술 녹취', '근태 이의 제기 건 소명 청취 녹취 파일', 'inbox_doc', 'inbox-hr-0630', 'HR-0630', 'SENSITIVE', '00000000-0000-0000-0000-00000000d004', 5),
+  (5,  '하도급 서면실태조사 대응 자료', '공정위 서면실태조사 회신 첨부 문서', 'mail_attachment', 'mail-fair-0628', 'FAIR-0628', 'CONFIDENTIAL', '00000000-0000-0000-0000-00000000d004', 9),
   (6,  '정기 점검 완료 사진 — KNLFL-0001', '2.5톤 디젤 지게차 정기점검 완료 상태 사진', 'work_order_evidence_media', 'wo-media-ad0005', '20260601-005', 'GENERAL', '00000000-0000-0000-0000-00000000d002', 14),
   (7,  '브레이크 패드 교체 전후 비교 사진', '제동 성능 저하 정비 증빙', 'work_order_evidence_media', 'wo-media-ad0007', '20260401-007', 'INTERNAL', '00000000-0000-0000-0000-00000000d002', 22),
   (8,  '임대 계약 갱신 합의서 스캔본', '한성물류 지게차 임대 계약 갱신 서명본', 'record_archive', 'arch-contract-c209', 'C-209', 'CONFIDENTIAL', '00000000-0000-0000-0000-00000000d003', 33),
   (9,  '유압 호스 교체 부품 수령 증빙', '작동유 누유 정비 부품 입고 확인 사진', 'work_order_evidence_media', 'wo-media-ad0009', '20260201-009', 'GENERAL', '00000000-0000-0000-0000-00000000d002', 45),
   (10, '고객 클레임 대응 이메일 스레드', '부산 창고 유압 누유 재발 클레임 대응 기록', 'mail_attachment', 'mail-claim-0210', 'SUP-5C0003', 'INTERNAL', '00000000-0000-0000-0000-00000000d003', 62),
   (11, '전조등 교체 작업 완료 확인서', '야간 작업등 불량 정비 완료 확인 서명', 'record_archive', 'arch-wo-ad0008', '20260301-008', 'GENERAL', '00000000-0000-0000-0000-00000000d002', 88),
-  (12, '2026 상반기 정기 안전점검 보고서', '반기 안전점검 결과 종합 보고 문서', 'record_archive', 'arch-safety-2026h1', 'SAFE-2026H1', 'INTERNAL', '00000000-0000-0000-0000-00000000d001', 120)
+  (12, '2026 상반기 정기 안전점검 보고서', '반기 안전점검 결과 종합 보고 문서', 'record_archive', 'arch-safety-2026h1', 'SAFE-2026H1', 'INTERNAL', '00000000-0000-0000-0000-00000000d002', 120)
 ) AS v(seq, title, descr, stype, sid, scode, cls, owner, days_ago)
 ON CONFLICT (id) DO NOTHING;
 
@@ -194,15 +221,15 @@ SELECT
   now() - (v.days_ago || ' days')::interval
 FROM (VALUES
   (3,  'external_document', 'ext-cctv-c207-0705', 'CAM-207', '00000000-0000-0000-0000-00000000d002', 2),
-  (4,  'inbox_doc', 'inbox-hr-0630', 'HR-0630', '00000000-0000-0000-0000-00000000d001', 5),
-  (5,  'mail_attachment', 'mail-fair-0628', 'FAIR-0628', '00000000-0000-0000-0000-00000000d001', 9),
+  (4,  'inbox_doc', 'inbox-hr-0630', 'HR-0630', '00000000-0000-0000-0000-00000000d004', 5),
+  (5,  'mail_attachment', 'mail-fair-0628', 'FAIR-0628', '00000000-0000-0000-0000-00000000d004', 9),
   (6,  'work_order_evidence_media', 'wo-media-ad0005', '20260601-005', '00000000-0000-0000-0000-00000000d002', 14),
   (7,  'work_order_evidence_media', 'wo-media-ad0007', '20260401-007', '00000000-0000-0000-0000-00000000d002', 22),
   (8,  'record_archive', 'arch-contract-c209', 'C-209', '00000000-0000-0000-0000-00000000d003', 33),
   (9,  'work_order_evidence_media', 'wo-media-ad0009', '20260201-009', '00000000-0000-0000-0000-00000000d002', 45),
   (10, 'mail_attachment', 'mail-claim-0210', 'SUP-5C0003', '00000000-0000-0000-0000-00000000d003', 62),
   (11, 'record_archive', 'arch-wo-ad0008', '20260301-008', '00000000-0000-0000-0000-00000000d002', 88),
-  (12, 'record_archive', 'arch-safety-2026h1', 'SAFE-2026H1', '00000000-0000-0000-0000-00000000d001', 120)
+  (12, 'record_archive', 'arch-safety-2026h1', 'SAFE-2026H1', '00000000-0000-0000-0000-00000000d002', 120)
 ) AS v(seq, stype, sid, scode, owner, days_ago)
 ON CONFLICT (id) DO NOTHING;
 
@@ -212,6 +239,21 @@ INSERT INTO object_lifecycles (id, org_id, object_type, object_id, current_state
   ('00000000-0000-0000-0000-0000001c0005', '00000000-0000-0000-0000-0000000000a1', 'evidence_object', '00000000-0000-0000-0000-000000ef0004', 'registered', false, (current_date + 45)),
   ('00000000-0000-0000-0000-0000001c0006', '00000000-0000-0000-0000-0000000000a1', 'evidence_object', '00000000-0000-0000-0000-000000ef0008', 'registered', false, (current_date + 1825)),
   ('00000000-0000-0000-0000-0000001c0007', '00000000-0000-0000-0000-0000000000a1', 'evidence_object', '00000000-0000-0000-0000-000000ef0012', 'registered', false, (current_date + 730))
+ON CONFLICT (id) DO NOTHING;
+
+-- r11: every remaining EV object gets a real retention_until so the 보존 column
+-- reads populated across the whole table (verdict: no "—" retention gaps against
+-- the reference's fully-populated 보존 list). Durations spread 3·5 years by
+-- classification. Each resolves through the same
+-- GET /api/v1/lifecycles/evidence_object/{id} read as the rows above.
+INSERT INTO object_lifecycles (id, org_id, object_type, object_id, current_state, legal_hold, retention_until) VALUES
+  ('00000000-0000-0000-0000-0000001c0008', '00000000-0000-0000-0000-0000000000a1', 'evidence_object', '00000000-0000-0000-0000-000000ef0003', 'registered', false, (current_date + 1825)),
+  ('00000000-0000-0000-0000-0000001c0009', '00000000-0000-0000-0000-0000000000a1', 'evidence_object', '00000000-0000-0000-0000-000000ef0005', 'registered', false, (current_date + 1825)),
+  ('00000000-0000-0000-0000-0000001c000a', '00000000-0000-0000-0000-0000000000a1', 'evidence_object', '00000000-0000-0000-0000-000000ef0006', 'registered', false, (current_date + 1095)),
+  ('00000000-0000-0000-0000-0000001c000b', '00000000-0000-0000-0000-0000000000a1', 'evidence_object', '00000000-0000-0000-0000-000000ef0007', 'registered', false, (current_date + 1095)),
+  ('00000000-0000-0000-0000-0000001c000c', '00000000-0000-0000-0000-0000000000a1', 'evidence_object', '00000000-0000-0000-0000-000000ef0009', 'registered', false, (current_date + 1095)),
+  ('00000000-0000-0000-0000-0000001c000d', '00000000-0000-0000-0000-0000000000a1', 'evidence_object', '00000000-0000-0000-0000-000000ef0010', 'registered', false, (current_date + 1825)),
+  ('00000000-0000-0000-0000-0000001c000e', '00000000-0000-0000-0000-0000000000a1', 'evidence_object', '00000000-0000-0000-0000-000000ef0011', 'registered', false, (current_date + 1095))
 ON CONFLICT (id) DO NOTHING;
 
 -- ── policy roles + permissions + version (거버넌스 / 정책) ───────────────────
@@ -440,6 +482,20 @@ INSERT INTO support_tickets (id, branch_id, origin, category, priority, status, 
   ('00000000-0000-0000-0000-0000005c0001', '00000000-0000-0000-0000-0000000000c1', 'CUSTOMER', 'EQUIPMENT_INQUIRY', 'HIGH', 'OPEN', '지게차 시동 불량 문의', '전동 지게차가 아침부터 시동이 걸리지 않습니다.', '한성물류 김과장', '055-1234-5678', '00000000-0000-0000-0000-00000000d001', '00000000-0000-0000-0000-0000000000a1'),
   ('00000000-0000-0000-0000-0000005c0002', '00000000-0000-0000-0000-0000000000c1', 'CUSTOMER', 'OPERATIONAL', 'MEDIUM', 'IN_PROGRESS', '정기 점검 일정 문의', '다음 달 정기 점검 일정을 조율하고 싶습니다.', '한성물류 이대리', 'lee@hansung.co.kr', '00000000-0000-0000-0000-00000000d003', '00000000-0000-0000-0000-0000000000a1'),
   ('00000000-0000-0000-0000-0000005c0003', '00000000-0000-0000-0000-0000000000c2', 'CUSTOMER', 'COMPLAINT', 'URGENT', 'RESOLVED', '유압 누유 재발', '지난 번 수리한 부위에서 다시 누유가 발생했습니다.', '부산 창고 박팀장', '051-9876-5432', '00000000-0000-0000-0000-00000000d002', '00000000-0000-0000-0000-0000000000a1')
+ON CONFLICT (id) DO NOTHING;
+
+-- support depth (r11): 3 customer tickets left the 지원 센터 list thin against
+-- the reference's 8-row list (열린 티켓 + FAQ 셀프해결). Add five INTERNAL staff
+-- tickets — access/how-to topics that mirror the reference's FAQ entries; most
+-- RESOLVED (self-served) so the 해결 stat surfaces a real count. INTERNAL origin
+-- carries a requester_user_id (not free-form name/contact), so this needs its
+-- own column list + the CHECK's requester_name/contact = NULL.
+INSERT INTO support_tickets (id, branch_id, origin, category, priority, status, title, body, requester_user_id, assignee_user_id, org_id, resolved_at) VALUES
+  ('00000000-0000-0000-0000-0000005c0004', '00000000-0000-0000-0000-0000000000c1', 'INTERNAL', 'ACCESS_REQUEST', 'MEDIUM', 'IN_PROGRESS', 'passkey 재등록 요청 (기기 교체)', '휴대폰을 교체해서 passkey 재등록이 필요합니다.', '00000000-0000-0000-0000-00000000d006', '00000000-0000-0000-0000-00000000d001', '00000000-0000-0000-0000-0000000000a1', NULL),
+  ('00000000-0000-0000-0000-0000005c0005', '00000000-0000-0000-0000-0000000000c1', 'INTERNAL', 'ACCESS_REQUEST', 'LOW', 'RESOLVED', 'passkey가 인식되지 않을 때', '지문 등록을 다시 하니 정상 로그인됐습니다.', '00000000-0000-0000-0000-00000000d002', '00000000-0000-0000-0000-00000000d003', '00000000-0000-0000-0000-0000000000a1', now() - interval '2 days'),
+  ('00000000-0000-0000-0000-0000005c0006', '00000000-0000-0000-0000-0000000000c1', 'INTERNAL', 'OPERATIONAL', 'LOW', 'RESOLVED', '수신함 문서가 잠겨 있어요', '보존 기간 문서라 잠금 상태였고 담당자 승인 후 열람했습니다.', '00000000-0000-0000-0000-00000000d007', '00000000-0000-0000-0000-00000000d003', '00000000-0000-0000-0000-0000000000a1', now() - interval '4 days'),
+  ('00000000-0000-0000-0000-0000005c0007', '00000000-0000-0000-0000-0000000000c2', 'INTERNAL', 'SYSTEM_BUG', 'LOW', 'RESOLVED', '내보내기가 차단됐어요', '권한 정책상 대외비 문서는 내보내기가 제한됨을 확인했습니다.', '00000000-0000-0000-0000-00000000d005', '00000000-0000-0000-0000-00000000d003', '00000000-0000-0000-0000-0000000000a1', now() - interval '6 days'),
+  ('00000000-0000-0000-0000-0000005c0008', '00000000-0000-0000-0000-0000000000c1', 'INTERNAL', 'OPERATIONAL', 'LOW', 'RESOLVED', '대근 편성은 어디서 하나요', '근태 화면의 편성 탭에서 처리하면 됩니다.', '00000000-0000-0000-0000-00000000d008', '00000000-0000-0000-0000-00000000d003', '00000000-0000-0000-0000-0000000000a1', now() - interval '1 day')
 ON CONFLICT (id) DO NOTHING;
 
 -- ── overview work-queue (결재/배차/정비/회신): one item per ActionInboxItem

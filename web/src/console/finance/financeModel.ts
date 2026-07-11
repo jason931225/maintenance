@@ -1,4 +1,5 @@
 import type { ConsoleApiClient } from "../../api/client";
+import { formatKoreanDateTime } from "../../lib/datetime";
 import { safeLabel } from "../../lib/utils";
 import { choiceStatus, resolveText } from "../modules/typeRegistry";
 import type {
@@ -51,6 +52,13 @@ function formatDate(value: string | null | undefined): string | undefined {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return dateFormatter.format(date);
+}
+
+/** 전기 시각 is a posting *instant*, not a date — render the full `YYYY-MM-DD
+ * HH:mm` when the voucher is posted; a not-yet-posted voucher (posted_at null)
+ * stays omitted (deny-by-omission), never a placeholder timestamp. */
+function formatPostedAt(value: string | null | undefined): string | undefined {
+  return value ? formatKoreanDateTime(value) : undefined;
 }
 
 /** Status choice id — a direct lowercase mirror of the real backend
@@ -210,13 +218,13 @@ export function voucherRow(record: VoucherSummary): ModuleRow {
       title: record.memo,
       amount: formatWon(record.debit_total_won),
       gl: glAccountSummary(record),
-      postedAt: formatDate(record.posted_at),
+      postedAt: formatPostedAt(record.posted_at),
     },
     detail: {
       title: record.memo,
       totalDebitWon: formatWon(record.debit_total_won),
       totalCreditWon: formatWon(record.credit_total_won),
-      postedAt: formatDate(record.posted_at),
+      postedAt: formatPostedAt(record.posted_at),
       // Never the raw id: resolved via the backend's same-org correlated
       // lookup (round-5 leaks-polish); safeLabel is the last-resort guard if
       // a row's *_name somehow came back null (deleted user/branch row).

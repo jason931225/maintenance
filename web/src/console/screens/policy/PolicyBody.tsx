@@ -178,20 +178,24 @@ const statLabelStyle: CSSProperties = {
 
 const listStyle: CSSProperties = {
   display: "grid",
-  gap: "var(--sp-2)",
+  gap: 0,
   margin: 0,
   padding: 0,
   listStyle: "none",
 };
 
-const rowStyle: CSSProperties = {
-  display: "grid",
-  gap: "var(--sp-2)",
-  padding: "var(--sp-3) var(--sp-4)",
-  border: "1px solid var(--border-soft)",
-  borderRadius: "var(--radius)",
-  background: "var(--surface)",
-};
+// Hairline-divided rows (not individually-bordered boxes): the reference's
+// 정책 list reads as one dense table, so rows sit flush and are separated by a
+// single divider rather than boxed cards with gaps between them (verdict R10
+// "policy list rendering / whitespace"). The last row drops its divider.
+function rowStyle(isLast: boolean): CSSProperties {
+  return {
+    display: "grid",
+    gap: "var(--sp-2)",
+    padding: "var(--sp-3) var(--sp-1)",
+    borderBottom: isLast ? "none" : "1px solid var(--border-soft)",
+  };
+}
 
 const rowHeadStyle: CSSProperties = {
   display: "flex",
@@ -428,10 +432,10 @@ export function PolicyBody() {
                 <StatusChip tone="neutral">{L.empty}</StatusChip>
               ) : (
                 <ul style={listStyle}>
-                  {visibleRows.map((row) => {
+                  {visibleRows.map((row, index) => {
                     const isOpen = expanded === row.rowKey;
                     return (
-                      <li key={row.rowKey} style={rowStyle}>
+                      <li key={row.rowKey} style={rowStyle(index === visibleRows.length - 1)}>
                         <div style={rowHeadStyle}>
                           <StatusChip tone={row.effect === "forbid" ? "danger" : "info"}>
                             {S.effectLabels[row.effect]}

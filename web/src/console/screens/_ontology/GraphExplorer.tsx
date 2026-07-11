@@ -106,7 +106,7 @@ const wrapStyle: CSSProperties = {
 
 const viewportStyle: CSSProperties = {
   position: "relative",
-  minHeight: 520,
+  minHeight: 600,
   overflow: "hidden",
   border: "1px solid var(--canvas-grid-bd)",
   borderRadius: "var(--radius-card)",
@@ -156,9 +156,12 @@ const nodeButtonStyle: CSSProperties = {
 const pillStyle: CSSProperties = {
   display: "grid",
   gap: "var(--sp-1)",
-  minWidth: 128,
-  maxWidth: 176,
-  padding: "var(--sp-2) var(--sp-3)",
+  // Tighter footprint (verdict R10 "explore graph overlap"): the radial layout
+  // packs ~19 nodes, so a narrower pill clears more angular space between
+  // neighbours; the label already ellipsis-truncates, so less width ≠ lost text.
+  minWidth: 96,
+  maxWidth: 140,
+  padding: "var(--sp-1) var(--sp-2)",
   borderRadius: "var(--radius-card)",
   border: "1px solid var(--border)",
   background: "var(--surface)",
