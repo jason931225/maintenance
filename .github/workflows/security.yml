@@ -27,19 +27,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      # Trivy installed from a pinned release tarball rather than the composite
-      # aquasecurity/trivy-action: that action internally references
-      # aquasecurity/setup-trivy@v0.2.2, a tag that no longer resolves and broke
-      # the job at setup. The amd64 (Linux-64bit) asset matches ubuntu-latest.
-      # Mirrors the install in image-release.yml.
-      - name: Install Trivy
-        env:
-          TRIVY_VERSION: "0.71.1"
-        run: |
-          curl -sfL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" \
-            -o /tmp/trivy.tar.gz
-          sudo tar -xzf /tmp/trivy.tar.gz -C /usr/local/bin trivy
-          trivy --version
+      - uses: ./.github/actions/setup-trivy
       - name: Trivy filesystem scan (vuln + secret)
         run: |
           trivy fs --scanners vuln,secret --ignore-unfixed \
@@ -51,14 +39,7 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-      - name: Install Trivy
-        env:
-          TRIVY_VERSION: "0.71.1"
-        run: |
-          curl -sfL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" \
-            -o /tmp/trivy.tar.gz
-          sudo tar -xzf /tmp/trivy.tar.gz -C /usr/local/bin trivy
-          trivy --version
+      - uses: ./.github/actions/setup-trivy
       - name: Install kubectl (for kustomize renderer)
         env:
           KUBECTL_VERSION: "v1.36.2"

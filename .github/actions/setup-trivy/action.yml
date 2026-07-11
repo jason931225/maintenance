@@ -1,0 +1,23 @@
+name: Setup Trivy
+description: >
+  Install Trivy from a pinned release tarball rather than the composite
+  aquasecurity/trivy-action: that action internally references
+  aquasecurity/setup-trivy@v0.2.2, a tag that no longer resolves and broke
+  jobs at setup. The amd64 (Linux-64bit) asset matches ubuntu-latest runners.
+inputs:
+  version:
+    description: Trivy release version to install.
+    required: false
+    default: "0.71.1"
+runs:
+  using: composite
+  steps:
+    - name: Install Trivy
+      shell: bash
+      env:
+        TRIVY_VERSION: ${{ inputs.version }}
+      run: |
+        curl -sfL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" \
+          -o /tmp/trivy.tar.gz
+        sudo tar -xzf /tmp/trivy.tar.gz -C /usr/local/bin trivy
+        trivy --version
