@@ -88,8 +88,10 @@ describe("OverviewBody", () => {
     expect(within(approvalStat).getByText("1")).toBeInTheDocument();
     expect(screen.getByText(S.stat.urgent(1))).toBeInTheDocument();
 
-    // queue rows + comms feed
-    expect(screen.getByText("Approve budget")).toBeInTheDocument();
+    // queue rows + comms feed. The approval is also due today, so it legitimately
+    // renders again in the 오늘 timeline — scope the queue assertion to its region.
+    const queue = within(screen.getByRole("region", { name: S.queueTitle }));
+    expect(queue.getByText("Approve budget")).toBeInTheDocument();
     expect(screen.getByText("New assignment")).toBeInTheDocument();
     // timeline picks up the approval due today
     expect(screen.getByLabelText(S.timelineTitle)).toBeInTheDocument();
@@ -98,20 +100,24 @@ describe("OverviewBody", () => {
   it("drilling a stat filters the queue to that kind", async () => {
     const user = userEvent.setup();
     renderBody();
-    await screen.findByText("Approve budget");
+    const queue = within(
+      await screen.findByRole("region", { name: S.queueTitle }),
+    );
 
     await user.click(
       screen.getByRole("button", { name: (n) => n.includes(S.stat.dispatch) }),
     );
-    expect(screen.getByText("Assign van")).toBeInTheDocument();
-    expect(screen.queryByText("Approve budget")).not.toBeInTheDocument();
+    expect(queue.getByText("Assign van")).toBeInTheDocument();
+    // scoped to the queue: the approval stays in the 오늘 timeline, only the
+    // queue is filtered to dispatch.
+    expect(queue.queryByText("Approve budget")).not.toBeInTheDocument();
   });
 
   it("invokes onOpen with the item when a row action button is pressed", async () => {
     const user = userEvent.setup();
     const onOpen = vi.fn();
     renderBody({ onOpen });
-    await screen.findByText("Approve budget");
+    await screen.findByRole("region", { name: S.queueTitle });
 
     await user.click(screen.getByRole("button", { name: S.action.approval }));
     expect(onOpen).toHaveBeenCalledWith(
@@ -140,13 +146,13 @@ describe("OverviewBody", () => {
     );
     await screen.findByText(S.error);
     await user.click(screen.getByRole("button", { name: S.retry }));
-    await screen.findByText("Approve budget");
+    await screen.findByRole("region", { name: S.queueTitle });
   });
 
   it("shows empty-queue copy when the filter matches nothing", async () => {
     const user = userEvent.setup();
     renderBody();
-    await screen.findByText("Approve budget");
+    await screen.findByRole("region", { name: S.queueTitle });
     // filter to the work stat (kind=work) — the fixture has none
     await user.click(
       screen.getByRole("button", { name: (n) => n.includes(S.stat.work) }),
