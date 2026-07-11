@@ -195,7 +195,10 @@ select {
   --console-border-soft: #e8ecf1;
   --console-ink: #141a21;
   --console-steel: #566475;
-  --console-faint: #687585;
+  /* faint must clear WCAG AA (4.5:1) not just on the bare surface but on the
+     unread-notification row (bg-console-muted/40 over surface = #f7f9fa), where
+     the comms-rail timestamps sit; #687585 was 4.44:1 there. */
+  --console-faint: #616e7e;
   --console-signal: #f6b521;
   --console-signal-deep: #e2a30d;
   --console-teal: #0f766e;

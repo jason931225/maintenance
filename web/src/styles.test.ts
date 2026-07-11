@@ -12,7 +12,7 @@ const lightTokens = {
   "console-border-soft": "#e8ecf1",
   "console-ink": "#141a21",
   "console-steel": "#566475",
-  "console-faint": "#687585",
+  "console-faint": "#616e7e",
   "console-signal": "#f6b521",
   "console-signal-deep": "#e2a30d",
   "console-teal": "#0f766e",
@@ -121,6 +121,17 @@ function contrastRatio(foreground: string, background: string) {
   return (lighter + 0.05) / (darker + 0.05);
 }
 
+// Composite `top` over `bottom` at `alpha`, the way an `rgb(...)/40%` layer
+// paints over an opaque background. Used to reconstruct the unread-notification
+// row (bg-console-muted/40 over surface) that faint timestamps actually sit on.
+function composite(top: string, bottom: string, alpha: number) {
+  const channel = (hex: string, i: number) =>
+    Number.parseInt(hex.slice(1 + i * 2, 3 + i * 2), 16);
+  const mixed = (i: number) =>
+    Math.round(alpha * channel(top, i) + (1 - alpha) * channel(bottom, i));
+  return `#${[0, 1, 2].map((i) => mixed(i).toString(16).padStart(2, "0")).join("")}`;
+}
+
 function tokensIn(block: string) {
   return Object.fromEntries(
     Array.from(block.matchAll(/--([\w-]+):\s*([^;]+);/g), ([, name, value]) => [
@@ -144,6 +155,27 @@ describe("Oyatie console CSS tokens", () => {
     ).toBeGreaterThanOrEqual(4.5);
     expect(
       contrastRatio(dark["console-faint"], dark["console-surface"]),
+    ).toBeGreaterThanOrEqual(4.5);
+
+    // Comms-rail timestamps sit on the unread-notification row, which tints the
+    // surface with console-muted at 40% opacity — a darker background than the
+    // bare surface. faint must clear AA there too (regression: #687585 was
+    // 4.44:1 on this composite and axe failed the populated rail).
+    const lightUnread = composite(
+      light["console-muted"],
+      light["console-surface"],
+      0.4,
+    );
+    const darkUnread = composite(
+      dark["console-muted"],
+      dark["console-surface"],
+      0.4,
+    );
+    expect(
+      contrastRatio(light["console-faint"], lightUnread),
+    ).toBeGreaterThanOrEqual(4.5);
+    expect(
+      contrastRatio(dark["console-faint"], darkUnread),
     ).toBeGreaterThanOrEqual(4.5);
   });
 

@@ -280,7 +280,7 @@ export function OverviewBody({ accessToken, api, now, onOpen }: OverviewBodyProp
             (verdict R3 density). Every panel renders open by default — there
             is no collapse control to default, so "default-expanded" is
             satisfied by construction rather than a toggle nobody asked for. */}
-        <aside style={panelStyle} aria-label={S.railTitle}>
+        <section style={panelStyle} aria-label={S.railTitle}>
           <div style={panelHeadStyle}>
             <h2 style={panelTitleStyle}>{S.railTitle}</h2>
             <span style={countBadgeStyle}>{data.counts.total_unread}</span>
@@ -317,7 +317,7 @@ export function OverviewBody({ accessToken, api, now, onOpen }: OverviewBodyProp
               )}
             </div>
           ))}
-        </aside>
+        </section>
       </div>
     </div>
   );
