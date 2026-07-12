@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.62](https://github.com/jason931225/maintenance/compare/v0.1.61...v0.1.62) (2026-07-11)
+
+
+### Bug Fixes
+
+* **console:** light-mode module surfaces — stop dark background leak ([#470](https://github.com/jason931225/maintenance/issues/470)) ([8882e43](https://github.com/jason931225/maintenance/commit/8882e43b9612c44911fc2eee6b442ffbe7027a3c))
+
 ## [0.1.61](https://github.com/jason931225/maintenance/compare/v0.1.60...v0.1.61) (2026-07-11)
 
 
