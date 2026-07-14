@@ -1,9 +1,8 @@
-// UI copy for the 인건비 분석 (labor-cost analysis) console surface. check-ui-strings
-// forbids Hangul in lane files and this lane must not edit ko.ts — the serial
-// i18n wire-up applies the koManifest below as ko.console.laborcost; until it
-// lands these English defaults keep the surface mountable and testable.
+// UI copy contract for the 인건비 분석 (labor-cost analysis) console surface.
+// Korean copy lives in ko.console.laborcost; these English defaults keep the
+// surface mountable when a partial locale bundle is supplied.
 //
-// koManifest (proposed Korean for the wire-up, keyed ko.console.laborcost):
+// ko.console.laborcost contract:
 //   title              "인건비 분석"
 //   periodsTitle       "급여 기간"
 //   periodDrill        (period: string, status: string) => `${period} ${status} 상세 열기`
@@ -12,6 +11,7 @@
 //   hoursOvertime      "연장"
 //   hoursNight         "야간"
 //   hoursHoliday       "휴일"
+//   hourUnit           "시간"
 //   trendTitle         "근로시간 추이"
 //   costPendingTitle   "인건비 금액(₩)"
 //   costPendingReason  "표시 안 함 — 급여 금액 원천 행이 아직 없어 근로시간만 집계합니다"
@@ -30,11 +30,20 @@ export interface LaborCostStrings {
   hoursOvertime: string;
   hoursNight: string;
   hoursHoliday: string;
+  hourUnit: string;
   trendTitle: string;
   costPendingTitle: string;
   costPendingReason: string;
   emptyReason: string;
   status: Record<string, string>;
+}
+
+function trimDecimal(value: number) {
+  return Number.isInteger(value) ? String(value) : value.toFixed(1);
+}
+
+export function formatLaborHours(value: number, hourUnit: string) {
+  return `${trimDecimal(value)}${hourUnit}`;
 }
 
 const FALLBACK: LaborCostStrings = {
@@ -46,6 +55,7 @@ const FALLBACK: LaborCostStrings = {
   hoursOvertime: "Overtime",
   hoursNight: "Night",
   hoursHoliday: "Holiday",
+  hourUnit: "h",
   trendTitle: "Labor-hours trend",
   costPendingTitle: "Labor cost (₩)",
   costPendingReason: "Not shown — no payroll amount source rows yet; hours only",
@@ -60,7 +70,7 @@ const FALLBACK: LaborCostStrings = {
   },
 };
 
-/** ko.console.laborcost accessor with the English fallback (block not yet wired). */
+/** ko.console.laborcost accessor with a complete English fallback. */
 export function laborCostStrings(): LaborCostStrings {
   const wired = (ko.console as unknown as { laborcost?: Partial<LaborCostStrings> })
     .laborcost;

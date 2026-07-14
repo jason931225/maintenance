@@ -48,7 +48,8 @@ interface ProjectionView {
   ci95: readonly [number, number];
   cvar95: number;
   n: number;
-  lambda: number;
+  ewmaAssumption: string;
+  distributionAssumption: string;
 }
 
 function toView(
@@ -62,12 +63,24 @@ function toView(
       ci95: [backendResult.ci95_low, backendResult.ci95_high],
       cvar95: backendResult.cvar95,
       n: sample.filter((v) => Number.isFinite(v)).length,
-      lambda,
+      ewmaAssumption: T.projection.assumptionEwmaVolatility(
+        String(backendResult.assumptions.ewma_volatility),
+      ),
+      distributionAssumption: T.projection.assumptionStudentT(
+        backendResult.assumptions.student_t_nu,
+      ),
     };
   }
   const p = project(sample, lambda);
   return p
-    ? { point: p.point, ci95: p.ci95, cvar95: p.cvar95, n: p.n, lambda: p.lambda }
+    ? {
+        point: p.point,
+        ci95: p.ci95,
+        cvar95: p.cvar95,
+        n: p.n,
+        ewmaAssumption: T.projection.assumptionEwma(String(p.lambda)),
+        distributionAssumption: T.projection.assumptionDist,
+      }
     : null;
 }
 
@@ -136,8 +149,8 @@ export function ProjectionPanel({ title, kind, sample, backendResult, lambda = D
         </h3>
         {p ? (
           <span style={{ display: "inline-flex", gap: "var(--sp-1)", flexWrap: "wrap" }}>
-            <StatusChip>{T.projection.assumptionEwma(String(p.lambda))}</StatusChip>
-            <StatusChip>{T.projection.assumptionDist}</StatusChip>
+            <StatusChip>{p.ewmaAssumption}</StatusChip>
+            <StatusChip>{p.distributionAssumption}</StatusChip>
             <StatusChip>{T.projection.assumptionN(p.n)}</StatusChip>
           </span>
         ) : null}

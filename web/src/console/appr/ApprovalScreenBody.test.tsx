@@ -12,7 +12,7 @@ const server = setupServer();
 const T = ko.console.appr;
 
 beforeAll(() => {
-  server.listen({ onUnhandledRequest: "bypass" });
+  server.listen({ onUnhandledRequest: "error" });
 });
 afterEach(() => {
   server.resetHandlers();
@@ -44,10 +44,13 @@ function renderBody(roles: string[]) {
 
 describe("ApprovalScreenBody", () => {
   it("mounts the real approval-compose surface bound to the session token", async () => {
-    let sawAuth = false;
+    let resolveRequest!: (request: Request) => void;
+    const requestSeen = new Promise<Request>((resolve) => {
+      resolveRequest = resolve;
+    });
     server.use(
       http.get("*/api/v1/workflow-studio/submittable-definitions", ({ request }) => {
-        sawAuth = request.headers.get("authorization") === "Bearer appr-token";
+        resolveRequest(request);
         return HttpResponse.json({ items: [] });
       }),
     );
@@ -57,6 +60,7 @@ describe("ApprovalScreenBody", () => {
     // The compose section renders for any signed-in role (aria-label = 전자결재)
     // and its submittable-definitions read carries the session bearer token.
     expect(await screen.findByRole("region", { name: T.title })).toBeInTheDocument();
-    expect(sawAuth).toBe(true);
+    const request = await requestSeen;
+    expect(request.headers.get("authorization")).toBe("Bearer appr-token");
   });
 });

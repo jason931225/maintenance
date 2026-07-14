@@ -10,7 +10,7 @@ import {
 } from "../charts";
 import { StatusChip } from "../components";
 import "../tokens.css";
-import { laborCostStrings } from "./strings";
+import { formatLaborHours, laborCostStrings } from "./strings";
 
 /**
  * 인건비 분석 — labor-cost analysis over the real payroll draft runs
@@ -46,12 +46,6 @@ export interface LaborCostScreenProps {
   /** Every affordance drills to the payroll source screen (§4-11). */
   onDrill: () => void;
 }
-
-function trimDecimal(value: number) {
-  return Number.isInteger(value) ? String(value) : value.toFixed(1);
-}
-
-const hoursFormat: ChartFormat = (value) => `${trimDecimal(value)}${ko.common.hourUnit}`;
 
 function statusTone(status: string): "ok" | "warn" | "neutral" {
   if (status === "APPROVED" || status === "ISSUED") return "ok";
@@ -138,6 +132,7 @@ export function LaborCostScreen({
   onDrill,
 }: LaborCostScreenProps) {
   const S = laborCostStrings();
+  const hoursFormat: ChartFormat = (value) => formatLaborHours(value, S.hourUnit);
   const composition: ChartDatum[] = [
     { id: "regular", label: S.hoursRegular, value: hours.regular },
     { id: "overtime", label: S.hoursOvertime, value: hours.overtime },

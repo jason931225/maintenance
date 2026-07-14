@@ -47,10 +47,10 @@ export function AssetModuleScreen() {
         const has = (set: Set<string>) => roles?.some((role) => set.has(role)) ?? false;
         switch (action) {
           case ASSET_MODULE_ACTIONS.read:
+          case ASSET_MODULE_ACTIONS.graph:
             return has(READ_ROLES);
           case ASSET_MODULE_ACTIONS.manage:
           case ASSET_MODULE_ACTIONS.costRead:
-          case ASSET_MODULE_ACTIONS.graph:
             return has(MANAGE_ROLES);
           case ASSET_MODULE_ACTIONS.audit:
           case ASSET_MODULE_ACTIONS.costWrite:

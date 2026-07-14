@@ -229,7 +229,7 @@ function renderBody(
   roles: readonly string[] = ["SUPER_ADMIN"],
 ) {
   const api = createConsoleApiClient("asset-body-test-token");
-  vi.spyOn(api, "GET").mockImplementation(getImpl as never);
+  const GET = vi.spyOn(api, "GET").mockImplementation(getImpl as never);
   const authValue = {
     session: {
       access_token: "asset-body-test-token",
@@ -250,11 +250,12 @@ function renderBody(
     exitViewAs: vi.fn(),
   } as unknown as AuthContextValue;
 
-  return render(
+  const view = render(
     <AuthContext.Provider value={authValue}>
       <AssetModuleScreen />
     </AuthContext.Provider>,
   );
+  return { ...view, GET };
 }
 
 async function fullAssetGet(path: unknown) {
@@ -308,6 +309,20 @@ describe("AssetModuleScreen (registry body)", () => {
       "href",
       `/equipment/${equipmentId}`,
     );
+  });
+
+  it("lets a read-only asset role inspect the timeline graph without exposing management or cost actions", async () => {
+    const { GET } = renderBody(fullAssetGet, ["MECHANIC"]);
+
+    expect(await screen.findByRole("button", { name: "EQ-900 상세 열기" })).toBeVisible();
+    expect(await screen.findByText("정비 완료")).toBeVisible();
+    expect(await screen.findByText("배치")).toBeVisible();
+    expect(screen.queryByText("오일 교체")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "정보 수정" })).not.toBeInTheDocument();
+    const calledPaths = GET.mock.calls.map(([path]) => path);
+    expect(calledPaths).not.toContain("/api/v1/financial/equipment/{equipmentId}/cost-ledger");
+    expect(calledPaths).not.toContain("/api/v1/financial/equipment/{equipmentId}/lifecycle-cost");
+    expect(calledPaths).not.toContain("/api/v1/object-actions/catalog");
   });
 
   it("stays blank for a role without module-read (deny-by-omission — no equipment leaks)", async () => {
