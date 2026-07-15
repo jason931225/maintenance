@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 
 import { ko } from "../../i18n/ko";
 import { PolicyGateProvider, type PolicyGate } from "../policy";
@@ -189,11 +189,20 @@ function registryFixture(): OntObjectTypeDef[] {
   ];
 }
 
-function renderScreen(gate: PolicyGate = allowGate) {
+function renderScreen(
+  gate: PolicyGate = allowGate,
+  options: {
+    registry?: OntObjectTypeDef[];
+    onCommitRevision?: (staged: OntObjectTypeDef) => Promise<void>;
+  } = {},
+) {
   return render(
     <PolicyGateProvider gate={gate}>
       <WindowManagerProvider>
-        <OntologyManagerScreen registry={registryFixture()} />
+        <OntologyManagerScreen
+          registry={options.registry ?? registryFixture()}
+          onCommitRevision={options.onCommitRevision}
+        />
       </WindowManagerProvider>
     </PolicyGateProvider>,
   );
@@ -201,6 +210,23 @@ function renderScreen(gate: PolicyGate = allowGate) {
 
 function editor(name: string): HTMLElement {
   return screen.getByRole("article", { name });
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+function addProperty(panel: HTMLElement, title: string): void {
+  fireEvent.change(within(panel).getByLabelText("속성 이름"), {
+    target: { value: title },
+  });
+  fireEvent.click(within(panel).getByRole("button", { name: "속성 추가" }));
 }
 
 describe("OntologyManagerScreen (design change-log 63)", () => {
@@ -276,6 +302,116 @@ describe("OntologyManagerScreen (design change-log 63)", () => {
     expect(within(panel).queryByRole("status", { name: "개정 대기" })).toBeNull();
     expect(within(panel).getByText("점검자")).toBeVisible();
     expect(within(panel).getByText("v1")).toBeVisible();
+  });
+
+  it("serializes accumulated draft snapshots per type without deleting a newer tail", async () => {
+    const first = deferred<undefined>();
+    const second = deferred<undefined>();
+    const onCommitRevision = vi
+      .fn<(staged: OntObjectTypeDef) => Promise<void>>()
+      .mockImplementationOnce(() => first.promise)
+      .mockImplementationOnce(() => second.promise)
+      .mockResolvedValueOnce(undefined);
+    renderScreen(allowGate, { onCommitRevision });
+
+    fireEvent.click(screen.getByRole("button", { name: "OT-03 안전 점검 메모 타입 편집" }));
+    const panel = editor("안전 점검 메모");
+    addProperty(panel, "점검자");
+    addProperty(panel, "점검일");
+
+    expect(onCommitRevision).toHaveBeenCalledTimes(1);
+    expect(within(panel).getByText("점검자")).toBeVisible();
+    expect(within(panel).getByText("점검일")).toBeVisible();
+
+    await act(async () => {
+      first.resolve(undefined);
+      await first.promise;
+    });
+    await waitFor(() => {
+      expect(onCommitRevision).toHaveBeenCalledTimes(2);
+    });
+    expect(onCommitRevision.mock.calls[1]?.[0].properties.map(({ title }) => title)).toEqual([
+      "내용",
+      "점검자",
+      "점검일",
+    ]);
+
+    addProperty(panel, "점검 위치");
+    expect(onCommitRevision).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      second.resolve(undefined);
+      await second.promise;
+    });
+    await waitFor(() => {
+      expect(onCommitRevision).toHaveBeenCalledTimes(3);
+    });
+    expect(onCommitRevision.mock.calls[2]?.[0].properties.map(({ title }) => title)).toEqual([
+      "내용",
+      "점검자",
+      "점검일",
+      "점검 위치",
+    ]);
+  });
+
+  it("continues a draft save queue after the prior save rejects", async () => {
+    const first = deferred<undefined>();
+    const onCommitRevision = vi
+      .fn<(staged: OntObjectTypeDef) => Promise<void>>()
+      .mockImplementationOnce(() => first.promise)
+      .mockResolvedValueOnce(undefined);
+    renderScreen(allowGate, { onCommitRevision });
+
+    fireEvent.click(screen.getByRole("button", { name: "OT-03 안전 점검 메모 타입 편집" }));
+    const panel = editor("안전 점검 메모");
+    addProperty(panel, "점검자");
+    addProperty(panel, "점검일");
+    expect(onCommitRevision).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      first.reject(new Error("save failed"));
+      await first.promise.catch(() => undefined);
+    });
+    await waitFor(() => {
+      expect(onCommitRevision).toHaveBeenCalledTimes(2);
+    });
+    expect(onCommitRevision.mock.calls[1]?.[0].properties.map(({ title }) => title)).toEqual([
+      "내용",
+      "점검자",
+      "점검일",
+    ]);
+  });
+
+  it("does not serialize draft saves across different type IDs", async () => {
+    const safetyMemo = deferred<undefined>();
+    const equipment = deferred<undefined>();
+    const onCommitRevision = vi
+      .fn<(staged: OntObjectTypeDef) => Promise<void>>()
+      .mockImplementationOnce(() => safetyMemo.promise)
+      .mockImplementationOnce(() => equipment.promise);
+    const registry = registryFixture().map((type) =>
+      type.id === "equipment" ? { ...type, lifecycleState: "draft" as const } : type,
+    );
+    renderScreen(allowGate, { registry, onCommitRevision });
+
+    fireEvent.click(screen.getByRole("button", { name: "OT-03 안전 점검 메모 타입 편집" }));
+    addProperty(editor("안전 점검 메모"), "점검자");
+    fireEvent.click(screen.getByRole("button", { name: "OT-02 설비 타입 편집" }));
+    addProperty(editor("설비"), "제조사");
+
+    await waitFor(() => {
+      expect(onCommitRevision).toHaveBeenCalledTimes(2);
+    });
+    expect(onCommitRevision.mock.calls.map(([snapshot]) => snapshot.id)).toEqual([
+      "safety_memo",
+      "equipment",
+    ]);
+
+    await act(async () => {
+      safetyMemo.resolve(undefined);
+      equipment.resolve(undefined);
+      await Promise.all([safetyMemo.promise, equipment.promise]);
+    });
   });
 
   it("adds a relation with target type and cardinality from the typed selects", () => {

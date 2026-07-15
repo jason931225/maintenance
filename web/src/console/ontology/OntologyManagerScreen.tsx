@@ -1,4 +1,4 @@
-import { useState, type CSSProperties, type ReactNode } from "react";
+import { useRef, useState, type CSSProperties, type ReactNode } from "react";
 
 import { ko } from "../../i18n/ko";
 import { StatusChip } from "../components";
@@ -874,6 +874,7 @@ export function OntologyManagerScreen({
   );
   const [selectedId, setSelectedId] = useState(initialTypeId ?? state.types.at(0)?.id ?? "");
   const [subtab, setSubtab] = useState<ManagerSubtab>("properties");
+  const draftCommitTails = useRef(new Map<string, Promise<void>>());
 
   // The host reloads the registry after each committed mutation; adopt the
   // fresh payload during render (drops the just-committed staging copy by
@@ -892,6 +893,36 @@ export function OntologyManagerScreen({
   const committed = committedOf(state, selectedId);
   const staged = isStaged(state, selectedId);
 
+  function enqueueDraftCommit(snapshot: OntObjectTypeDef): void {
+    const commitRevision = onCommitRevision;
+    if (!commitRevision) return;
+
+    const commitSnapshot = (): Promise<void> => {
+      try {
+        return Promise.resolve(commitRevision(snapshot));
+      } catch (error) {
+        return Promise.reject(
+          error instanceof Error ? error : new Error("Ontology draft commit failed"),
+        );
+      }
+    };
+    const previous = draftCommitTails.current.get(snapshot.id);
+    const next = previous
+      ? previous.catch(() => undefined).then(commitSnapshot)
+      : commitSnapshot();
+    draftCommitTails.current.set(snapshot.id, next);
+
+    void next
+      .catch(() => {
+        // The host surfaces the failure; later snapshots must still advance.
+      })
+      .finally(() => {
+        if (draftCommitTails.current.get(snapshot.id) === next) {
+          draftCommitTails.current.delete(snapshot.id);
+        }
+      });
+  }
+
   function handleEdit(edit: SchemaEdit): void {
     const editingDraft = committedOf(state, selectedId)?.lifecycleState === "draft";
     const nextState = applySchemaEdit(state, selectedId, edit);
@@ -900,13 +931,10 @@ export function OntologyManagerScreen({
     // PUT /object-types/{key}, which appends the new child to the in-flight
     // draft (§9.8 append-only) and reloads the registry. A non-draft edit
     // accumulates on the staged v+1 copy and persists on 적용 승인 instead.
-    if (editingDraft && onCommitRevision) {
+    if (editingDraft) {
       const editedDraft = viewOf(nextState, selectedId);
       if (editedDraft) {
-        void onCommitRevision(editedDraft).catch(() => {
-          // The host surfaces the failure banner; the local edit stays visible
-          // until the next reload so the author can retry.
-        });
+        enqueueDraftCommit(editedDraft);
       }
     }
   }
