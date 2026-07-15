@@ -1,6 +1,6 @@
 # Dark on-prem Cilium activation and rollback runbook
 
-This directory stages the ADR-0022 on-prem Cilium app without deploying it live.
+This directory stages the ADR-0024 on-prem Cilium app without deploying it live.
 It is intentionally under `deploy/apps/cilium/`, not `deploy/argocd/apps/`, and
 `application.yaml` has no `syncPolicy.automated` block. A merge to `main` is a
 no-op for the current Argo app-of-apps root until an operator deliberately applies
@@ -56,7 +56,7 @@ Cilium activation for one context imply the other.
 
 | Context | Default posture | If you keep flannel | If you adopt Cilium |
 |---|---|---|---|
-| `on-prem` / ADR-0022 | Intended to use this Cilium stage. `deploy/talos/on-prem/cluster.patch.yaml` sets `cluster.network.cni.name=none` and `cluster.proxy.disabled=true` so Cilium owns the dataplane and kube-proxy replacement. | Not acceptable for production NetworkPolicy enforcement unless a different policy-capable CNI such as Calico/Canal is explicitly selected and documented. Plain flannel leaves Maintenance NetworkPolicies inert. | Preferred path. Activate only after real node inventory, Talos configs, API/VIP readiness, rollback target, and NetworkPolicy verification are recorded. |
+| `on-prem` / ADR-0024 | Intended to use this Cilium stage. `deploy/talos/on-prem/cluster.patch.yaml` sets `cluster.network.cni.name=none` and `cluster.proxy.disabled=true` so Cilium owns the dataplane and kube-proxy replacement. | Not acceptable for production NetworkPolicy enforcement unless a different policy-capable CNI such as Calico/Canal is explicitly selected and documented. Plain flannel leaves Maintenance NetworkPolicies inert. | Preferred path. Activate only after real node inventory, Talos configs, API/VIP readiness, rollback target, and NetworkPolicy verification are recorded. |
 | `oci-guest` | Current live single-node OCI/Talos path is separate and should remain stable unless a ticket deliberately changes it. | Lowest-risk option for the current single-node A1 guest. Consequence: do not claim live NetworkPolicy isolation; render checks remain desired-state proof only, and `MNT_NETWORKPOLICY_PREFLIGHT=require` is expected to fail until a policy enforcer is present. | Possible only as a separate OCI maintenance/rebuild lane. Consequence: schedule downtime risk for the single node, change Talos CNI/proxy posture intentionally, preserve OCI rollback artifacts, and do not claim HA just because Cilium is installed. |
 
 Decision criteria for `oci-guest`:
@@ -74,7 +74,7 @@ Decision criteria for `oci-guest`:
 
 ## NetworkPolicy enforcement contract
 
-This stage is the intended ADR-0022 policy-capable CNI for production
+This stage is the intended ADR-0024 policy-capable CNI for production
 NetworkPolicy enforcement. The Maintenance policies in
 `deploy/apps/maintenance/base/networkpolicy.yaml` can render before this app is
 live, but they do not isolate traffic on plain Talos/flannel because flannel does

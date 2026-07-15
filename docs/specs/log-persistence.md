@@ -1,6 +1,6 @@
 # Durable Log Persistence — Design + GO/NO-GO
 
-> **SUPERSEDED (observability substrate) by [ADR-0022](../decisions/ADR-0022-bare-metal-portability-and-ha.md).** ADR-0022 is the authoritative target-stack decision for operational observability; this document remains only for collection/pipeline rationale, audit-chain boundary context, and the historical reasoning trail.
+> **CURRENT OCI-SCOPED DESIGN; AMENDED BY [ADR-0024](../decisions/ADR-0024-bare-metal-portability-and-ha.md):** this remains valid for `oci-guest`. ADR-0024 makes the self-hosted telemetry stack the first portable reference implementation, not a ban on managed observability elsewhere. Oyatie Cloud, AWS, OCI, Azure, and GCP contexts may use native telemetry behind the portable collection/SLO contract and explicit optional extensions; the collection/pipeline rationale, audit-chain boundary, and historical reasoning remain useful across contexts.
 
 Author: platform. Last grounded against repo: branch `perf/hr-read-path-indexes-*`, deploy tree under `deploy/`.
 

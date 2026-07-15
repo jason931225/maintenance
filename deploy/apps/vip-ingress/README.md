@@ -1,6 +1,6 @@
 # Dark on-prem VIP ingress activation
 
-This directory stages the ADR-0022 roadmap lane #6 ingress VIP provider for the
+This directory stages the ADR-0024 roadmap item #6 ingress VIP provider for the
 `on-prem` context. The selected provider is **MetalLB in layer-2 mode**. It is a
 DARK path: it is intentionally under `deploy/apps/vip-ingress/`, not
 `deploy/argocd/apps/`, and `application.yaml` has no `syncPolicy.automated`

@@ -1542,9 +1542,9 @@ pub fn install_metrics_recorder() -> Result<PrometheusHandle, AppError> {
 
 /// Cardinality-safe route label for request metrics/traces.
 ///
-/// ADR-0022 points at oyatie's `oya-http-wide-event-middleware-infrastructure`
-/// as reusable source material, but that crate depends on oyatie-only tenancy and
-/// hyperscaler metrics kernels. This app already owns the portable OTLP exporter
+/// An adjacent Oyatie implementation, `oya-http-wide-event-middleware-infrastructure`,
+/// was evaluated as reusable source material, but that crate depends on Oyatie-only
+/// tenancy and hyperscaler metrics kernels. This app already owns the portable OTLP exporter
 /// and Prometheus recorder in this module, so this lane intentionally copies the
 /// discipline rather than wiring the oyatie crate directly: use axum's matched
 /// route template (`MatchedPath`) as the route label, never the raw URI path or

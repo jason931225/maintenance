@@ -7,7 +7,7 @@ Oracle Cloud **Ampere A1** instance, sized to stay inside the **Always Free** ti
 **ap-chuncheon-1**.
 
 For the live OCI guest, use [`OPS-RUNBOOK.md`](OPS-RUNBOOK.md). For the additive
-ADR-0022 bare-metal/on-prem HA path, use
+ADR-0024 bare-metal/on-prem HA path, use
 [`OPS-RUNBOOK-baremetal.md`](OPS-RUNBOOK-baremetal.md). The on-prem path is
 parallel to OCI and remains DARK until a founder/operator activation gate says
 otherwise.
@@ -195,7 +195,7 @@ reachable from the internet.
 - **Single node, no control-plane HA.** Pod self-healing and zero-downtime app
   bumps work; a node loss is a restore-from-backup event, not an automatic
   failover. Future on-prem anti-affinity expectations are documented in
-  [`docs/decisions/ADR-0022-ha-workload-scheduling-expectations.md`](../docs/decisions/ADR-0022-ha-workload-scheduling-expectations.md),
+  [`docs/decisions/notes/DN-0001-adr-0024-ha-workload-scheduling.md`](../docs/decisions/notes/DN-0001-adr-0024-ha-workload-scheduling.md),
   but they stay DARK until the cluster has dedicated workers and the live OCI
   guest remains single-node compatible.
 - **Custom image import needs a Pay-As-You-Go account** (which stays $0 within

@@ -5,7 +5,7 @@ the Talos cluster, the Kubernetes/GitOps server, the database, and routine tasks
 Everything needed to recover from zero is in **OCI Vault** + this doc.
 
 This file is the **`oci-guest` runbook** for the live Oracle Cloud Ampere A1
-cluster. The additive ADR-0022 bare-metal/on-prem operator path is documented in
+cluster. The additive ADR-0024 bare-metal/on-prem operator path is documented in
 [`OPS-RUNBOOK-baremetal.md`](OPS-RUNBOOK-baremetal.md). Do not copy OCI-only
 constraints from this file — the single A1 warning, OCI Vault, OCI Bastion, OCI
 Object Storage, the `dd` boot-volume bootstrap, and the OCI MTU workaround — onto
@@ -23,7 +23,7 @@ bare metal.
 Passing the production-hardening gate for `oci-guest` means the current live
 single-node deployment is honest and recoverable for its constraints. It does not
 mean the platform has multi-node HA; that is the separate `on-prem-ha` / paid
-multi-node substrate described in the ADR-0022 docs.
+multi-node substrate described in the ADR-0024 docs.
 
 ## 0. The one rule that bit us
 **Never keep the only copy of a cluster credential in `/tmp` or a single laptop.**

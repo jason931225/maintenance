@@ -1,13 +1,33 @@
+---
+id: ADR-0019
+status: accepted
+doc_status: published
+date: 2026-06-30
+owner: jasonlee
+amended_by: [ADR-0024]
+related: [ADR-0005, ADR-0023, ADR-0024]
+---
+
 # ADR-0019: Standalone corporate mailbox server build-vs-adopt decision
 
 ## Status
-Accepted
+Accepted; deployment-resource envelope amended by ADR-0024
+
+ADR-0024 replaces this record's OCI/free-tier-first deployment assumption with
+the owner-controlled self-host reference as the first portability gate. The
+current OCI A1 deployment remains a supported, resource-constrained context.
+This amendment does not change the clean-room Rust build-vs.-adopt decision or
+authorize public MX.
+
+The Mox-oriented design mirror and DARK deployment manifests are implementation
+divergence/prototype evidence; they do not supersede this decision. Mox remains
+inactive pending an explicit owner choice and a newer accepted ADR.
 
 ## Date
 2026-06-30
 
 ## Context
-The platform needs a standalone corporate mailbox server, not only the existing external SMTP/IMAP webmail mirror. Required target capability includes authoritative MX inbound SMTP, IMAP, JMAP Mail, domain/mailbox administration, group/org policy integration, passkey step-up for sensitive mail-admin actions, audit, retention/legal hold, OCI/free-tier-aware operations, and out-of-the-box mailbox availability without tenant-visible SMTP/IMAP server configuration.
+The platform needs a standalone corporate mailbox server, not only the existing external SMTP/IMAP webmail mirror. Required target capability includes authoritative MX inbound SMTP, IMAP, JMAP Mail, domain/mailbox administration, group/org policy integration, passkey step-up for sensitive mail-admin actions, audit, retention/legal hold, resource-bounded operation in the ADR-0024 self-host reference and current OCI A1 context, and out-of-the-box mailbox availability without tenant-visible SMTP/IMAP server configuration.
 
 Stalwart is the strongest product benchmark for modern mail-server capabilities: SMTP, IMAP, JMAP, collaboration protocols, DKIM/SPF/DMARC/ARC, MTA-STS/TLS-RPT/DANE, spam/phishing controls, queue management, and Kubernetes support. However, Stalwart is AGPL-3.0 upstream, which does not satisfy the current MIT/Apache-only dependency constraint for product adoption.
 
@@ -20,7 +40,7 @@ Default path: build a clean-room Rust-native mailbox foundation inside the platf
 - `0082_create_mailbox_server_spine.sql`: group/org-aware domain, mailbox, alias, message, and delivery/queue metadata with RLS and immutable-org triggers.
 - `docs/specs/standalone-corporate-mailbox-server.md`: Stalwart parity matrix, adoption-candidate matrix, target architecture, phases, and production gates.
 
-Run a bounded adoption spike for Apache James only if we need an off-the-shelf full-protocol server sooner than the native implementation can mature. Apache James is Apache-2.0 and supports SMTP, IMAP, JMAP, POP3, and distributed deployment options, but it may be too heavy for the OCI A1/free-tier posture and would still need identity/policy/audit integration work. Any adopted server remains an internal platform component, not something tenants configure through host/port/password forms.
+Run a bounded adoption spike for Apache James only if we need an off-the-shelf full-protocol server sooner than the native implementation can mature. Apache James is Apache-2.0 and supports SMTP, IMAP, JMAP, POP3, and distributed deployment options, but it may be too heavy for the declared self-host resource envelope and the supported OCI A1 context and would still need identity/policy/audit integration work. Any adopted server remains an internal platform component, not something tenants configure through host/port/password forms.
 
 ## Alternatives considered
 

@@ -1,4 +1,4 @@
-# Longhorn values for the DARK ADR-0022 on-prem storage stage.
+# Longhorn values for the DARK ADR-0024 on-prem storage stage.
 # The current OCI guest keeps deploy/infra/local-path as its live default StorageClass.
 # This chart is only synced manually in the on-prem context.
 persistence:

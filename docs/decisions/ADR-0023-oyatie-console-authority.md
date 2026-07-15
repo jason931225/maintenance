@@ -1,10 +1,29 @@
-# ADR-0022: Oyatie console authority — strangler rebuild with two-shell coexistence
+---
+id: ADR-0023
+status: accepted
+doc_status: published
+date: 2026-07-04
+owner: jasonlee
+related_documents: [DESIGN.md]
+amended_by: [ADR-0025]
+related: [ADR-0009, ADR-0018, ADR-0021, ADR-0025]
+---
+
+# ADR-0023: Oyatie console authority — strangler rebuild with two-shell coexistence
 
 ## Status
 
-Accepted. Consensus-approved 2026-07-04 (Critic APPROVE after two Planner→Architect→Critic
-iterations); execution approved by user 2026-07-04. Execution is underway: UI-M0, UI-M1a, and
-Engine-Gen merged 2026-07-08.
+**Accepted; surface strategy amended by ADR-0025 on 2026-07-13.** This record was consensus-approved
+2026-07-04 (Critic APPROVE after two Planner→Architect→Critic iterations) and
+execution-approved by the user the same day. ADR-0025 replaces its
+shared-chrome/two-shell composition and non-feature-flag coexistence clauses
+with the isolated carbon-copy `/console` application and a staged, measurable
+rollout. All other decisions in this ADR remain accepted, including the product
+grammar, canonical `/overview`/Work Hub/My Work semantics, workflow-engine
+direction, policy/audit requirements, and fully-wired/no-stub delivery rule.
+
+Read the amended clauses through ADR-0025; the unamended clauses below remain
+current authority.
 
 ## Context
 
@@ -30,7 +49,16 @@ record.
 
 ## Decision
 
-Adopt the Oyatie Console design as the UI/UX authority for the authenticated console. Rebuild the
+> **ADR-0025 amendment:** the shared-chrome/two-shell composition in the
+> historical paragraph below is replaced by an isolated visual application at
+> `web/src/console/**` and `/console/*`, with one shared nonvisual platform spine
+> and an evidence-gated staged rollout. The `/overview`, Work Hub/My Work,
+> product grammar, and fully-wired/no-stub clauses remain current.
+
+Adopt the Oyatie Console design as the UI/UX authority for the authenticated console. The canonical
+authenticated landing route is `/overview`; it supersedes the former `/work-hub` route while retaining
+**Work Hub** as the behavioral contract for the role-aware action inbox. `mywork` is the personal queue
+within that model, not a competing landing surface. Rebuild the
 shell and views to the Oyatie grammar (ontology-first objects, window/pin workspace, Cedar-gated
 rendering, audit-everywhere) via a **strangler rebuild inside `web/` with two-shell coexistence**:
 new tokens and shared chrome land first and re-skin the whole console at once; a new `ConsoleShell`
@@ -62,6 +90,11 @@ bespoke-thin-approvals alternative on the table.
 
 ### Alternatives Considered
 
+> **ADR-0025 amendment:** the isolated in-repository carbon-copy application is
+> now the chosen surface composition. The big-bang dark-period rewrite and
+> separate-package approach remain rejected; Option B below records the original
+> 2026-07-04 choice only.
+
 **A. Big-bang rewrite** — a new app matching the prototype 1:1. Fastest visual fidelity, but discards
 60 wired screens and tests, takes the console dark for months, and violates the
 increments-of-a-complete-system rule. Rejected.
@@ -81,6 +114,11 @@ one-workflow-engine direction. Rejected in favor of Engine-Gen as an explicit pr
 infeasible.
 
 ## Consequences
+
+> **ADR-0025 amendment:** coexistence is now controlled by server-owned rollout
+> eligibility, per-user opt-in/revert, a kill switch, cohort ramps, telemetry,
+> and measured legacy deletion. It is not the non-feature-flag route migration
+> described in the historical bullet below.
 
 - Zustand enters the stack, scoped to the window/panel/workspace engine only; data fetching stays on
   the existing `openapi-fetch` wrapper + read cache.
@@ -107,8 +145,9 @@ infeasible.
   design backlog, not in the prototype; enters as its own charter).
 - Multi-jurisdiction PII program.
 - Object graph explorer.
-- Mobile-app parity for 메신저·메일·알림·전자결재 (DESIGN §4.8 — outside this `web/` program; coss-rn
-  charter).
+- Mobile-app parity for 메신저·메일·알림·전자결재 (DESIGN §4.8 — outside this `web/` program; the
+  dual-native Swift/Kotlin contract in ADR-0009 governs employee apps). `coss-rn` is the separate
+  public COSS site and is not an employee-app replacement.
 - This program's own open questions (UI-M12 internal ordering, comms-rail read/reply scope, 평가
   design depth, no-code canvas sign-off) are tracked in `.omc/plans/oyatie-console-plan.md` §7 and do
   not block UI-M0–M2b.

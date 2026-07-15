@@ -1,6 +1,6 @@
 # OPS Runbook — bare-metal/on-prem Talos HA cluster (DARK)
 
-This is the operator runbook for the future ADR-0022 `on-prem-ha` substrate. It
+This is the operator runbook for the future ADR-0024 `on-prem-ha` substrate. It
 is parallel to the live OCI guest runbook in [`OPS-RUNBOOK.md`](OPS-RUNBOOK.md),
 not a replacement for it. The live `oci-guest` cluster stays the single-node
 Oracle Ampere A1 target until a founder/operator activation ticket explicitly
@@ -40,7 +40,7 @@ Record these facts in the activation ticket and keep secret values out of git,
 chat, and issue comments.
 
 1. Approval and scope:
-   - ADR-0022 is the governing portability/HA direction.
+   - ADR-0024 is the governing portability/HA direction.
    - The activation ticket names the target site/cell, DNS names, residency
      constraints, and rollback target.
    - The current OCI guest production path is either explicitly out of scope or
@@ -52,7 +52,7 @@ chat, and issue comments.
    - At least two workers for app/ingress, and at least three eligible
      worker/storage nodes or failure domains before claiming replicated storage
      or CNPG HA.
-   - CPU architecture for every node. ADR-0022 expects multi-arch images; do not
+   - CPU architecture for every node. ADR-0024 expects multi-arch images; do not
      assume OCI arm64-only images are sufficient for x86_64 hardware.
 3. Network plan:
    - A stable Kubernetes API endpoint: VIP, load balancer, or DNS name such as
@@ -77,7 +77,7 @@ chat, and issue comments.
 6. Storage and data:
    - Longhorn `mnt-pg-hot` or the approved replicated StorageClass has enough raw
      capacity for three replicas, snapshots, rebuild headroom, and CNPG `instances: 3`.
-   - Self-hosted S3 endpoint choice is recorded: SeaweedFS, MinIO, or Ceph-RGW.
+   - SeaweedFS is recorded as the accepted self-hosted S3 reference; an engine change cites a newer accepted decision and fresh security/readiness evidence.
      Evidence/WORM replication to a second physical site is designed before live
      evidence data moves.
    - A restore source and rollback target exist for any production data import or
@@ -169,7 +169,7 @@ For detailed etcd member add/remove/replacement steps, use
 
 ### 2.2 Cluster API / Metal3 ownership flow
 
-ADR-0022 expects Cluster API with `cluster-api-provider-metal3` for the durable
+ADR-0024 expects Cluster API with `cluster-api-provider-metal3` for the durable
 bare-metal lifecycle. The repo now stages a DARK CAPI/Metal3 template at
 `deploy/talos/on-prem/capi-metal3.example.yaml`; manual Talos bootstrap remains a
 rehearsal/bring-up path, not proof that lifecycle automation is production-ready.
@@ -234,7 +234,7 @@ For the CAPI ownership path, use this sequence:
 ## 3. OpenBao and External Secrets operator handling
 
 The on-prem path should not depend on OCI Vault. OpenBao is the secret root for
-ADR-0022 on-prem, with External Secrets Operator reconciling Kubernetes secrets.
+ADR-0024 on-prem, with External Secrets Operator reconciling Kubernetes secrets.
 
 ### Day-0 initialization
 
@@ -300,17 +300,18 @@ ADR-0022 on-prem, with External Secrets Operator reconciling Kubernetes secrets.
 
 ### Self-hosted S3/object storage
 
-ADR-0022 replaces managed object storage dependency with self-hosted S3-compatible
+ADR-0024 replaces managed object storage dependency with self-hosted S3-compatible
 storage for the on-prem substrate. The app already consumes S3 via endpoint
 configuration, so the operator task is to provide a reliable endpoint and verify
 clients against it.
 
-1. Select SeaweedFS, MinIO, or Ceph-RGW in the activation ticket. Do not point
+1. Select the accepted SeaweedFS reference in the activation ticket. Do not point
    on-prem production evidence at OCI Object Storage unless this is an explicit
-   temporary rollback/bridge.
+   temporary rollback/bridge. A different engine requires a newer accepted
+   decision and the same signed-call, retention, security, and recovery evidence.
 2. Configure CNPG Barman and evidence storage endpoints with the on-prem S3 URL,
    credentials from OpenBao/ESO, bucket names, TLS CA material, and retention.
-3. Re-test checksum and path-style behavior. ADR-0022 warns not to copy the
+3. Re-test checksum and path-style behavior. ADR-0024 warns not to copy the
    OCI-specific `AWS_*_CHECKSUM_*=when_required` workaround blindly to the
    on-prem endpoint.
 4. For evidence/WORM posture, replicate to a second physical site before claiming

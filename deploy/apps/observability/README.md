@@ -1,13 +1,13 @@
 # Self-hosted observability activation runbook (DARK)
 
-This directory stages ADR-0022 lane #8 and GitHub issue #374, "Self-hosted
+This directory stages ADR-0024 roadmap item #7 and GitHub issue #374, "Self-hosted
 observability — OTel + LGTM on Talos", without enabling it for the current live
-`oci-guest` deployment. The ADR-0022 target for an operator-approved Talos/on-prem
+`oci-guest` deployment. The ADR-0024 target for an operator-approved Talos/on-prem
 activation is:
 
 - OpenTelemetry Collector receives OTLP from Maintenance workloads and mirrors
   the existing `mnt-app` `/metrics` scrape target.
-- VictoriaMetrics stores Prometheus-compatible metrics. ADR-0022 also allows a
+- VictoriaMetrics stores Prometheus-compatible metrics. ADR-0024 also allows a
   future Mimir swap, but the manifests in this directory intentionally choose
   single-node VictoriaMetrics for the first DARK rehearsal.
 - Loki stores OTLP log records.
@@ -17,15 +17,15 @@ activation is:
 
 References:
 
-- ADR-0022 — Cloud-Agnostic Multi-Substrate Portability + High Availability
-  (`docs/decisions/ADR-0022-bare-metal-portability-and-ha.md` on the mainline
+- ADR-0024 — Self-Host-First, Cloud-Portable Multi-Substrate + High Availability
+  (`docs/decisions/ADR-0024-bare-metal-portability-and-ha.md` on the mainline
   decision history).
 - GitHub issue #374: <https://github.com/jason931225/maintenance/issues/374>.
-- Historical `docs/specs/log-persistence.md` Direction A. That spec remains
+- `docs/specs/log-persistence.md` Direction A remains current for `oci-guest` and
   useful for collection rationale, operational-log/audit-chain boundaries, and
-  retention tradeoffs, but ADR-0022/#374 supersede its OCI-managed observability
-  direction for Talos/on-prem activation. Do not delete the historical context;
-  keep or restore the supersession banner when the spec is present on a branch.
+  retention tradeoffs. ADR-0024 selects the self-hosted telemetry target only for
+  the first self-host reference. Preserve the spec's amendment-and-scope banner so
+  neither deployment context is misrepresented.
 
 ## What is DARK, and what Argo CD should do
 
@@ -146,7 +146,7 @@ Do not activate against production traffic until all prerequisites are true and
 recorded in the change ticket/runbook:
 
 1. Founder/operator approval for a Talos on-prem or non-production rehearsal
-   cluster that is allowed to run the ADR-0022 DARK stack.
+   cluster that is allowed to run the ADR-0024 DARK stack.
 2. `kubectl` and Argo CD access for the target cluster and namespace `argocd`.
 3. A storage class that can satisfy the RWO PVCs:
    - `victoriametrics-data`: 20 GiB
@@ -155,7 +155,7 @@ recorded in the change ticket/runbook:
    - `grafana-data`: 5 GiB
 4. Capacity for the first rehearsal footprint: one replica each for OTel
    Collector, VictoriaMetrics, Loki, Tempo, and Grafana. These manifests are not
-   HA; ADR-0022 HA evidence requires later replica/storage/failure-domain work.
+   HA; ADR-0024 HA evidence requires later replica/storage/failure-domain work.
 5. NetworkPolicy enforcement that honors the overlay rules between `maintenance`
    and `maintenance-observability`.
 6. Prometheus Operator CRDs if the activation overlay includes

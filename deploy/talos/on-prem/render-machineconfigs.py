@@ -334,7 +334,7 @@ def main() -> int:
     control_planes = require_list(inventory, "control_planes")
     workers = require_list(inventory, "workers")
     if len(control_planes) != 3:
-        fail(f"ADR-0022 on-prem HA requires exactly 3 control-plane nodes; got {len(control_planes)}")
+        fail(f"ADR-0024 on-prem HA requires exactly 3 control-plane nodes; got {len(control_planes)}")
     if not workers:
         fail("on-prem HA requires at least one dedicated worker node")
     control_plane_vip = require_str(inventory, "control_plane_vip")

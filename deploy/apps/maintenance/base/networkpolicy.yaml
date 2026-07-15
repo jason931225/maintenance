@@ -8,7 +8,7 @@
 # ENFORCEMENT: these manifests render on any Kubernetes cluster, but they only
 # isolate traffic when the cluster uses a policy-capable CNI (Cilium, Calico, or
 # Canal: flannel dataplane + Calico policy). Plain flannel (Talos default) does
-# NOT enforce NetworkPolicy, so these resources are inert there. ADR-0022's
+# NOT enforce NetworkPolicy, so these resources are inert there. ADR-0024's
 # portable substrate uses Cilium as the intended NetworkPolicy enforcer. Run the
 # live readback preflight plus scripts/smoke-networkpolicy-deny.sh on the target
 # context before claiming production isolation.

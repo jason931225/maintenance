@@ -1,4 +1,4 @@
-# Dark Argo CD Application for ADR-0022 on-prem VIP ingress.
+# Dark Argo CD Application for ADR-0024 on-prem VIP ingress.
 # Do not move this file under deploy/argocd/apps/ until a later cutover lane
 # intentionally wires the on-prem ingress path into the live app-of-apps root.
 apiVersion: argoproj.io/v1alpha1

@@ -1,8 +1,10 @@
 ---
 id: ADR-0008
 status: accepted
+doc_status: published
 date: 2026-06-12
 owner: T0.10 spike / platform team
+related: []
 ---
 
 # ADR-0008: Excel Export Engine — umya-spreadsheet

@@ -1,4 +1,4 @@
-# MetalLB Helm values for Maintenance ADR-0022 on-prem VIP ingress staging.
+# MetalLB Helm values for Maintenance ADR-0024 on-prem VIP ingress staging.
 # The chosen provider is MetalLB in layer-2 mode. This file is inert until the
 # dark Argo Application in this directory is manually applied and synced.
 
@@ -30,7 +30,7 @@ speaker:
     requests: { cpu: 50m, memory: 64Mi }
     limits: { memory: 192Mi }
 
-# MetalLB 0.16 defaults to the frr-k8s BGP backend. The initial ADR-0022 VIP path
+# MetalLB 0.16 defaults to the frr-k8s BGP backend. The initial ADR-0024 VIP path
 # is L2, so do not stage BGP controllers or FRR-K8s until the fallback is chosen.
 frrk8s:
   enabled: false

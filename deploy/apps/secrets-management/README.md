@@ -1,7 +1,7 @@
 # Portable secrets — OpenBao + External Secrets Operator (DARK / staged)
 
-ADR-0022 (Cloud-Agnostic Multi-Substrate Portability), **roadmap item 1: Portable
-secrets**. Lifted from the sibling **oyatie** project (full-license reuse:
+ADR-0024 (Self-Host-First, Cloud-Portable Multi-Substrate + High Availability),
+**roadmap item 2: Complete portable self-host secrets**. Lifted from the sibling **oyatie** project (full-license reuse:
 `infra/kms/openbao.k8s.yaml` + `infra/external-secrets/*`, ADR-0043 topology).
 
 This directory replaces the out-of-band `kubectl create secret` flow
@@ -217,6 +217,6 @@ roll back after retiring the manual step. OCI Vault is untouched throughout.
 ## HA / scaling note
 
 OpenBao runs **single-node with `storage "file"`** here (one small OCI node). The
-ADR-0022 bare-metal `on-prem` target runs it as a **3-node Raft HA cluster** —
+ADR-0024 bare-metal `on-prem` target runs it as a **3-node Raft HA cluster** —
 switch `storage "file"` → `storage "raft"`, `replicas: 1` → `3`, and add a
 headless Service for peer discovery. The ESO wiring is unchanged by that switch.

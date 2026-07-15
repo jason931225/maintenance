@@ -1,5 +1,5 @@
-# OpenBao — the portable secrets/KMS substrate for maintenance (ADR-0022 lane 1,
-# roadmap item 1: "Portable secrets"). Lifted from the sibling oyatie project
+# OpenBao — the portable secrets/KMS substrate for Maintenance (ADR-0024 roadmap
+# item 2, "Complete portable self-host secrets"). Lifted from the sibling Oyatie project
 # (full-license reuse; source infra/kms/openbao.k8s.yaml, ADR-0043 topology).
 #
 # Backs the External Secrets Operator via the Vault wire protocol (OpenBao speaks
@@ -8,7 +8,7 @@
 # rebuild dependency (deploy/SECRETS.md) — secrets become GitOps-portable.
 #
 # STAGE / SIZING: single-node here (this cluster is one small OCI node). The HA
-# target (ADR-0022 bare-metal `on-prem` context) runs OpenBao as a 3-node Raft
+# target (ADR-0024 bare-metal `on-prem` context) runs OpenBao as a 3-node Raft
 # cluster — swap `storage "file"` for `storage "raft"` + replicas: 3 + a
 # headless Service there. Kept single-node + file storage now: proven, minimal.
 #

@@ -5,7 +5,7 @@ This directory keeps Talos substrate inputs split by deployment context:
 | Context | Purpose | Activation state |
 |---|---|---|
 | `oci-guest/` | Existing OCI Always Free single-node cluster. Its control-plane patch intentionally enables control-plane scheduling. | Manual/operator path already used by the OCI guest. |
-| `on-prem/` | DARK ADR-0022 HA substrate: three control-plane nodes with etcd quorum plus N dedicated workers. | Staged only; merge does not apply, sync, bootstrap, or cut over anything. |
+| `on-prem/` | DARK ADR-0024 HA substrate: three control-plane nodes with etcd quorum plus N dedicated workers. | Staged only; merge does not apply, sync, bootstrap, or cut over anything. |
 
 The root `controlplane.patch.yaml` is a deprecated empty guard file. Use the
 context paths below so the OCI single-node scheduling override cannot leak into

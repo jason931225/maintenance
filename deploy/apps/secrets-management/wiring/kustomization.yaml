@@ -1,4 +1,4 @@
-# ESO <-> OpenBao wiring (ADR-0022 lane 1): the ClusterSecretStore, the
+# ESO <-> OpenBao wiring (ADR-0024 roadmap item 2): the ClusterSecretStore, the
 # auth-delegator ClusterRoleBinding invariant, and the ExternalSecrets that
 # project maintenance's existing k8s Secrets from OpenBao KV. Thin kustomization
 # so the staged ArgoCD Application (../application-secrets-wiring.yaml) points a

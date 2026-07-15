@@ -5,6 +5,8 @@ doc_status: published
 date: 2026-07-04
 owner: jasonlee
 consensus: product correction on 2026-07-04
+amends: [ADR-0010]
+supersedes: [ADR-0017]
 related: [ADR-0004, ADR-0010, ADR-0017]
 ---
 

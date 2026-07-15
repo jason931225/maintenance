@@ -1,6 +1,6 @@
 # Dark on-prem replicated storage stage
 
-This directory stages the ADR-0022 on-prem replicated block-storage app without
+This directory stages the ADR-0024 on-prem replicated block-storage app without
 changing the live OCI guest. The selected first backend for issue #379 is
 **Longhorn**, exposed through the maintenance-owned StorageClass name
 `mnt-pg-hot`.

@@ -1169,13 +1169,13 @@ export function evaluateOnPremHaContextChecks(readText) {
 
   const runbookPath = "deploy/OPS-RUNBOOK-baremetal.md";
   const runbook = requirePresentText(result, readText, runbookPath, "on-prem-ha runbook");
-  requireRegexInText(result, runbookPath, runbook, /on-prem|bare-metal|ADR-0022/i, "on-prem-ha runbook identity: explicit");
+  requireRegexInText(result, runbookPath, runbook, /on-prem|bare-metal|ADR-0024/i, "on-prem-ha runbook identity: explicit");
   requireRegexInText(result, runbookPath, runbook, /OpenBao[\s\S]*secret root|secret root[\s\S]*OpenBao/i, "on-prem-ha secret root: OpenBao documented");
   requireRegexInText(result, runbookPath, runbook, /External Secrets Operator|External Secrets/i, "on-prem-ha secret projection: External Secrets documented");
   requireRegexInText(result, runbookPath, runbook, /unseal[\s\S]*(audit|backup|snapshot)|audit[\s\S]*(backup|snapshot)/i, "on-prem-ha secret operations: unseal/audit/backup expectations documented");
   requireRegexInText(result, runbookPath, runbook, /Do not paste|keep secret values out of git|out-of-band encrypted backup/i, "on-prem-ha secret handling: no committed/pasted unseal or root material");
 
-  requireRegexInText(result, runbookPath, runbook, /SeaweedFS|MinIO|Ceph-RGW/i, "on-prem-ha object store: self-hosted S3 choice documented");
+  requireRegexInText(result, runbookPath, runbook, /SeaweedFS/i, "on-prem-ha object store: accepted self-hosted S3 reference documented");
   requireRegexInText(result, runbookPath, runbook, /CNPG Barman[\s\S]*(endpoint|S3 URL)|Barman[\s\S]*on-prem S3/i, "on-prem-ha object store: CNPG Barman endpoint requirements documented");
   requireRegexInText(result, runbookPath, runbook, /credentials from OpenBao\/ESO|OpenBao\/ESO[\s\S]*bucket names|TLS CA material/i, "on-prem-ha object store: credentials/buckets/TLS from portable secret path documented");
   requireRegexInText(result, runbookPath, runbook, /second physical site|independent failure domain/i, "on-prem-ha object store: independent retention/replication failure domain documented");
@@ -1216,7 +1216,7 @@ export const DEPLOYMENT_CONTEXTS = Object.freeze([
   },
   {
     id: "on-prem-ha",
-    status: "DARK/additive ADR-0022 HA target",
+    status: "DARK/additive ADR-0024 HA target",
     evaluate: evaluateOnPremHaContextChecks,
   },
 ]);

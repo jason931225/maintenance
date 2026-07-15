@@ -1,6 +1,6 @@
 # Self-hosted S3 object store (DARK)
 
-This directory stages ADR-0022 roadmap lane #2 / GitHub issue #370 for an
+This directory stages ADR-0024 roadmap item #3 / GitHub issue #370 for an
 on-prem, self-hosted S3-compatible endpoint. The app and Barman already speak the
 S3 protocol; this lane stages the object-store substrate and documents how an
 operator selects the `on-prem` endpoint context without changing application S3
@@ -8,8 +8,8 @@ client code.
 
 References:
 
-- ADR-0022 — Cloud-Agnostic Multi-Substrate Portability + High Availability
-  (`origin/main:docs/decisions/ADR-0022-bare-metal-portability-and-ha.md`).
+- ADR-0024 — Self-Host-First, Cloud-Portable Multi-Substrate + High Availability
+  (`origin/main:docs/decisions/ADR-0024-bare-metal-portability-and-ha.md`).
 - GitHub issue #370 — self-hosted S3 object storage + config-selectable endpoint.
 - Checksum/backup evidence: `ops/dr/prerequisite-checklists/t_81d5480c-20260709T212739Z.md`.
 
@@ -26,7 +26,7 @@ reference in `ops/compose.yml`:
 
 | Context | Argo/app path | Evidence/app endpoint | CNPG Barman endpoint | Checksum behavior | Credential source |
 |---|---|---|---|---|---|
-| `oci-guest` / current prod | `deploy/apps/maintenance/overlays/prod` today; `deploy/apps/maintenance/overlays/oci-guest` is the explicit ADR-0022 alias | OCI Object Storage S3-compatible endpoint in `ap-chuncheon-1` | OCI Object Storage `s3://mnt-db-backups/` through `oci-objectstore-creds` | Keep `AWS_REQUEST_CHECKSUM_CALCULATION=when_required` and `AWS_RESPONSE_CHECKSUM_VALIDATION=when_required`; this is an OCI compatibility workaround | OCI Vault recovery bundle projected to `mnt-secrets` and `oci-objectstore-creds` |
+| `oci-guest` / current prod | `deploy/apps/maintenance/overlays/prod` today; `deploy/apps/maintenance/overlays/oci-guest` is the explicit ADR-0024 alias | OCI Object Storage S3-compatible endpoint in `ap-chuncheon-1` | OCI Object Storage `s3://mnt-db-backups/` through `oci-objectstore-creds` | Keep `AWS_REQUEST_CHECKSUM_CALCULATION=when_required` and `AWS_RESPONSE_CHECKSUM_VALIDATION=when_required`; this is an OCI compatibility workaround | OCI Vault recovery bundle projected to `mnt-secrets` and `oci-objectstore-creds` |
 | `on-prem` / DARK activation context | `deploy/apps/maintenance/overlays/on-prem` only after the on-prem substrate is approved | `http://mnt-object-store-s3.maintenance-object-store.svc.cluster.local:8333`, region `us-east-1`, path-style | same in-cluster S3 Service via `mnt-cnpg-objectstore-creds` | Do not inherit the OCI checksum workaround; SeaweedFS validation passed with default boto3/Barman checksum behavior | OpenBao/External Secrets for production activation; one-time Kubernetes secrets only for a rehearsal |
 
 Selecting the endpoint context is a deployment decision, not an app-code change:
@@ -87,7 +87,7 @@ created after an operator explicitly applies/syncs the dark app.
    `mnt-db-backups` for CNPG/Barman. Production evidence durability still needs a
    second physical site or equivalent independent failure domain; creating both
    evidence buckets on this single StatefulSet is only rehearsal/local-integrity
-   evidence, not ADR-0022 multi-site WORM durability.
+   evidence, not ADR-0024 multi-site WORM durability.
 6. A signed S3 smoke, bucket put/get/delete check, WORM/object-lock validation,
    and CNPG Barman backup/restore drill are captured before any production
    endpoint cutover. The prior SeaweedFS evidence lives in
@@ -136,7 +136,7 @@ MNT_S3_REPLICA_BUCKET=mnt-evidence-replica
 SeaweedFS uses `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` as fallback S3
 credentials when no S3 config file is present. Rehearsals may use one credential
 pair for all consumers; production should prefer least-privilege, bucket-scoped
-users if the selected SeaweedFS/MinIO configuration supports them.
+users if the selected SeaweedFS configuration supports them.
 
 ## Manual activation flow
 
@@ -341,23 +341,23 @@ to OCI. Then roll the maintenance Application back to the previous context:
 ## Operational notes and known differences
 
 - OCI Object Storage is a managed regional object store with OCI Customer Secret
-  Keys and the Chuncheon S3-compatible endpoint. SeaweedFS/MinIO are self-hosted
-  S3-compatible services; credentials, bucket lifecycle, versioning/object lock,
+  Keys and the Chuncheon S3-compatible endpoint. SeaweedFS is a self-hosted
+  S3-compatible service; credentials, bucket lifecycle, versioning/object lock,
   backups, upgrades, and capacity alarms become operator responsibilities.
 - The live OCI context needs `AWS_*_CHECKSUM_*=when_required` for Barman because
   OCI rejects boto3's default flexible-checksum chunked upload behavior. The
   self-hosted SeaweedFS drill accepted default checksum behavior and completed
   Barman backup/WAL/restore, so the on-prem overlay removes the OCI workaround.
-  Re-test if the selected implementation changes to MinIO/Ceph-RGW or a newer
-  SeaweedFS image.
+  Re-test if a newer accepted decision changes the implementation or a newer
+  SeaweedFS image is selected.
 - The self-hosted endpoint uses `us-east-1` as a SigV4 region label by convention;
   it is not a cloud-region durability claim.
-- SeaweedFS and MinIO may differ from OCI in bucket creation semantics,
+- S3-compatible implementations may differ from OCI in bucket creation semantics,
   lifecycle-policy names, multipart defaults, object-lock/versioning setup,
   error codes, and admin/tenant identity models. Validate the exact selected
   implementation with signed API calls instead of assuming OCI behavior.
 - This DARK manifest is a single StatefulSet/PVC. It is suitable for review and
-  rehearsal, but it is not by itself ADR-0022 HA or multi-site evidence
+  rehearsal, but it is not by itself ADR-0024 HA or multi-site evidence
   durability. Production needs replicated block storage plus a separate-site
   WORM/evidence replica plan.
 - TCP probes prove only socket readiness. They do not prove credentials, bucket

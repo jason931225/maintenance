@@ -1,7 +1,7 @@
 ---
 id: ADR-0017
 status: superseded
-superseded_by: ADR-0022
+superseded_by: [ADR-0022]
 
 doc_status: published
 date: 2026-06-12
