@@ -39,9 +39,12 @@ function LocationProbe() {
   return <div data-testid="location">{`${pathname}${search}`}</div>;
 }
 
-function renderAt(path: string) {
+function renderAt(
+  path: string,
+  options: { auth?: AuthContextValue } = {},
+) {
   return render(
-    <AuthContext.Provider value={unauthContext()}>
+    <AuthContext.Provider value={options.auth ?? unauthContext()}>
       <MemoryRouter initialEntries={[path]}>
         <AppRouter />
         <LocationProbe />
@@ -56,6 +59,7 @@ const INTAKE_TITLE = "정비·장비 온라인 접수";
 describe("AppRouter root landing", () => {
   afterEach(() => {
     vi.clearAllMocks();
+    vi.unstubAllEnvs();
   });
 
   it("renders the storefront at / on apex/www", async () => {
@@ -84,5 +88,29 @@ describe("AppRouter root landing", () => {
       await screen.findByRole("heading", { name: INTAKE_TITLE }),
     ).toBeInTheDocument();
     expect(screen.getByTestId("location").textContent).toBe("/support/new");
+  });
+});
+
+describe("AppRouter development-only routes", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it.each([
+    "/console-dev/window",
+    "/console-dev/module",
+    "/console-dev/lifecycle",
+  ])("does not register %s in production", async (path) => {
+    isConsoleHost.mockReturnValue(false);
+    vi.stubEnv("DEV", false);
+    const auth = unauthContext();
+    auth.session = {
+      access_token: "test-token",
+      roles: ["ADMIN"],
+    };
+
+    renderAt(path, { auth });
+
+    expect(await screen.findByTestId("location")).toHaveTextContent("/overview");
   });
 });
