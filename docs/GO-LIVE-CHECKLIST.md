@@ -17,7 +17,7 @@ Deployment-context shorthand used below:
 - **`oci-guest`** — the existing OCI Always Free / Ampere A1 posture. It is a
   supported pilot target, but it is single-node and must not be described as
   automatic failover.
-- **`on-prem` / bare-metal HA** — the ADR-0022 additive target. It is supported
+- **`on-prem` / bare-metal HA** — the ADR-0024 additive target. It is supported
   only after operator-provisioned multi-node Talos, worker/storage failure
   domains, replicated storage, VIP ingress, portable secrets, and failover /
   restore drills are activated and evidenced.
@@ -106,7 +106,7 @@ Deployment-context shorthand used below:
     custom-image import needs a PAYG account (stays $0 within Always-Free shapes)
     — see [`deploy/talos/README.md`](../deploy/talos/README.md). This context is
     not automatic node/database failover.
-  - `on-prem` / bare-metal HA: ADR-0022 substrate evidence for three Talos
+  - `on-prem` / bare-metal HA: ADR-0024 substrate evidence for three Talos
     control-plane nodes with etcd quorum, enough dedicated worker/storage nodes,
     Cilium or equivalent enforced networking, VIP ingress, replicated storage,
     CNPG `instances: 3`, portable secrets, and successful failover / restore
@@ -133,7 +133,7 @@ Deployment-context shorthand used below:
   credentials, SeaweedFS keys, FCM/APNs, Kakao Alimtalk, object-storage replica —
   운영. No secret is committed; all are injected via environment/secret store. For
   `oci-guest`, follow the current OCI Vault / out-of-band bootstrap posture. For
-  `on-prem`, use the ADR-0022 OpenBao + External Secrets posture before claiming
+  `on-prem`, use the ADR-0024 OpenBao + External Secrets posture before claiming
   portable HA secrets management.
 - [x] **Backup + PITR DR drilled for the current single-node path** — Eng.
   `ops/backup/backup.sh`; full backup→scratch-restore cycle and a
@@ -207,4 +207,4 @@ every Eng item is green and reproducible at the launch commit. The remaining
 items are operator/business actions (selected substrate access, secrets, legal
 filings, and context-specific restore/failover evidence) that the codebase cannot
 perform on its own; each is owned and tracked above. `on-prem` HA go-live remains
-pending ADR-0022 substrate activation evidence, not just docs or DARK manifests.
+pending ADR-0024 substrate activation evidence, not just docs or DARK manifests.

@@ -1,6 +1,6 @@
 # Dark ApplicationSet federation activation guide
 
-This directory is the DARK staging area for ADR-0022 / issue #380 multi-cluster
+This directory is the DARK staging area for ADR-0024 / issue #380 multi-cluster
 Argo CD federation. It is intentionally under `deploy/apps/appset-federation/`,
 not under `deploy/argocd/apps/`; the current live root (`deploy/argocd/root.yaml`)
 only watches `deploy/argocd/apps/`, so merging these files must not activate
@@ -141,7 +141,7 @@ are recorded in the activation ticket/runbook:
    not both allowed to own the same child Applications in the same Argo CD control
    plane. The activation plan must choose one owner and avoid duplicate ownership.
 6. Backup/restore or replication evidence exists for the database and object
-   storage path the standby will rely on. If the broader ADR-0022 failover lane
+   storage path the standby will rely on. If the broader ADR-0024 failover lane
    owns this evidence, activation waits for that lane's approval.
 7. DNS/VIP routing ownership is known. Moving traffic is outside this DARK
    package and must be coordinated with the VIP/ingress and DR runbooks.
@@ -221,8 +221,8 @@ The short form is:
 6. Move DNS/VIP/GeoDNS traffic only after app, database, ingress, and audit checks
    pass.
 
-Coordinate this promotion with ADR-0022 roadmap lane #4 if that lane is acting as
-the broader failover-orchestration owner for the current release. In the ADR text
-available when this document was written, lane #4 is the production-hardening gate
-rewrite, so promotion remains founder/operator gated unless a newer lane owner
-explicitly takes failover orchestration.
+Coordinate this promotion with the ADR-0024 roadmap item #6 owner only when that
+owner explicitly also owns broader failover orchestration for the current release.
+Roadmap item #9 owns context-aware CI hardening, not promotion authority, so the
+promotion remains founder/operator gated unless failover orchestration is assigned
+explicitly.

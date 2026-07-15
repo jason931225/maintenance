@@ -1,6 +1,6 @@
 # Maintenance on-prem CNPG HA overlay
 
-This is a DARK staging overlay for ADR-0022 / GitHub issue #379. It is not wired into `deploy/argocd/apps/`, so the current OCI guest deployment continues to use `deploy/apps/maintenance/overlays/prod` and the base CNPG single-instance posture.
+This is a DARK staging overlay for ADR-0024 / GitHub issue #379. It is not wired into `deploy/argocd/apps/`, so the current OCI guest deployment continues to use `deploy/apps/maintenance/overlays/prod` and the base CNPG single-instance posture.
 
 The overlay patches only the CNPG `Cluster/mnt-db` shape for on-prem HA:
 

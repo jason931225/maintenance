@@ -1,6 +1,6 @@
 # Dark on-prem Traefik LoadBalancer variant
 
-This directory stages the ADR-0022 on-prem Traefik ingress shape without changing
+This directory stages the ADR-0024 on-prem Traefik ingress shape without changing
 the live OCI ingress path.
 
 It is intentionally under `deploy/apps/traefik-onprem/`, not

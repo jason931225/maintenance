@@ -9,7 +9,7 @@ This is not just the existing tenant-configured webmail mirror. The existing web
 - **License:** production dependencies embedded into our product must be MIT or Apache-2.0 unless separately approved. Stalwart is a feature benchmark, not an embeddable dependency under this constraint.
 - **No open relay:** SMTP must reject relay abuse by default. RCPT acceptance is only for verified, enabled local domains or authenticated submission.
 - **No live MX exposure until gates pass:** port 25 must not be exposed on `knllogistic.com` / `console.knllogistic.com` until DNS, TLS, queueing, abuse, monitoring, backup, and rollback gates pass.
-- **Cloud-native/free-tier aware:** resource footprint must fit the OCI A1 operating model before production rollout.
+- **Self-host-first and context-aware:** the resource footprint and every required dependency must fit the owner-controlled ADR-0024 self-host reference before production rollout. The current OCI A1 context remains supported and retains its own constrained resource envelope; neither context may make its substrate mandatory for the other.
 - **Out-of-the-box operation:** tenants and group/org admins must not configure SMTP/IMAP hostnames, ports, passwords, or mail-server credentials in the console. The platform owns the mailbox service; admins manage domains, DNS readiness, mailbox lifecycle, aliases, delegation, retention, and policy.
 - **Identity-native:** mailbox users are platform users/employees scoped by group/org/department/team/role/policy; sensitive mail-admin actions require passkey step-up and audit.
 - **Data safety:** mail content and metadata are personal/corporate data. Retention, deletion, legal hold, purpose, access logs, masking, and export must be explicit.
@@ -38,7 +38,7 @@ We should measure our mailbox server against these capability groups:
 | Mail authentication | SPF, DKIM, DMARC, ARC validation/signing | SPF/DKIM/DMARC required before public MX; ARC and DMARC/TLS reports P1 | P0/P1 |
 | Transport security | STARTTLS/TLS, DANE, MTA-STS, TLS-RPT | STARTTLS/TLS required; MTA-STS/TLS-RPT before production; DANE when DNSSEC path is operationally ready | P0/P1 |
 | Spam/phishing | Spam classifier, phishing protection, traps, rate limit | Start with Rspamd-style integration point or internal policy engine; quarantine/junk training; no silent drops | P1 |
-| Storage/search | Mailbox folders, metadata, full text, attachments | Postgres metadata + OCI/Object storage raw MIME + future search index; quotas, retention, legal hold | P0/P1 |
+| Storage/search | Mailbox folders, metadata, full text, attachments | Postgres metadata + raw MIME through the target provider-neutral object-storage port (self-host S3-compatible reference; current S3 adapter pointed at OCI Object Storage in `oci-guest`) + future search index; quotas, retention, legal hold | P0/P1 |
 | Admin | Domains, aliases, users, policies, DNS status | Group/org-aware domain, mailbox, alias, shared-mailbox, DNS-readiness, retention, delegation, and ownership UI. No tenant SMTP/IMAP server configuration UI. | P0 |
 | Collaboration | Contacts/calendar/file sharing protocols | Mail first. Calendar/contact integration via platform calendar/people modules; protocol parity later if needed | P2 |
 | Observability | Metrics, logs, queue/admin visibility | Prometheus metrics, structured redacted logs, audit trail, queue depth, delivery rejection reasons, alerting | P0 |
@@ -49,7 +49,7 @@ We should measure our mailbox server against these capability groups:
 | Candidate | License fit | Feature fit vs Stalwart | Operational fit | Recommendation |
 | --- | --- | --- | --- | --- |
 | Stalwart | **No** under current MIT/Apache-only rule. Upstream is AGPL-3.0. | Best benchmark: Rust, SMTP/IMAP/JMAP, collaboration protocols, security features. | Likely strong, but license blocks embedding/forking/copying. | Benchmark only. Do not adopt or copy source/assets/types. |
-| Apache James | **Yes**, Apache-2.0. | Strongest permissive full-server candidate: SMTP, IMAP, JMAP, POP3, distributed app options. | JVM and distributed stack can be heavy for OCI A1/free-tier; integration with platform identity/policy/audit would be sidecar/adapter work. | Best legal full-protocol adoption candidate if we need external server now. Run a resource and integration spike before committing. |
+| Apache James | **Yes**, Apache-2.0. | Strongest permissive full-server candidate: SMTP, IMAP, JMAP, POP3, distributed app options. | JVM and distributed stack can be heavy for the self-host reference and the supported OCI A1 context; integration with platform identity/policy/audit would be sidecar/adapter work. | Best legal full-protocol adoption candidate if we need external server now. Run a resource and integration spike before committing. |
 | Mailu | MIT at project level; component-license review still required before production. | Mature SMTP/IMAP stack with DKIM/DMARC/SPF/antispam, but no native JMAP. | Multi-container Docker/mailops stack; good conventional mail server, weaker identity-native integration. | Possible stopgap for MX/IMAP if JMAP is deferred; not sufficient for requested JMAP parity. |
 | docker-mailserver | MIT at project level; component-license review still required. | Postfix/Dovecot/Rspamd/SpamAssassin/OpenDKIM/OpenDMARC; no JMAP. | Mature conventional stack, but multiple services/config files and not platform-native. | Similar to Mailu: useful fallback for MX/IMAP, not JMAP parity. |
 | Mox | MIT. | Excellent modern all-in-one SMTP/IMAP/DKIM/DMARC/MTA-STS/metrics; JMAP is on roadmap, not current feature. | Single Go binary, simpler than Postfix/Dovecot stacks; integration still external. | Good candidate if we accept no JMAP initially. Not enough for strict MX/IMAP/JMAP ask today. |
@@ -63,11 +63,11 @@ We should measure our mailbox server against these capability groups:
 Use a **two-track decision**:
 
 1. **Product-native track (default): build our own clean-room Rust mailbox foundation.**
-   - Reason: no MIT/Apache candidate currently gives the exact combination of Stalwart-like MX + IMAP + JMAP plus deep platform tenancy, passkey, policy, audit, OCI object storage, workflow, group/org, Korean compliance integration, no tenant-visible server configuration, and low OCI A1 footprint.
+   - Reason: no MIT/Apache candidate currently gives the exact combination of Stalwart-like MX + IMAP + JMAP plus deep platform tenancy, passkey, policy, audit, portable object storage, workflow, group/org, Korean compliance integration, no tenant-visible server configuration, and a resource envelope proven in both the self-host reference and supported OCI A1 context.
    - Benchmark Stalwart, Mox, Apache James, Mailu, docker-mailserver, Gmail/Proton UI, and Slack-style workflow integrations, but do not copy non-permissive implementation code.
 
 2. **Adoption spike track (parallel, bounded): evaluate Apache James as the only current permissive full-protocol server candidate.**
-   - Pass criteria: runs within free-tier A1 budget, supports required JMAP/IMAP/SMTP flows, can delegate identity to our platform or safely sync users/mailboxes, stays hidden behind platform-native admin/domain UX with no tenant server-config form, exposes observable delivery/audit signals, and can store/backup data safely.
+   - Pass criteria: runs within the declared self-host resource envelope and the supported OCI A1 budget, supports required JMAP/IMAP/SMTP flows, can delegate identity to our platform or safely sync users/mailboxes, stays hidden behind platform-native admin/domain UX with no tenant server-config form, exposes observable delivery/audit signals, and can store/backup data safely.
    - Fail criteria: too heavy, too hard to integrate with group/org/policy/passkey/audit, or creates a second source of truth for employees/mailboxes.
 
 If the business needs a public MX faster than our native JMAP server can mature, the pragmatic stopgap is **Mox or Mailu/docker-mailserver for MX/IMAP only**, plus our app-native JMAP/webmail bridge later. That is not full requested parity and must be labelled as a temporary adoption choice.
@@ -88,7 +88,7 @@ If the business needs a public MX faster than our native JMAP server can mature,
 
 ### Storage
 - Postgres for domain/mailbox/routing/folder/message metadata, RLS scope, queue state, audit pointers.
-- OCI/Object storage for immutable raw RFC 5322 message bytes and large attachments.
+- The target provider-neutral object-storage port for immutable raw RFC 5322 message bytes and large attachments: a self-hosted S3-compatible adapter in the reference stack and the current S3 adapter pointed at OCI Object Storage in `oci-guest`.
 - Optional search index later for full-text/mailbox search; keep canonical metadata in Postgres.
 
 ### Core data model

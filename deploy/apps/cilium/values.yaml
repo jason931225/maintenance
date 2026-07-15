@@ -1,4 +1,4 @@
-# Cilium Helm values for Maintenance ADR-0022 on-prem Talos staging.
+# Cilium Helm values for Maintenance ADR-0024 on-prem Talos staging.
 # Lifted from the sibling oyatie infra/talos/cilium-values.yaml where the settings
 # are provider-neutral for Talos (CNI disabled in Talos, kube-proxy disabled, KubePrism
 # localhost API endpoint, cgroup2 already mounted). This file is inert until the dark
@@ -8,7 +8,7 @@ ipam:
   mode: kubernetes # use node PodCIDRs from kube-controller-manager; no cloud IPAM dependency.
 
 # Enable Cilium's kube-proxy replacement so Service load-balancing runs in eBPF.
-# ADR-0022 requires eBPF load-balancing for the on-prem target; Talos machine config
+# ADR-0024 requires eBPF load-balancing for the on-prem target; Talos machine config
 # must pair this with cluster.proxy.disabled=true before sync.
 kubeProxyReplacement: true
 k8sServiceHost: localhost # Talos KubePrism endpoint on every node; override if KubePrism is not enabled.
@@ -21,7 +21,7 @@ k8sServicePort: 7445
 policyEnforcementMode: "default"
 
 operator:
-  # ADR-0022's on-prem target is HA/multi-node, so keep the HA operator default
+  # ADR-0024's on-prem target is HA/multi-node, so keep the HA operator default
   # explicit. Oyatie's single-node lab used replicas: 1; do not copy that here.
   replicas: 2
 
@@ -57,7 +57,7 @@ socketLB:
   enabled: true
   hostNamespaceOnly: true
 
-# BGP/VIP coordination is deliberately dark. ADR-0022 allows MetalLB, kube-vip, or
+# BGP/VIP coordination is deliberately dark. ADR-0024 allows MetalLB, kube-vip, or
 # Cilium BGP for north-south VIPs, but issue #378 owns that decision. Leave both
 # Cilium BGP and L2 announcements disabled until that lane chooses Cilium as the
 # speaker and documents peers/IP pools/failover ownership.

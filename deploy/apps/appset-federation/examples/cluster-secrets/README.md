@@ -8,7 +8,7 @@ certificate authorities, or base64-encoded credential payloads.
 
 Cluster credentials must come from one of these approved paths:
 
-1. External Secrets Operator reading from OpenBao for the ADR-0022 portable
+1. External Secrets Operator reading from OpenBao for the ADR-0024 portable
    secrets lane.
 2. The repo's currently approved out-of-band secret-management path documented in
    `deploy/SECRETS.md` and `deploy/OPS-RUNBOOK.md`, until External-Secrets/OpenBao

@@ -6,7 +6,7 @@ metadata:
 spec:
   # Deployment context: live oci-guest base. This cluster is intentionally one
   # CNPG instance on one Always Free A1 node; it has restore/PITR artifacts but no
-  # automatic database failover. The ADR-0022 on-prem-ha overlay patches this to
+  # automatic database failover. The ADR-0024 on-prem-ha overlay patches this to
   # >=3 instances plus replicated storage without changing the live OCI posture.
   instances: 1
   imageName: ghcr.io/cloudnative-pg/postgresql:18.4

@@ -1,6 +1,6 @@
 # Maintenance OCI guest overlay
 
-This overlay names the current Oracle Cloud guest deployment context explicitly for ADR-0022 / GitHub issue #370. It is an alias of `../prod`, so it preserves the live production image pins, WebAuthn host settings, and OCI Object Storage endpoints.
+This overlay names the current Oracle Cloud guest deployment context explicitly for ADR-0024 / GitHub issue #370. It is an alias of `../prod`, so it preserves the live production image pins, WebAuthn host settings, and OCI Object Storage endpoints.
 
 Object-storage expectations:
 

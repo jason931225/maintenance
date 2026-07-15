@@ -430,47 +430,51 @@ export function AppRouter() {
             </RouteErrorBoundary>
           }
         />
-        {/* Dev-only window-engine capture harness (P0.2). Shell-less like
-            /console; own error boundary so a crash is contained. */}
-        <Route
-          path="/console-dev/window"
-          element={
-            <RouteErrorBoundary>
-              <Suspense fallback={<PageSpinner />}>
-                <WindowEngineHarness />
-              </Suspense>
-            </RouteErrorBoundary>
-          }
-        />
+        {import.meta.env.DEV && (
+          <>
+            {/* Dev-only window-engine capture harness (P0.2). Shell-less like
+                /console; own error boundary so a crash is contained. */}
+            <Route
+              path="/console-dev/window"
+              element={
+                <RouteErrorBoundary>
+                  <Suspense fallback={<PageSpinner />}>
+                    <WindowEngineHarness />
+                  </Suspense>
+                </RouteErrorBoundary>
+              }
+            />
 
-        {/* P0.4 generic module template dev harness. Standalone, behind
-            ProtectedRoute; renders one ModuleScreen against a live typed-client
-            read (?config=support switches the proof config). Its own error
-            boundary contains a crash (it renders shell-less). Route-audit entry
-            classified as a dev harness (not a product route). */}
-        <Route
-          path="/console-dev/module"
-          element={
-            <RouteErrorBoundary>
-              <Suspense fallback={<PageSpinner />}>
-                <ModuleHarness />
-              </Suspense>
-            </RouteErrorBoundary>
-          }
-        />
+            {/* P0.4 generic module template dev harness. Standalone, behind
+                ProtectedRoute; renders one ModuleScreen against a live typed-client
+                read (?config=support switches the proof config). Its own error
+                boundary contains a crash (it renders shell-less). Route-audit entry
+                classified as a dev harness (not a product route). */}
+            <Route
+              path="/console-dev/module"
+              element={
+                <RouteErrorBoundary>
+                  <Suspense fallback={<PageSpinner />}>
+                    <ModuleHarness />
+                  </Suspense>
+                </RouteErrorBoundary>
+              }
+            />
 
-        {/* Dev-only lifecycle-card capture harness (P0.5). Shell-less like
-            /console; own error boundary so a crash is contained. */}
-        <Route
-          path="/console-dev/lifecycle"
-          element={
-            <RouteErrorBoundary>
-              <Suspense fallback={<PageSpinner />}>
-                <LifecycleHarness />
-              </Suspense>
-            </RouteErrorBoundary>
-          }
-        />
+            {/* Dev-only lifecycle-card capture harness (P0.5). Shell-less like
+                /console; own error boundary so a crash is contained. */}
+            <Route
+              path="/console-dev/lifecycle"
+              element={
+                <RouteErrorBoundary>
+                  <Suspense fallback={<PageSpinner />}>
+                    <LifecycleHarness />
+                  </Suspense>
+                </RouteErrorBoundary>
+              }
+            />
+          </>
+        )}
 
         {/* UI-M3: /overview replaces /work-hub. Old links and bookmarks keep
             working via this redirect. */}

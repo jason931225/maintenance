@@ -1,12 +1,12 @@
 # Production hardening deployment-context contract
 
-This note defines the replacement contract for `scripts/check-production-hardening.mjs` under ADR-0022 / issue #371. The gate must validate security and production-hardening properties, not assume every production path has the current OCI single-node shape.
+This note defines the replacement contract for `scripts/check-production-hardening.mjs` under ADR-0024 / issue #371. The gate must validate security and production-hardening properties, not assume every production path has the current OCI single-node shape.
 
 ## Decision
 
 Use an explicit deployment-context registry, not repository inference.
 
-Reason: ADR-0022 requires `oci-guest` and `on-prem` artifacts to coexist. The repository can legitimately contain a live OCI runbook, a DARK on-prem overlay, self-hosted storage docs, OCI object-store config, and future contexts at the same time. Inferring the active context from strings or file presence would either reject valid coexistence or silently bless the wrong topology. The script should define a small registry of supported contexts and validate every committed context by default.
+Reason: ADR-0024 requires `oci-guest` and `on-prem` artifacts to coexist. The repository can legitimately contain a live OCI runbook, a DARK on-prem overlay, self-hosted storage docs, OCI object-store config, and future contexts at the same time. Inferring the active context from strings or file presence would either reject valid coexistence or silently bless the wrong topology. The script should define a small registry of supported contexts and validate every committed context by default.
 
 Default execution should validate:
 
@@ -22,7 +22,7 @@ The first registry entries are:
 | Context | Status | Canonical evidence paths | Intent |
 |---|---|---|---|
 | `oci-guest` | live/current production substrate | `deploy/OPS-RUNBOOK.md`, `deploy/SECRETS.md`, `deploy/apps/maintenance/base/database.yaml`, `deploy/apps/maintenance/overlays/prod/kustomization.yaml`, `docs/ENTERPRISE-READINESS.md` | Preserve the current Oracle Cloud Ampere A1 single-node target honestly: no false HA, OCI Vault/Object Storage are documented, CNPG remains one instance, and HA-only storage patches are not applied to the live prod overlay. |
-| `on-prem-ha` | DARK/additive ADR-0022 target until operator activation | `deploy/OPS-RUNBOOK-baremetal.md`, `deploy/apps/maintenance/overlays/on-prem/kustomization.yaml`, `deploy/apps/maintenance/overlays/on-prem/cnpg-ha-patch.yaml`, `deploy/apps/storage/manifests/storageclass-mnt-pg-hot.yaml`, `deploy/apps/storage/README.md`, `deploy/apps/maintenance/overlays/on-prem/README.md`, `deploy/apps/observability/README.md` | Stage the portable HA substrate without mutating the live OCI target: OpenBao/External Secrets, self-hosted S3-compatible storage, replicated block storage, CNPG >= 3, topology spread/failover evidence, and explicit DARK/cutover boundaries. |
+| `on-prem-ha` | DARK/additive ADR-0024 target until operator activation | `deploy/OPS-RUNBOOK-baremetal.md`, `deploy/apps/maintenance/overlays/on-prem/kustomization.yaml`, `deploy/apps/maintenance/overlays/on-prem/cnpg-ha-patch.yaml`, `deploy/apps/storage/manifests/storageclass-mnt-pg-hot.yaml`, `deploy/apps/storage/README.md`, `deploy/apps/maintenance/overlays/on-prem/README.md`, `deploy/apps/observability/README.md` | Stage the portable HA substrate without mutating the live OCI target: OpenBao/External Secrets, self-hosted S3-compatible storage, replicated block storage, CNPG >= 3, topology spread/failover evidence, and explicit DARK/cutover boundaries. |
 
 Implementation shape: keep a registry constant such as `DEPLOYMENT_CONTEXTS = [{ id, status, checks }]`. Each check should return a pass/fail with the context id in its label. Avoid a flat list of OCI-specific `requireIncludes` calls with labels that imply universal production truth.
 
@@ -81,7 +81,7 @@ Passing `oci-guest` means the live context is honest and safe for its current su
 
 ## `on-prem-ha` context requirements
 
-The `on-prem-ha` context validates the additive ADR-0022 DARK HA target. It must not make the live OCI path fail merely because the on-prem artifacts coexist in the repo.
+The `on-prem-ha` context validates the additive ADR-0024 DARK HA target. It must not make the live OCI path fail merely because the on-prem artifacts coexist in the repo.
 
 Required properties:
 
@@ -90,7 +90,7 @@ Required properties:
    - The docs name OpenBao initialization/unseal/audit/backup expectations and forbid committing or pasting unseal/root material.
    - The on-prem path must not require OCI Vault. OCI Vault may appear only as the previous/rollback `oci-guest` context.
 2. **Object-store endpoint and retention**
-   - The on-prem runbook documents a self-hosted S3-compatible endpoint choice such as SeaweedFS, MinIO, or Ceph-RGW.
+   - The on-prem runbook documents SeaweedFS as the accepted self-hosted S3-compatible reference and requires a newer accepted decision plus fresh security/readiness evidence for an engine change.
    - It requires configuring CNPG Barman and evidence storage endpoint URLs, credentials from OpenBao/ESO, bucket names, TLS CA material as needed, and retention/replication policy before production data moves.
    - It requires evidence/WORM or backup replication to a second physical site or equivalent independent failure domain before claiming durable HA/DR retention.
    - It explicitly warns not to copy the OCI `AWS_*_CHECKSUM_*=when_required` workaround blindly to self-hosted S3.

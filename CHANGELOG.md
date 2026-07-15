@@ -134,7 +134,7 @@
 * **ci:** mnt-gate-iac-tier — block cloud-primitive leak into app manifests ([#244](https://github.com/jason931225/maintenance/issues/244)) ([8281c45](https://github.com/jason931225/maintenance/commit/8281c45b3c008cedc31ec59d998108bf46d145eb))
 * **console-cc:** P0.2 — carbon-copy window/pin engine ([#248](https://github.com/jason931225/maintenance/issues/248)) ([d8252e3](https://github.com/jason931225/maintenance/commit/d8252e32d6f87c4f1a2612b67d70f863ea57782e))
 * **console-cc:** token grammar — @ mentions, # channels, bare-code object links (founder directive) ([#259](https://github.com/jason931225/maintenance/issues/259)) ([41b1686](https://github.com/jason931225/maintenance/commit/41b1686800d721174f0cbe8561c589665dfbef3d))
-* **secrets:** stage OpenBao + External-Secrets for portable secrets (dark, ADR-0022 lane 1) ([#267](https://github.com/jason931225/maintenance/issues/267)) ([0d1e374](https://github.com/jason931225/maintenance/commit/0d1e374b4b1ca7f469e9dd6b89cbaa566a1bda1d))
+* **secrets:** stage OpenBao + External-Secrets for portable secrets (dark; retrospectively mapped on 2026-07-13 to ADR-0024 roadmap item 2) ([#267](https://github.com/jason931225/maintenance/issues/267)) ([0d1e374](https://github.com/jason931225/maintenance/commit/0d1e374b4b1ca7f469e9dd6b89cbaa566a1bda1d))
 
 
 ### Bug Fixes

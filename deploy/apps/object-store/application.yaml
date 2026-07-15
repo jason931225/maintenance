@@ -1,4 +1,4 @@
-# Dark Argo CD Application for ADR-0022 self-hosted S3 object storage.
+# Dark Argo CD Application for ADR-0024 self-hosted S3 object storage.
 # Do not move this file under deploy/argocd/apps/ until a later founder/operator
 # activation lane intentionally wires the object store into the live app-of-apps root.
 apiVersion: argoproj.io/v1alpha1

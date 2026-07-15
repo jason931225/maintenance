@@ -1,3 +1,13 @@
+---
+id: ADR-0020
+status: accepted
+doc_status: published
+date: 2026-07-03
+owner: jasonlee
+acceptance_scope: fixture-only foundation; no live institution access
+related: [ADR-0010]
+---
+
 # ADR-0020: Korean institutional connectivity coverage factory
 
 ## Status

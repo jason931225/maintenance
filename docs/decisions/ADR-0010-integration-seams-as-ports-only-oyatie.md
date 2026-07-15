@@ -1,7 +1,7 @@
 ---
 id: ADR-0010
 status: accepted
-amended_by: ADR-0022
+amended_by: [ADR-0022]
 
 doc_status: published
 date: 2026-06-12

@@ -1,6 +1,6 @@
 # DARK on-prem Talos HA control-plane runbook
 
-This runbook stages the ADR-0022 / issue #376 operator plan for a future
+This runbook stages the ADR-0024 / issue #376 operator plan for a future
 bare-metal `on-prem` Talos cluster. It is a documentation artifact only: the
 current live `oci-guest` cluster remains the single-node OCI Ampere A1 cluster,
 and no merge of this file should apply machine configs, change Argo CD sync

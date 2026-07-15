@@ -1,6 +1,6 @@
 # DARK on-prem HA Talos machineconfigs and CAPI/Metal3 templates
 
-This directory stages ADR-0022 lane #6 Talos machineconfig inputs and the
+This directory stages ADR-0024 roadmap item #6 Talos machineconfig inputs and the
 matching Cluster API/Metal3 provisioning template for the `on-prem` deployment
 context. It is intentionally inert: nothing here is watched by Argo CD,
 OpenTofu, or an apply script, and the renderers never call `talosctl
@@ -123,7 +123,7 @@ Talos/flannel: flannel does not enforce Kubernetes NetworkPolicy, so rendered
 resources such as `deploy/apps/maintenance/base/networkpolicy.yaml` are inert
 until Cilium, Calico, or Canal with Calico policy is actually running.
 
-For the ADR-0022 on-prem path, `deploy/apps/cilium/` is the staged CNI contract.
+For the ADR-0024 on-prem path, `deploy/apps/cilium/` is the staged CNI contract.
 If an activation ticket selects Calico or Canal instead, update the Talos/CNI docs
 and promotion evidence before cutover. A clean machineconfig render,
 `kubectl kustomize`, or `npm run check:production-hardening` proves desired-state

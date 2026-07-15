@@ -1,15 +1,25 @@
-# ADR-0022 design note: HA workload scheduling expectations
+---
+id: DN-0001
+kind: design-note
+parent_adr: ADR-0024
+authority: subordinate
+activation: dark
+date: 2026-07-10
+owner: jasonlee
+---
+
+# DN-0001 — ADR-0024 HA workload scheduling expectations
 
 ## Status
 
-DARK guidance for the future `on-prem` HA topology. This note documents the
+DARK guidance for ADR-0024's first self-host reference, the `on-prem` HA topology. This note documents the
 scheduling contract that becomes valid after issue #376 delivers a three-member
 Talos control plane plus dedicated worker nodes. It does not wire any new
 manifests into the live OCI guest app-of-apps root.
 
 ## Sources reviewed
 
-- ADR-0022 from `origin/main:docs/decisions/ADR-0022-bare-metal-portability-and-ha.md`.
+- Accepted ADR-0024 at `docs/decisions/ADR-0024-bare-metal-portability-and-ha.md`.
 - GitHub issue #376, `[HA] 3-node Talos HA control plane (etcd quorum)`.
 - GitHub issue #379, `[HA] Replicated storage (Longhorn/Rook-Ceph) + CNPG instances:3`.
 - GitHub issue #10, verified unrelated (`Landing Page`); the #376 mention of
@@ -23,7 +33,7 @@ manifests into the live OCI guest app-of-apps root.
 1. `oci-guest` remains single-node compatible. Do not add required anti-affinity,
    worker-only node affinity, or topology spread constraints to live base/prod
    manifests that would make the current single-node cluster unschedulable.
-2. The future `on-prem` context assumes:
+2. The first self-host `on-prem` context assumes:
    - three Talos control-plane nodes for etcd quorum;
    - N dedicated worker/storage nodes for general workloads;
    - control-plane nodes do not run general workloads;
@@ -50,11 +60,11 @@ manifests into the live OCI guest app-of-apps root.
 | Ingress/VIP data plane | Multi-replica ingress must spread across distinct worker nodes and keep a PDB. The staged Traefik on-prem variant already uses required pod anti-affinity and topology spread by `kubernetes.io/hostname`; VIP failover evidence belongs with the VIP/Traefik lane. | `deploy/apps/traefik-onprem/`, issue #378 |
 | Stateful Postgres | CNPG instances, synchronous replication, storage class, and CNPG pod anti-affinity are owned by #379. This note only requires that the CNPG lane keep replicas from collapsing onto one node/failure domain and prove primary failover on the HA substrate. | #379 and `deploy/apps/maintenance/overlays/on-prem/` |
 | Replicated block storage | Storage replicas must be placed on independent worker/storage nodes. Longhorn/Rook-specific replica placement, disk labels, and rebuild gates belong to the storage lane. | #379 and `deploy/apps/storage/` |
-| Maintenance API/web Rollouts | When an `on-prem` app overlay/component is introduced, `mnt-app` and `mnt-web` replicas should spread across workers by hostname, keep `minAvailable: 1`, and avoid control-plane nodes. Do not put these constraints in base/prod while the OCI guest is single-node. | future on-prem maintenance app overlay |
-| Background workers | `mnt-worker` is currently single-replica and should not be counted as HA. If scaled above one, it needs idempotent/leased work ownership plus worker-node spread; ADR-0022's `mail_sync` HA defect must be resolved before API/worker horizontal scaling is claimed. | app HA remediation lane |
+| Maintenance API/web Rollouts | When the first self-host `on-prem` app overlay/component is introduced, `mnt-app` and `mnt-web` replicas should spread across workers by hostname, keep `minAvailable: 1`, and avoid control-plane nodes. Do not put these constraints in base/prod while the OCI guest is single-node. | self-host on-prem maintenance app overlay |
+| Background workers | `mnt-worker` is currently single-replica and should not be counted as HA. If scaled above one, it needs idempotent/leased work ownership plus worker-node spread; ADR-0024's implemented `mail_sync` lease/fencing controls still require multi-replica failure and duplicate-side-effect proof before API/worker horizontal scaling is claimed. | app HA verification/remediation lane |
 | GitOps/platform operators | Argo CD, Argo Rollouts, cert-manager, Cilium operator, MetalLB controller, External Secrets/OpenBao, and similar platform controllers should use their chart-native HA/anti-affinity knobs when staged for `on-prem`. DaemonSets such as speakers/agents rely on node coverage instead of pod anti-affinity. | each dark app lane |
 
-## Configuration guidance for future on-prem overlays
+## Configuration guidance for the first self-host on-prem overlays
 
 Use an overlay/component per workload rather than changing live base manifests.
 For a two-replica stateless workload, the expected shape is:
@@ -108,6 +118,6 @@ record:
 - Anti-affinity expectations are explicit before the HA substrate exists, but no
   active manifest is made stricter for the single-node OCI guest.
 - CNPG remains aligned with #379 instead of a stale #10 cross-reference.
-- Future on-prem overlays have a common scheduling bar: worker-only placement,
+- Self-host on-prem overlays have a common scheduling bar: worker-only placement,
   hostname/failure-domain spread, DARK staging, render evidence, and live node
   placement proof before activation.

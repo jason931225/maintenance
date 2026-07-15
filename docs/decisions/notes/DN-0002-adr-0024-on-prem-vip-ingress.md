@@ -1,4 +1,14 @@
-# ADR-0022 design note: on-prem VIP ingress approach
+---
+id: DN-0002
+kind: design-note
+parent_adr: ADR-0024
+authority: subordinate
+activation: dark
+date: 2026-07-10
+owner: jasonlee
+---
+
+# DN-0002 — ADR-0024 on-prem VIP ingress approach
 
 ## Status
 
@@ -6,7 +16,7 @@ Chosen for dark staging. This note does not activate the live OCI ingress path.
 
 ## Sources reviewed
 
-- ADR-0022 from `origin/main:docs/decisions/ADR-0022-bare-metal-portability-and-ha.md`.
+- Accepted ADR-0024 at `docs/decisions/ADR-0024-bare-metal-portability-and-ha.md`.
 - GitHub issue #378, `[HA] VIP ingress — MetalLB/kube-vip + multi-node Traefik`.
 - GitHub issue #377, `[HA] Cilium CNI (enforced NetworkPolicy + eBPF LB)`.
 - GitHub issue #8, verified unrelated to Cilium/BGP despite the stale cross-reference in #378.

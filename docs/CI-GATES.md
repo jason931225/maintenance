@@ -56,6 +56,8 @@ npm run check:openapi-app                 # committed openapi.yaml covers mounte
 CONTRACT_DATABASE_URL=postgres://<user>@localhost/mnt_contract npm run test:contract
 
 # Web console + product-maturity gates (from repo root after npm ci)
+npm run test:adrs
+npm run check:adrs
 for s in \
   check:foundation-gates \
   check:enterprise-ux-parity \
@@ -153,6 +155,7 @@ names only, not incidental workflow prose or runner setup text.
 ### Root package scripts run by CI
 
 - `check:android-e2e-fail-closed`
+- `check:adrs`
 - `check:browser-persona-matrix`
 - `check:cx-reporting-maturity`
 - `check:enterprise-ux-parity`
@@ -181,6 +184,7 @@ names only, not incidental workflow prose or runner setup text.
 - `gen:api:portable`
 - `gen:api:swift`
 - `test:contract`
+- `test:adrs`
 - `test:text-gate`
 
 ### Web console package scripts run by CI
@@ -204,7 +208,8 @@ names only, not incidental workflow prose or runner setup text.
   `npm run gen:api:portable`, `git diff --exit-code -- clients/ts
   clients/kotlin`, `npm run check:ts`, and `npm run check:kotlin`. The local
   wrapper for the generation+diff check is `npm run check:api-drift:portable`.
-- **Web console — lint / test / build**: root product-maturity scripts
+- **Web console — lint / test / build**: ADR governance scripts `test:adrs`
+  and `check:adrs`, followed by root product-maturity scripts
   `check:foundation-gates`, `check:enterprise-ux-parity`,
   `check:browser-persona-matrix`, `check:ios-ui-test-fail-closed`,
   `check:android-e2e-fail-closed`, `check:g004-identity-foundation`,

@@ -1,4 +1,4 @@
-# Placeholder MetalLB L2 configuration for the ADR-0022 on-prem Traefik VIP.
+# Placeholder MetalLB L2 configuration for the ADR-0024 on-prem Traefik VIP.
 # Replace the documentation CIDR below with the real reserved on-prem VIP/pool,
 # VLAN/subnet, and optional interface/node selectors before any manual sync.
 apiVersion: metallb.io/v1beta1

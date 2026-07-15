@@ -7,7 +7,7 @@ in `ops/compose.yml`. It is the operating contract for Postgres durability,
 point-in-time recovery, and the emergency-dispatch fallback required by
 ADR-0015.
 
-Future ADR-0022 multicluster ApplicationSet failover is tracked separately in
+Future ADR-0024 multicluster ApplicationSet failover is tracked separately in
 `ops/dr/multicluster-failover-runbook.md`. That runbook is DARK until federation,
 standby data readiness, and traffic ownership are explicitly activated; it does
 not change this single-VM recovery policy.

@@ -19,16 +19,16 @@ Use this runbook when a Maintenance site has:
 - a documented database/object-storage restore or replication path; and
 - a DNS/VIP/ingress owner ready to move traffic after health checks pass.
 
-If a current ADR-0022 roadmap lane #4 owner is explicitly acting as the broader
-failover-orchestration owner for the release, coordinate with that lane before
-promotion. In the ADR-0022 text available when this runbook was written, lane #4
-is the production-hardening gate rewrite, not failover orchestration; in that
-case this promotion remains founder/operator gated and must not be delegated
-implicitly.
+If the ADR-0024 roadmap item #6 owner is explicitly acting as the broader
+failover-orchestration owner for the release, coordinate with that owner before
+promotion. ADR-0024 roadmap item #9 owns context-aware CI hardening, not
+failover orchestration; assigning that gate does not silently assign promotion
+authority. Otherwise this promotion remains founder/operator gated and must not
+be delegated implicitly.
 
 ## Bare-metal on-prem VIP ingress addendum
 
-For ADR-0022 roadmap lane #6, the DNS/VIP/ingress owner must use the dark
+For ADR-0024 roadmap item #6, the DNS/VIP/ingress owner must use the dark
 activation guide in `deploy/apps/vip-ingress/README.md` before this runbook moves
 traffic to an on-prem primary. That path stages MetalLB L2 as the VIP provider
 and the sibling `deploy/apps/traefik-onprem/` Traefik variant as a multi-replica
@@ -168,7 +168,7 @@ hostPort/reserved-IP overlay, not the on-prem VIP files.
    - Argo reports no unexpected prune of standby-only resources.
 8. Move DNS/VIP/GeoDNS traffic only after step 7 passes and the DNS/VIP operator
    records TTLs, VIP holder, failover-validation result, and rollback target. For
-   on-prem VIP ingress, this includes the ADR-0022 lane #6 MetalLB/Traefik
+   on-prem VIP ingress, this includes the ADR-0024 roadmap item #6 MetalLB/Traefik
    validation from the addendum above.
 9. Keep the old primary quarantined until data divergence is assessed. Do not
    relabel it back into federation as standby until it is rebuilt, restored, or
