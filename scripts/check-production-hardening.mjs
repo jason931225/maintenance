@@ -1169,7 +1169,13 @@ export function evaluateOnPremHaContextChecks(readText) {
 
   const runbookPath = "deploy/OPS-RUNBOOK-baremetal.md";
   const runbook = requirePresentText(result, readText, runbookPath, "on-prem-ha runbook");
-  requireRegexInText(result, runbookPath, runbook, /on-prem|bare-metal|ADR-0024/i, "on-prem-ha runbook identity: explicit");
+  requireRegexInText(
+    result,
+    runbookPath,
+    runbook,
+    /\bADR-0024\b/,
+    "on-prem-ha runbook identity: explicit ADR-0024",
+  );
   requireRegexInText(result, runbookPath, runbook, /OpenBao[\s\S]*secret root|secret root[\s\S]*OpenBao/i, "on-prem-ha secret root: OpenBao documented");
   requireRegexInText(result, runbookPath, runbook, /External Secrets Operator|External Secrets/i, "on-prem-ha secret projection: External Secrets documented");
   requireRegexInText(result, runbookPath, runbook, /unseal[\s\S]*(audit|backup|snapshot)|audit[\s\S]*(backup|snapshot)/i, "on-prem-ha secret operations: unseal/audit/backup expectations documented");

@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
@@ -42,14 +42,14 @@ function adr({
   return `---\n${lines.join("\n")}\n---\n\n# ${headingId}: Fixture decision\n\n${body}\n`;
 }
 
-function designNote({ id = "DN-0001", parent = "ADR-0001" } = {}) {
+function designNote({ id = "DN-0001", parent = "ADR-0001", date = "2026-07-13" } = {}) {
   return `---
 id: ${id}
 kind: design-note
 parent_adr: ${parent}
 authority: subordinate
 activation: dark
-date: 2026-07-13
+date: ${date}
 owner: test-owner
 ---
 
@@ -106,6 +106,13 @@ function assertFailure(result, fragment) {
 }
 
 describe("ADR governance gate", () => {
+  it("uses node:path primitives instead of POSIX-only path splitting", () => {
+    const source = readFileSync(new URL("./check-adrs.mjs", import.meta.url), "utf8");
+
+    assert.doesNotMatch(source, /\.split\(["']\/["']\)/);
+    assert.doesNotMatch(source, /startsWith\(`\$\{(?:root|decisionsDirectory)\}\//);
+  });
+
   it("accepts a complete corpus and the reserved never-issued ADR-0013 index row", () => {
     const root = createFixture({
       adrs: [
@@ -205,6 +212,32 @@ describe("ADR governance gate", () => {
     assertFailure(result, "related reference ADR-9999 does not resolve");
   });
 
+  it("rejects an impossible ADR calendar date", () => {
+    const root = createFixture({
+      adrs: [
+        {
+          filename: "ADR-0001-invalid-date.md",
+          content: adr({ id: "ADR-0001", date: "2026-02-30" }),
+        },
+      ],
+    });
+
+    assertFailure(evaluateAdrGovernance(root), "date \"2026-02-30\" must be a real calendar date");
+  });
+
+  it("rejects an impossible design-note calendar date", () => {
+    const root = createFixture({
+      notes: [
+        {
+          filename: "DN-0001-invalid-date.md",
+          content: designNote({ date: "2025-13-01" }),
+        },
+      ],
+    });
+
+    assertFailure(evaluateAdrGovernance(root), "date \"2025-13-01\" must be a real calendar date");
+  });
+
   it("rejects one-sided amend and supersession relationships", () => {
     const root = createFixture({
       adrs: [
@@ -273,6 +306,33 @@ describe("ADR governance gate", () => {
     });
 
     assertFailure(evaluateAdrGovernance(root), "superseded_by target ADR-0002 must be accepted");
+  });
+
+  it("rejects an accepted ADR that amends a non-accepted target", () => {
+    const root = createFixture({
+      adrs: [
+        {
+          filename: "ADR-0001-proposed.md",
+          content: adr({
+            id: "ADR-0001",
+            status: "proposed",
+            docStatus: "review",
+            related: ["ADR-0002"],
+            relationships: { amended_by: ["ADR-0002"] },
+          }),
+        },
+        {
+          filename: "ADR-0002-accepted.md",
+          content: adr({
+            id: "ADR-0002",
+            related: ["ADR-0001"],
+            relationships: { amends: ["ADR-0001"] },
+          }),
+        },
+      ],
+    });
+
+    assertFailure(evaluateAdrGovernance(root), "amends target ADR-0001 must be accepted, found proposed");
   });
 
   it("rejects an ADR that declares a superseder without becoming superseded", () => {
@@ -382,6 +442,57 @@ describe("ADR governance gate", () => {
 
     assertFailure(evaluateAdrGovernance(root), "proposed ADR prose claims active amendment or supersession");
   });
+
+  it("rejects a proposed ADR whose subject ID claims active supersession in prose", () => {
+    const root = createFixture({
+      adrs: [
+        { filename: "ADR-0001-accepted.md", content: adr({ id: "ADR-0001" }) },
+        {
+          filename: "ADR-0002-proposed.md",
+          content: adr({
+            id: "ADR-0002",
+            status: "proposed",
+            docStatus: "review",
+            related: ["ADR-0001"],
+            body: "ADR-0002 supersedes ADR-0001.",
+          }),
+        },
+      ],
+    });
+
+    assertFailure(evaluateAdrGovernance(root), "proposed ADR prose claims active amendment or supersession");
+  });
+
+  for (const [format, subject] of [
+    ["bold", "**ADR-0002**"],
+    ["inline-code", "`ADR-0002`"],
+  ]) {
+    it(`rejects a proposed ADR whose ${format} subject ID claims active supersession`, () => {
+      const root = createFixture({
+        adrs: [
+          {
+            filename: "ADR-0001-accepted.md",
+            content: adr({ id: "ADR-0001" }),
+          },
+          {
+            filename: "ADR-0002-proposed.md",
+            content: adr({
+              id: "ADR-0002",
+              status: "proposed",
+              docStatus: "review",
+              related: ["ADR-0001"],
+              body: `${subject} supersedes ADR-0001.`,
+            }),
+          },
+        ],
+      });
+
+      assertFailure(
+        evaluateAdrGovernance(root),
+        "proposed ADR prose claims active amendment or supersession",
+      );
+    });
+  }
 
   it("allows conditional proposal language and ADR references in a design-note index row", () => {
     const root = createFixture({

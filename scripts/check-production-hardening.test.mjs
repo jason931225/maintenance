@@ -10,6 +10,7 @@ import {
   evaluateAndroidE2eTokenHandoffChecks,
   evaluateCnpgContextChecks,
   evaluateDeployAutomationChecks,
+  evaluateOnPremHaContextChecks,
   evaluateProdOverlayImageChecks,
   evaluateSmtpDeploymentChecks,
   evaluateWorkflowHardeningChecks,
@@ -303,6 +304,18 @@ spec:
     });
 
     assert.ok(result.failures.some((failure) => failure.includes("oci-guest CNPG base instances")));
+  });
+});
+
+describe("production hardening on-prem authority identity", () => {
+  it("rejects an on-prem runbook that does not explicitly identify ADR-0024", () => {
+    const files = {
+      "deploy/OPS-RUNBOOK-baremetal.md": "# On-prem bare-metal operations\n",
+    };
+
+    const result = evaluateOnPremHaContextChecks((path) => files[path] ?? "");
+
+    assertHasFailure(result, "on-prem-ha runbook identity: explicit ADR-0024");
   });
 });
 

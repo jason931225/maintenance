@@ -2,7 +2,7 @@
 
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { execFileSync } from "node:child_process";
-import { basename, dirname, join, resolve } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 const ADR_ID_PATTERN = /^ADR-\d{4}$/;
@@ -159,7 +159,7 @@ function validateRetiredAdrIdentities(root, decisionsDirectory, failures) {
     for (const [index, line] of text.split(/\r?\n/).entries()) {
       const hasRetiredPath = STALE_ADR_0022_PATHS.some((retired) => line.includes(retired));
       const misidentifiesPortability =
-        !absolutePath.startsWith(`${decisionsDirectory}/`) &&
+        !isWithinDirectory(decisionsDirectory, absolutePath) &&
         line.includes("ADR-0022") &&
         PORTABILITY_TERMS.test(line);
       if (hasRetiredPath || misidentifiesPortability) {
@@ -171,8 +171,31 @@ function validateRetiredAdrIdentities(root, decisionsDirectory, failures) {
   }
 }
 
+function isWithinDirectory(directory, candidate) {
+  const pathFromDirectory = relative(directory, candidate);
+  return (
+    pathFromDirectory !== ".." &&
+    !pathFromDirectory.startsWith(`..${sep}`) &&
+    !isAbsolute(pathFromDirectory)
+  );
+}
+
 function displayPath(root, path) {
-  return path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path;
+  const pathFromRoot = relative(root, path);
+  return isWithinDirectory(root, path) ? pathFromRoot || "." : path;
+}
+
+function isRealIsoCalendarDate(value) {
+  if (typeof value !== "string" || !ISO_DATE_PATTERN.test(value)) {
+    return false;
+  }
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+  );
 }
 
 function relationshipValues(record, key) {
@@ -214,8 +237,10 @@ function validateAdrRecordShape(record, failures) {
   if (frontmatter.doc_status !== undefined && !DOC_STATUSES.has(frontmatter.doc_status)) {
     failures.push(`${path}: invalid doc_status ${JSON.stringify(frontmatter.doc_status)}`);
   }
-  if (frontmatter.date !== undefined && !ISO_DATE_PATTERN.test(frontmatter.date)) {
-    failures.push(`${path}: date ${JSON.stringify(frontmatter.date)} must use YYYY-MM-DD`);
+  if (frontmatter.date !== undefined && !isRealIsoCalendarDate(frontmatter.date)) {
+    failures.push(
+      `${path}: date ${JSON.stringify(frontmatter.date)} must be a real calendar date in YYYY-MM-DD`,
+    );
   }
   if (Array.isArray(frontmatter.owner)) {
     failures.push(`${path}: owner must be a non-empty scalar`);
@@ -237,9 +262,18 @@ function validateAdrRecordShape(record, failures) {
         failures.push(`${path}: proposed ADR cannot declare ${key}`);
       }
     }
+    const subjectIdPattern = ADR_ID_PATTERN.test(frontmatter.id ?? "")
+      ? new RegExp(
+          "[*_~`]*\\b" +
+            frontmatter.id +
+            "\\b[*_~`]*\\s+(?:amends|supersedes)\\s+(?:all\\s+of\\s+)?ADR-\\d{4}\\b",
+          "i",
+        )
+      : null;
     const claimsActiveRelationship =
       /\bthis\s+ADR\s+(?:amends|supersedes)\s+(?:all\s+of\s+)?ADR-\d{4}\b/i.test(record.body) ||
-      /(?:^|[.!?·]\s+)(?:Amends|Supersedes)\s+(?:all\s+of\s+)?ADR-\d{4}\b/m.test(record.body);
+      /(?:^|[.!?·]\s+)(?:Amends|Supersedes)\s+(?:all\s+of\s+)?ADR-\d{4}\b/m.test(record.body) ||
+      subjectIdPattern?.test(record.body);
     if (claimsActiveRelationship) {
       failures.push(`${path}: proposed ADR prose claims active amendment or supersession`);
     }
@@ -276,8 +310,10 @@ function validateDesignNoteShape(record, failures) {
   if (frontmatter.parent_adr !== undefined && !ADR_ID_PATTERN.test(frontmatter.parent_adr)) {
     failures.push(`${path}: parent_adr ${JSON.stringify(frontmatter.parent_adr)} must match ADR-NNNN`);
   }
-  if (frontmatter.date !== undefined && !ISO_DATE_PATTERN.test(frontmatter.date)) {
-    failures.push(`${path}: date ${JSON.stringify(frontmatter.date)} must use YYYY-MM-DD`);
+  if (frontmatter.date !== undefined && !isRealIsoCalendarDate(frontmatter.date)) {
+    failures.push(
+      `${path}: date ${JSON.stringify(frontmatter.date)} must be a real calendar date in YYYY-MM-DD`,
+    );
   }
 }
 
@@ -320,7 +356,7 @@ function buildRecords(root, paths, failures) {
     return {
       absolutePath,
       path,
-      filename: absolutePath.split("/").at(-1),
+      filename: basename(absolutePath),
       frontmatter: data,
       body,
     };
@@ -385,6 +421,14 @@ function validateRelationshipGraph(adrs, failures) {
     for (const key of ["amends", "supersedes"]) {
       if (relationshipValues(record, key).length > 0 && record.frontmatter.status !== "accepted") {
         failures.push(`${record.path}: only an accepted ADR may declare ${key}`);
+      }
+    }
+    for (const targetId of relationshipValues(record, "amends")) {
+      const target = adrs.get(targetId);
+      if (target && target.frontmatter.status !== "accepted") {
+        failures.push(
+          `${record.path}: amends target ${targetId} must be accepted, found ${target.frontmatter.status}`,
+        );
       }
     }
   }
