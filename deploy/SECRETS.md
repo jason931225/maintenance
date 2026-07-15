@@ -1,12 +1,9 @@
 # Secrets
 
-These never live in git. Create them once in the `maintenance` namespace before
-(or just after) the `maintenance` Argo app first syncs. Argo CD does not manage
-or prune them.
-
-> Upgrade path: for fully-GitOps secrets, adopt [Sealed Secrets] or
-> [External Secrets] so encrypted material can live in the repo. For a 1–2 person team the
-> out-of-band `kubectl create secret` below is the pragmatic, honest baseline.
+Secret values never live in git. Their source and Kubernetes projection path are
+deployment-context specific: use the `oci-guest` instructions only for the live
+OCI guest, and use the `on-prem-ha` OpenBao/External-Secrets contract only after
+that DARK context is activated. Do not combine the two procedures.
 
 ## Deployment-context secret-store contract
 
@@ -28,9 +25,9 @@ Consumed by `mnt-app` / `mnt-worker` via `envFrom`. Required keys:
 |---|---|
 | `MNT_JWT_PRIVATE_KEY_PEM` | ES256 private key (signs access/refresh JWTs) |
 | `MNT_JWT_PUBLIC_KEY_PEM` | ES256 public key (verifies JWTs) |
-| `MNT_S3_ACCESS_KEY_ID` | OCI Customer Secret Key — access key (evidence bucket) |
-| `MNT_S3_SECRET_ACCESS_KEY` | OCI Customer Secret Key — secret |
-| `MNT_MAIL_MASTER_KEY` | Base64-encoded 32-byte webmail credential KEK from OCI Vault |
+| `MNT_S3_ACCESS_KEY_ID` | Context-local S3-compatible access key (OCI Object Storage on `oci-guest`; SeaweedFS on `on-prem-ha`) |
+| `MNT_S3_SECRET_ACCESS_KEY` | Matching context-local S3-compatible secret key |
+| `MNT_MAIL_MASTER_KEY` | Base64-encoded 32-byte webmail credential KEK from the context's authoritative secret store |
 | `MNT_MAIL_MOX_WEBHOOK_SECRET` | Hex/base64url shared secret mox uses as `Authorization: Bearer ...` for the internal delivery webhook |
 
 Optional (enable when the integrations go live — operator-blocked on KCC 신고 /
@@ -38,23 +35,27 @@ Kakao / FCM credentials): `MNT_FCM_*`, `MNT_SOLAPI_*`.
 
 | Key | What |
 |---|---|
-| `MNT_EMAIL_SMTP_USERNAME` | OCI Email Delivery SMTP credential — username (open-signup OTP relay) |
-| `MNT_EMAIL_SMTP_PASSWORD` | OCI Email Delivery SMTP credential — password |
+| `MNT_EMAIL_SMTP_USERNAME` | Context-approved SMTP relay credential — username (open-signup OTP relay) |
+| `MNT_EMAIL_SMTP_PASSWORD` | Context-approved SMTP relay credential — password |
 
 Outbound OTP email relay. The non-secret host/port/sender live on the
 `mnt-config` ConfigMap (`MNT_EMAIL_SMTP_HOST`, `MNT_EMAIL_SMTP_PORT`,
 `MNT_EMAIL_FROM`, `MNT_EMAIL_FROM_NAME`); only these two credentials are secret.
-They come from **OCI Vault → `mnt-secrets`**. Because the production ConfigMap
-sets the relay fields, the `mnt-app` and `mnt-worker` workload manifests require
-both credential keys with explicit `secretKeyRef` entries; missing keys fail the
-rollout instead of silently degrading OTP delivery to stub logs. Local/dev/e2e
-stub-email configurations must omit the whole `MNT_EMAIL_*` relay group. Setting
-any `MNT_EMAIL_*` member requires the full group.
+On `oci-guest`, they come from **OCI Vault → `mnt-secrets`**. On `on-prem-ha`,
+they come from **OpenBao → External Secrets Operator → `mnt-secrets`** and may
+target a context-approved relay rather than OCI Email Delivery. Because the
+production ConfigMap sets the relay fields, the `mnt-app` and `mnt-worker`
+workload manifests require both credential keys with explicit `secretKeyRef`
+entries; missing keys fail the rollout instead of silently degrading OTP
+delivery to stub logs. Local/dev/e2e stub-email configurations must omit the
+whole `MNT_EMAIL_*` relay group. Setting any `MNT_EMAIL_*` member requires the
+full group.
 
 `MNT_MAIL_MASTER_KEY` is the webmail envelope-encryption key (KEK) used to seal
 tenant mail-server credentials. Generate exactly 32 random bytes, base64-encode
-them, store the value in **OCI Vault**, then project it into `mnt-secrets`. Never
-commit, log, paste into tickets, or reuse this key across environments. With
+them, store the value in the context's authoritative secret store, then project
+it into `mnt-secrets`. Never commit, log, paste into tickets, or reuse this key
+across environments. With
 `MNT_MAIL_ENABLED=true` but this key absent, the app still boots and mail APIs
 return 503; once it is present, the IMAP sync worker can run when object storage
 is also configured.
@@ -62,25 +63,32 @@ is also configured.
 `MNT_MAIL_MOX_WEBHOOK_SECRET` is a separate mox→app webhook bearer secret. It is
 not the `MNT_MAIL_MASTER_KEY`, not a mox account password, and not an admin
 credential. Generate it as a log-safe single-line random value (for example
-`openssl rand -hex 32`), store it in **OCI Vault**, project it into
-`mnt-secrets`, and rotate it by updating `mnt-secrets` plus restarting
-`statefulset/mnt-mox`, `rollout/mnt-app`, and `deployment/mnt-worker` so both
-sides reload the same credential. The committed mox bootstrap template only
+`openssl rand -hex 32`), store it in the context's authoritative secret store,
+project it into `mnt-secrets`, and rotate it by updating `mnt-secrets` plus
+restarting `statefulset/mnt-mox`, `rollout/mnt-app`, and
+`deployment/mnt-worker` so both sides reload the same credential. The committed
+mox bootstrap template only
 contains a placeholder; the StatefulSet renders the real value on first boot and
 refreshes only the existing `domains.conf` webhook `Authorization: Bearer ...`
 line on later starts, without logging the secret or overwriting other
 PVC-resident mox config.
 
-Dark mox account/bootstrap credentials are also OCI Vault material, but they are
-not committed to Kubernetes manifests:
+Dark mox account/bootstrap credentials belong in the context's authoritative
+secret store and are not committed to Kubernetes manifests:
 
-| Secret name in OCI Vault | What | Used by |
+| Secret name | What | Used by |
 |---|---|---|
 | `mnt-mox-postmaster-password` | Initial `postmaster@knllogistic.com`/mox webapi account password | Operator pipes it to `mox setaccountpassword postmaster` after `mnt-mox` is Ready; tenants can then store mox account credentials through the app's sealed webmail credential flow |
-| `mnt-mox-admin-password` | Reserved break-glass mox admin password | Keep in Vault only; the dark deployment disables the mox admin interface by default. If an operator intentionally enables admin later, expose it only over an internal port-forward/VPN and record the change. |
+| `mnt-mox-admin-password` | Reserved break-glass mox admin password | Keep in the context's authoritative secret store only; the dark deployment disables the mox admin interface by default. If an operator intentionally enables admin later, expose it only over an internal port-forward/VPN and record the change. |
 | `mnt-mox-dkim-private-keys` | Future DKIM selector private keys if public MX/outbound deliverability is approved | Do not mount or generate for the dark lane. Public MX/DKIM is a separate operator/founder gate. |
 
-Set the initial postmaster password without echoing it into history:
+### `oci-guest`: create and rotate `mnt-secrets`
+
+The commands in this subsection are specific to the live OCI guest. Retrieve
+values from OCI Vault without echoing them into history, then create the
+out-of-band Kubernetes Secret that Argo CD intentionally does not manage.
+
+Set the initial postmaster password:
 
 ```sh
 set -euo pipefail
@@ -145,7 +153,23 @@ print(base64.b64encode(os.urandom(32)).decode())
 PY
 ```
 
-## `oci-objectstore-creds` — CNPG backup credentials
+### `on-prem-ha`: project application and mail secrets from OpenBao
+
+Do not run the OCI commands above for `on-prem-ha`. Before activating that
+context, provision OpenBao HA Raft, enable audit logging and tested backup/
+restore, assign named unseal and recovery custodians, and configure External
+Secrets Operator with a context-local `SecretStore` or `ClusterSecretStore`.
+The resulting `ExternalSecret` must project all required `mnt-secrets` keys.
+`MNT_S3_ACCESS_KEY_ID` and `MNT_S3_SECRET_ACCESS_KEY` must be credentials for the
+on-prem SeaweedFS S3 endpoint; mail, JWT, and relay values must come from
+OpenBao paths scoped to this context. OCI Vault OCIDs and OCI Customer Secret
+Keys are neither inputs nor fallback requirements for this procedure.
+
+Activation remains fail-closed until OpenBao audit/backup recovery and
+External-Secrets refresh/rotation are exercised without exposing values in Git,
+logs, tickets, or shell history.
+
+## `oci-guest`: `oci-objectstore-creds` CNPG backup credentials
 
 Consumed by the Barman `ObjectStore` for DB backups. The keys are an **OCI
 Customer Secret Key** (Identity → your user → Customer Secret Keys), which is an
@@ -177,6 +201,16 @@ kubectl create secret generic oci-objectstore-creds -n maintenance \
 rm -rf "$OBJSTORE_SECRET_TMP"
 trap - EXIT
 ```
+
+## `on-prem-ha`: CNPG backup credentials
+
+The on-prem overlay must define a context-local Kubernetes Secret for the CNPG
+Barman `ObjectStore`, projected from OpenBao by External Secrets Operator. Its
+access key and secret key must address the independent SeaweedFS S3 backup
+target selected by the overlay. It must not reuse the live `oci-guest`
+`oci-objectstore-creds` value or depend on OCI Vault. The overlay activation
+gate must prove backup, restore, credential rotation, and failure-domain
+independence before production data is admitted.
 
 ## Database connections — owner vs. runtime split
 

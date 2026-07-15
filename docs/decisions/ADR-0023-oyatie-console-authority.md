@@ -9,7 +9,7 @@ amended_by: [ADR-0025]
 related: [ADR-0009, ADR-0018, ADR-0021, ADR-0025]
 ---
 
-# ADR-0023: Oyatie console authority — strangler rebuild with two-shell coexistence
+# ADR-0023: Oyatie console authority — accepted foundation; two-shell surface strategy superseded by ADR-0025
 
 ## Status
 
@@ -58,15 +58,18 @@ record.
 Adopt the Oyatie Console design as the UI/UX authority for the authenticated console. The canonical
 authenticated landing route is `/overview`; it supersedes the former `/work-hub` route while retaining
 **Work Hub** as the behavioral contract for the role-aware action inbox. `mywork` is the personal queue
-within that model, not a competing landing surface. Rebuild the
-shell and views to the Oyatie grammar (ontology-first objects, window/pin workspace, Cedar-gated
-rendering, audit-everywhere) via a **strangler rebuild inside `web/` with two-shell coexistence**:
-new tokens and shared chrome land first and re-skin the whole console at once; a new `ConsoleShell`
-hosts migrated, mounted-persistent screens while the legacy `AppShell` keeps its Outlet routes until
-each screen migrates; net-new domains (notifications, inbox, todos, benefits, recruit, review,
-docs-archive) are built as full-stack vertical slices. No stubs or placeholders — every shipped
-screen is fully wired to real backend APIs with tests; when the backend can't realize the design
-intent, the slice builds the backend.
+within that model, not a competing landing surface. Rebuild the shell and views to the Oyatie grammar
+(ontology-first objects, window/pin workspace, Cedar-gated rendering, audit-everywhere) through the
+ADR-0025 isolated visual application at `web/src/console/**` and `/console/*`, sharing one nonvisual
+platform spine rather than chrome or shell ownership. Net-new domains (notifications, inbox, todos,
+benefits, recruit, review, docs-archive) are built as full-stack vertical slices. No stubs or
+placeholders — every shipped screen is fully wired to real backend APIs with tests; when the backend
+can't realize the design intent, the slice builds the backend.
+
+> **Historical 2026-07-04 composition — superseded by ADR-0025; not current
+> authority:** the original decision used a strangler rebuild inside `web/` with
+> two-shell coexistence, shared chrome, and a `ConsoleShell` beside the legacy
+> `AppShell`. ADR-0025 replaced that composition and its rollout model.
 
 Approvals standardize on the M2 workflow engine, but only after an explicit **Engine-Gen**
 milestone generalizes it: runtime/instance REST (start-run, list-waiting-tasks, list-my-runs, claim,
@@ -99,10 +102,11 @@ bespoke-thin-approvals alternative on the table.
 60 wired screens and tests, takes the console dark for months, and violates the
 increments-of-a-complete-system rule. Rejected.
 
-**B. Strangler inside `web/` with two-shell coexistence.** Always shippable, reuses everything,
-enforces fidelity centrally (shared chrome primitives), and the window engine ships only where used.
-Costs a transient two-shell period with chrome primitives shared across both shells. **Chosen**
-(Architect synthesis).
+**B. Historical strangler inside `web/` with two-shell coexistence — chosen on
+2026-07-04, then superseded by ADR-0025; not current authority.** It was judged
+always shippable and reusable, with centrally shared chrome primitives and a
+transient two-shell period. ADR-0025 replaced those shared visual primitives and
+the two-shell composition with the isolated carbon-copy application.
 
 **C. Token-only refresh** — restyle existing pages, skip the window/ontology grammar. Cheap, but the
 grammar IS the design; skipping it fails the authority mandate. Rejected.
@@ -122,8 +126,10 @@ infeasible.
 
 - Zustand enters the stack, scoped to the window/panel/workspace engine only; data fetching stays on
   the existing `openapi-fetch` wrapper + read cache.
-- `ConsoleShell` and `AppShell` coexist during migration — a two-shell period, not a feature flag;
-  legacy screens keep working unmodified until their milestone migrates them.
+- **Historical consequence, superseded by ADR-0025; not current authority:**
+  `ConsoleShell` and `AppShell` coexist during migration as a two-shell period
+  rather than a feature flag. Current rollout authority is the server-owned,
+  evidence-gated model named above and defined by ADR-0025.
 - New domains (notifications, inbox, todos, benefits, recruit, review, docs-archive) join as crates,
   each with its own migrations, RLS, and audit wiring.
 - The workflow engine gains instance/task REST and a finalization/receipt semantics layer that other
