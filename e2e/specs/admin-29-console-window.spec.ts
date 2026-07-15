@@ -106,7 +106,9 @@ test("ADMIN-29 a pinned window survives reload via the server workspace layout",
     // Prove the debounced save reached the server, discard browser-local state,
     // then hard-reload so restoration can only come from the workspace GET.
     expect((await workspaceSaved).ok()).toBe(true);
-    await page.evaluate(() => window.localStorage.clear());
+    await page.evaluate(() =>
+      window.localStorage.removeItem("oyatie.console.window.layout"),
+    );
     await page.reload();
     await expect(page.locator("[data-window-harness]")).toBeVisible({
       timeout: 10_000,
