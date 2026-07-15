@@ -567,6 +567,7 @@ export function LeaveConsole({ ledger, requests, selfUserId, decide, createReque
   // Editing the form clears a prior submit's success/error so stale feedback
   // never lingers over a fresh draft.
   function patchForm(patch: Partial<RequestForm>): void {
+    if (submitting) return;
     setForm((prev) => ({ ...prev, ...patch }));
     if (submitted) setSubmitted(false);
     if (submitError !== undefined) setSubmitError(undefined);
@@ -578,23 +579,29 @@ export function LeaveConsole({ ledger, requests, selfUserId, decide, createReque
     if (requestValidation.state !== "valid" || submitting) return;
     const reason = form.reason;
     if (reason === "") return;
-    setSubmitting(true);
-    setSubmitError(undefined);
-    setSubmitted(false);
-    const outcome = await createRequest({
+    const payload: LeaveCreateInput = {
       leave_type: isHalfDay(reason) ? "half_day" : "annual",
       start_date: form.startDate,
       end_date: isHalfDay(reason) ? form.startDate : form.endDate,
       // The typed 사유 label — the free-text reason the backend stores/validates.
       reason: S.reasons[reason],
-    });
-    setSubmitting(false);
-    if (!outcome.ok) {
-      setSubmitError(errorMessage(outcome.error, SUB.submitFailed));
-      return;
+    };
+    setSubmitting(true);
+    setSubmitError(undefined);
+    setSubmitted(false);
+    try {
+      const outcome = await createRequest(payload);
+      if (!outcome.ok) {
+        setSubmitError(errorMessage(outcome.error, SUB.submitFailed));
+        return;
+      }
+      setForm(EMPTY_FORM);
+      setSubmitted(true);
+    } catch (error) {
+      setSubmitError(errorMessage(error, SUB.submitFailed));
+    } finally {
+      setSubmitting(false);
     }
-    setForm(EMPTY_FORM);
-    setSubmitted(true);
   }
 
   function promotionCandidate(row: LeaveLedgerRow): LeaveRequestView | undefined {
@@ -765,6 +772,7 @@ export function LeaveConsole({ ledger, requests, selfUserId, decide, createReque
                   {S.self.reasonLabel}
                   <select
                     required
+                    disabled={submitting}
                     value={form.reason}
                     onChange={(event) => {
                       const reason = event.currentTarget.value as LeaveReason | "";
@@ -783,6 +791,7 @@ export function LeaveConsole({ ledger, requests, selfUserId, decide, createReque
                   <KoDateField
                     ariaLabel={S.self.startLabel}
                     required
+                    disabled={submitting}
                     value={form.startDate}
                     onChange={(startDate) => {
                       patchForm({ startDate });
@@ -794,7 +803,7 @@ export function LeaveConsole({ ledger, requests, selfUserId, decide, createReque
                   <KoDateField
                     ariaLabel={S.self.endLabel}
                     required={!isHalfDay(form.reason)}
-                    disabled={isHalfDay(form.reason)}
+                    disabled={submitting || isHalfDay(form.reason)}
                     value={isHalfDay(form.reason) ? form.startDate : form.endDate}
                     onChange={(endDate) => {
                       patchForm({ endDate });

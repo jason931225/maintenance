@@ -305,6 +305,80 @@ describe("LeaveConsole (레인1 leave 카드 존, real-wired)", () => {
     await within(selfRegion).findByText(S.self.submitted);
   });
 
+  it("본인 신청: pending submission freezes the draft and suppresses duplicate submission", async () => {
+    let resolveRequest!: (outcome: LeaveCreateOutcome) => void;
+    const createRequest = vi.fn<(input: LeaveCreateInput) => Promise<LeaveCreateOutcome>>(
+      () => new Promise((resolve) => {
+        resolveRequest = resolve;
+      }),
+    );
+    renderConsole({ createRequest });
+    const selfRegion = screen.getByRole("region", { name: S.self.title });
+    const reason = within(selfRegion).getByLabelText(S.self.reasonLabel);
+    const startDate = within(selfRegion).getByLabelText(S.self.startLabel);
+    const endDate = within(selfRegion).getByLabelText(S.self.endLabel);
+
+    fireEvent.change(reason, { target: { value: "annual" } });
+    fireEvent.change(startDate, { target: { value: "2026-07-06" } });
+    fireEvent.change(endDate, { target: { value: "2026-07-08" } });
+    fireEvent.click(within(selfRegion).getByRole("button", { name: S.self.submit }));
+
+    await waitFor(() => {
+      expect(createRequest).toHaveBeenCalledTimes(1);
+    });
+    expect(reason).toBeDisabled();
+    expect(startDate).toBeDisabled();
+    expect(endDate).toBeDisabled();
+    expect(within(selfRegion).getByRole("button", { name: S.self.submitting })).toBeDisabled();
+
+    fireEvent.change(reason, { target: { value: "half_pm" } });
+    fireEvent.change(startDate, { target: { value: "2026-07-09" } });
+    fireEvent.submit(within(selfRegion).getByRole("form", { name: S.self.formAria }));
+    expect(createRequest).toHaveBeenCalledTimes(1);
+    expect(reason).toHaveValue("annual");
+    expect(startDate).toHaveValue("2026-07-06");
+
+    resolveRequest({ ok: true });
+    await within(selfRegion).findByText(S.self.submitted);
+    expect(createRequest).toHaveBeenCalledWith({
+      leave_type: "annual",
+      start_date: "2026-07-06",
+      end_date: "2026-07-08",
+      reason: S.reasons.annual,
+    });
+  });
+
+  it("본인 신청: a rejected request restores the draft, reports failure, and permits retry", async () => {
+    const createRequest = vi
+      .fn<(input: LeaveCreateInput) => Promise<LeaveCreateOutcome>>()
+      .mockRejectedValueOnce(new Error("network unavailable"))
+      .mockResolvedValueOnce({ ok: true });
+    renderConsole({ createRequest });
+    const selfRegion = screen.getByRole("region", { name: S.self.title });
+    const reason = within(selfRegion).getByLabelText(S.self.reasonLabel);
+    const startDate = within(selfRegion).getByLabelText(S.self.startLabel);
+    const endDate = within(selfRegion).getByLabelText(S.self.endLabel);
+
+    fireEvent.change(reason, { target: { value: "annual" } });
+    fireEvent.change(startDate, { target: { value: "2026-07-06" } });
+    fireEvent.change(endDate, { target: { value: "2026-07-08" } });
+    fireEvent.click(within(selfRegion).getByRole("button", { name: S.self.submit }));
+
+    expect(await within(selfRegion).findByRole("alert")).toHaveTextContent(S.self.submitFailed);
+    expect(reason).toBeEnabled();
+    expect(startDate).toBeEnabled();
+    expect(endDate).toBeEnabled();
+    expect(reason).toHaveValue("annual");
+    expect(startDate).toHaveValue("2026-07-06");
+    expect(endDate).toHaveValue("2026-07-08");
+
+    fireEvent.click(within(selfRegion).getByRole("button", { name: S.self.submit }));
+    await waitFor(() => {
+      expect(createRequest).toHaveBeenCalledTimes(2);
+    });
+    await within(selfRegion).findByText(S.self.submitted);
+  });
+
   it("본인 신청: a 반차 maps to half_day on a single date, and a backend rejection surfaces verbatim", async () => {
     const createRequest = vi.fn<(input: LeaveCreateInput) => Promise<LeaveCreateOutcome>>(() =>
       Promise.resolve({ ok: false, error: { error: { message: "잔여 연차가 부족합니다" } } }),
