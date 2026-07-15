@@ -1,5 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
 
+import {
+  attachVirtualAuthenticator,
+  enrollPasskey,
+  removeVirtualAuthenticator,
+} from "../fixtures/auth";
+
 /**
  * ADMIN-29 — carbon-copy window/pin engine (charter P0.2) persistence.
  *
@@ -47,39 +53,65 @@ async function resetWorkspace(page: Page, accessToken: string) {
   expect(response.ok()).toBe(true);
 }
 
+async function openWindowHarness(page: Page) {
+  const harness = page.locator("[data-window-harness]");
+  const onboarding = page.getByRole("heading", {
+    name: "패스키 등록",
+    level: 1,
+  });
+
+  await page.goto("/console-dev/window");
+  const firstReady = await Promise.any([
+    harness
+      .waitFor({ state: "visible", timeout: 15_000 })
+      .then(() => "harness" as const),
+    onboarding
+      .waitFor({ state: "visible", timeout: 15_000 })
+      .then(() => "onboarding" as const),
+  ]);
+
+  if (firstReady === "onboarding") {
+    await enrollPasskey(page);
+    await page.goto("/console-dev/window");
+  }
+  await expect(harness).toBeVisible({ timeout: 10_000 });
+}
+
 test("ADMIN-29 a pinned window survives reload via the server workspace layout", async ({
   page,
 }) => {
-  const accessToken = await loginWithDevRole(page);
-  await resetWorkspace(page, accessToken);
-  await page.goto("/console-dev/window");
-  await expect(page.locator("[data-window-harness]")).toBeVisible({
-    timeout: 10_000,
-  });
+  const authenticator = await attachVirtualAuthenticator(page);
+  try {
+    const accessToken = await loginWithDevRole(page);
+    await resetWorkspace(page, accessToken);
+    await openWindowHarness(page);
 
-  const issues = page.locator(CARD);
-  // Clean slate: the card starts laid out in the grid.
-  await expect(issues).toHaveAttribute("data-card-state", "grid", {
-    timeout: 8_000,
-  });
-
-  // Pin it via a header double-click inside the 54px drag band.
-  await page.locator(HEADER).dblclick({ position: { x: 40, y: 8 } });
-  await expect(issues).toHaveAttribute("data-card-state", "pin-split");
-
-  // Let the debounced PUT /api/v1/me/workspace flush, then hard-reload.
-  await page.waitForTimeout(1_200);
-  await page.reload();
-  await expect(page.locator("[data-window-harness]")).toBeVisible({
-    timeout: 10_000,
-  });
-
-  // Restored from the server layout — not localStorage.
-  await expect(page.locator(CARD)).toHaveAttribute(
-    "data-card-state",
-    "pin-split",
-    {
+    const issues = page.locator(CARD);
+    // Clean slate: the card starts laid out in the grid.
+    await expect(issues).toHaveAttribute("data-card-state", "grid", {
       timeout: 8_000,
-    },
-  );
+    });
+
+    // Pin it via a header double-click inside the 54px drag band.
+    await page.locator(HEADER).dblclick({ position: { x: 40, y: 8 } });
+    await expect(issues).toHaveAttribute("data-card-state", "pin-split");
+
+    // Let the debounced PUT /api/v1/me/workspace flush, then hard-reload.
+    await page.waitForTimeout(1_200);
+    await page.reload();
+    await expect(page.locator("[data-window-harness]")).toBeVisible({
+      timeout: 10_000,
+    });
+
+    // Restored from the server layout — not localStorage.
+    await expect(page.locator(CARD)).toHaveAttribute(
+      "data-card-state",
+      "pin-split",
+      {
+        timeout: 8_000,
+      },
+    );
+  } finally {
+    await removeVirtualAuthenticator(authenticator);
+  }
 });
