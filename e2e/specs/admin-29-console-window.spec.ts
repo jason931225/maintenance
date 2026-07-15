@@ -92,12 +92,21 @@ test("ADMIN-29 a pinned window survives reload via the server workspace layout",
       timeout: 8_000,
     });
 
+    // Register before the edit so the debounced request cannot win the race.
+    const workspaceSaved = page.waitForResponse(
+      (response) =>
+        response.url().includes("/api/v1/me/workspace") &&
+        response.request().method() === "PUT",
+    );
+
     // Pin it via a header double-click inside the 54px drag band.
     await page.locator(HEADER).dblclick({ position: { x: 40, y: 8 } });
     await expect(issues).toHaveAttribute("data-card-state", "pin-split");
 
-    // Let the debounced PUT /api/v1/me/workspace flush, then hard-reload.
-    await page.waitForTimeout(1_200);
+    // Prove the debounced save reached the server, discard browser-local state,
+    // then hard-reload so restoration can only come from the workspace GET.
+    expect((await workspaceSaved).ok()).toBe(true);
+    await page.evaluate(() => window.localStorage.clear());
     await page.reload();
     await expect(page.locator("[data-window-harness]")).toBeVisible({
       timeout: 10_000,
