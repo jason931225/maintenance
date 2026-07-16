@@ -49,7 +49,8 @@ After adding, moving, or removing a backend Cargo manifest:
 python3 tools/buck/backend_manifest_coverage.py generate
 python3 tools/buck/backend_manifest_coverage.py check
 python3 -m unittest \
-  backend/ci/gates/buck2-coverage/test_backend_manifest_coverage.py
+  backend/ci/gates/buck2-coverage/test_backend_manifest_coverage.py \
+  backend/ci/gates/buck2-coverage/test_backend_manifest_coverage_real_buck.py
 buck2 test //backend/ci/gates/buck2-coverage:backend-manifest-coverage-unit
 python3 tools/buck/backend_manifest_coverage.py labels > /tmp/buck2-owner-labels
 buck2 uquery "set($(cat /tmp/buck2-owner-labels))"

@@ -48,7 +48,7 @@ WINDOWS_RESERVED = {
     *(f"com{number}" for number in range(1, 10)),
     *(f"lpt{number}" for number in range(1, 10)),
 }
-RUST_KIND_PATTERN = "rust_(library|binary|test)"
+RUST_KIND_PATTERN = "^(rust_library|rust_binary|rust_test)$"
 
 
 class CoverageError(RuntimeError):
@@ -261,6 +261,11 @@ def _validate_casefold_uniqueness(paths: list[PurePosixPath]) -> None:
             folded_parent += (component.casefold(),)
 
 
+def _raise_walk_error(error: OSError, purpose: str) -> None:
+    location = error.filename or "<unknown>"
+    raise CoverageError(f"{purpose} cannot traverse {location}: {error}") from error
+
+
 def _discover_manifests(repo: Path) -> tuple[str, ...]:
     backend = repo / "backend"
     try:
@@ -274,7 +279,10 @@ def _discover_manifests(repo: Path) -> tuple[str, ...]:
 
     discovered: list[PurePosixPath] = []
     for directory, directory_names, file_names in os.walk(
-        backend, topdown=True, followlinks=False
+        backend,
+        topdown=True,
+        onerror=lambda error: _raise_walk_error(error, "manifest discovery"),
+        followlinks=False,
     ):
         directory_path = Path(directory)
         for name in tuple(directory_names):
@@ -570,7 +578,10 @@ def _iter_buck_files(repo: Path) -> tuple[Path, ...]:
     paths: list[Path] = []
     backend = repo / "backend"
     for directory, directory_names, file_names in os.walk(
-        backend, topdown=True, followlinks=False
+        backend,
+        topdown=True,
+        onerror=lambda error: _raise_walk_error(error, "BUCK discovery"),
+        followlinks=False,
     ):
         directory_path = Path(directory)
         for name in tuple(directory_names):

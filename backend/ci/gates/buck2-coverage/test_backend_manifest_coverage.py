@@ -344,6 +344,40 @@ class BackendManifestCoverageTest(unittest.TestCase):
                 ]
             )
 
+    @unittest.skipUnless(os.name == "posix", "permission fixture requires POSIX")
+    def test_manifest_discovery_fails_closed_for_unreadable_ancestor(self) -> None:
+        unreadable = self.repo / "backend/crates/unreadable-manifest"
+        unreadable.mkdir(parents=True)
+        (unreadable / "Cargo.toml").write_text(
+            '[package]\nname = "unreadable-manifest"\n',
+            encoding="utf-8",
+        )
+        unreadable.chmod(0)
+        try:
+            with self.assertRaisesRegex(
+                coverage.CoverageError, "manifest discovery cannot traverse"
+            ):
+                coverage.build_plan(self.repo, self.policy_path)
+        finally:
+            unreadable.chmod(0o700)
+
+    @unittest.skipUnless(os.name == "posix", "permission fixture requires POSIX")
+    def test_buck_discovery_fails_closed_for_unreadable_ancestor(self) -> None:
+        unreadable = self.repo / "backend/crates/unreadable-buck"
+        unreadable.mkdir(parents=True)
+        (unreadable / "BUCK").write_text(
+            coverage.GENERATED_HEADER + "\n",
+            encoding="utf-8",
+        )
+        unreadable.chmod(0)
+        try:
+            with self.assertRaisesRegex(
+                coverage.CoverageError, "BUCK discovery cannot traverse"
+            ):
+                coverage._iter_buck_files(self.repo)
+        finally:
+            unreadable.chmod(0o700)
+
     def test_policy_must_be_the_canonical_contained_regular_file(self) -> None:
         with tempfile.TemporaryDirectory() as external_dir:
             external_policy = Path(external_dir) / "policy.json"
