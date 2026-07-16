@@ -1,0 +1,73 @@
+# Project-owned toolchains (the prelude's system_demo_toolchains is meant to be
+# copied + configured for real projects). Rust-focused: we only build Rust under
+# Buck2 today, so we instantiate the toolchains the Rust rules resolve (rust,
+# cxx, genrule, python internal tools, test) and omit the android/java/kotlin/
+# go/… ones the demo ships. Add more here if/when other languages are buckified.
+load("@prelude//tests:test_toolchain.bzl", "noop_test_toolchain")
+load("@prelude//toolchains:cxx.bzl", "system_cxx_toolchain")
+load("@prelude//toolchains:genrule.bzl", "system_genrule_toolchain")
+load("@prelude//toolchains:python.bzl", "remote_python_toolchain", "system_python_wheel_toolchain")
+load("@prelude//toolchains:remote_test_execution.bzl", "remote_test_execution_toolchain")
+load("@prelude//toolchains:rust.bzl", "system_rust_toolchain")
+
+system_rust_toolchain(
+    name = "rust",
+    default_edition = "2024",
+    # buildscript_run derives OPT_LEVEL from a -Copt-level= flag here; cc-rs build
+    # scripts (ring, openssl-sys, curve25519-dalek, …) require OPT_LEVEL. Dev 0.
+    rustc_flags = ["-Copt-level=0"],
+    visibility = ["PUBLIC"],
+)
+
+# Host-specific extra link flags (e.g. the homebrew openssl lib search path that
+# openssl-sys needs but doesn't emit under buck2) come from the gitignored
+# .buckconfig.local [cxx] link_flags, so the committed toolchain stays portable —
+# CI provides its own (or none; Linux finds system openssl on the default path).
+_extra_cxx_link_flags = read_root_config("cxx", "link_flags", "")
+
+system_cxx_toolchain(
+    name = "cxx",
+    # The cc shim execs the compiler via os.execl (no PATH search), so the
+    # compiler must be an absolute path. (CI must point these at its own clang.)
+    compiler = "/usr/bin/clang",
+    cxx_compiler = "/usr/bin/clang++",
+    archiver = "/usr/bin/ar",
+    linker = "/usr/bin/clang",
+    link_flags = _extra_cxx_link_flags.split(" ") if _extra_cxx_link_flags else [],
+    visibility = ["PUBLIC"],
+)
+
+# The bundled prelude's C/C++ toolchain attribute has an analysis-only
+# `config//:none` branch that names this target. `uquery deps(...)` traverses
+# every branch even though normal builds select `:cxx`, so keep the alternate
+# label provider-equivalent and queryable instead of leaving a dangling edge.
+toolchain_alias(
+    name = "cxx_no_default_deps",
+    actual = ":cxx",
+    visibility = ["PUBLIC"],
+)
+
+system_genrule_toolchain(
+    name = "genrule",
+    visibility = ["PUBLIC"],
+)
+
+remote_python_toolchain(
+    name = "python",
+    visibility = ["PUBLIC"],
+)
+
+system_python_wheel_toolchain(
+    name = "python_wheel",
+    visibility = ["PUBLIC"],
+)
+
+remote_test_execution_toolchain(
+    name = "remote_test_execution",
+    visibility = ["PUBLIC"],
+)
+
+noop_test_toolchain(
+    name = "test",
+    visibility = ["PUBLIC"],
+)

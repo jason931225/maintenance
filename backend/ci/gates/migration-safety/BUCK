@@ -1,0 +1,32 @@
+# Buck2 authority for the dependency-free migration-safety gate.
+
+rust_library(
+    name = "mnt-gate-migration-safety-lib",
+    srcs = glob(["src/**/*.rs"], exclude = ["src/main.rs"]),
+    crate = "mnt_gate_migration_safety",
+    edition = "2024",
+    visibility = ["PUBLIC"],
+)
+
+rust_binary(
+    name = "mnt-gate-migration-safety",
+    srcs = ["src/main.rs"],
+    crate = "mnt_gate_migration_safety",
+    edition = "2024",
+    visibility = ["PUBLIC"],
+    deps = [
+        ":mnt-gate-migration-safety-lib",
+    ],
+)
+
+rust_test(
+    name = "mnt-gate-migration-safety-itest-gate_detects_violation",
+    srcs = ["tests/gate_detects_violation.rs"],
+    crate = "gate_detects_violation",
+    edition = "2024",
+    crate_root = "tests/gate_detects_violation.rs",
+    visibility = ["PUBLIC"],
+    deps = [
+        ":mnt-gate-migration-safety-lib",
+    ],
+)
