@@ -1,0 +1,119 @@
+{
+  "schema_version": 1,
+  "buck2": {
+    "release": "2026-06-15",
+    "commit": "1169724e85cc1ef071df842d8ac603905c38e68e",
+    "version": "2026-06-14-1169724e85cc1ef071df842d8ac603905c38e68e",
+    "prelude_commit": "405925e4737177390719d5555794dcce1aab7e30",
+    "prelude_hash_asset_sha256": "74d0e210f124bb01cb66dd4e902294956334c135231f6bb7aded6ff10bf9fc83",
+    "prelude_source": "bundled"
+  },
+  "rust": {
+    "version": "1.96.0",
+    "commit": "ac68faa20c58cbccd01ee7208bf3b6e93a7d7f96",
+    "manifest_url": "https://static.rust-lang.org/dist/channel-rust-1.96.0.toml",
+    "manifest_sha256": "9af50610e1d82699f78a40b985c9277ae1a2c5a0bec86ae430cfe58832038285"
+  },
+  "platforms": {
+    "macos-aarch64": {
+      "target_triple": "aarch64-apple-darwin",
+      "buck2": {
+        "filename": "buck2-aarch64-apple-darwin.zst",
+        "url": "https://github.com/facebook/buck2/releases/download/2026-06-15/buck2-aarch64-apple-darwin.zst",
+        "sha256": "0695199363e3dc6630cd8ef722d7b736f61f7e2c1d83f13184ba8c6a6625b550"
+      },
+      "rust": {
+        "filename": "rust-1.96.0-aarch64-apple-darwin.tar.xz",
+        "url": "https://static.rust-lang.org/dist/2026-05-28/rust-1.96.0-aarch64-apple-darwin.tar.xz",
+        "sha256": "f04a974f3579d3524f6b9bc6490a27c9fb358050e7cd8a641945f30bf24c1dce"
+      },
+      "python": {
+        "filename": "cpython-3.13.6+20250807-aarch64-apple-darwin-install_only_stripped.tar.gz",
+        "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20250807/cpython-3.13.6+20250807-aarch64-apple-darwin-install_only_stripped.tar.gz",
+        "sha256": "c57e48145722a87e34a50a2c31d6b11f0830e62e26d759c11b6606a6a80e6243"
+      },
+      "cxx": {
+        "compiler_type": "clang",
+        "cc_candidates": ["clang"],
+        "cxx_candidates": ["clang++"],
+        "archiver_candidates": ["llvm-ar", "ar"],
+        "linker_candidates": ["clang"]
+      }
+    },
+    "macos-x86_64": {
+      "target_triple": "x86_64-apple-darwin",
+      "buck2": {
+        "filename": "buck2-x86_64-apple-darwin.zst",
+        "url": "https://github.com/facebook/buck2/releases/download/2026-06-15/buck2-x86_64-apple-darwin.zst",
+        "sha256": "59a31f4af93f91c2d8d3586f36891b0355fe3c4e21383838e6ebf98e7c06c6a7"
+      },
+      "rust": {
+        "filename": "rust-1.96.0-x86_64-apple-darwin.tar.xz",
+        "url": "https://static.rust-lang.org/dist/2026-05-28/rust-1.96.0-x86_64-apple-darwin.tar.xz",
+        "sha256": "63a6d717a5e5392ac43f0a1593e7aabe6128c8685d318cb890603b1688cb3339"
+      },
+      "python": {
+        "filename": "cpython-3.13.6+20250807-x86_64-apple-darwin-install_only_stripped.tar.gz",
+        "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20250807/cpython-3.13.6+20250807-x86_64-apple-darwin-install_only_stripped.tar.gz",
+        "sha256": "7caed8ea779dcc5d091955628455823cb0e91587703d8b6f7dd285fb2b44d1e0"
+      },
+      "cxx": {
+        "compiler_type": "clang",
+        "cc_candidates": ["clang"],
+        "cxx_candidates": ["clang++"],
+        "archiver_candidates": ["llvm-ar", "ar"],
+        "linker_candidates": ["clang"]
+      }
+    },
+    "linux-aarch64": {
+      "target_triple": "aarch64-unknown-linux-gnu",
+      "buck2": {
+        "filename": "buck2-aarch64-unknown-linux-gnu.zst",
+        "url": "https://github.com/facebook/buck2/releases/download/2026-06-15/buck2-aarch64-unknown-linux-gnu.zst",
+        "sha256": "7556fcdbe04eb9aa445122a8944a445296ff5363d29c31aa8eac284c48773496"
+      },
+      "rust": {
+        "filename": "rust-1.96.0-aarch64-unknown-linux-gnu.tar.xz",
+        "url": "https://static.rust-lang.org/dist/2026-05-28/rust-1.96.0-aarch64-unknown-linux-gnu.tar.xz",
+        "sha256": "371eadcca97062219cbd8593628eb5d2802bc370515d085fedce1b56b2baed57"
+      },
+      "python": {
+        "filename": "cpython-3.13.6+20250807-aarch64-unknown-linux-gnu-install_only_stripped.tar.gz",
+        "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20250807/cpython-3.13.6+20250807-aarch64-unknown-linux-gnu-install_only_stripped.tar.gz",
+        "sha256": "829d615905b5ae8c50353f2ceb3d6665793442d4cbc64503bc9b27b5b9f6fb8a"
+      },
+      "cxx": {
+        "compiler_type": "clang",
+        "cc_candidates": ["clang", "gcc"],
+        "cxx_candidates": ["clang++", "g++"],
+        "archiver_candidates": ["llvm-ar", "ar"],
+        "linker_candidates": ["clang", "gcc"]
+      }
+    },
+    "linux-x86_64": {
+      "target_triple": "x86_64-unknown-linux-gnu",
+      "buck2": {
+        "filename": "buck2-x86_64-unknown-linux-gnu.zst",
+        "url": "https://github.com/facebook/buck2/releases/download/2026-06-15/buck2-x86_64-unknown-linux-gnu.zst",
+        "sha256": "1304d8e4cee8066df825ecb4e286e4daee61a4adc7d3b187549c662636eef68b"
+      },
+      "rust": {
+        "filename": "rust-1.96.0-x86_64-unknown-linux-gnu.tar.xz",
+        "url": "https://static.rust-lang.org/dist/2026-05-28/rust-1.96.0-x86_64-unknown-linux-gnu.tar.xz",
+        "sha256": "c295047583a56238ea06b43f849f4b877fa12bfd4c7103f8d9a74c94c9c4e108"
+      },
+      "python": {
+        "filename": "cpython-3.13.6+20250807-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz",
+        "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20250807/cpython-3.13.6+20250807-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz",
+        "sha256": "e3e280d4b1ead63de6ebc9816de71792fc8c71b7a6a999ea82f937047beba037"
+      },
+      "cxx": {
+        "compiler_type": "clang",
+        "cc_candidates": ["clang", "gcc"],
+        "cxx_candidates": ["clang++", "g++"],
+        "archiver_candidates": ["llvm-ar", "ar"],
+        "linker_candidates": ["clang", "gcc"]
+      }
+    }
+  }
+}
