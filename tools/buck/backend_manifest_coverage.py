@@ -2,18 +2,24 @@
 """Generate and validate Buck2 ownership metadata for backend Cargo manifests.
 
 Cargo.toml files are discovery inputs only. Queryable Buck2 labels are the
-authority checked by this gate; the generated metadata targets deliberately do
-not claim that their Rust crates build under Buck2.
+authority checked by this gate; generated metadata targets deliberately do not
+claim that their Rust crates build under Buck2.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import os
 import re
+import secrets
+import stat
+import subprocess
 import sys
+import tomllib
+import unicodedata
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 
@@ -24,8 +30,25 @@ DEFAULT_POLICY = Path("backend/ci/gates/buck2-coverage/policy.json")
 DEFAULT_REGISTRY = Path(
     "backend/ci/gates/buck2-coverage/ownership.generated.json"
 )
+SOLE_EXEMPT_MANIFEST = "backend/Cargo.toml"
+SOLE_EXEMPT_REASON_CODE = "workspace-aggregate-manifest"
 REASON_CODE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
-BUCK_LABEL = re.compile(r"^//(?P<package>[^:]+):(?P<target>[^:]+)$")
+PORTABLE_COMPONENT = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+BUCK_TARGET = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+BUCK_LABEL = re.compile(
+    r"^//(?P<package>[A-Za-z0-9][A-Za-z0-9._-]*"
+    r"(?:/[A-Za-z0-9][A-Za-z0-9._-]*)*):"
+    r"(?P<target>[A-Za-z0-9][A-Za-z0-9._-]*)$"
+)
+WINDOWS_RESERVED = {
+    "aux",
+    "con",
+    "nul",
+    "prn",
+    *(f"com{number}" for number in range(1, 10)),
+    *(f"lpt{number}" for number in range(1, 10)),
+}
+RUST_KIND_PATTERN = "rust_(library|binary|test)"
 
 
 class CoverageError(RuntimeError):
@@ -60,18 +83,128 @@ def _reject_duplicate_keys(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     return result
 
 
-def _load_json(path: Path) -> dict[str, Any]:
+def _relative_to_repo(repo: Path, path: Path, purpose: str) -> Path:
+    try:
+        return path.relative_to(repo)
+    except ValueError as error:
+        raise CoverageError(f"{purpose} path escapes the repository: {path}") from error
+
+
+def _assert_safe_path(
+    repo: Path,
+    path: Path,
+    purpose: str,
+    *,
+    leaf_may_be_missing: bool,
+) -> None:
+    relative = _relative_to_repo(repo, path, purpose)
+    current = repo
+    for index, component in enumerate(relative.parts):
+        current /= component
+        is_leaf = index == len(relative.parts) - 1
+        try:
+            metadata = os.lstat(current)
+        except FileNotFoundError:
+            if is_leaf and leaf_may_be_missing:
+                return
+            raise CoverageError(f"{purpose} path is missing: {current}") from None
+        if stat.S_ISLNK(metadata.st_mode):
+            raise CoverageError(f"{purpose} path contains a symlink: {current}")
+        if is_leaf:
+            if not stat.S_ISREG(metadata.st_mode):
+                raise CoverageError(f"{purpose} must be a regular file: {current}")
+        elif not stat.S_ISDIR(metadata.st_mode):
+            raise CoverageError(f"{purpose} parent is not a directory: {current}")
+
+
+def _canonical_control_path(
+    repo: Path,
+    supplied: Path,
+    expected_relative: Path,
+    purpose: str,
+    *,
+    leaf_may_be_missing: bool,
+) -> Path:
+    expected = repo / expected_relative
+    if supplied.is_absolute():
+        candidate = supplied.parent.resolve(strict=True) / supplied.name
+    else:
+        if supplied != expected_relative:
+            raise CoverageError(
+                f"canonical {purpose} path must be {expected_relative.as_posix()}"
+            )
+        candidate = expected
+    if candidate != expected:
+        raise CoverageError(
+            f"canonical {purpose} path must be {expected_relative.as_posix()}"
+        )
+    _assert_safe_path(
+        repo,
+        candidate,
+        purpose,
+        leaf_may_be_missing=leaf_may_be_missing,
+    )
+    return candidate
+
+
+def _open_contained_directory(repo: Path, directory: Path, purpose: str) -> int:
+    relative = _relative_to_repo(repo, directory, purpose)
+    flags = (
+        os.O_RDONLY
+        | getattr(os, "O_CLOEXEC", 0)
+        | getattr(os, "O_DIRECTORY", 0)
+        | getattr(os, "O_NOFOLLOW", 0)
+    )
+    descriptor = os.open(repo, flags)
+    try:
+        for component in relative.parts:
+            next_descriptor = os.open(
+                component,
+                flags,
+                dir_fd=descriptor,
+            )
+            os.close(descriptor)
+            descriptor = next_descriptor
+        return descriptor
+    except BaseException:
+        os.close(descriptor)
+        raise
+
+
+def _open_regular_text(repo: Path, path: Path, purpose: str) -> str:
+    _assert_safe_path(repo, path, purpose, leaf_may_be_missing=False)
+    flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+    directory_descriptor = _open_contained_directory(repo, path.parent, purpose)
+    try:
+        descriptor = os.open(path.name, flags, dir_fd=directory_descriptor)
+    except OSError as error:
+        os.close(directory_descriptor)
+        raise CoverageError(f"cannot safely open {purpose} {path}: {error}") from error
+    try:
+        metadata = os.fstat(descriptor)
+        if not stat.S_ISREG(metadata.st_mode):
+            raise CoverageError(f"{purpose} must be a regular file: {path}")
+        with os.fdopen(descriptor, "r", encoding="utf-8") as handle:
+            descriptor = -1
+            return handle.read()
+    except UnicodeDecodeError as error:
+        raise CoverageError(f"{purpose} is not valid UTF-8: {path}") from error
+    finally:
+        if descriptor >= 0:
+            os.close(descriptor)
+        os.close(directory_descriptor)
+
+
+def _load_json_object(repo: Path, path: Path, purpose: str) -> dict[str, Any]:
     try:
         value = json.loads(
-            path.read_text(encoding="utf-8"),
+            _open_regular_text(repo, path, purpose),
             object_pairs_hook=_reject_duplicate_keys,
         )
-    except FileNotFoundError as error:
-        raise CoverageError(f"missing policy file: {path}") from error
     except json.JSONDecodeError as error:
-        raise CoverageError(f"invalid JSON in {path}: {error}") from error
+        raise CoverageError(f"invalid JSON in {purpose} {path}: {error}") from error
     if not isinstance(value, dict):
-        raise CoverageError(f"{path} must contain a JSON object")
+        raise CoverageError(f"{purpose} {path} must contain a JSON object")
     return value
 
 
@@ -88,16 +221,139 @@ def _require_reason(manifest: str, value: Any) -> str:
     return value.strip()
 
 
+def _validate_portable_component(component: str, purpose: str) -> None:
+    if unicodedata.normalize("NFC", component) != component:
+        raise CoverageError(f"{purpose} component is not NFC: {component!r}")
+    if (
+        not component.isascii()
+        or not PORTABLE_COMPONENT.fullmatch(component)
+        or component in {".", ".."}
+        or component.endswith((".", " "))
+    ):
+        raise CoverageError(f"{purpose} has a nonportable component: {component!r}")
+    if component.split(".", 1)[0].casefold() in WINDOWS_RESERVED:
+        raise CoverageError(
+            f"{purpose} has a Windows-reserved portable component: {component!r}"
+        )
+
+
+def _validate_portable_relative(value: str, purpose: str) -> PurePosixPath:
+    if not value or value.startswith("/") or PurePosixPath(value).as_posix() != value:
+        raise CoverageError(f"{purpose} is not a canonical relative path: {value!r}")
+    path = PurePosixPath(value)
+    for component in path.parts:
+        _validate_portable_component(component, purpose)
+    return path
+
+
+def _validate_casefold_uniqueness(paths: list[PurePosixPath]) -> None:
+    spellings: dict[tuple[tuple[str, ...], str], str] = {}
+    for path in paths:
+        folded_parent: tuple[str, ...] = ()
+        for component in path.parts:
+            key = (folded_parent, component.casefold())
+            previous = spellings.setdefault(key, component)
+            if previous != component:
+                raise CoverageError(
+                    "manifest paths have a casefold collision: "
+                    f"{previous!r} versus {component!r}"
+                )
+            folded_parent += (component.casefold(),)
+
+
 def _discover_manifests(repo: Path) -> tuple[str, ...]:
     backend = repo / "backend"
-    if not backend.is_dir():
-        raise CoverageError(f"backend directory is missing under {repo}")
-    manifests = tuple(
-        sorted(path.relative_to(repo).as_posix() for path in backend.rglob("Cargo.toml"))
-    )
-    if not manifests:
+    try:
+        backend_metadata = os.lstat(backend)
+    except FileNotFoundError as error:
+        raise CoverageError(f"backend directory is missing under {repo}") from error
+    if stat.S_ISLNK(backend_metadata.st_mode) or not stat.S_ISDIR(
+        backend_metadata.st_mode
+    ):
+        raise CoverageError(f"backend must be a real directory under {repo}")
+
+    discovered: list[PurePosixPath] = []
+    for directory, directory_names, file_names in os.walk(
+        backend, topdown=True, followlinks=False
+    ):
+        directory_path = Path(directory)
+        for name in tuple(directory_names):
+            child = directory_path / name
+            metadata = os.lstat(child)
+            if stat.S_ISLNK(metadata.st_mode):
+                raise CoverageError(
+                    "backend manifest discovery rejects a symlink ancestor: "
+                    f"{child.relative_to(repo).as_posix()}"
+                )
+            if not stat.S_ISDIR(metadata.st_mode):
+                raise CoverageError(
+                    f"backend discovery entry is not a directory: {child}"
+                )
+        if "Cargo.toml" not in file_names:
+            continue
+        manifest = directory_path / "Cargo.toml"
+        metadata = os.lstat(manifest)
+        relative = manifest.relative_to(repo)
+        if stat.S_ISLNK(metadata.st_mode):
+            raise CoverageError(
+                f"manifest is a symlink: {relative.as_posix()}"
+            )
+        if not stat.S_ISREG(metadata.st_mode):
+            raise CoverageError(
+                f"manifest must be a regular file: {relative.as_posix()}"
+            )
+        resolved = manifest.resolve(strict=True)
+        _relative_to_repo(repo, resolved, "manifest")
+        try:
+            resolved.relative_to(backend)
+        except ValueError as error:
+            raise CoverageError(
+                f"manifest resolves outside backend containment: {relative.as_posix()}"
+            ) from error
+        portable = _validate_portable_relative(relative.as_posix(), "manifest path")
+        discovered.append(portable)
+
+    if not discovered:
         raise CoverageError("no backend Cargo.toml manifests discovered")
-    return manifests
+    _validate_casefold_uniqueness(discovered)
+    return tuple(sorted(path.as_posix() for path in discovered))
+
+
+def _parse_buck_label(label: Any, purpose: str) -> tuple[str, str]:
+    match = BUCK_LABEL.fullmatch(label) if isinstance(label, str) else None
+    if match is None:
+        raise CoverageError(f"{purpose} must be a canonical portable // label")
+    package = match.group("package")
+    target = match.group("target")
+    _validate_portable_relative(package, f"{purpose} package")
+    _validate_portable_component(target, f"{purpose} target")
+    if not BUCK_TARGET.fullmatch(target):
+        raise CoverageError(f"{purpose} has an invalid Buck target")
+    return package, target
+
+
+def _validate_policy_manifest_key(manifest: Any, purpose: str) -> str:
+    if not isinstance(manifest, str):
+        raise CoverageError(f"{purpose} manifest key must be a string")
+    path = _validate_portable_relative(manifest, purpose)
+    if path.name != "Cargo.toml" or not manifest.startswith("backend/"):
+        raise CoverageError(f"{purpose} is not a backend Cargo manifest: {manifest}")
+    return manifest
+
+
+def _validate_virtual_workspace(repo: Path) -> None:
+    manifest = repo / SOLE_EXEMPT_MANIFEST
+    try:
+        document = tomllib.loads(
+            _open_regular_text(repo, manifest, "virtual workspace manifest")
+        )
+    except tomllib.TOMLDecodeError as error:
+        raise CoverageError(f"virtual workspace manifest is invalid TOML: {error}") from error
+    if not isinstance(document.get("workspace"), dict) or "package" in document:
+        raise CoverageError(
+            f"{SOLE_EXEMPT_MANIFEST} exemption requires a virtual workspace "
+            "with [workspace] and no top-level [package]"
+        )
 
 
 def _render_generated_buck(target_name: str) -> str:
@@ -131,9 +387,15 @@ def _render_registry(entries: tuple[dict[str, str], ...]) -> str:
 
 
 def build_plan(repo: Path, policy_path: Path) -> Plan:
-    repo = repo.resolve()
-    policy_path = policy_path if policy_path.is_absolute() else repo / policy_path
-    policy = _load_json(policy_path)
+    repo = repo.resolve(strict=True)
+    policy_path = _canonical_control_path(
+        repo,
+        policy_path,
+        DEFAULT_POLICY,
+        "policy",
+        leaf_may_be_missing=False,
+    )
+    policy = _load_json_object(repo, policy_path, "policy")
     if policy.get("schema_version") != 1:
         raise CoverageError("policy schema_version must be 1")
 
@@ -144,9 +406,29 @@ def build_plan(repo: Path, policy_path: Path) -> Plan:
         raise CoverageError(
             "generated_target_name must be a lowercase hyphenated Buck target name"
         )
+    _validate_portable_component(generated_target, "generated target")
 
     exemptions = _require_mapping(policy, "exemptions")
     declared_targets = _require_mapping(policy, "declared_targets")
+    for manifest in exemptions:
+        _validate_policy_manifest_key(manifest, "exemption")
+    for manifest in declared_targets:
+        _validate_policy_manifest_key(manifest, "declared target")
+    if set(exemptions) != {SOLE_EXEMPT_MANIFEST}:
+        raise CoverageError(
+            "the only permitted exemption is the virtual backend/Cargo.toml workspace"
+        )
+    exemption = exemptions[SOLE_EXEMPT_MANIFEST]
+    if not isinstance(exemption, dict):
+        raise CoverageError(f"exemption for {SOLE_EXEMPT_MANIFEST} must be an object")
+    if exemption.get("reason_code") != SOLE_EXEMPT_REASON_CODE:
+        raise CoverageError(
+            f"{SOLE_EXEMPT_MANIFEST} exemption reason_code must be "
+            f"{SOLE_EXEMPT_REASON_CODE!r}"
+        )
+    _require_reason(SOLE_EXEMPT_MANIFEST, exemption.get("reason"))
+    _validate_virtual_workspace(repo)
+
     overlap = sorted(set(exemptions) & set(declared_targets))
     if overlap:
         raise CoverageError(
@@ -164,25 +446,16 @@ def build_plan(repo: Path, policy_path: Path) -> Plan:
 
     entries: list[dict[str, str]] = []
     generated_buck: dict[Path, str] = {}
+    labels: set[str] = set()
     for manifest in manifests:
-        package = Path(manifest).parent.as_posix()
-        if manifest in exemptions:
-            exemption = exemptions[manifest]
-            if not isinstance(exemption, dict):
-                raise CoverageError(f"exemption for {manifest} must be an object")
-            reason_code = exemption.get("reason_code")
-            if not isinstance(reason_code, str) or not REASON_CODE.fullmatch(
-                reason_code
-            ):
-                raise CoverageError(
-                    f"{manifest} exemption reason_code must be lowercase and hyphenated"
-                )
+        package = PurePosixPath(manifest).parent.as_posix()
+        if manifest == SOLE_EXEMPT_MANIFEST:
             entries.append(
                 {
                     "disposition": "exempt",
                     "manifest": manifest,
                     "reason": _require_reason(manifest, exemption.get("reason")),
-                    "reason_code": reason_code,
+                    "reason_code": SOLE_EXEMPT_REASON_CODE,
                 }
             )
             continue
@@ -192,15 +465,17 @@ def build_plan(repo: Path, policy_path: Path) -> Plan:
             if not isinstance(declaration, dict):
                 raise CoverageError(f"declared target for {manifest} must be an object")
             label = declaration.get("label")
-            match = BUCK_LABEL.fullmatch(label) if isinstance(label, str) else None
-            if match is None:
-                raise CoverageError(
-                    f"{manifest} declared target must be a canonical // label"
-                )
-            if match.group("package") != package:
+            declared_package, _target = _parse_buck_label(
+                label, f"{manifest} declared target"
+            )
+            assert isinstance(label, str)
+            if declared_package != package:
                 raise CoverageError(
                     f"{label} must be owned by package //{package} for {manifest}"
                 )
+            if label in labels:
+                raise CoverageError(f"duplicate Buck ownership label: {label}")
+            labels.add(label)
             entries.append(
                 {
                     "disposition": "declared",
@@ -212,6 +487,10 @@ def build_plan(repo: Path, policy_path: Path) -> Plan:
             continue
 
         label = f"//{package}:{generated_target}"
+        _parse_buck_label(label, f"{manifest} generated target")
+        if label in labels:
+            raise CoverageError(f"duplicate Buck ownership label: {label}")
+        labels.add(label)
         entries.append(
             {
                 "disposition": "generated",
@@ -231,33 +510,108 @@ def build_plan(repo: Path, policy_path: Path) -> Plan:
     )
 
 
-def _is_generated_buck(path: Path) -> bool:
+def _buck2_rust_targets(repo: Path, label: str) -> tuple[str, ...]:
+    _parse_buck_label(label, "semantic Buck2 query label")
+    expression = f'kind("{RUST_KIND_PATTERN}", {label})'
     try:
-        return path.read_text(encoding="utf-8").startswith(GENERATED_HEADER + "\n")
-    except (FileNotFoundError, UnicodeDecodeError):
-        return False
+        result = subprocess.run(
+            ["buck2", "uquery", "--json", expression],
+            cwd=repo,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise CoverageError(
+            f"Buck2 semantic query could not run for {label}: {error}"
+        ) from error
+    if result.returncode != 0:
+        detail = next(
+            (line.strip() for line in reversed(result.stderr.splitlines()) if line.strip()),
+            f"exit {result.returncode}",
+        )
+        raise CoverageError(f"Buck2 semantic query failed for {label}: {detail}")
+    try:
+        nodes = json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        raise CoverageError(
+            f"Buck2 semantic query returned invalid JSON for {label}"
+        ) from error
+    if not isinstance(nodes, list) or not all(isinstance(node, str) for node in nodes):
+        raise CoverageError(
+            f"Buck2 semantic query returned an invalid node set for {label}"
+        )
+    normalized: list[str] = []
+    for node in nodes:
+        marker = node.find("//")
+        if marker < 0:
+            raise CoverageError(
+                f"Buck2 semantic query returned a noncanonical node for {label}: {node}"
+            )
+        normalized.append(node[marker:])
+    return tuple(normalized)
 
 
-def _target_is_declared(buck_path: Path, target: str) -> bool:
-    try:
-        content = buck_path.read_text(encoding="utf-8")
-    except FileNotFoundError:
-        return False
-    return re.search(rf'\bname\s*=\s*"{re.escape(target)}"\s*,', content) is not None
+def _prove_declared_rust_targets(repo: Path, entries: tuple[dict[str, str], ...]) -> None:
+    for entry in entries:
+        if entry["disposition"] != "declared":
+            continue
+        label = entry["label"]
+        nodes = _buck2_rust_targets(repo, label)
+        if nodes != (label,):
+            rendered = ", ".join(nodes) if nodes else "no matching node"
+            raise CoverageError(
+                f"{label} must resolve to exactly one Rust target; got {rendered}"
+            )
+
+
+def _iter_buck_files(repo: Path) -> tuple[Path, ...]:
+    paths: list[Path] = []
+    backend = repo / "backend"
+    for directory, directory_names, file_names in os.walk(
+        backend, topdown=True, followlinks=False
+    ):
+        directory_path = Path(directory)
+        for name in tuple(directory_names):
+            child = directory_path / name
+            if stat.S_ISLNK(os.lstat(child).st_mode):
+                raise CoverageError(
+                    f"backend BUCK discovery rejects a symlink ancestor: {child}"
+                )
+        if "BUCK" in file_names:
+            paths.append(directory_path / "BUCK")
+    return tuple(sorted(paths))
+
+
+def _is_generated_looking(content: str) -> bool:
+    return content.startswith(GENERATED_HEADER + "\n")
 
 
 def check(repo: Path, policy_path: Path, registry_path: Path) -> list[str]:
-    repo = repo.resolve()
-    registry_path = registry_path if registry_path.is_absolute() else repo / registry_path
+    repo = repo.resolve(strict=True)
+    registry_path = _canonical_control_path(
+        repo,
+        registry_path,
+        DEFAULT_REGISTRY,
+        "registry",
+        leaf_may_be_missing=True,
+    )
     plan = build_plan(repo, policy_path)
+    _prove_declared_rust_targets(repo, plan.entries)
     issues: list[str] = []
 
     for relative_path, expected in sorted(plan.generated_buck.items()):
         path = repo / relative_path
-        if not path.exists():
-            issues.append(f"{relative_path.as_posix()} is missing")
-        elif path.read_text(encoding="utf-8") != expected:
-            if _is_generated_buck(path):
+        try:
+            actual = _open_regular_text(repo, path, "generated BUCK")
+        except CoverageError as error:
+            if not path.exists() and not path.is_symlink():
+                issues.append(f"{relative_path.as_posix()} is missing")
+                continue
+            raise error
+        if actual != expected:
+            if _is_generated_looking(actual):
                 issues.append(f"{relative_path.as_posix()} generated content drift")
             else:
                 issues.append(
@@ -266,61 +620,277 @@ def check(repo: Path, policy_path: Path, registry_path: Path) -> list[str]:
                 )
 
     expected_generated = set(plan.generated_buck)
-    for path in sorted((repo / "backend").rglob("BUCK")):
+    for path in _iter_buck_files(repo):
         relative_path = path.relative_to(repo)
-        if _is_generated_buck(path) and relative_path not in expected_generated:
+        if relative_path in expected_generated:
+            continue
+        content = _open_regular_text(repo, path, "stale BUCK candidate")
+        if _is_generated_looking(content):
             issues.append(f"{relative_path.as_posix()} is stale generated metadata")
 
-    for entry in plan.entries:
-        if entry["disposition"] != "declared":
-            continue
-        match = BUCK_LABEL.fullmatch(entry["label"])
-        assert match is not None
-        buck_path = repo / match.group("package") / "BUCK"
-        if not _target_is_declared(buck_path, match.group("target")):
-            issues.append(
-                f"{entry['label']} is not declared in "
-                f"{buck_path.relative_to(repo).as_posix()}"
-            )
-
-    try:
-        actual_registry = registry_path.read_text(encoding="utf-8")
-    except FileNotFoundError:
+    if registry_path.exists():
+        actual_registry = _open_regular_text(repo, registry_path, "registry")
+    else:
         actual_registry = ""
     if actual_registry != plan.registry:
         issues.append(f"{registry_path.name} drift")
     return issues
 
 
-def _write_atomic(path: Path, content: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_name(path.name + ".tmp")
-    temporary.write_text(content, encoding="utf-8")
-    temporary.replace(path)
+def _prior_generated_contents(repo: Path, registry_path: Path) -> dict[Path, str]:
+    registry = _load_json_object(repo, registry_path, "prior registry")
+    if registry.get("schema_version") != 1:
+        raise CoverageError("prior registry schema_version must be 1")
+    if registry.get("artifact_kind") != "BACKEND_CARGO_MANIFEST_BUCK2_OWNERSHIP":
+        raise CoverageError("prior registry artifact_kind is invalid")
+    if registry.get("generated_by") != "tools/buck/backend_manifest_coverage.py":
+        raise CoverageError("prior registry generated_by is invalid")
+    entries = registry.get("entries")
+    if not isinstance(entries, list) or not all(isinstance(item, dict) for item in entries):
+        raise CoverageError("prior registry entries must be an array of objects")
+    if registry.get("manifest_count") != len(entries):
+        raise CoverageError("prior registry manifest_count does not match entries")
+    exemptions = sum(entry.get("disposition") == "exempt" for entry in entries)
+    if registry.get("exemption_count") != exemptions:
+        raise CoverageError("prior registry exemption_count does not match entries")
+    if registry.get("queryable_owner_count") != len(entries) - exemptions:
+        raise CoverageError("prior registry owner count does not match entries")
+
+    generated: dict[Path, str] = {}
+    seen_manifests: set[str] = set()
+    seen_labels: set[str] = set()
+    for entry in entries:
+        manifest = entry.get("manifest")
+        manifest = _validate_policy_manifest_key(manifest, "prior registry entry")
+        if manifest in seen_manifests:
+            raise CoverageError(f"prior registry duplicates manifest {manifest}")
+        seen_manifests.add(manifest)
+        disposition = entry.get("disposition")
+        if disposition == "exempt":
+            continue
+        label = entry.get("label")
+        package, target = _parse_buck_label(label, "prior registry label")
+        assert isinstance(label, str)
+        if label in seen_labels:
+            raise CoverageError(f"prior registry duplicates label {label}")
+        seen_labels.add(label)
+        if package != PurePosixPath(manifest).parent.as_posix():
+            raise CoverageError(
+                f"prior registry label {label} does not own {manifest}"
+            )
+        if disposition == "generated":
+            generated[Path(package) / "BUCK"] = _render_generated_buck(target)
+        elif disposition != "declared":
+            raise CoverageError(
+                f"prior registry has invalid disposition for {manifest}"
+            )
+    return generated
+
+
+def _validate_output_path(repo: Path, path: Path, purpose: str) -> None:
+    _assert_safe_path(repo, path, purpose, leaf_may_be_missing=True)
+    parent = path.parent
+    _assert_safe_path(repo, parent / ".path-probe", purpose, leaf_may_be_missing=True)
+    parent_metadata = os.lstat(parent)
+    if stat.S_ISLNK(parent_metadata.st_mode) or not stat.S_ISDIR(parent_metadata.st_mode):
+        raise CoverageError(f"{purpose} parent must be a real directory: {parent}")
+
+
+def _open_parent_directory(repo: Path, path: Path, purpose: str) -> int:
+    return _open_contained_directory(repo, path.parent, purpose)
+
+
+def _write_atomic(path: Path, content: str, *, repo: Path, purpose: str) -> None:
+    repo = repo.resolve(strict=True)
+    path = path.parent.resolve(strict=True) / path.name
+    _validate_output_path(repo, path, purpose)
+    directory_descriptor = _open_parent_directory(repo, path, purpose)
+    temporary_name: str | None = None
+    temporary_descriptor = -1
+    try:
+        create_flags = (
+            os.O_WRONLY
+            | os.O_CREAT
+            | os.O_EXCL
+            | getattr(os, "O_CLOEXEC", 0)
+            | getattr(os, "O_NOFOLLOW", 0)
+        )
+        for _attempt in range(64):
+            candidate = f".{path.name}.{secrets.token_hex(16)}.tmp"
+            try:
+                temporary_descriptor = os.open(
+                    candidate,
+                    create_flags,
+                    0o600,
+                    dir_fd=directory_descriptor,
+                )
+                temporary_name = candidate
+                break
+            except FileExistsError:
+                continue
+        if temporary_name is None:
+            raise CoverageError(f"could not allocate a safe temporary for {purpose}")
+
+        payload = content.encode("utf-8")
+        written = 0
+        while written < len(payload):
+            amount = os.write(temporary_descriptor, payload[written:])
+            if amount <= 0:
+                raise OSError(f"short write while writing {purpose}")
+            written += amount
+        os.fsync(temporary_descriptor)
+        if hasattr(os, "fchmod"):
+            os.fchmod(temporary_descriptor, 0o644)
+        os.close(temporary_descriptor)
+        temporary_descriptor = -1
+
+        try:
+            target_metadata = os.stat(
+                path.name,
+                dir_fd=directory_descriptor,
+                follow_symlinks=False,
+            )
+        except FileNotFoundError:
+            target_metadata = None
+        if target_metadata is not None and not stat.S_ISREG(target_metadata.st_mode):
+            raise CoverageError(f"{purpose} target is not a regular file: {path}")
+        os.replace(
+            temporary_name,
+            path.name,
+            src_dir_fd=directory_descriptor,
+            dst_dir_fd=directory_descriptor,
+        )
+        temporary_name = None
+        os.fsync(directory_descriptor)
+    finally:
+        if temporary_descriptor >= 0:
+            os.close(temporary_descriptor)
+        if temporary_name is not None:
+            try:
+                os.unlink(temporary_name, dir_fd=directory_descriptor)
+            except FileNotFoundError:
+                pass
+        os.close(directory_descriptor)
+
+
+def _unlink_exact_generated(
+    repo: Path, path: Path, expected: str, purpose: str
+) -> None:
+    _validate_output_path(repo, path, purpose)
+    directory_descriptor = _open_parent_directory(repo, path, purpose)
+    file_descriptor = -1
+    try:
+        flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+        file_descriptor = os.open(path.name, flags, dir_fd=directory_descriptor)
+        opened_metadata = os.fstat(file_descriptor)
+        if not stat.S_ISREG(opened_metadata.st_mode):
+            raise CoverageError(f"{purpose} is not a regular file: {path}")
+        chunks: list[bytes] = []
+        while True:
+            chunk = os.read(file_descriptor, 65536)
+            if not chunk:
+                break
+            chunks.append(chunk)
+        try:
+            actual = b"".join(chunks).decode("utf-8")
+        except UnicodeDecodeError as error:
+            raise CoverageError(f"{purpose} is not valid UTF-8: {path}") from error
+        if actual != expected:
+            raise CoverageError(f"refusing to prune changed {purpose}: {path}")
+        current_metadata = os.stat(
+            path.name,
+            dir_fd=directory_descriptor,
+            follow_symlinks=False,
+        )
+        if not os.path.samestat(opened_metadata, current_metadata):
+            raise CoverageError(f"refusing to prune raced {purpose}: {path}")
+        os.unlink(path.name, dir_fd=directory_descriptor)
+        os.fsync(directory_descriptor)
+    finally:
+        if file_descriptor >= 0:
+            os.close(file_descriptor)
+        os.close(directory_descriptor)
 
 
 def generate(repo: Path, policy_path: Path, registry_path: Path) -> Plan:
-    repo = repo.resolve()
-    registry_path = registry_path if registry_path.is_absolute() else repo / registry_path
+    repo = repo.resolve(strict=True)
+    registry_path = _canonical_control_path(
+        repo,
+        registry_path,
+        DEFAULT_REGISTRY,
+        "registry",
+        leaf_may_be_missing=True,
+    )
     plan = build_plan(repo, policy_path)
+    _prove_declared_rust_targets(repo, plan.entries)
 
+    prior_error: CoverageError | None = None
+    prior_generated: dict[Path, str] = {}
+    if registry_path.exists():
+        try:
+            prior_generated = _prior_generated_contents(repo, registry_path)
+        except CoverageError as error:
+            prior_error = error
+
+    writes: list[tuple[Path, str]] = []
     for relative_path, expected in sorted(plan.generated_buck.items()):
         path = repo / relative_path
-        if path.exists() and path.read_text(encoding="utf-8") != expected:
-            if not _is_generated_buck(path):
-                raise CoverageError(
-                    f"refusing to overwrite unmanaged {relative_path.as_posix()}"
-                )
+        _validate_output_path(repo, path, "generated BUCK")
+        if not path.exists():
+            writes.append((path, expected))
+            continue
+        actual = _open_regular_text(repo, path, "generated BUCK")
+        if actual == expected:
+            continue
+        if prior_generated.get(relative_path) != actual:
+            detail = f"; {prior_error}" if prior_error is not None else ""
+            raise CoverageError(
+                f"refusing to overwrite unmanaged {relative_path.as_posix()} "
+                "or unproven generated content"
+                f"{detail}"
+            )
+        writes.append((path, expected))
 
     expected_generated = set(plan.generated_buck)
-    for path in sorted((repo / "backend").rglob("BUCK")):
+    prunes: list[tuple[Path, str]] = []
+    for path in _iter_buck_files(repo):
         relative_path = path.relative_to(repo)
-        if _is_generated_buck(path) and relative_path not in expected_generated:
-            path.unlink()
+        if relative_path in expected_generated:
+            continue
+        actual = _open_regular_text(repo, path, "stale BUCK candidate")
+        if not _is_generated_looking(actual):
+            continue
+        prior = prior_generated.get(relative_path)
+        if prior is None:
+            detail = f": {prior_error}" if prior_error is not None else ""
+            raise CoverageError(
+                "refusing to prune generated-looking BUCK without an exact prior "
+                f"registry entry: {relative_path.as_posix()}{detail}"
+            )
+        if actual != prior:
+            raise CoverageError(
+                "refusing to prune generated-looking BUCK whose bytes do not match "
+                f"the prior registry: {relative_path.as_posix()}"
+            )
+        prunes.append((path, prior))
 
-    for relative_path, content in sorted(plan.generated_buck.items()):
-        _write_atomic(repo / relative_path, content)
-    _write_atomic(registry_path, plan.registry)
+    for path, content in writes:
+        _write_atomic(path, content, repo=repo, purpose="generated BUCK")
+    for path, prior in prunes:
+        _unlink_exact_generated(repo, path, prior, "stale generated BUCK")
+
+    current_registry = (
+        _open_regular_text(repo, registry_path, "registry")
+        if registry_path.exists()
+        else None
+    )
+    if current_registry != plan.registry:
+        _write_atomic(
+            registry_path,
+            plan.registry,
+            repo=repo,
+            purpose="registry",
+        )
     return plan
 
 
@@ -328,6 +898,14 @@ def _resolve_repo_root(value: str | None) -> Path:
     if value is not None:
         return Path(value).resolve()
     return Path(__file__).resolve().parents[2]
+
+
+def _print_issues(issues: list[str]) -> int:
+    if not issues:
+        return 0
+    for issue in issues:
+        print(f"ERROR: {issue}", file=sys.stderr)
+    return 1
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -351,23 +929,17 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         plan = build_plan(repo, policy)
+        issues = check(repo, policy, registry)
+        issue_exit = _print_issues(issues)
+        if issue_exit:
+            return issue_exit
         if args.command == "check":
-            issues = check(repo, policy, registry)
-            if issues:
-                for issue in issues:
-                    print(f"ERROR: {issue}", file=sys.stderr)
-                return 1
             print(
                 f"coverage clean: {plan.manifest_count} manifests, "
                 f"{plan.owner_count} queryable owners, {plan.exemption_count} exemption"
             )
             return 0
         if args.command == "labels":
-            issues = check(repo, policy, registry)
-            if issues:
-                raise CoverageError(
-                    "coverage drift must be repaired before labels are emitted"
-                )
             for entry in plan.entries:
                 if entry["disposition"] != "exempt":
                     print(entry["label"])
