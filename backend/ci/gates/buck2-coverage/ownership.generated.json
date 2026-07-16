@@ -1,0 +1,718 @@
+{
+  "artifact_kind": "BACKEND_CARGO_MANIFEST_BUCK2_OWNERSHIP",
+  "authority_boundary": "Cargo manifests are discovery inputs; only queryable Buck2 labels establish ownership. Generated metadata labels do not assert Rust build parity.",
+  "entries": [
+    {
+      "disposition": "exempt",
+      "manifest": "backend/Cargo.toml",
+      "reason": "This virtual workspace manifest aggregates members and does not define a Rust build unit of its own.",
+      "reason_code": "workspace-aggregate-manifest"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/app:cargo-manifest-ownership",
+      "manifest": "backend/app/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/ci/gates/audit-coverage:cargo-manifest-ownership",
+      "manifest": "backend/ci/gates/audit-coverage/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/ci/gates/dev-auth-absence:cargo-manifest-ownership",
+      "manifest": "backend/ci/gates/dev-auth-absence/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/ci/gates/iac-tier:cargo-manifest-ownership",
+      "manifest": "backend/ci/gates/iac-tier/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/ci/gates/layer-boundary:cargo-manifest-ownership",
+      "manifest": "backend/ci/gates/layer-boundary/Cargo.toml"
+    },
+    {
+      "disposition": "declared",
+      "label": "//backend/ci/gates/migration-safety:mnt-gate-migration-safety-lib",
+      "manifest": "backend/ci/gates/migration-safety/Cargo.toml",
+      "reason": "This package already has a real dependency-free Buck2 Rust library, binary, and integration-test leaf whose bytes and behavior are preserved."
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/ci/gates/pii-no-logs:cargo-manifest-ownership",
+      "manifest": "backend/ci/gates/pii-no-logs/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/ci/gates/rls-arming:cargo-manifest-ownership",
+      "manifest": "backend/ci/gates/rls-arming/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/ci/gates/tenant-isolation:cargo-manifest-ownership",
+      "manifest": "backend/ci/gates/tenant-isolation/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/ci/gates/vendor-lockin:cargo-manifest-ownership",
+      "manifest": "backend/ci/gates/vendor-lockin/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/analytics-quant/rest:cargo-manifest-ownership",
+      "manifest": "backend/crates/analytics-quant/rest/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/analytics-quant/service:cargo-manifest-ownership",
+      "manifest": "backend/crates/analytics-quant/service/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/benefit/adapter-postgres:cargo-manifest-ownership",
+      "manifest": "backend/crates/benefit/adapter-postgres/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/benefit/application:cargo-manifest-ownership",
+      "manifest": "backend/crates/benefit/application/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/benefit/domain:cargo-manifest-ownership",
+      "manifest": "backend/crates/benefit/domain/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/comms/adapter-imap:cargo-manifest-ownership",
+      "manifest": "backend/crates/comms/adapter-imap/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/comms/adapter-mox:cargo-manifest-ownership",
+      "manifest": "backend/crates/comms/adapter-mox/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/comms/adapter-postgres:cargo-manifest-ownership",
+      "manifest": "backend/crates/comms/adapter-postgres/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/comms/adapter-smtp:cargo-manifest-ownership",
+      "manifest": "backend/crates/comms/adapter-smtp/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/comms/application:cargo-manifest-ownership",
+      "manifest": "backend/crates/comms/application/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/comms/credential-cipher:cargo-manifest-ownership",
+      "manifest": "backend/crates/comms/credential-cipher/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/comms/domain:cargo-manifest-ownership",
+      "manifest": "backend/crates/comms/domain/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/comms/mailbox:cargo-manifest-ownership",
+      "manifest": "backend/crates/comms/mailbox/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/comms/rest:cargo-manifest-ownership",
+      "manifest": "backend/crates/comms/rest/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/compliance/adapter-postgres:cargo-manifest-ownership",
+      "manifest": "backend/crates/compliance/adapter-postgres/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/compliance/application:cargo-manifest-ownership",
+      "manifest": "backend/crates/compliance/application/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/compliance/domain:cargo-manifest-ownership",
+      "manifest": "backend/crates/compliance/domain/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/compliance/integrity:cargo-manifest-ownership",
+      "manifest": "backend/crates/compliance/integrity/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/compliance/rest:cargo-manifest-ownership",
+      "manifest": "backend/crates/compliance/rest/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/dispatch/adapter-postgres:cargo-manifest-ownership",
+      "manifest": "backend/crates/dispatch/adapter-postgres/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/dispatch/application:cargo-manifest-ownership",
+      "manifest": "backend/crates/dispatch/application/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/dispatch/domain:cargo-manifest-ownership",
+      "manifest": "backend/crates/dispatch/domain/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/dispatch/rest:cargo-manifest-ownership",
+      "manifest": "backend/crates/dispatch/rest/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/dispatch/worker:cargo-manifest-ownership",
+      "manifest": "backend/crates/dispatch/worker/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/docs/adapter-postgres:cargo-manifest-ownership",
+      "manifest": "backend/crates/docs/adapter-postgres/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/docs/application:cargo-manifest-ownership",
+      "manifest": "backend/crates/docs/application/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/docs/domain:cargo-manifest-ownership",
+      "manifest": "backend/crates/docs/domain/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/docs/rest:cargo-manifest-ownership",
+      "manifest": "backend/crates/docs/rest/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/erp/domain:cargo-manifest-ownership",
+      "manifest": "backend/crates/erp/domain/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/finance-gl/adapter-postgres:cargo-manifest-ownership",
+      "manifest": "backend/crates/finance-gl/adapter-postgres/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/finance-gl/application:cargo-manifest-ownership",
+      "manifest": "backend/crates/finance-gl/application/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/finance-gl/domain:cargo-manifest-ownership",
+      "manifest": "backend/crates/finance-gl/domain/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/finance-gl/rest:cargo-manifest-ownership",
+      "manifest": "backend/crates/finance-gl/rest/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/financial/adapter-postgres:cargo-manifest-ownership",
+      "manifest": "backend/crates/financial/adapter-postgres/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/financial/application:cargo-manifest-ownership",
+      "manifest": "backend/crates/financial/application/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/financial/domain:cargo-manifest-ownership",
+      "manifest": "backend/crates/financial/domain/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/financial/rest:cargo-manifest-ownership",
+      "manifest": "backend/crates/financial/rest/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/governance/adapter-postgres:cargo-manifest-ownership",
+      "manifest": "backend/crates/governance/adapter-postgres/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/governance/application:cargo-manifest-ownership",
+      "manifest": "backend/crates/governance/application/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/governance/domain:cargo-manifest-ownership",
+      "manifest": "backend/crates/governance/domain/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/governance/rest:cargo-manifest-ownership",
+      "manifest": "backend/crates/governance/rest/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/identity/adapter-postgres:cargo-manifest-ownership",
+      "manifest": "backend/crates/identity/adapter-postgres/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/identity/application:cargo-manifest-ownership",
+      "manifest": "backend/crates/identity/application/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/identity/domain:cargo-manifest-ownership",
+      "manifest": "backend/crates/identity/domain/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/identity/rest:cargo-manifest-ownership",
+      "manifest": "backend/crates/identity/rest/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/inbox/adapter-postgres:cargo-manifest-ownership",
+      "manifest": "backend/crates/inbox/adapter-postgres/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/inbox/application:cargo-manifest-ownership",
+      "manifest": "backend/crates/inbox/application/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/inbox/domain:cargo-manifest-ownership",
+      "manifest": "backend/crates/inbox/domain/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/inbox/rest:cargo-manifest-ownership",
+      "manifest": "backend/crates/inbox/rest/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/inspection/adapter-postgres:cargo-manifest-ownership",
+      "manifest": "backend/crates/inspection/adapter-postgres/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/inspection/application:cargo-manifest-ownership",
+      "manifest": "backend/crates/inspection/application/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/inspection/domain:cargo-manifest-ownership",
+      "manifest": "backend/crates/inspection/domain/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/inspection/rest:cargo-manifest-ownership",
+      "manifest": "backend/crates/inspection/rest/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/inventory/adapter-postgres:cargo-manifest-ownership",
+      "manifest": "backend/crates/inventory/adapter-postgres/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/inventory/application:cargo-manifest-ownership",
+      "manifest": "backend/crates/inventory/application/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/inventory/domain:cargo-manifest-ownership",
+      "manifest": "backend/crates/inventory/domain/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/kernel/core:cargo-manifest-ownership",
+      "manifest": "backend/crates/kernel/core/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/leave/adapter-postgres:cargo-manifest-ownership",
+      "manifest": "backend/crates/leave/adapter-postgres/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/leave/application:cargo-manifest-ownership",
+      "manifest": "backend/crates/leave/application/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/leave/domain:cargo-manifest-ownership",
+      "manifest": "backend/crates/leave/domain/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/leave/rest:cargo-manifest-ownership",
+      "manifest": "backend/crates/leave/rest/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/messenger/adapter-postgres:cargo-manifest-ownership",
+      "manifest": "backend/crates/messenger/adapter-postgres/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/messenger/application:cargo-manifest-ownership",
+      "manifest": "backend/crates/messenger/application/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/messenger/domain:cargo-manifest-ownership",
+      "manifest": "backend/crates/messenger/domain/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/messenger/rest:cargo-manifest-ownership",
+      "manifest": "backend/crates/messenger/rest/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/notices/adapter-postgres:cargo-manifest-ownership",
+      "manifest": "backend/crates/notices/adapter-postgres/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/notices/application:cargo-manifest-ownership",
+      "manifest": "backend/crates/notices/application/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/notices/domain:cargo-manifest-ownership",
+      "manifest": "backend/crates/notices/domain/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/notices/rest:cargo-manifest-ownership",
+      "manifest": "backend/crates/notices/rest/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/notifications/adapter-postgres:cargo-manifest-ownership",
+      "manifest": "backend/crates/notifications/adapter-postgres/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/notifications/application:cargo-manifest-ownership",
+      "manifest": "backend/crates/notifications/application/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/notifications/domain:cargo-manifest-ownership",
+      "manifest": "backend/crates/notifications/domain/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/notifications/rest:cargo-manifest-ownership",
+      "manifest": "backend/crates/notifications/rest/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/ontology/adapter-postgres:cargo-manifest-ownership",
+      "manifest": "backend/crates/ontology/adapter-postgres/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/ontology/application:cargo-manifest-ownership",
+      "manifest": "backend/crates/ontology/application/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/ontology/domain:cargo-manifest-ownership",
+      "manifest": "backend/crates/ontology/domain/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/ontology/rest:cargo-manifest-ownership",
+      "manifest": "backend/crates/ontology/rest/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/payroll/adapter-postgres:cargo-manifest-ownership",
+      "manifest": "backend/crates/payroll/adapter-postgres/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/payroll/domain:cargo-manifest-ownership",
+      "manifest": "backend/crates/payroll/domain/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/payroll/rest:cargo-manifest-ownership",
+      "manifest": "backend/crates/payroll/rest/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/platform/audit-chain:cargo-manifest-ownership",
+      "manifest": "backend/crates/platform/audit-chain/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/platform/auth-rest:cargo-manifest-ownership",
+      "manifest": "backend/crates/platform/auth-rest/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/platform/auth:cargo-manifest-ownership",
+      "manifest": "backend/crates/platform/auth/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/platform/authz-rest:cargo-manifest-ownership",
+      "manifest": "backend/crates/platform/authz-rest/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/platform/authz:cargo-manifest-ownership",
+      "manifest": "backend/crates/platform/authz/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/platform/db:cargo-manifest-ownership",
+      "manifest": "backend/crates/platform/db/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/platform/email:cargo-manifest-ownership",
+      "manifest": "backend/crates/platform/email/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/platform/excel:cargo-manifest-ownership",
+      "manifest": "backend/crates/platform/excel/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/platform/group:cargo-manifest-ownership",
+      "manifest": "backend/crates/platform/group/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/platform/jobs:cargo-manifest-ownership",
+      "manifest": "backend/crates/platform/jobs/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/platform/platform-rest:cargo-manifest-ownership",
+      "manifest": "backend/crates/platform/platform-rest/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/platform/provisioning:cargo-manifest-ownership",
+      "manifest": "backend/crates/platform/provisioning/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/platform/push:cargo-manifest-ownership",
+      "manifest": "backend/crates/platform/push/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/platform/realtime:cargo-manifest-ownership",
+      "manifest": "backend/crates/platform/realtime/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/platform/request-context:cargo-manifest-ownership",
+      "manifest": "backend/crates/platform/request-context/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/platform/storage:cargo-manifest-ownership",
+      "manifest": "backend/crates/platform/storage/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/platform/test-support:cargo-manifest-ownership",
+      "manifest": "backend/crates/platform/test-support/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/policy/adapter-postgres:cargo-manifest-ownership",
+      "manifest": "backend/crates/policy/adapter-postgres/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/policy/application:cargo-manifest-ownership",
+      "manifest": "backend/crates/policy/application/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/policy/domain:cargo-manifest-ownership",
+      "manifest": "backend/crates/policy/domain/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/registry/adapter-postgres:cargo-manifest-ownership",
+      "manifest": "backend/crates/registry/adapter-postgres/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/registry/application:cargo-manifest-ownership",
+      "manifest": "backend/crates/registry/application/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/registry/domain:cargo-manifest-ownership",
+      "manifest": "backend/crates/registry/domain/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/registry/rest:cargo-manifest-ownership",
+      "manifest": "backend/crates/registry/rest/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/reporting/adapter-postgres:cargo-manifest-ownership",
+      "manifest": "backend/crates/reporting/adapter-postgres/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/reporting/application:cargo-manifest-ownership",
+      "manifest": "backend/crates/reporting/application/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/reporting/domain:cargo-manifest-ownership",
+      "manifest": "backend/crates/reporting/domain/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/reporting/rest:cargo-manifest-ownership",
+      "manifest": "backend/crates/reporting/rest/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/sales/adapter-postgres:cargo-manifest-ownership",
+      "manifest": "backend/crates/sales/adapter-postgres/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/sales/application:cargo-manifest-ownership",
+      "manifest": "backend/crates/sales/application/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/sales/domain:cargo-manifest-ownership",
+      "manifest": "backend/crates/sales/domain/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/sales/rest:cargo-manifest-ownership",
+      "manifest": "backend/crates/sales/rest/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/support/adapter-postgres:cargo-manifest-ownership",
+      "manifest": "backend/crates/support/adapter-postgres/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/support/application:cargo-manifest-ownership",
+      "manifest": "backend/crates/support/application/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/support/domain:cargo-manifest-ownership",
+      "manifest": "backend/crates/support/domain/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/support/rest:cargo-manifest-ownership",
+      "manifest": "backend/crates/support/rest/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/todos/adapter-postgres:cargo-manifest-ownership",
+      "manifest": "backend/crates/todos/adapter-postgres/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/todos/application:cargo-manifest-ownership",
+      "manifest": "backend/crates/todos/application/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/todos/domain:cargo-manifest-ownership",
+      "manifest": "backend/crates/todos/domain/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/todos/rest:cargo-manifest-ownership",
+      "manifest": "backend/crates/todos/rest/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/workflow/adapter-postgres:cargo-manifest-ownership",
+      "manifest": "backend/crates/workflow/adapter-postgres/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/workflow/domain:cargo-manifest-ownership",
+      "manifest": "backend/crates/workflow/domain/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/workflow/runtime:cargo-manifest-ownership",
+      "manifest": "backend/crates/workflow/runtime/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/workorder/adapter-postgres:cargo-manifest-ownership",
+      "manifest": "backend/crates/workorder/adapter-postgres/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/workorder/application:cargo-manifest-ownership",
+      "manifest": "backend/crates/workorder/application/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/workorder/domain:cargo-manifest-ownership",
+      "manifest": "backend/crates/workorder/domain/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/crates/workorder/rest:cargo-manifest-ownership",
+      "manifest": "backend/crates/workorder/rest/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/vendor/calamine-0.35.0-quickxml41:cargo-manifest-ownership",
+      "manifest": "backend/vendor/calamine-0.35.0-quickxml41/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/vendor/quick-xml-0.41.0-compat:cargo-manifest-ownership",
+      "manifest": "backend/vendor/quick-xml-0.41.0-compat/Cargo.toml"
+    },
+    {
+      "disposition": "generated",
+      "label": "//backend/vendor/umya-spreadsheet-3.0.0-quickxml41:cargo-manifest-ownership",
+      "manifest": "backend/vendor/umya-spreadsheet-3.0.0-quickxml41/Cargo.toml"
+    }
+  ],
+  "exemption_count": 1,
+  "generated_by": "tools/buck/backend_manifest_coverage.py",
+  "manifest_count": 141,
+  "queryable_owner_count": 140,
+  "schema_version": 1
+}

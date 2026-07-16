@@ -1,0 +1,7 @@
+python_test(
+    name = "backend-manifest-coverage-unit",
+    srcs = ["test_backend_manifest_coverage.py"],
+    deps = [
+        "//tools/buck:backend-manifest-coverage-lib",
+    ],
+)

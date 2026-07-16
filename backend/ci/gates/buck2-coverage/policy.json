@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "generated_target_name": "cargo-manifest-ownership",
+  "exemptions": {
+    "backend/Cargo.toml": {
+      "reason_code": "workspace-aggregate-manifest",
+      "reason": "This virtual workspace manifest aggregates members and does not define a Rust build unit of its own."
+    }
+  },
+  "declared_targets": {
+    "backend/ci/gates/migration-safety/Cargo.toml": {
+      "label": "//backend/ci/gates/migration-safety:mnt-gate-migration-safety-lib",
+      "reason": "This package already has a real dependency-free Buck2 Rust library, binary, and integration-test leaf whose bytes and behavior are preserved."
+    }
+  }
+}
