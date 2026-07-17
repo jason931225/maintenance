@@ -8,6 +8,18 @@ is verified against ``tools/buck/toolchain-lock.json`` before use.
 
 from __future__ import annotations
 
+import sys
+
+# `sys` is built in. Keep this guard before every import resolved through
+# `sys.path` so a direct invocation cannot run ambient modules before rejection.
+_NONISOLATED_ERROR = (
+    "non-isolated execution is prohibited; use tools/buck/bootstrap/buck2w "
+    "or invoke python3 -I"
+)
+if __name__ == "__main__" and not sys.flags.isolated:
+    sys.stderr.write(f"buck2-bootstrap: {_NONISOLATED_ERROR}\n")
+    raise SystemExit(6)
+
 import argparse
 import contextlib
 import dataclasses
@@ -23,7 +35,6 @@ import secrets
 import shutil
 import stat
 import subprocess
-import sys
 import tarfile
 import threading
 import urllib.parse
@@ -1538,6 +1549,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    # Importing this module is supported only for contract tests. Refuse to turn
+    # such a non-isolated import into an operational bootstrap entrypoint.
+    if not sys.flags.isolated:
+        print(f"buck2-bootstrap: {_NONISOLATED_ERROR}", file=sys.stderr)
+        return 6
     args = build_parser().parse_args(argv)
     try:
         lock = load_lock()

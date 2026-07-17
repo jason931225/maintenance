@@ -1,9 +1,10 @@
 # Buck2 toolchain bootstrap
 
 This repository runs Buck2 through `tools/buck/bootstrap/buck2w`. The wrapper
-validates repository-locked inputs before starting Buck2 and never downloads in
-normal `run` or `doctor` operation. It is the fail-closed entry point for the
-currently buckified backend leaf; it is **not** a claim that every backend
+starts Python with isolated mode before `bootstrap.py` can import anything,
+validates repository-locked inputs before starting Buck2, and never downloads
+in normal `run` or `doctor` operation. It is the fail-closed entry point for
+the currently buckified backend leaf; it is **not** a claim that every backend
 manifest is already represented by Buck targets or that all local Buck actions
 are sandboxed.
 
@@ -32,15 +33,18 @@ The lock covers `macos-aarch64`, `macos-x86_64`, `linux-aarch64`, and
 
 ## Populate once, run offline
 
-Prerequisites are Python 3.12 or newer and a trusted system `/bin/sh` (or
-`/usr/bin/sh`). Python 3.14+ decodes Buck2 with the standard-library
-`compression.zstd` implementation. Python 3.12/3.13 requires a non-group/world-
-writable `zstd`/`unzstd` in a fixed absolute system/package-manager location;
-caller `PATH` is never consulted. Network use is available only through an
-explicit population gate:
+Prerequisites are a trusted Python 3.12 or newer exposed as `python3` on an
+operator-controlled `PATH`, plus the trusted system `/bin/sh` (or
+`/usr/bin/sh`). Isolated mode removes ambient Python module-search inputs; it
+does not authenticate the selected Python executable. Python 3.14+ decodes
+Buck2 with the standard-library `compression.zstd` implementation. Python
+3.12/3.13 requires a non-group/world-writable `zstd`/`unzstd` in a fixed
+absolute system/package-manager location; caller `PATH` is never consulted for
+the decoder. Network use is available only through an explicit population
+gate:
 
 ```sh
-python3 tools/buck/bootstrap/bootstrap.py populate --allow-network
+python3 -I tools/buck/bootstrap/bootstrap.py populate --allow-network
 ```
 
 Artifacts are stored under the ignored repository-controlled cache at
@@ -48,7 +52,7 @@ Artifacts are stored under the ignored repository-controlled cache at
 instead of the locked upstream origins, serve the same filenames and run:
 
 ```sh
-python3 tools/buck/bootstrap/bootstrap.py populate \
+python3 -I tools/buck/bootstrap/bootstrap.py populate \
   --allow-network \
   --mirror-base https://artifacts.example.invalid/maintenance/buck2
 ```
@@ -143,7 +147,7 @@ Use a static platform check without requiring cached archives when preparing a
 Linux image:
 
 ```sh
-python3 tools/buck/bootstrap/bootstrap.py doctor \
+python3 -I tools/buck/bootstrap/bootstrap.py doctor \
   --platform linux-x86_64 \
   --skip-cache
 ```
@@ -166,14 +170,19 @@ verify and materialize its locked cache.
 | Buck2 or Rust version/commit differs after authenticated materialization | exit `5` |
 | Download is interrupted or its final URL/digest is rejected | no final publication; staging is removed |
 | Compiler selection is missing, partial, ambiguous, contradictory, or invalid | exit `6` |
+| `bootstrap.py` is executed directly without Python isolated mode | exit `6` before ambient imports; use `buck2w` or `python3 -I` |
+| An imported `bootstrap` module calls `main()` without isolated mode | exit `6`; module import is test-only and never an operational entrypoint |
 | Raw Buck2 bypasses the wrapper | toolchain parsing fails on the first missing `toolchain.*` value |
 
 The fixture contract suite uses no external network. It covers missing-cache,
 per-component tamper, cache and archive symlinks, verified-path replacement,
 derived-output poisoning, redirect and download publication policy, interrupted
 download and Rust-stage cleanup, explicit network gating, Linux Clang and GCC
-fixtures, compiler-override combinations, lock-matrix, Python mirror, and
-host-path regressions:
+fixtures, compiler-override combinations, lock-matrix, Python mirror, host-path
+regressions, and actual `buck2w` invocations proving that malicious
+`PYTHONPATH` `secrets.py` and `compression.zstd` modules cannot execute. A
+non-isolated direct `bootstrap.py` invocation is also required to exit `6`
+before importing ambient modules:
 
 ```sh
 python3 -m unittest tools.buck.bootstrap.tests.test_hermetic_toolchains -v

@@ -25,6 +25,7 @@ REPO_ROOT = Path(__file__).resolve().parents[4]
 LOCK_PATH = REPO_ROOT / "tools" / "buck" / "toolchain-lock.json"
 TOOLCHAINS_BUCK = REPO_ROOT / "toolchains" / "BUCK"
 BOOTSTRAP = REPO_ROOT / "tools" / "buck" / "bootstrap" / "bootstrap.py"
+BUCK_WRAPPER = REPO_ROOT / "tools" / "buck" / "bootstrap" / "buck2w"
 BUCKCONFIG = REPO_ROOT / ".buckconfig"
 
 
@@ -211,6 +212,187 @@ class HermeticToolchainContractTests(unittest.TestCase):
             result["value"] = call()
         except BaseException as error:  # Propagate worker failures through assertions.
             result["error"] = error
+
+    @staticmethod
+    def _entrypoint_test_environment(
+        root: Path, *, path: str, pythonpath: Path, marker: Path
+    ) -> dict[str, str]:
+        python_bin = root / "python-bin"
+        python_bin.mkdir(parents=True, exist_ok=True)
+        (python_bin / "python3").symlink_to(Path(sys.executable).resolve())
+        environment = {
+            key: value
+            for key, value in os.environ.items()
+            if not key.startswith("BUCK2_")
+        }
+        environment.update(
+            {
+                "PATH": os.pathsep.join((str(python_bin), path)),
+                "PYTHONPATH": str(pythonpath),
+                "BUCK2_IMPORT_MARKER": str(marker),
+            }
+        )
+        return environment
+
+    def test_official_entrypoint_ignores_pythonpath_secrets(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir).resolve()
+            fixture_repo = root / "repo"
+            fixture_bootstrap = fixture_repo / "tools" / "buck" / "bootstrap"
+            fixture_bootstrap.mkdir(parents=True)
+            shutil.copy2(BOOTSTRAP, fixture_bootstrap / "bootstrap.py")
+            shutil.copy2(BUCK_WRAPPER, fixture_bootstrap / "buck2w")
+            lock_path = fixture_repo / "tools" / "buck" / "toolchain-lock.json"
+            shutil.copy2(LOCK_PATH, lock_path)
+            attacker = root / "attacker"
+            attacker.mkdir()
+            marker = root / "secrets-imported"
+            (attacker / "secrets.py").write_text(
+                "import os\n"
+                "with open(os.environ['BUCK2_IMPORT_MARKER'], 'w', encoding='utf-8') "
+                "as stream:\n"
+                "    stream.write('caller PYTHONPATH secrets executed')\n",
+                encoding="utf-8",
+            )
+            environment = self._entrypoint_test_environment(
+                root,
+                path=os.pathsep.join(("/usr/bin", "/bin")),
+                pythonpath=attacker,
+                marker=marker,
+            )
+
+            result = subprocess.run(
+                [
+                    str(fixture_bootstrap / "buck2w"),
+                    "query",
+                    "//:python-import-isolation",
+                ],
+                cwd=fixture_repo,
+                text=True,
+                capture_output=True,
+                check=False,
+                env=environment,
+            )
+
+            self.assertEqual(result.returncode, 4, result.stderr)
+            self.assertFalse(
+                marker.exists(),
+                "the official Buck2 entrypoint executed PYTHONPATH secrets.py before "
+                "offline-cache validation",
+            )
+
+    def test_official_entrypoint_ignores_pythonpath_compression_zstd(self) -> None:
+        platform_name = bootstrap.normalize_platform(None)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir).resolve()
+            fixture_repo = root / "repo"
+            fixture_bootstrap = fixture_repo / "tools" / "buck" / "bootstrap"
+            fixture_bootstrap.mkdir(parents=True)
+            lock, cache_dir, fixture_env = self._create_materializable_fixture(
+                fixture_bootstrap, platform_name
+            )
+            self.assertEqual(cache_dir, fixture_bootstrap / "cache")
+            shutil.copy2(BOOTSTRAP, fixture_bootstrap / "bootstrap.py")
+            shutil.copy2(BUCK_WRAPPER, fixture_bootstrap / "buck2w")
+            lock_path = fixture_repo / "tools" / "buck" / "toolchain-lock.json"
+            lock_path.write_text(json.dumps(lock), encoding="utf-8")
+
+            attacker = root / "attacker"
+            compression = attacker / "compression"
+            compression.mkdir(parents=True)
+            (compression / "__init__.py").write_text("", encoding="utf-8")
+            marker = root / "compression-zstd-imported"
+            (compression / "zstd.py").write_text(
+                "import os\n"
+                "with open(os.environ['BUCK2_IMPORT_MARKER'], 'w', encoding='utf-8') "
+                "as stream:\n"
+                "    stream.write('caller PYTHONPATH compression.zstd executed')\n"
+                "raise ModuleNotFoundError('force the bootstrap fallback decoder')\n",
+                encoding="utf-8",
+            )
+            environment = self._entrypoint_test_environment(
+                root,
+                path=fixture_env["PATH"],
+                pythonpath=attacker,
+                marker=marker,
+            )
+
+            result = subprocess.run(
+                [
+                    str(fixture_bootstrap / "buck2w"),
+                    "query",
+                    "//:python-import-isolation",
+                ],
+                cwd=fixture_repo,
+                text=True,
+                capture_output=True,
+                check=False,
+                env=environment,
+            )
+
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse(
+                marker.exists(),
+                "the official Buck2 entrypoint executed PYTHONPATH "
+                "compression.zstd during authenticated materialization",
+            )
+
+    def test_nonisolated_direct_bootstrap_fails_before_pythonpath_imports(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir).resolve()
+            attacker = root / "attacker"
+            attacker.mkdir()
+            marker = root / "direct-secrets-imported"
+            (attacker / "secrets.py").write_text(
+                "import os\n"
+                "with open(os.environ['BUCK2_IMPORT_MARKER'], 'w', encoding='utf-8') "
+                "as stream:\n"
+                "    stream.write('non-isolated direct import executed')\n",
+                encoding="utf-8",
+            )
+            environment = self._entrypoint_test_environment(
+                root,
+                path=os.pathsep.join(("/usr/bin", "/bin")),
+                pythonpath=attacker,
+                marker=marker,
+            )
+
+            result = subprocess.run(
+                [sys.executable, str(BOOTSTRAP), "doctor", "--skip-cache"],
+                cwd=REPO_ROOT,
+                text=True,
+                capture_output=True,
+                check=False,
+                env=environment,
+            )
+
+            self.assertEqual(result.returncode, 6, result.stderr)
+            self.assertIn("isolated", result.stderr.lower())
+            self.assertFalse(
+                marker.exists(),
+                "non-isolated direct bootstrap executed PYTHONPATH code before "
+                "failing closed",
+            )
+
+            imported_main = subprocess.run(
+                [
+                    sys.executable,
+                    "-c",
+                    "from tools.buck.bootstrap import bootstrap; "
+                    "raise SystemExit(bootstrap.main(['doctor', '--skip-cache']))",
+                ],
+                cwd=REPO_ROOT,
+                text=True,
+                capture_output=True,
+                check=False,
+                env={
+                    key: value
+                    for key, value in environment.items()
+                    if key not in {"PYTHONPATH", "BUCK2_IMPORT_MARKER"}
+                },
+            )
+            self.assertEqual(imported_main.returncode, 6, imported_main.stderr)
+            self.assertIn("isolated", imported_main.stderr.lower())
 
     def test_lock_pins_buck2_bundled_prelude_rust_and_python_for_mac_and_linux(self) -> None:
         lock = json.loads(LOCK_PATH.read_text(encoding="utf-8"))
@@ -1727,6 +1909,7 @@ class HermeticToolchainContractTests(unittest.TestCase):
             result = subprocess.run(
                 [
                     sys.executable,
+                    "-I",
                     str(BOOTSTRAP),
                     "populate",
                     "--cache-dir",
@@ -1767,6 +1950,7 @@ class HermeticToolchainContractTests(unittest.TestCase):
             result = subprocess.run(
                 [
                     sys.executable,
+                    "-I",
                     str(BOOTSTRAP),
                     "run",
                     "--cache-dir",
