@@ -48,8 +48,14 @@ python3 tools/buck/bootstrap/bootstrap.py populate \
 ```
 
 The mirror cannot change the accepted bytes: every artifact must match the
-repository SHA-256 before the atomic cache rename. Population without
-`--allow-network` exits `4` without creating cache files.
+repository SHA-256 before publication. Locked upstream downloads accept only
+the HTTPS redirect hosts required by their recorded origins. An explicit
+mirror must remain on the same HTTPS authority through every redirect. The
+bootstrap downloads into a random, exclusively created `0600` file, syncs it,
+and publishes the verified file with a no-replace hard link followed by a
+directory sync. Interrupted or rejected downloads remove their private staging
+file. Population without `--allow-network` exits `4` without creating cache
+files.
 
 After population, all normal commands are offline:
 
@@ -63,10 +69,23 @@ tools/buck/bootstrap/buck2w run \
   //backend/ci/gates/migration-safety:mnt-gate-migration-safety -- --help
 ```
 
-The wrapper verifies all three cached archives before each invocation,
-materializes Buck2 and Rust only from those verified archives, and exposes the
-cached CPython archive through an ephemeral server bound only to
-`127.0.0.1`. Buck2 verifies the Python SHA-256 again while materializing the
+The wrapper rejects unsafe lock basenames and origins, walks every cache-path
+component without following symlinks, and opens all three archives as regular
+files. It hashes the opened file descriptors and keeps them open through the
+entire Buck2 invocation. A pathname replacement after verification therefore
+cannot change the bytes used by the invocation.
+
+Buck2 and Rust are materialized into fresh, randomly named generations for
+every invocation. Pre-existing legacy regular outputs are removed without
+executing them; symlink or non-regular derived outputs fail closed. Buck2 is
+decompressed from its held archive descriptor. Rust is extracted from its held
+archive descriptor into exclusive staging directories, its compiler version
+and commit are checked, and failed staging trees are removed.
+
+The held CPython descriptor is exposed through an ephemeral server bound only
+to `127.0.0.1`. The server implements only `GET` and `HEAD` for one exact route
+and serves bytes with descriptor-based reads; it does not expose a filesystem
+directory. Buck2 verifies the Python SHA-256 again while materializing the
 `http_archive`. No upstream URL is present in the evaluated target graph.
 
 ## Compiler selection
@@ -84,7 +103,11 @@ export BUCK2_LD=/opt/llvm/bin/clang
 export BUCK2_CXX_COMPILER_TYPE=clang
 ```
 
-Partial overrides fail. `BUCK2_CXX_COMPILER_TYPE` must be `clang` or `gcc`.
+Partial overrides fail. Setting `BUCK2_CXX_COMPILER_TYPE` by itself also fails;
+when present it must accompany all four path overrides and be `clang` or `gcc`.
+When all four paths are set and the type is omitted, the bootstrap infers
+`clang` or `gcc` from the executable names.
+
 The C/C++ compiler, linker, archiver, platform SDK, and system libraries remain
 explicit host or image inputs; they are not content-pinned by this lock. Thus
 this lane makes Buck2, the bundled prelude, Rust, and Python cache-only and
@@ -110,16 +133,49 @@ verify and materialize its locked cache.
 | Required archive missing | exit `4`, `offline cache incomplete`; no download |
 | Population lacks explicit network gate | exit `4`; no cache mutation |
 | Cached archive SHA-256 differs | exit `5`; no tool execution |
+| Lock filename, URL, origin, or redirect violates policy | exit `5` or `6`; no publication |
+| Cache ancestor or archive is a symlink or non-directory/non-regular file | exit `5`; no tool execution |
+| Verified archive pathname is replaced | held descriptor remains authoritative |
+| Legacy derived output is a symlink or non-regular file | exit `5`; poisoned output is not executed |
 | Buck2 or Rust version/commit differs after materialization | exit `5` |
+| Download is interrupted or its final URL/digest is rejected | no final publication; staging is removed |
 | Compiler selection is missing, partial, or invalid | exit `6` |
 | Raw Buck2 bypasses the wrapper | toolchain parsing fails on the first missing `toolchain.*` value |
 
-Contract tests cover missing-cache, tamper, explicit network-gate, Linux
-compiler-fixture, lock-matrix, and host-path regressions:
+The fixture contract suite uses no external network. It covers missing-cache,
+per-component tamper, cache and archive symlinks, verified-path replacement,
+derived-output poisoning, redirect and download publication policy, interrupted
+download and Rust-stage cleanup, explicit network gating, Linux Clang and GCC
+fixtures, compiler-override combinations, lock-matrix, Python mirror, and
+host-path regressions:
 
 ```sh
 python3 -m unittest tools.buck.bootstrap.tests.test_hermetic_toolchains -v
 ```
+
+Native cache validation is a separate admission check: run `doctor` without
+`--skip-cache`, then the representative Buck query/build/test/run commands on
+each provisioned host or image. Network population and official-provenance
+refreshes are operator-controlled pin-maintenance checks, not part of the
+offline fixture suite. Full runtime and user-visible readback remain
+post-deployment gates.
+
+## Trust boundary and remaining limits
+
+This control prevents persisted cache poisoning through traversal, symlinks,
+non-regular files, matching-hash archive indirection, pathname replacement,
+predictable partial files, and reused derived binaries. File publication is
+true no-replace publication. Rust directory publication uses a fresh random
+128-bit generation name and a held parent directory descriptor because the
+Python standard library does not expose a portable no-replace directory rename.
+
+The bootstrap does not claim to defend against a concurrently malicious process
+running as the same operating-system user. In particular, such a process could
+race mutation of an extracted shell installer or a just-validated executable.
+Admission must therefore run in a workspace and cache writable only by the
+trusted build identity. Native compiler, linker, SDK, system-library, kernel,
+and container-image provenance remain outside this lock and must be controlled
+by the build-image supply chain.
 
 ## Updating a pin
 
