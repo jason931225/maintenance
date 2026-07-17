@@ -17,6 +17,12 @@
 [external_cells]
   prelude = bundled
 
+# Absolute tool paths and the loopback Python-mirror URL are injected only by
+# tools/buck/bootstrap/buck2w after lock/cache verification.
+[toolchain]
+  authority_lock = tools/buck/toolchain-lock.json
+  bootstrap = tools/buck/bootstrap/buck2w
+
 [parser]
   target_platform_detector_spec = target:root//...->prelude//platforms:default \
     target:prelude//...->prelude//platforms:default \
