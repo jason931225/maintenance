@@ -2,11 +2,12 @@
 # A raw Buck2 invocation fails during parsing instead of silently selecting host
 # tools or reaching an upstream URL.
 load("@prelude//tests:test_toolchain.bzl", "noop_test_toolchain")
+load("@prelude//:prelude.bzl", "native")
 load("@prelude//toolchains:cxx.bzl", "system_cxx_toolchain")
 load("@prelude//toolchains:genrule.bzl", "system_genrule_toolchain")
 load("@prelude//toolchains:python.bzl", "system_python_wheel_toolchain")
 load("@prelude//toolchains:remote_test_execution.bzl", "remote_test_execution_toolchain")
-load(":config.bzl", "required_toolchain_config")
+load(":config.bzl", "authenticated_loopback_artifact_url", "required_toolchain_config")
 load(":python.bzl", "cached_python_toolchain")
 load(":rust.bzl", "pinned_rust_toolchain")
 
@@ -19,8 +20,42 @@ _cxx = required_toolchain_config("cxx", "toolchain.cxx")
 _archiver = required_toolchain_config("archiver", "toolchain.archiver")
 _linker = required_toolchain_config("linker", "toolchain.linker")
 _compiler_type = required_toolchain_config("compiler_type", "toolchain.compiler_type")
+_sdkroot = read_root_config("toolchain", "sdkroot", "")
 _python_archive_url = required_toolchain_config("python_archive_url", "toolchain.python_archive_url")
 _python_archive_sha256 = required_toolchain_config("python_archive_sha256", "toolchain.python_archive_sha256")
+_openssl_ssl_url = authenticated_loopback_artifact_url("openssl_ssl_url", "toolchain.openssl_ssl_url", "libssl.a")
+_openssl_ssl_sha256 = required_toolchain_config("openssl_ssl_sha256", "toolchain.openssl_ssl_sha256")
+_openssl_ssl_size = required_toolchain_config("openssl_ssl_size", "toolchain.openssl_ssl_size")
+_openssl_crypto_url = authenticated_loopback_artifact_url("openssl_crypto_url", "toolchain.openssl_crypto_url", "libcrypto.a")
+_openssl_crypto_sha256 = required_toolchain_config("openssl_crypto_sha256", "toolchain.openssl_crypto_sha256")
+_openssl_crypto_size = required_toolchain_config("openssl_crypto_size", "toolchain.openssl_crypto_size")
+
+native.http_file(
+    name = "openssl-libssl-static",
+    urls = [_openssl_ssl_url],
+    sha256 = _openssl_ssl_sha256,
+    size_bytes = int(_openssl_ssl_size),
+    out = "libssl.a",
+    visibility = [],
+)
+
+native.http_file(
+    name = "openssl-libcrypto-static",
+    urls = [_openssl_crypto_url],
+    sha256 = _openssl_crypto_sha256,
+    size_bytes = int(_openssl_crypto_size),
+    out = "libcrypto.a",
+    visibility = [],
+)
+
+native.prebuilt_cxx_library_group(
+    name = "openssl-static",
+    static_libs = [":openssl-libssl-static", ":openssl-libcrypto-static"],
+    static_link = ["$(lib 0)", "$(lib 1)"],
+    static_pic_libs = [":openssl-libssl-static", ":openssl-libcrypto-static"],
+    static_pic_link = ["$(lib 0)", "$(lib 1)"],
+    visibility = ["PUBLIC"],
+)
 
 pinned_rust_toolchain(
     name = "rust",
@@ -34,6 +69,7 @@ pinned_rust_toolchain(
 )
 
 _extra_cxx_link_flags = read_root_config("cxx", "link_flags", "")
+_sdk_flags = ["-isysroot", _sdkroot] if _sdkroot else []
 
 system_cxx_toolchain(
     name = "cxx",
@@ -42,7 +78,9 @@ system_cxx_toolchain(
     archiver = _archiver,
     linker = _linker,
     compiler_type = _compiler_type,
-    link_flags = _extra_cxx_link_flags.split(" ") if _extra_cxx_link_flags else [],
+    c_flags = _sdk_flags,
+    cxx_flags = _sdk_flags,
+    link_flags = _sdk_flags + (_extra_cxx_link_flags.split(" ") if _extra_cxx_link_flags else []),
     visibility = ["PUBLIC"],
 )
 

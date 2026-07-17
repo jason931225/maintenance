@@ -49,6 +49,7 @@ WINDOWS_RESERVED = {
     *(f"lpt{number}" for number in range(1, 10)),
 }
 RUST_KIND_PATTERN = "^(rust_library|rust_binary|rust_test)$"
+BUCK2_WRAPPER = Path("tools/buck/bootstrap/buck2w")
 
 
 class CoverageError(RuntimeError):
@@ -523,7 +524,7 @@ def _buck2_rust_targets(repo: Path, label: str) -> tuple[str, ...]:
     expression = f'kind("{RUST_KIND_PATTERN}", {label})'
     try:
         result = subprocess.run(
-            ["buck2", "uquery", "--json", expression],
+            [str(repo / BUCK2_WRAPPER), "uquery", "--json", expression],
             cwd=repo,
             check=False,
             capture_output=True,
@@ -561,10 +562,63 @@ def _buck2_rust_targets(repo: Path, label: str) -> tuple[str, ...]:
     return tuple(normalized)
 
 
+def _buck2_all_backend_rust_targets(repo: Path) -> tuple[str, ...]:
+    expression = f'kind("{RUST_KIND_PATTERN}", //backend/...)'
+    try:
+        result = subprocess.run(
+            [str(repo / BUCK2_WRAPPER), "uquery", "--json", expression],
+            cwd=repo,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=300,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise CoverageError(
+            f"Buck2 semantic batch query could not run: {error}"
+        ) from error
+    if result.returncode != 0:
+        detail = next(
+            (line.strip() for line in reversed(result.stderr.splitlines()) if line.strip()),
+            f"exit {result.returncode}",
+        )
+        raise CoverageError(f"Buck2 semantic batch query failed: {detail}")
+    try:
+        nodes = json.loads(result.stdout)
+    except json.JSONDecodeError as error:
+        raise CoverageError("Buck2 semantic batch query returned invalid JSON") from error
+    if not isinstance(nodes, list) or not all(isinstance(node, str) for node in nodes):
+        raise CoverageError("Buck2 semantic batch query returned an invalid node set")
+    normalized: list[str] = []
+    for node in nodes:
+        marker = node.find("//")
+        if marker < 0:
+            raise CoverageError(
+                f"Buck2 semantic batch query returned a noncanonical node: {node}"
+            )
+        normalized.append(node[marker:])
+    return tuple(normalized)
+
+
 def _prove_declared_rust_targets(repo: Path, entries: tuple[dict[str, str], ...]) -> None:
-    for entry in entries:
-        if entry["disposition"] != "declared":
-            continue
+    declared = [entry for entry in entries if entry["disposition"] == "declared"]
+    if len(declared) > 8:
+        nodes = _buck2_all_backend_rust_targets(repo)
+        duplicates = sorted(node for node in set(nodes) if nodes.count(node) != 1)
+        if duplicates:
+            raise CoverageError(
+                "Buck2 semantic batch query returned duplicate nodes: "
+                + ", ".join(duplicates)
+            )
+        node_set = set(nodes)
+        missing = sorted(entry["label"] for entry in declared if entry["label"] not in node_set)
+        if missing:
+            raise CoverageError(
+                "declared labels are not real Buck2 Rust targets: " + ", ".join(missing)
+            )
+        return
+
+    for entry in declared:
         label = entry["label"]
         nodes = _buck2_rust_targets(repo, label)
         if nodes != (label,):

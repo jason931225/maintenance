@@ -1,0 +1,6 @@
+# Canonical OpenAPI source exported for repository-layout-preserving Rust compilation.
+export_file(
+    name = "openapi-yaml",
+    src = "openapi.yaml",
+    visibility = ["PUBLIC"],
+)

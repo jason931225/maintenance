@@ -38,6 +38,13 @@ members = [
   "crates/analytics-quant/*",
   "ci/gates/*",
 ]
+# Buck2-only Python contract gates deliberately live beside the Rust CI gates.
+# Keep Cargo workspace discovery from treating those tool-only directories as
+# missing Rust packages; dependency resolution remains locked by Cargo.lock.
+exclude = [
+  "ci/gates/buck2-coverage",
+  "ci/gates/buck2-rust-graph",
+]
 
 [workspace.package]
 edition = "2024"

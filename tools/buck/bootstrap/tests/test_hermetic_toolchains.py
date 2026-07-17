@@ -26,6 +26,7 @@ LOCK_PATH = REPO_ROOT / "tools" / "buck" / "toolchain-lock.json"
 TOOLCHAINS_BUCK = REPO_ROOT / "toolchains" / "BUCK"
 BOOTSTRAP = REPO_ROOT / "tools" / "buck" / "bootstrap" / "bootstrap.py"
 BUCK_WRAPPER = REPO_ROOT / "tools" / "buck" / "bootstrap" / "buck2w"
+CRATE_CACHE = REPO_ROOT / "tools" / "buck" / "bootstrap" / "crate_cache.py"
 BUCKCONFIG = REPO_ROOT / ".buckconfig"
 
 
@@ -52,21 +53,64 @@ class HermeticToolchainContractTests(unittest.TestCase):
         return copy.deepcopy(bootstrap.load_lock())
 
     @staticmethod
+    def _openssl_fixture_payload(
+        lock: dict[str, Any], platform_name: str
+    ) -> bytes:
+        member_payloads = {
+            "ssl": b"fixture-static-libssl",
+            "crypto": b"fixture-static-libcrypto",
+        }
+        openssl = lock["platforms"][platform_name]["openssl"]
+        for name, payload in member_payloads.items():
+            openssl["static_libraries"][name].update(
+                {
+                    "sha256": hashlib.sha256(payload).hexdigest(),
+                    "size": len(payload),
+                }
+            )
+        output = io.BytesIO()
+        with tarfile.open(fileobj=output, mode="w:gz") as archive:
+            for name, payload in member_payloads.items():
+                info = tarfile.TarInfo(
+                    openssl["static_libraries"][name]["archive_path"]
+                )
+                info.size = len(payload)
+                archive.addfile(info, io.BytesIO(payload))
+        bottle = output.getvalue()
+        openssl["size"] = len(bottle)
+        return bottle
+
+    @staticmethod
     def _write_fixture_cache(
         lock: dict[str, Any],
         cache_dir: Path,
         platform_name: str,
         payloads: dict[str, bytes] | None = None,
     ) -> dict[str, bytes]:
-        payloads = payloads or {
-            "buck2": b"fixture-buck2-archive",
-            "rust": b"fixture-rust-archive",
-            "python": b"fixture-python-archive",
-        }
+        payloads = dict(
+            payloads
+            or {
+                "buck2": b"fixture-buck2-archive",
+                "rust": b"fixture-rust-archive",
+                "python": b"fixture-python-archive",
+            }
+        )
+        payloads.setdefault(
+            "openssl",
+            HermeticToolchainContractTests._openssl_fixture_payload(
+                lock, platform_name
+            ),
+        )
         platform_entry = lock["platforms"][platform_name]
         for component, payload in payloads.items():
             component_entry = platform_entry[component]
             component_entry["sha256"] = hashlib.sha256(payload).hexdigest()
+            if component == "openssl":
+                component_entry["size"] = len(payload)
+                component_entry["url"] = (
+                    "https://ghcr.io/v2/homebrew/core/openssl/3/blobs/sha256:"
+                    + component_entry["sha256"]
+                )
             path = bootstrap.cache_path(
                 cache_dir, platform_name, component, component_entry
             )
@@ -244,6 +288,7 @@ class HermeticToolchainContractTests(unittest.TestCase):
             fixture_bootstrap.mkdir(parents=True)
             shutil.copy2(BOOTSTRAP, fixture_bootstrap / "bootstrap.py")
             shutil.copy2(BUCK_WRAPPER, fixture_bootstrap / "buck2w")
+            shutil.copy2(CRATE_CACHE, fixture_bootstrap / "crate_cache.py")
             lock_path = fixture_repo / "tools" / "buck" / "toolchain-lock.json"
             shutil.copy2(LOCK_PATH, lock_path)
             attacker = root / "attacker"
@@ -297,6 +342,7 @@ class HermeticToolchainContractTests(unittest.TestCase):
             fixture_bootstrap.mkdir(parents=True)
             shutil.copy2(BOOTSTRAP, fixture_bootstrap / "bootstrap.py")
             shutil.copy2(BUCK_WRAPPER, fixture_bootstrap / "buck2w")
+            shutil.copy2(CRATE_CACHE, fixture_bootstrap / "crate_cache.py")
             lock_path = fixture_repo / "tools" / "buck" / "toolchain-lock.json"
             shutil.copy2(LOCK_PATH, lock_path)
             attacker = root / "attacker"
@@ -349,8 +395,35 @@ class HermeticToolchainContractTests(unittest.TestCase):
             self.assertEqual(cache_dir, fixture_bootstrap / "cache")
             shutil.copy2(BOOTSTRAP, fixture_bootstrap / "bootstrap.py")
             shutil.copy2(BUCK_WRAPPER, fixture_bootstrap / "buck2w")
+            shutil.copy2(CRATE_CACHE, fixture_bootstrap / "crate_cache.py")
             lock_path = fixture_repo / "tools" / "buck" / "toolchain-lock.json"
             lock_path.write_text(json.dumps(lock), encoding="utf-8")
+            fixture_crate = b"fixture-authenticated-crate"
+            fixture_checksum = hashlib.sha256(fixture_crate).hexdigest()
+            cargo_lock = fixture_repo / "backend" / "Cargo.lock"
+            cargo_lock.parent.mkdir(parents=True)
+            cargo_lock.write_text(
+                "version = 4\n\n"
+                "[[package]]\n"
+                'name = "fixture-crate"\n'
+                'version = "1.0.0"\n'
+                f'source = "{bootstrap.crate_cache.REGISTRY_SOURCE}"\n'
+                f'checksum = "{fixture_checksum}"\n',
+                encoding="utf-8",
+            )
+            lock_raw, locked_crates = bootstrap.crate_cache.load_locked_crates(
+                cargo_lock
+            )
+            crate_cache_dir = cache_dir / bootstrap.CRATE_CACHE_SUBDIR
+            crate_cache_dir.mkdir(parents=True)
+            fixture_archive = crate_cache_dir / f"{fixture_checksum}.crate"
+            fixture_archive.write_bytes(fixture_crate)
+            fixture_index = crate_cache_dir / bootstrap.crate_cache.INDEX_NAME
+            fixture_index.write_bytes(
+                bootstrap.crate_cache.render_index(lock_raw, locked_crates)
+            )
+            fixture_archive.chmod(0o444)
+            fixture_index.chmod(0o444)
 
             attacker = root / "attacker"
             compression = attacker / "compression"
@@ -560,6 +633,116 @@ class HermeticToolchainContractTests(unittest.TestCase):
                     self.assertIsInstance(identity.get("size"), int)
                     self.assertGreater(identity.get("size", 0), 0)
 
+    def test_lock_pins_openssl_bottle_and_each_static_library_for_every_platform(self) -> None:
+        lock = json.loads(LOCK_PATH.read_text(encoding="utf-8"))
+        for platform_name, platform_entry in lock["platforms"].items():
+            with self.subTest(platform=platform_name):
+                openssl = platform_entry["openssl"]
+                self.assertEqual("3.6.3", openssl["version"])
+                self.assertRegex(openssl["sha256"], r"^[0-9a-f]{64}$")
+                self.assertGreater(openssl["size"], 0)
+                self.assertRegex(
+                    openssl["url"],
+                    r"^https://ghcr\.io/v2/homebrew/core/openssl/3/blobs/sha256:[0-9a-f]{64}$",
+                )
+                self.assertEqual(
+                    {"ssl", "crypto"}, set(openssl["static_libraries"])
+                )
+                for name, identity in openssl["static_libraries"].items():
+                    self.assertEqual(f"lib{name}.a", identity["filename"])
+                    self.assertEqual(
+                        f"openssl@3/3.6.3/lib/lib{name}.a",
+                        identity["archive_path"],
+                    )
+                    self.assertRegex(identity["sha256"], r"^[0-9a-f]{64}$")
+                    self.assertGreater(identity["size"], 0)
+
+    def test_openssl_bottle_exposes_only_digest_verified_regular_static_members(self) -> None:
+        payloads = {"ssl": b"real-static-ssl", "crypto": b"real-static-crypto"}
+        with tempfile.TemporaryDirectory() as temp_dir:
+            bottle = Path(temp_dir) / "openssl.tar.gz"
+            with tarfile.open(bottle, "w:gz") as archive:
+                for name, payload in payloads.items():
+                    info = tarfile.TarInfo(
+                        f"openssl@3/3.6.3/lib/lib{name}.a"
+                    )
+                    info.size = len(payload)
+                    archive.addfile(info, io.BytesIO(payload))
+            descriptor = os.open(bottle, os.O_RDONLY)
+            try:
+                artifact = bootstrap.VerifiedArtifact(
+                    component="openssl",
+                    path=bottle,
+                    fd=descriptor,
+                    size=bottle.stat().st_size,
+                    sha256=hashlib.sha256(bottle.read_bytes()).hexdigest(),
+                )
+                entry = {
+                    "static_libraries": {
+                        name: {
+                            "archive_path": f"openssl@3/3.6.3/lib/lib{name}.a",
+                            "filename": f"lib{name}.a",
+                            "sha256": hashlib.sha256(payload).hexdigest(),
+                            "size": len(payload),
+                        }
+                        for name, payload in payloads.items()
+                    }
+                }
+                with bootstrap.verified_openssl_static_libraries(
+                    artifact, entry
+                ) as libraries:
+                    self.assertEqual({"ssl", "crypto"}, set(libraries))
+                    for name, payload in payloads.items():
+                        self.assertEqual(
+                            payload,
+                            os.pread(libraries[name].fd, len(payload), 0),
+                        )
+            finally:
+                os.close(descriptor)
+
+    def test_openssl_bottle_rejects_changed_missing_and_symlink_members(self) -> None:
+        cases = ("changed", "missing", "symlink")
+        for case in cases:
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as temp_dir:
+                bottle = Path(temp_dir) / "openssl.tar.gz"
+                with tarfile.open(bottle, "w:gz") as archive:
+                    if case != "missing":
+                        info = tarfile.TarInfo("openssl@3/3.6.3/lib/libssl.a")
+                        if case == "symlink":
+                            info.type = tarfile.SYMTYPE
+                            info.linkname = "/tmp/host-libssl.a"
+                            archive.addfile(info)
+                        else:
+                            payload = b"changed"
+                            info.size = len(payload)
+                            archive.addfile(info, io.BytesIO(payload))
+                descriptor = os.open(bottle, os.O_RDONLY)
+                try:
+                    artifact = bootstrap.VerifiedArtifact(
+                        component="openssl",
+                        path=bottle,
+                        fd=descriptor,
+                        size=bottle.stat().st_size,
+                        sha256=hashlib.sha256(bottle.read_bytes()).hexdigest(),
+                    )
+                    entry = {
+                        "static_libraries": {
+                            "ssl": {
+                                "archive_path": "openssl@3/3.6.3/lib/libssl.a",
+                                "filename": "libssl.a",
+                                "sha256": hashlib.sha256(b"expected").hexdigest(),
+                                "size": len(b"expected"),
+                            }
+                        }
+                    }
+                    with self.assertRaises(bootstrap.IntegrityError):
+                        with bootstrap.verified_openssl_static_libraries(
+                            artifact, entry
+                        ):
+                            self.fail("unsafe OpenSSL member was admitted")
+                finally:
+                    os.close(descriptor)
+
     def test_toolchains_remove_host_paths_and_direct_remote_python(self) -> None:
         source = TOOLCHAINS_BUCK.read_text(encoding="utf-8")
 
@@ -576,6 +759,50 @@ class HermeticToolchainContractTests(unittest.TestCase):
             "toolchain.python_archive_url",
         ):
             self.assertIn(key, source)
+
+        self.assertIn('read_root_config("toolchain", "sdkroot", "")', source)
+        self.assertIn("c_flags = _sdk_flags", source)
+        self.assertIn("cxx_flags = _sdk_flags", source)
+        self.assertIn("link_flags = _sdk_flags", source)
+
+    def test_openssl_is_a_digest_bound_native_buck_dependency_not_ambient_link_flags(self) -> None:
+        toolchain = TOOLCHAINS_BUCK.read_text(encoding="utf-8")
+        fixup = (REPO_ROOT / "backend/fixups/openssl-sys/fixups.toml").read_text(
+            encoding="utf-8"
+        )
+        for fragment in (
+            'name = "openssl-libssl-static"',
+            'name = "openssl-libcrypto-static"',
+            'name = "openssl-static"',
+            'static_link = ["$(lib 0)", "$(lib 1)"]',
+            'static_pic_link = ["$(lib 0)", "$(lib 1)"]',
+        ):
+            self.assertIn(fragment, toolchain)
+        self.assertIn('extra_deps = ["toolchains//:openssl-static"]', fixup)
+        self.assertIn("run = false", fixup)
+        self.assertNotIn("rustc_link_lib = true", fixup)
+        self.assertNotIn("rustc_link_search = true", fixup)
+
+    def test_openssl_lock_rejects_host_drift_and_non_exact_oci_routes(self) -> None:
+        invalid_urls = (
+            "http://ghcr.io/v2/homebrew/core/openssl/3/blobs/sha256:{sha}",
+            "https://user:token@ghcr.io/v2/homebrew/core/openssl/3/blobs/sha256:{sha}",
+            "https://ghcr.io:444/v2/homebrew/core/openssl/3/blobs/sha256:{sha}",
+            "https://ghcr.io/v2/homebrew/core/openssl/3/blobs/sha256:{sha}?tag=latest",
+            "https://ghcr.io/v2/homebrew/core/openssl/3/blobs/sha256:{sha}#fragment",
+            "https://ghcr.io/v2/attacker/openssl/3/blobs/sha256:{sha}",
+            "https://ghcr.io/v2/homebrew/core/openssl/3/blobs/sha256:"
+            + ("0" * 64),
+        )
+        for template in invalid_urls:
+            with self.subTest(url=template), tempfile.TemporaryDirectory() as temp_dir:
+                lock = self._fixture_lock()
+                openssl = lock["platforms"]["linux-x86_64"]["openssl"]
+                openssl["url"] = template.format(sha=openssl["sha256"])
+                lock_path = Path(temp_dir) / "toolchain-lock.json"
+                lock_path.write_text(json.dumps(lock), encoding="utf-8")
+                with self.assertRaises(bootstrap.ToolchainError):
+                    bootstrap.load_lock(lock_path)
 
     def test_lock_rejects_unsafe_archive_filenames(self) -> None:
         unsafe_names = (
@@ -1755,6 +1982,7 @@ class HermeticToolchainContractTests(unittest.TestCase):
                     and bool(command)
                     and "buck2-generation-" in Path(str(command[0])).name
                     and "--version" not in command
+                    and command[-1] != "kill"
                 )
                 if not is_buck_generation:
                     return real_run(command, *args, **kwargs)
@@ -1791,9 +2019,21 @@ class HermeticToolchainContractTests(unittest.TestCase):
                 target=self._capture_thread_call,
                 args=(second_result, invoke),
             )
-            with mock.patch.object(
-                bootstrap.subprocess, "run", side_effect=controlled_run
+            fake_mirror = mock.Mock(base_url="http://127.0.0.1:12345")
+            fake_mirror.evidence.side_effect = lambda: {"missing_routes": []}
+            with (
+                mock.patch.object(
+                    bootstrap.subprocess, "run", side_effect=controlled_run
+                ),
+                mock.patch.object(
+                    bootstrap.crate_cache, "verified_cache"
+                ) as verified_crates,
+                mock.patch.object(
+                    bootstrap.crate_cache, "local_mirror"
+                ) as local_crate_mirror,
             ):
+                verified_crates.return_value.__enter__.return_value = {}
+                local_crate_mirror.return_value.__enter__.return_value = fake_mirror
                 first.start()
                 live_during_overlap: list[bool] = []
                 try:
@@ -1830,6 +2070,54 @@ class HermeticToolchainContractTests(unittest.TestCase):
                 [False, False, False, False],
                 "the first invocation's exact cleanup callbacks left owned generations behind",
             )
+
+    def test_run_retires_buck_daemon_before_owned_generation_cleanup(self) -> None:
+        platform_name = "linux-x86_64"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir).resolve()
+            lock, cache_dir, env = self._create_materializable_fixture(root)
+            commands: list[list[str]] = []
+            real_run = subprocess.run
+
+            def record_run(command: Any, *args: Any, **kwargs: Any) -> Any:
+                if (
+                    isinstance(command, (list, tuple))
+                    and command
+                    and "buck2-generation-" in Path(str(command[0])).name
+                    and "--version" not in command
+                ):
+                    commands.append([str(value) for value in command])
+                    return subprocess.CompletedProcess(command, 0)
+                return real_run(command, *args, **kwargs)
+
+            fake_mirror = mock.Mock(base_url="http://127.0.0.1:12345")
+            fake_mirror.evidence.return_value = {"missing_routes": []}
+            with (
+                mock.patch.object(
+                    bootstrap.subprocess, "run", side_effect=record_run
+                ),
+                mock.patch.object(
+                    bootstrap.crate_cache, "verified_cache"
+                ) as verified_crates,
+                mock.patch.object(
+                    bootstrap.crate_cache, "local_mirror"
+                ) as local_crate_mirror,
+            ):
+                verified_crates.return_value.__enter__.return_value = {}
+                local_crate_mirror.return_value.__enter__.return_value = fake_mirror
+                result = bootstrap.run_buck(
+                    lock, cache_dir, platform_name, ["query", "//:fixture"], env
+                )
+
+            self.assertEqual(result, 0)
+            self.assertEqual(len(commands), 2)
+            self.assertRegex(commands[0][1], r"^--isolation-dir=hermetic-[0-9a-f-]+$")
+            self.assertEqual(commands[0][1], commands[1][1])
+            self.assertEqual(commands[0][2], "query")
+            self.assertEqual(commands[0][-1], "//:fixture")
+            self.assertEqual(commands[1][2:], ["kill"])
+            self.assertEqual(commands[0][0], commands[1][0])
+            self.assertFalse(Path(commands[0][0]).exists())
 
     def test_compiler_override_matrix_fails_closed(self) -> None:
         lock = bootstrap.load_lock()
@@ -1957,10 +2245,12 @@ class HermeticToolchainContractTests(unittest.TestCase):
                 )
                 path.write_bytes(b"tampered")
 
-                with self.assertRaisesRegex(
-                    bootstrap.IntegrityError,
-                    rf"cached {tampered_component} failed SHA-256 verification",
-                ):
+                failure = (
+                    r"cached openssl failed (?:size|SHA-256) verification"
+                    if tampered_component == "openssl"
+                    else rf"cached {tampered_component} failed SHA-256 verification"
+                )
+                with self.assertRaisesRegex(bootstrap.IntegrityError, failure):
                     with bootstrap.verified_cached_artifacts(
                         lock, cache_dir, platform_name
                     ):
@@ -1985,6 +2275,96 @@ class HermeticToolchainContractTests(unittest.TestCase):
         for key in ("cc", "cxx", "archiver", "linker"):
             self.assertTrue(Path(resolved[key]).is_absolute())
             self.assertNotIn("/usr/bin/", resolved[key])
+
+    def test_macos_sdkroot_is_resolved_by_fixed_system_xcrun(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir).resolve()
+            xcrun = root / "xcrun"
+            sdk = root / "MacOSX26.5.sdk"
+            sdk.mkdir()
+            (root / "MacOSX.sdk").symlink_to(sdk.name)
+            self._write_executable(xcrun, "#!/bin/sh\nexit 0\n")
+            completed = subprocess.CompletedProcess(
+                [str(xcrun), "--sdk", "macosx", "--show-sdk-path"],
+                0,
+                stdout=f"{root / 'MacOSX.sdk'}\n",
+                stderr="",
+            )
+
+            with mock.patch.object(
+                bootstrap.subprocess, "run", return_value=completed
+            ) as run:
+                resolved = bootstrap._resolve_macos_sdkroot(xcrun=xcrun)
+
+        self.assertEqual(resolved, sdk)
+        run.assert_called_once_with(
+            [str(xcrun), "--sdk", "macosx", "--show-sdk-path"],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            env={"PATH": "/usr/bin:/bin"},
+        )
+
+    def test_macos_sdkroot_rejects_unusable_or_multiline_output(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir).resolve()
+            xcrun = root / "xcrun"
+            self._write_executable(xcrun, "#!/bin/sh\nexit 0\n")
+            for returncode, stdout in (
+                (1, ""),
+                (0, "relative/MacOSX.sdk\n"),
+                (0, "/first/MacOSX.sdk\n/second/MacOSX.sdk\n"),
+                (0, f"{root / 'missing.sdk'}\n"),
+            ):
+                with self.subTest(returncode=returncode, stdout=stdout):
+                    completed = subprocess.CompletedProcess(
+                        [str(xcrun), "--sdk", "macosx", "--show-sdk-path"],
+                        returncode,
+                        stdout=stdout,
+                        stderr="xcrun failed",
+                    )
+                    with mock.patch.object(
+                        bootstrap.subprocess, "run", return_value=completed
+                    ), self.assertRaises(bootstrap.ToolchainError):
+                        bootstrap._resolve_macos_sdkroot(xcrun=xcrun)
+
+    def test_buck_config_propagates_resolved_macos_sdkroot(self) -> None:
+        sdkroot = "/Library/Developer/CommandLineTools/SDKs/MacOSX26.5.sdk"
+        args = bootstrap._buck_config_args(
+            {
+                "rustc": Path("/toolchain/rustc"),
+                "rustdoc": Path("/toolchain/rustdoc"),
+                "clippy_driver": Path("/toolchain/clippy-driver"),
+            },
+            {
+                "cc": "/toolchain/clang",
+                "cxx": "/toolchain/clang++",
+                "archiver": "/toolchain/ar",
+                "linker": "/toolchain/clang",
+                "compiler_type": "clang",
+                "sdkroot": sdkroot,
+            },
+            {
+                "target_triple": "aarch64-apple-darwin",
+                "python": {"sha256": "a" * 64},
+                "openssl": {
+                    "static_libraries": {
+                        "ssl": {"sha256": "c" * 64, "size": 101},
+                        "crypto": {"sha256": "d" * 64, "size": 202},
+                    }
+                },
+            },
+            "http://127.0.0.1:1234/python.tar.gz",
+            "http://127.0.0.1:1236/libssl.a",
+            "http://127.0.0.1:1237/libcrypto.a",
+            "http://127.0.0.1:1235",
+            "b" * 64,
+        )
+
+        self.assertIn("toolchain.sdkroot=" + sdkroot, args)
+        self.assertIn("toolchain.openssl_ssl_sha256=" + "c" * 64, args)
+        self.assertIn("toolchain.openssl_crypto_size=202", args)
 
     def test_tampered_cache_is_rejected_by_integrity_check(self) -> None:
         lock = bootstrap.load_lock()
@@ -2040,14 +2420,43 @@ class HermeticToolchainContractTests(unittest.TestCase):
         binary = Path("/cache/buck2")
         config = ["-c", "toolchain.rustc=/cache/rustc"]
         self.assertEqual(
-            bootstrap._compose_buck_command(binary, ["build", "//:target"], config),
-            ["/cache/buck2", "build", *config, "//:target"],
+            bootstrap._compose_buck_command(
+                binary, ["build", "//:target"], config, "hermetic-deadbeef"
+            ),
+            [
+                "/cache/buck2",
+                "--isolation-dir=hermetic-deadbeef",
+                "build",
+                *config,
+                "//:target",
+            ],
         )
         self.assertEqual(
             bootstrap._compose_buck_command(
-                binary, ["audit", "providers", "toolchains//:rust"], config
+                binary,
+                ["audit", "providers", "toolchains//:rust"],
+                config,
+                "hermetic-deadbeef",
             ),
-            ["/cache/buck2", "audit", "providers", *config, "toolchains//:rust"],
+            [
+                "/cache/buck2",
+                "--isolation-dir=hermetic-deadbeef",
+                "audit",
+                "providers",
+                *config,
+                "toolchains//:rust",
+            ],
+        )
+
+    def test_daemon_kill_omits_build_configuration_flags(self) -> None:
+        binary = Path("/cache/buck2")
+        config = ["-c", "toolchain.rustc=/cache/rustc"]
+
+        self.assertEqual(
+            bootstrap._compose_buck_command(
+                binary, ["kill"], config, "hermetic-deadbeef"
+            ),
+            ["/cache/buck2", "--isolation-dir=hermetic-deadbeef", "kill"],
         )
 
     def test_cold_offline_run_fails_before_any_network_attempt(self) -> None:

@@ -77,6 +77,12 @@ The 109-gap worklist. Backend `mnt_rt`/unit tests live in disjoint per-crate `te
 - **Q2 (Tier-2):** parsers, thin reads, transition e2e (per the worklist).
 - **Q3 (gate):** make red E2E/test **block the deploy** (ci/image-release `needs:`); green + de-flake the
   Playwright suite; the org-binding rls-arming lint (#43); the real #31 PlatformConsole fix.
+- **Q4 (Buck2 Rust authority; 2026-07-17 supersession):** the authenticated current-lock graph is the
+  only backend Rust build surface. Its fail-closed acceptance set is exactly 22 query labels, 22 build
+  labels, and 20 test labels; the loopback-only wrapper must serve and record exactly all 583 registry
+  archive routes from `backend/Cargo.lock`. `Cargo.toml`/`Cargo.lock` remain dependency inputs, but Cargo
+  invocations are not gate evidence. Canonical SQLx migrations are staged through one helper at
+  `backend/crates/platform/db`, with a checked identity source and a post-migrate runtime sentinel.
 - **Standing rule:** every NEW action in any track ships with its trifecta — enforced by Q3's gate.
 
 ### Track O — Ops & Infra (disjoint `deploy/**`, `.github/**`) ⟂

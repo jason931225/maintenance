@@ -1,0 +1,175 @@
+{
+  "artifact_kind": "BUCK2_RUST_ADMISSION",
+  "authority_boundary": "Buck2 wrapper query/build/test is the sole Rust admission authority; Cargo is not evidence.",
+  "build_labels": [
+    "//backend/app:mnt-app",
+    "//backend/app:mnt-app-config",
+    "//backend/app:mnt-app-finance-gl-voucher-sod",
+    "//backend/app:mnt-app-lib",
+    "//backend/app:mnt-app-unit",
+    "//backend/app:mnt-app-workflow-automation-triggers",
+    "//backend/app:mnt-app-workflow-dynamics-branch",
+    "//backend/crates/finance-gl/adapter-postgres:mnt-finance-gl-adapter-postgres",
+    "//backend/crates/finance-gl/adapter-postgres:mnt-finance-gl-adapter-postgres-voucher-rls-and-fsm-as-runtime-role",
+    "//backend/crates/finance-gl/application:mnt-finance-gl-application",
+    "//backend/crates/finance-gl/domain:mnt-finance-gl-domain",
+    "//backend/crates/ontology/domain:mnt-ontology-domain",
+    "//backend/crates/ontology/domain:mnt-ontology-domain-contract-precursor",
+    "//backend/crates/platform/db:mnt-platform-db",
+    "//backend/crates/platform/jobs:mnt-platform-jobs",
+    "//backend/crates/platform/jobs:mnt-platform-jobs-apalis-adapter",
+    "//backend/crates/platform/jobs:mnt-platform-jobs-unit",
+    "//backend/crates/workflow/adapter-postgres:mnt-workflow-runtime-adapter-postgres",
+    "//backend/crates/workflow/domain:mnt-workflow-domain",
+    "//backend/crates/workflow/runtime:mnt-workflow-runtime",
+    "//backend/crates/workorder/rest:mnt-workorder-rest",
+    "//backend:current-lock-registry-archives"
+  ],
+  "cross_lane_integration_obligations": [
+    {
+      "condition": "after Apalis exact-owner candidate adds backend/app/tests/apalis_owner_bootstrap.rs",
+      "required_admission_sets": [
+        "query_labels",
+        "test_labels"
+      ],
+      "required_label": "//backend/app:mnt-app-apalis-owner-bootstrap",
+      "required_test_command": "tools/buck/bootstrap/buck2w test //backend/crates/platform/jobs:mnt-platform-jobs-unit //backend/app:mnt-app-apalis-owner-bootstrap"
+    },
+    {
+      "condition": "after 17c99f48-derived docs/program/ontology-versioned-contracts artifacts are integrated",
+      "required_admission_sets": [
+        "query_labels",
+        "test_labels"
+      ],
+      "required_label": "//docs/program/ontology-versioned-contracts:verify-contracts",
+      "required_test_command": "tools/buck/bootstrap/buck2w test //docs/program/ontology-versioned-contracts:verify-contracts"
+    }
+  ],
+  "lock_sha256": "5f890beff6884de0cc5bc98a6fee117fd0e2d0b2f1ce35db8049896beb30cf8c",
+  "lockfile": "backend/Cargo.lock",
+  "mapper_test_obligations": [
+    {
+      "label": "//backend/app:mnt-app-unit",
+      "source": "backend/app/src/lib.rs",
+      "state": "admitted"
+    },
+    {
+      "label": "//backend/app:mnt-app-apalis-owner-bootstrap",
+      "source": "backend/app/tests/apalis_owner_bootstrap.rs",
+      "state": "cross_lane_integration"
+    },
+    {
+      "label": "//backend/app:mnt-app-config",
+      "source": "backend/app/tests/config.rs",
+      "state": "admitted"
+    },
+    {
+      "label": "//backend/app:mnt-app-finance-gl-voucher-sod",
+      "source": "backend/app/tests/finance_gl_voucher_sod.rs",
+      "state": "admitted"
+    },
+    {
+      "label": "//backend/app:mnt-app-migrations-as-mnt-app",
+      "source": "backend/app/tests/migrations_as_mnt_app.rs",
+      "state": "cross_lane_integration"
+    },
+    {
+      "label": "//backend/app:mnt-app-workflow-automation-triggers",
+      "source": "backend/app/tests/workflow_automation_triggers.rs",
+      "state": "admitted"
+    },
+    {
+      "label": "//backend/app:mnt-app-workflow-dynamics-branch",
+      "source": "backend/app/tests/workflow_dynamics_branch.rs",
+      "state": "admitted"
+    },
+    {
+      "label": "//backend/app:mnt-app-workflow-schedule-control-config",
+      "source": "backend/app/tests/workflow_schedule_control_config.rs",
+      "state": "cross_lane_integration"
+    },
+    {
+      "label": "//backend/crates/finance-gl/adapter-postgres:mnt-finance-gl-adapter-postgres-finance-v21-shared-schema-as-runtime-role",
+      "source": "backend/crates/finance-gl/adapter-postgres/tests/finance_v21_shared_schema_as_runtime_role.rs",
+      "state": "cross_lane_integration"
+    },
+    {
+      "label": "//backend/crates/finance-gl/adapter-postgres:mnt-finance-gl-adapter-postgres-voucher-rls-and-fsm-as-runtime-role",
+      "source": "backend/crates/finance-gl/adapter-postgres/tests/voucher_rls_and_fsm_as_runtime_role.rs",
+      "state": "admitted"
+    },
+    {
+      "label": "//backend/crates/platform/db:mnt-platform-db-workflow-schedules-rls",
+      "source": "backend/crates/platform/db/tests/workflow_schedules_rls.rs",
+      "state": "cross_lane_integration"
+    },
+    {
+      "label": "//backend/crates/platform/db:mnt-platform-db-workflow-schedules-upgrade",
+      "source": "backend/crates/platform/db/tests/workflow_schedules_upgrade.rs",
+      "state": "cross_lane_integration"
+    },
+    {
+      "label": "//backend/crates/platform/jobs:mnt-platform-jobs-unit",
+      "source": "backend/crates/platform/jobs/src/lib.rs",
+      "state": "admitted"
+    },
+    {
+      "label": "//backend/crates/platform/jobs:mnt-platform-jobs-apalis-adapter",
+      "source": "backend/crates/platform/jobs/tests/apalis_adapter.rs",
+      "state": "admitted"
+    },
+    {
+      "label": "//backend/crates/workflow/adapter-postgres:mnt-workflow-runtime-adapter-postgres-workflow-schedule-runtime",
+      "source": "backend/crates/workflow/adapter-postgres/tests/workflow_schedule_runtime.rs",
+      "state": "cross_lane_integration"
+    }
+  ],
+  "ontology_contract_precursor": "//backend/crates/ontology/domain:mnt-ontology-domain-contract-precursor",
+  "query_labels": [
+    "//backend/app:mnt-app",
+    "//backend/app:mnt-app-config",
+    "//backend/app:mnt-app-finance-gl-voucher-sod",
+    "//backend/app:mnt-app-lib",
+    "//backend/app:mnt-app-unit",
+    "//backend/app:mnt-app-workflow-automation-triggers",
+    "//backend/app:mnt-app-workflow-dynamics-branch",
+    "//backend/crates/finance-gl/adapter-postgres:mnt-finance-gl-adapter-postgres",
+    "//backend/crates/finance-gl/adapter-postgres:mnt-finance-gl-adapter-postgres-voucher-rls-and-fsm-as-runtime-role",
+    "//backend/crates/finance-gl/application:mnt-finance-gl-application",
+    "//backend/crates/finance-gl/domain:mnt-finance-gl-domain",
+    "//backend/crates/ontology/domain:mnt-ontology-domain",
+    "//backend/crates/ontology/domain:mnt-ontology-domain-contract-precursor",
+    "//backend/crates/platform/db:mnt-platform-db",
+    "//backend/crates/platform/jobs:mnt-platform-jobs",
+    "//backend/crates/platform/jobs:mnt-platform-jobs-apalis-adapter",
+    "//backend/crates/platform/jobs:mnt-platform-jobs-unit",
+    "//backend/crates/workflow/adapter-postgres:mnt-workflow-runtime-adapter-postgres",
+    "//backend/crates/workflow/domain:mnt-workflow-domain",
+    "//backend/crates/workflow/runtime:mnt-workflow-runtime",
+    "//backend/crates/workorder/rest:mnt-workorder-rest",
+    "//backend:current-lock-registry-archives"
+  ],
+  "schema_version": 1,
+  "test_labels": [
+    "//backend/app:mnt-app-buck2-route-surface-contract",
+    "//backend/app:mnt-app-config",
+    "//backend/app:mnt-app-finance-gl-voucher-sod",
+    "//backend/app:mnt-app-unit",
+    "//backend/app:mnt-app-workflow-automation-triggers",
+    "//backend/app:mnt-app-workflow-dynamics-branch",
+    "//backend/ci/gates/buck2-rust-graph:current-lock-rust-graph-contract",
+    "//backend/ci/gates/buck2-rust-graph:current-lock-rust-graph-validator",
+    "//backend/crates/finance-gl/adapter-postgres:mnt-finance-gl-adapter-postgres-buck2-lazy-store-contract",
+    "//backend/crates/finance-gl/adapter-postgres:mnt-finance-gl-adapter-postgres-voucher-rls-and-fsm-as-runtime-role",
+    "//backend/crates/finance-gl/application:mnt-finance-gl-application-buck2-source-reference-contract",
+    "//backend/crates/finance-gl/domain:mnt-finance-gl-domain-unit",
+    "//backend/crates/ontology/domain:mnt-ontology-domain-contract-precursor",
+    "//backend/crates/platform/db:mnt-platform-db-buck2-period-lock-contract",
+    "//backend/crates/platform/jobs:mnt-platform-jobs-apalis-adapter",
+    "//backend/crates/platform/jobs:mnt-platform-jobs-unit",
+    "//backend/crates/workflow/adapter-postgres:mnt-workflow-runtime-adapter-postgres-unit",
+    "//backend/crates/workflow/domain:mnt-workflow-domain-unit",
+    "//backend/crates/workflow/runtime:mnt-workflow-runtime-unit",
+    "//backend/crates/workorder/rest:mnt-workorder-rest-unit"
+  ]
+}

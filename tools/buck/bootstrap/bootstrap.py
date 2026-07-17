@@ -29,6 +29,7 @@ import errno
 import functools
 import hashlib
 import http.server
+import importlib.util
 import json
 import os
 import platform as host_platform
@@ -38,6 +39,7 @@ import shutil
 import stat
 import subprocess
 import tarfile
+import tempfile
 import threading
 import urllib.parse
 import urllib.request
@@ -45,10 +47,31 @@ from pathlib import Path
 from typing import Any, BinaryIO, Iterator, Mapping, Sequence
 
 
+def _load_sibling_crate_cache() -> Any:
+    """Load the fixed sibling module even when Python ``-I`` omits script paths."""
+    path = Path(__file__).resolve(strict=True).with_name("crate_cache.py")
+    metadata = os.lstat(path)
+    if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
+        raise RuntimeError(f"crate cache module is not a regular non-symlink: {path}")
+    module_name = "maintenance_buck2_crate_cache"
+    specification = importlib.util.spec_from_file_location(module_name, path)
+    if specification is None or specification.loader is None:
+        raise RuntimeError(f"cannot load crate cache module: {path}")
+    module = importlib.util.module_from_spec(specification)
+    sys.modules[module_name] = module
+    specification.loader.exec_module(module)
+    return module
+
+
+crate_cache = _load_sibling_crate_cache()
+
+
 REPO_ROOT = Path(__file__).resolve().parents[3]
 LOCK_PATH = REPO_ROOT / "tools" / "buck" / "toolchain-lock.json"
 DEFAULT_CACHE = REPO_ROOT / "tools" / "buck" / "bootstrap" / "cache"
-SUPPORTED_COMPONENTS = ("buck2", "rust", "python")
+CRATE_LOCK_PATH = REPO_ROOT / "backend" / "Cargo.lock"
+CRATE_CACHE_SUBDIR = "crates-v1"
+SUPPORTED_COMPONENTS = ("buck2", "rust", "python", "openssl")
 SAFE_FILENAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,254}$")
 SHA256 = re.compile(r"^[0-9a-f]{64}$")
 UPSTREAM_REDIRECT_HOSTS = {
@@ -59,6 +82,7 @@ UPSTREAM_REDIRECT_HOSTS = {
         }
     ),
     "static.rust-lang.org": frozenset({"static.rust-lang.org"}),
+    "ghcr.io": frozenset({"ghcr.io"}),
 }
 _DIRECTORY_FLAGS = (
     os.O_RDONLY
@@ -328,7 +352,57 @@ def load_lock(path: Path = LOCK_PATH) -> dict[str, Any]:
                 raise ToolchainError(
                     f"unapproved {component} origin for platform {platform_name}"
                 )
-            if parsed.query or urllib.parse.unquote(Path(parsed.path).name) != filename:
+            if component == "openssl":
+                bottle_digest = component_entry.get("sha256", "")
+                expected_path = (
+                    "/v2/homebrew/core/openssl/3/blobs/sha256:" + bottle_digest
+                )
+                if parsed.query or parsed.path != expected_path:
+                    raise ToolchainError(
+                        "OpenSSL URL must be the exact digest-addressed Homebrew "
+                        f"OCI blob for {platform_name}"
+                    )
+                if component_entry.get("version") != "3.6.3":
+                    raise ToolchainError(
+                        f"OpenSSL version must remain at 3.6.3 for {platform_name}"
+                    )
+                _validate_locked_identity(
+                    component_entry,
+                    label=f"OpenSSL bottle for platform {platform_name}",
+                )
+                static_libraries = component_entry.get("static_libraries")
+                if not isinstance(static_libraries, dict) or set(
+                    static_libraries
+                ) != {"ssl", "crypto"}:
+                    raise ToolchainError(
+                        "OpenSSL static-library identity matrix is incomplete for "
+                        f"platform {platform_name}"
+                    )
+                for library_name, identity in static_libraries.items():
+                    expected_filename = f"lib{library_name}.a"
+                    if (
+                        _safe_basename(
+                            identity.get("filename"),
+                            label=(
+                                f"OpenSSL {library_name} filename for platform "
+                                f"{platform_name}"
+                            ),
+                        )
+                        != expected_filename
+                        or identity.get("archive_path")
+                        != f"openssl@3/3.6.3/lib/{expected_filename}"
+                    ):
+                        raise ToolchainError(
+                            f"invalid OpenSSL {library_name} member for {platform_name}"
+                        )
+                    _validate_locked_identity(
+                        identity,
+                        label=(
+                            f"OpenSSL {library_name} static library for platform "
+                            f"{platform_name}"
+                        ),
+                    )
+            elif parsed.query or urllib.parse.unquote(Path(parsed.path).name) != filename:
                 raise ToolchainError(
                     f"{component} URL filename does not match its safe basename for {platform_name}"
                 )
@@ -424,6 +498,10 @@ def verified_cached_artifacts(
             except FileNotFoundError:
                 missing.append(component)
                 continue
+            if component == "openssl" and opened.st_size != component_entry["size"]:
+                raise IntegrityError(
+                    f"cached openssl failed size verification for {platform_name}"
+                )
             expected = component_entry["sha256"]
             actual = _sha256_fd(descriptor)
             after_hash = os.fstat(descriptor)
@@ -453,6 +531,111 @@ def verified_cached_artifacts(
                 f"{platform_name}: missing {joined}; run bootstrap populate explicitly"
             )
         yield verified
+
+
+@contextlib.contextmanager
+def verified_openssl_static_libraries(
+    artifact: VerifiedArtifact, entry: Mapping[str, Any]
+) -> Iterator[dict[str, VerifiedArtifact]]:
+    """Expose only the two authenticated static libraries from an OpenSSL bottle."""
+    static_libraries = entry.get("static_libraries")
+    if not isinstance(static_libraries, Mapping) or not static_libraries:
+        raise ToolchainError("OpenSSL static-library identity matrix is missing")
+
+    expected_by_path: dict[str, tuple[str, Mapping[str, Any]]] = {}
+    for name, identity in static_libraries.items():
+        if not isinstance(name, str) or not isinstance(identity, Mapping):
+            raise ToolchainError("OpenSSL static-library identity is invalid")
+        _validate_locked_identity(identity, label=f"OpenSSL {name} static library")
+        filename = _safe_basename(
+            identity.get("filename"), label=f"OpenSSL {name} filename"
+        )
+        archive_path = identity.get("archive_path")
+        if (
+            not isinstance(archive_path, str)
+            or archive_path.startswith("/")
+            or "\\" in archive_path
+            or any(part in {"", ".", ".."} for part in archive_path.split("/"))
+            or Path(archive_path).name != filename
+            or archive_path in expected_by_path
+        ):
+            raise ToolchainError(f"OpenSSL {name} archive member is unsafe")
+        expected_by_path[archive_path] = (name, identity)
+
+    bottle_identity = {"sha256": artifact.sha256, "size": artifact.size}
+    _verified_file_identity(
+        artifact.fd, bottle_identity, label="authenticated OpenSSL bottle"
+    )
+    exposed: dict[str, VerifiedArtifact] = {}
+    seen: set[str] = set()
+    with contextlib.ExitStack() as stack:
+        try:
+            source = stack.enter_context(artifact.open_reader())
+            bottle = stack.enter_context(tarfile.open(fileobj=source, mode="r:gz"))
+            for member in bottle:
+                expected = expected_by_path.get(member.name)
+                if expected is None:
+                    continue
+                if member.name in seen:
+                    raise IntegrityError(
+                        f"OpenSSL bottle contains duplicate member {member.name}"
+                    )
+                seen.add(member.name)
+                name, identity = expected
+                if not member.isfile():
+                    raise IntegrityError(
+                        f"OpenSSL {name} member is not a regular file"
+                    )
+                if member.size != identity["size"]:
+                    raise IntegrityError(
+                        f"OpenSSL {name} member failed size verification"
+                    )
+                reader = bottle.extractfile(member)
+                if reader is None:
+                    raise IntegrityError(f"OpenSSL {name} member cannot be read")
+                temporary = stack.enter_context(tempfile.TemporaryFile())
+                digest = hashlib.sha256()
+                copied = 0
+                with reader:
+                    while chunk := reader.read(1024 * 1024):
+                        copied += len(chunk)
+                        if copied > identity["size"]:
+                            raise IntegrityError(
+                                f"OpenSSL {name} member exceeded its locked size"
+                            )
+                        digest.update(chunk)
+                        temporary.write(chunk)
+                if (
+                    copied != identity["size"]
+                    or digest.hexdigest() != identity["sha256"]
+                ):
+                    raise IntegrityError(
+                        f"OpenSSL {name} member failed SHA-256 verification"
+                    )
+                temporary.flush()
+                os.lseek(temporary.fileno(), 0, os.SEEK_SET)
+                exposed[name] = VerifiedArtifact(
+                    component=f"openssl-{name}",
+                    path=Path(identity["filename"]),
+                    fd=temporary.fileno(),
+                    size=copied,
+                    sha256=digest.hexdigest(),
+                )
+
+        except (tarfile.TarError, OSError) as error:
+            raise IntegrityError(
+                f"cannot read authenticated OpenSSL bottle: {error}"
+            ) from error
+
+        missing = sorted(set(expected_by_path) - seen)
+        if missing:
+            raise IntegrityError(
+                "OpenSSL bottle is missing authenticated members: " + ", ".join(missing)
+            )
+        _verified_file_identity(
+            artifact.fd, bottle_identity, label="authenticated OpenSSL bottle"
+        )
+        yield exposed
 
 
 class _RestrictedRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -518,15 +701,17 @@ def _download_verified(
     *,
     mirror: bool = False,
     opener: Any | None = None,
+    request_headers: Mapping[str, str] | None = None,
+    expected_size: int | None = None,
 ) -> None:
     _validate_download_url(url, url, mirror=mirror)
     filename = _safe_basename(destination.name, label="download filename")
     destination = _lexical_absolute(destination)
     digest = hashlib.sha256()
-    request = urllib.request.Request(
-        url,
-        headers={"User-Agent": "maintenance-buck2-bootstrap/1"},
-    )
+    headers = {"User-Agent": "maintenance-buck2-bootstrap/1"}
+    if request_headers:
+        headers.update(request_headers)
+    request = urllib.request.Request(url, headers=headers)
     if opener is None:
         opener = urllib.request.build_opener(
             _RestrictedRedirectHandler(url, mirror=mirror)
@@ -574,6 +759,12 @@ def _download_verified(
             if digest.hexdigest() != expected_sha256:
                 raise IntegrityError(
                     f"downloaded artifact failed SHA-256 verification: {filename}"
+                )
+            if expected_size is not None and (
+                temporary_metadata is None or temporary_metadata.st_size != expected_size
+            ):
+                raise IntegrityError(
+                    f"downloaded artifact failed size verification: {filename}"
                 )
             if existing is not None:
                 try:
@@ -633,6 +824,39 @@ def _download_verified(
                     os.unlink(filename, dir_fd=parent_fd)
 
 
+def _ghcr_openssl_bearer_token() -> str:
+    token_url = (
+        "https://ghcr.io/token?service=ghcr.io&"
+        "scope=repository%3Ahomebrew%2Fcore%2Fopenssl%2F3%3Apull"
+    )
+    _validate_download_url(token_url, token_url, mirror=False)
+    request = urllib.request.Request(
+        token_url,
+        headers={"User-Agent": "maintenance-buck2-bootstrap/1"},
+    )
+    opener = urllib.request.build_opener(
+        _RestrictedRedirectHandler(token_url, mirror=False)
+    )
+    with opener.open(request, timeout=60) as response:
+        _validate_download_url(token_url, response.geturl(), mirror=False)
+        payload = response.read(64 * 1024 + 1)
+    if len(payload) > 64 * 1024:
+        raise IntegrityError("GHCR token response exceeded its maximum size")
+    try:
+        document = json.loads(payload)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise IntegrityError("GHCR token response is not valid JSON") from error
+    token = document.get("token") if isinstance(document, dict) else None
+    if (
+        not isinstance(token, str)
+        or not 16 <= len(token) <= 8192
+        or not token.isascii()
+        or any(character.isspace() or ord(character) < 0x20 for character in token)
+    ):
+        raise IntegrityError("GHCR token response has no valid bearer token")
+    return token
+
+
 def populate(
     lock: Mapping[str, Any],
     cache_dir: Path,
@@ -654,11 +878,18 @@ def populate(
         if mirror_base:
             url = _build_mirror_url(mirror_base, artifact["filename"])
         print(f"populating {component} ({platform_name})", file=sys.stderr)
+        request_headers = None
+        if component == "openssl" and mirror_base is None:
+            request_headers = {
+                "Authorization": "Bearer " + _ghcr_openssl_bearer_token()
+            }
         _download_verified(
             url,
             destination,
             artifact["sha256"],
             mirror=mirror_base is not None,
+            request_headers=request_headers,
+            expected_size=artifact.get("size"),
         )
 
 
@@ -1218,6 +1449,46 @@ def _resolve_with_xcrun(name: str, env: Mapping[str, str]) -> Path | None:
     return candidate.absolute() if candidate.is_file() else None
 
 
+def _resolve_macos_sdkroot(
+    *, xcrun: Path = Path("/usr/bin/xcrun")
+) -> Path:
+    """Resolve one real macOS SDK directory without caller-controlled xcrun state."""
+    candidate_xcrun = _lexical_absolute(xcrun)
+    try:
+        metadata = os.lstat(candidate_xcrun)
+    except OSError as error:
+        raise ToolchainError(f"cannot inspect macOS xcrun: {candidate_xcrun}") from error
+    if (
+        stat.S_ISLNK(metadata.st_mode)
+        or not stat.S_ISREG(metadata.st_mode)
+        or not os.access(candidate_xcrun, os.X_OK)
+    ):
+        raise ToolchainError(
+            f"macOS xcrun must be an executable regular non-symlink: {candidate_xcrun}"
+        )
+    result = subprocess.run(
+        [str(candidate_xcrun), "--sdk", "macosx", "--show-sdk-path"],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        check=False,
+        env={"PATH": "/usr/bin:/bin"},
+    )
+    lines = result.stdout.splitlines()
+    if result.returncode != 0 or len(lines) != 1 or not lines[0].strip():
+        raise ToolchainError("system xcrun did not return exactly one macOS SDK path")
+    sdkroot = Path(lines[0].strip())
+    if not sdkroot.is_absolute():
+        raise ToolchainError("system xcrun returned a non-absolute macOS SDK path")
+    try:
+        resolved = sdkroot.resolve(strict=True)
+    except OSError as error:
+        raise ToolchainError(f"macOS SDK path does not exist: {sdkroot}") from error
+    if not resolved.is_dir():
+        raise ToolchainError(f"macOS SDK path is not a directory: {resolved}")
+    return resolved
+
+
 def _infer_override_compiler_type(cc: Path, cxx: Path) -> str:
     cc_name = cc.name.lower()
     cxx_name = cxx.name.lower()
@@ -1249,6 +1520,11 @@ def resolve_cxx_tools(
     platform_entry: Mapping[str, Any],
     env: Mapping[str, str],
 ) -> dict[str, str]:
+    platform_fields = (
+        {"sdkroot": str(_resolve_macos_sdkroot())}
+        if platform_name.startswith("macos-")
+        else {}
+    )
     override_keys = {
         "cc": "BUCK2_CC",
         "cxx": "BUCK2_CXX",
@@ -1302,6 +1578,7 @@ def resolve_cxx_tools(
         return {
             **{name: str(path) for name, path in resolved_tools.items()},
             "compiler_type": compiler_type,
+            **platform_fields,
         }
 
     resolver = (
@@ -1337,6 +1614,7 @@ def resolve_cxx_tools(
                 "archiver": str(archiver),
                 "linker": str(linker),
                 "compiler_type": compiler_type,
+                **platform_fields,
             }
     raise ToolchainError(
         f"no complete configured C/C++ toolchain found for {platform_name}"
@@ -1410,7 +1688,12 @@ def _buck_config_args(
     cxx_tools: Mapping[str, str],
     platform_entry: Mapping[str, Any],
     python_url: str,
+    openssl_ssl_url: str,
+    openssl_crypto_url: str,
+    crate_archive_base_url: str,
+    crate_lock_sha256: str,
 ) -> list[str]:
+    openssl_libraries = platform_entry["openssl"]["static_libraries"]
     values = {
         "toolchain.rustc": rust_tools["rustc"],
         "toolchain.rustdoc": rust_tools["rustdoc"],
@@ -1423,7 +1706,18 @@ def _buck_config_args(
         "toolchain.compiler_type": cxx_tools["compiler_type"],
         "toolchain.python_archive_url": python_url,
         "toolchain.python_archive_sha256": platform_entry["python"]["sha256"],
+        "toolchain.openssl_ssl_url": openssl_ssl_url,
+        "toolchain.openssl_ssl_sha256": openssl_libraries["ssl"]["sha256"],
+        "toolchain.openssl_ssl_size": openssl_libraries["ssl"]["size"],
+        "toolchain.openssl_crypto_url": openssl_crypto_url,
+        "toolchain.openssl_crypto_sha256": openssl_libraries["crypto"]["sha256"],
+        "toolchain.openssl_crypto_size": openssl_libraries["crypto"]["size"],
+        "toolchain.crate_archive_base_url": crate_archive_base_url,
+        "toolchain.crate_lock_sha256": crate_lock_sha256,
+        "toolchain.repo_root": REPO_ROOT,
     }
+    if sdkroot := cxx_tools.get("sdkroot"):
+        values["toolchain.sdkroot"] = sdkroot
     result: list[str] = []
     for key, value in values.items():
         result.extend(["-c", f"{key}={value}"])
@@ -1431,13 +1725,24 @@ def _buck_config_args(
 
 
 def _compose_buck_command(
-    binary: Path, buck_args: Sequence[str], config_args: Sequence[str]
+    binary: Path,
+    buck_args: Sequence[str],
+    config_args: Sequence[str],
+    isolation_dir: str,
 ) -> list[str]:
+    if not re.fullmatch(r"hermetic-[0-9a-f-]+", isolation_dir):
+        raise ToolchainError("invalid wrapper-owned Buck2 isolation directory")
+    prefix = [str(binary), f"--isolation-dir={isolation_dir}"]
+    # Daemon control is not a configured build command. Buck2 rejects `-c` on
+    # `kill`, but the authenticated wrapper must still be able to retire a stale
+    # daemon after output cleanup or worktree relocation.
+    if buck_args == ["kill"]:
+        return [*prefix, "kill"]
     # `audit` is a command family; Buckconfig options belong to its leaf
     # subcommand (for example `audit providers -c ...`), not to `audit` itself.
     insertion_index = 2 if buck_args[0] == "audit" and len(buck_args) > 1 else 1
     return [
-        str(binary),
+        *prefix,
         *buck_args[:insertion_index],
         *config_args,
         *buck_args[insertion_index:],
@@ -1464,32 +1769,86 @@ def run_buck(
                 f"{rust_tools['rustc'].parent}{os.pathsep}{env.get('PATH', '')}"
             )
             child_env["RUSTUP_TOOLCHAIN"] = lock["rust"]["version"]
-            with local_mirror(cached["python"]) as python_url:
-                command = _compose_buck_command(
-                    buck2,
-                    buck_args,
-                    _buck_config_args(
-                        rust_tools, cxx_tools, platform_entry, python_url
-                    ),
-                )
-                buck_entry = platform_entry["buck2"]
-                buck_identity = {
-                    "sha256": buck_entry["binary_sha256"],
-                    "size": buck_entry["binary_size"],
-                }
-                buck_label = f"live Buck2 generation for {platform_name}"
-                _verified_file_identity(buck_fd, buck_identity, label=buck_label)
-                _assert_opened_executable_path(buck2, buck_fd, label=buck_label)
-                rust_identities = platform_entry["rust"]["executables"]
-                for name, path in rust_tools.items():
-                    label = f"live Rust tool {path.name} for {platform_name}"
-                    _verified_file_identity(
-                        rust_fds[name], rust_identities[path.name], label=label
+            crate_cache_dir = cache_dir / CRATE_CACHE_SUBDIR
+            with verified_openssl_static_libraries(
+                cached["openssl"], platform_entry["openssl"]
+            ) as openssl_libraries:
+                with (
+                    local_mirror(cached["python"]) as python_url,
+                    local_mirror(openssl_libraries["ssl"]) as openssl_ssl_url,
+                    local_mirror(openssl_libraries["crypto"]) as openssl_crypto_url,
+                    crate_cache.verified_cache(
+                        CRATE_LOCK_PATH, crate_cache_dir
+                    ) as crate_artifacts,
+                    crate_cache.local_mirror(crate_artifacts) as crate_mirror,
+                ):
+                    crate_lock_sha256 = hashlib.sha256(
+                        crate_cache.load_locked_crates(CRATE_LOCK_PATH)[0]
+                    ).hexdigest()
+                    command = _compose_buck_command(
+                        buck2,
+                        buck_args,
+                        _buck_config_args(
+                            rust_tools,
+                            cxx_tools,
+                            platform_entry,
+                            python_url,
+                            openssl_ssl_url,
+                            openssl_crypto_url,
+                            crate_mirror.base_url,
+                            crate_lock_sha256,
+                        ),
+                        "hermetic-" + buck2.name.removeprefix("buck2-generation-"),
                     )
-                    _assert_opened_executable_path(path, rust_fds[name], label=label)
-                return subprocess.run(
-                    command, cwd=REPO_ROOT, env=child_env, check=False
-                ).returncode
+                    buck_entry = platform_entry["buck2"]
+                    buck_identity = {
+                        "sha256": buck_entry["binary_sha256"],
+                        "size": buck_entry["binary_size"],
+                    }
+                    buck_label = f"live Buck2 generation for {platform_name}"
+                    _verified_file_identity(buck_fd, buck_identity, label=buck_label)
+                    _assert_opened_executable_path(buck2, buck_fd, label=buck_label)
+                    rust_identities = platform_entry["rust"]["executables"]
+                    for name, path in rust_tools.items():
+                        label = f"live Rust tool {path.name} for {platform_name}"
+                        _verified_file_identity(
+                            rust_fds[name], rust_identities[path.name], label=label
+                        )
+                        _assert_opened_executable_path(path, rust_fds[name], label=label)
+                    completed: subprocess.CompletedProcess[bytes] | None = None
+                    shutdown: subprocess.CompletedProcess[bytes] | None = None
+                    try:
+                        completed = subprocess.run(
+                            command, cwd=REPO_ROOT, env=child_env, check=False
+                        )
+                    finally:
+                        if buck_args != ["kill"]:
+                            shutdown = subprocess.run(
+                                _compose_buck_command(
+                                    buck2,
+                                    ["kill"],
+                                    [],
+                                    "hermetic-"
+                                    + buck2.name.removeprefix("buck2-generation-"),
+                                ),
+                                cwd=REPO_ROOT,
+                                env=child_env,
+                                check=False,
+                            )
+                    assert completed is not None
+                    if shutdown is not None and shutdown.returncode != 0:
+                        raise ToolchainError(
+                            "Buck2 daemon did not retire before authenticated generation cleanup"
+                        )
+            mirror_evidence = crate_mirror.evidence()
+            missing_routes = mirror_evidence.pop("missing_routes")
+            mirror_evidence["missing_route_count"] = len(missing_routes)
+            print(
+                "buck2-bootstrap-crate-mirror: "
+                + json.dumps(mirror_evidence, sort_keys=True),
+                file=sys.stderr,
+            )
+            return completed.returncode
 
 
 def doctor(
@@ -1515,7 +1874,12 @@ def doctor(
     }
     if not skip_cache:
         with verified_cached_artifacts(lock, cache_dir, platform_name) as cached:
-            with _materialized_toolchains(lock, platform_name, cached, env):
+            with (
+                _materialized_toolchains(lock, platform_name, cached, env),
+                verified_openssl_static_libraries(
+                    cached["openssl"], platform_entry["openssl"]
+                ),
+            ):
                 result["cache_verified"] = True
     return result
 
@@ -1547,6 +1911,19 @@ def build_parser() -> argparse.ArgumentParser:
     doctor_parser.add_argument("--cache-dir", type=Path, default=DEFAULT_CACHE)
     doctor_parser.add_argument("--platform")
     doctor_parser.add_argument("--skip-cache", action="store_true")
+
+    crate_populate_parser = subparsers.add_parser(
+        "populate-crates",
+        help="explicitly populate the Cargo.lock-exact offline crate archive cache",
+    )
+    crate_populate_parser.add_argument("--cache-dir", type=Path, default=DEFAULT_CACHE)
+    crate_populate_parser.add_argument("--source-dir", type=Path)
+    crate_populate_parser.add_argument("--allow-network", action="store_true")
+
+    crate_doctor_parser = subparsers.add_parser(
+        "doctor-crates", help="verify every cached Cargo.lock crate archive"
+    )
+    crate_doctor_parser.add_argument("--cache-dir", type=Path, default=DEFAULT_CACHE)
     return parser
 
 
@@ -1559,7 +1936,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     try:
         lock = load_lock()
-        platform_name = normalize_platform(args.platform)
+        platform_name = normalize_platform(getattr(args, "platform", None))
         env = dict(os.environ)
         if args.command == "populate":
             if not args.allow_network:
@@ -1573,6 +1950,37 @@ def main(argv: Sequence[str] | None = None) -> int:
                 args.components or SUPPORTED_COMPONENTS,
                 args.mirror_base,
             )
+            return 0
+        if args.command == "populate-crates":
+            result = crate_cache.populate(
+                CRATE_LOCK_PATH,
+                _lexical_absolute(args.cache_dir) / CRATE_CACHE_SUBDIR,
+                source_dir=(
+                    _lexical_absolute(args.source_dir)
+                    if args.source_dir is not None
+                    else None
+                ),
+                allow_network=args.allow_network,
+            )
+            print(json.dumps(result, sort_keys=True))
+            return 0
+        if args.command == "doctor-crates":
+            with crate_cache.verified_cache(
+                CRATE_LOCK_PATH,
+                _lexical_absolute(args.cache_dir) / CRATE_CACHE_SUBDIR,
+            ) as artifacts:
+                print(
+                    json.dumps(
+                        {
+                            "cache_verified": True,
+                            "package_count": len(artifacts),
+                            "lock_sha256": hashlib.sha256(
+                                crate_cache.load_locked_crates(CRATE_LOCK_PATH)[0]
+                            ).hexdigest(),
+                        },
+                        sort_keys=True,
+                    )
+                )
             return 0
         if args.command == "doctor":
             print(
@@ -1601,6 +2009,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     except ToolchainError as error:
         print(f"buck2-bootstrap: {error}", file=sys.stderr)
         return error.exit_code
+    except crate_cache.CrateCacheError as error:
+        print(f"buck2-bootstrap: {error}", file=sys.stderr)
+        return IntegrityError.exit_code
 
 
 if __name__ == "__main__":

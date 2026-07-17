@@ -15,7 +15,8 @@
 - **M4 (G005):** Excel exports (일일현황/업무일지 golden-file), KPI 7종 + executive dashboard/kiosk (T4.1–4.5).
 - **M5 (G006):** substitute matching (T5.1) · rental quote w/ negative-잔존가 flooring (T5.2) · cost ledger recompute (T5.3) · purchase/expenditure FSM (T5.4).
 - **M6 (G007):** oyatie AI port (T6.1) · Bitween identity port (T6.2) · CI-GATES.md (T6.3) · inspection domain (T6.4) · GO-LIVE-CHECKLIST.md (T6.5). Review→harden→fix: 7 confirmed findings fixed+verified (2 security in `ffc8081`, 5 correctness in `258f622`); reports in `.omc/review/`.
-- **Repository surfaces:** backend Cargo workspace, web React/Vite console, Android Kotlin/Compose app, and iOS SwiftPM/SwiftUI field app all exist in-tree. iOS also has `ios/project.yml` for CI-only XcodeGen XCUITest generation; the generated `.xcodeproj` is not committed, and TestFlight packaging/signing remains a release-lane concern.
+- **Repository surfaces:** backend Rust workspace, web React/Vite console, Android Kotlin/Compose app, and iOS SwiftPM/SwiftUI field app all exist in-tree. Buck2 is the sole backend Rust build/query/test authority; `backend/Cargo.toml` and the exact current `backend/Cargo.lock` remain dependency inputs, not an alternate verification path. iOS also has `ios/project.yml` for CI-only XcodeGen XCUITest generation; the generated `.xcodeproj` is not committed, and TestFlight packaging/signing remains a release-lane concern.
+- **Backend Rust authority (2026-07-17):** use `tools/buck/bootstrap/buck2w` only. The authenticated loopback mirror must materialize every one of the 583 registry archives bound to the current lock; the checked-in admission contract is exactly 22 query labels, 22 build labels, and 20 test labels. Cargo commands are not acceptable completion evidence.
 - **Verification status:** previous handoffs recorded green suites/gates and web/Android/iOS build-test evidence, but those counts were point-in-time. Do not copy legacy suite/test counts as current HEAD status; cite fresh CI/local output instead.
 - **Deployment claim boundary:** default `scripts/deploy.sh` is the documented path for a fresh "deployed and verified" claim: it must collect current Image Release digests plus live Argo/kubectl rollout, pod-image, and HTTP endpoint evidence. `--digest-bump-only` / `--bump-only` is desired-state-only for an explicit digest bump and must never be represented as deployed or verified.
 - **Ops lessons (persisted to memory):** never pipe codex exec stdout (stalls — confirmed again: both harden codex workers zombie-stalled 5h@0%CPU and were replaced by Claude executors); grep -c exits 1 on zero; sqlx prepare needs -- --all-targets; union-resolve shared-trailing-delimiter conflicts carefully (a union-strip dropped a Swift `}` + a ctor comma in the T2.2 merge — builds caught both).
@@ -30,12 +31,13 @@
 5. **No completion claims without fresh verification evidence** (build/test/clippy output in the same session).
 6. **Append-only migrations**; never destructive on `audit_events`.
 7. **PII/PIPA**: no phone numbers, GPS coords, or 주민번호 in logs (pii-no-logs gate, T0.4).
+8. **Buck2-only Rust evidence:** backend Rust claims require the checked-in 22-query/22-build/20-test admission set through the authenticated wrapper, with loopback-only execution and a 583/583 request-route receipt. Never substitute Cargo output, a partial mirror receipt, or a non-admitted label.
 
 ## 2. Repo topology
 
 | Path | Role |
 |------|------|
-| `backend/` | Rust Cargo workspace (modular monolith, `mnt-` prefix, layering `domain ← application ← adapter ← {rest,worker} ← app`) |
+| `backend/` | Rust workspace (modular monolith, `mnt-` prefix, layering `domain ← application ← adapter ← {rest,worker} ← app`). Buck2 labels are build authority; Cargo manifests/lock are dependency-model inputs. |
 | `backend/crates/kernel/core` | `mnt-kernel-core` — typed IDs, AuditEvent, BranchScope, TraceContext, errors, Clock |
 | `web/` | React/Vite web console workspace (`@console/web`) with lint/test/build scripts. Built assets in `web/dist/` are repository artifacts only, not deployment proof. |
 | `android/` | Kotlin/Compose field app Gradle project (`maintenance-field-android`) with JVM unit/Compose/Roborazzi and managed-device instrumented test topology. Play/internal-track release still requires signing and service-account secrets. |

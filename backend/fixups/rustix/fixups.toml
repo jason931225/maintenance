@@ -1,0 +1,4 @@
+# rustix build script sets the backend-selection cfgs (libc vs linux_raw) that
+# its `mod backend` path resolution depends on.
+[buildscript]
+run = true

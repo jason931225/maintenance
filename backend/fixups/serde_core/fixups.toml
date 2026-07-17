@@ -1,0 +1,7 @@
+# serde_core 1.0.228 build script: writes private.rs into OUT_DIR (consumed by
+# an include!) and reads CARGO_PKG_VERSION_PATCH, so it must run AND receive the
+# cargo package env.
+cargo_env = true
+
+[buildscript]
+run = true

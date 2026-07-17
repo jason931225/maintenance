@@ -3,3 +3,10 @@ python_library(
     srcs = ["backend_manifest_coverage.py"],
     visibility = ["PUBLIC"],
 )
+
+python_library(
+    name = "current-lock-rust-graph-lib",
+    base_module = "",
+    srcs = ["current_lock_rust_graph.py"],
+    visibility = ["PUBLIC"],
+)

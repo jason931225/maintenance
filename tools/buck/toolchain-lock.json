@@ -50,10 +50,41 @@
       },
       "cxx": {
         "compiler_type": "clang",
-        "cc_candidates": ["clang"],
-        "cxx_candidates": ["clang++"],
-        "archiver_candidates": ["llvm-ar", "ar"],
-        "linker_candidates": ["clang"]
+        "cc_candidates": [
+          "clang"
+        ],
+        "cxx_candidates": [
+          "clang++"
+        ],
+        "archiver_candidates": [
+          "llvm-ar",
+          "ar"
+        ],
+        "linker_candidates": [
+          "clang"
+        ]
+      },
+      "openssl": {
+        "version": "3.6.3",
+        "bottle_tag": "3.6.3.arm64_tahoe",
+        "filename": "openssl-3.6.3-macos-aarch64.bottle.tar.gz",
+        "url": "https://ghcr.io/v2/homebrew/core/openssl/3/blobs/sha256:235c30e706c96896ce2be9a38032bf54f46b2aaa1e7193d3cdd73446124fc7be",
+        "sha256": "235c30e706c96896ce2be9a38032bf54f46b2aaa1e7193d3cdd73446124fc7be",
+        "size": 10916109,
+        "static_libraries": {
+          "ssl": {
+            "filename": "libssl.a",
+            "archive_path": "openssl@3/3.6.3/lib/libssl.a",
+            "sha256": "a27512485965c2f09089f477ec4046dc5c73dc26a2164e1a6279338948e54a41",
+            "size": 1464624
+          },
+          "crypto": {
+            "filename": "libcrypto.a",
+            "archive_path": "openssl@3/3.6.3/lib/libcrypto.a",
+            "sha256": "98364074866ff1af72a538d41757b03677befa2b91f075962f921a76beef32d3",
+            "size": 8575136
+          }
+        }
       }
     },
     "macos-x86_64": {
@@ -91,10 +122,41 @@
       },
       "cxx": {
         "compiler_type": "clang",
-        "cc_candidates": ["clang"],
-        "cxx_candidates": ["clang++"],
-        "archiver_candidates": ["llvm-ar", "ar"],
-        "linker_candidates": ["clang"]
+        "cc_candidates": [
+          "clang"
+        ],
+        "cxx_candidates": [
+          "clang++"
+        ],
+        "archiver_candidates": [
+          "llvm-ar",
+          "ar"
+        ],
+        "linker_candidates": [
+          "clang"
+        ]
+      },
+      "openssl": {
+        "version": "3.6.3",
+        "bottle_tag": "3.6.3.tahoe",
+        "filename": "openssl-3.6.3-macos-x86_64.bottle.tar.gz",
+        "url": "https://ghcr.io/v2/homebrew/core/openssl/3/blobs/sha256:993f3d2010d96601e842bcb2691cd02bea288993c7a48e785ff8649da8e00d07",
+        "sha256": "993f3d2010d96601e842bcb2691cd02bea288993c7a48e785ff8649da8e00d07",
+        "size": 10118621,
+        "static_libraries": {
+          "ssl": {
+            "filename": "libssl.a",
+            "archive_path": "openssl@3/3.6.3/lib/libssl.a",
+            "sha256": "72c256ad838c50005a0457113c1695ec74dfaa49a8740c53feedbcd8447353b7",
+            "size": 1430048
+          },
+          "crypto": {
+            "filename": "libcrypto.a",
+            "archive_path": "openssl@3/3.6.3/lib/libcrypto.a",
+            "sha256": "2708f869be781c9e868c7882df05a5b1d3335560bd37edf156c3a0abea41c2aa",
+            "size": 8792008
+          }
+        }
       }
     },
     "linux-aarch64": {
@@ -132,10 +194,44 @@
       },
       "cxx": {
         "compiler_type": "clang",
-        "cc_candidates": ["clang", "gcc"],
-        "cxx_candidates": ["clang++", "g++"],
-        "archiver_candidates": ["llvm-ar", "ar"],
-        "linker_candidates": ["clang", "gcc"]
+        "cc_candidates": [
+          "clang",
+          "gcc"
+        ],
+        "cxx_candidates": [
+          "clang++",
+          "g++"
+        ],
+        "archiver_candidates": [
+          "llvm-ar",
+          "ar"
+        ],
+        "linker_candidates": [
+          "clang",
+          "gcc"
+        ]
+      },
+      "openssl": {
+        "version": "3.6.3",
+        "bottle_tag": "3.6.3.arm64_linux",
+        "filename": "openssl-3.6.3-linux-aarch64.bottle.tar.gz",
+        "url": "https://ghcr.io/v2/homebrew/core/openssl/3/blobs/sha256:26d8dbc4880e3e4c95639d72c194b03eeb91b302b847680cdbb2f5c66e42e79a",
+        "sha256": "26d8dbc4880e3e4c95639d72c194b03eeb91b302b847680cdbb2f5c66e42e79a",
+        "size": 12045709,
+        "static_libraries": {
+          "ssl": {
+            "filename": "libssl.a",
+            "archive_path": "openssl@3/3.6.3/lib/libssl.a",
+            "sha256": "8a4e05c5c99a96945ff7733eb4c216aa67257f1e5ca9f0fcf12ddbb2ba499958",
+            "size": 2170846
+          },
+          "crypto": {
+            "filename": "libcrypto.a",
+            "archive_path": "openssl@3/3.6.3/lib/libcrypto.a",
+            "sha256": "b3406de4db99e2d3b6a084e6351be37ad9380cbe2ea8250c01b0e56bd0ca3e8a",
+            "size": 12392022
+          }
+        }
       }
     },
     "linux-x86_64": {
@@ -173,10 +269,44 @@
       },
       "cxx": {
         "compiler_type": "clang",
-        "cc_candidates": ["clang", "gcc"],
-        "cxx_candidates": ["clang++", "g++"],
-        "archiver_candidates": ["llvm-ar", "ar"],
-        "linker_candidates": ["clang", "gcc"]
+        "cc_candidates": [
+          "clang",
+          "gcc"
+        ],
+        "cxx_candidates": [
+          "clang++",
+          "g++"
+        ],
+        "archiver_candidates": [
+          "llvm-ar",
+          "ar"
+        ],
+        "linker_candidates": [
+          "clang",
+          "gcc"
+        ]
+      },
+      "openssl": {
+        "version": "3.6.3",
+        "bottle_tag": "3.6.3.x86_64_linux",
+        "filename": "openssl-3.6.3-linux-x86_64.bottle.tar.gz",
+        "url": "https://ghcr.io/v2/homebrew/core/openssl/3/blobs/sha256:2f71820c8bec00c0e957dc5f20e3b0a651ec07b9c0540d08397b69df2478e3d5",
+        "sha256": "2f71820c8bec00c0e957dc5f20e3b0a651ec07b9c0540d08397b69df2478e3d5",
+        "size": 11110976,
+        "static_libraries": {
+          "ssl": {
+            "filename": "libssl.a",
+            "archive_path": "openssl@3/3.6.3/lib/libssl.a",
+            "sha256": "2ee2a28ac3dd5591fc98f72fc24f77bbb1fb632a2cf7f8114842028f9f6079f8",
+            "size": 2049870
+          },
+          "crypto": {
+            "filename": "libcrypto.a",
+            "archive_path": "openssl@3/3.6.3/lib/libcrypto.a",
+            "sha256": "8593fa476277876b5f681a12e67f21932b1a98b97dbd65acfdee6cd65f3616e2",
+            "size": 11995378
+          }
+        }
       }
     }
   }

@@ -32,4 +32,7 @@
   execution_platforms = prelude//platforms:default
 
 [project]
-  ignore = .git
+  # The authenticated toolchain/source cache is an input boundary, not source.
+  # Excluding it keeps the daemon from watching hundreds of thousands of
+  # materialized toolchain files on every wrapper invocation.
+  ignore = .git,tools/buck/bootstrap/cache

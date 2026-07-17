@@ -118,6 +118,19 @@ The repo is a broad B2B console, not an FSM. Risk-tiered execution:
 **Infra/deployment:** **unify duplicated CI string-parity allowlists** (scripts/check-i18n.mjs + an inline heredoc copy in ci.yml mobile-parity — two divergent maps caused 3 failed ship rounds; single source or have the inline step call the script) · **finish buck2 migration + adopt for local lane builds** (worktree ../maintenance-buck2 ~58/61 crates green; kills the two Cargo taxes this program paid 3x: global workspace-load breaks from one half-scaffolded Cargo.toml, and target/ lock contention across parallel lanes — force-multiplier for the multi-agent model; consider pulling forward if scaffold-breaks keep costing) · §17 enterprise standard (SSO SAML/OIDC + SCIM 2.0, KMS-envelope at-rest, OpenTelemetry, SIEM/OCSF export, TSA anchoring service) · DLP tier-3 deployment requirement docs (enterprise browser/VDI·RBI/MDM — §13.1, no ungated export paths audit as an ops gate) · WORM/object-lock bucket ops + retention runbooks · Tier-2 rebrand migration (repo→console, ghcr paths, Argo/k8s, CI) · bare-metal portability mandate alignment (retrospectively mapped on 2026-07-13 to ADR-0024; this 2026-07-10 register predates its acceptance) · mnt-gate additions for new engine invariants (e.g. no-hard-delete gate, migration-safety already passing).
 **Epics (documented, later):** office editor (ONLYOFFICE fork, AGPL gate) · 규제 PII/multi-jurisdiction (Jurisdiction/Consent/DSR objects) · forecast/quant module full build · contract C- lifecycle module · access-grant TTL tokens (break-glass).
 
+### Rust build-authority supersession — 2026-07-17
+- This entry supersedes the 2026-07-10 backlog text that says to "finish buck2 migration" and the later
+  historical non-blocking Buck2 charter. Backend Rust query/build/test authority is now Buck2-only;
+  Cargo manifests and the exact current lock remain dependency inputs, while Cargo commands are not
+  verification evidence.
+- The admitted contract is fixed at **22 query / 22 build / 20 test** labels and includes the executable
+  ontology contract precursor. All 583 current-lock registry archives are checksum-bound and must be
+  fetched through the authenticated loopback mirror with exact request-route evidence.
+- Canonical production SQLx migrations retain their bytes, order, and SQLx semantics. One Buck helper
+  stages the same 164 files at each admitted consumer's manifest-relative
+  `backend/crates/platform/db/migrations` path; the platform-DB sentinel independently binds ordered
+  filename/SHA-256 identities, embedded SQL checksums, post-migrate relations, and the 164-row ledger.
+
 ### Delta log — 2026-07-10 (2nd check, baseline (87) → (91)): ZERO ACT-NOW, all REGISTER
 (88) 분석·감시 감시-규칙 직행 저작 · (89/90) DLP layer-1 hardening 2차/3차 (context-menu replace, devtools suppress+detect→session lock; 완전방어=계층3) · (91) leave 카드 존 = CARD_META window-model applied to leave (additive reuse) · HANDOFF §13.1 export-path gate inventory confirmed · TODO 실행 큐(1–23) + 10-레인 스코어보드 + 대근 사전 계획 directive. All appended to the post-replica register. DESIGN.md unchanged — §4-26 still the newest invariant.
 

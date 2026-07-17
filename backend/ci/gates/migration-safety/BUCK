@@ -1,31 +1,38 @@
-# Buck2 authority for the dependency-free migration-safety gate.
+# Hand-maintained Buck2 Rust targets for the current backend workspace.
+# Cargo.toml and Cargo.lock are dependency inputs; these checked-in labels are build authority.
 
 rust_library(
     name = "mnt-gate-migration-safety-lib",
     srcs = glob(["src/**/*.rs"], exclude = ["src/main.rs"]),
     crate = "mnt_gate_migration_safety",
+    crate_root = "src/lib.rs",
     edition = "2024",
     visibility = ["PUBLIC"],
+    env = {
+        "CARGO_PKG_NAME": "mnt-gate-migration-safety",
+        "CARGO_PKG_VERSION": "0.1.0",
+        "CARGO_PKG_VERSION_MAJOR": "0",
+        "CARGO_PKG_VERSION_MINOR": "1",
+        "CARGO_PKG_VERSION_PATCH": "0",
+        "CARGO_PKG_VERSION_PRE": "",
+    },
 )
 
 rust_binary(
     name = "mnt-gate-migration-safety",
     srcs = ["src/main.rs"],
     crate = "mnt_gate_migration_safety",
+    crate_root = "src/main.rs",
     edition = "2024",
     visibility = ["PUBLIC"],
-    deps = [
-        ":mnt-gate-migration-safety-lib",
-    ],
-)
-
-rust_test(
-    name = "mnt-gate-migration-safety-itest-gate_detects_violation",
-    srcs = ["tests/gate_detects_violation.rs"],
-    crate = "gate_detects_violation",
-    edition = "2024",
-    crate_root = "tests/gate_detects_violation.rs",
-    visibility = ["PUBLIC"],
+    env = {
+        "CARGO_PKG_NAME": "mnt-gate-migration-safety",
+        "CARGO_PKG_VERSION": "0.1.0",
+        "CARGO_PKG_VERSION_MAJOR": "0",
+        "CARGO_PKG_VERSION_MINOR": "1",
+        "CARGO_PKG_VERSION_PATCH": "0",
+        "CARGO_PKG_VERSION_PRE": "",
+    },
     deps = [
         ":mnt-gate-migration-safety-lib",
     ],

@@ -271,11 +271,35 @@ class BackendManifestCoverageTest(unittest.TestCase):
             self.assertEqual((label,), REAL_BUCK2_RUST_TARGETS(self.repo, label))
 
         command = run.call_args.args[0]
-        self.assertEqual(["buck2", "uquery", "--json"], command[:3])
+        self.assertEqual(
+            [str(self.repo / coverage.BUCK2_WRAPPER), "uquery", "--json"],
+            command[:3],
+        )
         self.assertEqual(
             f'kind("{coverage.RUST_KIND_PATTERN}", {label})', command[3]
         )
         self.assertFalse(run.call_args.kwargs["check"])
+
+    def test_many_declared_targets_use_one_authenticated_batch_query(self) -> None:
+        entries = tuple(
+            {
+                "disposition": "declared",
+                "label": f"//backend/crates/pkg-{index}:pkg-{index}",
+                "manifest": f"backend/crates/pkg-{index}/Cargo.toml",
+                "reason": "fixture",
+            }
+            for index in range(9)
+        )
+        labels = tuple(entry["label"] for entry in entries)
+        with (
+            mock.patch.object(
+                coverage, "_buck2_all_backend_rust_targets", return_value=labels
+            ) as batch,
+            mock.patch.object(coverage, "_buck2_rust_targets") as per_label,
+        ):
+            coverage._prove_declared_rust_targets(self.repo, entries)
+        batch.assert_called_once_with(self.repo)
+        per_label.assert_not_called()
 
     def test_manifest_symlink_outside_repo_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as external_dir:

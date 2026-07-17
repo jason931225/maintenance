@@ -1,0 +1,8 @@
+# cedar-policy-core generates parser and schema-validator Rust modules from its
+# checked-in LALRPOP grammars.  The library includes those OUT_DIR artifacts,
+# so the real build script and its lalrpop build dependency must be modeled in
+# the Buck2 graph rather than replaced with checked-in or placeholder output.
+cargo_env = true
+
+[buildscript]
+run = true
