@@ -37,6 +37,7 @@ LOCK_PATH = REPO_ROOT / "tools" / "buck" / "toolchain-lock.json"
 DEFAULT_CACHE = REPO_ROOT / "tools" / "buck" / "bootstrap" / "cache"
 SUPPORTED_COMPONENTS = ("buck2", "rust", "python")
 SAFE_FILENAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._+-]{0,254}$")
+SHA256 = re.compile(r"^[0-9a-f]{64}$")
 UPSTREAM_REDIRECT_HOSTS = {
     "github.com": frozenset(
         {
@@ -200,6 +201,47 @@ def _sha256_fd(fd: int) -> str:
         offset += len(chunk)
 
 
+def _validate_locked_identity(identity: Any, *, label: str) -> None:
+    if not isinstance(identity, Mapping):
+        raise ToolchainError(f"{label} identity must be an object")
+    digest = identity.get("sha256")
+    size = identity.get("size")
+    if not isinstance(digest, str) or not SHA256.fullmatch(digest):
+        raise ToolchainError(f"invalid {label} SHA-256")
+    if type(size) is not int or size <= 0:
+        raise ToolchainError(f"invalid {label} size")
+
+
+def _verified_file_identity(
+    fd: int, expected: Mapping[str, Any], *, label: str
+) -> os.stat_result:
+    before = os.fstat(fd)
+    if not stat.S_ISREG(before.st_mode):
+        raise IntegrityError(f"{label} is not a regular file")
+    expected_size = expected.get("size")
+    if type(expected_size) is not int or expected_size <= 0:
+        raise ToolchainError(f"{label} has no valid locked size")
+    if before.st_size != expected_size:
+        raise IntegrityError(
+            f"{label} failed size verification: expected {expected_size}, got {before.st_size}"
+        )
+    expected_digest = expected.get("sha256")
+    if not isinstance(expected_digest, str) or not SHA256.fullmatch(expected_digest):
+        raise ToolchainError(f"{label} has no valid locked SHA-256")
+    actual_digest = _sha256_fd(fd)
+    after = os.fstat(fd)
+    if (
+        (before.st_dev, before.st_ino) != (after.st_dev, after.st_ino)
+        or before.st_size != after.st_size
+        or before.st_mtime_ns != after.st_mtime_ns
+        or before.st_ctime_ns != after.st_ctime_ns
+    ):
+        raise IntegrityError(f"{label} changed during identity verification")
+    if actual_digest != expected_digest:
+        raise IntegrityError(f"{label} failed SHA-256 verification")
+    return after
+
+
 @contextlib.contextmanager
 def _open_regular_at(
     parent_fd: int, filename: str, *, component: str
@@ -242,7 +284,6 @@ def load_lock(path: Path = LOCK_PATH) -> dict[str, Any]:
     if value.get("rust", {}).get("version") != "1.96.0":
         raise ToolchainError("Rust toolchain lock must remain at 1.96.0")
 
-    digest = re.compile(r"^[0-9a-f]{64}$")
     platforms = value.get("platforms", {})
     expected = {
         "macos-aarch64",
@@ -255,7 +296,7 @@ def load_lock(path: Path = LOCK_PATH) -> dict[str, Any]:
     for platform_name, entry in platforms.items():
         for component in SUPPORTED_COMPONENTS:
             component_entry = entry.get(component, {})
-            if not digest.fullmatch(component_entry.get("sha256", "")):
+            if not SHA256.fullmatch(component_entry.get("sha256", "")):
                 raise ToolchainError(
                     f"invalid {component} digest for platform {platform_name}"
                 )
@@ -278,6 +319,27 @@ def load_lock(path: Path = LOCK_PATH) -> dict[str, Any]:
                 raise ToolchainError(
                     f"{component} URL filename does not match its safe basename for {platform_name}"
                 )
+            if component == "buck2":
+                _validate_locked_identity(
+                    {
+                        "sha256": component_entry.get("binary_sha256"),
+                        "size": component_entry.get("binary_size"),
+                    },
+                    label=f"Buck2 binary for platform {platform_name}",
+                )
+            elif component == "rust":
+                executables = component_entry.get("executables")
+                expected_tools = {"rustc", "rustdoc", "clippy-driver"}
+                if not isinstance(executables, dict) or set(executables) != expected_tools:
+                    raise ToolchainError(
+                        "Rust executable identity matrix is incomplete for platform "
+                        f"{platform_name}"
+                    )
+                for executable, identity in executables.items():
+                    _validate_locked_identity(
+                        identity,
+                        label=f"Rust {executable} for platform {platform_name}",
+                    )
     return value
 
 
@@ -587,10 +649,104 @@ def populate(
         )
 
 
-def _run_checked(command: Sequence[str], *, cwd: Path | None = None) -> str:
+def _trusted_host_shell() -> str:
+    for candidate in (Path("/bin/sh"), Path("/usr/bin/sh")):
+        try:
+            resolved = Path(os.path.realpath(candidate))
+            metadata = resolved.stat()
+        except FileNotFoundError:
+            continue
+        if resolved.is_absolute() and stat.S_ISREG(metadata.st_mode) and os.access(
+            resolved, os.X_OK
+        ):
+            return str(resolved)
+    raise ToolchainError("no trusted absolute host shell is available")
+
+
+def _trusted_zstd_decoder() -> str:
+    for candidate in (
+        Path("/usr/bin/zstd"),
+        Path("/bin/zstd"),
+        Path("/usr/local/bin/zstd"),
+        Path("/opt/homebrew/bin/zstd"),
+        Path("/usr/bin/unzstd"),
+        Path("/bin/unzstd"),
+        Path("/usr/local/bin/unzstd"),
+        Path("/opt/homebrew/bin/unzstd"),
+    ):
+        try:
+            resolved = Path(os.path.realpath(candidate))
+            metadata = resolved.stat()
+        except FileNotFoundError:
+            continue
+        if (
+            resolved.is_absolute()
+            and stat.S_ISREG(metadata.st_mode)
+            and metadata.st_mode & 0o022 == 0
+            and os.access(resolved, os.X_OK)
+        ):
+            return str(resolved)
+    raise ToolchainError(
+        "no trusted absolute zstd decoder is available and this Python lacks compression.zstd"
+    )
+
+
+def _assert_opened_executable_path(path: Path, fd: int, *, label: str) -> None:
+    if not path.is_absolute():
+        raise IntegrityError(f"{label} execution path is not absolute")
+    try:
+        path_metadata = path.lstat()
+    except FileNotFoundError as error:
+        raise IntegrityError(f"{label} path disappeared before execution") from error
+    opened_metadata = os.fstat(fd)
+    if stat.S_ISLNK(path_metadata.st_mode) or not stat.S_ISREG(path_metadata.st_mode):
+        raise IntegrityError(f"{label} execution path is not a regular file")
+    if not stat.S_ISREG(opened_metadata.st_mode):
+        raise IntegrityError(f"{label} opened file is not regular")
+    if opened_metadata.st_mode & 0o111 == 0:
+        raise IntegrityError(f"{label} opened file is not executable")
+    if (path_metadata.st_dev, path_metadata.st_ino) != (
+        opened_metadata.st_dev,
+        opened_metadata.st_ino,
+    ):
+        raise IntegrityError(f"{label} path changed after authentication")
+
+
+def _run_checked(
+    command: Sequence[str],
+    *,
+    cwd: Path | None = None,
+    verified_executable_fd: int | None = None,
+    verified_executable_identity: Mapping[str, Any] | None = None,
+    verified_executable_label: str | None = None,
+    pass_fds: Sequence[int] = (),
+) -> str:
+    resolved_command = list(command)
+    child_env: Mapping[str, str] | None = None
+    if verified_executable_fd is not None:
+        if not resolved_command or verified_executable_identity is None:
+            raise ToolchainError("verified executable execution requires a command and identity")
+        label = verified_executable_label or "authenticated executable"
+        _verified_file_identity(
+            verified_executable_fd,
+            verified_executable_identity,
+            label=label,
+        )
+        _assert_opened_executable_path(
+            Path(resolved_command[0]), verified_executable_fd, label=label
+        )
+    if resolved_command and resolved_command[0] == "sh":
+        resolved_command[0] = _trusted_host_shell()
+        child_env = {
+            "PATH": os.pathsep.join(("/usr/bin", "/bin")),
+            "LANG": "C",
+            "LC_ALL": "C",
+        }
     result = subprocess.run(
-        command,
+        resolved_command,
         cwd=cwd,
+        env=child_env,
+        pass_fds=tuple(pass_fds),
         text=True,
         stdout=subprocess.PIPE,
         stderr=subprocess.PIPE,
@@ -598,7 +754,7 @@ def _run_checked(command: Sequence[str], *, cwd: Path | None = None) -> str:
     )
     if result.returncode != 0:
         detail = result.stderr.strip() or result.stdout.strip()
-        raise ToolchainError(f"command failed ({command[0]}): {detail}")
+        raise ToolchainError(f"command failed ({resolved_command[0]}): {detail}")
     return result.stdout.strip()
 
 
@@ -611,19 +767,6 @@ def _remove_tree_at(parent_fd: int, name: str) -> None:
     if not shutil.rmtree.avoids_symlink_attacks:
         raise ToolchainError("secure directory cleanup is unavailable on this platform")
     shutil.rmtree(name, dir_fd=parent_fd)
-
-
-def _cleanup_generated_entries(
-    parent_fd: int, *, file_prefixes: Sequence[str], directory_prefixes: Sequence[str]
-) -> None:
-    for name in os.listdir(parent_fd):
-        if any(name.startswith(prefix) for prefix in file_prefixes):
-            metadata = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
-            if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
-                raise IntegrityError(f"generated file path is not a regular file: {name}")
-            os.unlink(name, dir_fd=parent_fd)
-        elif any(name.startswith(prefix) for prefix in directory_prefixes):
-            _remove_tree_at(parent_fd, name)
 
 
 def _reject_or_remove_legacy_buck2(bin_fd: int) -> None:
@@ -684,20 +827,61 @@ def _reject_or_remove_legacy_rust(component_fd: int) -> None:
     _remove_tree_at(component_fd, "install")
 
 
-def _decompress_buck2(
-    zstd: str, archive: VerifiedArtifact, output: BinaryIO
-) -> None:
-    with archive.open_reader() as input_stream:
-        result = subprocess.run(
-            [zstd, "-d", "-c"],
-            stdin=input_stream,
-            stdout=output,
-            stderr=subprocess.PIPE,
-            check=False,
-        )
-    if result.returncode != 0:
-        detail = result.stderr.decode(errors="replace").strip()
-        raise ToolchainError(f"command failed ({zstd}): {detail}")
+def _decompress_buck2(archive: VerifiedArtifact, output: BinaryIO) -> None:
+    try:
+        from compression import zstd
+    except ModuleNotFoundError:
+        decoder = _trusted_zstd_decoder()
+        with archive.open_reader() as input_stream:
+            result = subprocess.run(
+                [decoder, "-d", "-c"],
+                stdin=input_stream,
+                stdout=output,
+                stderr=subprocess.PIPE,
+                env={
+                    "PATH": os.pathsep.join(("/usr/bin", "/bin")),
+                    "LANG": "C",
+                    "LC_ALL": "C",
+                },
+                check=False,
+            )
+        if result.returncode != 0:
+            detail = result.stderr.decode(errors="replace").strip()
+            raise ToolchainError(f"command failed ({decoder}): {detail}")
+        return
+
+    try:
+        with archive.open_reader() as input_stream, zstd.open(
+            input_stream, "rb"
+        ) as decompressed:
+            shutil.copyfileobj(decompressed, output, length=1024 * 1024)
+    except (OSError, zstd.ZstdError) as error:
+        raise ToolchainError(f"cannot decompress pinned Buck2 archive: {error}") from error
+
+
+@contextlib.contextmanager
+def _open_verified_executable(
+    path: Path, expected: Mapping[str, Any], *, label: str
+) -> Iterator[int]:
+    name = _safe_basename(path.name, label=label)
+    with _secure_directory(path.parent, create=False) as parent_fd:
+        metadata = os.stat(name, dir_fd=parent_fd, follow_symlinks=False)
+        if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
+            raise IntegrityError(f"{label} is not a regular file")
+        descriptor = os.open(name, _READ_FLAGS, dir_fd=parent_fd)
+        try:
+            opened = os.fstat(descriptor)
+            if (metadata.st_dev, metadata.st_ino) != (
+                opened.st_dev,
+                opened.st_ino,
+            ):
+                raise IntegrityError(f"{label} changed while opening")
+            if opened.st_mode & 0o111 == 0:
+                raise IntegrityError(f"{label} is not executable")
+            _verified_file_identity(descriptor, expected, label=label)
+            yield descriptor
+        finally:
+            os.close(descriptor)
 
 
 def materialize_buck2(
@@ -706,72 +890,73 @@ def materialize_buck2(
     archive: VerifiedArtifact,
     env: Mapping[str, str],
 ) -> Path:
+    del env  # Caller PATH must never select executable decompression code.
     component_dir = archive.path.parent
     bin_dir = component_dir / "bin"
+    buck_entry = lock["platforms"][platform_name]["buck2"]
+    binary_identity = {
+        "sha256": buck_entry["binary_sha256"],
+        "size": buck_entry["binary_size"],
+    }
     with _secure_directory(bin_dir, create=True) as bin_fd:
         _reject_or_remove_legacy_buck2(bin_fd)
-        zstd = shutil.which("zstd", path=env.get("PATH")) or shutil.which(
-            "unzstd", path=env.get("PATH")
-        )
-        if not zstd:
-            raise ToolchainError(
-                "zstd is required to materialize the pinned Buck2 binary"
-            )
-        _cleanup_generated_entries(
-            bin_fd,
-            file_prefixes=(".buck2-stage-", "buck2-generation-"),
-            directory_prefixes=(),
-        )
         stage_name = f".buck2-stage-{secrets.token_hex(16)}"
         final_name = f"buck2-generation-{archive.sha256[:16]}-{secrets.token_hex(16)}"
         stage_flags = (
-            os.O_WRONLY
+            os.O_RDWR
             | os.O_CREAT
             | os.O_EXCL
             | getattr(os, "O_CLOEXEC", 0)
             | getattr(os, "O_NOFOLLOW", 0)
         )
-        stage_fd = os.open(stage_name, stage_flags, 0o500, dir_fd=bin_fd)
+        stage_fd = os.open(stage_name, stage_flags, 0o600, dir_fd=bin_fd)
         published = False
         try:
-            with os.fdopen(stage_fd, "wb", closefd=True) as output:
-                _decompress_buck2(zstd, archive, output)
+            with os.fdopen(stage_fd, "w+b", closefd=True) as output:
+                _decompress_buck2(archive, output)
                 output.flush()
                 os.fsync(output.fileno())
+                stage_label = f"staged Buck2 binary for {platform_name}"
+                _verified_file_identity(
+                    output.fileno(), binary_identity, label=stage_label
+                )
                 os.fchmod(output.fileno(), 0o500)
-            stage_metadata = os.stat(
-                stage_name, dir_fd=bin_fd, follow_symlinks=False
-            )
-            if not stat.S_ISREG(stage_metadata.st_mode):
-                raise IntegrityError("fresh Buck2 staging output is not a regular file")
-            staged_binary = bin_dir / stage_name
-            version = _run_checked([str(staged_binary), "--version"])
-            expected_version = f"buck2 {lock['buck2']['version']}"
-            if version != expected_version:
-                raise IntegrityError(
-                    f"pinned Buck2 version mismatch for {platform_name}: {version}"
+                staged_binary = bin_dir / stage_name
+                version = _run_checked(
+                    [str(staged_binary), "--version"],
+                    verified_executable_fd=output.fileno(),
+                    verified_executable_identity=binary_identity,
+                    verified_executable_label=stage_label,
                 )
-            try:
-                os.link(
-                    stage_name,
-                    final_name,
-                    src_dir_fd=bin_fd,
-                    dst_dir_fd=bin_fd,
-                    follow_symlinks=False,
+                expected_version = f"buck2 {lock['buck2']['version']}"
+                if version != expected_version:
+                    raise IntegrityError(
+                        f"pinned Buck2 version mismatch for {platform_name}: {version}"
+                    )
+                verified_stage_metadata = os.fstat(output.fileno())
+                try:
+                    os.link(
+                        stage_name,
+                        final_name,
+                        src_dir_fd=bin_fd,
+                        dst_dir_fd=bin_fd,
+                        follow_symlinks=False,
+                    )
+                except FileExistsError as error:
+                    raise IntegrityError("fresh Buck2 generation name collided") from error
+                final_metadata = os.stat(
+                    final_name, dir_fd=bin_fd, follow_symlinks=False
                 )
-            except FileExistsError as error:
-                raise IntegrityError("fresh Buck2 generation name collided") from error
-            final_metadata = os.stat(
-                final_name, dir_fd=bin_fd, follow_symlinks=False
-            )
-            if (stage_metadata.st_dev, stage_metadata.st_ino) != (
-                final_metadata.st_dev,
-                final_metadata.st_ino,
-            ):
-                os.unlink(final_name, dir_fd=bin_fd)
-                raise IntegrityError("fresh Buck2 generation was not published atomically")
-            published = True
-            os.fsync(bin_fd)
+                if (verified_stage_metadata.st_dev, verified_stage_metadata.st_ino) != (
+                    final_metadata.st_dev,
+                    final_metadata.st_ino,
+                ):
+                    os.unlink(final_name, dir_fd=bin_fd)
+                    raise IntegrityError(
+                        "fresh Buck2 generation was not published from the authenticated stage"
+                    )
+                published = True
+                os.fsync(bin_fd)
         finally:
             try:
                 os.unlink(stage_name, dir_fd=bin_fd)
@@ -784,7 +969,16 @@ def materialize_buck2(
                     pass
 
     binary = bin_dir / final_name
-    version = _run_checked([str(binary), "--version"])
+    final_label = f"published Buck2 binary for {platform_name}"
+    with _open_verified_executable(
+        binary, binary_identity, label=final_label
+    ) as binary_fd:
+        version = _run_checked(
+            [str(binary), "--version"],
+            verified_executable_fd=binary_fd,
+            verified_executable_identity=binary_identity,
+            verified_executable_label=final_label,
+        )
     expected_version = f"buck2 {lock['buck2']['version']}"
     if version != expected_version:
         raise IntegrityError(
@@ -793,54 +987,66 @@ def materialize_buck2(
     return binary
 
 
-def _verify_rust_install(lock: Mapping[str, Any], install: Path) -> dict[str, Path]:
+def _parse_unique_rustc_fields(verbose: str) -> dict[str, str]:
+    fields: dict[str, str] = {}
+    for line in verbose.splitlines():
+        key, separator, value = line.partition(":")
+        if not separator:
+            continue
+        key = key.strip()
+        if not key:
+            continue
+        if key in fields:
+            raise IntegrityError(f"duplicate Rust compiler identity field: {key}")
+        fields[key] = value.strip()
+    return fields
+
+
+def _verify_rust_install(
+    lock: Mapping[str, Any], platform_name: str, install: Path
+) -> dict[str, Path]:
     tools = {
         "rustc": install / "bin" / "rustc",
         "rustdoc": install / "bin" / "rustdoc",
         "clippy_driver": install / "bin" / "clippy-driver",
     }
-    with _secure_directory(install / "bin", create=False) as bin_fd:
+    expected_executables = lock["platforms"][platform_name]["rust"]["executables"]
+    with contextlib.ExitStack() as opened_tools:
+        descriptors: dict[str, int] = {}
         missing: list[str] = []
         for name, path in tools.items():
             filename = path.name
+            label = f"materialized Rust tool {filename} for {platform_name}"
             try:
-                metadata = os.stat(
-                    filename, dir_fd=bin_fd, follow_symlinks=False
+                descriptors[name] = opened_tools.enter_context(
+                    _open_verified_executable(
+                        path, expected_executables[filename], label=label
+                    )
                 )
             except FileNotFoundError:
                 missing.append(name)
-                continue
-            if stat.S_ISLNK(metadata.st_mode):
-                raise IntegrityError(f"materialized Rust tool is a symlink: {name}")
-            if not stat.S_ISREG(metadata.st_mode):
-                raise IntegrityError(
-                    f"materialized Rust tool is not a regular file: {name}"
-                )
-            descriptor = os.open(filename, _READ_FLAGS, dir_fd=bin_fd)
-            try:
-                opened = os.fstat(descriptor)
-                if (metadata.st_dev, metadata.st_ino) != (
-                    opened.st_dev,
-                    opened.st_ino,
-                ):
-                    raise IntegrityError(
-                        f"materialized Rust tool changed while opening: {name}"
-                    )
-                if opened.st_mode & 0o111 == 0:
-                    raise IntegrityError(
-                        f"materialized Rust tool is not executable: {name}"
-                    )
-            finally:
-                os.close(descriptor)
         if missing:
             raise IntegrityError(
                 f"materialized Rust toolchain lacks: {', '.join(missing)}"
             )
-    verbose = _run_checked([str(tools["rustc"]), "-Vv"])
-    expected_version = f"release: {lock['rust']['version']}"
-    expected_commit = f"commit-hash: {lock['rust']['commit']}"
-    if expected_version not in verbose or expected_commit not in verbose:
-        raise IntegrityError("materialized Rust compiler does not match the repository lock")
+
+        rustc_path = tools["rustc"]
+        rustc_identity = expected_executables[rustc_path.name]
+        rustc_label = f"materialized Rust tool rustc for {platform_name}"
+        verbose = _run_checked(
+            [str(rustc_path), "-Vv"],
+            verified_executable_fd=descriptors["rustc"],
+            verified_executable_identity=rustc_identity,
+            verified_executable_label=rustc_label,
+        )
+        fields = _parse_unique_rustc_fields(verbose)
+        if (
+            fields.get("release") != lock["rust"]["version"]
+            or fields.get("commit-hash") != lock["rust"]["commit"]
+        ):
+            raise IntegrityError(
+                "materialized Rust compiler does not match the repository lock"
+            )
     return tools
 
 
@@ -850,15 +1056,6 @@ def materialize_rust(
     component_dir = archive.path.parent
     with _secure_directory(component_dir, create=False) as component_fd:
         _reject_or_remove_legacy_rust(component_fd)
-        _cleanup_generated_entries(
-            component_fd,
-            file_prefixes=(),
-            directory_prefixes=(
-                ".rust-stage-",
-                ".rust-extract-",
-                "rust-generation-",
-            ),
-        )
         stage_name = f".rust-stage-{secrets.token_hex(16)}"
         extract_name = f".rust-extract-{secrets.token_hex(16)}"
         final_name = (
@@ -891,7 +1088,7 @@ def materialize_rust(
                 ],
                 cwd=installers[0].parent,
             )
-            _verify_rust_install(lock, stage)
+            _verify_rust_install(lock, platform_name, stage)
             try:
                 os.rename(
                     stage_name,
@@ -915,7 +1112,70 @@ def materialize_rust(
                     pass
 
     install = component_dir / final_name
-    return _verify_rust_install(lock, install)
+    return _verify_rust_install(lock, platform_name, install)
+
+
+def _remove_owned_buck2_generation(binary: Path) -> None:
+    name = _safe_basename(binary.name, label="owned Buck2 generation")
+    if not name.startswith("buck2-generation-"):
+        raise IntegrityError(f"refusing to remove unowned Buck2 path: {binary}")
+    with _secure_directory(binary.parent, create=False) as bin_fd:
+        metadata = os.stat(name, dir_fd=bin_fd, follow_symlinks=False)
+        if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISREG(metadata.st_mode):
+            raise IntegrityError(f"owned Buck2 generation is not a regular file: {name}")
+        os.unlink(name, dir_fd=bin_fd)
+        os.fsync(bin_fd)
+
+
+def _remove_owned_rust_generation(tools: Mapping[str, Path]) -> None:
+    generation = tools["rustc"].parent.parent
+    if any(path.parent.parent != generation for path in tools.values()):
+        raise IntegrityError("materialized Rust tools do not share one owned generation")
+    name = _safe_basename(generation.name, label="owned Rust generation")
+    if not name.startswith("rust-generation-"):
+        raise IntegrityError(f"refusing to remove unowned Rust path: {generation}")
+    with _secure_directory(generation.parent, create=False) as component_fd:
+        _remove_tree_at(component_fd, name)
+        os.fsync(component_fd)
+
+
+@contextlib.contextmanager
+def _materialized_toolchains(
+    lock: Mapping[str, Any],
+    platform_name: str,
+    cached: Mapping[str, VerifiedArtifact],
+    env: Mapping[str, str],
+) -> Iterator[tuple[Path, dict[str, Path], int, dict[str, int]]]:
+    with contextlib.ExitStack() as cleanup:
+        buck2 = materialize_buck2(lock, platform_name, cached["buck2"], env)
+        cleanup.callback(_remove_owned_buck2_generation, buck2)
+        rust_tools = materialize_rust(lock, platform_name, cached["rust"])
+        cleanup.callback(_remove_owned_rust_generation, rust_tools)
+
+        buck_entry = lock["platforms"][platform_name]["buck2"]
+        buck_identity = {
+            "sha256": buck_entry["binary_sha256"],
+            "size": buck_entry["binary_size"],
+        }
+        buck_fd = cleanup.enter_context(
+            _open_verified_executable(
+                buck2,
+                buck_identity,
+                label=f"live Buck2 generation for {platform_name}",
+            )
+        )
+        rust_identities = lock["platforms"][platform_name]["rust"]["executables"]
+        rust_fds = {
+            name: cleanup.enter_context(
+                _open_verified_executable(
+                    path,
+                    rust_identities[path.name],
+                    label=f"live Rust tool {path.name} for {platform_name}",
+                )
+            )
+            for name, path in rust_tools.items()
+        }
+        yield buck2, rust_tools, buck_fd, rust_fds
 
 
 def _resolve_from_path(name: str, env: Mapping[str, str]) -> Path | None:
@@ -943,6 +1203,32 @@ def _resolve_with_xcrun(name: str, env: Mapping[str, str]) -> Path | None:
         return None
     candidate = Path(result.stdout.strip())
     return candidate.absolute() if candidate.is_file() else None
+
+
+def _infer_override_compiler_type(cc: Path, cxx: Path) -> str:
+    cc_name = cc.name.lower()
+    cxx_name = cxx.name.lower()
+    if "clang" in cc_name and "clang" in cxx_name:
+        return "clang"
+    if "gcc" in cc_name and ("g++" in cxx_name or "gcc" in cxx_name):
+        return "gcc"
+    raise ToolchainError(
+        "compiler override with ambiguous names requires an explicit "
+        "BUCK2_CXX_COMPILER_TYPE"
+    )
+
+
+def _probe_compiler_family(path: Path) -> str:
+    output = _run_checked([str(path), "--version"]).lower()
+    is_clang = "clang" in output
+    is_gcc = (
+        "gcc" in output
+        or "g++" in output
+        or "free software foundation" in output
+    )
+    if is_clang == is_gcc:
+        raise ToolchainError(f"cannot determine compiler family from {path} --version")
+    return "clang" if is_clang else "gcc"
 
 
 def resolve_cxx_tools(
@@ -980,17 +1266,28 @@ def resolve_cxx_tools(
             raise ToolchainError(
                 f"configured C/C++ tools are not executable: {', '.join(missing)}"
             )
+        resolved_tools = {
+            name: path for name, path in resolved.items() if path is not None
+        }
         compiler_type = env.get("BUCK2_CXX_COMPILER_TYPE")
         if not compiler_type_present:
-            compiler_type = (
-                "gcc"
-                if "gcc" in resolved["cc"].name or "g++" in resolved["cxx"].name
-                else "clang"
+            compiler_type = _infer_override_compiler_type(
+                resolved_tools["cc"], resolved_tools["cxx"]
             )
         if compiler_type not in {"clang", "gcc"}:
             raise ToolchainError("BUCK2_CXX_COMPILER_TYPE must be clang or gcc")
+        actual_families = {
+            _probe_compiler_family(resolved_tools["cc"]),
+            _probe_compiler_family(resolved_tools["cxx"]),
+        }
+        if actual_families != {compiler_type}:
+            actual = ", ".join(sorted(actual_families))
+            raise ToolchainError(
+                f"configured C/C++ compiler family {actual} does not match "
+                f"BUCK2_CXX_COMPILER_TYPE={compiler_type}"
+            )
         return {
-            **{name: str(path) for name, path in resolved.items() if path is not None},
+            **{name: str(path) for name, path in resolved_tools.items()},
             "compiler_type": compiler_type,
         }
 
@@ -1145,25 +1442,41 @@ def run_buck(
     if not buck_args:
         raise ToolchainError("no Buck2 command was provided")
     with verified_cached_artifacts(lock, cache_dir, platform_name) as cached:
-        buck2 = materialize_buck2(lock, platform_name, cached["buck2"], env)
-        rust_tools = materialize_rust(lock, platform_name, cached["rust"])
-        cxx_tools = resolve_cxx_tools(platform_name, platform_entry, env)
-        child_env = dict(env)
-        child_env["PATH"] = (
-            f"{rust_tools['rustc'].parent}{os.pathsep}{env.get('PATH', '')}"
-        )
-        child_env["RUSTUP_TOOLCHAIN"] = lock["rust"]["version"]
-        with local_mirror(cached["python"]) as python_url:
-            command = _compose_buck_command(
-                buck2,
-                buck_args,
-                _buck_config_args(
-                    rust_tools, cxx_tools, platform_entry, python_url
-                ),
+        with _materialized_toolchains(
+            lock, platform_name, cached, env
+        ) as (buck2, rust_tools, buck_fd, rust_fds):
+            cxx_tools = resolve_cxx_tools(platform_name, platform_entry, env)
+            child_env = dict(env)
+            child_env["PATH"] = (
+                f"{rust_tools['rustc'].parent}{os.pathsep}{env.get('PATH', '')}"
             )
-            return subprocess.run(
-                command, cwd=REPO_ROOT, env=child_env, check=False
-            ).returncode
+            child_env["RUSTUP_TOOLCHAIN"] = lock["rust"]["version"]
+            with local_mirror(cached["python"]) as python_url:
+                command = _compose_buck_command(
+                    buck2,
+                    buck_args,
+                    _buck_config_args(
+                        rust_tools, cxx_tools, platform_entry, python_url
+                    ),
+                )
+                buck_entry = platform_entry["buck2"]
+                buck_identity = {
+                    "sha256": buck_entry["binary_sha256"],
+                    "size": buck_entry["binary_size"],
+                }
+                buck_label = f"live Buck2 generation for {platform_name}"
+                _verified_file_identity(buck_fd, buck_identity, label=buck_label)
+                _assert_opened_executable_path(buck2, buck_fd, label=buck_label)
+                rust_identities = platform_entry["rust"]["executables"]
+                for name, path in rust_tools.items():
+                    label = f"live Rust tool {path.name} for {platform_name}"
+                    _verified_file_identity(
+                        rust_fds[name], rust_identities[path.name], label=label
+                    )
+                    _assert_opened_executable_path(path, rust_fds[name], label=label)
+                return subprocess.run(
+                    command, cwd=REPO_ROOT, env=child_env, check=False
+                ).returncode
 
 
 def doctor(
@@ -1189,9 +1502,8 @@ def doctor(
     }
     if not skip_cache:
         with verified_cached_artifacts(lock, cache_dir, platform_name) as cached:
-            materialize_buck2(lock, platform_name, cached["buck2"], env)
-            materialize_rust(lock, platform_name, cached["rust"])
-            result["cache_verified"] = True
+            with _materialized_toolchains(lock, platform_name, cached, env):
+                result["cache_verified"] = True
     return result
 
 

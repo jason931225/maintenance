@@ -13,7 +13,8 @@ are sandboxed.
 
 - Buck2 release asset `2026-06-15` (binary version
   `2026-06-14-1169724e85cc1ef071df842d8ac603905c38e68e`), with a SHA-256 for
-  each supported release archive.
+  each supported release archive and the digest and size of each decompressed
+  executable.
 - The bundled prelude at commit
   `405925e4737177390719d5555794dcce1aab7e30`. Buck2's `bundled` external-cell
   origin means the prelude is part of the Buck2 binary, so verifying the locked
@@ -21,7 +22,8 @@ are sandboxed.
   `prelude_hash` asset digest is also recorded.
 - Rust `1.96.0`, compiler commit
   `ac68faa20c58cbccd01ee7208bf3b6e93a7d7f96`, its channel-manifest digest,
-  and the full distribution archive SHA-256 for each platform.
+  the full distribution archive SHA-256, and the digest and size of `rustc`,
+  `rustdoc`, and `clippy-driver` for each platform.
 - The CPython `3.13.6+20250807` archive and SHA-256 used by the exact bundled
   prelude version.
 
@@ -30,8 +32,12 @@ The lock covers `macos-aarch64`, `macos-x86_64`, `linux-aarch64`, and
 
 ## Populate once, run offline
 
-Prerequisites are Python 3.12 or newer, `sh`, and `zstd`/`unzstd`. Network use is
-available only through an explicit population gate:
+Prerequisites are Python 3.12 or newer and a trusted system `/bin/sh` (or
+`/usr/bin/sh`). Python 3.14+ decodes Buck2 with the standard-library
+`compression.zstd` implementation. Python 3.12/3.13 requires a non-group/world-
+writable `zstd`/`unzstd` in a fixed absolute system/package-manager location;
+caller `PATH` is never consulted. Network use is available only through an
+explicit population gate:
 
 ```sh
 python3 tools/buck/bootstrap/bootstrap.py populate --allow-network
@@ -78,9 +84,26 @@ cannot change the bytes used by the invocation.
 Buck2 and Rust are materialized into fresh, randomly named generations for
 every invocation. Pre-existing legacy regular outputs are removed without
 executing them; symlink or non-regular derived outputs fail closed. Buck2 is
-decompressed from its held archive descriptor. Rust is extracted from its held
-archive descriptor into exclusive staging directories, its compiler version
-and commit are checked, and failed staging trees are removed.
+decompressed in-process on Python 3.14+, or by a fixed absolute decoder with a
+sanitized environment on older supported Python, from its held archive
+descriptor into a non-executable opened stage. Caller `PATH` is ignored. The
+stage's exact digest and size are checked from its open descriptor before
+execute bits are added, the version is probed, or the generation is published.
+The authenticated descriptor remains open through the version probe, and the
+path must still identify that inode immediately before spawn. Rust is extracted
+from its held archive descriptor into exclusive
+staging directories and installed through a resolved absolute system shell
+with a fixed system `PATH`. All three Rust executables are checked for exact
+digest and size from retained descriptors; the `rustc` path must still identify
+its authenticated inode immediately before `rustc -Vv` runs, and its unique
+`release` and `commit-hash` fields must then match exactly. Failed staging trees
+are removed.
+
+Global prefix cleanup is prohibited. Each run keeps its own Buck2 and Rust
+generation live until that run's Buck2 child exits, then removes only those
+exact owned paths. Their authenticated descriptors remain open and are rehashed
+and path-bound immediately before the Buck2 child is spawned. Concurrent
+invocations cannot delete one another's stage, extract, or generation paths.
 
 The held CPython descriptor is exposed through an ephemeral server bound only
 to `127.0.0.1`. The server implements only `GET` and `HEAD` for one exact route
@@ -105,8 +128,10 @@ export BUCK2_CXX_COMPILER_TYPE=clang
 
 Partial overrides fail. Setting `BUCK2_CXX_COMPILER_TYPE` by itself also fails;
 when present it must accompany all four path overrides and be `clang` or `gcc`.
-When all four paths are set and the type is omitted, the bootstrap infers
-`clang` or `gcc` from the executable names.
+When all four paths are set and the type is omitted, the bootstrap infers only
+from unambiguous Clang or GCC executable names; generic names such as `cc` and
+`c++` require an explicit type. In all cases the selected C and C++ compilers'
+`--version` identities must agree with each other and with the resulting type.
 
 The C/C++ compiler, linker, archiver, platform SDK, and system libraries remain
 explicit host or image inputs; they are not content-pinned by this lock. Thus
@@ -137,9 +162,10 @@ verify and materialize its locked cache.
 | Cache ancestor or archive is a symlink or non-directory/non-regular file | exit `5`; no tool execution |
 | Verified archive pathname is replaced | held descriptor remains authoritative |
 | Legacy derived output is a symlink or non-regular file | exit `5`; poisoned output is not executed |
-| Buck2 or Rust version/commit differs after materialization | exit `5` |
+| Buck2 or Rust executable digest/size differs after materialization | exit `5`; no materialized tool execution |
+| Buck2 or Rust version/commit differs after authenticated materialization | exit `5` |
 | Download is interrupted or its final URL/digest is rejected | no final publication; staging is removed |
-| Compiler selection is missing, partial, or invalid | exit `6` |
+| Compiler selection is missing, partial, ambiguous, contradictory, or invalid | exit `6` |
 | Raw Buck2 bypasses the wrapper | toolchain parsing fails on the first missing `toolchain.*` value |
 
 The fixture contract suite uses no external network. It covers missing-cache,
@@ -153,32 +179,16 @@ host-path regressions:
 python3 -m unittest tools.buck.bootstrap.tests.test_hermetic_toolchains -v
 ```
 
-### Successor RED contract: decoder identity and live generations
+### Authenticated materialization and live generations
 
-The current implementation does **not** yet satisfy the following regressions.
-They are intentionally RED until a successor hardens the production path; a
-version string printed by newly materialized bytes is not executable identity.
-
-- The per-platform authority must pin the digest and size of the decompressed
-  Buck2 executable. A `zstd`/`unzstd` found through `PATH` may emit arbitrary
-  bytes, so the opened stage descriptor must match both values before those
-  bytes are executable, version-probed, or published. The RED matrix covers a
-  same-size content/digest substitution plus smaller and larger outputs while
-  retaining the existing three-archive tamper matrix.
-- Rust installation must not invoke a substituted `PATH` shell. Every
-  materialized executable (`rustc`, `rustdoc`, and `clippy-driver`) needs
-  per-platform digest and size identity before execution; spoofable `rustc -Vv`
-  output is not sufficient identity for any of the three tools.
-- Cleanup is invocation-owned. Two invocations may overlap without either one
-  removing the other's live `.buck2-stage-*`, `buck2-generation-*`,
-  `.rust-stage-*`, `.rust-extract-*`, or `rust-generation-*` path. A
-  lifecycle-wide lock is acceptable; ownership/refcount/lease-safe cleanup is
-  also acceptable. The regressions synchronize on staging, installer, and live
-  Buck-process hooks rather than depending on sleeps.
-
-These tests demonstrate the unsafe behavior and do not implement the repair.
-Do not describe the toolchain as pinned or hermetic across these boundaries
-until the RED contract is green and independently reviewed.
+The contract suite covers same-size Buck2 decoder substitution, smaller and
+larger decoder output, a side-effecting caller-`PATH` decoder that must never be
+invoked, malicious `PATH` shell substitution, post-authentication Buck2/Rust
+pathname replacement, exact Rust verbose identity parsing, and synchronized
+real concurrent stage/extract/generation lifetimes plus exact cleanup callbacks.
+These are executable regressions: no materialized executable may run before its
+locked digest and size pass, and no invocation may remove another invocation's
+live path.
 
 Native cache validation is a separate admission check: run `doctor` without
 `--skip-cache`, then the representative Buck query/build/test/run commands on
@@ -197,28 +207,36 @@ true no-replace publication. Rust directory publication uses a fresh random
 Python standard library does not expose a portable no-replace directory rename.
 
 The bootstrap does not claim to defend against a concurrently malicious process
-running as the same operating-system user. In particular, such a process could
-race mutation of an extracted shell installer or a just-validated executable.
-Admission must therefore run in a workspace and cache writable only by the
-trusted build identity. Native compiler, linker, SDK, system-library, kernel,
-and container-image provenance remain outside this lock and must be controlled
-by the build-image supply chain.
+running as the same operating-system user. It retains and rehashes authenticated
+descriptors and checks pathname/inode identity inside the execution helper, but
+Python exposes no portable `fexecve`; on platforms without descriptor execution,
+a same-user attacker can still race the final path check and process spawn, or
+mutate an extracted shell installer. Admission must therefore run in a workspace
+and cache writable only by the trusted build identity. Native compiler, linker,
+SDK, system-library, kernel, fixed absolute decoder on Python before 3.14, and
+container-image provenance remain outside this lock and must be controlled by
+the build-image supply chain.
 
-That host-writability limit does not excuse trusting a decoder or shell selected
-from `PATH`, executing materialized bytes before digest-and-size verification,
-or deleting another legitimate invocation's live generation. Those are inside
-the repository bootstrap's claimed pinned-toolchain boundary and remain blocked
-by the RED contract above.
+That host-writability limit does not weaken the enforced boundary against cache
+or caller-environment substitution: arbitrary caller-`PATH` decoder code is not
+executed, decoder output is authenticated before executable use, the Rust
+installer cannot substitute a shell through `PATH`, every materialized Rust
+executable is authenticated, and cleanup targets only the current invocation's
+exact owned generations.
 
 ## Updating a pin
 
 1. Choose one immutable Buck2 release and record its release commit, exact
-   binary-reported version, platform asset URLs, and GitHub-published SHA-256
-   digests.
+   binary-reported version, platform asset URLs, GitHub-published archive
+   SHA-256 digests, and each SHA-verified archive's decompressed binary digest
+   and size.
 2. Record that release's `prelude_hash` content and asset SHA-256. Keep
    `.buckconfig` on `external_cells.prelude = bundled`.
 3. Choose one immutable Rust release, record the channel-manifest SHA-256,
-   compiler commit, and full distribution SHA-256 for all four platforms.
+   compiler commit, and full distribution SHA-256 for all four platforms. From
+   the component packages authenticated by that same channel manifest, record
+   the exact digest and size of `rustc`, `rustdoc`, and `clippy-driver`; verify
+   the native platform against the installed full distribution before commit.
 4. Copy the CPython URLs and hashes from the selected prelude source, not from a
    floating branch.
 5. Run the contract tests, cold-cache failure proof, tamper proof, macOS build

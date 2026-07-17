@@ -5,6 +5,7 @@ import hashlib
 import io
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tarfile
@@ -14,7 +15,7 @@ import unittest
 import urllib.request
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Any, BinaryIO
+from typing import Any
 from unittest import mock
 
 from tools.buck.bootstrap import bootstrap
@@ -46,12 +47,12 @@ class HermeticToolchainContractTests(unittest.TestCase):
             return self.response
 
     @staticmethod
-    def _fixture_lock() -> dict[str, object]:
+    def _fixture_lock() -> dict[str, Any]:
         return copy.deepcopy(bootstrap.load_lock())
 
     @staticmethod
     def _write_fixture_cache(
-        lock: dict[str, object],
+        lock: dict[str, Any],
         cache_dir: Path,
         platform_name: str,
         payloads: dict[str, bytes] | None = None,
@@ -79,9 +80,9 @@ class HermeticToolchainContractTests(unittest.TestCase):
         path.chmod(0o755)
 
     @classmethod
-    def _buck_fixture_payload(cls, lock: dict[str, object]) -> bytes:
+    def _buck_fixture_payload(cls, lock: dict[str, Any]) -> bytes:
         version = lock["buck2"]["version"]
-        return (
+        payload = (
             "#!/bin/sh\n"
             "if [ \"${1:-}\" = \"--version\" ]; then\n"
             f"  printf '%s\\n' 'buck2 {version}'\n"
@@ -89,10 +90,17 @@ class HermeticToolchainContractTests(unittest.TestCase):
             "fi\n"
             "exit 0\n"
         ).encode()
+        identity = {
+            "binary_sha256": hashlib.sha256(payload).hexdigest(),
+            "binary_size": len(payload),
+        }
+        for platform_entry in lock["platforms"].values():
+            platform_entry["buck2"].update(identity)
+        return payload
 
     @classmethod
     def _create_rust_fixture_archive(
-        cls, archive: Path, lock: dict[str, object]
+        cls, archive: Path, lock: dict[str, Any]
     ) -> bytes:
         version = lock["rust"]["version"]
         commit = lock["rust"]["commit"]
@@ -126,6 +134,26 @@ class HermeticToolchainContractTests(unittest.TestCase):
             )
             with tarfile.open(archive, "w:xz") as rust_archive:
                 rust_archive.add(root, arcname=root.name)
+        rustc = (
+            "#!/bin/sh\n"
+            "if [ \"${1:-}\" = \"-Vv\" ]; then\n"
+            f"  printf '%s\\n' 'release: {version}' 'commit-hash: {commit}'\n"
+            "fi\n"
+        ).encode()
+        fixture_tools = {
+            "rustc": rustc,
+            "rustdoc": b"#!/bin/sh\nexit 0\n",
+            "clippy-driver": b"#!/bin/sh\nexit 0\n",
+        }
+        identities = {
+            name: {
+                "sha256": hashlib.sha256(payload).hexdigest(),
+                "size": len(payload),
+            }
+            for name, payload in fixture_tools.items()
+        }
+        for platform_entry in lock["platforms"].values():
+            platform_entry["rust"]["executables"] = copy.deepcopy(identities)
         return archive.read_bytes()
 
     @staticmethod
@@ -136,15 +164,32 @@ class HermeticToolchainContractTests(unittest.TestCase):
             raise AssertionError(f"fixture executable exceeds {size} bytes")
         return source + (b"#" * (size - len(source)))
 
+    @staticmethod
+    def _zstd_compress(payload: bytes) -> bytes:
+        try:
+            from compression import zstd
+        except ModuleNotFoundError:
+            decoder = shutil.which("zstd")
+            if decoder is None:
+                raise unittest.SkipTest("zstd compression is unavailable for fixtures")
+            return subprocess.run(
+                [decoder, "-q", "-c"],
+                input=payload,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                check=True,
+            ).stdout
+        return zstd.compress(payload)
+
     @classmethod
     def _create_materializable_fixture(
         cls, root: Path, platform_name: str = "linux-x86_64"
-    ) -> tuple[dict[str, object], Path, dict[str, str]]:
+    ) -> tuple[dict[str, Any], Path, dict[str, str]]:
         cache_dir = root / "cache"
         lock = cls._fixture_lock()
         rust_fixture = root / "rust-fixture.tar.xz"
         payloads = {
-            "buck2": cls._buck_fixture_payload(lock),
+            "buck2": cls._zstd_compress(cls._buck_fixture_payload(lock)),
             "rust": cls._create_rust_fixture_archive(rust_fixture, lock),
             "python": b"fixture-python-archive",
         }
@@ -545,7 +590,7 @@ class HermeticToolchainContractTests(unittest.TestCase):
             self.assertFalse(marker.exists())
             self.assertEqual(payloads["buck2"], buck_archive.read_bytes())
 
-    def test_path_decoder_output_identity_matrix_fails_before_execution(self) -> None:
+    def test_decompressed_binary_identity_matrix_ignores_path_decoder(self) -> None:
         platform_name = "linux-x86_64"
         for corruption in (
             "different-content-same-size",
@@ -566,16 +611,6 @@ class HermeticToolchainContractTests(unittest.TestCase):
                     expected_binary
                 ).hexdigest()
                 buck_entry["binary_size"] = len(expected_binary)
-                self._write_fixture_cache(
-                    lock,
-                    cache_dir,
-                    platform_name,
-                    {
-                        "buck2": b"authenticated-compressed-buck2-fixture",
-                        "rust": b"fixture-rust",
-                        "python": b"fixture-python",
-                    },
-                )
 
                 marker = root / f"{corruption}-executed"
                 malicious_source = (
@@ -604,13 +639,26 @@ class HermeticToolchainContractTests(unittest.TestCase):
                     hashlib.sha256(decoder_output).digest(),
                     hashlib.sha256(expected_binary).digest(),
                 )
+                self._write_fixture_cache(
+                    lock,
+                    cache_dir,
+                    platform_name,
+                    {
+                        "buck2": self._zstd_compress(decoder_output),
+                        "rust": b"fixture-rust",
+                        "python": b"fixture-python",
+                    },
+                )
 
                 fake_bin = root / "fake-bin"
                 (fake_bin / "decoder-output").parent.mkdir(parents=True)
                 (fake_bin / "decoder-output").write_bytes(decoder_output)
+                decoder_marker = root / f"{corruption}-decoder-executed"
                 self._write_executable(
                     fake_bin / "zstd",
-                    "#!/bin/sh\nexec /bin/cat \"${0%/*}/decoder-output\"\n",
+                    "#!/bin/sh\n"
+                    f"printf executed > {decoder_marker}\n"
+                    "exec /bin/cat \"${0%/*}/decoder-output\"\n",
                 )
 
                 rejected: bootstrap.ToolchainError | None = None
@@ -631,6 +679,10 @@ class HermeticToolchainContractTests(unittest.TestCase):
                     marker.exists(),
                     "PATH-resolved decoder output was executed before its authenticated "
                     f"content, digest, and size were checked ({corruption})",
+                )
+                self.assertFalse(
+                    decoder_marker.exists(),
+                    "an arbitrary caller-PATH decoder executed before staged-file authentication",
                 )
                 self.assertIsInstance(
                     rejected,
@@ -657,7 +709,7 @@ class HermeticToolchainContractTests(unittest.TestCase):
             lock = self._fixture_lock()
             valid_payload = self._buck_fixture_payload(lock)
             payloads = {
-                "buck2": valid_payload,
+                "buck2": self._zstd_compress(valid_payload),
                 "rust": b"fixture-rust",
                 "python": b"fixture-python",
             }
@@ -697,6 +749,75 @@ class HermeticToolchainContractTests(unittest.TestCase):
             self.assertEqual(version, f"buck2 {lock['buck2']['version']}")
             self.assertFalse(marker.exists())
 
+    def test_authenticated_buck_stage_replacement_fails_before_execution(self) -> None:
+        platform_name = "linux-x86_64"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir).resolve()
+            cache_dir = root / "cache"
+            lock = self._fixture_lock()
+            valid_payload = self._buck_fixture_payload(lock)
+            self._write_fixture_cache(
+                lock,
+                cache_dir,
+                platform_name,
+                {
+                    "buck2": self._zstd_compress(valid_payload),
+                    "rust": b"fixture-rust",
+                    "python": b"fixture-python",
+                },
+            )
+            decoder = shutil.which("zstd")
+            if decoder is None:
+                self.skipTest("zstd is unavailable for the pre-repair RED path")
+            marker = root / "replacement-stage-executed"
+            replacement = root / "replacement-buck2"
+            self._write_executable(
+                replacement,
+                "#!/bin/sh\n"
+                f"printf executed > {marker}\n"
+                f"printf '%s\\n' 'buck2 {lock['buck2']['version']}'\n",
+            )
+            original_run_checked = bootstrap._run_checked
+            replacement_attempted = False
+
+            def replace_before_run(
+                command: Sequence[str],
+                *,
+                cwd: Path | None = None,
+                verified_executable_fd: int | None = None,
+                pass_fds: Sequence[int] = (),
+                **verified_options: Any,
+            ) -> str:
+                nonlocal replacement_attempted
+                if command and Path(command[0]).name.startswith(".buck2-stage-"):
+                    os.replace(replacement, Path(command[0]))
+                    replacement_attempted = True
+                options: dict[str, Any] = {**verified_options, "cwd": cwd}
+                if verified_executable_fd is not None:
+                    options["verified_executable_fd"] = verified_executable_fd
+                if pass_fds:
+                    options["pass_fds"] = pass_fds
+                return original_run_checked(command, **options)
+
+            with bootstrap.verified_cached_artifacts(
+                lock, cache_dir, platform_name
+            ) as artifacts, mock.patch.object(
+                bootstrap, "_run_checked", side_effect=replace_before_run
+            ):
+                with self.assertRaises(bootstrap.IntegrityError):
+                    bootstrap.materialize_buck2(
+                        lock,
+                        platform_name,
+                        artifacts["buck2"],
+                        {"PATH": str(Path(decoder).parent)},
+                    )
+
+            self.assertTrue(replacement_attempted)
+            self.assertFalse(
+                marker.exists(),
+                "a pathname replacement executed after the opened stage was authenticated",
+            )
+
     def test_rust_materialization_consumes_verified_fd_after_path_replacement(self) -> None:
         platform_name = "linux-x86_64"
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -734,6 +855,75 @@ class HermeticToolchainContractTests(unittest.TestCase):
 
             self.assertIn(f"release: {lock['rust']['version']}", verbose)
             self.assertIn(f"commit-hash: {lock['rust']['commit']}", verbose)
+
+    def test_authenticated_rustc_replacement_fails_before_version_execution(self) -> None:
+        platform_name = "linux-x86_64"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir).resolve()
+            cache_dir = root / "cache"
+            lock = self._fixture_lock()
+            rust_fixture = root / "rust-fixture.tar.xz"
+            self._write_fixture_cache(
+                lock,
+                cache_dir,
+                platform_name,
+                {
+                    "buck2": b"fixture-buck2",
+                    "rust": self._create_rust_fixture_archive(rust_fixture, lock),
+                    "python": b"fixture-python",
+                },
+            )
+            marker = root / "replacement-rustc-executed"
+            replacement = root / "replacement-rustc"
+            self._write_executable(
+                replacement,
+                "#!/bin/sh\n"
+                f"printf executed > {marker}\n"
+                f"printf '%s\\n' 'release: {lock['rust']['version']}' "
+                f"'commit-hash: {lock['rust']['commit']}'\n",
+            )
+            original_run_checked = bootstrap._run_checked
+            replacement_attempted = False
+
+            def replace_before_run(
+                command: Sequence[str],
+                *,
+                cwd: Path | None = None,
+                verified_executable_fd: int | None = None,
+                pass_fds: Sequence[int] = (),
+                **verified_options: Any,
+            ) -> str:
+                nonlocal replacement_attempted
+                if (
+                    command
+                    and Path(command[0]).name == "rustc"
+                    and "-Vv" in command
+                    and not replacement_attempted
+                ):
+                    os.replace(replacement, Path(command[0]))
+                    replacement_attempted = True
+                options: dict[str, Any] = {**verified_options, "cwd": cwd}
+                if verified_executable_fd is not None:
+                    options["verified_executable_fd"] = verified_executable_fd
+                if pass_fds:
+                    options["pass_fds"] = pass_fds
+                return original_run_checked(command, **options)
+
+            with bootstrap.verified_cached_artifacts(
+                lock, cache_dir, platform_name
+            ) as artifacts, mock.patch.object(
+                bootstrap, "_run_checked", side_effect=replace_before_run
+            ):
+                with self.assertRaises(bootstrap.IntegrityError):
+                    bootstrap.materialize_rust(
+                        lock, platform_name, artifacts["rust"]
+                    )
+
+            self.assertTrue(replacement_attempted)
+            self.assertFalse(
+                marker.exists(),
+                "a pathname replacement executed after rustc's opened file was authenticated",
+            )
 
     def test_path_shell_cannot_substitute_unauthenticated_rust_executables(self) -> None:
         platform_name = "linux-x86_64"
@@ -838,6 +1028,92 @@ class HermeticToolchainContractTests(unittest.TestCase):
                 "must never produce an accepted Rust toolchain",
             )
 
+    def test_rustc_verbose_identity_requires_exact_unique_fields(self) -> None:
+        with self.assertRaisesRegex(bootstrap.IntegrityError, "duplicate.*release"):
+            bootstrap._parse_unique_rustc_fields(
+                "release: 1.96.0\nrelease: 1.96.0\n"
+            )
+
+        platform_name = "linux-x86_64"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir).resolve()
+            cache_dir = root / "cache"
+            lock = self._fixture_lock()
+            rust_fixture = root / "rust-suffix-spoof.tar.xz"
+            version = lock["rust"]["version"]
+            commit = lock["rust"]["commit"]
+            rustc = (
+                "#!/bin/sh\n"
+                "if [ \"${1:-}\" = \"-Vv\" ]; then\n"
+                f"  printf '%s\\n' 'release: {version}-evil' "
+                f"'commit-hash: {commit}-evil'\n"
+                "fi\n"
+            ).encode()
+            rustdoc = b"#!/bin/sh\nexit 0\n"
+            clippy = b"#!/bin/sh\nexit 0\n"
+            with tempfile.TemporaryDirectory() as source_dir:
+                fixture_root = Path(source_dir) / "rust-fixture"
+                self._write_executable(
+                    fixture_root / "install.sh",
+                    "#!/bin/sh\n"
+                    "set -eu\n"
+                    "prefix=''\n"
+                    "for arg in \"$@\"; do\n"
+                    "  case \"$arg\" in --prefix=*) prefix=${arg#--prefix=} ;; esac\n"
+                    "done\n"
+                    "test -n \"$prefix\"\n"
+                    "mkdir -p \"$prefix/bin\"\n"
+                    "cat >\"$prefix/bin/rustc\" <<'EOF'\n"
+                    f"{rustc.decode()}"
+                    "EOF\n"
+                    "cat >\"$prefix/bin/rustdoc\" <<'EOF'\n"
+                    f"{rustdoc.decode()}"
+                    "EOF\n"
+                    "cat >\"$prefix/bin/clippy-driver\" <<'EOF'\n"
+                    f"{clippy.decode()}"
+                    "EOF\n"
+                    "chmod 755 \"$prefix/bin/rustc\" \"$prefix/bin/rustdoc\" "
+                    "\"$prefix/bin/clippy-driver\"\n",
+                )
+                with tarfile.open(rust_fixture, "w:xz") as rust_archive:
+                    rust_archive.add(fixture_root, arcname=fixture_root.name)
+
+            rust_entry = lock["platforms"][platform_name]["rust"]
+            rust_entry["executables"] = {
+                "rustc": {
+                    "sha256": hashlib.sha256(rustc).hexdigest(),
+                    "size": len(rustc),
+                },
+                "rustdoc": {
+                    "sha256": hashlib.sha256(rustdoc).hexdigest(),
+                    "size": len(rustdoc),
+                },
+                "clippy-driver": {
+                    "sha256": hashlib.sha256(clippy).hexdigest(),
+                    "size": len(clippy),
+                },
+            }
+            self._write_fixture_cache(
+                lock,
+                cache_dir,
+                platform_name,
+                {
+                    "buck2": b"fixture-buck2",
+                    "rust": rust_fixture.read_bytes(),
+                    "python": b"fixture-python",
+                },
+            )
+
+            with bootstrap.verified_cached_artifacts(
+                lock, cache_dir, platform_name
+            ) as artifacts:
+                with self.assertRaisesRegex(
+                    bootstrap.IntegrityError, "does not match the repository lock"
+                ):
+                    bootstrap.materialize_rust(
+                        lock, platform_name, artifacts["rust"]
+                    )
+
     def test_python_mirror_serves_verified_fd_after_path_replacement(self) -> None:
         platform_name = "linux-x86_64"
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -870,7 +1146,7 @@ class HermeticToolchainContractTests(unittest.TestCase):
             lock = self._fixture_lock()
             rust_fixture = root / "rust-fixture.tar.xz"
             payloads = {
-                "buck2": self._buck_fixture_payload(lock),
+                "buck2": self._zstd_compress(self._buck_fixture_payload(lock)),
                 "rust": self._create_rust_fixture_archive(rust_fixture, lock),
                 "python": b"fixture-python",
             }
@@ -1013,52 +1289,23 @@ class HermeticToolchainContractTests(unittest.TestCase):
 
             first_stage_ready = threading.Event()
             release_first = threading.Event()
-            first_released = threading.Event()
-            overlapping_cleanup_seen = threading.Event()
             first_stages: list[Path] = []
-            stage_survival: list[bool] = []
             first_result: dict[str, object] = {}
             second_result: dict[str, object] = {}
             original_decompress = bootstrap._decompress_buck2
-            original_cleanup = bootstrap._cleanup_generated_entries
 
-            def block_first_decompress(
-                zstd: str,
-                archive: bootstrap.VerifiedArtifact,
-                output: BinaryIO,
-            ) -> None:
-                original_decompress(zstd, archive, output)
+            def block_first_decompress(*args: Any) -> None:
+                original_decompress(*args)
                 if threading.current_thread().name == "buck-first":
                     first_stages[:] = sorted(bin_dir.glob(".buck2-stage-*"))
                     first_stage_ready.set()
                     if not release_first.wait(timeout=10):
                         raise AssertionError("timed out releasing the first Buck2 stage")
 
-            def observe_cleanup(
-                parent_fd: int,
-                *,
-                file_prefixes: Sequence[str],
-                directory_prefixes: Sequence[str],
-            ) -> None:
-                original_cleanup(
-                    parent_fd,
-                    file_prefixes=file_prefixes,
-                    directory_prefixes=directory_prefixes,
-                )
-                if (
-                    threading.current_thread().name == "buck-second"
-                    and not first_released.is_set()
-                    and ".buck2-stage-" in file_prefixes
-                ):
-                    stage_survival.append(all(path.exists() for path in first_stages))
-                    overlapping_cleanup_seen.set()
-
             with bootstrap.verified_cached_artifacts(
                 lock, cache_dir, platform_name
             ) as artifacts, mock.patch.object(
                 bootstrap, "_decompress_buck2", side_effect=block_first_decompress
-            ), mock.patch.object(
-                bootstrap, "_cleanup_generated_entries", side_effect=observe_cleanup
             ):
                 invoke = lambda: bootstrap.materialize_buck2(
                     lock, platform_name, artifacts["buck2"], env
@@ -1074,7 +1321,6 @@ class HermeticToolchainContractTests(unittest.TestCase):
                     args=(second_result, invoke),
                 )
                 first.start()
-                overlap_observed = False
                 try:
                     self.assertTrue(
                         first_stage_ready.wait(timeout=10),
@@ -1083,27 +1329,27 @@ class HermeticToolchainContractTests(unittest.TestCase):
                     self.assertEqual(len(first_stages), 1)
                     self.assertTrue(first_stages[0].exists())
                     second.start()
-                    # A lifecycle-wide lock may intentionally serialize the second
-                    # invocation. Otherwise this hook observes its completed cleanup.
-                    overlap_observed = overlapping_cleanup_seen.wait(timeout=2)
+                    second.join(timeout=10)
+                    self.assertFalse(
+                        second.is_alive(),
+                        "second Buck2 materialization did not complete while the first stage was live",
+                    )
+                    self.assertNotIn(
+                        "error", second_result, repr(second_result.get("error"))
+                    )
+                    self.assertTrue(
+                        first_stages[0].exists(),
+                        "one Buck2 invocation deleted another invocation's live stage",
+                    )
                 finally:
-                    first_released.set()
                     release_first.set()
                     first.join(timeout=10)
-                    if second.ident is not None:
+                    if second.is_alive():
                         second.join(timeout=10)
 
             self.assertFalse(first.is_alive(), "first Buck2 invocation did not finish")
             self.assertFalse(second.is_alive(), "second Buck2 invocation did not finish")
-            if overlap_observed:
-                self.assertEqual(
-                    stage_survival,
-                    [True],
-                    "one Buck2 invocation deleted another invocation's live "
-                    ".buck2-stage-* file",
-                )
             self.assertNotIn("error", first_result, repr(first_result.get("error")))
-            self.assertNotIn("error", second_result, repr(second_result.get("error")))
 
     def test_concurrent_rust_cleanup_preserves_another_live_stage_and_extract(self) -> None:
         platform_name = "linux-x86_64"
@@ -1117,17 +1363,18 @@ class HermeticToolchainContractTests(unittest.TestCase):
 
             first_installer_ready = threading.Event()
             release_first = threading.Event()
-            first_released = threading.Event()
-            overlapping_cleanup_seen = threading.Event()
             first_transients: list[Path] = []
-            transient_survival: list[bool] = []
             first_result: dict[str, object] = {}
             second_result: dict[str, object] = {}
             original_run_checked = bootstrap._run_checked
-            original_cleanup = bootstrap._cleanup_generated_entries
 
             def block_first_installer(
-                command: Sequence[str], *, cwd: Path | None = None
+                command: Sequence[str],
+                *,
+                cwd: Path | None = None,
+                verified_executable_fd: int | None = None,
+                pass_fds: Sequence[int] = (),
+                **verified_options: Any,
             ) -> str:
                 if (
                     threading.current_thread().name == "rust-first"
@@ -1142,35 +1389,17 @@ class HermeticToolchainContractTests(unittest.TestCase):
                     first_installer_ready.set()
                     if not release_first.wait(timeout=10):
                         raise AssertionError("timed out releasing the first Rust stage")
-                return original_run_checked(command, cwd=cwd)
-
-            def observe_cleanup(
-                parent_fd: int,
-                *,
-                file_prefixes: Sequence[str],
-                directory_prefixes: Sequence[str],
-            ) -> None:
-                original_cleanup(
-                    parent_fd,
-                    file_prefixes=file_prefixes,
-                    directory_prefixes=directory_prefixes,
-                )
-                if (
-                    threading.current_thread().name == "rust-second"
-                    and not first_released.is_set()
-                    and ".rust-stage-" in directory_prefixes
-                ):
-                    transient_survival.append(
-                        all(path.exists() for path in first_transients)
-                    )
-                    overlapping_cleanup_seen.set()
+                options: dict[str, Any] = {**verified_options, "cwd": cwd}
+                if verified_executable_fd is not None:
+                    options["verified_executable_fd"] = verified_executable_fd
+                if pass_fds:
+                    options["pass_fds"] = pass_fds
+                return original_run_checked(command, **options)
 
             with bootstrap.verified_cached_artifacts(
                 lock, cache_dir, platform_name
             ) as artifacts, mock.patch.object(
                 bootstrap, "_run_checked", side_effect=block_first_installer
-            ), mock.patch.object(
-                bootstrap, "_cleanup_generated_entries", side_effect=observe_cleanup
             ):
                 invoke = lambda: bootstrap.materialize_rust(
                     lock, platform_name, artifacts["rust"]
@@ -1186,7 +1415,6 @@ class HermeticToolchainContractTests(unittest.TestCase):
                     args=(second_result, invoke),
                 )
                 first.start()
-                overlap_observed = False
                 try:
                     self.assertTrue(
                         first_installer_ready.wait(timeout=10),
@@ -1198,25 +1426,27 @@ class HermeticToolchainContractTests(unittest.TestCase):
                     )
                     self.assertTrue(all(path.exists() for path in first_transients))
                     second.start()
-                    overlap_observed = overlapping_cleanup_seen.wait(timeout=2)
+                    second.join(timeout=10)
+                    self.assertFalse(
+                        second.is_alive(),
+                        "second Rust materialization did not complete while first transients were live",
+                    )
+                    self.assertNotIn(
+                        "error", second_result, repr(second_result.get("error"))
+                    )
+                    self.assertTrue(
+                        all(path.exists() for path in first_transients),
+                        "one Rust invocation deleted another invocation's live stage or extract tree",
+                    )
                 finally:
-                    first_released.set()
                     release_first.set()
                     first.join(timeout=10)
-                    if second.ident is not None:
+                    if second.is_alive():
                         second.join(timeout=10)
 
             self.assertFalse(first.is_alive(), "first Rust invocation did not finish")
             self.assertFalse(second.is_alive(), "second Rust invocation did not finish")
-            if overlap_observed:
-                self.assertEqual(
-                    transient_survival,
-                    [True],
-                    "one Rust invocation deleted another invocation's live "
-                    ".rust-stage-* or .rust-extract-* directory",
-                )
             self.assertNotIn("error", first_result, repr(first_result.get("error")))
-            self.assertNotIn("error", second_result, repr(second_result.get("error")))
 
     def test_concurrent_run_preserves_live_buck_and_rust_generations(self) -> None:
         platform_name = "linux-x86_64"
@@ -1277,7 +1507,6 @@ class HermeticToolchainContractTests(unittest.TestCase):
                 bootstrap.subprocess, "run", side_effect=controlled_run
             ):
                 first.start()
-                overlap_observed = False
                 live_during_overlap: list[bool] = []
                 try:
                     self.assertTrue(
@@ -1287,14 +1516,17 @@ class HermeticToolchainContractTests(unittest.TestCase):
                     self.assertEqual(len(first_live_paths), 4)
                     self.assertTrue(all(path.exists() for path in first_live_paths))
                     second.start()
-                    # A lifecycle-wide lock is allowed to serialize here. If the
-                    # second run reaches Buck2 while the first is blocked, every
-                    # first-generation executable must still exist.
-                    overlap_observed = second_running.wait(timeout=2)
-                    if overlap_observed:
-                        live_during_overlap = [
-                            path.exists() for path in first_live_paths
-                        ]
+                    self.assertTrue(
+                        second_running.wait(timeout=10),
+                        "second Buck2 run did not overlap the first live generation",
+                    )
+                    live_during_overlap = [path.exists() for path in first_live_paths]
+                    self.assertEqual(
+                        live_during_overlap,
+                        [True, True, True, True],
+                        "a concurrent invocation deleted another live buck2-generation-* "
+                        "or rust-generation-* executable before its Buck2 process exited",
+                    )
                 finally:
                     release_first.set()
                     first.join(timeout=10)
@@ -1303,15 +1535,13 @@ class HermeticToolchainContractTests(unittest.TestCase):
 
             self.assertFalse(first.is_alive(), "first Buck2 run did not finish")
             self.assertFalse(second.is_alive(), "second Buck2 run did not finish")
-            if overlap_observed:
-                self.assertEqual(
-                    live_during_overlap,
-                    [True, True, True, True],
-                    "a concurrent invocation deleted another live buck2-generation-* "
-                    "or rust-generation-* executable before its Buck2 process exited",
-                )
             self.assertEqual(first_result.get("value"), 0, repr(first_result))
             self.assertEqual(second_result.get("value"), 0, repr(second_result))
+            self.assertEqual(
+                [path.exists() for path in first_live_paths],
+                [False, False, False, False],
+                "the first invocation's exact cleanup callbacks left owned generations behind",
+            )
 
     def test_compiler_override_matrix_fails_closed(self) -> None:
         lock = bootstrap.load_lock()
@@ -1326,7 +1556,10 @@ class HermeticToolchainContractTests(unittest.TestCase):
                 ("BUCK2_LD", "gcc"),
             ):
                 executable = bin_dir / filename
-                self._write_executable(executable, "#!/bin/sh\nexit 0\n")
+                self._write_executable(
+                    executable,
+                    "#!/bin/sh\nprintf '%s\\n' 'gcc (GCC) 15.1.0'\n",
+                )
                 tools[environment_name] = str(executable)
 
             with self.assertRaisesRegex(bootstrap.ToolchainError, "set together"):
@@ -1361,6 +1594,49 @@ class HermeticToolchainContractTests(unittest.TestCase):
                 {**tools, "PATH": str(bin_dir)},
             )
             self.assertEqual(inferred["compiler_type"], "gcc")
+
+    def test_generic_compiler_overrides_require_type_and_reject_contradiction(self) -> None:
+        lock = bootstrap.load_lock()
+        platform_entry = lock["platforms"]["linux-x86_64"]
+        with tempfile.TemporaryDirectory() as temp_dir:
+            bin_dir = Path(temp_dir).resolve()
+            tools: dict[str, str] = {}
+            for environment_name, filename in (
+                ("BUCK2_CC", "cc"),
+                ("BUCK2_CXX", "c++"),
+                ("BUCK2_AR", "ar"),
+                ("BUCK2_LD", "ld"),
+            ):
+                executable = bin_dir / filename
+                self._write_executable(
+                    executable,
+                    "#!/bin/sh\nprintf '%s\\n' 'gcc (GCC) 15.1.0'\n",
+                )
+                tools[environment_name] = str(executable)
+            base_env = {**tools, "PATH": str(bin_dir)}
+
+            with self.assertRaisesRegex(
+                bootstrap.ToolchainError, "requires an explicit.*COMPILER_TYPE"
+            ):
+                bootstrap.resolve_cxx_tools(
+                    "linux-x86_64", platform_entry, base_env
+                )
+
+            with self.assertRaisesRegex(
+                bootstrap.ToolchainError, "does not match.*clang"
+            ):
+                bootstrap.resolve_cxx_tools(
+                    "linux-x86_64",
+                    platform_entry,
+                    {**base_env, "BUCK2_CXX_COMPILER_TYPE": "clang"},
+                )
+
+            resolved = bootstrap.resolve_cxx_tools(
+                "linux-x86_64",
+                platform_entry,
+                {**base_env, "BUCK2_CXX_COMPILER_TYPE": "gcc"},
+            )
+            self.assertEqual(resolved["compiler_type"], "gcc")
 
     def test_linux_fixture_falls_back_to_a_complete_gcc_toolchain(self) -> None:
         lock = bootstrap.load_lock()
