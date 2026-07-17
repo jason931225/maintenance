@@ -43,6 +43,14 @@ absolute system/package-manager location; caller `PATH` is never consulted for
 the decoder. Network use is available only through an explicit population
 gate:
 
+The official operational entry point is `tools/buck/bootstrap/buck2w`. A raw
+non-isolated `python bootstrap.py` invocation is prohibited and
+non-authoritative. Its in-script guard runs only after Python interpreter
+startup and therefore cannot prevent `sitecustomize`, `usercustomize`, or other
+startup hooks from executing. The explicit `python3 -I bootstrap.py` form below
+is reserved for trusted operator-controlled population and diagnostic
+maintenance.
+
 ```sh
 python3 -I tools/buck/bootstrap/bootstrap.py populate --allow-network
 ```
@@ -170,7 +178,7 @@ verify and materialize its locked cache.
 | Buck2 or Rust version/commit differs after authenticated materialization | exit `5` |
 | Download is interrupted or its final URL/digest is rejected | no final publication; staging is removed |
 | Compiler selection is missing, partial, ambiguous, contradictory, or invalid | exit `6` |
-| `bootstrap.py` is executed directly without Python isolated mode | exit `6` before ambient imports; use `buck2w` or `python3 -I` |
+| `bootstrap.py` is executed directly without Python isolated mode | prohibited and non-authoritative; startup hooks may run before exit `6`; use `buck2w` or a trusted `python3 -I` maintenance invocation |
 | An imported `bootstrap` module calls `main()` without isolated mode | exit `6`; module import is test-only and never an operational entrypoint |
 | Raw Buck2 bypasses the wrapper | toolchain parsing fails on the first missing `toolchain.*` value |
 
@@ -180,9 +188,11 @@ derived-output poisoning, redirect and download publication policy, interrupted
 download and Rust-stage cleanup, explicit network gating, Linux Clang and GCC
 fixtures, compiler-override combinations, lock-matrix, Python mirror, host-path
 regressions, and actual `buck2w` invocations proving that malicious
-`PYTHONPATH` `secrets.py` and `compression.zstd` modules cannot execute. A
-non-isolated direct `bootstrap.py` invocation is also required to exit `6`
-before importing ambient modules:
+`PYTHONPATH` `sitecustomize.py`, `usercustomize.py`, `secrets.py`, and
+`compression.zstd` modules cannot execute. The suite also proves the narrower
+truth about a prohibited non-isolated direct `bootstrap.py` invocation: its
+in-script rejection exits `6` before bootstrap-owned imports, but it cannot
+preempt interpreter-startup customization hooks:
 
 ```sh
 python3 -m unittest tools.buck.bootstrap.tests.test_hermetic_toolchains -v

@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import sys
 
-# `sys` is built in. Keep this guard before every import resolved through
-# `sys.path` so a direct invocation cannot run ambient modules before rejection.
+# The official wrapper selects isolated mode before Python starts. This in-script
+# guard rejects non-isolated execution only after interpreter startup, so it
+# cannot preempt startup hooks such as `sitecustomize` or `usercustomize`.
 _NONISOLATED_ERROR = (
-    "non-isolated execution is prohibited; use tools/buck/bootstrap/buck2w "
-    "or invoke python3 -I"
+    "non-isolated execution is prohibited and non-authoritative; use "
+    "tools/buck/bootstrap/buck2w or invoke a trusted python3 -I; this "
+    "rejection occurs after interpreter startup"
 )
 if __name__ == "__main__" and not sys.flags.isolated:
     sys.stderr.write(f"buck2-bootstrap: {_NONISOLATED_ERROR}\n")
