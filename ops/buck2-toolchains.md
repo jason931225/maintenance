@@ -153,6 +153,33 @@ host-path regressions:
 python3 -m unittest tools.buck.bootstrap.tests.test_hermetic_toolchains -v
 ```
 
+### Successor RED contract: decoder identity and live generations
+
+The current implementation does **not** yet satisfy the following regressions.
+They are intentionally RED until a successor hardens the production path; a
+version string printed by newly materialized bytes is not executable identity.
+
+- The per-platform authority must pin the digest and size of the decompressed
+  Buck2 executable. A `zstd`/`unzstd` found through `PATH` may emit arbitrary
+  bytes, so the opened stage descriptor must match both values before those
+  bytes are executable, version-probed, or published. The RED matrix covers a
+  same-size content/digest substitution plus smaller and larger outputs while
+  retaining the existing three-archive tamper matrix.
+- Rust installation must not invoke a substituted `PATH` shell. Every
+  materialized executable (`rustc`, `rustdoc`, and `clippy-driver`) needs
+  per-platform digest and size identity before execution; spoofable `rustc -Vv`
+  output is not sufficient identity for any of the three tools.
+- Cleanup is invocation-owned. Two invocations may overlap without either one
+  removing the other's live `.buck2-stage-*`, `buck2-generation-*`,
+  `.rust-stage-*`, `.rust-extract-*`, or `rust-generation-*` path. A
+  lifecycle-wide lock is acceptable; ownership/refcount/lease-safe cleanup is
+  also acceptable. The regressions synchronize on staging, installer, and live
+  Buck-process hooks rather than depending on sleeps.
+
+These tests demonstrate the unsafe behavior and do not implement the repair.
+Do not describe the toolchain as pinned or hermetic across these boundaries
+until the RED contract is green and independently reviewed.
+
 Native cache validation is a separate admission check: run `doctor` without
 `--skip-cache`, then the representative Buck query/build/test/run commands on
 each provisioned host or image. Network population and official-provenance
@@ -176,6 +203,12 @@ Admission must therefore run in a workspace and cache writable only by the
 trusted build identity. Native compiler, linker, SDK, system-library, kernel,
 and container-image provenance remain outside this lock and must be controlled
 by the build-image supply chain.
+
+That host-writability limit does not excuse trusting a decoder or shell selected
+from `PATH`, executing materialized bytes before digest-and-size verification,
+or deleting another legitimate invocation's live generation. Those are inside
+the repository bootstrap's claimed pinned-toolchain boundary and remain blocked
+by the RED contract above.
 
 ## Updating a pin
 

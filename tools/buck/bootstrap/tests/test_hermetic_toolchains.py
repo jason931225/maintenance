@@ -9,9 +9,13 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import threading
 import unittest
 import urllib.request
+from collections.abc import Callable, Sequence
 from pathlib import Path
+from typing import Any, BinaryIO
+from unittest import mock
 
 from tools.buck.bootstrap import bootstrap
 
@@ -124,6 +128,45 @@ class HermeticToolchainContractTests(unittest.TestCase):
                 rust_archive.add(root, arcname=root.name)
         return archive.read_bytes()
 
+    @staticmethod
+    def _pad_shell_executable(source: bytes, size: int) -> bytes:
+        if not source.endswith(b"\n"):
+            source += b"\n"
+        if len(source) > size:
+            raise AssertionError(f"fixture executable exceeds {size} bytes")
+        return source + (b"#" * (size - len(source)))
+
+    @classmethod
+    def _create_materializable_fixture(
+        cls, root: Path, platform_name: str = "linux-x86_64"
+    ) -> tuple[dict[str, object], Path, dict[str, str]]:
+        cache_dir = root / "cache"
+        lock = cls._fixture_lock()
+        rust_fixture = root / "rust-fixture.tar.xz"
+        payloads = {
+            "buck2": cls._buck_fixture_payload(lock),
+            "rust": cls._create_rust_fixture_archive(rust_fixture, lock),
+            "python": b"fixture-python-archive",
+        }
+        cls._write_fixture_cache(lock, cache_dir, platform_name, payloads)
+        fake_bin = root / "fake-bin"
+        cls._write_executable(fake_bin / "zstd", "#!/bin/sh\n/bin/cat\n")
+        for name in ("clang", "clang++", "llvm-ar"):
+            cls._write_executable(fake_bin / name, "#!/bin/sh\nexit 0\n")
+        env = {
+            "PATH": os.pathsep.join((str(fake_bin), "/bin", "/usr/bin")),
+        }
+        return lock, cache_dir, env
+
+    @staticmethod
+    def _capture_thread_call(
+        result: dict[str, object], call: Callable[[], object]
+    ) -> None:
+        try:
+            result["value"] = call()
+        except BaseException as error:  # Propagate worker failures through assertions.
+            result["error"] = error
+
     def test_lock_pins_buck2_bundled_prelude_rust_and_python_for_mac_and_linux(self) -> None:
         lock = json.loads(LOCK_PATH.read_text(encoding="utf-8"))
 
@@ -153,6 +196,36 @@ class HermeticToolchainContractTests(unittest.TestCase):
         buckconfig = BUCKCONFIG.read_text(encoding="utf-8")
         self.assertIn("prelude = bundled", buckconfig)
         self.assertIn("authority_lock = tools/buck/toolchain-lock.json", buckconfig)
+
+    def test_lock_pins_every_materialized_executable_digest_and_size(self) -> None:
+        lock = json.loads(LOCK_PATH.read_text(encoding="utf-8"))
+        for platform_name, platform_entry in lock["platforms"].items():
+            with self.subTest(platform=platform_name, executable="buck2"):
+                buck_entry = platform_entry["buck2"]
+                self.assertRegex(
+                    str(buck_entry.get("binary_sha256", "")), r"^[0-9a-f]{64}$"
+                )
+                self.assertIsInstance(buck_entry.get("binary_size"), int)
+                self.assertGreater(buck_entry.get("binary_size", 0), 0)
+
+            rust_executables = platform_entry["rust"].get("executables", {})
+            expected_rust_executables = {"rustc", "rustdoc", "clippy-driver"}
+            with self.subTest(platform=platform_name, executable="rust-matrix"):
+                self.assertEqual(
+                    set(rust_executables),
+                    expected_rust_executables,
+                    f"{platform_name} must authenticate every materialized Rust executable",
+                )
+            if set(rust_executables) != expected_rust_executables:
+                continue
+            for executable in ("rustc", "rustdoc", "clippy-driver"):
+                with self.subTest(platform=platform_name, executable=executable):
+                    identity = rust_executables.get(executable, {})
+                    self.assertRegex(
+                        str(identity.get("sha256", "")), r"^[0-9a-f]{64}$"
+                    )
+                    self.assertIsInstance(identity.get("size"), int)
+                    self.assertGreater(identity.get("size", 0), 0)
 
     def test_toolchains_remove_host_paths_and_direct_remote_python(self) -> None:
         source = TOOLCHAINS_BUCK.read_text(encoding="utf-8")
@@ -472,6 +545,110 @@ class HermeticToolchainContractTests(unittest.TestCase):
             self.assertFalse(marker.exists())
             self.assertEqual(payloads["buck2"], buck_archive.read_bytes())
 
+    def test_path_decoder_output_identity_matrix_fails_before_execution(self) -> None:
+        platform_name = "linux-x86_64"
+        for corruption in (
+            "different-content-same-size",
+            "smaller-than-authenticated",
+            "larger-than-authenticated",
+        ):
+            with self.subTest(
+                corruption=corruption
+            ), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir).resolve()
+                cache_dir = root / "cache"
+                lock = self._fixture_lock()
+                expected_binary = self._pad_shell_executable(
+                    self._buck_fixture_payload(lock), 1024
+                )
+                buck_entry = lock["platforms"][platform_name]["buck2"]
+                buck_entry["binary_sha256"] = hashlib.sha256(
+                    expected_binary
+                ).hexdigest()
+                buck_entry["binary_size"] = len(expected_binary)
+                self._write_fixture_cache(
+                    lock,
+                    cache_dir,
+                    platform_name,
+                    {
+                        "buck2": b"authenticated-compressed-buck2-fixture",
+                        "rust": b"fixture-rust",
+                        "python": b"fixture-python",
+                    },
+                )
+
+                marker = root / f"{corruption}-executed"
+                malicious_source = (
+                    "#!/bin/sh\n"
+                    f"printf executed > {marker}\n"
+                    "if [ \"${1:-}\" = \"--version\" ]; then\n"
+                    f"  printf '%s\\n' 'buck2 {lock['buck2']['version']}'\n"
+                    "  exit 0\n"
+                    "fi\n"
+                    "exit 0\n"
+                ).encode()
+                if corruption == "different-content-same-size":
+                    decoder_output = self._pad_shell_executable(
+                        malicious_source, len(expected_binary)
+                    )
+                    self.assertEqual(len(decoder_output), len(expected_binary))
+                elif corruption == "smaller-than-authenticated":
+                    decoder_output = malicious_source
+                    self.assertLess(len(decoder_output), len(expected_binary))
+                else:
+                    decoder_output = self._pad_shell_executable(
+                        malicious_source, len(expected_binary) + 128
+                    )
+                    self.assertGreater(len(decoder_output), len(expected_binary))
+                self.assertNotEqual(
+                    hashlib.sha256(decoder_output).digest(),
+                    hashlib.sha256(expected_binary).digest(),
+                )
+
+                fake_bin = root / "fake-bin"
+                (fake_bin / "decoder-output").parent.mkdir(parents=True)
+                (fake_bin / "decoder-output").write_bytes(decoder_output)
+                self._write_executable(
+                    fake_bin / "zstd",
+                    "#!/bin/sh\nexec /bin/cat \"${0%/*}/decoder-output\"\n",
+                )
+
+                rejected: bootstrap.ToolchainError | None = None
+                with bootstrap.verified_cached_artifacts(
+                    lock, cache_dir, platform_name
+                ) as artifacts:
+                    try:
+                        bootstrap.materialize_buck2(
+                            lock,
+                            platform_name,
+                            artifacts["buck2"],
+                            {"PATH": str(fake_bin)},
+                        )
+                    except bootstrap.ToolchainError as error:
+                        rejected = error
+
+                self.assertFalse(
+                    marker.exists(),
+                    "PATH-resolved decoder output was executed before its authenticated "
+                    f"content, digest, and size were checked ({corruption})",
+                )
+                self.assertIsInstance(
+                    rejected,
+                    bootstrap.IntegrityError,
+                    "substituted decoder output must fail closed on binary identity",
+                )
+                buck_bin = bootstrap.cache_path(
+                    cache_dir, platform_name, "buck2", buck_entry
+                ).parent / "bin"
+                self.assertEqual(
+                    list(buck_bin.glob(".buck2-stage-*")), [],
+                    "rejected decoder output left a staging executable behind",
+                )
+                self.assertEqual(
+                    list(buck_bin.glob("buck2-generation-*")), [],
+                    "rejected decoder output was published as a generation",
+                )
+
     def test_buck_materialization_consumes_verified_fd_after_path_replacement(self) -> None:
         platform_name = "linux-x86_64"
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -557,6 +734,109 @@ class HermeticToolchainContractTests(unittest.TestCase):
 
             self.assertIn(f"release: {lock['rust']['version']}", verbose)
             self.assertIn(f"commit-hash: {lock['rust']['commit']}", verbose)
+
+    def test_path_shell_cannot_substitute_unauthenticated_rust_executables(self) -> None:
+        platform_name = "linux-x86_64"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir).resolve()
+            cache_dir = root / "cache"
+            lock = self._fixture_lock()
+            rust_fixture = root / "rust-fixture.tar.xz"
+            with tempfile.TemporaryDirectory() as source_dir:
+                fixture_root = Path(source_dir) / "rust-fixture"
+                self._write_executable(
+                    fixture_root / "install.sh", "#!/bin/sh\nexit 99\n"
+                )
+                with tarfile.open(rust_fixture, "w:xz") as rust_archive:
+                    rust_archive.add(fixture_root, arcname=fixture_root.name)
+
+            rust_entry = lock["platforms"][platform_name]["rust"]
+            expected_tools = {
+                "rustc": b"authenticated-rustc-fixture",
+                "rustdoc": b"authenticated-rustdoc-fixture",
+                "clippy-driver": b"authenticated-clippy-fixture",
+            }
+            rust_entry["executables"] = {
+                name: {
+                    "sha256": hashlib.sha256(payload).hexdigest(),
+                    "size": len(payload),
+                }
+                for name, payload in expected_tools.items()
+            }
+            self._write_fixture_cache(
+                lock,
+                cache_dir,
+                platform_name,
+                {
+                    "buck2": b"fixture-buck2",
+                    "rust": rust_fixture.read_bytes(),
+                    "python": b"fixture-python",
+                },
+            )
+
+            markers = {
+                name: root / f"malicious-{name}-executed"
+                for name in ("rustc", "rustdoc", "clippy-driver")
+            }
+            fake_bin = root / "fake-bin"
+            self._write_executable(
+                fake_bin / "sh",
+                "#!/bin/sh\n"
+                "set -eu\n"
+                "prefix=''\n"
+                "for arg in \"$@\"; do\n"
+                "  case \"$arg\" in --prefix=*) prefix=${arg#--prefix=} ;; esac\n"
+                "done\n"
+                "test -n \"$prefix\"\n"
+                "mkdir -p \"$prefix/bin\"\n"
+                "cat >\"$prefix/bin/rustc\" <<'EOF'\n"
+                "#!/bin/sh\n"
+                "if [ \"${1:-}\" = \"-Vv\" ]; then\n"
+                f"  printf '%s\\n' 'release: {lock['rust']['version']}' "
+                f"'commit-hash: {lock['rust']['commit']}'\n"
+                "else\n"
+                f"  printf executed > {markers['rustc']}\n"
+                "fi\n"
+                "EOF\n"
+                "cat >\"$prefix/bin/rustdoc\" <<'EOF'\n"
+                "#!/bin/sh\n"
+                f"printf executed > {markers['rustdoc']}\n"
+                "EOF\n"
+                "cat >\"$prefix/bin/clippy-driver\" <<'EOF'\n"
+                "#!/bin/sh\n"
+                f"printf executed > {markers['clippy-driver']}\n"
+                "EOF\n"
+                "chmod 755 \"$prefix/bin/rustc\" \"$prefix/bin/rustdoc\" "
+                "\"$prefix/bin/clippy-driver\"\n",
+            )
+
+            rejected: bootstrap.ToolchainError | None = None
+            returned_tools: dict[str, Path] | None = None
+            path = os.pathsep.join((str(fake_bin), "/bin", "/usr/bin"))
+            with mock.patch.dict(os.environ, {"PATH": path}, clear=False):
+                with bootstrap.verified_cached_artifacts(
+                    lock, cache_dir, platform_name
+                ) as artifacts:
+                    try:
+                        returned_tools = bootstrap.materialize_rust(
+                            lock, platform_name, artifacts["rust"]
+                        )
+                    except bootstrap.ToolchainError as error:
+                        rejected = error
+                if returned_tools is not None:
+                    for tool in returned_tools.values():
+                        subprocess.run([tool], check=False)
+
+            self.assertEqual(
+                [name for name, marker in markers.items() if marker.exists()],
+                [],
+                "a PATH-substituted shell installed Rust tools that were accepted and run",
+            )
+            self.assertIsNotNone(
+                rejected,
+                "the authenticated installer exits 99, so a PATH shell substitution "
+                "must never produce an accepted Rust toolchain",
+            )
 
     def test_python_mirror_serves_verified_fd_after_path_replacement(self) -> None:
         platform_name = "linux-x86_64"
@@ -719,6 +999,319 @@ class HermeticToolchainContractTests(unittest.TestCase):
                 )
             ]
             self.assertEqual(leftovers, [])
+
+    def test_concurrent_buck_cleanup_preserves_another_live_stage(self) -> None:
+        platform_name = "linux-x86_64"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir).resolve()
+            lock, cache_dir, env = self._create_materializable_fixture(root)
+            buck_entry = lock["platforms"][platform_name]["buck2"]
+            buck_component = bootstrap.cache_path(
+                cache_dir, platform_name, "buck2", buck_entry
+            ).parent
+            bin_dir = buck_component / "bin"
+
+            first_stage_ready = threading.Event()
+            release_first = threading.Event()
+            first_released = threading.Event()
+            overlapping_cleanup_seen = threading.Event()
+            first_stages: list[Path] = []
+            stage_survival: list[bool] = []
+            first_result: dict[str, object] = {}
+            second_result: dict[str, object] = {}
+            original_decompress = bootstrap._decompress_buck2
+            original_cleanup = bootstrap._cleanup_generated_entries
+
+            def block_first_decompress(
+                zstd: str,
+                archive: bootstrap.VerifiedArtifact,
+                output: BinaryIO,
+            ) -> None:
+                original_decompress(zstd, archive, output)
+                if threading.current_thread().name == "buck-first":
+                    first_stages[:] = sorted(bin_dir.glob(".buck2-stage-*"))
+                    first_stage_ready.set()
+                    if not release_first.wait(timeout=10):
+                        raise AssertionError("timed out releasing the first Buck2 stage")
+
+            def observe_cleanup(
+                parent_fd: int,
+                *,
+                file_prefixes: Sequence[str],
+                directory_prefixes: Sequence[str],
+            ) -> None:
+                original_cleanup(
+                    parent_fd,
+                    file_prefixes=file_prefixes,
+                    directory_prefixes=directory_prefixes,
+                )
+                if (
+                    threading.current_thread().name == "buck-second"
+                    and not first_released.is_set()
+                    and ".buck2-stage-" in file_prefixes
+                ):
+                    stage_survival.append(all(path.exists() for path in first_stages))
+                    overlapping_cleanup_seen.set()
+
+            with bootstrap.verified_cached_artifacts(
+                lock, cache_dir, platform_name
+            ) as artifacts, mock.patch.object(
+                bootstrap, "_decompress_buck2", side_effect=block_first_decompress
+            ), mock.patch.object(
+                bootstrap, "_cleanup_generated_entries", side_effect=observe_cleanup
+            ):
+                invoke = lambda: bootstrap.materialize_buck2(
+                    lock, platform_name, artifacts["buck2"], env
+                )
+                first = threading.Thread(
+                    name="buck-first",
+                    target=self._capture_thread_call,
+                    args=(first_result, invoke),
+                )
+                second = threading.Thread(
+                    name="buck-second",
+                    target=self._capture_thread_call,
+                    args=(second_result, invoke),
+                )
+                first.start()
+                overlap_observed = False
+                try:
+                    self.assertTrue(
+                        first_stage_ready.wait(timeout=10),
+                        "first Buck2 invocation did not reach controlled staging barrier",
+                    )
+                    self.assertEqual(len(first_stages), 1)
+                    self.assertTrue(first_stages[0].exists())
+                    second.start()
+                    # A lifecycle-wide lock may intentionally serialize the second
+                    # invocation. Otherwise this hook observes its completed cleanup.
+                    overlap_observed = overlapping_cleanup_seen.wait(timeout=2)
+                finally:
+                    first_released.set()
+                    release_first.set()
+                    first.join(timeout=10)
+                    if second.ident is not None:
+                        second.join(timeout=10)
+
+            self.assertFalse(first.is_alive(), "first Buck2 invocation did not finish")
+            self.assertFalse(second.is_alive(), "second Buck2 invocation did not finish")
+            if overlap_observed:
+                self.assertEqual(
+                    stage_survival,
+                    [True],
+                    "one Buck2 invocation deleted another invocation's live "
+                    ".buck2-stage-* file",
+                )
+            self.assertNotIn("error", first_result, repr(first_result.get("error")))
+            self.assertNotIn("error", second_result, repr(second_result.get("error")))
+
+    def test_concurrent_rust_cleanup_preserves_another_live_stage_and_extract(self) -> None:
+        platform_name = "linux-x86_64"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir).resolve()
+            lock, cache_dir, _env = self._create_materializable_fixture(root)
+            rust_entry = lock["platforms"][platform_name]["rust"]
+            rust_component = bootstrap.cache_path(
+                cache_dir, platform_name, "rust", rust_entry
+            ).parent
+
+            first_installer_ready = threading.Event()
+            release_first = threading.Event()
+            first_released = threading.Event()
+            overlapping_cleanup_seen = threading.Event()
+            first_transients: list[Path] = []
+            transient_survival: list[bool] = []
+            first_result: dict[str, object] = {}
+            second_result: dict[str, object] = {}
+            original_run_checked = bootstrap._run_checked
+            original_cleanup = bootstrap._cleanup_generated_entries
+
+            def block_first_installer(
+                command: Sequence[str], *, cwd: Path | None = None
+            ) -> str:
+                if (
+                    threading.current_thread().name == "rust-first"
+                    and command
+                    and command[0] == "sh"
+                ):
+                    first_transients[:] = sorted(
+                        path
+                        for path in rust_component.iterdir()
+                        if path.name.startswith((".rust-stage-", ".rust-extract-"))
+                    )
+                    first_installer_ready.set()
+                    if not release_first.wait(timeout=10):
+                        raise AssertionError("timed out releasing the first Rust stage")
+                return original_run_checked(command, cwd=cwd)
+
+            def observe_cleanup(
+                parent_fd: int,
+                *,
+                file_prefixes: Sequence[str],
+                directory_prefixes: Sequence[str],
+            ) -> None:
+                original_cleanup(
+                    parent_fd,
+                    file_prefixes=file_prefixes,
+                    directory_prefixes=directory_prefixes,
+                )
+                if (
+                    threading.current_thread().name == "rust-second"
+                    and not first_released.is_set()
+                    and ".rust-stage-" in directory_prefixes
+                ):
+                    transient_survival.append(
+                        all(path.exists() for path in first_transients)
+                    )
+                    overlapping_cleanup_seen.set()
+
+            with bootstrap.verified_cached_artifacts(
+                lock, cache_dir, platform_name
+            ) as artifacts, mock.patch.object(
+                bootstrap, "_run_checked", side_effect=block_first_installer
+            ), mock.patch.object(
+                bootstrap, "_cleanup_generated_entries", side_effect=observe_cleanup
+            ):
+                invoke = lambda: bootstrap.materialize_rust(
+                    lock, platform_name, artifacts["rust"]
+                )
+                first = threading.Thread(
+                    name="rust-first",
+                    target=self._capture_thread_call,
+                    args=(first_result, invoke),
+                )
+                second = threading.Thread(
+                    name="rust-second",
+                    target=self._capture_thread_call,
+                    args=(second_result, invoke),
+                )
+                first.start()
+                overlap_observed = False
+                try:
+                    self.assertTrue(
+                        first_installer_ready.wait(timeout=10),
+                        "first Rust invocation did not reach controlled installer barrier",
+                    )
+                    self.assertEqual(
+                        {path.name.split("-", 3)[1] for path in first_transients},
+                        {"stage", "extract"},
+                    )
+                    self.assertTrue(all(path.exists() for path in first_transients))
+                    second.start()
+                    overlap_observed = overlapping_cleanup_seen.wait(timeout=2)
+                finally:
+                    first_released.set()
+                    release_first.set()
+                    first.join(timeout=10)
+                    if second.ident is not None:
+                        second.join(timeout=10)
+
+            self.assertFalse(first.is_alive(), "first Rust invocation did not finish")
+            self.assertFalse(second.is_alive(), "second Rust invocation did not finish")
+            if overlap_observed:
+                self.assertEqual(
+                    transient_survival,
+                    [True],
+                    "one Rust invocation deleted another invocation's live "
+                    ".rust-stage-* or .rust-extract-* directory",
+                )
+            self.assertNotIn("error", first_result, repr(first_result.get("error")))
+            self.assertNotIn("error", second_result, repr(second_result.get("error")))
+
+    def test_concurrent_run_preserves_live_buck_and_rust_generations(self) -> None:
+        platform_name = "linux-x86_64"
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir).resolve()
+            lock, cache_dir, env = self._create_materializable_fixture(root)
+            first_running = threading.Event()
+            second_running = threading.Event()
+            release_first = threading.Event()
+            first_live_paths: list[Path] = []
+            first_result: dict[str, object] = {}
+            second_result: dict[str, object] = {}
+            real_run = subprocess.run
+
+            def controlled_run(command: Any, *args: Any, **kwargs: Any) -> Any:
+                is_buck_generation = (
+                    isinstance(command, (list, tuple))
+                    and bool(command)
+                    and "buck2-generation-" in Path(str(command[0])).name
+                    and "--version" not in command
+                )
+                if not is_buck_generation:
+                    return real_run(command, *args, **kwargs)
+
+                if threading.current_thread().name == "run-first":
+                    first_live_paths.append(Path(str(command[0])))
+                    for argument in command:
+                        text = str(argument)
+                        if text.startswith(
+                            (
+                                "toolchain.rustc=",
+                                "toolchain.rustdoc=",
+                                "toolchain.clippy_driver=",
+                            )
+                        ):
+                            first_live_paths.append(Path(text.split("=", 1)[1]))
+                    first_running.set()
+                    if not release_first.wait(timeout=10):
+                        raise AssertionError("timed out releasing the first Buck2 run")
+                elif threading.current_thread().name == "run-second":
+                    second_running.set()
+                return subprocess.CompletedProcess(command, 0)
+
+            invoke = lambda: bootstrap.run_buck(
+                lock, cache_dir, platform_name, ["query", "//:fixture"], env
+            )
+            first = threading.Thread(
+                name="run-first",
+                target=self._capture_thread_call,
+                args=(first_result, invoke),
+            )
+            second = threading.Thread(
+                name="run-second",
+                target=self._capture_thread_call,
+                args=(second_result, invoke),
+            )
+            with mock.patch.object(
+                bootstrap.subprocess, "run", side_effect=controlled_run
+            ):
+                first.start()
+                overlap_observed = False
+                live_during_overlap: list[bool] = []
+                try:
+                    self.assertTrue(
+                        first_running.wait(timeout=10),
+                        "first invocation did not reach the controlled Buck2 run barrier",
+                    )
+                    self.assertEqual(len(first_live_paths), 4)
+                    self.assertTrue(all(path.exists() for path in first_live_paths))
+                    second.start()
+                    # A lifecycle-wide lock is allowed to serialize here. If the
+                    # second run reaches Buck2 while the first is blocked, every
+                    # first-generation executable must still exist.
+                    overlap_observed = second_running.wait(timeout=2)
+                    if overlap_observed:
+                        live_during_overlap = [
+                            path.exists() for path in first_live_paths
+                        ]
+                finally:
+                    release_first.set()
+                    first.join(timeout=10)
+                    if second.ident is not None:
+                        second.join(timeout=10)
+
+            self.assertFalse(first.is_alive(), "first Buck2 run did not finish")
+            self.assertFalse(second.is_alive(), "second Buck2 run did not finish")
+            if overlap_observed:
+                self.assertEqual(
+                    live_during_overlap,
+                    [True, True, True, True],
+                    "a concurrent invocation deleted another live buck2-generation-* "
+                    "or rust-generation-* executable before its Buck2 process exited",
+                )
+            self.assertEqual(first_result.get("value"), 0, repr(first_result))
+            self.assertEqual(second_result.get("value"), 0, repr(second_result))
 
     def test_compiler_override_matrix_fails_closed(self) -> None:
         lock = bootstrap.load_lock()
