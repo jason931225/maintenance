@@ -339,6 +339,29 @@ pub struct NewRun {
     pub schedule_id: Option<uuid::Uuid>,
 }
 
+/// System-triggered run facts whose immutable executable version must be
+/// selected at the same serialization point that claims the deterministic run
+/// key. Unlike [`NewRun`], this deliberately has no caller-supplied definition
+/// version: the persistence adapter either returns the already-bound durable
+/// version or selects the current ACTIVE immutable version/graph pair and
+/// inserts it atomically.
+#[derive(Debug, Clone)]
+pub struct NewBoundRun {
+    pub id: uuid::Uuid,
+    pub org_id: OrgId,
+    pub definition_id: uuid::Uuid,
+    pub trigger_type: TriggerType,
+    pub object_type: Option<String>,
+    pub object_id: Option<uuid::Uuid>,
+    pub idempotency_key: String,
+    pub correlation_id: String,
+    pub trace_id: String,
+    pub input_payload: serde_json::Value,
+    pub context_payload: serde_json::Value,
+    pub initiated_by: Option<UserId>,
+    pub schedule_id: Option<uuid::Uuid>,
+}
+
 /// The subset of `workflow_runs` the engine needs to make advance and exact
 /// recovery decisions. Provenance and branch-driving payloads are included so
 /// an idempotency-key collision cannot resume with divergent execution facts.
@@ -352,9 +375,29 @@ pub struct RunRecord {
     pub trigger_type: TriggerType,
     pub object_type: Option<String>,
     pub object_id: Option<uuid::Uuid>,
+    pub correlation_id: String,
+    pub trace_id: Option<String>,
     pub input_payload: serde_json::Value,
     pub context_payload: serde_json::Value,
+    pub initiated_by: Option<UserId>,
     pub schedule_id: Option<uuid::Uuid>,
+}
+
+/// Atomic result of claiming a deterministic system-triggered run key.
+///
+/// Both variants carry the exact immutable executable selected under the same
+/// database serialization boundary as the run row. `Existing` never creates a
+/// second start audit; `Created` is the sole owner allowed to report `Started`.
+#[derive(Debug, Clone)]
+pub enum BoundRunClaim {
+    Created {
+        run: RunRecord,
+        definition: serde_json::Value,
+    },
+    Existing {
+        run: RunRecord,
+        definition: serde_json::Value,
+    },
 }
 
 /// A `workflow_runs` status change. The adapter stamps the terminal timestamp
@@ -501,6 +544,16 @@ pub trait WorkflowRuntimePort: Send + Sync {
         idempotency_key: String,
     ) -> PortFuture<'a, Option<RunRecord>>;
 
+    /// Read one immutable executable definition version without consulting the
+    /// mutable active-version pointer. Conflict recovery uses this only after a
+    /// durable run has bound the exact `(definition_id, definition_version)`.
+    fn load_exec_definition_version<'a>(
+        &'a self,
+        org: OrgId,
+        definition_id: uuid::Uuid,
+        definition_version: i32,
+    ) -> PortFuture<'a, Option<serde_json::Value>>;
+
     /// Apply a `workflow_runs` status transition + its audit row.
     fn transition_run<'a>(
         &'a self,
@@ -536,6 +589,25 @@ pub trait WorkflowRuntimePort: Send + Sync {
         org: OrgId,
         command: PostFinalizationRejectionCommand,
     ) -> PortFuture<'a, PostFinalizationRejection>;
+}
+
+/// Stronger persistence seam for deterministic event/schedule starts.
+///
+/// Implementations must serialize on `(org_id, idempotency_key)` before any
+/// existing-run or ACTIVE-definition read. Under that same transaction they
+/// must either return the existing full run provenance plus its exact immutable
+/// executable, or select the ACTIVE definition/version pair in one statement
+/// snapshot, insert STARTING plus the supplied start audit atomically, and
+/// return created ownership plus that exact immutable executable. `None` means
+/// neither an existing run nor an ACTIVE executable existed at the
+/// serialization point and must leave no run or audit behind.
+pub trait IdempotentBoundRunPort: WorkflowRuntimePort {
+    fn claim_bound_run<'a>(
+        &'a self,
+        run: NewBoundRun,
+        start_audit: AuditEvent,
+        validate_definition: fn(&serde_json::Value) -> Result<(), KernelError>,
+    ) -> PortFuture<'a, Option<BoundRunClaim>>;
 }
 
 #[cfg(test)]

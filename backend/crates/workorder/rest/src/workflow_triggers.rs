@@ -12,7 +12,8 @@
 //!      `work_order.completion` template, driven by its own completion tail;
 //!   2. every ENABLED `workflow_trigger_bindings` row (0105) for the event,
 //!      oldest first — each starts one idempotent run through the shared
-//!      [`mnt_workflow_runtime::start_bound_run`] path (`start_run` →
+//!      [`mnt_workflow_runtime::trigger::start_idempotent_bound_run`] path (atomic
+//!      durable claim →
 //!      synchronous graph drive), exactly like `POST /api/v1/workflow-runs`.
 //!
 //! ## Failure isolation
@@ -31,7 +32,10 @@
 use mnt_kernel_core::{BranchId, KernelError, OrgId, TraceContext, UserId, WorkOrderId};
 use mnt_platform_authz::Principal;
 use mnt_platform_request_context::current_org;
-use mnt_workflow_runtime::{AuditContext, StartRunRequest, TriggeredStart, start_bound_run};
+use mnt_workflow_runtime::AuditContext;
+use mnt_workflow_runtime::trigger::{
+    StartIdempotentBoundRunRequest, TriggeredStart, start_idempotent_bound_run,
+};
 use mnt_workflow_runtime_adapter_postgres::PgWorkflowRuntimeStore;
 use serde_json::json;
 use time::OffsetDateTime;
@@ -106,45 +110,18 @@ pub async fn dispatch_event_bindings(
 
     let mut started = 0u32;
     for binding in bindings {
-        // Resolve the binding's ACTIVE wf.exec.v1 definition; a binding whose
-        // definition was paused/retired since authoring SKIPS (fail-safe).
-        let resolved = match runtime
-            .resolve_active_exec_definition(org, binding.definition_id)
-            .await
-        {
-            Ok(Some(resolved)) => resolved,
-            Ok(None) => {
-                tracing::warn!(
-                    binding_id = %binding.id,
-                    definition_id = %binding.definition_id,
-                    event_key,
-                    "workflow triggers: binding definition is not an ACTIVE wf.exec.v1 definition; skipping"
-                );
-                continue;
-            }
-            Err(err) => {
-                tracing::warn!(
-                    binding_id = %binding.id,
-                    error = %err.message,
-                    "workflow triggers: binding definition resolve failed; skipping"
-                );
-                continue;
-            }
-        };
-        let (version, definition) = resolved;
-
+        let idempotency_key = format!("trigger:{}:{}", binding.id, object_id);
         let run_id = Uuid::new_v4();
-        let request = StartRunRequest {
+        let request = StartIdempotentBoundRunRequest {
             run_id,
             org_id: org,
             definition_id: binding.definition_id,
-            definition_version: version,
             trigger_type: binding.trigger_type,
             object_type: Some(object_type.to_owned()),
             object_id: Some(object_id),
             // Deterministic per (binding, event occurrence): a re-publish or a
             // concurrent dispatch of the same completion starts exactly one run.
-            idempotency_key: format!("trigger:{}:{}", binding.id, object_id),
+            idempotency_key,
             correlation_id: format!("trigger:{event_key}:{object_id}"),
             trace_id: None,
             input_payload: json!({
@@ -162,7 +139,7 @@ pub async fn dispatch_event_bindings(
             occurred_at: OffsetDateTime::now_utc(),
         };
 
-        match start_bound_run(runtime, request, &definition, &audit).await {
+        match start_idempotent_bound_run(runtime, request, &audit).await {
             Ok(TriggeredStart::Started { run_id, .. }) => {
                 started += 1;
                 tracing::info!(
@@ -177,6 +154,14 @@ pub async fn dispatch_event_bindings(
                     binding_id = %binding.id,
                     event_key,
                     "workflow triggers: event occurrence already handled; skipping"
+                );
+            }
+            Ok(TriggeredStart::Unavailable) => {
+                tracing::warn!(
+                    binding_id = %binding.id,
+                    definition_id = %binding.definition_id,
+                    event_key,
+                    "workflow triggers: no durable run or ACTIVE wf.exec.v1 definition at atomic claim; skipping"
                 );
             }
             Err(err) => {

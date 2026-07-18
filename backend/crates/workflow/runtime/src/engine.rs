@@ -96,6 +96,15 @@ pub(crate) async fn insert_starting_run<P: WorkflowRuntimePort + ?Sized>(
 
     let run_id = request.run_id;
     let org = request.org_id;
+    if request
+        .trace_id
+        .as_deref()
+        .is_some_and(|trace_id| trace_id != audit.trace.trace_id())
+    {
+        return Err(KernelError::validation(
+            "workflow run trace_id must match the audited start trace",
+        ));
+    }
     let new_run = NewRun {
         id: run_id,
         org_id: org,
@@ -106,7 +115,10 @@ pub(crate) async fn insert_starting_run<P: WorkflowRuntimePort + ?Sized>(
         object_id: request.object_id,
         idempotency_key: request.idempotency_key,
         correlation_id: request.correlation_id,
-        trace_id: request.trace_id,
+        // All newly created runs persist the audit trace. Recovery never falls
+        // back to a retry caller's fresh trace, and legacy/malformed rows fail
+        // closed before another durable effect is attempted.
+        trace_id: Some(audit.trace.trace_id().to_owned()),
         input_payload: request.input_payload,
         context_payload: request.context_payload,
         initiated_by: request.initiated_by,
@@ -426,6 +438,15 @@ mod tests {
             _org: OrgId,
             _idempotency_key: String,
         ) -> PortFuture<'a, Option<RunRecord>> {
+            Box::pin(async { Ok(None) })
+        }
+
+        fn load_exec_definition_version<'a>(
+            &'a self,
+            _org: OrgId,
+            _definition_id: Uuid,
+            _definition_version: i32,
+        ) -> PortFuture<'a, Option<Value>> {
             Box::pin(async { Ok(None) })
         }
 
