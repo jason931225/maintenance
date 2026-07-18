@@ -356,6 +356,21 @@ async fn schedule_poller_starts_due_run_exactly_once_under_concurrent_poll(owner
         count(&rt_pool, org, "SELECT count(*) FROM workflow_runs").await,
         1
     );
+    assert_eq!(
+        count(&rt_pool, org, "SELECT count(*) FROM workflow_node_runs").await,
+        1,
+        "the losing poll must not duplicate graph drive"
+    );
+    assert_eq!(
+        count(
+            &rt_pool,
+            org,
+            "SELECT count(*) FROM audit_events WHERE action = 'workflow_node.commit'",
+        )
+        .await,
+        1,
+        "the losing poll must not duplicate node audit"
+    );
 
     // The run carries schedule provenance and the reserved SCHEDULE trigger.
     let mut tx = rt_pool.begin().await.unwrap();
@@ -412,6 +427,19 @@ async fn schedule_poller_starts_due_run_exactly_once_under_concurrent_poll(owner
     assert_eq!(again, 0);
     assert_eq!(
         count(&rt_pool, org, "SELECT count(*) FROM workflow_runs").await,
+        1
+    );
+    assert_eq!(
+        count(&rt_pool, org, "SELECT count(*) FROM workflow_node_runs").await,
+        1
+    );
+    assert_eq!(
+        count(
+            &rt_pool,
+            org,
+            "SELECT count(*) FROM audit_events WHERE action = 'workflow_node.commit'",
+        )
+        .await,
         1
     );
 }

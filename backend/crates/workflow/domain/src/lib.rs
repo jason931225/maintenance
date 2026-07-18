@@ -339,7 +339,9 @@ pub struct NewRun {
     pub schedule_id: Option<uuid::Uuid>,
 }
 
-/// The subset of `workflow_runs` the engine needs to make advance decisions.
+/// The subset of `workflow_runs` the engine needs to make advance and exact
+/// recovery decisions. Provenance and branch-driving payloads are included so
+/// an idempotency-key collision cannot resume with divergent execution facts.
 #[derive(Debug, Clone)]
 pub struct RunRecord {
     pub id: uuid::Uuid,
@@ -347,8 +349,12 @@ pub struct RunRecord {
     pub status: RunStatus,
     pub definition_id: uuid::Uuid,
     pub definition_version: i32,
+    pub trigger_type: TriggerType,
     pub object_type: Option<String>,
     pub object_id: Option<uuid::Uuid>,
+    pub input_payload: serde_json::Value,
+    pub context_payload: serde_json::Value,
+    pub schedule_id: Option<uuid::Uuid>,
 }
 
 /// A `workflow_runs` status change. The adapter stamps the terminal timestamp
