@@ -83,6 +83,28 @@ MAPPER_TEST_OBLIGATIONS = {
     ),
 }
 
+SCHEDULER_APALIS_ADMISSION_LABELS = {
+    "backend/app/tests/apalis_owner_bootstrap.rs": (
+        "//backend/app:mnt-app-apalis-owner-bootstrap"
+    ),
+    "backend/app/tests/migrations_as_mnt_app.rs": (
+        "//backend/app:mnt-app-migrations-as-mnt-app"
+    ),
+    "backend/app/tests/workflow_schedule_control_config.rs": (
+        "//backend/app:mnt-app-workflow-schedule-control-config"
+    ),
+    "backend/crates/platform/db/tests/workflow_schedules_rls.rs": (
+        "//backend/crates/platform/db:mnt-platform-db-workflow-schedules-rls"
+    ),
+    "backend/crates/platform/db/tests/workflow_schedules_upgrade.rs": (
+        "//backend/crates/platform/db:mnt-platform-db-workflow-schedules-upgrade"
+    ),
+    "backend/crates/workflow/adapter-postgres/tests/workflow_schedule_runtime.rs": (
+        "//backend/crates/workflow/adapter-postgres:"
+        "mnt-workflow-runtime-adapter-postgres-workflow-schedule-runtime"
+    ),
+}
+
 
 def load_json(path: Path) -> dict:
     with path.open(encoding="utf-8") as handle:
@@ -201,6 +223,37 @@ class CurrentLockRustGraphContract(unittest.TestCase):
                 self.assertIn(expected_label, admission["test_labels"], source)
             else:
                 self.assertEqual("cross_lane_integration", item.get("state"), source)
+
+    def test_scheduler_apalis_fan_in_is_buck_admitted_and_ci_serialized(self) -> None:
+        admission = load_json(ADMISSION)
+        obligations = {
+            item["source"]: item
+            for item in admission.get("mapper_test_obligations", [])
+        }
+        for source, label in SCHEDULER_APALIS_ADMISSION_LABELS.items():
+            self.assertTrue((REPO / source).is_file(), source)
+            self.assertEqual("admitted", obligations[source].get("state"), source)
+            self.assertEqual(label, obligations[source].get("label"), source)
+            for key in ("query_labels", "build_labels", "test_labels"):
+                self.assertIn(label, admission[key], f"{source} missing from {key}")
+
+        runner = REPO / "tools/buck/ci_rust_admission.py"
+        self.assertTrue(runner.is_file(), runner.relative_to(REPO))
+        workflow = (REPO / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        invocation = "python3 -I tools/buck/ci_rust_admission.py"
+        self.assertEqual(1, workflow.count(invocation))
+        runner_text = runner.read_text(encoding="utf-8")
+        ordered_gates = (
+            "check_manifest_ownership",
+            "check_generated_current_lock_receipt",
+            "check_hermetic_toolchain",
+            "query_admitted_labels",
+            "build_admitted_labels",
+            "test_admitted_labels",
+        )
+        offsets = [runner_text.index(gate) for gate in ordered_gates]
+        self.assertEqual(offsets, sorted(offsets))
+        self.assertIn("Cargo is shadow-only and non-authoritative", workflow)
 
     def test_manifest_ownership_declares_each_required_real_target(self) -> None:
         policy = load_json(POLICY)
