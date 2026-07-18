@@ -1049,3 +1049,200 @@ async fn conflicted_event_with_true_input_identity_drift_fails_closed(owner_pool
     assert_eq!(node_count, 0);
     assert_eq!(recovery_audits, 0);
 }
+
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn active_corruption_fails_and_advances_while_rolled_back_version_remains_executable(
+    owner_pool: PgPool,
+) {
+    let org = OrgId::from_uuid(Uuid::from_u128(0x4d32_11cd_0000_0000_0000_0000_0000_00cd));
+    let author = seed_org_and_author(&owner_pool, org, "org-active-corruption").await;
+    let rt_pool = runtime_role_pool(&owner_pool).await;
+    let paused = seed_graph_definition(&rt_pool, org, "active_corruption.paused").await;
+    let missing_pointer =
+        seed_graph_definition(&rt_pool, org, "active_corruption.missing_pointer").await;
+    let missing_version =
+        seed_graph_definition(&rt_pool, org, "active_corruption.missing_version").await;
+    let wrong_schema = seed_graph_definition(&rt_pool, org, "active_corruption.wrong_schema").await;
+    let missing_schema =
+        seed_graph_definition(&rt_pool, org, "active_corruption.missing_schema").await;
+    let rolled_back = seed_graph_definition(&rt_pool, org, "active_corruption.rolled_back").await;
+    let now = OffsetDateTime::now_utc();
+    let due = OffsetDateTime::from_unix_timestamp(now.unix_timestamp() - 60).unwrap();
+    let paused_schedule = seed_schedule(&rt_pool, org, paused, author, due).await;
+    let missing_pointer_schedule = seed_schedule(&rt_pool, org, missing_pointer, author, due).await;
+    let missing_version_schedule = seed_schedule(&rt_pool, org, missing_version, author, due).await;
+    let wrong_schema_schedule = seed_schedule(&rt_pool, org, wrong_schema, author, due).await;
+    let missing_schema_schedule = seed_schedule(&rt_pool, org, missing_schema, author, due).await;
+    let rolled_back_schedule = seed_schedule(&rt_pool, org, rolled_back, author, due).await;
+
+    let mut tx = rt_pool.begin().await.unwrap();
+    arm_org(&mut tx, org).await;
+    sqlx::query("UPDATE workflow_definitions SET status = 'PAUSED' WHERE id = $1")
+        .bind(paused)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE workflow_definitions SET status = 'ACTIVE', active_version = NULL WHERE id = $1",
+    )
+    .bind(missing_pointer)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE workflow_definitions \
+         SET status = 'ACTIVE', latest_version = 2, active_version = 2 WHERE id = $1",
+    )
+    .bind(missing_version)
+    .execute(&mut *tx)
+    .await
+    .unwrap();
+    for (definition_id, graph, status) in [
+        (
+            wrong_schema,
+            serde_json::json!({
+                "schema_version": "wf.exec.v2",
+                "nodes": [{"node_key": "wrong_schema", "node_type": "object_gate"}],
+                "edges": []
+            }),
+            "PUBLISHED",
+        ),
+        (
+            missing_schema,
+            serde_json::json!({
+                "nodes": [{"node_key": "missing_schema", "node_type": "object_gate"}],
+                "edges": []
+            }),
+            "PUBLISHED",
+        ),
+        (
+            rolled_back,
+            serde_json::json!({
+                "schema_version": "wf.exec.v1",
+                "nodes": [{"node_key": "rolled_back_gate", "node_type": "object_gate"}],
+                "edges": []
+            }),
+            "ROLLED_BACK",
+        ),
+    ] {
+        sqlx::query(
+            "INSERT INTO workflow_definition_versions \
+                 (org_id, definition_id, version, status, definition, \
+                  required_approval_line, required_payment_line) \
+             VALUES ($1, $2, 2, $3, $4, FALSE, FALSE)",
+        )
+        .bind(*org.as_uuid())
+        .bind(definition_id)
+        .bind(status)
+        .bind(graph)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        sqlx::query(
+            "UPDATE workflow_definitions \
+             SET status = 'ACTIVE', latest_version = 2, active_version = 2 WHERE id = $1",
+        )
+        .bind(definition_id)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    }
+    tx.commit().await.unwrap();
+
+    let store = PgWorkflowRuntimeStore::new(rt_pool.clone());
+    assert_eq!(
+        poll_org(&store, org, now).await.unwrap(),
+        1,
+        "only the rollback-produced active graph is executable"
+    );
+
+    let mut tx = rt_pool.begin().await.unwrap();
+    arm_org(&mut tx, org).await;
+    // Inline queries avoid sharing one mutable transaction across async closures.
+    let paused_state: (
+        Option<OffsetDateTime>,
+        Option<OffsetDateTime>,
+        Option<String>,
+    ) = sqlx::query_as(
+        "SELECT next_run_at, last_run_at, last_status FROM workflow_schedules WHERE id = $1",
+    )
+    .bind(paused_schedule)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    let missing_version_state: (
+        Option<OffsetDateTime>,
+        Option<OffsetDateTime>,
+        Option<String>,
+    ) = sqlx::query_as(
+        "SELECT next_run_at, last_run_at, last_status FROM workflow_schedules WHERE id = $1",
+    )
+    .bind(missing_version_schedule)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    let missing_pointer_state: (
+        Option<OffsetDateTime>,
+        Option<OffsetDateTime>,
+        Option<String>,
+    ) = sqlx::query_as(
+        "SELECT next_run_at, last_run_at, last_status FROM workflow_schedules WHERE id = $1",
+    )
+    .bind(missing_pointer_schedule)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    let wrong_schema_state: (
+        Option<OffsetDateTime>,
+        Option<OffsetDateTime>,
+        Option<String>,
+    ) = sqlx::query_as(
+        "SELECT next_run_at, last_run_at, last_status FROM workflow_schedules WHERE id = $1",
+    )
+    .bind(wrong_schema_schedule)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    let missing_schema_state: (
+        Option<OffsetDateTime>,
+        Option<OffsetDateTime>,
+        Option<String>,
+    ) = sqlx::query_as(
+        "SELECT next_run_at, last_run_at, last_status FROM workflow_schedules WHERE id = $1",
+    )
+    .bind(missing_schema_schedule)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    let rollback_node: String = sqlx::query_scalar(
+        "SELECT n.node_key FROM workflow_node_runs n \
+         JOIN workflow_runs r ON r.id = n.run_id \
+         WHERE r.schedule_id = $1",
+    )
+    .bind(rolled_back_schedule)
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
+    tx.commit().await.unwrap();
+
+    assert_eq!(paused_state, (Some(due), None, None));
+    for (label, state) in [
+        ("ACTIVE missing pointer", missing_pointer_state),
+        ("ACTIVE missing pointed version", missing_version_state),
+        ("ACTIVE wrong schema", wrong_schema_state),
+        ("ACTIVE missing schema", missing_schema_state),
+    ] {
+        assert_eq!(
+            state.2.as_deref(),
+            Some("FAILED"),
+            "{label} is corrupt ACTIVE state and must advance FAILED, not hot-loop as Unavailable"
+        );
+        assert_eq!(
+            state.1,
+            Some(due),
+            "{label} must record the consumed failed fire"
+        );
+        assert!(state.0.is_some_and(|next| next > now));
+    }
+    assert_eq!(rollback_node, "rolled_back_gate");
+}

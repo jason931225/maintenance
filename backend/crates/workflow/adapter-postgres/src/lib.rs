@@ -1979,31 +1979,47 @@ impl IdempotentBoundRunPort for PgWorkflowRuntimeStore {
                         // transaction. A later publisher pointer change cannot
                         // rewrite that selected immutable pair; no row-locking
                         // privilege is required on definition-version rows.
-                        let active = sqlx::query(
-                            "SELECT d.active_version, v.definition \
+                        let definition_row = sqlx::query(
+                            "SELECT d.status AS definition_status, d.active_version, v.definition \
                              FROM workflow_definitions d \
-                             JOIN workflow_definition_versions v \
+                             LEFT JOIN workflow_definition_versions v \
                                ON v.definition_id = d.id AND v.org_id = d.org_id \
                               AND v.version = d.active_version \
-                             WHERE d.id = $1 AND d.status = 'ACTIVE' \
-                               AND d.active_version IS NOT NULL \
-                               AND v.definition->>'schema_version' = 'wf.exec.v1'",
+                             WHERE d.id = $1",
                         )
                         .bind(run.definition_id)
                         .fetch_optional(tx.as_mut())
                         .await
                         .map_err(PgWorkflowRuntimeError::from)?;
-                        let Some(active) = active else {
+                        let Some(definition_row) = definition_row else {
                             return Ok((None, Vec::new()));
                         };
-                        let definition_version: i32 = active.try_get("active_version")?;
-                        let definition: serde_json::Value = active.try_get("definition")?;
+                        let definition_status: String =
+                            definition_row.try_get("definition_status")?;
+                        if definition_status != "ACTIVE" {
+                            return Ok((None, Vec::new()));
+                        }
+                        let definition_version: Option<i32> =
+                            definition_row.try_get("active_version")?;
+                        let definition_version = definition_version.ok_or_else(|| {
+                            PgWorkflowRuntimeError::from(KernelError::conflict(
+                                "ACTIVE workflow definition has no active version",
+                            ))
+                        })?;
+                        let definition: Option<serde_json::Value> =
+                            definition_row.try_get("definition")?;
+                        let definition = definition.ok_or_else(|| {
+                            PgWorkflowRuntimeError::from(KernelError::conflict(
+                                "ACTIVE workflow definition version is unavailable",
+                            ))
+                        })?;
                         // Full graph validation runs under the same claim lock
                         // and transaction, before a new STARTING row or audit
                         // can commit. Existing runs bypass mutable ACTIVE and
                         // validate only their exact immutable graph above.
-                        // A schema-tagged but graph-invalid ACTIVE version is a
-                        // validation failure, not absence. Roll the claim back
+                        // Every corrupt ACTIVE state (missing pointer, missing
+                        // pointed version, incompatible schema, or invalid
+                        // graph) is a failure, not absence. Roll the claim back
                         // before any STARTING row/audit; schedule policy records
                         // FAILED and advances instead of hot-looping this fire.
                         validate_definition(&definition).map_err(PgWorkflowRuntimeError::from)?;

@@ -286,6 +286,17 @@ pub async fn start_idempotent_bound_run<P: IdempotentBoundRunPort + ?Sized>(
 }
 
 fn validate_bound_definition(definition: &Value) -> Result<(), KernelError> {
+    let schema_version = definition
+        .get("schema_version")
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            KernelError::validation("workflow executable definition is missing schema_version")
+        })?;
+    if schema_version != "wf.exec.v1" {
+        return Err(KernelError::validation(
+            "workflow executable definition schema_version must be wf.exec.v1",
+        ));
+    }
     let graph = ExecGraph::parse(definition)?;
     let _ = graph.entry_node_key()?;
     Ok(())
@@ -1138,6 +1149,7 @@ mod tests {
 
     fn definition() -> serde_json::Value {
         json!({
+            "schema_version": "wf.exec.v1",
             "nodes": [
                 { "node_key": "gate", "node_type": "object_gate" }
             ],
@@ -1280,6 +1292,26 @@ mod tests {
         let commits = port.commits.lock().unwrap();
         assert_eq!(commits.len(), 1);
         assert_eq!(commits[0].new_node.node_key, "persisted_version_one");
+    }
+
+    #[test]
+    fn bound_definition_requires_v1_executable_schema() {
+        for definition in [
+            json!({
+                "nodes": [{ "node_key": "missing_schema", "node_type": "object_gate" }],
+                "edges": []
+            }),
+            json!({
+                "schema_version": "wf.exec.v2",
+                "nodes": [{ "node_key": "wrong_schema", "node_type": "object_gate" }],
+                "edges": []
+            }),
+        ] {
+            assert!(
+                validate_bound_definition(&definition).is_err(),
+                "missing or incompatible executable schema must fail closed"
+            );
+        }
     }
 
     #[test]

@@ -111,11 +111,13 @@ The engine model is:
      immutable graph, or selects the ACTIVE immutable version/graph pair in one statement snapshot
      and inserts STARTING plus the start audit before returning created ownership and that exact
      graph. Callers never parse a mutable graph before this claim. If neither an existing run nor
-     ACTIVE executable exists at that point, the claim
-     writes no row/audit; a due schedule remains due rather than falsely consuming the fire.
-     A schema-tagged ACTIVE version whose graph fails validation is not classified as absence:
-     the claim rolls back without a row/audit and schedule policy records FAILED and advances the
-     fire so corrupted publication cannot hot-loop every poll tick.
+     an ACTIVE definition exists at that point, the claim writes no row/audit; a due schedule
+     remains due rather than falsely consuming the fire. A present but corrupt ACTIVE definition
+     is never classified as absence: a missing active-version pointer, missing pointed immutable
+     version, incompatible or missing executable schema, or graph-validation failure rolls the
+     claim back without a row/audit, and schedule policy records FAILED and advances the fire so
+     corrupted publication cannot hot-loop every poll tick. Immutable versions remain executable
+     for already-bound or currently selected runs regardless of later version lifecycle labels.
    - Execution history must preserve enough redacted metadata to debug failures and prove compliance
      without leaking HR/payroll/location/personal data into generic logs.
 
