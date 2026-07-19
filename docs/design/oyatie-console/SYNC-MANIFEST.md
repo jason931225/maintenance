@@ -8,7 +8,7 @@ Last upstream sync: **2026-07-11 (delta pass)** via DesignSync read API. Local t
 | file | etag | this pass |
 |---|---|---|
 | `AGENTS.md` | `1783710623650166` | historical upstream etag; locally amended/not byte-identical; final size **102476**, SHA-256 `a76c43e01872457b42669963c8b4fce7b73158623c85dce6308860387911cf5e` |
-| `TODO.md` | `1783710505767805` | historical upstream etag; locally amended/not byte-identical; final size **89742**, SHA-256 `0e3848dd17fbd92d4ba63bd5400ed937e7fcdbfd63939707f4e645c2966a93b6` |
+| `TODO.md` | `1783710505767805` | historical upstream etag; locally amended/not byte-identical; final size **89862**, SHA-256 `242e45276fa0ceab8d902784c42ed2fc12d4b44bfa1a58db7d185f1a71ca923f` |
 | `ROADMAP.md` | `1783710735311137` | historical upstream etag; locally amended/not byte-identical; final size **32391**, SHA-256 `7bf7c02447d322aed64d030bec453d0d2bc7c7db09205f481f1ebb3116b8db0c` |
 | `DESIGN.md` | `1783659938373543` | unchanged (size 53176) |
 | `HANDOFF.md` | `1783661269027052` | unchanged (size 36418) |
