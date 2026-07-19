@@ -318,7 +318,7 @@ export interface GraphExplorerProps {
    * Throws/404s for projected instances (S23) and transient failures → the pane
    * degrades to the node's graph fields, never fabricates.
    */
-  resolveNodeDescriptor?: (node: ObjectExplorerNode) => Promise<ObjectCardDescriptor>;
+  resolveNodeDescriptor?: (node: ObjectExplorerNode) => Promise<ObjectCardDescriptor | undefined>;
   /** Object-type *version* ids whose backing_kind is projected (honest 조회 전용). */
   projectedTypeIds?: ReadonlySet<string>;
   /** Optional inspector action/lifecycle wiring (read-only explore omits it). */
@@ -370,6 +370,7 @@ export function GraphExplorer({
       if (resolved.has(node.id) || failed.has(node.id)) return;
       void resolveNodeDescriptor(node)
         .then((descriptor) => {
+          if (!descriptor) return;
           setResolved((current) => new Map(current).set(node.id, descriptor));
         })
         .catch(() => {

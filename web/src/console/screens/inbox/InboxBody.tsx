@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 
 import { StatusChip } from "../../components";
 import "../../tokens.css";
@@ -20,6 +28,15 @@ type DetailState =
   | { phase: "ready"; detail: InboxDocDetail }
   | { phase: "error"; id: string };
 
+interface ApiOwned<T> {
+  api: object;
+  value: T;
+}
+
+function ownedBy<T>(api: object, value: T): ApiOwned<T> {
+  return { api, value };
+}
+
 export interface InboxBodyProps {
   api: InboxApi;
 }
@@ -36,14 +53,49 @@ export function InboxBody({ api }: InboxBodyProps) {
     [],
   );
 
+  const currentApiRef = useRef<InboxApi | undefined>(api);
+  const selectedIdRef = useRef<string | undefined>(undefined);
+  const confirmationOperationRef = useRef(0);
+
+  useLayoutEffect(() => {
+    currentApiRef.current = api;
+    selectedIdRef.current = undefined;
+    confirmationOperationRef.current += 1;
+    return () => {
+      if (currentApiRef.current === api) currentApiRef.current = undefined;
+      selectedIdRef.current = undefined;
+      confirmationOperationRef.current += 1;
+    };
+  }, [api]);
+
   const [filter, setFilter] = useState<InboxFilter>("all");
-  const [listState, setListState] = useState<LoadState>("loading");
-  const [docs, setDocs] = useState<InboxDocSummary[]>([]);
-  const [selectedId, setSelectedId] = useState<string | undefined>();
-  const [detail, setDetail] = useState<DetailState>({ phase: "idle" });
-  const [confirming, setConfirming] = useState(false);
-  const [receiptError, setReceiptError] = useState(false);
+  const [listStateOwned, setListStateOwned] = useState<ApiOwned<LoadState>>(() =>
+    ownedBy(api, "loading"),
+  );
+  const [docsOwned, setDocsOwned] = useState<ApiOwned<InboxDocSummary[]>>(() =>
+    ownedBy(api, []),
+  );
+  const [selectedIdOwned, setSelectedIdOwned] = useState<
+    ApiOwned<string | undefined>
+  >(() => ownedBy(api, undefined));
+  const [detailOwned, setDetailOwned] = useState<ApiOwned<DetailState>>(() =>
+    ownedBy(api, { phase: "idle" }),
+  );
+  const [confirmingOwned, setConfirmingOwned] = useState<ApiOwned<boolean>>(() =>
+    ownedBy(api, false),
+  );
+  const [receiptErrorOwned, setReceiptErrorOwned] = useState<ApiOwned<boolean>>(() =>
+    ownedBy(api, false),
+  );
   const [reloadKey, setReloadKey] = useState(0);
+
+  const listState = listStateOwned.api === api ? listStateOwned.value : "loading";
+  const docs = docsOwned.api === api ? docsOwned.value : [];
+  const selectedId = selectedIdOwned.api === api ? selectedIdOwned.value : undefined;
+  const detail =
+    detailOwned.api === api ? detailOwned.value : ({ phase: "idle" } satisfies DetailState);
+  const confirming = confirmingOwned.api === api ? confirmingOwned.value : false;
+  const receiptError = receiptErrorOwned.api === api ? receiptErrorOwned.value : false;
 
   // List load — refetched on filter change or explicit retry. The "loading"
   // transition is set by the triggering handlers (tab/retry), so the effect
@@ -53,12 +105,14 @@ export function InboxBody({ api }: InboxBodyProps) {
     api
       .loadDocs(filter)
       .then((items) => {
-        if (!live) return;
-        setDocs(items);
-        setListState("ready");
+        if (!live || currentApiRef.current !== api) return;
+        setDocsOwned(ownedBy(api, items));
+        setListStateOwned(ownedBy(api, "ready"));
       })
       .catch(() => {
-        if (live) setListState("error");
+        if (live && currentApiRef.current === api) {
+          setListStateOwned(ownedBy(api, "error"));
+        }
       });
     return () => {
       live = false;
@@ -73,44 +127,82 @@ export function InboxBody({ api }: InboxBodyProps) {
     api
       .loadDoc(selectedId)
       .then((doc) => {
-        if (live) setDetail({ phase: "ready", detail: doc });
+        if (live && currentApiRef.current === api) {
+          setDetailOwned(ownedBy(api, { phase: "ready", detail: doc }));
+        }
       })
       .catch(() => {
-        if (live) setDetail({ phase: "error", id: selectedId });
+        if (live && currentApiRef.current === api) {
+          setDetailOwned(ownedBy(api, { phase: "error", id: selectedId }));
+        }
       });
     return () => {
       live = false;
     };
   }, [api, selectedId]);
 
-  const selectDoc = useCallback((id: string) => {
-    setReceiptError(false);
-    setDetail({ phase: "loading", id });
-    setSelectedId(id);
-  }, []);
+  const selectDoc = useCallback(
+    (id: string) => {
+      if (currentApiRef.current !== api) return;
+      selectedIdRef.current = id;
+      confirmationOperationRef.current += 1;
+      setConfirmingOwned(ownedBy(api, false));
+      setReceiptErrorOwned(ownedBy(api, false));
+      setDetailOwned(ownedBy(api, { phase: "loading", id }));
+      setSelectedIdOwned(ownedBy(api, id));
+    },
+    [api],
+  );
 
   const confirmReceipt = useCallback(
-    (id: string) => {
-      setConfirming(true);
-      setReceiptError(false);
-      api
-        .confirmReceipt(id)
-        .then((summary) => {
-          // Reflect the confirmed stamp in the list, then re-read the now-
-          // readable body.
-          setDocs((prev) => prev.map((d) => (d.id === id ? summary : d)));
-          return api.loadDoc(id);
-        })
-        .then((doc) => {
-          setDetail({ phase: "ready", detail: doc });
-        })
-        .catch(() => {
-          // User cancelled the passkey or verification failed — stay locked.
-          setReceiptError(true);
-        })
-        .finally(() => {
-          setConfirming(false);
-        });
+    async (id: string) => {
+      if (currentApiRef.current !== api) return;
+      const operation = confirmationOperationRef.current + 1;
+      confirmationOperationRef.current = operation;
+      const hasApiAuthority = () => currentApiRef.current === api;
+      const hasSelectionAuthority = () =>
+        hasApiAuthority() &&
+        selectedIdRef.current === id &&
+        confirmationOperationRef.current === operation;
+
+      setConfirmingOwned(ownedBy(api, true));
+      setReceiptErrorOwned(ownedBy(api, false));
+      let summary: InboxDocSummary;
+      try {
+        summary = await api.confirmReceipt(id);
+      } catch {
+        if (hasSelectionAuthority()) {
+          setReceiptErrorOwned(ownedBy(api, true));
+          setConfirmingOwned(ownedBy(api, false));
+        }
+        return;
+      }
+
+      // A confirmation remains authoritative list data after a same-api
+      // selection change, but never after authenticated API identity changes.
+      if (!hasApiAuthority()) return;
+      setDocsOwned((previous) => {
+        if (!hasApiAuthority()) return previous;
+        const rows = previous.api === api ? previous.value : [];
+        return ownedBy(
+          api,
+          rows.map((doc) => (doc.id === id ? summary : doc)),
+        );
+      });
+      if (!hasSelectionAuthority()) return;
+
+      try {
+        const doc = await api.loadDoc(id);
+        if (hasSelectionAuthority()) {
+          setDetailOwned(ownedBy(api, { phase: "ready", detail: doc }));
+        }
+      } catch {
+        if (hasSelectionAuthority()) {
+          setDetailOwned(ownedBy(api, { phase: "error", id }));
+        }
+      } finally {
+        if (hasSelectionAuthority()) setConfirmingOwned(ownedBy(api, false));
+      }
     },
     [api],
   );
@@ -125,22 +217,29 @@ export function InboxBody({ api }: InboxBodyProps) {
       </header>
 
       <div style={tabsStyle} role="tablist" aria-label={S.title}>
-        {INBOX_FILTERS.map((f) => {
-          const active = filter === f;
+        {INBOX_FILTERS.map((nextFilter) => {
+          const active = filter === nextFilter;
           return (
             <button
-              key={f}
+              key={nextFilter}
               type="button"
               role="tab"
               aria-selected={active}
               data-window-control="true"
               style={tabStyle(active)}
               onClick={() => {
-                setListState("loading");
-                setFilter(f);
+                if (active || currentApiRef.current !== api) return;
+                selectedIdRef.current = undefined;
+                confirmationOperationRef.current += 1;
+                setSelectedIdOwned(ownedBy(api, undefined));
+                setDetailOwned(ownedBy(api, { phase: "idle" }));
+                setConfirmingOwned(ownedBy(api, false));
+                setReceiptErrorOwned(ownedBy(api, false));
+                setListStateOwned(ownedBy(api, "loading"));
+                setFilter(nextFilter);
               }}
             >
-              {S.filters[f]}
+              {S.filters[nextFilter]}
             </button>
           );
         })}
@@ -157,8 +256,9 @@ export function InboxBody({ api }: InboxBodyProps) {
                 data-window-control="true"
                 style={ghostButtonStyle}
                 onClick={() => {
-                  setListState("loading");
-                  setReloadKey((k) => k + 1);
+                  if (currentApiRef.current !== api) return;
+                  setListStateOwned(ownedBy(api, "loading"));
+                  setReloadKey((key) => key + 1);
                 }}
               >
                 {S.retry}
@@ -210,7 +310,9 @@ export function InboxBody({ api }: InboxBodyProps) {
             state={detail}
             confirming={confirming}
             receiptError={receiptError}
-            onConfirm={confirmReceipt}
+            onConfirm={(id) => {
+              void confirmReceipt(id);
+            }}
             dateFmt={dateFmt}
             S={S}
           />

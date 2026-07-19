@@ -10938,11 +10938,14 @@ paths:
       responses:
         '201':
           description: Draft object type created.
+          headers:
+            ETag:
+              description: Strong tenant/key write validator for the created object type.
+              schema: { type: string }
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: true
+                $ref: '#/components/schemas/ObjectTypeSummary'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -10979,6 +10982,10 @@ paths:
       responses:
         '200':
           description: Object type definition.
+          headers:
+            ETag:
+              description: Strong tenant/key write validator for subsequent mutations.
+              schema: { type: string }
           content:
             application/json:
               schema:
@@ -11007,6 +11014,13 @@ paths:
         required: true
         schema:
           type: string
+      - name: If-Match
+        in: header
+        required: true
+        description: Exactly one strong ontology tenant/key write validator.
+        schema:
+          type: string
+          pattern: '^"ont-object-type-key:[0-9a-f]{32}:r[1-9][0-9]*"$'
       requestBody:
         required: true
         content:
@@ -11016,11 +11030,16 @@ paths:
       responses:
         '201':
           description: Staged schema revision.
+          headers:
+            ETag:
+              description: Strong successor tenant/key write validator.
+              schema: { type: string }
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: true
+                $ref: '#/components/schemas/ObjectTypeSummary'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -11029,8 +11048,12 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
         '422':
           $ref: '#/components/responses/ValidationError'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
   /api/v1/ontology/object-types/{key}/acting:
@@ -12995,6 +13018,12 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorBody'
+    BadRequest:
+      description: Request syntax or conditional validator is malformed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
     ValidationError:
       description: Request failed validation.
       content:
@@ -13009,6 +13038,18 @@ components:
             $ref: '#/components/schemas/ErrorBody'
     Conflict:
       description: State conflict or illegal transition.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+    PreconditionFailed:
+      description: The submitted ontology key write validator is stale.
+      headers:
+        ETag:
+          description: Current strong tenant/key write validator.
+          schema: { type: string }
+        Cache-Control:
+          schema: { type: string, enum: [no-store] }
       content:
         application/json:
           schema:
@@ -19706,6 +19747,10 @@ components:
               type: string
             message:
               type: string
+            current_key_write_revision:
+              type: integer
+              format: int64
+              minimum: 1
     MessengerThreadKind:
       type: string
       enum:
@@ -25252,7 +25297,7 @@ components:
         edges: { type: array, items: { $ref: '#/components/schemas/TraversalEdge' } }
     ObjectTypeSummary:
       type: object
-      required: [id, stable_key, title, backing_kind, schema_version, lifecycle_state]
+      required: [id, stable_key, title, backing_kind, schema_version, lifecycle_state, key_write_revision, key_write_etag]
       properties:
         id: { type: string, format: uuid }
         stable_key: { type: string }
@@ -25260,6 +25305,10 @@ components:
         backing_kind: { type: string, enum: [instance, projected] }
         schema_version: { type: integer, format: int64 }
         lifecycle_state: { type: string, enum: [draft, review_pending, published, superseded, retired] }
+        key_write_revision: { type: integer, format: int64, minimum: 1 }
+        key_write_etag:
+          type: string
+          pattern: '^"ont-object-type-key:[0-9a-f]{32}:r[1-9][0-9]*"$'
     InstanceLifecycleState:
       type: string
       enum: [draft, active, locked, archived, disposed]

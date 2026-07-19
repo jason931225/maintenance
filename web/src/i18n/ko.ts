@@ -3250,6 +3250,9 @@ export const ko = {
       costPendingTitle: "인건비 금액(₩)",
       costPendingReason: "표시 안 함 — 급여 금액 원천 행이 아직 없어 근로시간만 집계합니다",
       emptyReason: "집계할 급여 기간이 없습니다",
+      listError: "급여 기간 목록을 불러오지 못했습니다.",
+      detailError: "일부 급여 기간 상세를 불러오지 못해 근로시간 분석을 표시하지 않습니다.",
+      retry: "다시 시도",
       status: {
         STAGED: "준비",
         BLOCKED_LEGAL_GATE: "법적 검토 대기",

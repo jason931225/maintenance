@@ -37,6 +37,8 @@ import kotlinx.serialization.Contextual
  * @param backingKind
  * @param schemaVersion
  * @param lifecycleState
+ * @param keyWriteRevision
+ * @param keyWriteEtag
  */
 @Serializable
 
@@ -58,7 +60,13 @@ data class ObjectTypeSummary (
     val schemaVersion: kotlin.Long,
 
     @SerialName(value = "lifecycle_state")
-    val lifecycleState: ObjectTypeSummary.LifecycleState
+    val lifecycleState: ObjectTypeSummary.LifecycleState,
+
+    @SerialName(value = "key_write_revision")
+    val keyWriteRevision: kotlin.Long,
+
+    @SerialName(value = "key_write_etag")
+    val keyWriteEtag: kotlin.String
 
 ) {
 

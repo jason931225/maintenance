@@ -64,15 +64,26 @@ const tabActiveStyle: CSSProperties = {
   color: "var(--ink)",
 };
 
-export interface OntologyWorkspaceBodyProps {
+interface OntologyWorkspaceBodyBaseProps {
   api: ConsoleApiClient;
   /** Screen title (온톨로지 for the manager, 객체 탐색 for the explorer). */
   title: string;
   /** Tab focused first; the explorer defaults to the graph. */
   defaultTab: WorkspaceTab;
-  /** Whether the type-authoring 매니저 tab is offered (온톨로지 only). */
-  allowManager: boolean;
 }
+
+export type OntologyWorkspaceBodyProps = OntologyWorkspaceBodyBaseProps &
+  (
+    | {
+        /** The authoring host must provide explicit authority independent of its token. */
+        allowManager: true;
+        authorityKey: string;
+      }
+    | {
+        allowManager: false;
+        authorityKey?: string;
+      }
+  );
 
 /**
  * Shared ontology workspace — the graph explorer + object inspector both
@@ -87,11 +98,17 @@ export interface OntologyWorkspaceBodyProps {
  */
 export function OntologyWorkspaceBody({
   api,
+  authorityKey,
   title,
   defaultTab,
   allowManager,
 }: OntologyWorkspaceBodyProps) {
-  const ws = useOntologyWorkspace(api, { saveFailed: ko.users.form.saveFailed });
+  const authorityPartition = authorityKey?.trim() || undefined;
+  const ws = useOntologyWorkspace(
+    api,
+    { saveFailed: ko.users.form.saveFailed },
+    authorityPartition,
+  );
   const [tab, setTab] = useState<WorkspaceTab>(allowManager ? defaultTab : "graph");
   const graphRef = useRef<HTMLDivElement>(null);
 
@@ -166,7 +183,11 @@ export function OntologyWorkspaceBody({
         <WorkspaceEmpty />
       ) : (
         <BulkPolicyGateProvider actions={ONTOLOGY_GATE_ACTIONS}>
-          <WindowManagerProvider>
+          <WindowManagerProvider
+            key={authorityPartition}
+            authorityPartition={authorityPartition}
+            retentionEnabled={authorityPartition !== undefined}
+          >
             {showManagerTab ? (
               <OntologyManagerScreen
                 registry={ws.registry}

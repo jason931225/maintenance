@@ -48,7 +48,9 @@ interface ProjectionView {
   ci95: readonly [number, number];
   cvar95: number;
   n: number;
-  ewmaAssumption: string;
+  ewmaAssumption:
+    | { source: "backend"; volatility: number }
+    | { source: "client"; label: string };
   distributionAssumption: string;
 }
 
@@ -63,9 +65,10 @@ function toView(
       ci95: [backendResult.ci95_low, backendResult.ci95_high],
       cvar95: backendResult.cvar95,
       n: sample.filter((v) => Number.isFinite(v)).length,
-      ewmaAssumption: T.projection.assumptionEwmaVolatility(
-        String(backendResult.assumptions.ewma_volatility),
-      ),
+      ewmaAssumption: {
+        source: "backend",
+        volatility: backendResult.assumptions.ewma_volatility,
+      },
       distributionAssumption: T.projection.assumptionStudentT(
         backendResult.assumptions.student_t_nu,
       ),
@@ -78,13 +81,22 @@ function toView(
         ci95: p.ci95,
         cvar95: p.cvar95,
         n: p.n,
-        ewmaAssumption: T.projection.assumptionEwma(String(p.lambda)),
+        ewmaAssumption: {
+          source: "client",
+          label: T.projection.assumptionEwma(String(p.lambda)),
+        },
         distributionAssumption: T.projection.assumptionDist,
       }
     : null;
 }
 
 const formatPercent: ChartFormat = (value) => `${value.toFixed(1)}%`;
+
+const formatReturnFraction = (value: number) =>
+  new Intl.NumberFormat("ko-KR", {
+    style: "percent",
+    maximumFractionDigits: 1,
+  }).format(value);
 
 const statButtonStyle: CSSProperties = {
   display: "grid",
@@ -121,6 +133,15 @@ const statValueStyle: CSSProperties = {
 export function ProjectionPanel({ title, kind, sample, backendResult, lambda = DEFAULT_LAMBDA, onDrill, onAddSample, format: formatOverride }: ProjectionPanelProps) {
   const format = formatOverride ?? (kind === "money" ? formatWon : formatPercent);
   const p = toView(backendResult, sample, lambda);
+  const ewmaAssumption = p
+    ? p.ewmaAssumption.source === "backend"
+      ? T.projection.assumptionEwmaVolatility(
+          kind === "money"
+            ? formatReturnFraction(p.ewmaAssumption.volatility)
+            : format(p.ewmaAssumption.volatility),
+        )
+      : p.ewmaAssumption.label
+    : undefined;
 
   return (
     <section
@@ -149,7 +170,7 @@ export function ProjectionPanel({ title, kind, sample, backendResult, lambda = D
         </h3>
         {p ? (
           <span style={{ display: "inline-flex", gap: "var(--sp-1)", flexWrap: "wrap" }}>
-            <StatusChip>{p.ewmaAssumption}</StatusChip>
+            <StatusChip>{ewmaAssumption}</StatusChip>
             <StatusChip>{p.distributionAssumption}</StatusChip>
             <StatusChip>{T.projection.assumptionN(p.n)}</StatusChip>
           </span>

@@ -2,7 +2,8 @@ import type { components, operations, paths } from "@maintenance/api-client-ts";
 
 import { canonicalOrgSlug } from "../lib/orgSlug";
 import { getDeviceId } from "./device";
-import { isAuthPath, singleFlightRefresh } from "./refresh";
+import { singleFlightRefresh } from "./refresh";
+import type { RefreshAuthority } from "./refresh";
 
 /**
  * Vendor platform-admin (multi-tenant) API. The `/api/platform/*` surface is
@@ -118,50 +119,44 @@ async function platformFetch(
   bearerToken: string | undefined,
   path: string,
   init: RequestInit,
+  refreshAuthority?: RefreshAuthority,
 ): Promise<Response> {
-  const headers = new Headers(init.headers);
-  headers.set("Accept", "application/json");
-  if (init.body !== undefined) {
-    headers.set("Content-Type", "application/json");
-  }
-  if (bearerToken) {
-    headers.set("Authorization", `Bearer ${bearerToken}`);
-  }
-  // Match the generated client: opt into the cookie refresh transport and send a
-  // stable device id so backend rate limiting behaves identically.
-  headers.set("X-Auth-Transport", "cookie");
-  const deviceId = getDeviceId();
-  if (deviceId) {
-    headers.set("X-Device-Id", deviceId);
-  }
-
-  const response = await fetch(`${platformBaseUrl()}${path}`, {
-    ...init,
-    headers,
-    credentials: "include",
-  });
-
-  // On a 401 from a non-auth endpoint: single-flight refresh then retry once.
-  if (response.status === 401 && !isAuthPath(`${platformBaseUrl()}${path}`)) {
-    let newToken: string;
-    try {
-      newToken = await singleFlightRefresh();
-    } catch {
-      // singleFlightRefresh already called onUnauthenticated(); return the 401
-      // so the caller sees a PlatformApiError with status 401.
-      return response;
+  const request = (token: string | undefined) => {
+    const headers = new Headers(init.headers);
+    headers.set("Accept", "application/json");
+    if (init.body !== undefined) {
+      headers.set("Content-Type", "application/json");
+    }
+    if (token) {
+      headers.set("Authorization", `Bearer ${token}`);
+    }
+    // Match the generated client: opt into the cookie refresh transport and send a
+    // stable device id so backend rate limiting behaves identically.
+    headers.set("X-Auth-Transport", "cookie");
+    const deviceId = getDeviceId();
+    if (deviceId) {
+      headers.set("X-Device-Id", deviceId);
     }
 
-    const retryHeaders = new Headers(headers);
-    retryHeaders.set("Authorization", `Bearer ${newToken}`);
     return fetch(`${platformBaseUrl()}${path}`, {
       ...init,
-      headers: retryHeaders,
+      headers,
       credentials: "include",
     });
-  }
+  };
 
-  return response;
+  const response = await request(bearerToken);
+  if (response.status !== 401) return response;
+
+  // Recovery is an explicit provider/session capability. Missing, retired, or
+  // stale handles fail closed with the original 401; bearer material is never an
+  // ownership key. A successful current flight supplies the only retry bearer.
+  try {
+    const freshBearer = await singleFlightRefresh(refreshAuthority);
+    return await request(freshBearer);
+  } catch {
+    return response;
+  }
 }
 
 async function parseError(response: Response): Promise<PlatformApiError> {
@@ -272,11 +267,12 @@ function normalizePlatformTenantHealth(
 export async function startViewAs(
   bearerToken: string | undefined,
   body: ViewAsStartRequest,
+  refreshAuthority?: RefreshAuthority,
 ): Promise<ViewAsStartResponse> {
   const response = await platformFetch(bearerToken, PLATFORM_ROUTES.viewAs, {
     method: "POST",
     body: JSON.stringify(body),
-  });
+  }, refreshAuthority);
   if (!response.ok) throw await parseError(response);
   return (await response.json()) as ViewAsStartResponse;
 }
@@ -288,11 +284,13 @@ export async function startViewAs(
  */
 export async function exitViewAs(
   bearerToken: string | undefined,
+  refreshAuthority?: RefreshAuthority,
 ): Promise<void> {
   const response = await platformFetch(
     bearerToken,
     PLATFORM_ROUTES.viewAsExit,
     { method: "POST" },
+    refreshAuthority,
   );
   if (!response.ok) throw await parseError(response);
 }
@@ -305,6 +303,7 @@ export async function exitViewAs(
 export async function startTenantContext(
   bearerToken: string | undefined,
   body: TenantContextStartRequest,
+  refreshAuthority?: RefreshAuthority,
 ): Promise<TenantContextStartResponse> {
   const response = await platformFetch(
     bearerToken,
@@ -313,6 +312,7 @@ export async function startTenantContext(
       method: "POST",
       body: JSON.stringify(body),
     },
+    refreshAuthority,
   );
   if (!response.ok) throw await parseError(response);
   return (await response.json()) as TenantContextStartResponse;
@@ -321,11 +321,13 @@ export async function startTenantContext(
 /** POST /api/platform/tenant-context/exit — end a writable tenant context (audited). */
 export async function exitTenantContext(
   bearerToken: string | undefined,
+  refreshAuthority?: RefreshAuthority,
 ): Promise<void> {
   const response = await platformFetch(
     bearerToken,
     PLATFORM_ROUTES.tenantContextExit,
     { method: "POST" },
+    refreshAuthority,
   );
   if (!response.ok) throw await parseError(response);
 }
@@ -333,10 +335,11 @@ export async function exitTenantContext(
 /** GET /api/platform/ops — cross-tenant ops health rollup (audited). */
 export async function getPlatformOps(
   bearerToken: string | undefined,
+  refreshAuthority?: RefreshAuthority,
 ): Promise<PlatformTenantHealth[]> {
   const response = await platformFetch(bearerToken, PLATFORM_ROUTES.ops, {
     method: "GET",
-  });
+  }, refreshAuthority);
   if (!response.ok) throw await parseError(response);
   const body = (await response.json()) as PlatformOpsResponse;
   return body.tenants.map(normalizePlatformTenantHealth);
@@ -345,10 +348,11 @@ export async function getPlatformOps(
 /** GET /api/platform/orgs — list every tenant organization. */
 export async function listPlatformOrgs(
   bearerToken: string | undefined,
+  refreshAuthority?: RefreshAuthority,
 ): Promise<PlatformOrg[]> {
   const response = await platformFetch(bearerToken, PLATFORM_ROUTES.orgs, {
     method: "GET",
-  });
+  }, refreshAuthority);
   if (!response.ok) throw await parseError(response);
   const orgs = (await response.json()) as PlatformOrg[];
   return orgs.map(normalizePlatformOrg);
@@ -358,11 +362,12 @@ export async function listPlatformOrgs(
 export async function onboardPlatformOrg(
   bearerToken: string | undefined,
   body: OnboardOrgRequest,
+  refreshAuthority?: RefreshAuthority,
 ): Promise<OnboardOrgResponse> {
   const response = await platformFetch(bearerToken, PLATFORM_ROUTES.orgs, {
     method: "POST",
     body: JSON.stringify(body),
-  });
+  }, refreshAuthority);
   if (!response.ok) throw await parseError(response);
   const onboarded = (await response.json()) as OnboardOrgResponse;
   return { ...onboarded, org: normalizePlatformOrg(onboarded.org) };
@@ -373,6 +378,7 @@ export async function setPlatformOrgStatus(
   bearerToken: string | undefined,
   id: string,
   status: OrgStatus,
+  refreshAuthority?: RefreshAuthority,
 ): Promise<PlatformOrg> {
   const response = await platformFetch(
     bearerToken,
@@ -381,6 +387,7 @@ export async function setPlatformOrgStatus(
       method: "PATCH",
       body: JSON.stringify({ status }),
     },
+    refreshAuthority,
   );
   if (!response.ok) throw await parseError(response);
   return normalizePlatformOrg((await response.json()) as PlatformOrg);
@@ -396,6 +403,7 @@ export async function setPlatformOrgStatus(
 export async function removePlatformOrg(
   bearerToken: string | undefined,
   id: string,
+  refreshAuthority?: RefreshAuthority,
 ): Promise<void> {
   const response = await platformFetch(
     bearerToken,
@@ -403,6 +411,7 @@ export async function removePlatformOrg(
     {
       method: "DELETE",
     },
+    refreshAuthority,
   );
   if (!response.ok) throw await parseError(response);
 }
@@ -419,6 +428,7 @@ export async function removePlatformOrg(
 export async function forceRemovePlatformOrg(
   bearerToken: string | undefined,
   id: string,
+  refreshAuthority?: RefreshAuthority,
 ): Promise<void> {
   const response = await platformFetch(
     bearerToken,
@@ -426,6 +436,7 @@ export async function forceRemovePlatformOrg(
     {
       method: "DELETE",
     },
+    refreshAuthority,
   );
   if (!response.ok) throw await parseError(response);
 }
@@ -433,10 +444,11 @@ export async function forceRemovePlatformOrg(
 /** GET /api/platform/groups — list every group and its member org identities. */
 export async function listPlatformGroups(
   bearerToken: string | undefined,
+  refreshAuthority?: RefreshAuthority,
 ): Promise<PlatformGroup[]> {
   const response = await platformFetch(bearerToken, PLATFORM_ROUTES.groups, {
     method: "GET",
-  });
+  }, refreshAuthority);
   if (!response.ok) throw await parseError(response);
   const groups = (await response.json()) as PlatformGroup[];
   return groups.map(normalizePlatformGroup);
@@ -446,11 +458,12 @@ export async function listPlatformGroups(
 export async function createPlatformGroup(
   bearerToken: string | undefined,
   body: CreatePlatformGroupRequest,
+  refreshAuthority?: RefreshAuthority,
 ): Promise<PlatformGroup> {
   const response = await platformFetch(bearerToken, PLATFORM_ROUTES.groups, {
     method: "POST",
     body: JSON.stringify(body),
-  });
+  }, refreshAuthority);
   if (!response.ok) throw await parseError(response);
   return normalizePlatformGroup((await response.json()) as PlatformGroup);
 }
@@ -460,6 +473,7 @@ export async function updatePlatformGroup(
   bearerToken: string | undefined,
   id: string,
   body: UpdatePlatformGroupRequest,
+  refreshAuthority?: RefreshAuthority,
 ): Promise<PlatformGroup> {
   const response = await platformFetch(
     bearerToken,
@@ -468,6 +482,7 @@ export async function updatePlatformGroup(
       method: "PATCH",
       body: JSON.stringify(body),
     },
+    refreshAuthority,
   );
   if (!response.ok) throw await parseError(response);
   return normalizePlatformGroup((await response.json()) as PlatformGroup);
@@ -477,11 +492,13 @@ export async function updatePlatformGroup(
 export async function listPlatformGroupAccounts(
   bearerToken: string | undefined,
   groupId: string,
+  refreshAuthority?: RefreshAuthority,
 ): Promise<PlatformGroupAccount[]> {
   const response = await platformFetch(
     bearerToken,
     platformGroupAccountsPath(groupId),
     { method: "GET" },
+    refreshAuthority,
   );
   if (!response.ok) throw await parseError(response);
   const accounts = (await response.json()) as PlatformGroupAccount[];
@@ -493,6 +510,7 @@ export async function createPlatformGroupAccount(
   bearerToken: string | undefined,
   groupId: string,
   body: CreatePlatformGroupAccountRequest,
+  refreshAuthority?: RefreshAuthority,
 ): Promise<CreatePlatformGroupAccountResponse> {
   const response = await platformFetch(
     bearerToken,
@@ -501,6 +519,7 @@ export async function createPlatformGroupAccount(
       method: "POST",
       body: JSON.stringify(body),
     },
+    refreshAuthority,
   );
   if (!response.ok) throw await parseError(response);
   return normalizePlatformGroupAccountResponse(
@@ -514,11 +533,13 @@ export async function revokePlatformGroupRole(
   groupId: string,
   userId: string,
   role: PlatformGroupRole,
+  refreshAuthority?: RefreshAuthority,
 ): Promise<void> {
   const response = await platformFetch(
     bearerToken,
     platformGroupRolePath(groupId, userId, role),
     { method: "DELETE" },
+    refreshAuthority,
   );
   if (!response.ok) throw await parseError(response);
 }
@@ -528,11 +549,13 @@ export async function assignPlatformOrgToGroup(
   bearerToken: string | undefined,
   groupId: string,
   orgId: string,
+  refreshAuthority?: RefreshAuthority,
 ): Promise<PlatformOrg> {
   const response = await platformFetch(
     bearerToken,
     platformGroupOrganizationPath(groupId, orgId),
     { method: "PUT" },
+    refreshAuthority,
   );
   if (!response.ok) throw await parseError(response);
   return normalizePlatformOrg((await response.json()) as PlatformOrg);
@@ -543,11 +566,13 @@ export async function removePlatformOrgFromGroup(
   bearerToken: string | undefined,
   groupId: string,
   orgId: string,
+  refreshAuthority?: RefreshAuthority,
 ): Promise<PlatformOrg> {
   const response = await platformFetch(
     bearerToken,
     platformGroupOrganizationPath(groupId, orgId),
     { method: "DELETE" },
+    refreshAuthority,
   );
   if (!response.ok) throw await parseError(response);
   return normalizePlatformOrg((await response.json()) as PlatformOrg);

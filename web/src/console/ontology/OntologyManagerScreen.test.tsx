@@ -1,4 +1,10 @@
-import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { ko } from "../../i18n/ko";
@@ -57,8 +63,16 @@ const KO_CONSOLE_ONTOLOGY: OntologyManagerStrings = {
     object_ref: "개체 참조",
     attachment: "첨부",
   },
-  cardinality: { one_one: "1:1", one_many: "1:N", many_one: "N:1", many_many: "N:N" },
-  dispatch: { projected_usecase: "도메인 유스케이스", instance_revision: "인스턴스 리비전" },
+  cardinality: {
+    one_one: "1:1",
+    one_many: "1:N",
+    many_one: "N:1",
+    many_many: "N:N",
+  },
+  dispatch: {
+    projected_usecase: "도메인 유스케이스",
+    instance_revision: "인스턴스 리비전",
+  },
   properties: {
     required: "필수",
     policy: "속성 정책",
@@ -109,7 +123,8 @@ const KO_CONSOLE_ONTOLOGY: OntologyManagerStrings = {
   },
 };
 
-(ko.console as unknown as Record<string, unknown>).ontology ??= KO_CONSOLE_ONTOLOGY;
+(ko.console as unknown as Record<string, unknown>).ontology ??=
+  KO_CONSOLE_ONTOLOGY;
 
 const allowGate: PolicyGate = { can: () => true };
 const denyGate: PolicyGate = { can: () => false };
@@ -131,21 +146,54 @@ function registryFixture(): OntObjectTypeDef[] {
         { key: "priority", title: "우선순위", type: "choice", required: true },
         { key: "assignee", title: "담당자", type: "user", required: false },
         { key: "due_date", title: "완료 기한", type: "date", required: false },
-        { key: "cost", title: "예상 비용", type: "money", required: false, inPropertyPolicy: true },
+        {
+          key: "cost",
+          title: "예상 비용",
+          type: "money",
+          required: false,
+          inPropertyPolicy: true,
+        },
       ],
       links: [
-        { stableKey: "wo_equipment", title: "대상 장비", toTypeKey: "equipment", cardinality: "one_many" },
+        {
+          stableKey: "wo_equipment",
+          title: "대상 장비",
+          toTypeKey: "equipment",
+          cardinality: "one_many",
+        },
       ],
       actions: [
-        { stableKey: "reassign", title: "재배정", dispatch: "projected_usecase" },
-        { stableKey: "complete", title: "완료 처리", dispatch: "projected_usecase" },
+        {
+          stableKey: "reassign",
+          title: "재배정",
+          dispatch: "projected_usecase",
+        },
+        {
+          stableKey: "complete",
+          title: "완료 처리",
+          dispatch: "projected_usecase",
+        },
       ],
       analytics: [
-        { key: "delay_days", title: "지연 일수", formula: "days_between(due_date, now())" },
+        {
+          key: "delay_days",
+          title: "지연 일수",
+          formula: "days_between(due_date, now())",
+        },
       ],
       instances: [
-        { id: "wo-2643", code: "WO-2643", title: "4호기 유압 점검", lifecycleState: "active" },
-        { id: "wo-2650", code: "WO-2650", title: "컨베이어 벨트 교체", lifecycleState: "draft" },
+        {
+          id: "wo-2643",
+          code: "WO-2643",
+          title: "4호기 유압 점검",
+          lifecycleState: "active",
+        },
+        {
+          id: "wo-2650",
+          code: "WO-2650",
+          title: "컨베이어 벨트 교체",
+          lifecycleState: "draft",
+        },
       ],
       acting: [
         { id: "wf-1", label: "wf-wo-review", kind: "automation" },
@@ -167,7 +215,12 @@ function registryFixture(): OntObjectTypeDef[] {
       actions: [],
       analytics: [],
       instances: [
-        { id: "eq-118", code: "EQ-118", title: "5호기 지게차", lifecycleState: "active" },
+        {
+          id: "eq-118",
+          code: "EQ-118",
+          title: "5호기 지게차",
+          lifecycleState: "active",
+        },
       ],
       acting: [],
     },
@@ -179,7 +232,9 @@ function registryFixture(): OntObjectTypeDef[] {
       backingKind: "instance",
       schemaVersion: 1,
       lifecycleState: "draft",
-      properties: [{ key: "body", title: "내용", type: "text", required: true }],
+      properties: [
+        { key: "body", title: "내용", type: "text", required: true },
+      ],
       links: [],
       actions: [],
       analytics: [],
@@ -212,16 +267,6 @@ function editor(name: string): HTMLElement {
   return screen.getByRole("article", { name });
 }
 
-function deferred<T>() {
-  let resolve!: (value: T | PromiseLike<T>) => void;
-  let reject!: (reason?: unknown) => void;
-  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
-    resolve = resolvePromise;
-    reject = rejectPromise;
-  });
-  return { promise, resolve, reject };
-}
-
 function addProperty(panel: HTMLElement, title: string): void {
   fireEvent.change(within(panel).getByLabelText("속성 이름"), {
     target: { value: title },
@@ -232,7 +277,9 @@ function addProperty(panel: HTMLElement, title: string): void {
 describe("OntologyManagerScreen (design change-log 63)", () => {
   it("lists types with stage · version · instance-count chips and opens the first type", () => {
     renderScreen();
-    const row = screen.getByRole("button", { name: "OT-01 작업지시 타입 편집" });
+    const row = screen.getByRole("button", {
+      name: "OT-01 작업지시 타입 편집",
+    });
     expect(within(row).getByText("게시됨")).toBeVisible();
     expect(within(row).getByText("v2")).toBeVisible();
     expect(within(row).getByText("개체 2")).toBeVisible();
@@ -256,7 +303,9 @@ describe("OntologyManagerScreen (design change-log 63)", () => {
     expect(within(panel).getByText("재배정")).toBeVisible();
 
     fireEvent.click(within(panel).getByRole("tab", { name: "분석" }));
-    expect(within(panel).getByText("days_between(due_date, now())")).toBeVisible();
+    expect(
+      within(panel).getByText("days_between(due_date, now())"),
+    ).toBeVisible();
 
     fireEvent.click(within(panel).getByRole("tab", { name: "자동화" }));
     expect(within(panel).getByText("wf-wo-review")).toBeVisible();
@@ -265,7 +314,9 @@ describe("OntologyManagerScreen (design change-log 63)", () => {
   it("stages a v+1 revision when a published type is edited, then commits on 적용 승인", () => {
     renderScreen();
     const panel = editor("작업지시");
-    fireEvent.change(within(panel).getByLabelText("속성 이름"), { target: { value: "예산 코드" } });
+    fireEvent.change(within(panel).getByLabelText("속성 이름"), {
+      target: { value: "예산 코드" },
+    });
     fireEvent.click(within(panel).getByRole("button", { name: "속성 추가" }));
 
     const banner = within(panel).getByRole("status", { name: "개정 대기" });
@@ -275,7 +326,9 @@ describe("OntologyManagerScreen (design change-log 63)", () => {
     expect(within(panel).getByText("v2")).toBeVisible();
 
     fireEvent.click(within(banner).getByRole("button", { name: "적용 승인" }));
-    expect(within(panel).queryByRole("status", { name: "개정 대기" })).toBeNull();
+    expect(
+      within(panel).queryByRole("status", { name: "개정 대기" }),
+    ).toBeNull();
     expect(within(panel).getByText("v3")).toBeVisible();
     expect(within(panel).getByText("예산 코드")).toBeVisible();
   });
@@ -283,147 +336,204 @@ describe("OntologyManagerScreen (design change-log 63)", () => {
   it("철회 drops the staged revision and restores the committed schema", () => {
     renderScreen();
     const panel = editor("작업지시");
-    fireEvent.change(within(panel).getByLabelText("속성 이름"), { target: { value: "예산 코드" } });
+    fireEvent.change(within(panel).getByLabelText("속성 이름"), {
+      target: { value: "예산 코드" },
+    });
     fireEvent.click(within(panel).getByRole("button", { name: "속성 추가" }));
     fireEvent.click(within(panel).getByRole("button", { name: "철회" }));
 
-    expect(within(panel).queryByRole("status", { name: "개정 대기" })).toBeNull();
+    expect(
+      within(panel).queryByRole("status", { name: "개정 대기" }),
+    ).toBeNull();
     expect(within(panel).queryByText("예산 코드")).toBeNull();
     expect(within(panel).getByText("v2")).toBeVisible();
   });
 
   it("edits draft types direct — no staging banner, no version bump", () => {
     renderScreen();
-    fireEvent.click(screen.getByRole("button", { name: "OT-03 안전 점검 메모 타입 편집" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "OT-03 안전 점검 메모 타입 편집" }),
+    );
     const panel = editor("안전 점검 메모");
-    fireEvent.change(within(panel).getByLabelText("속성 이름"), { target: { value: "점검자" } });
+    fireEvent.change(within(panel).getByLabelText("속성 이름"), {
+      target: { value: "점검자" },
+    });
     fireEvent.click(within(panel).getByRole("button", { name: "속성 추가" }));
 
-    expect(within(panel).queryByRole("status", { name: "개정 대기" })).toBeNull();
+    expect(
+      within(panel).queryByRole("status", { name: "개정 대기" }),
+    ).toBeNull();
     expect(within(panel).getByText("점검자")).toBeVisible();
     expect(within(panel).getByText("v1")).toBeVisible();
   });
 
-  it("serializes accumulated draft snapshots per type without deleting a newer tail", async () => {
-    const first = deferred<undefined>();
-    const second = deferred<undefined>();
+  it("hands every accumulated draft snapshot to its host immediately", () => {
     const onCommitRevision = vi
       .fn<(staged: OntObjectTypeDef) => Promise<void>>()
-      .mockImplementationOnce(() => first.promise)
-      .mockImplementationOnce(() => second.promise)
-      .mockResolvedValueOnce(undefined);
+      .mockImplementation(() => new Promise(() => undefined));
     renderScreen(allowGate, { onCommitRevision });
 
-    fireEvent.click(screen.getByRole("button", { name: "OT-03 안전 점검 메모 타입 편집" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "OT-03 안전 점검 메모 타입 편집" }),
+    );
     const panel = editor("안전 점검 메모");
     addProperty(panel, "점검자");
     addProperty(panel, "점검일");
+    addProperty(panel, "점검 위치");
 
-    expect(onCommitRevision).toHaveBeenCalledTimes(1);
+    expect(onCommitRevision).toHaveBeenCalledTimes(3);
     expect(within(panel).getByText("점검자")).toBeVisible();
     expect(within(panel).getByText("점검일")).toBeVisible();
-
-    await act(async () => {
-      first.resolve(undefined);
-      await first.promise;
-    });
-    await waitFor(() => {
-      expect(onCommitRevision).toHaveBeenCalledTimes(2);
-    });
-    expect(onCommitRevision.mock.calls[1]?.[0].properties.map(({ title }) => title)).toEqual([
-      "내용",
-      "점검자",
-      "점검일",
-    ]);
-
-    addProperty(panel, "점검 위치");
-    expect(onCommitRevision).toHaveBeenCalledTimes(2);
-
-    await act(async () => {
-      second.resolve(undefined);
-      await second.promise;
-    });
-    await waitFor(() => {
-      expect(onCommitRevision).toHaveBeenCalledTimes(3);
-    });
-    expect(onCommitRevision.mock.calls[2]?.[0].properties.map(({ title }) => title)).toEqual([
-      "내용",
-      "점검자",
-      "점검일",
-      "점검 위치",
-    ]);
+    expect(within(panel).getByText("점검 위치")).toBeVisible();
+    expect(
+      onCommitRevision.mock.calls[2]?.[0].properties.map(({ title }) => title),
+    ).toEqual(["내용", "점검자", "점검일", "점검 위치"]);
   });
 
-  it("continues a draft save queue after the prior save rejects", async () => {
-    const first = deferred<undefined>();
-    const onCommitRevision = vi
-      .fn<(staged: OntObjectTypeDef) => Promise<void>>()
-      .mockImplementationOnce(() => first.promise)
-      .mockResolvedValueOnce(undefined);
-    renderScreen(allowGate, { onCommitRevision });
+  it("uses deterministic collision-resistant identities for every child add across remounts", () => {
+    const uuids = [
+      "00000000-0000-4000-8000-000000000001",
+      "00000000-0000-4000-8000-000000000002",
+      "00000000-0000-4000-8000-000000000003",
+      "00000000-0000-4000-8000-000000000004",
+      "00000000-0000-4000-8000-000000000005",
+    ];
+    const uuidSpy = vi
+      .spyOn(globalThis.crypto, "randomUUID")
+      .mockImplementation(
+        () =>
+          uuids.shift() as `${string}-${string}-${string}-${string}-${string}`,
+      );
 
-    fireEvent.click(screen.getByRole("button", { name: "OT-03 안전 점검 메모 타입 편집" }));
-    const panel = editor("안전 점검 메모");
-    addProperty(panel, "점검자");
-    addProperty(panel, "점검일");
-    expect(onCommitRevision).toHaveBeenCalledTimes(1);
+    try {
+      const firstCommit = vi
+        .fn<(staged: OntObjectTypeDef) => Promise<void>>()
+        .mockResolvedValue(undefined);
+      const firstView = renderScreen(allowGate, {
+        onCommitRevision: firstCommit,
+      });
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: KO_CONSOLE_ONTOLOGY.typeList.rowAria(
+            "OT-03",
+            KO_CONSOLE_ONTOLOGY.samples.types.memo,
+          ),
+        }),
+      );
+      const firstPanel = editor(KO_CONSOLE_ONTOLOGY.samples.types.memo);
+      addProperty(firstPanel, "Inspector");
+      const firstProperty = firstCommit.mock.calls
+        .at(-1)?.[0]
+        .properties.at(-1)?.key;
+      firstView.unmount();
 
-    await act(async () => {
-      first.reject(new Error("save failed"));
-      await first.promise.catch(() => undefined);
-    });
-    await waitFor(() => {
-      expect(onCommitRevision).toHaveBeenCalledTimes(2);
-    });
-    expect(onCommitRevision.mock.calls[1]?.[0].properties.map(({ title }) => title)).toEqual([
-      "내용",
-      "점검자",
-      "점검일",
-    ]);
-  });
+      const replacementCommit = vi
+        .fn<(staged: OntObjectTypeDef) => Promise<void>>()
+        .mockResolvedValue(undefined);
+      renderScreen(allowGate, { onCommitRevision: replacementCommit });
+      fireEvent.click(
+        screen.getByRole("button", {
+          name: KO_CONSOLE_ONTOLOGY.typeList.rowAria(
+            "OT-03",
+            KO_CONSOLE_ONTOLOGY.samples.types.memo,
+          ),
+        }),
+      );
+      const panel = editor(KO_CONSOLE_ONTOLOGY.samples.types.memo);
+      addProperty(panel, "Inspector");
 
-  it("does not serialize draft saves across different type IDs", async () => {
-    const safetyMemo = deferred<undefined>();
-    const equipment = deferred<undefined>();
-    const onCommitRevision = vi
-      .fn<(staged: OntObjectTypeDef) => Promise<void>>()
-      .mockImplementationOnce(() => safetyMemo.promise)
-      .mockImplementationOnce(() => equipment.promise);
-    const registry = registryFixture().map((type) =>
-      type.id === "equipment" ? { ...type, lifecycleState: "draft" as const } : type,
-    );
-    renderScreen(allowGate, { registry, onCommitRevision });
+      fireEvent.click(
+        within(panel).getByRole("tab", {
+          name: KO_CONSOLE_ONTOLOGY.subtabs.links,
+        }),
+      );
+      fireEvent.change(
+        within(panel).getByLabelText(KO_CONSOLE_ONTOLOGY.links.addName),
+        { target: { value: "Inspection target" } },
+      );
+      fireEvent.click(
+        within(panel).getByRole("button", {
+          name: KO_CONSOLE_ONTOLOGY.links.addSubmit,
+        }),
+      );
 
-    fireEvent.click(screen.getByRole("button", { name: "OT-03 안전 점검 메모 타입 편집" }));
-    addProperty(editor("안전 점검 메모"), "점검자");
-    fireEvent.click(screen.getByRole("button", { name: "OT-02 설비 타입 편집" }));
-    addProperty(editor("설비"), "제조사");
+      fireEvent.click(
+        within(panel).getByRole("tab", {
+          name: KO_CONSOLE_ONTOLOGY.subtabs.actions,
+        }),
+      );
+      fireEvent.change(
+        within(panel).getByLabelText(KO_CONSOLE_ONTOLOGY.actionEditor.addName),
+        { target: { value: "Close inspection" } },
+      );
+      fireEvent.click(
+        within(panel).getByRole("button", {
+          name: KO_CONSOLE_ONTOLOGY.actionEditor.addSubmit,
+        }),
+      );
 
-    await waitFor(() => {
-      expect(onCommitRevision).toHaveBeenCalledTimes(2);
-    });
-    expect(onCommitRevision.mock.calls.map(([snapshot]) => snapshot.id)).toEqual([
-      "safety_memo",
-      "equipment",
-    ]);
+      fireEvent.click(
+        within(panel).getByRole("tab", {
+          name: KO_CONSOLE_ONTOLOGY.subtabs.analytics,
+        }),
+      );
+      fireEvent.change(
+        within(panel).getByLabelText(
+          KO_CONSOLE_ONTOLOGY.analyticEditor.addName,
+        ),
+        { target: { value: "Inspection score" } },
+      );
+      fireEvent.change(
+        within(panel).getByLabelText(
+          KO_CONSOLE_ONTOLOGY.analyticEditor.addFormula,
+        ),
+        { target: { value: "score()" } },
+      );
+      fireEvent.click(
+        within(panel).getByRole("button", {
+          name: KO_CONSOLE_ONTOLOGY.analyticEditor.addSubmit,
+        }),
+      );
 
-    await act(async () => {
-      safetyMemo.resolve(undefined);
-      equipment.resolve(undefined);
-      await Promise.all([safetyMemo.promise, equipment.promise]);
-    });
+      const finalSnapshot = replacementCommit.mock.calls.at(-1)?.[0];
+      expect(firstProperty).toBe("prop_00000000000040008000000000000001");
+      expect(finalSnapshot?.properties.at(-1)?.key).toBe(
+        "prop_00000000000040008000000000000002",
+      );
+      expect(finalSnapshot?.links.at(-1)?.stableKey).toBe(
+        "link_00000000000040008000000000000003",
+      );
+      expect(finalSnapshot?.actions.at(-1)?.stableKey).toBe(
+        "action_00000000000040008000000000000004",
+      );
+      expect(finalSnapshot?.analytics.at(-1)?.key).toBe(
+        "analytic_00000000000040008000000000000005",
+      );
+      expect(finalSnapshot?.properties.at(-1)?.key).not.toBe(firstProperty);
+      expect(uuidSpy).toHaveBeenCalledTimes(5);
+    } finally {
+      uuidSpy.mockRestore();
+    }
   });
 
   it("adds a relation with target type and cardinality from the typed selects", () => {
     renderScreen();
     const panel = editor("작업지시");
     fireEvent.click(within(panel).getByRole("tab", { name: "관계" }));
-    fireEvent.change(within(panel).getByLabelText("관계 이름"), { target: { value: "점검 메모" } });
-    fireEvent.change(within(panel).getByLabelText("대상 타입"), { target: { value: "safety_memo" } });
-    fireEvent.change(within(panel).getByLabelText("카디널리티"), { target: { value: "many_many" } });
+    fireEvent.change(within(panel).getByLabelText("관계 이름"), {
+      target: { value: "점검 메모" },
+    });
+    fireEvent.change(within(panel).getByLabelText("대상 타입"), {
+      target: { value: "safety_memo" },
+    });
+    fireEvent.change(within(panel).getByLabelText("카디널리티"), {
+      target: { value: "many_many" },
+    });
     fireEvent.click(within(panel).getByRole("button", { name: "관계 추가" }));
 
-    expect(within(panel).getByRole("status", { name: "개정 대기" })).toBeVisible();
+    expect(
+      within(panel).getByRole("status", { name: "개정 대기" }),
+    ).toBeVisible();
     const row = within(panel).getByText("점검 메모").closest("li");
     expect(row).not.toBeNull();
     expect(within(row as HTMLElement).getByText("N:N")).toBeVisible();
@@ -434,7 +544,9 @@ describe("OntologyManagerScreen (design change-log 63)", () => {
     renderScreen();
     const panel = editor("작업지시");
     fireEvent.click(within(panel).getByRole("tab", { name: "인스턴스" }));
-    const row = within(panel).getByRole("button", { name: "WO-2643 개체 카드 열기" });
+    const row = within(panel).getByRole("button", {
+      name: "WO-2643 개체 카드 열기",
+    });
     expect(row).toHaveAttribute("draggable", "true");
     fireEvent.click(row);
 
@@ -443,12 +555,68 @@ describe("OntologyManagerScreen (design change-log 63)", () => {
     expect(within(pin).getByText("WO-2643")).toBeVisible();
   });
 
+  it("treats an undefined instance resolution as authority cancellation without opening fallback", async () => {
+    const resolveInstanceCard = vi.fn().mockResolvedValue(undefined);
+    render(
+      <PolicyGateProvider gate={allowGate}>
+        <WindowManagerProvider>
+          <OntologyManagerScreen
+            registry={registryFixture()}
+            resolveInstanceCard={resolveInstanceCard}
+          />
+        </WindowManagerProvider>
+      </PolicyGateProvider>,
+    );
+    const panel = editor("작업지시");
+    fireEvent.click(within(panel).getByRole("tab", { name: "인스턴스" }));
+    fireEvent.click(
+      within(panel).getByRole("button", { name: "WO-2643 개체 카드 열기" }),
+    );
+
+    await waitFor(() => {
+      expect(resolveInstanceCard).toHaveBeenCalledTimes(1);
+    });
+    expect(
+      screen.queryByRole("region", { name: "4호기 유압 점검" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("preserves the local fallback card for a genuine same-authority instance read error", async () => {
+    const resolveInstanceCard = vi
+      .fn()
+      .mockRejectedValue(new Error("same authority read failed"));
+    render(
+      <PolicyGateProvider gate={allowGate}>
+        <WindowManagerProvider>
+          <OntologyManagerScreen
+            registry={registryFixture()}
+            resolveInstanceCard={resolveInstanceCard}
+          />
+        </WindowManagerProvider>
+      </PolicyGateProvider>,
+    );
+    const panel = editor("작업지시");
+    fireEvent.click(within(panel).getByRole("tab", { name: "인스턴스" }));
+    fireEvent.click(
+      within(panel).getByRole("button", { name: "WO-2643 개체 카드 열기" }),
+    );
+
+    expect(
+      await screen.findByRole("region", { name: "4호기 유압 점검" }),
+    ).toBeVisible();
+    expect(resolveInstanceCard).toHaveBeenCalledTimes(1);
+  });
+
   it("creates a draft type via the inline add path and selects it", () => {
     renderScreen();
-    fireEvent.change(screen.getByLabelText("새 타입 이름"), { target: { value: "구매 요청" } });
+    fireEvent.change(screen.getByLabelText("새 타입 이름"), {
+      target: { value: "구매 요청" },
+    });
     fireEvent.click(screen.getByRole("button", { name: "타입 추가" }));
 
-    const row = screen.getByRole("button", { name: "OT-04 구매 요청 타입 편집" });
+    const row = screen.getByRole("button", {
+      name: "OT-04 구매 요청 타입 편집",
+    });
     expect(row).toHaveAttribute("aria-current", "true");
     const panel = editor("구매 요청");
     expect(within(panel).getByText("초안")).toBeVisible();
@@ -462,7 +630,9 @@ describe("OntologyManagerScreen (design change-log 63)", () => {
 
     fireEvent.click(within(panel).getByRole("tab", { name: "인스턴스" }));
     // rows degrade to non-interactive (still draggable) pills.
-    expect(within(panel).queryByRole("button", { name: "WO-2643 개체 카드 열기" })).toBeNull();
+    expect(
+      within(panel).queryByRole("button", { name: "WO-2643 개체 카드 열기" }),
+    ).toBeNull();
     expect(within(panel).getByText("WO-2643")).toBeVisible();
   });
 });

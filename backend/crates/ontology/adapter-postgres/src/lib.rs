@@ -17,10 +17,11 @@ use mnt_ontology_domain::{
     ActionDispatch, ActionTypeId, AnalyticId, BackingKind, FieldKind, LinkCardinality, LinkTypeId,
     ObjectTypeId, PropertyDefId, SchemaLifecycleState, validate_schema_transition,
 };
-use mnt_platform_db::{DbError, with_audit, with_org_conn};
+use mnt_platform_db::{DbError, with_audit, with_audits, with_org_conn};
 use mnt_platform_request_context::current_org;
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Postgres, Row, Transaction};
+use std::collections::HashMap;
 use time::OffsetDateTime;
 
 #[derive(Debug, thiserror::Error)]
@@ -30,6 +31,9 @@ pub enum PgOntologyError {
 
     #[error(transparent)]
     Domain(#[from] KernelError),
+
+    #[error("ontology object type write precondition failed")]
+    PreconditionFailed { current: ObjectTypeWriteVersion },
 }
 
 impl From<sqlx::Error> for PgOntologyError {
@@ -42,14 +46,14 @@ impl From<sqlx::Error> for PgOntologyError {
 // Inputs (a complete schema snapshot for one object-type version).
 // ===========================================================================
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PropertyDefInput {
     pub key: String,
     pub title: String,
     /// The discriminated-union tag (§3c). Stored verbatim; unknown tags degrade
     /// on read to [`FieldKind::Unknown`] rather than failing.
     pub field_type: String,
-    #[serde(default)]
+    #[serde(default = "empty_json_object")]
     pub config: serde_json::Value,
     #[serde(default)]
     pub backing_column: Option<String>,
@@ -59,7 +63,7 @@ pub struct PropertyDefInput {
     pub in_property_policy: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LinkTypeInput {
     pub stable_key: String,
     pub title: String,
@@ -73,32 +77,32 @@ pub struct LinkTypeInput {
     pub traversable: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ActionTypeInput {
     pub stable_key: String,
     pub title: String,
-    #[serde(default)]
+    #[serde(default = "empty_json_object")]
     pub params_schema: serde_json::Value,
-    #[serde(default)]
+    #[serde(default = "empty_json_array")]
     pub edits: serde_json::Value,
-    #[serde(default)]
+    #[serde(default = "empty_json_array")]
     pub submission_criteria: serde_json::Value,
-    #[serde(default)]
+    #[serde(default = "empty_json_array")]
     pub side_effects: serde_json::Value,
     pub dispatch: ActionDispatch,
     #[serde(default)]
     pub dispatch_target: Option<String>,
-    #[serde(default)]
+    #[serde(default = "empty_json_array")]
     pub control_points: serde_json::Value,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AnalyticInput {
     pub key: String,
     pub title: String,
-    #[serde(default)]
+    #[serde(default = "empty_json_object")]
     pub formula: serde_json::Value,
-    #[serde(default)]
+    #[serde(default = "empty_json_object")]
     pub result_type: serde_json::Value,
 }
 
@@ -131,6 +135,25 @@ const fn default_true() -> bool {
 // Summaries (read models).
 // ===========================================================================
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ObjectTypeWriteVersion {
+    pub etag: String,
+    pub revision: i64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ObjectTypeWritePrecondition {
+    pub validator_id: uuid::Uuid,
+    pub revision: i64,
+}
+
+fn object_type_key_etag(validator_id: uuid::Uuid, revision: i64) -> String {
+    format!(
+        "\"ont-object-type-key:{}:r{revision}\"",
+        validator_id.simple()
+    )
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ObjectTypeSummary {
     pub id: ObjectTypeId,
@@ -139,6 +162,28 @@ pub struct ObjectTypeSummary {
     pub backing_kind: BackingKind,
     pub schema_version: i64,
     pub lifecycle_state: SchemaLifecycleState,
+    pub key_write_revision: i64,
+    pub key_write_etag: String,
+    #[serde(skip, default = "uuid::Uuid::nil")]
+    key_write_validator_id: uuid::Uuid,
+}
+
+impl ObjectTypeSummary {
+    #[must_use]
+    pub fn write_version(&self) -> ObjectTypeWriteVersion {
+        ObjectTypeWriteVersion {
+            etag: self.key_write_etag.clone(),
+            revision: self.key_write_revision,
+        }
+    }
+
+    #[must_use]
+    pub fn write_precondition(&self) -> ObjectTypeWritePrecondition {
+        ObjectTypeWritePrecondition {
+            validator_id: self.key_write_validator_id,
+            revision: self.key_write_revision,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -255,6 +300,30 @@ impl PgOntologyStore {
 
         with_audit::<_, ObjectTypeSummary, PgOntologyError>(&self.pool, event, |tx| {
             Box::pin(async move {
+                lock_object_type_key_tx(tx, org_uuid, &draft.stable_key).await?;
+                let key_exists: bool = sqlx::query_scalar(
+                    "SELECT EXISTS(SELECT 1 FROM ont_object_types WHERE org_id = $1 AND stable_key = $2)",
+                )
+                .bind(org_uuid)
+                .bind(&draft.stable_key)
+                .fetch_one(tx.as_mut())
+                .await?;
+                if key_exists {
+                    return Err(KernelError::conflict(
+                        "an object type with that stable key already exists",
+                    )
+                    .into());
+                }
+                sqlx::query(
+                    r#"
+                    INSERT INTO ont_object_type_key_revisions (org_id, stable_key)
+                    VALUES ($1, $2)
+                    "#,
+                )
+                .bind(org_uuid)
+                .bind(&draft.stable_key)
+                .execute(tx.as_mut())
+                .await?;
                 insert_object_type_version_tx(
                     tx,
                     object_type_id,
@@ -273,12 +342,13 @@ impl PgOntologyStore {
 
     /// Stage a v+1 revision draft for an existing object-type key. The new draft
     /// carries the caller's full replacement snapshot; existing published/older
-    /// versions are untouched (immutable history). Fails closed if the key is
-    /// unknown to the tenant or a draft is already in flight (partial unique idx).
+    /// versions are untouched (immutable history). An existing in-flight head is
+    /// edited under the same tenant/key lock; an unknown key fails closed.
     pub async fn stage_revision(
         &self,
         actor: UserId,
         stable_key: &str,
+        expected: ObjectTypeWritePrecondition,
         draft: CreateObjectTypeDraft,
         trace: TraceContext,
         occurred_at: OffsetDateTime,
@@ -293,33 +363,40 @@ impl PgOntologyStore {
         let org_uuid = *org.as_uuid();
         let stable_key = stable_key.to_owned();
 
-        // An unpublished head (the one in-flight draft the partial unique index
-        // permits per key) is edited IN PLACE: the head fields are updated and
-        // the draft's newly-introduced children are appended (the child tables are
-        // append-only for the runtime role — §9.8 — and the draft editor only
-        // adds definitions). Staging an immutable v+1 is impossible here anyway
-        // (the one-draft index would reject a second draft version for the key).
-        // Resolved up front so the audit event targets the row we actually write.
-        let existing_draft = self.draft_head_id(&stable_key).await?;
-        let object_type_id = existing_draft.unwrap_or_else(ObjectTypeId::new);
-        let event = ontology_audit_event(
-            "ontology.object_type.stage_revision",
-            actor,
-            object_type_id,
-            trace,
-            occurred_at,
-        )?
-        .with_org(org);
-
-        with_audit::<_, ObjectTypeSummary, PgOntologyError>(&self.pool, event, |tx| {
+        // The audit target cannot be chosen truthfully until the tenant/key lock
+        // reveals whether this operation edits the in-flight head or creates a
+        // new version. `with_audits` lets that identity be resolved inside the
+        // same armed transaction and emits the resulting event before commit.
+        with_audits::<_, ObjectTypeSummary, PgOntologyError>(&self.pool, org, |tx| {
             Box::pin(async move {
+                lock_object_type_key_tx(tx, org_uuid, &stable_key).await?;
+                advance_object_type_write_version_tx(
+                    tx,
+                    org_uuid,
+                    &stable_key,
+                    expected,
+                    occurred_at,
+                )
+                .await?;
+                let existing_draft = draft_head_id_tx(tx, org_uuid, &stable_key).await?;
+                let object_type_id = existing_draft.unwrap_or_else(ObjectTypeId::new);
+
                 if existing_draft.is_some() {
-                    update_draft_head_tx(tx, object_type_id, &draft, occurred_at).await?;
+                    update_draft_head_tx(
+                        tx,
+                        object_type_id,
+                        org_uuid,
+                        &stable_key,
+                        &draft,
+                        occurred_at,
+                    )
+                    .await?;
                     append_new_draft_children_tx(tx, object_type_id, org_uuid, &draft).await?;
                 } else {
                     let current_max: Option<i64> = sqlx::query_scalar(
-                        "SELECT MAX(schema_version) FROM ont_object_types WHERE stable_key = $1",
+                        "SELECT MAX(schema_version) FROM ont_object_types WHERE org_id = $1 AND stable_key = $2",
                     )
+                    .bind(org_uuid)
                     .bind(&stable_key)
                     .fetch_one(tx.as_mut())
                     .await?;
@@ -337,32 +414,16 @@ impl PgOntologyStore {
                     )
                     .await?;
                 }
-                object_type_summary_by_id_tx(tx, object_type_id).await
-            })
-        })
-        .await
-    }
-
-    /// The one in-flight draft/review head for a key (partial unique index
-    /// guarantees at most one), RLS-scoped. `None` when the head is published.
-    async fn draft_head_id(
-        &self,
-        stable_key: &str,
-    ) -> Result<Option<ObjectTypeId>, PgOntologyError> {
-        let org = current_org().map_err(KernelError::from)?;
-        let stable_key = stable_key.to_owned();
-        with_org_conn::<_, Option<ObjectTypeId>, PgOntologyError>(&self.pool, org, move |tx| {
-            Box::pin(async move {
-                let id: Option<uuid::Uuid> = sqlx::query_scalar(
-                    r#"
-                    SELECT id FROM ont_object_types
-                    WHERE stable_key = $1 AND lifecycle_state IN ('draft', 'review_pending')
-                    "#,
-                )
-                .bind(&stable_key)
-                .fetch_optional(tx.as_mut())
-                .await?;
-                Ok(id.map(ObjectTypeId::from_uuid))
+                let summary = object_type_summary_by_id_tx(tx, object_type_id).await?;
+                let event = ontology_audit_event(
+                    "ontology.object_type.stage_revision",
+                    actor,
+                    object_type_id,
+                    trace,
+                    occurred_at,
+                )?
+                .with_org(org);
+                Ok((summary, vec![event]))
             })
         })
         .await
@@ -371,10 +432,12 @@ impl PgOntologyStore {
     /// Advance one object-type version along the §3a lifecycle FSM. Publishing a
     /// version supersedes the key's currently-published head in the same tx, so
     /// the "one published per key" invariant holds atomically.
+    #[allow(clippy::too_many_arguments)] // explicit CAS + lifecycle/audit context; a params struct adds no domain meaning
     pub async fn transition_lifecycle(
         &self,
         actor: UserId,
         object_type_id: ObjectTypeId,
+        expected: ObjectTypeWritePrecondition,
         to: SchemaLifecycleState,
         protection_enabled: bool,
         trace: TraceContext,
@@ -393,14 +456,32 @@ impl PgOntologyStore {
 
         with_audit::<_, ObjectTypeSummary, PgOntologyError>(&self.pool, event, |tx| {
             Box::pin(async move {
-                let row = sqlx::query(
-                    "SELECT stable_key, lifecycle_state, backing_kind FROM ont_object_types WHERE id = $1 FOR UPDATE",
+                let stable_key: String = sqlx::query_scalar(
+                    "SELECT stable_key FROM ont_object_types WHERE id = $1 AND org_id = $2",
                 )
                 .bind(*object_type_id.as_uuid())
+                .bind(org_uuid)
                 .fetch_optional(tx.as_mut())
                 .await?
                 .ok_or_else(|| KernelError::not_found("object type version was not found"))?;
-                let stable_key: String = row.try_get("stable_key")?;
+                lock_object_type_key_tx(tx, org_uuid, &stable_key).await?;
+                advance_object_type_write_version_tx(
+                    tx,
+                    org_uuid,
+                    &stable_key,
+                    expected,
+                    occurred_at,
+                )
+                .await?;
+                let row = sqlx::query(
+                    "SELECT lifecycle_state, backing_kind FROM ont_object_types WHERE id = $1 AND org_id = $2 AND stable_key = $3 FOR UPDATE",
+                )
+                .bind(*object_type_id.as_uuid())
+                .bind(org_uuid)
+                .bind(&stable_key)
+                .fetch_optional(tx.as_mut())
+                .await?
+                .ok_or_else(|| KernelError::not_found("object type version was not found"))?;
                 let from = SchemaLifecycleState::from_db_str(row.try_get("lifecycle_state")?)?;
                 let backing_kind = BackingKind::from_db_str(row.try_get("backing_kind")?)?;
                 validate_schema_transition(from, to, protection_enabled)?;
@@ -415,7 +496,7 @@ impl PgOntologyStore {
                     // no-code loop (draft → publish → create instance) closes
                     // with zero engineering.
                     if backing_kind == BackingKind::Instance
-                        && !has_create_capable_action_tx(tx, object_type_id).await?
+                        && !has_create_capable_action_tx(tx, object_type_id, org_uuid).await?
                     {
                         insert_generic_create_action_tx(tx, object_type_id, org_uuid).await?;
                     }
@@ -424,7 +505,7 @@ impl PgOntologyStore {
                         r#"
                         UPDATE ont_object_types
                         SET lifecycle_state = 'superseded', updated_at = $3
-                        WHERE stable_key = $1
+                        WHERE stable_key = $1 AND org_id = $4
                           AND lifecycle_state = 'published'
                           AND id <> $2
                         "#,
@@ -432,18 +513,28 @@ impl PgOntologyStore {
                     .bind(&stable_key)
                     .bind(*object_type_id.as_uuid())
                     .bind(occurred_at)
+                    .bind(org_uuid)
                     .execute(tx.as_mut())
                     .await?;
                 }
 
-                sqlx::query(
-                    "UPDATE ont_object_types SET lifecycle_state = $2, updated_at = $3 WHERE id = $1",
+                let updated = sqlx::query(
+                    "UPDATE ont_object_types SET lifecycle_state = $2, updated_at = $3 WHERE id = $1 AND org_id = $4 AND stable_key = $5 AND lifecycle_state = $6",
                 )
                 .bind(*object_type_id.as_uuid())
                 .bind(to.as_db_str())
                 .bind(occurred_at)
+                .bind(org_uuid)
+                .bind(&stable_key)
+                .bind(from.as_db_str())
                 .execute(tx.as_mut())
                 .await?;
+                if updated.rows_affected() != 1 {
+                    return Err(KernelError::conflict(
+                        "object type lifecycle changed while the transition was in flight",
+                    )
+                    .into());
+                }
 
                 object_type_summary_by_id_tx(tx, object_type_id).await
             })
@@ -459,12 +550,15 @@ impl PgOntologyStore {
             Box::pin(async move {
                 let rows = sqlx::query(
                     r#"
-                    SELECT DISTINCT ON (stable_key)
-                        id, stable_key, title, backing_kind, schema_version, lifecycle_state
-                    FROM ont_object_types
-                    ORDER BY stable_key,
-                             (lifecycle_state = 'published') DESC,
-                             schema_version DESC
+                    SELECT DISTINCT ON (o.stable_key)
+                        o.id, o.stable_key, o.title, o.backing_kind, o.schema_version,
+                        o.lifecycle_state, k.validator_id AS key_write_validator_id,
+                        k.revision AS key_write_revision
+                    FROM ont_object_types o
+                    JOIN ont_object_type_key_revisions k USING (org_id, stable_key)
+                    ORDER BY o.stable_key,
+                             (o.lifecycle_state = 'published') DESC,
+                             o.schema_version DESC
                     "#,
                 )
                 .fetch_all(tx.as_mut())
@@ -484,24 +578,30 @@ impl PgOntologyStore {
         version: Option<i64>,
     ) -> Result<ObjectTypeDetail, PgOntologyError> {
         let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
         let stable_key = stable_key.to_owned();
         with_org_conn::<_, ObjectTypeDetail, PgOntologyError>(&self.pool, org, |tx| {
             Box::pin(async move {
                 let head = sqlx::query(
                     r#"
-                    SELECT DISTINCT ON (stable_key)
-                        id, stable_key, title, title_property_key, backing_kind,
-                        backing_table, primary_key_property, schema_version, lifecycle_state
-                    FROM ont_object_types
-                    WHERE stable_key = $1
-                      AND ($2::BIGINT IS NULL OR schema_version = $2)
-                    ORDER BY stable_key,
-                             (lifecycle_state = 'published') DESC,
-                             schema_version DESC
+                    SELECT DISTINCT ON (o.stable_key)
+                        o.id, o.stable_key, o.title, o.title_property_key, o.backing_kind,
+                        o.backing_table, o.primary_key_property, o.schema_version,
+                        o.lifecycle_state, k.validator_id AS key_write_validator_id,
+                        k.revision AS key_write_revision
+                    FROM ont_object_types o
+                    JOIN ont_object_type_key_revisions k USING (org_id, stable_key)
+                    WHERE o.stable_key = $1
+                      AND ($2::BIGINT IS NULL OR o.schema_version = $2)
+                      AND o.org_id = $3
+                    ORDER BY o.stable_key,
+                             (o.lifecycle_state = 'published') DESC,
+                             o.schema_version DESC
                     "#,
                 )
                 .bind(&stable_key)
                 .bind(version)
+                .bind(org_uuid)
                 .fetch_optional(tx.as_mut())
                 .await?
                 .ok_or_else(|| KernelError::not_found("object type was not found"))?;
@@ -513,11 +613,12 @@ impl PgOntologyStore {
                     r#"
                     SELECT id, key, title, type, config, backing_column, required, in_property_policy
                     FROM ont_property_defs
-                    WHERE object_type_id = $1
+                    WHERE object_type_id = $1 AND org_id = $2
                     ORDER BY key
                     "#,
                 )
                 .bind(type_id)
+                .bind(org_uuid)
                 .fetch_all(tx.as_mut())
                 .await?
                 .iter()
@@ -529,11 +630,12 @@ impl PgOntologyStore {
                     SELECT id, stable_key, title, reverse_title, to_object_type_id,
                            cardinality, traversable
                     FROM ont_link_types
-                    WHERE object_type_id = $1
+                    WHERE object_type_id = $1 AND org_id = $2
                     ORDER BY stable_key
                     "#,
                 )
                 .bind(type_id)
+                .bind(org_uuid)
                 .fetch_all(tx.as_mut())
                 .await?
                 .iter()
@@ -545,11 +647,12 @@ impl PgOntologyStore {
                     SELECT id, stable_key, title, params_schema, edits, submission_criteria,
                            side_effects, dispatch, dispatch_target, control_points
                     FROM ont_action_types
-                    WHERE object_type_id = $1
+                    WHERE object_type_id = $1 AND org_id = $2
                     ORDER BY stable_key
                     "#,
                 )
                 .bind(type_id)
+                .bind(org_uuid)
                 .fetch_all(tx.as_mut())
                 .await?
                 .iter()
@@ -560,11 +663,12 @@ impl PgOntologyStore {
                     r#"
                     SELECT id, key, title, formula, result_type
                     FROM ont_analytics
-                    WHERE object_type_id = $1
+                    WHERE object_type_id = $1 AND org_id = $2
                     ORDER BY key
                     "#,
                 )
                 .bind(type_id)
+                .bind(org_uuid)
                 .fetch_all(tx.as_mut())
                 .await?
                 .iter()
@@ -597,6 +701,7 @@ impl PgOntologyStore {
         action_key: &str,
     ) -> Result<Option<ActionTypeSummary>, PgOntologyError> {
         let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
         let action_key = action_key.to_owned();
         with_org_conn::<_, Option<ActionTypeSummary>, PgOntologyError>(&self.pool, org, |tx| {
             Box::pin(async move {
@@ -605,11 +710,12 @@ impl PgOntologyStore {
                     SELECT id, stable_key, title, params_schema, edits, submission_criteria,
                            side_effects, dispatch, dispatch_target, control_points
                     FROM ont_action_types
-                    WHERE object_type_id = $1 AND stable_key = $2
+                    WHERE object_type_id = $1 AND stable_key = $2 AND org_id = $3
                     "#,
                 )
                 .bind(*object_type_id.as_uuid())
                 .bind(&action_key)
+                .bind(org_uuid)
                 .fetch_optional(tx.as_mut())
                 .await?;
                 row.as_ref().map(action_type_from_row).transpose()
@@ -627,6 +733,7 @@ impl PgOntologyStore {
         instance_id: uuid::Uuid,
     ) -> Result<Vec<ActingRule>, PgOntologyError> {
         let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
         with_org_conn::<_, Vec<ActingRule>, PgOntologyError>(&self.pool, org, move |tx| {
             Box::pin(async move {
                 // Resolve the instance's type (RLS-scoped): missing ⇒ NotFound.
@@ -644,7 +751,7 @@ impl PgOntologyStore {
                 .ok_or_else(|| KernelError::not_found("instance was not found"))?;
                 let stable_key: String = type_row.try_get("stable_key")?;
                 let object_type_id: uuid::Uuid = type_row.try_get("object_type_id")?;
-                acting_rules_tx(tx, &stable_key, object_type_id).await
+                acting_rules_tx(tx, org_uuid, &stable_key, object_type_id).await
             })
         })
         .await
@@ -660,6 +767,7 @@ impl PgOntologyStore {
         stable_key: &str,
     ) -> Result<Vec<ActingRule>, PgOntologyError> {
         let org = current_org().map_err(KernelError::from)?;
+        let org_uuid = *org.as_uuid();
         let stable_key = stable_key.to_owned();
         with_org_conn::<_, Vec<ActingRule>, PgOntologyError>(&self.pool, org, move |tx| {
             Box::pin(async move {
@@ -668,16 +776,17 @@ impl PgOntologyStore {
                 let object_type_id: uuid::Uuid = sqlx::query_scalar(
                     r#"
                     SELECT id FROM ont_object_types
-                    WHERE stable_key = $1
+                    WHERE stable_key = $1 AND org_id = $2
                     ORDER BY (lifecycle_state = 'published') DESC, schema_version DESC
                     LIMIT 1
                     "#,
                 )
                 .bind(&stable_key)
+                .bind(org_uuid)
                 .fetch_optional(tx.as_mut())
                 .await?
                 .ok_or_else(|| KernelError::not_found("object type was not found"))?;
-                acting_rules_tx(tx, &stable_key, object_type_id).await
+                acting_rules_tx(tx, org_uuid, &stable_key, object_type_id).await
             })
         })
         .await
@@ -761,11 +870,13 @@ pub struct ResolvedInstance {
 async fn has_create_capable_action_tx(
     tx: &mut Transaction<'_, Postgres>,
     object_type_id: ObjectTypeId,
+    org_uuid: uuid::Uuid,
 ) -> Result<bool, PgOntologyError> {
     let exists: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM ont_action_types WHERE object_type_id = $1 AND dispatch = 'instance_revision')",
+        "SELECT EXISTS(SELECT 1 FROM ont_action_types WHERE object_type_id = $1 AND org_id = $2 AND dispatch = 'instance_revision')",
     )
     .bind(*object_type_id.as_uuid())
+    .bind(org_uuid)
     .fetch_one(tx.as_mut())
     .await?;
     Ok(exists)
@@ -783,11 +894,12 @@ async fn insert_generic_create_action_tx(
         r#"
         SELECT key, title, type, config, backing_column, required, in_property_policy
         FROM ont_property_defs
-        WHERE object_type_id = $1
+        WHERE object_type_id = $1 AND org_id = $2
         ORDER BY key
         "#,
     )
     .bind(*object_type_id.as_uuid())
+    .bind(org_uuid)
     .fetch_all(tx.as_mut())
     .await?;
     let properties = rows
@@ -820,13 +932,13 @@ async fn insert_generic_create_action_tx(
     .bind(*object_type_id.as_uuid())
     .bind(action.stable_key.trim())
     .bind(action.title.trim())
-    .bind(json_or_empty_object(&action.params_schema))
-    .bind(json_or_empty_array(&action.edits))
-    .bind(json_or_empty_array(&action.submission_criteria))
-    .bind(json_or_empty_array(&action.side_effects))
+    .bind(&action.params_schema)
+    .bind(&action.edits)
+    .bind(&action.submission_criteria)
+    .bind(&action.side_effects)
     .bind(action.dispatch.as_db_str())
     .bind(action.dispatch_target.as_deref())
-    .bind(json_or_empty_array(&action.control_points))
+    .bind(&action.control_points)
     .execute(tx.as_mut())
     .await?;
     Ok(())
@@ -868,11 +980,140 @@ async fn insert_object_type_version_tx(
     insert_object_type_children_tx(tx, object_type_id, org_uuid, draft).await
 }
 
+/// Serialize every stage/lifecycle mutation for one tenant-scoped stable key.
+///
+/// The length-prefixed tenant/key encoding is unambiguous. PostgreSQL's 64-bit
+/// hash can only make unrelated keys share a lock (safe over-serialization); it
+/// cannot let equal keys acquire different locks. Transaction scope guarantees
+/// release on commit or rollback, including every error path.
+async fn lock_object_type_key_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    org_uuid: uuid::Uuid,
+    stable_key: &str,
+) -> Result<(), PgOntologyError> {
+    let key = format!(
+        "{}:{}:{stable_key}",
+        org_uuid.as_hyphenated(),
+        stable_key.len()
+    );
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+        .bind(key)
+        .execute(tx.as_mut())
+        .await?;
+    Ok(())
+}
+
+async fn current_object_type_write_version_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    org_uuid: uuid::Uuid,
+    stable_key: &str,
+) -> Result<(uuid::Uuid, ObjectTypeWriteVersion), PgOntologyError> {
+    let row = sqlx::query(
+        r#"
+        SELECT validator_id, revision
+        FROM ont_object_type_key_revisions
+        WHERE org_id = $1 AND stable_key = $2
+        "#,
+    )
+    .bind(org_uuid)
+    .bind(stable_key)
+    .fetch_optional(tx.as_mut())
+    .await?
+    .ok_or_else(|| KernelError::not_found("object type was not found"))?;
+    let validator_id: uuid::Uuid = row.try_get("validator_id")?;
+    let revision: i64 = row.try_get("revision")?;
+    Ok((
+        validator_id,
+        ObjectTypeWriteVersion {
+            etag: object_type_key_etag(validator_id, revision),
+            revision,
+        },
+    ))
+}
+
+async fn advance_object_type_write_version_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    org_uuid: uuid::Uuid,
+    stable_key: &str,
+    expected: ObjectTypeWritePrecondition,
+    occurred_at: OffsetDateTime,
+) -> Result<ObjectTypeWriteVersion, PgOntologyError> {
+    let (current_validator_id, current) =
+        current_object_type_write_version_tx(tx, org_uuid, stable_key).await?;
+    if current_validator_id != expected.validator_id || current.revision != expected.revision {
+        return Err(PgOntologyError::PreconditionFailed { current });
+    }
+    let revision: Option<i64> = sqlx::query_scalar(
+        r#"
+        UPDATE ont_object_type_key_revisions
+        SET revision = revision + 1, updated_at = $5
+        WHERE org_id = $1 AND stable_key = $2
+          AND validator_id = $3 AND revision = $4
+        RETURNING revision
+        "#,
+    )
+    .bind(org_uuid)
+    .bind(stable_key)
+    .bind(expected.validator_id)
+    .bind(expected.revision)
+    .bind(occurred_at)
+    .fetch_optional(tx.as_mut())
+    .await?;
+    match revision {
+        Some(revision) => Ok(ObjectTypeWriteVersion {
+            etag: object_type_key_etag(expected.validator_id, revision),
+            revision,
+        }),
+        None => {
+            let (_, current) =
+                current_object_type_write_version_tx(tx, org_uuid, stable_key).await?;
+            Err(PgOntologyError::PreconditionFailed { current })
+        }
+    }
+}
+
+/// Resolve the single mutable draft only after the tenant/key serialization lock
+/// is held. A submitted review head is row-locked and rejected: only the explicit
+/// reviewer send-back transition may make its content editable again.
+async fn draft_head_id_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    org_uuid: uuid::Uuid,
+    stable_key: &str,
+) -> Result<Option<ObjectTypeId>, PgOntologyError> {
+    let row = sqlx::query(
+        r#"
+        SELECT id, lifecycle_state FROM ont_object_types
+        WHERE org_id = $1 AND stable_key = $2
+          AND lifecycle_state IN ('draft', 'review_pending')
+        FOR UPDATE
+        "#,
+    )
+    .bind(org_uuid)
+    .bind(stable_key)
+    .fetch_optional(tx.as_mut())
+    .await?;
+    match row {
+        None => Ok(None),
+        Some(row) => {
+            let lifecycle_state: String = row.try_get("lifecycle_state")?;
+            if lifecycle_state == SchemaLifecycleState::ReviewPending.as_db_str() {
+                return Err(KernelError::conflict(
+                    "review-pending object type must be returned to draft before editing",
+                )
+                .into());
+            }
+            let id: uuid::Uuid = row.try_get("id")?;
+            Ok(Some(ObjectTypeId::from_uuid(id)))
+        }
+    }
+}
+
 /// §2 dynamics for one object type: live workflow definitions bound to its key
 /// (automations) plus object-/property-policy attachments (policies), labelled by
 /// the authored catalog title. Shared by the instance- and type-keyed reads.
 async fn acting_rules_tx(
     tx: &mut Transaction<'_, Postgres>,
+    org_uuid: uuid::Uuid,
     stable_key: &str,
     object_type_id: uuid::Uuid,
 ) -> Result<Vec<ActingRule>, PgOntologyError> {
@@ -882,11 +1123,12 @@ async fn acting_rules_tx(
         r#"
         SELECT id, display_name
         FROM workflow_definitions
-        WHERE object_type = $1 AND status <> 'RETIRED'
+        WHERE object_type = $1 AND org_id = $2 AND status <> 'RETIRED'
         ORDER BY updated_at DESC
         "#,
     )
     .bind(stable_key)
+    .bind(org_uuid)
     .fetch_all(tx.as_mut())
     .await?;
     for row in &automations {
@@ -903,18 +1145,20 @@ async fn acting_rules_tx(
         FROM ont_object_policies a
         JOIN cedar_policy_catalog_entries c
           ON c.id = a.cedar_policy_id AND c.org_id = a.org_id
-        WHERE a.object_type_id = $1
+        WHERE a.object_type_id = $1 AND a.org_id = $2
         UNION
         SELECT c.id AS id, c.title AS title
         FROM ont_property_policies a
         JOIN cedar_policy_catalog_entries c
           ON c.id = a.cedar_policy_id AND c.org_id = a.org_id
-        WHERE a.property_def_id IN (
-            SELECT id FROM ont_property_defs WHERE object_type_id = $1
+        WHERE a.org_id = $2
+          AND a.property_def_id IN (
+            SELECT id FROM ont_property_defs WHERE object_type_id = $1 AND org_id = $2
         )
         "#,
     )
     .bind(object_type_id)
+    .bind(org_uuid)
     .fetch_all(tx.as_mut())
     .await?;
     for row in &policies {
@@ -933,15 +1177,20 @@ async fn acting_rules_tx(
 async fn update_draft_head_tx(
     tx: &mut Transaction<'_, Postgres>,
     object_type_id: ObjectTypeId,
+    org_uuid: uuid::Uuid,
+    stable_key: &str,
     draft: &CreateObjectTypeDraft,
     occurred_at: OffsetDateTime,
 ) -> Result<(), PgOntologyError> {
-    sqlx::query(
+    let updated = sqlx::query(
         r#"
         UPDATE ont_object_types
         SET title = $2, title_property_key = $3, backing_kind = $4,
             backing_table = $5, primary_key_property = $6, updated_at = $7
         WHERE id = $1
+          AND org_id = $8
+          AND stable_key = $9
+          AND lifecycle_state = 'draft'
         "#,
     )
     .bind(*object_type_id.as_uuid())
@@ -951,16 +1200,24 @@ async fn update_draft_head_tx(
     .bind(draft.backing_table.as_deref())
     .bind(draft.primary_key_property.as_deref())
     .bind(occurred_at)
+    .bind(org_uuid)
+    .bind(stable_key)
     .execute(tx.as_mut())
     .await?;
+    if updated.rows_affected() != 1 {
+        return Err(KernelError::conflict(
+            "object type draft changed lifecycle while the revision was in flight",
+        )
+        .into());
+    }
     Ok(())
 }
 
-/// Append the child definitions a draft edit introduces, skipping those already
-/// present. The schema child tables grant the runtime role INSERT only (§9.8: no
-/// UPDATE/DELETE), and the draft editor only adds definitions — so an in-place
-/// draft edit inserts the new children and leaves existing ones untouched
-/// (re-sent existing keys are no-ops, so the caller may resend its full snapshot).
+/// Append only genuinely new child identities to a mutable draft.
+///
+/// Existing equal key/payload pairs are idempotent replays. Reusing an identity
+/// for a different canonical payload is a typed conflict; silently retaining
+/// either definition would make the final schema depend on transport order.
 async fn append_new_draft_children_tx(
     tx: &mut Transaction<'_, Postgres>,
     object_type_id: ObjectTypeId,
@@ -968,67 +1225,266 @@ async fn append_new_draft_children_tx(
     draft: &CreateObjectTypeDraft,
 ) -> Result<(), PgOntologyError> {
     let id = *object_type_id.as_uuid();
-    let props: Vec<String> =
-        sqlx::query_scalar("SELECT key FROM ont_property_defs WHERE object_type_id = $1")
-            .bind(id)
-            .fetch_all(tx.as_mut())
-            .await?;
-    let links: Vec<String> =
-        sqlx::query_scalar("SELECT stable_key FROM ont_link_types WHERE object_type_id = $1")
-            .bind(id)
-            .fetch_all(tx.as_mut())
-            .await?;
-    let actions: Vec<String> =
-        sqlx::query_scalar("SELECT stable_key FROM ont_action_types WHERE object_type_id = $1")
-            .bind(id)
-            .fetch_all(tx.as_mut())
-            .await?;
-    let analytics: Vec<String> =
-        sqlx::query_scalar("SELECT key FROM ont_analytics WHERE object_type_id = $1")
-            .bind(id)
-            .fetch_all(tx.as_mut())
-            .await?;
+
+    let properties = sqlx::query(
+        r#"
+        SELECT key, title, type, config, backing_column, required, in_property_policy
+        FROM ont_property_defs
+        WHERE object_type_id = $1 AND org_id = $2
+        "#,
+    )
+    .bind(id)
+    .bind(org_uuid)
+    .fetch_all(tx.as_mut())
+    .await?
+    .into_iter()
+    .map(|row| {
+        Ok(PropertyDefInput {
+            key: row.try_get("key")?,
+            title: row.try_get("title")?,
+            field_type: row.try_get("type")?,
+            config: row.try_get("config")?,
+            backing_column: row.try_get("backing_column")?,
+            required: row.try_get("required")?,
+            in_property_policy: row.try_get("in_property_policy")?,
+        })
+    })
+    .collect::<Result<Vec<_>, PgOntologyError>>()?;
+
+    let links = sqlx::query(
+        r#"
+        SELECT stable_key, title, reverse_title, to_object_type_id, cardinality, traversable
+        FROM ont_link_types
+        WHERE object_type_id = $1 AND org_id = $2
+        "#,
+    )
+    .bind(id)
+    .bind(org_uuid)
+    .fetch_all(tx.as_mut())
+    .await?
+    .into_iter()
+    .map(|row| {
+        let target = row
+            .try_get::<Option<uuid::Uuid>, _>("to_object_type_id")?
+            .map(ObjectTypeId::from_uuid);
+        let cardinality = row.try_get::<String, _>("cardinality")?;
+        Ok(LinkTypeInput {
+            stable_key: row.try_get("stable_key")?,
+            title: row.try_get("title")?,
+            reverse_title: row.try_get("reverse_title")?,
+            to_object_type_id: target,
+            cardinality: LinkCardinality::from_db_str(&cardinality)?,
+            traversable: row.try_get("traversable")?,
+        })
+    })
+    .collect::<Result<Vec<_>, PgOntologyError>>()?;
+
+    let actions = sqlx::query(
+        r#"
+        SELECT stable_key, title, params_schema, edits, submission_criteria,
+               side_effects, dispatch, dispatch_target, control_points
+        FROM ont_action_types
+        WHERE object_type_id = $1 AND org_id = $2
+        "#,
+    )
+    .bind(id)
+    .bind(org_uuid)
+    .fetch_all(tx.as_mut())
+    .await?
+    .into_iter()
+    .map(|row| {
+        let dispatch = row.try_get::<String, _>("dispatch")?;
+        Ok(ActionTypeInput {
+            stable_key: row.try_get("stable_key")?,
+            title: row.try_get("title")?,
+            params_schema: row.try_get("params_schema")?,
+            edits: row.try_get("edits")?,
+            submission_criteria: row.try_get("submission_criteria")?,
+            side_effects: row.try_get("side_effects")?,
+            dispatch: ActionDispatch::from_db_str(&dispatch)?,
+            dispatch_target: row.try_get("dispatch_target")?,
+            control_points: row.try_get("control_points")?,
+        })
+    })
+    .collect::<Result<Vec<_>, PgOntologyError>>()?;
+
+    let analytics = sqlx::query(
+        r#"
+        SELECT key, title, formula, result_type
+        FROM ont_analytics
+        WHERE object_type_id = $1 AND org_id = $2
+        "#,
+    )
+    .bind(id)
+    .bind(org_uuid)
+    .fetch_all(tx.as_mut())
+    .await?
+    .into_iter()
+    .map(|row| {
+        Ok(AnalyticInput {
+            key: row.try_get("key")?,
+            title: row.try_get("title")?,
+            formula: row.try_get("formula")?,
+            result_type: row.try_get("result_type")?,
+        })
+    })
+    .collect::<Result<Vec<_>, PgOntologyError>>()?;
 
     let appended = CreateObjectTypeDraft {
-        properties: draft
-            .properties
-            .iter()
-            .filter(|p| !props.iter().any(|e| e == p.key.trim()))
-            .cloned()
-            .collect(),
-        links: draft
-            .links
-            .iter()
-            .filter(|l| !links.iter().any(|e| e == l.stable_key.trim()))
-            .cloned()
-            .collect(),
-        actions: draft
-            .actions
-            .iter()
-            .filter(|a| !actions.iter().any(|e| e == a.stable_key.trim()))
-            .cloned()
-            .collect(),
-        analytics: draft
-            .analytics
-            .iter()
-            .filter(|a| !analytics.iter().any(|e| e == a.key.trim()))
-            .cloned()
-            .collect(),
+        properties: reconcile_child_inputs(
+            "property",
+            properties
+                .into_iter()
+                .map(|value| canonical_property_input(&value)),
+            draft.properties.iter().map(canonical_property_input),
+            |value| &value.key,
+        )?,
+        links: reconcile_child_inputs(
+            "link",
+            links.into_iter().map(|value| canonical_link_input(&value)),
+            draft.links.iter().map(canonical_link_input),
+            |value| &value.stable_key,
+        )?,
+        actions: reconcile_child_inputs(
+            "action",
+            actions
+                .into_iter()
+                .map(|value| canonical_action_input(&value)),
+            draft.actions.iter().map(canonical_action_input),
+            |value| &value.stable_key,
+        )?,
+        analytics: reconcile_child_inputs(
+            "analytic",
+            analytics
+                .into_iter()
+                .map(|value| canonical_analytic_input(&value)),
+            draft.analytics.iter().map(canonical_analytic_input),
+            |value| &value.key,
+        )?,
         ..draft.clone()
     };
     insert_object_type_children_tx(tx, object_type_id, org_uuid, &appended).await
 }
 
-/// Insert the child definitions (properties / links / actions / analytics) for
-/// an object-type version. Shared by the fresh-version insert above and the
-/// in-place draft rewrite (replace-children semantics) in `stage_revision`.
+fn reconcile_child_inputs<T>(
+    kind: &str,
+    existing: impl IntoIterator<Item = T>,
+    incoming: impl IntoIterator<Item = T>,
+    key_of: impl Fn(&T) -> &str,
+) -> Result<Vec<T>, PgOntologyError>
+where
+    T: Clone + PartialEq,
+{
+    let mut known = HashMap::<String, T>::new();
+    for value in existing {
+        known.insert(key_of(&value).to_owned(), value);
+    }
+
+    let mut appended = Vec::new();
+    for value in incoming {
+        let key = key_of(&value).to_owned();
+        match known.get(&key) {
+            Some(current) if current == &value => {}
+            Some(_) => {
+                return Err(KernelError::conflict(format!(
+                    "{kind} child key {key:?} is already bound to a different definition"
+                ))
+                .into());
+            }
+            None => {
+                known.insert(key, value.clone());
+                appended.push(value);
+            }
+        }
+    }
+    Ok(appended)
+}
+
+fn canonical_property_input(value: &PropertyDefInput) -> PropertyDefInput {
+    PropertyDefInput {
+        key: value.key.trim().to_owned(),
+        title: value.title.trim().to_owned(),
+        field_type: value.field_type.trim().to_owned(),
+        config: value.config.clone(),
+        backing_column: value.backing_column.clone(),
+        required: value.required,
+        in_property_policy: value.in_property_policy,
+    }
+}
+
+fn canonical_link_input(value: &LinkTypeInput) -> LinkTypeInput {
+    LinkTypeInput {
+        stable_key: value.stable_key.trim().to_owned(),
+        title: value.title.trim().to_owned(),
+        reverse_title: value
+            .reverse_title
+            .as_deref()
+            .map(str::trim)
+            .map(str::to_owned),
+        to_object_type_id: value.to_object_type_id,
+        cardinality: value.cardinality,
+        traversable: value.traversable,
+    }
+}
+
+fn canonical_action_input(value: &ActionTypeInput) -> ActionTypeInput {
+    ActionTypeInput {
+        stable_key: value.stable_key.trim().to_owned(),
+        title: value.title.trim().to_owned(),
+        params_schema: value.params_schema.clone(),
+        edits: value.edits.clone(),
+        submission_criteria: value.submission_criteria.clone(),
+        side_effects: value.side_effects.clone(),
+        dispatch: value.dispatch,
+        dispatch_target: value.dispatch_target.clone(),
+        control_points: value.control_points.clone(),
+    }
+}
+
+fn canonical_analytic_input(value: &AnalyticInput) -> AnalyticInput {
+    AnalyticInput {
+        key: value.key.trim().to_owned(),
+        title: value.title.trim().to_owned(),
+        formula: value.formula.clone(),
+        result_type: value.result_type.clone(),
+    }
+}
+
+/// Insert child definitions for a new version or the reconciled additions to a
+/// mutable draft. Payload-preserving canonicalization and identity reconciliation
+/// make duplicate identities inside one request deterministic without changing JSON shape.
 async fn insert_object_type_children_tx(
     tx: &mut Transaction<'_, Postgres>,
     object_type_id: ObjectTypeId,
     org_uuid: uuid::Uuid,
     draft: &CreateObjectTypeDraft,
 ) -> Result<(), PgOntologyError> {
-    for property in &draft.properties {
+    let properties = reconcile_child_inputs(
+        "property",
+        Vec::new(),
+        draft.properties.iter().map(canonical_property_input),
+        |value| &value.key,
+    )?;
+    let links = reconcile_child_inputs(
+        "link",
+        Vec::new(),
+        draft.links.iter().map(canonical_link_input),
+        |value| &value.stable_key,
+    )?;
+    let actions = reconcile_child_inputs(
+        "action",
+        Vec::new(),
+        draft.actions.iter().map(canonical_action_input),
+        |value| &value.stable_key,
+    )?;
+    let analytics = reconcile_child_inputs(
+        "analytic",
+        Vec::new(),
+        draft.analytics.iter().map(canonical_analytic_input),
+        |value| &value.key,
+    )?;
+
+    for property in &properties {
         sqlx::query(
             r#"
             INSERT INTO ont_property_defs (
@@ -1041,10 +1497,10 @@ async fn insert_object_type_children_tx(
         .bind(*PropertyDefId::new().as_uuid())
         .bind(org_uuid)
         .bind(*object_type_id.as_uuid())
-        .bind(property.key.trim())
-        .bind(property.title.trim())
-        .bind(property.field_type.trim())
-        .bind(json_or_empty_object(&property.config))
+        .bind(&property.key)
+        .bind(&property.title)
+        .bind(&property.field_type)
+        .bind(&property.config)
         .bind(property.backing_column.as_deref())
         .bind(property.required)
         .bind(property.in_property_policy)
@@ -1052,7 +1508,7 @@ async fn insert_object_type_children_tx(
         .await?;
     }
 
-    for link in &draft.links {
+    for link in &links {
         sqlx::query(
             r#"
             INSERT INTO ont_link_types (
@@ -1065,9 +1521,9 @@ async fn insert_object_type_children_tx(
         .bind(*LinkTypeId::new().as_uuid())
         .bind(org_uuid)
         .bind(*object_type_id.as_uuid())
-        .bind(link.stable_key.trim())
-        .bind(link.title.trim())
-        .bind(link.reverse_title.as_deref().map(str::trim))
+        .bind(&link.stable_key)
+        .bind(&link.title)
+        .bind(link.reverse_title.as_deref())
         .bind(link.to_object_type_id.map(|id| *id.as_uuid()))
         .bind(link.cardinality.as_db_str())
         .bind(link.traversable)
@@ -1075,7 +1531,7 @@ async fn insert_object_type_children_tx(
         .await?;
     }
 
-    for action in &draft.actions {
+    for action in &actions {
         sqlx::query(
             r#"
             INSERT INTO ont_action_types (
@@ -1089,20 +1545,20 @@ async fn insert_object_type_children_tx(
         .bind(*ActionTypeId::new().as_uuid())
         .bind(org_uuid)
         .bind(*object_type_id.as_uuid())
-        .bind(action.stable_key.trim())
-        .bind(action.title.trim())
-        .bind(json_or_empty_object(&action.params_schema))
-        .bind(json_or_empty_array(&action.edits))
-        .bind(json_or_empty_array(&action.submission_criteria))
-        .bind(json_or_empty_array(&action.side_effects))
+        .bind(&action.stable_key)
+        .bind(&action.title)
+        .bind(&action.params_schema)
+        .bind(&action.edits)
+        .bind(&action.submission_criteria)
+        .bind(&action.side_effects)
         .bind(action.dispatch.as_db_str())
         .bind(action.dispatch_target.as_deref())
-        .bind(json_or_empty_array(&action.control_points))
+        .bind(&action.control_points)
         .execute(tx.as_mut())
         .await?;
     }
 
-    for analytic in &draft.analytics {
+    for analytic in &analytics {
         sqlx::query(
             r#"
             INSERT INTO ont_analytics (
@@ -1114,10 +1570,10 @@ async fn insert_object_type_children_tx(
         .bind(*AnalyticId::new().as_uuid())
         .bind(org_uuid)
         .bind(*object_type_id.as_uuid())
-        .bind(analytic.key.trim())
-        .bind(analytic.title.trim())
-        .bind(json_or_empty_object(&analytic.formula))
-        .bind(json_or_empty_object(&analytic.result_type))
+        .bind(&analytic.key)
+        .bind(&analytic.title)
+        .bind(&analytic.formula)
+        .bind(&analytic.result_type)
         .execute(tx.as_mut())
         .await?;
     }
@@ -1131,9 +1587,12 @@ async fn object_type_summary_by_id_tx(
 ) -> Result<ObjectTypeSummary, PgOntologyError> {
     let row = sqlx::query(
         r#"
-        SELECT id, stable_key, title, backing_kind, schema_version, lifecycle_state
-        FROM ont_object_types
-        WHERE id = $1
+        SELECT o.id, o.stable_key, o.title, o.backing_kind, o.schema_version,
+               o.lifecycle_state, k.validator_id AS key_write_validator_id,
+               k.revision AS key_write_revision
+        FROM ont_object_types o
+        JOIN ont_object_type_key_revisions k USING (org_id, stable_key)
+        WHERE o.id = $1
         "#,
     )
     .bind(*object_type_id.as_uuid())
@@ -1157,6 +1616,12 @@ fn object_type_summary_from_row(
         backing_kind: BackingKind::from_db_str(row.try_get("backing_kind")?)?,
         schema_version: row.try_get("schema_version")?,
         lifecycle_state: SchemaLifecycleState::from_db_str(row.try_get("lifecycle_state")?)?,
+        key_write_revision: row.try_get("key_write_revision")?,
+        key_write_etag: object_type_key_etag(
+            row.try_get("key_write_validator_id")?,
+            row.try_get("key_write_revision")?,
+        ),
+        key_write_validator_id: row.try_get("key_write_validator_id")?,
     })
 }
 
@@ -1237,33 +1702,79 @@ fn ontology_audit_event(
     ))
 }
 
-/// The registry JSONB columns are `CHECK (jsonb_typeof = 'object')`; a caller
-/// that left the field as JSON `null` gets an empty object instead of a CHECK
-/// violation. Non-null values pass through untouched.
-fn json_or_empty_object(value: &serde_json::Value) -> serde_json::Value {
-    if value.is_object() {
-        value.clone()
-    } else {
-        serde_json::json!({})
-    }
+/// Default a missing JSON-object field at deserialization. Explicit JSON `null`
+/// remains `Value::Null` so validation can reject it instead of silently
+/// changing caller intent.
+fn empty_json_object() -> serde_json::Value {
+    serde_json::json!({})
 }
 
-/// Same as [`json_or_empty_object`] for the `CHECK (jsonb_typeof = 'array')`
-/// columns.
-fn json_or_empty_array(value: &serde_json::Value) -> serde_json::Value {
-    if value.is_array() {
-        value.clone()
-    } else {
-        serde_json::json!([])
-    }
+/// Array counterpart to [`empty_json_object`].
+fn empty_json_array() -> serde_json::Value {
+    serde_json::json!([])
 }
 
 fn validate_draft(draft: &CreateObjectTypeDraft) -> Result<(), PgOntologyError> {
-    if draft.stable_key.trim().is_empty() {
+    let stable_key = draft.stable_key.trim();
+    if stable_key.is_empty() {
         return Err(KernelError::validation("object type stable_key is required").into());
+    }
+    if stable_key != draft.stable_key {
+        return Err(KernelError::validation(
+            "object type stable_key must not have surrounding whitespace",
+        )
+        .into());
     }
     if draft.title.trim().is_empty() {
         return Err(KernelError::validation("object type title is required").into());
+    }
+    for property in &draft.properties {
+        if !property.config.is_object() {
+            return Err(KernelError::validation(format!(
+                "property {:?} config must be a JSON object",
+                property.key.trim()
+            ))
+            .into());
+        }
+    }
+    for action in &draft.actions {
+        if !action.params_schema.is_object() {
+            return Err(KernelError::validation(format!(
+                "action {:?} params_schema must be a JSON object",
+                action.stable_key.trim()
+            ))
+            .into());
+        }
+        for (field, value) in [
+            ("edits", &action.edits),
+            ("submission_criteria", &action.submission_criteria),
+            ("side_effects", &action.side_effects),
+            ("control_points", &action.control_points),
+        ] {
+            if !value.is_array() {
+                return Err(KernelError::validation(format!(
+                    "action {:?} {field} must be a JSON array",
+                    action.stable_key.trim()
+                ))
+                .into());
+            }
+        }
+    }
+    for analytic in &draft.analytics {
+        if !analytic.formula.is_object() {
+            return Err(KernelError::validation(format!(
+                "analytic {:?} formula must be a JSON object",
+                analytic.key.trim()
+            ))
+            .into());
+        }
+        if !analytic.result_type.is_object() {
+            return Err(KernelError::validation(format!(
+                "analytic {:?} result_type must be a JSON object",
+                analytic.key.trim()
+            ))
+            .into());
+        }
     }
     match draft.backing_kind {
         BackingKind::Projected => {

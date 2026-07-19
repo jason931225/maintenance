@@ -32,6 +32,7 @@ import com.maintenance.api.client.model.CreateObjectTypeDraft
 import com.maintenance.api.client.model.ErrorBody
 import com.maintenance.api.client.model.LifecycleOutcome
 import com.maintenance.api.client.model.LifecycleRequest
+import com.maintenance.api.client.model.ObjectTypeSummary
 import com.maintenance.api.client.model.OntologyActionRequest
 import com.maintenance.api.client.model.ResolvedInstance
 
@@ -145,7 +146,7 @@ open class OntologyApi(basePath: kotlin.String = defaultBasePath, client: Call.F
      * Create a draft object type
      * Creates a DRAFT object type schema (with its property/link/action/analytic children). Publishing is a governed, separate lifecycle step; this only stages a draft.
      * @param createObjectTypeDraft
-     * @return kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>
+     * @return ObjectTypeSummary
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      * @throws UnsupportedOperationException If the API returns an informational or redirection response
@@ -154,11 +155,11 @@ open class OntologyApi(basePath: kotlin.String = defaultBasePath, client: Call.F
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun createObjectType(createObjectTypeDraft: CreateObjectTypeDraft) : kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement> = withContext(Dispatchers.IO) {
+    suspend fun createObjectType(createObjectTypeDraft: CreateObjectTypeDraft) : ObjectTypeSummary = withContext(Dispatchers.IO) {
         val localVarResponse = createObjectTypeWithHttpInfo(createObjectTypeDraft = createObjectTypeDraft)
 
         return@withContext when (localVarResponse.responseType) {
-            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>
+            ResponseType.Success -> (localVarResponse as Success<*>).data as ObjectTypeSummary
             ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
             ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
             ResponseType.ClientError -> {
@@ -177,16 +178,16 @@ open class OntologyApi(basePath: kotlin.String = defaultBasePath, client: Call.F
      * Create a draft object type
      * Creates a DRAFT object type schema (with its property/link/action/analytic children). Publishing is a governed, separate lifecycle step; this only stages a draft.
      * @param createObjectTypeDraft
-     * @return ApiResponse<kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>?>
+     * @return ApiResponse<ObjectTypeSummary?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun createObjectTypeWithHttpInfo(createObjectTypeDraft: CreateObjectTypeDraft) : ApiResponse<kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>?> = withContext(Dispatchers.IO) {
+    suspend fun createObjectTypeWithHttpInfo(createObjectTypeDraft: CreateObjectTypeDraft) : ApiResponse<ObjectTypeSummary?> = withContext(Dispatchers.IO) {
         val localVariableConfig = createObjectTypeRequestConfig(createObjectTypeDraft = createObjectTypeDraft)
 
-        return@withContext request<CreateObjectTypeDraft, kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>>(
+        return@withContext request<CreateObjectTypeDraft, ObjectTypeSummary>(
             localVariableConfig
         )
     }
@@ -976,8 +977,9 @@ open class OntologyApi(basePath: kotlin.String = defaultBasePath, client: Call.F
      * Stage an object type schema revision
      * Stages a version+1 revision of an object type schema (draft-staged, governed publish). Immutable published versions are preserved for rollback and as-of schema reads.
      * @param key
+     * @param ifMatch Exactly one strong ontology tenant/key write validator.
      * @param createObjectTypeDraft
-     * @return kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>
+     * @return ObjectTypeSummary
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      * @throws UnsupportedOperationException If the API returns an informational or redirection response
@@ -986,11 +988,11 @@ open class OntologyApi(basePath: kotlin.String = defaultBasePath, client: Call.F
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun stageObjectTypeRevision(key: kotlin.String, createObjectTypeDraft: CreateObjectTypeDraft) : kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement> = withContext(Dispatchers.IO) {
-        val localVarResponse = stageObjectTypeRevisionWithHttpInfo(key = key, createObjectTypeDraft = createObjectTypeDraft)
+    suspend fun stageObjectTypeRevision(key: kotlin.String, ifMatch: kotlin.String, createObjectTypeDraft: CreateObjectTypeDraft) : ObjectTypeSummary = withContext(Dispatchers.IO) {
+        val localVarResponse = stageObjectTypeRevisionWithHttpInfo(key = key, ifMatch = ifMatch, createObjectTypeDraft = createObjectTypeDraft)
 
         return@withContext when (localVarResponse.responseType) {
-            ResponseType.Success -> (localVarResponse as Success<*>).data as kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>
+            ResponseType.Success -> (localVarResponse as Success<*>).data as ObjectTypeSummary
             ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
             ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
             ResponseType.ClientError -> {
@@ -1009,17 +1011,18 @@ open class OntologyApi(basePath: kotlin.String = defaultBasePath, client: Call.F
      * Stage an object type schema revision
      * Stages a version+1 revision of an object type schema (draft-staged, governed publish). Immutable published versions are preserved for rollback and as-of schema reads.
      * @param key
+     * @param ifMatch Exactly one strong ontology tenant/key write validator.
      * @param createObjectTypeDraft
-     * @return ApiResponse<kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>?>
+     * @return ApiResponse<ObjectTypeSummary?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun stageObjectTypeRevisionWithHttpInfo(key: kotlin.String, createObjectTypeDraft: CreateObjectTypeDraft) : ApiResponse<kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = stageObjectTypeRevisionRequestConfig(key = key, createObjectTypeDraft = createObjectTypeDraft)
+    suspend fun stageObjectTypeRevisionWithHttpInfo(key: kotlin.String, ifMatch: kotlin.String, createObjectTypeDraft: CreateObjectTypeDraft) : ApiResponse<ObjectTypeSummary?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = stageObjectTypeRevisionRequestConfig(key = key, ifMatch = ifMatch, createObjectTypeDraft = createObjectTypeDraft)
 
-        return@withContext request<CreateObjectTypeDraft, kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>>(
+        return@withContext request<CreateObjectTypeDraft, ObjectTypeSummary>(
             localVariableConfig
         )
     }
@@ -1028,13 +1031,15 @@ open class OntologyApi(basePath: kotlin.String = defaultBasePath, client: Call.F
      * To obtain the request config of the operation stageObjectTypeRevision
      *
      * @param key
+     * @param ifMatch Exactly one strong ontology tenant/key write validator.
      * @param createObjectTypeDraft
      * @return RequestConfig
      */
-    fun stageObjectTypeRevisionRequestConfig(key: kotlin.String, createObjectTypeDraft: CreateObjectTypeDraft) : RequestConfig<CreateObjectTypeDraft> {
+    fun stageObjectTypeRevisionRequestConfig(key: kotlin.String, ifMatch: kotlin.String, createObjectTypeDraft: CreateObjectTypeDraft) : RequestConfig<CreateObjectTypeDraft> {
         val localVariableBody = createObjectTypeDraft
         val localVariableQuery: MultiValueMap = mutableMapOf()
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        ifMatch.apply { localVariableHeaders["If-Match"] = this.toString() }
         localVariableHeaders["Content-Type"] = "application/json"
         localVariableHeaders["Accept"] = "application/json"
 

@@ -1178,6 +1178,7 @@ async fn seed_published(
         .transition_lifecycle(
             actor,
             created.id,
+            created.write_precondition(),
             SchemaLifecycleState::Published,
             false,
             TraceContext::generate(),

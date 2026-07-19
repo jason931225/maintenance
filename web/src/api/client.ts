@@ -2,6 +2,7 @@ import { createMaintenanceApiClient } from "@maintenance/api-client-ts";
 
 import { getDeviceId } from "./device";
 import { isAuthPath, shouldSkipAuthRefresh, singleFlightRefresh } from "./refresh";
+import type { RefreshAuthority } from "./refresh";
 
 const retryableRequestClones = new WeakMap<Request, Request>();
 
@@ -109,6 +110,7 @@ async function cachedReadFromResponse(
 async function responseAfter401Refresh(
   request: Request,
   response: Response,
+  refreshAuthority: RefreshAuthority | undefined,
 ): Promise<Response> {
   if (response.status !== 401 || shouldSkipAuthRefresh(request.url)) {
     return response;
@@ -116,7 +118,7 @@ async function responseAfter401Refresh(
 
   let newToken: string;
   try {
-    newToken = await singleFlightRefresh();
+    newToken = await singleFlightRefresh(refreshAuthority);
   } catch {
     // singleFlightRefresh already called onUnauthenticated(); just abort.
     return response;
@@ -127,12 +129,18 @@ async function responseAfter401Refresh(
   return fetch(new Request(request, { headers: retryHeaders }));
 }
 
-async function fetchWith401Refresh(request: Request): Promise<Response> {
+async function fetchWith401Refresh(
+  request: Request,
+  refreshAuthority: RefreshAuthority | undefined,
+): Promise<Response> {
   const response = await fetch(request);
-  return responseAfter401Refresh(request, response);
+  return responseAfter401Refresh(request, response, refreshAuthority);
 }
 
-export function createConsoleApiClient(bearerToken?: string) {
+export function createConsoleApiClient(
+  bearerToken?: string,
+  refreshAuthority?: RefreshAuthority,
+) {
   const readCache = new Map<string, CachedRead>();
   const pendingReads = new Map<string, PendingRead>();
   const requestKeys = new WeakMap<Request, RequestReadCacheKey>();
@@ -191,7 +199,7 @@ export function createConsoleApiClient(bearerToken?: string) {
     if (pendingReads.get(key)?.generation === generation) return;
     const pending = createPendingRead(generation);
     pendingReads.set(key, pending);
-    void fetchWith401Refresh(new Request(request))
+    void fetchWith401Refresh(new Request(request), refreshAuthority)
       .then(cachedReadFromResponse)
       .then((entry) => {
         if (generation === readCacheGeneration) {
@@ -322,7 +330,7 @@ export function createConsoleApiClient(bearerToken?: string) {
       // as passkey enroll-handoff still refresh/retry when the bearer is stale.
       try {
         const retrySource = retryableRequestClones.get(request) ?? request;
-        const nextResponse = await responseAfter401Refresh(retrySource, response);
+        const nextResponse = await responseAfter401Refresh(retrySource, response, refreshAuthority);
         await rememberReadResponse(request, nextResponse);
         if (isMutatingRequest(request) && nextResponse.ok) {
           invalidateReadCache();

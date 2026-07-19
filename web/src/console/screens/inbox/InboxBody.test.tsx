@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
@@ -7,6 +7,16 @@ import type { InboxApi, InboxDocDetail, InboxDocSummary } from "./inboxApi";
 import { inboxStrings } from "./inboxModel";
 
 const S = inboxStrings();
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
 
 function summary(over: Partial<InboxDocSummary> & Pick<InboxDocSummary, "id" | "kind">): InboxDocSummary {
   return {
@@ -114,6 +124,66 @@ describe("InboxBody", () => {
     expect(screen.getByRole("button", { name: S.detail.confirmButton })).toBeInTheDocument();
   });
 
+  it("does not let a receipt confirmation overwrite a newly selected document", async () => {
+    const confirmation = deferred<InboxDocSummary>();
+    const confirmedSummary: InboxDocSummary = {
+      ...lockedNotice,
+      locked: false,
+      confirmed_at: "2026-07-11T02:00:00Z",
+    };
+    const loadDoc = vi.fn((id: string): Promise<InboxDocDetail> =>
+      Promise.resolve(
+        id === payslip.id
+          ? { ...payslip, payload: { paragraphs: ["선택한 급여명세"] } }
+          : { ...lockedNotice },
+      ),
+    );
+    renderBody(
+      stubApi({
+        confirmReceipt: vi.fn(() => confirmation.promise),
+        loadDoc,
+      }),
+    );
+
+    await userEvent.click(await screen.findByText("연차 사용 촉진 통지"));
+    await userEvent.click(await screen.findByRole("button", { name: S.detail.confirmButton }));
+    await userEvent.click(screen.getByText("2026년 6월 급여명세"));
+    expect(await screen.findByText("선택한 급여명세")).toBeVisible();
+
+    await act(async () => {
+      confirmation.resolve(confirmedSummary);
+      await confirmation.promise;
+    });
+    await waitFor(() => {
+      expect(screen.getByText("선택한 급여명세")).toBeVisible();
+      expect(screen.queryByText(S.detail.receiptFailed)).not.toBeInTheDocument();
+    });
+  });
+
+  it("shows a document-load error, not a passkey error, after receipt confirmation succeeds", async () => {
+    const confirmedSummary: InboxDocSummary = {
+      ...lockedNotice,
+      locked: false,
+      confirmed_at: "2026-07-11T02:00:00Z",
+    };
+    const loadDoc = vi
+      .fn()
+      .mockResolvedValueOnce({ ...lockedNotice })
+      .mockRejectedValueOnce(new Error("reload failed"));
+    renderBody(
+      stubApi({
+        confirmReceipt: vi.fn().mockResolvedValue(confirmedSummary),
+        loadDoc,
+      }),
+    );
+
+    await userEvent.click(await screen.findByText("연차 사용 촉진 통지"));
+    await userEvent.click(await screen.findByRole("button", { name: S.detail.confirmButton }));
+
+    expect(await screen.findByText(S.error)).toBeVisible();
+    expect(screen.queryByText(S.detail.receiptFailed)).not.toBeInTheDocument();
+  });
+
   it("switches the server-side filter when a tab is clicked", async () => {
     const loadDocs = vi.fn().mockResolvedValue([payslip, lockedNotice]);
     renderBody(stubApi({ loadDocs }));
@@ -122,6 +192,16 @@ describe("InboxBody", () => {
     await waitFor(() => {
       expect(loadDocs).toHaveBeenCalledWith("pay");
     });
+  });
+
+  it("clears a selected detail when the server-side filter changes", async () => {
+    renderBody(stubApi());
+    await userEvent.click(await screen.findByText("2026년 6월 급여명세"));
+    expect(await screen.findByText("실지급액 3,120,000원")).toBeVisible();
+
+    await userEvent.click(screen.getByRole("tab", { name: S.filters.pay }));
+    expect(screen.getByText(S.empty.selection)).toBeVisible();
+    expect(screen.queryByText("실지급액 3,120,000원")).not.toBeInTheDocument();
   });
 
   it("shows the empty state when the vault has no documents", async () => {
@@ -135,5 +215,88 @@ describe("InboxBody", () => {
     const alert = await screen.findByRole("alert");
     await userEvent.click(within(alert).getByRole("button", { name: S.retry }));
     await screen.findByText("2026년 6월 급여명세");
+  });
+
+  it("synchronously withholds prior-api list and detail state", async () => {
+    const apiA = stubApi({
+      loadDocs: vi.fn().mockResolvedValue([payslip]),
+      loadDoc: vi.fn().mockResolvedValue({
+        ...payslip,
+        payload: { paragraphs: ["TENANT A PAYSLIP"] },
+      }),
+    });
+    const nextDocs = deferred<InboxDocSummary[]>();
+    const apiB = stubApi({
+      loadDocs: vi.fn(() => nextDocs.promise),
+      loadDoc: vi.fn().mockResolvedValue({
+        ...payslip,
+        title: "테넌트 B 문서",
+        payload: { paragraphs: ["TENANT B PAYSLIP"] },
+      }),
+    });
+    const view = renderBody(apiA);
+
+    await userEvent.click(await screen.findByText("2026년 6월 급여명세"));
+    expect(await screen.findByText("TENANT A PAYSLIP")).toBeVisible();
+
+    view.rerender(<InboxBody api={apiB} />);
+
+    expect(screen.queryAllByText("2026년 6월 급여명세")).toHaveLength(0);
+    expect(screen.queryByText("TENANT A PAYSLIP")).not.toBeInTheDocument();
+    expect(screen.getAllByRole("status").length).toBeGreaterThan(0);
+
+    await act(async () => {
+      nextDocs.resolve([]);
+      await nextDocs.promise;
+    });
+  });
+
+  it("rejects an old-api confirmation before list update or detail reload", async () => {
+    const confirmation = deferred<InboxDocSummary>();
+    const apiASummary = { ...lockedNotice, title: "테넌트 A 통지" };
+    const apiAConfirmed = {
+      ...apiASummary,
+      locked: false,
+      confirmed_at: "2026-07-11T02:00:00Z",
+      title: "테넌트 A 확인 완료",
+    };
+    const apiALoadDoc = vi
+      .fn<(id: string) => Promise<InboxDocDetail>>()
+      .mockResolvedValueOnce({ ...apiASummary })
+      .mockResolvedValueOnce({
+        ...apiAConfirmed,
+        payload: { paragraphs: ["TENANT A SECRET"] },
+      });
+    const apiA = stubApi({
+      loadDocs: vi.fn().mockResolvedValue([apiASummary]),
+      loadDoc: apiALoadDoc,
+      confirmReceipt: vi.fn(() => confirmation.promise),
+    });
+    const apiBSummary = { ...lockedNotice, title: "테넌트 B 통지" };
+    const apiBLoadDoc = vi.fn().mockResolvedValue({ ...apiBSummary });
+    const apiB = stubApi({
+      loadDocs: vi.fn().mockResolvedValue([apiBSummary]),
+      loadDoc: apiBLoadDoc,
+    });
+    const view = renderBody(apiA);
+
+    await userEvent.click(await screen.findByText("테넌트 A 통지"));
+    await userEvent.click(await screen.findByRole("button", { name: S.detail.confirmButton }));
+
+    view.rerender(<InboxBody api={apiB} />);
+    expect((await screen.findAllByText("테넌트 B 통지")).length).toBeGreaterThan(0);
+
+    await act(async () => {
+      confirmation.resolve(apiAConfirmed);
+      await confirmation.promise;
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("테넌트 B 통지")).toBeVisible();
+      expect(screen.queryByText("테넌트 A 확인 완료")).not.toBeInTheDocument();
+      expect(screen.queryByText("TENANT A SECRET")).not.toBeInTheDocument();
+    });
+    expect(apiALoadDoc).toHaveBeenCalledTimes(1);
+    expect(apiBLoadDoc).not.toHaveBeenCalled();
   });
 });

@@ -33,6 +33,7 @@ import kotlinx.serialization.Contextual
  *
  * @param code
  * @param message
+ * @param currentKeyWriteRevision
  */
 @Serializable
 
@@ -42,7 +43,10 @@ data class ErrorBodyError (
     val code: kotlin.String,
 
     @SerialName(value = "message")
-    val message: kotlin.String
+    val message: kotlin.String,
+
+    @SerialName(value = "current_key_write_revision")
+    val currentKeyWriteRevision: kotlin.Long? = null
 
 ) {
 

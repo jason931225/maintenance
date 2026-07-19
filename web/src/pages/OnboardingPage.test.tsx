@@ -13,7 +13,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 
 import { createConsoleApiClient } from "../api/client";
 import { AuthContext } from "../context/auth";
-import type { AuthContextValue, AuthSession } from "../context/auth";
+import type { AcceptableTokens, AuthContextValue, AuthSession, TokenAcceptanceLease } from "../context/auth";
 import { ko } from "../i18n/ko";
 import { OnboardingPage } from "./OnboardingPage";
 
@@ -45,7 +45,10 @@ function makeAuthContext(
     login: overrides.login ?? (async () => {}),
     logout: overrides.logout ?? (async () => {}),
     refresh: overrides.refresh ?? (async () => {}),
-    acceptTokens: overrides.acceptTokens ?? (() => {}),
+    acceptTokens: overrides.acceptTokens ?? (() => true),
+    beginTokenAcceptance:
+      overrides.beginTokenAcceptance ??
+      (() => Object.freeze({}) as TokenAcceptanceLease),
     clearPasskeySetup: overrides.clearPasskeySetup ?? (() => {}),
     api,
     viewAs: overrides.viewAs,
@@ -74,7 +77,10 @@ function renderStatefulPage(
   path: string,
   initialSession: AuthSession,
   observers: {
-    acceptTokens?: (tokens: Parameters<AuthContextValue["acceptTokens"]>[0]) => void;
+    acceptTokens?: (
+      tokens: Parameters<AuthContextValue["acceptTokens"]>[0],
+      lease?: TokenAcceptanceLease,
+    ) => void;
     clearPasskeySetup?: () => void;
   } = {},
 ) {
@@ -86,8 +92,8 @@ function renderStatefulPage(
       <AuthContext.Provider
         value={makeAuthContext({
           session,
-          acceptTokens: (tokens) => {
-            observers.acceptTokens?.(tokens);
+          acceptTokens: (tokens, lease) => {
+            observers.acceptTokens?.(tokens, lease);
             setSession(
               tokens
                 ? testSessionFromAccessToken(
@@ -96,6 +102,7 @@ function renderStatefulPage(
                   )
                 : undefined,
             );
+            return true;
           },
           clearPasskeySetup: () => {
             observers.clearPasskeySetup?.();
@@ -401,7 +408,7 @@ describe("OnboardingPage object-first first login", () => {
       expect(acceptTokens).toHaveBeenCalledWith({
         access_token: qrAccessToken,
         requires_passkey_setup: false,
-      });
+      }, expect.any(Object));
       expect(phoneQrPollBodies).toContainEqual({ poll_token: "poll-token-1" });
       expect(clearPasskeySetup).toHaveBeenCalled();
       expect(screen.getByLabelText("current location")).toHaveTextContent(
@@ -410,4 +417,89 @@ describe("OnboardingPage object-first first login", () => {
     });
     cleanup();
   }, 15_000);
+});
+
+describe("OnboardingPage provider-owned acceptance lease fencing", () => {
+  it("acquires before phone handoff work and rejects delayed A after accepted B", async () => {
+    const events: string[] = [];
+    let sequence = 0;
+    let currentLease: TokenAcceptanceLease | undefined;
+    let acceptedToken = "none";
+    const beginTokenAcceptance = vi.fn(() => {
+      events.push(`lease-${String(sequence + 1)}`);
+      currentLease = Object.freeze({ sequence: ++sequence }) as unknown as TokenAcceptanceLease;
+      return currentLease;
+    });
+    const acceptTokens = vi.fn((
+      tokens: AcceptableTokens | undefined,
+      lease?: TokenAcceptanceLease,
+    ) => {
+      if (!lease || lease !== currentLease) return false;
+      currentLease = undefined;
+      acceptedToken = tokens?.access_token ?? "none";
+      return true;
+    });
+    const clearPasskeySetup = vi.fn();
+    let markPollStarted!: () => void;
+    const pollStarted = new Promise<void>((resolve) => {
+      markPollStarted = resolve;
+    });
+    let releasePoll!: () => void;
+    const pollBarrier = new Promise<void>((resolve) => {
+      releasePoll = resolve;
+    });
+    mockPrivacyConsentHandlers(true);
+    server.use(
+      http.post("*/api/v1/auth/passkey/enroll-handoff", () => {
+        events.push("handoff-request");
+        return HttpResponse.json({
+          otp: "Abcd1234",
+          expires_at: "2099-01-01T00:00:00Z",
+          enroll_url: "https://console.knllogistic.com/login#otp=Abcd1234",
+          poll_token: "poll-delayed-a",
+        });
+      }),
+      http.post("*/api/v1/auth/device-login/poll", async () => {
+        events.push("poll-start");
+        markPollStarted();
+        await pollBarrier;
+        events.push("poll-resolve");
+        return HttpResponse.json({
+          status: "approved",
+          access_token: "delayed-onboarding-a",
+          requires_passkey_setup: false,
+        });
+      }),
+    );
+
+    renderPage(
+      "/onboarding",
+      makeAuthContext({
+        session: { access_token: "source", requires_passkey_setup: true },
+        beginTokenAcceptance,
+        acceptTokens,
+        clearPasskeySetup,
+      }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", { name: ko.onboarding.methods.phoneQr.title }),
+    );
+    await pollStarted;
+    expect(events.indexOf("lease-1")).toBeLessThan(events.indexOf("handoff-request"));
+    expect(events.indexOf("lease-1")).toBeLessThan(events.indexOf("poll-start"));
+
+    const leaseB = beginTokenAcceptance();
+    expect(acceptTokens({ access_token: "accepted-b" }, leaseB)).toBe(true);
+    releasePoll();
+    await waitFor(() => {
+      expect(events).toContain("poll-resolve");
+      expect(acceptTokens).toHaveBeenCalledWith(
+        { access_token: "delayed-onboarding-a", requires_passkey_setup: false },
+        expect.any(Object),
+      );
+    });
+    expect(acceptedToken).toBe("accepted-b");
+    expect(clearPasskeySetup).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("current location")).toHaveTextContent("/onboarding");
+  });
 });

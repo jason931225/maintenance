@@ -39,7 +39,7 @@ function isLocalDevBuild(): boolean {
  * and a real backing user row, so every page renders real data afterward.
  */
 export function RoleSwitcher() {
-  const { acceptTokens } = useAuth();
+  const { beginTokenAcceptance, acceptTokens } = useAuth();
   const [open, setOpen] = useState(false);
   const [role, setRole] = useState<(typeof ROLE_OPTIONS)[number]>("SUPER_ADMIN");
   const [orgId, setOrgId] = useState(DEFAULT_ORG_ID);
@@ -53,6 +53,11 @@ export function RoleSwitcher() {
     setError(undefined);
     if (!orgId.trim()) {
       setError(ko.auth.roleSwitcher.orgRequired);
+      return;
+    }
+    const lease = beginTokenAcceptance?.();
+    if (!lease) {
+      setError(ko.auth.roleSwitcher.failed);
       return;
     }
     setPending(true);
@@ -79,7 +84,14 @@ export function RoleSwitcher() {
         return;
       }
       const data = (await response.json()) as { access_token: string };
-      acceptTokens({ access_token: data.access_token, requires_passkey_setup: false });
+      if (
+        acceptTokens(
+          { access_token: data.access_token, requires_passkey_setup: false },
+          lease,
+        ) === false
+      ) {
+        setError(ko.auth.roleSwitcher.failed);
+      }
     } catch {
       setError(ko.auth.roleSwitcher.failed);
     } finally {

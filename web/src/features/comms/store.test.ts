@@ -3,7 +3,11 @@ import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createConsoleApiClient, type ConsoleApiClient } from "../../api/client";
-import { setRefreshCallbacks } from "../../api/refresh";
+import {
+  createRefreshAuthority,
+  createRefreshCoordinator,
+  setRefreshCallbacks,
+} from "../../api/refresh";
 import type { NotificationSummary } from "../../api/types";
 import {
   loadCounts,
@@ -53,10 +57,6 @@ beforeEach(() => {
 });
 afterEach(() => {
   server.resetHandlers();
-  setRefreshCallbacks(
-    () => Promise.reject(new Error("unexpected refresh callback")),
-    () => {},
-  );
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
 });
@@ -243,7 +243,11 @@ describe("mark-read thunks", () => {
 
   it("refreshes the token and retries once when a mark-read POST 401s", async () => {
     const refresh = vi.fn(() => Promise.resolve({ access_token: TOKEN_V2 }));
-    setRefreshCallbacks(refresh, () => {});
+    const authority = createRefreshAuthority(
+      createRefreshCoordinator(),
+      "comms-mark-read",
+    );
+    setRefreshCallbacks(authority, refresh, () => {});
     const bearers: string[] = [];
     let attempts = 0;
     server.use(
@@ -258,7 +262,10 @@ describe("mark-read thunks", () => {
     );
     useCommsStore.getState().setNotifications([notification({ id: "a" })], 1);
 
-    await markNotificationRead(createConsoleApiClient(TOKEN_V1), "a");
+    await markNotificationRead(
+      createConsoleApiClient(TOKEN_V1, authority),
+      "a",
+    );
 
     expect(refresh).toHaveBeenCalledTimes(1);
     expect(attempts).toBe(2);
@@ -274,7 +281,11 @@ describe("mark-read thunks", () => {
           }, 10);
         }),
     );
-    setRefreshCallbacks(refresh, () => {});
+    const authority = createRefreshAuthority(
+      createRefreshCoordinator(),
+      "comms-concurrent-mark-read",
+    );
+    setRefreshCallbacks(authority, refresh, () => {});
 
     const firstWaveIds: string[] = [];
     const retriedIds: string[] = [];
@@ -294,7 +305,7 @@ describe("mark-read thunks", () => {
       [notification({ id: "a" }), notification({ id: "b" })],
       2,
     );
-    const api = createConsoleApiClient(TOKEN_V1);
+    const api = createConsoleApiClient(TOKEN_V1, authority);
 
     await Promise.all([markNotificationRead(api, "a"), markNotificationRead(api, "b")]);
 

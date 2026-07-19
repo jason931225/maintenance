@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { LucideIcon } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 
 import {
+  exitGroupTenantContext,
   listGroupAdminGroups,
   startGroupTenantContext,
   type GroupAdminGroup,
@@ -83,17 +84,28 @@ function buildGroupAdminModuleGroups(): GroupAdminModuleGroup[] {
 const GROUP_ADMIN_MODULE_GROUPS = buildGroupAdminModuleGroups();
 
 export function GroupAdminPage() {
-  const { session, enterViewAs, viewAs } = useAuth();
+  const {
+    session,
+    enterViewAs,
+    viewAs,
+    refreshAuthority,
+    sourceRefreshAuthority,
+  } = useAuth();
   const navigate = useNavigate();
   const groupAdminToken =
     viewAs?.source === "GROUP_ADMIN"
       ? viewAs.platformSession.access_token
       : session?.access_token;
+  const groupAdminAuthority =
+    viewAs?.source === "GROUP_ADMIN"
+      ? sourceRefreshAuthority
+      : refreshAuthority;
   const [groups, setGroups] = useState<GroupAdminGroup[]>([]);
   const [readState, setReadState] = useState<ReadState>("loading");
   const [manageOrgId, setManageOrgId] = useState<string | undefined>();
   const [manageError, setManageError] = useState<string | undefined>();
   const [openActionMenu, setOpenActionMenu] = useState<string | undefined>();
+  const manageGenerationRef = useRef(0);
 
   const memberCount = useMemo(
     () => groups.reduce((sum, group) => sum + group.members.length, 0),
@@ -115,42 +127,88 @@ export function GroupAdminPage() {
   );
 
   const load = useCallback(async () => {
+    if (!groupAdminToken) {
+      setGroups([]);
+      setReadState("loading");
+      return;
+    }
     setReadState("loading");
     setManageError(undefined);
     try {
-      const result = await listGroupAdminGroups(groupAdminToken);
+      const result = await listGroupAdminGroups(groupAdminToken, groupAdminAuthority);
       setGroups(result);
       setReadState("idle");
     } catch {
       setReadState("error");
     }
-  }, [groupAdminToken]);
+  }, [groupAdminAuthority, groupAdminToken]);
 
   useEffect(() => {
     void Promise.resolve().then(load);
   }, [load]);
 
+  useEffect(
+    () => () => {
+      manageGenerationRef.current += 1;
+    },
+    [],
+  );
+
   async function manageSubsidiary(
     member: GroupAdminMemberOrg,
     destination: GroupAdminDestination,
   ) {
+    if (viewAs?.source === "GROUP_ADMIN" && viewAs.actingOrgId === member.id) {
+      void navigate(destination);
+      return;
+    }
+    if (!groupAdminToken) {
+      setManageError(ko.groupAdmin.manageFailed);
+      return;
+    }
+    const generation = manageGenerationRef.current + 1;
+    manageGenerationRef.current = generation;
+    const isCurrent = () => manageGenerationRef.current === generation;
     setManageOrgId(member.id);
     setManageError(undefined);
     try {
-      const result = await startGroupTenantContext(groupAdminToken, member.id);
-      enterViewAs({
-        token: result.access_token,
-        mode: "MANAGE",
-        source: "GROUP_ADMIN",
-        actingOrgId: result.acting_org_id,
-        actingOrgName: result.acting_org_name,
-        actingRole: result.acting_role,
-      });
-      void navigate(destination);
+      const result = await startGroupTenantContext(
+        groupAdminToken,
+        member.id,
+        groupAdminAuthority,
+      );
+      if (!isCurrent()) return;
+      if (viewAs?.source === "GROUP_ADMIN") {
+        await exitGroupTenantContext(
+          groupAdminToken,
+          viewAs.actingOrgId,
+          groupAdminAuthority,
+        );
+        if (!isCurrent()) return;
+      }
+      if (
+        enterViewAs({
+          token: result.access_token,
+          mode: "MANAGE",
+          source: "GROUP_ADMIN",
+          actingOrgId: result.acting_org_id,
+          actingOrgName: result.acting_org_name,
+          actingRole: result.acting_role,
+        }) !== true
+      ) {
+        throw new Error("group-admin context replacement was rejected");
+      }
+      if (isCurrent()) {
+        void navigate(destination);
+      }
     } catch {
-      setManageError(ko.groupAdmin.manageFailed);
+      if (isCurrent()) {
+        setManageError(ko.groupAdmin.manageFailed);
+      }
     } finally {
-      setManageOrgId(undefined);
+      if (isCurrent()) {
+        setManageOrgId(undefined);
+      }
     }
   }
 

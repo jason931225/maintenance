@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import {
   createObjectType,
@@ -31,6 +31,10 @@ import {
   type OntInstanceRow,
   type OntObjectTypeDef,
 } from "../../ontology";
+import {
+  useOntologyRevisionCommitQueue,
+  type OntologyRevisionPersistContext,
+} from "../../ontology/useOntologyRevisionCommitQueue";
 
 // ponytail: this is the load/shape core proven in pages/OntologyPage.tsx,
 // lifted verbatim so both console screen bodies (온톨로지 매니저 · 객체 탐색)
@@ -51,6 +55,17 @@ interface RegistryEntry {
   instances: InstanceStateWire[];
   /** Automations + policies bound to the type (자동화 subtab). */
   acting: ActingRuleWire[];
+}
+
+interface LoadedWorkspaceState {
+  authorityKey: string | undefined;
+  entries: RegistryEntry[];
+  graphs: TraversalGraphWire[];
+}
+
+interface AuthorityReadState {
+  authorityKey: string | undefined;
+  value: OntologyReadState;
 }
 
 export interface OntologyWorkspaceStats {
@@ -77,11 +92,16 @@ export interface OntologyWorkspace {
   onCreateType: (title: string) => Promise<void>;
   onCommitRevision: (staged: OntObjectTypeDef) => Promise<void>;
   onGraphFocusChange: (focusId: string) => void;
-  resolveInstanceCard: (row: OntInstanceRow) => Promise<ObjectCardDescriptor>;
-  resolveNodeDescriptor: (node: ObjectExplorerNode) => Promise<ObjectCardDescriptor>;
+  resolveInstanceCard: (row: OntInstanceRow) => Promise<ObjectCardDescriptor | undefined>;
+  resolveNodeDescriptor: (node: ObjectExplorerNode) => Promise<ObjectCardDescriptor | undefined>;
 }
 
 const EMPTY_MODEL: ObjectExplorerModel = { nodes: [], object_links: [] };
+const EMPTY_ENTRIES: RegistryEntry[] = [];
+const EMPTY_GRAPHS: TraversalGraphWire[] = [];
+const MISSING_WRITE_AUTHORITY = new Error(
+  "Ontology write requires explicit provider/session authority",
+);
 
 /**
  * Ontology workspace wiring for the carbon-copy console. Reads the tenant
@@ -95,17 +115,68 @@ const EMPTY_MODEL: ObjectExplorerModel = { nodes: [], object_links: [] };
 export function useOntologyWorkspace(
   api: ConsoleApiClient,
   copy: { saveFailed: string },
+  authorityKey: string | undefined,
 ): OntologyWorkspace {
-  const [readState, setReadState] = useState<OntologyReadState>("loading");
-  const [entries, setEntries] = useState<RegistryEntry[]>([]);
-  const [graphs, setGraphs] = useState<TraversalGraphWire[]>([]);
+  const [readState, setReadState] = useState<AuthorityReadState>({
+    authorityKey: undefined,
+    value: "loading",
+  });
+  const [loadedState, setLoadedState] = useState<LoadedWorkspaceState>({
+    authorityKey: undefined,
+    entries: EMPTY_ENTRIES,
+    graphs: EMPTY_GRAPHS,
+  });
   const [feedback, setFeedback] = useState<string>();
+  const authorityScope = useMemo(
+    () => ({ key: authorityKey }),
+    [authorityKey],
+  );
+  // Retain only the committed authority scope. A monotonic epoch invalidates
+  // retained callbacks without strongly retaining every retired tenant scope.
+  const currentAuthorityScopeRef = useRef<object | null>(null);
+  const lifetimeEpochRef = useRef(0);
+  const readRequestRef = useRef(0);
+  const loadedAuthorityIsCurrent = loadedState.authorityKey === authorityKey;
+  const entries = loadedAuthorityIsCurrent ? loadedState.entries : EMPTY_ENTRIES;
+  const graphs = loadedAuthorityIsCurrent ? loadedState.graphs : EMPTY_GRAPHS;
+  const visibleReadState = readState.authorityKey === authorityKey
+    ? readState.value
+    : "loading";
 
-  const reload = useCallback(async () => {
-    setReadState("loading");
+  useLayoutEffect(() => {
+    currentAuthorityScopeRef.current = authorityScope;
+    return () => {
+      if (currentAuthorityScopeRef.current === authorityScope) {
+        currentAuthorityScopeRef.current = null;
+      }
+      lifetimeEpochRef.current += 1;
+      readRequestRef.current += 1;
+    };
+  }, [authorityScope]);
+
+  const isAuthorityCurrent = useCallback(
+    (scope: object, epoch: number) =>
+      currentAuthorityScopeRef.current === scope &&
+      lifetimeEpochRef.current === epoch,
+    [],
+  );
+
+  const reload = useCallback(async (coordinatorGuard: () => boolean = () => true) => {
+    const lifetimeEpoch = lifetimeEpochRef.current;
+    if (!isAuthorityCurrent(authorityScope, lifetimeEpoch)) return;
+    const requestEpoch = readRequestRef.current + 1;
+    readRequestRef.current = requestEpoch;
+    const isCurrent = () =>
+      isAuthorityCurrent(authorityScope, lifetimeEpoch) &&
+      readRequestRef.current === requestEpoch &&
+      coordinatorGuard();
+
+    if (!isCurrent()) return;
+    setReadState({ authorityKey, value: "loading" });
     setFeedback(undefined);
     try {
       const summaries = await listObjectTypes(api);
+      if (!isCurrent()) return;
       const loaded = await Promise.all(
         summaries.map(async (summary) => {
           const [detail, instances, acting] = await Promise.all([
@@ -118,25 +189,27 @@ export function useOntologyWorkspace(
           return { detail, instances, acting } satisfies RegistryEntry;
         }),
       );
-      setEntries(loaded);
-      setReadState("idle");
+      if (!isCurrent()) return;
 
       // Seed the graph with a search-around from the first instance; a
       // traversal failure degrades to the empty graph, not a page error.
       const root = loaded.flatMap((entry) => entry.instances).at(0);
+      let nextGraphs: TraversalGraphWire[] = [];
       if (root) {
         try {
-          setGraphs([await traverseInstance(api, root.instance.id)]);
+          nextGraphs = [await traverseInstance(api, root.instance.id)];
         } catch {
-          setGraphs([]);
+          nextGraphs = [];
         }
-      } else {
-        setGraphs([]);
       }
+      if (!isCurrent()) return;
+      setLoadedState({ authorityKey, entries: loaded, graphs: nextGraphs });
+      setReadState({ authorityKey, value: "idle" });
     } catch {
-      setReadState("error");
+      if (!isCurrent()) return;
+      setReadState({ authorityKey, value: "error" });
     }
-  }, [api]);
+  }, [api, authorityKey, authorityScope, isAuthorityCurrent]);
 
   useEffect(() => {
     const task = window.setTimeout(() => {
@@ -227,24 +300,34 @@ export function useOntologyWorkspace(
   );
 
   const resolveInstanceDescriptor = useCallback(
-    async (instanceId: string): Promise<ObjectCardDescriptor> => {
-      const [state, history, neighbors] = await Promise.all([
-        getInstance(api, instanceId),
-        getInstanceHistory(api, instanceId),
-        traverseInstance(api, instanceId, { depth: 1 }),
-      ]);
-      const entry = entries.find(
-        (candidate) => candidate.detail.object_type.id === state.instance.object_type_id,
-      );
-      return objectCardDescriptorFrom({
-        state,
-        history,
-        neighbors,
-        detail: entry?.detail,
-        linkTitleById,
-      });
+    async (instanceId: string): Promise<ObjectCardDescriptor | undefined> => {
+      const lifetimeEpoch = lifetimeEpochRef.current;
+      if (!isAuthorityCurrent(authorityScope, lifetimeEpoch)) return undefined;
+      try {
+        const [state, history, neighbors] = await Promise.all([
+          getInstance(api, instanceId),
+          getInstanceHistory(api, instanceId),
+          traverseInstance(api, instanceId, { depth: 1 }),
+        ]);
+        if (!isAuthorityCurrent(authorityScope, lifetimeEpoch)) return undefined;
+        const entry = entries.find(
+          (candidate) => candidate.detail.object_type.id === state.instance.object_type_id,
+        );
+        return objectCardDescriptorFrom({
+          state,
+          history,
+          neighbors,
+          detail: entry?.detail,
+          linkTitleById,
+        });
+      } catch (error) {
+        // Retirement is cancellation, not read failure: consumers must not run
+        // an A-derived degraded fallback after B is current.
+        if (!isAuthorityCurrent(authorityScope, lifetimeEpoch)) return undefined;
+        throw error;
+      }
     },
-    [api, entries, linkTitleById],
+    [api, authorityScope, entries, isAuthorityCurrent, linkTitleById],
   );
 
   const resolveInstanceCard = useCallback(
@@ -259,6 +342,12 @@ export function useOntologyWorkspace(
 
   const onCreateType = useCallback(
     async (title: string) => {
+      const lifetimeEpoch = lifetimeEpochRef.current;
+      if (!isAuthorityCurrent(authorityScope, lifetimeEpoch)) return;
+      if (!authorityKey) {
+        setFeedback(copy.saveFailed);
+        throw MISSING_WRITE_AUTHORITY;
+      }
       try {
         await createObjectType(api, {
           // ponytail: time-based stable key — a stable-key input lands with the
@@ -267,44 +356,94 @@ export function useOntologyWorkspace(
           title: title.trim(),
           backing_kind: "instance",
         });
+        if (!isAuthorityCurrent(authorityScope, lifetimeEpoch)) return;
         await reload();
       } catch {
+        if (!isAuthorityCurrent(authorityScope, lifetimeEpoch)) return;
         setFeedback(copy.saveFailed);
       }
     },
-    [api, reload, copy.saveFailed],
+    [api, authorityKey, authorityScope, isAuthorityCurrent, reload, copy.saveFailed],
   );
 
-  const onCommitRevision = useCallback(
-    async (staged: OntObjectTypeDef) => {
-      const entry = entries.find(
+  const persistRevision = useCallback(
+    async (
+      staged: OntObjectTypeDef,
+      { expected, signal }: OntologyRevisionPersistContext,
+    ) => {
+      const lifetimeEpoch = lifetimeEpochRef.current;
+      if (!isAuthorityCurrent(authorityScope, lifetimeEpoch)) return;
+      if (!authorityKey) throw MISSING_WRITE_AUTHORITY;
+      const capturedAuthorityKey = authorityKey;
+      if (loadedState.authorityKey !== capturedAuthorityKey) return;
+      const entry = loadedState.entries.find(
         (candidate) => candidate.detail.object_type.id === staged.id,
       );
       if (!entry) return;
       try {
-        await stageObjectTypeRevision(
+        const receipt = await stageObjectTypeRevision(
           api,
           entry.detail.object_type.stable_key,
           stagedRevisionDraft(entry.detail, staged, typeIdByKey),
+          { expected, signal },
         );
+        // Transport truth must always flow back into the global token chain,
+        // even if this host lost UI authority while the response was in flight.
+        return receipt;
       } catch (error) {
+        if (!isAuthorityCurrent(authorityScope, lifetimeEpoch)) throw error;
         setFeedback(copy.saveFailed);
         throw error; // keeps the 개정 대기 banner up for retry/철회
       }
-      await reload();
     },
-    [api, entries, reload, typeIdByKey, copy.saveFailed],
+    [
+      api,
+      authorityKey,
+      authorityScope,
+      loadedState.authorityKey,
+      loadedState.entries,
+      isAuthorityCurrent,
+      typeIdByKey,
+      copy.saveFailed,
+    ],
+  );
+
+  const enqueueRevision = useOntologyRevisionCommitQueue({
+    authorityKey,
+    persist: persistRevision,
+    reload,
+  });
+  const onCommitRevision = useCallback(
+    (staged: OntObjectTypeDef): Promise<void> => {
+      const lifetimeEpoch = lifetimeEpochRef.current;
+      if (!authorityKey) return Promise.reject(MISSING_WRITE_AUTHORITY);
+      if (
+        !isAuthorityCurrent(authorityScope, lifetimeEpoch) ||
+        loadedState.authorityKey !== authorityKey
+      ) {
+        return Promise.resolve();
+      }
+      return enqueueRevision(staged);
+    },
+    [authorityKey, authorityScope, enqueueRevision, isAuthorityCurrent, loadedState.authorityKey],
   );
 
   const onGraphFocusChange = useCallback(
     (focusId: string) => {
+      const lifetimeEpoch = lifetimeEpochRef.current;
+      if (!isAuthorityCurrent(authorityScope, lifetimeEpoch)) return;
       void traverseInstance(api, focusId)
         .then((graph) => {
-          setGraphs((current) => [...current, graph]);
+          if (!isAuthorityCurrent(authorityScope, lifetimeEpoch)) return;
+          setLoadedState((current) =>
+            current.authorityKey === authorityKey
+              ? { ...current, graphs: [...current.graphs, graph] }
+              : current,
+          );
         })
         .catch(() => undefined); // keep the already-loaded neighbourhood
     },
-    [api],
+    [api, authorityKey, authorityScope, isAuthorityCurrent],
   );
 
   const clearFeedback = useCallback(() => {
@@ -312,13 +451,13 @@ export function useOntologyWorkspace(
   }, []);
 
   return {
-    readState,
+    readState: visibleReadState,
     registry,
     explorerModel,
     projectedTypeIds,
     stats,
-    isEmpty: readState === "idle" && entries.length === 0,
-    feedback,
+    isEmpty: visibleReadState === "idle" && entries.length === 0,
+    feedback: loadedAuthorityIsCurrent ? feedback : undefined,
     clearFeedback,
     reload,
     onCreateType,

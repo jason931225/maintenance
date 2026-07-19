@@ -1,7 +1,9 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
 } from "react";
@@ -25,6 +27,17 @@ import {
 
 type LoadState = "loading" | "ready" | "error";
 
+const EMPTY_ACTION_ITEMS: readonly ActionInboxItem[] = [];
+
+interface ApiOwned<T> {
+  api: object;
+  value: T;
+}
+
+function ownedBy<T>(api: object, value: T): ApiOwned<T> {
+  return { api, value };
+}
+
 export interface MyWorkBodyProps {
   api: MyWorkApi;
   now?: Date;
@@ -36,18 +49,48 @@ export function MyWorkBody({ api, now, onOpen }: MyWorkBodyProps) {
   const S = useMemo(() => myWorkStrings(), []);
   const navigate = useNavigate();
   const today = useMemo(() => now ?? new Date(), [now]);
+  const currentApiRef = useRef<MyWorkApi | undefined>(api);
+  const todosRequest = useRef(0);
 
-  const [inboxState, setInboxState] = useState<LoadState>("loading");
-  const [items, setItems] = useState<ActionInboxItem[]>([]);
+  useLayoutEffect(() => {
+    currentApiRef.current = api;
+    todosRequest.current += 1;
+    return () => {
+      if (currentApiRef.current === api) currentApiRef.current = undefined;
+      todosRequest.current += 1;
+    };
+  }, [api]);
+
+  const [inboxStateOwned, setInboxStateOwned] = useState<ApiOwned<LoadState>>(() =>
+    ownedBy(api, "loading"),
+  );
+  const [itemsOwned, setItemsOwned] = useState<ApiOwned<ActionInboxItem[]>>(() =>
+    ownedBy(api, []),
+  );
   const [dayFilter, setDayFilter] = useState<DayFilter>("all");
   const [reloadKey, setReloadKey] = useState(0);
 
-  const [todosState, setTodosState] = useState<LoadState>("loading");
-  const [todos, setTodos] = useState<TodoSummary[]>([]);
+  const [todosStateOwned, setTodosStateOwned] = useState<ApiOwned<LoadState>>(() =>
+    ownedBy(api, "loading"),
+  );
+  const [todosOwned, setTodosOwned] = useState<ApiOwned<TodoSummary[]>>(() =>
+    ownedBy(api, []),
+  );
   const [showDone, setShowDone] = useState(false);
-  const [text, setText] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [todoError, setTodoError] = useState<string | undefined>();
+  const [textOwned, setTextOwned] = useState<ApiOwned<string>>(() => ownedBy(api, ""));
+  const [busyOwned, setBusyOwned] = useState<ApiOwned<boolean>>(() => ownedBy(api, false));
+  const [todoErrorOwned, setTodoErrorOwned] = useState<ApiOwned<string | undefined>>(() =>
+    ownedBy(api, undefined),
+  );
+  const showDoneRef = useRef(showDone);
+
+  const inboxState = inboxStateOwned.api === api ? inboxStateOwned.value : "loading";
+  const items = itemsOwned.api === api ? itemsOwned.value : EMPTY_ACTION_ITEMS;
+  const todosState = todosStateOwned.api === api ? todosStateOwned.value : "loading";
+  const todos = todosOwned.api === api ? todosOwned.value : [];
+  const text = textOwned.api === api ? textOwned.value : "";
+  const busy = busyOwned.api === api ? busyOwned.value : false;
+  const todoError = todoErrorOwned.api === api ? todoErrorOwned.value : undefined;
 
   const timeFmt = useMemo(
     () => new Intl.DateTimeFormat("ko-KR", { hour: "2-digit", minute: "2-digit", hour12: false }),
@@ -62,12 +105,14 @@ export function MyWorkBody({ api, now, onOpen }: MyWorkBodyProps) {
     api
       .loadInbox()
       .then((res) => {
-        if (!live) return;
-        setItems(res.items);
-        setInboxState("ready");
+        if (!live || currentApiRef.current !== api) return;
+        setItemsOwned(ownedBy(api, res.items));
+        setInboxStateOwned(ownedBy(api, "ready"));
       })
       .catch(() => {
-        if (live) setInboxState("error");
+        if (live && currentApiRef.current === api) {
+          setInboxStateOwned(ownedBy(api, "error"));
+        }
       });
     return () => {
       live = false;
@@ -77,16 +122,23 @@ export function MyWorkBody({ api, now, onOpen }: MyWorkBodyProps) {
   // loadTodos never sets "loading" synchronously (it would cascade when called
   // from the mount effect); callers that want the flash set it themselves.
   const loadTodos = useCallback(
-    (includeDone: boolean) =>
-      api
+    (includeDone: boolean) => {
+      if (currentApiRef.current !== api) return Promise.resolve();
+      const request = todosRequest.current + 1;
+      todosRequest.current = request;
+      return api
         .loadTodos(includeDone)
         .then((rows) => {
-          setTodos(rows);
-          setTodosState("ready");
+          if (currentApiRef.current !== api || todosRequest.current !== request) return;
+          setTodosOwned(ownedBy(api, rows));
+          setTodosStateOwned(ownedBy(api, "ready"));
         })
         .catch(() => {
-          setTodosState("error");
-        }),
+          if (currentApiRef.current === api && todosRequest.current === request) {
+            setTodosStateOwned(ownedBy(api, "error"));
+          }
+        });
+    },
     [api],
   );
 
@@ -107,47 +159,62 @@ export function MyWorkBody({ api, now, onOpen }: MyWorkBodyProps) {
 
   const createTodo = useCallback(() => {
     const trimmed = text.trim();
-    if (!trimmed || busy) return;
-    setBusy(true);
-    setTodoError(undefined);
+    if (!trimmed || busy || currentApiRef.current !== api) return;
+    setBusyOwned(ownedBy(api, true));
+    setTodoErrorOwned(ownedBy(api, undefined));
     api
       .createTodo(trimmed)
       .then(() => {
-        setText("");
-        return loadTodos(showDone);
+        if (currentApiRef.current !== api) return;
+        setTextOwned(ownedBy(api, ""));
+        return loadTodos(showDoneRef.current);
       })
       .catch(() => {
-        setTodoError(S.todos.createFailed);
+        if (currentApiRef.current === api) {
+          setTodoErrorOwned(ownedBy(api, S.todos.createFailed));
+        }
       })
       .finally(() => {
-        setBusy(false);
+        if (currentApiRef.current === api) setBusyOwned(ownedBy(api, false));
       });
-  }, [api, busy, loadTodos, showDone, text, S]);
+  }, [api, busy, loadTodos, text, S]);
 
   const toggleDone = useCallback(
     (todo: TodoSummary) => {
-      setTodoError(undefined);
+      if (currentApiRef.current !== api) return;
+      setTodoErrorOwned(ownedBy(api, undefined));
       api
         .setTodoDone(todo.id, !todo.done)
-        .then(() => loadTodos(showDone))
+        .then(() => {
+          if (currentApiRef.current !== api) return;
+          return loadTodos(showDoneRef.current);
+        })
         .catch(() => {
-          setTodoError(S.todos.mutateFailed);
+          if (currentApiRef.current === api) {
+            setTodoErrorOwned(ownedBy(api, S.todos.mutateFailed));
+          }
         });
     },
-    [api, loadTodos, showDone, S],
+    [api, loadTodos, S],
   );
 
   const removeTodo = useCallback(
     (todo: TodoSummary) => {
-      setTodoError(undefined);
+      if (currentApiRef.current !== api) return;
+      setTodoErrorOwned(ownedBy(api, undefined));
       api
         .deleteTodo(todo.id)
-        .then(() => loadTodos(showDone))
+        .then(() => {
+          if (currentApiRef.current !== api) return;
+          return loadTodos(showDoneRef.current);
+        })
         .catch(() => {
-          setTodoError(S.todos.mutateFailed);
+          if (currentApiRef.current === api) {
+            setTodoErrorOwned(ownedBy(api, S.todos.mutateFailed));
+          }
         });
     },
-    [api, loadTodos, showDone, S],
+    [api, loadTodos, S],
   );
 
   const days = useMemo(() => weekDays(today), [today]);
@@ -183,7 +250,8 @@ export function MyWorkBody({ api, now, onOpen }: MyWorkBodyProps) {
               placeholder={S.todos.addPlaceholder}
               aria-label={S.todos.addPlaceholder}
               onChange={(e) => {
-                setText(e.currentTarget.value);
+                if (currentApiRef.current !== api) return;
+                setTextOwned(ownedBy(api, e.currentTarget.value));
               }}
               style={inputStyle}
             />
@@ -211,7 +279,8 @@ export function MyWorkBody({ api, now, onOpen }: MyWorkBodyProps) {
                 data-window-control="true"
                 style={ghostButtonStyle}
                 onClick={() => {
-                  setTodosState("loading");
+                  if (currentApiRef.current !== api) return;
+                  setTodosStateOwned(ownedBy(api, "loading"));
                   void loadTodos(showDone);
                 }}
               >
@@ -257,7 +326,9 @@ export function MyWorkBody({ api, now, onOpen }: MyWorkBodyProps) {
               type="checkbox"
               checked={showDone}
               onChange={(e) => {
-                setTodosState("loading");
+                if (currentApiRef.current !== api) return;
+                showDoneRef.current = e.currentTarget.checked;
+                setTodosStateOwned(ownedBy(api, "loading"));
                 setShowDone(e.currentTarget.checked);
               }}
               style={{ width: 14, height: 14 }}
@@ -319,7 +390,8 @@ export function MyWorkBody({ api, now, onOpen }: MyWorkBodyProps) {
                 data-window-control="true"
                 style={ghostButtonStyle}
                 onClick={() => {
-                  setInboxState("loading");
+                  if (currentApiRef.current !== api) return;
+                  setInboxStateOwned(ownedBy(api, "loading"));
                   setReloadKey((k) => k + 1);
                 }}
               >

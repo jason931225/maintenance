@@ -6,7 +6,11 @@ import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
 import { visibleNavItemsForRoles } from "../components/shell/nav";
 import { EnrollHandoffQr } from "../features/auth/EnrollHandoffQr";
-import { useAuth, type AuthSession } from "../context/auth";
+import {
+  useAuth,
+  type AuthSession,
+  type TokenAcceptanceLease,
+} from "../context/auth";
 import { ko } from "../i18n/ko";
 import {
   acceptPrivacyConsent,
@@ -74,7 +78,14 @@ function safeDeviceApproveToken(raw: string | null): string | undefined {
  *      passkey there. Works with NO Bluetooth.
  */
 export function OnboardingPage() {
-  const { api, logout, acceptTokens, clearPasskeySetup, session } = useAuth();
+  const {
+    api,
+    logout,
+    beginTokenAcceptance,
+    acceptTokens,
+    clearPasskeySetup,
+    session,
+  } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [desktopApproveToken] = useState(() =>
@@ -97,6 +108,9 @@ export function OnboardingPage() {
   const [pending, setPending] = useState(false);
   const [showQr, setShowQr] = useState(false);
   const handoffRedirectTokenRef = useRef<string | undefined>(undefined);
+  const handoffAcceptanceLeaseRef = useRef<TokenAcceptanceLease | undefined>(
+    undefined,
+  );
   const [error, setError] = useState<string | undefined>(undefined);
 
   const loadConsentStatus = useCallback(async () => {
@@ -174,15 +188,27 @@ export function OnboardingPage() {
   const handlePhoneQrCompleted = useCallback(
     (accessToken?: string) => {
       if (!accessToken) {
+        handoffAcceptanceLeaseRef.current = undefined;
         clearPasskeySetup();
         void navigate(onboardingDestination(session), { replace: true });
         return;
       }
 
-      acceptTokens({
-        access_token: accessToken,
-        requires_passkey_setup: false,
-      });
+      const lease = handoffAcceptanceLeaseRef.current;
+      if (
+        !lease ||
+        acceptTokens(
+          {
+            access_token: accessToken,
+            requires_passkey_setup: false,
+          },
+          lease,
+        ) === false
+      ) {
+        setError(ko.onboarding.enrollFailed);
+        return;
+      }
+      handoffAcceptanceLeaseRef.current = undefined;
       clearPasskeySetup();
       handoffRedirectTokenRef.current = accessToken;
     },
@@ -334,7 +360,18 @@ export function OnboardingPage() {
                 aria-label={ko.onboarding.methods.phoneQr.title}
                 onClick={() => {
                   setError(undefined);
-                  setShowQr((open) => !open);
+                  if (showQr) {
+                    handoffAcceptanceLeaseRef.current = undefined;
+                    setShowQr(false);
+                    return;
+                  }
+                  const lease = beginTokenAcceptance?.();
+                  if (!lease) {
+                    setError(ko.onboarding.enrollFailed);
+                    return;
+                  }
+                  handoffAcceptanceLeaseRef.current = lease;
+                  setShowQr(true);
                 }}
                 className="flex min-h-14 items-center gap-3 rounded-lg border border-line bg-white p-4 text-left transition hover:border-steel hover:bg-muted-panel focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink disabled:cursor-not-allowed disabled:opacity-60"
               >

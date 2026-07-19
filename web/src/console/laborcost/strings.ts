@@ -16,6 +16,9 @@
 //   costPendingTitle   "인건비 금액(₩)"
 //   costPendingReason  "표시 안 함 — 급여 금액 원천 행이 아직 없어 근로시간만 집계합니다"
 //   emptyReason        "집계할 급여 기간이 없습니다"
+//   listError          full payroll-period list failure
+//   detailError        incomplete payroll detail/page failure
+//   retry              retry the complete load
 //   status             { STAGED:"준비", BLOCKED_LEGAL_GATE:"법적 검토 대기",
 //                        READY_FOR_REVIEW:"검토 대기", APPROVED:"승인",
 //                        ISSUED:"지급", VOID:"무효" }
@@ -35,6 +38,9 @@ export interface LaborCostStrings {
   costPendingTitle: string;
   costPendingReason: string;
   emptyReason: string;
+  listError: string;
+  detailError: string;
+  retry: string;
   status: Record<string, string>;
 }
 
@@ -60,6 +66,9 @@ const FALLBACK: LaborCostStrings = {
   costPendingTitle: "Labor cost (₩)",
   costPendingReason: "Not shown — no payroll amount source rows yet; hours only",
   emptyReason: "No payroll periods to aggregate",
+  listError: "Could not load payroll periods.",
+  detailError: "Some payroll details could not be loaded, so labor analytics are hidden.",
+  retry: "Retry",
   status: {
     STAGED: "Staged",
     BLOCKED_LEGAL_GATE: "Legal gate",

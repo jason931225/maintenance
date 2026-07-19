@@ -10,7 +10,7 @@ import {
   pollDeviceLogin,
   startPasskeyRegistration,
 } from "../../auth/webauthn";
-import { useAuth } from "../../context/auth";
+import { useAuth, type TokenAcceptanceLease } from "../../context/auth";
 import { ko } from "../../i18n/ko";
 
 export const REQUIRED_PRIVACY_TERMS_VERSION = "kr-pipa-v1-2026-06-25";
@@ -86,7 +86,14 @@ function safeDeviceApproveToken(raw: string | null): string | undefined {
 }
 
 export function useFirstLoginFlow() {
-  const { api, logout, acceptTokens, clearPasskeySetup, session } = useAuth();
+  const {
+    api,
+    logout,
+    beginTokenAcceptance,
+    acceptTokens,
+    clearPasskeySetup,
+    session,
+  } = useAuth();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const desktopApproveTokenRef = useRef<string | undefined>(
@@ -94,6 +101,9 @@ export function useFirstLoginFlow() {
       safeDeviceApproveToken(
         window.sessionStorage.getItem(DESKTOP_APPROVE_SESSION_KEY),
       ),
+  );
+  const phoneAcceptanceLeaseRef = useRef<TokenAcceptanceLease | undefined>(
+    undefined,
   );
 
   const [consentPhase, setConsentPhase] = useState<ConsentPhase>("loading");
@@ -207,13 +217,24 @@ export function useFirstLoginFlow() {
   }, [api]);
 
   const completeSetup = useCallback(
-    async (accessToken?: string) => {
+    async (accessToken?: string): Promise<boolean> => {
       if (accessToken) {
-        acceptTokens({ access_token: accessToken, requires_passkey_setup: false });
+        const lease = phoneAcceptanceLeaseRef.current;
+        if (
+          !lease ||
+          acceptTokens(
+            { access_token: accessToken, requires_passkey_setup: false },
+            lease,
+          ) === false
+        ) {
+          return false;
+        }
+        phoneAcceptanceLeaseRef.current = undefined;
       }
       clearPasskeySetup();
       await approveDesktopIfNeeded();
       void navigate("/overview", { replace: true });
+      return true;
     },
     [acceptTokens, approveDesktopIfNeeded, clearPasskeySetup, navigate],
   );
@@ -237,6 +258,12 @@ export function useFirstLoginFlow() {
 
   const startPhoneEnrollment = useCallback(async () => {
     if (!consentAccepted) return;
+    const lease = beginTokenAcceptance?.();
+    if (!lease) {
+      setPhone({ status: "error" });
+      return;
+    }
+    phoneAcceptanceLeaseRef.current = lease;
     setPlatformStatus("idle");
     setPhone({ status: "generating" });
     try {
@@ -251,9 +278,12 @@ export function useFirstLoginFlow() {
         },
       });
     } catch {
+      if (phoneAcceptanceLeaseRef.current === lease) {
+        phoneAcceptanceLeaseRef.current = undefined;
+      }
       setPhone({ status: "error" });
     }
-  }, [api, consentAccepted]);
+  }, [api, beginTokenAcceptance, consentAccepted]);
 
   useEffect(() => {
     if (phone.status !== "waiting") return undefined;
@@ -264,12 +294,16 @@ export function useFirstLoginFlow() {
       const result = await pollDeviceLogin(api, pollToken).catch(() => undefined);
       if (cancelled || !result) return;
       if (result.status === "expired") {
+        phoneAcceptanceLeaseRef.current = undefined;
         setPhone({ status: "expired" });
         return;
       }
       if (result.status !== "approved" || !result.access_token) return;
-      setPhone({ status: "approved" });
-      await completeSetup(result.access_token);
+      if (await completeSetup(result.access_token)) {
+        setPhone({ status: "approved" });
+      } else {
+        setPhone({ status: "error" });
+      }
     }
 
     void pollCompletion();

@@ -1,5 +1,7 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
-import type { ReactNode } from "react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import { StrictMode, type ReactNode } from "react";
+import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ConsoleApiClient } from "../../../api/client";
@@ -104,5 +106,51 @@ describe("ExploreBody", () => {
     seedRegistry();
     fireEvent.click(retry);
     expect((await screen.findAllByText("NK보안 경비용역")).length).toBeGreaterThan(0);
+  });
+  it("has no render-time API identity inference and binds nested windows to the exact authority", () => {
+    const source = readFileSync(
+      "src/console/screens/_ontology/OntologyWorkspaceBody.tsx",
+      "utf8",
+    );
+    expect(source).not.toMatch(
+      /readOnlyApiAuthorityIds|nextReadOnlyApiAuthorityId/,
+    );
+    expect(source).not.toMatch(/new WeakMap|api as object/);
+    expect(source).toContain("authorityPartition={authorityPartition}");
+    expect(source).toContain("key={authorityPartition}");
+    expect(() =>
+      renderToString(
+        <ExploreBody api={api} authorityKey="tenant-a:incarnation-a" />,
+      ),
+    ).not.toThrow();
+  });
+
+  it("keeps StrictMode roots with the same API isolated by explicit authority partitions", async () => {
+    const getItem = vi.spyOn(Storage.prototype, "getItem");
+    const first = render(
+      <StrictMode>
+        <ExploreBody api={api} authorityKey="tenant-a:incarnation-a" />
+      </StrictMode>,
+    );
+    const second = render(
+      <StrictMode>
+        <ExploreBody api={api} authorityKey="tenant-a:incarnation-b" />
+      </StrictMode>,
+    );
+
+    await waitFor(() => {
+      const keys = getItem.mock.calls.map(([key]) => key);
+      expect(keys).toContain(
+        "oyatie.console.window.layout.v2.tenant-a%3Aincarnation-a",
+      );
+      expect(keys).toContain(
+        "oyatie.console.window.layout.v2.tenant-a%3Aincarnation-b",
+      );
+      expect(keys).not.toContain("oyatie.console.window.layout");
+    });
+
+    first.unmount();
+    second.unmount();
+    getItem.mockRestore();
   });
 });

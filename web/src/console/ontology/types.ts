@@ -93,6 +93,9 @@ export interface OntObjectTypeDef {
   titlePropertyKey?: string | null;
   schemaVersion: number;
   lifecycleState: SchemaLifecycle;
+  /** Server-owned tenant/key write token; absent only for a not-yet-created local draft. */
+  keyWriteRevision?: number;
+  keyWriteEtag?: string;
   properties: OntPropertyDef[];
   links: OntLinkTypeDef[];
   actions: OntActionTypeDef[];

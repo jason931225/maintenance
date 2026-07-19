@@ -10,6 +10,12 @@ import { AppRouter } from "../../AppRouter";
 import { AuthContext } from "../../context/auth";
 import type { AuthContextValue, AuthSession } from "../../context/auth";
 import { createConsoleApiClient } from "../../api/client";
+import {
+  createRefreshAuthority,
+  createRefreshCoordinator,
+  setRefreshCallbacks,
+} from "../../api/refresh";
+import type { RefreshAuthority } from "../../api/refresh";
 import type { EquipmentLookupResponse } from "../../api/types";
 import { branchId } from "../../test/fixtures";
 import {
@@ -80,7 +86,9 @@ function renderApp(ctx: AuthContextValue) {
   );
 }
 
-function renderGroupAdminEquipmentPanel() {
+function renderGroupAdminEquipmentPanel(
+  groupAdminRefreshAuthority?: RefreshAuthority,
+) {
   function Harness() {
     const [selectedOwnerOrgId, setSelectedOwnerOrgId] = useState("org-coss");
     return (
@@ -94,6 +102,7 @@ function renderGroupAdminEquipmentPanel() {
         onSelectedOwnerOrgIdChange={setSelectedOwnerOrgId}
         activeOrgId="org-coss"
         groupAdminSourceToken="coss-source-token"
+        groupAdminRefreshAuthority={groupAdminRefreshAuthority}
       />
     );
   }
@@ -263,6 +272,60 @@ describe("EquipmentManagementPanel", () => {
         body: { org_id: "org-knl" },
       });
     });
+  });
+
+  it("keeps a minted delegated equipment client non-refreshable", async () => {
+    const user = userEvent.setup();
+    const authority = createRefreshAuthority(
+      createRefreshCoordinator(),
+      "equipment-source-incarnation",
+    );
+    const refresh = vi.fn(() =>
+      Promise.resolve({ access_token: "fresh-source-token" }),
+    );
+    setRefreshCallbacks(authority, refresh, () => {});
+    const delegatedRequests = vi.fn();
+    server.use(
+      http.post("*/api/v1/group-admin/tenant-context", () =>
+        HttpResponse.json({
+          access_token: "knl-context-token",
+          token_type: "Bearer",
+          acting_org_id: "org-knl",
+          acting_org_name: "케이앤엘",
+          acting_role: "GROUP_ADMIN_DELEGATED_ADMIN",
+          expires_at: "2026-06-29T00:00:00Z",
+        }),
+      ),
+      http.post("*/api/v1/equipment", ({ request }) => {
+        delegatedRequests(request.headers.get("authorization"));
+        return HttpResponse.json({ error: "unauthorized" }, { status: 401 });
+      }),
+      http.post("*/api/v1/group-admin/tenant-context/exit", () =>
+        new HttpResponse(null, { status: 204 }),
+      ),
+    );
+
+    renderGroupAdminEquipmentPanel(authority);
+    await user.click(screen.getByRole("button", { name: "장비 등록" }));
+    await user.selectOptions(screen.getByLabelText("소유 법인"), "org-knl");
+    await user.click(
+      screen.getByLabelText(/소유 법인, 등록 권한, 회계·계약상 근거/),
+    );
+    await user.type(screen.getByLabelText("호기 번호"), "D-25-301");
+    await user.type(screen.getByLabelText("고객명"), "신규고객");
+    await user.type(screen.getByLabelText("현장명"), "신규현장");
+    await user.type(screen.getByLabelText("규격"), "입식");
+    await user.type(screen.getByLabelText("톤수"), "3.0T");
+    await user.click(screen.getByRole("button", { name: "저장" }));
+
+    await waitFor(() => {
+      expect(delegatedRequests).toHaveBeenCalledWith(
+        "Bearer knl-context-token",
+      );
+    });
+    expect(delegatedRequests).toHaveBeenCalledTimes(1);
+    expect(refresh).not.toHaveBeenCalled();
+    expect(await screen.findByText("장비를 등록하지 못했습니다.")).toBeVisible();
   });
 
   it("wires the live manage page to group-admin legal-owner selection", async () => {

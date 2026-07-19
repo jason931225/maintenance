@@ -506,6 +506,23 @@ async fn self_service_create_resolves_subject_and_branch_from_caller(owner_pool:
     .await
     .expect_err("an unlinked account cannot self-file leave");
     assert_eq!(denied.kind(), ErrorKind::Validation);
+
+    // An account linked to an employee but to no branch also fails closed.
+    let branchless = seed_user(&owner_pool, knl_uuid).await;
+    let branchless_employee = seed_employee(&owner_pool, knl_uuid, 15.0, 0.0, 15.0).await;
+    sqlx::query("UPDATE users SET employee_id = $2 WHERE id = $1 AND org_id = $3")
+        .bind(branchless.as_uuid())
+        .bind(branchless_employee)
+        .bind(knl_uuid)
+        .execute(&owner_pool)
+        .await
+        .unwrap();
+    let denied = mnt_platform_request_context::scope_org(knl, async {
+        store.resolve_self_filing_context(branchless).await
+    })
+    .await
+    .expect_err("an employee-linked account without a branch cannot self-file leave");
+    assert_eq!(denied.kind(), ErrorKind::Validation);
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]

@@ -377,8 +377,17 @@ async fn stage_revision_updates_draft_head_in_place(owner_pool: PgPool) {
     };
 
     let summary = scope_org(org, async {
-        PgOntologyStore::new(rt.clone())
-            .stage_revision(actor, "workorder", revised, TraceContext::generate(), AT)
+        let store = PgOntologyStore::new(rt.clone());
+        let current = store.get_object_type("workorder", None).await?.object_type;
+        store
+            .stage_revision(
+                actor,
+                "workorder",
+                current.write_precondition(),
+                revised,
+                TraceContext::generate(),
+                AT,
+            )
             .await
     })
     .await

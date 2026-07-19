@@ -101,6 +101,7 @@ async fn publish_auto_attaches_create_action_and_instance_creation_works(owner_p
             .transition_lifecycle(
                 actor,
                 created.id,
+                created.write_precondition(),
                 SchemaLifecycleState::Published,
                 false,
                 TraceContext::generate(),
@@ -212,6 +213,7 @@ async fn publish_does_not_duplicate_an_existing_create_capable_action(owner_pool
             .transition_lifecycle(
                 actor,
                 created.id,
+                created.write_precondition(),
                 SchemaLifecycleState::Published,
                 false,
                 TraceContext::generate(),

@@ -40,8 +40,9 @@ use mnt_ontology_adapter_postgres::instances::{
     TraversalGraph, create_instance_in_tx, stage_revision_in_tx,
 };
 use mnt_ontology_adapter_postgres::{
-    ActingRule, ActionTypeSummary, CreateObjectTypeDraft, ObjectTypeDetail, ObjectTypeSummary,
-    PgOntologyError, PgOntologyStore, ResolvedInstance,
+    ActingRule, ActionTypeSummary, CreateObjectTypeDraft, ObjectTypeSummary,
+    ObjectTypeWritePrecondition, ObjectTypeWriteVersion, PgOntologyError, PgOntologyStore,
+    ResolvedInstance,
 };
 use mnt_ontology_application::{
     ActionDispatch, apply_edits, egress_evidence, evaluate_submission_criteria, evaluation_context,
@@ -248,6 +249,69 @@ async fn list_object_types(
     Ok(Json(types))
 }
 
+fn object_type_response<T: Serialize>(
+    status: StatusCode,
+    value: T,
+    write_version: &ObjectTypeWriteVersion,
+) -> Result<Response, RestError> {
+    let etag = axum::http::HeaderValue::from_str(&write_version.etag)
+        .map_err(|_| RestError::internal("invalid ontology write validator"))?;
+    let mut response = (status, Json(value)).into_response();
+    response
+        .headers_mut()
+        .insert(axum::http::header::ETAG, etag);
+    Ok(response)
+}
+
+fn required_object_type_write_precondition(
+    headers: &HeaderMap,
+) -> Result<ObjectTypeWritePrecondition, RestError> {
+    let mut values = headers.get_all(axum::http::header::IF_MATCH).iter();
+    let raw = values
+        .next()
+        .ok_or_else(RestError::write_precondition_required)?;
+    if values.next().is_some() {
+        return Err(RestError::invalid_write_precondition());
+    }
+    let raw = raw
+        .to_str()
+        .map_err(|_| RestError::invalid_write_precondition())?;
+    if raw.starts_with("W/") || raw == "*" || raw.contains(',') {
+        return Err(RestError::invalid_write_precondition());
+    }
+    let inner = raw
+        .strip_prefix('"')
+        .and_then(|value| value.strip_suffix('"'))
+        .ok_or_else(RestError::invalid_write_precondition)?;
+    let payload = inner
+        .strip_prefix("ont-object-type-key:")
+        .ok_or_else(RestError::invalid_write_precondition)?;
+    let (validator, revision) = payload
+        .split_once(":r")
+        .ok_or_else(RestError::invalid_write_precondition)?;
+    if validator.len() != 32
+        || !validator
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        || revision.is_empty()
+        || (revision.len() > 1 && revision.starts_with('0'))
+        || !revision.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return Err(RestError::invalid_write_precondition());
+    }
+    let validator_id =
+        Uuid::parse_str(validator).map_err(|_| RestError::invalid_write_precondition())?;
+    let revision = revision
+        .parse::<i64>()
+        .ok()
+        .filter(|revision| *revision >= 1)
+        .ok_or_else(RestError::invalid_write_precondition)?;
+    Ok(ObjectTypeWritePrecondition {
+        validator_id,
+        revision,
+    })
+}
+
 async fn create_object_type(
     State(state): State<OntologyRestState>,
     headers: HeaderMap,
@@ -264,7 +328,8 @@ async fn create_object_type(
         )
         .await
         .map_err(RestError::from_ontology)?;
-    Ok((StatusCode::CREATED, Json(summary)))
+    let write_version = summary.write_version();
+    object_type_response(StatusCode::CREATED, summary, &write_version)
 }
 
 #[derive(Debug, Deserialize)]
@@ -278,14 +343,15 @@ async fn get_object_type(
     headers: HeaderMap,
     Path(key): Path<String>,
     Query(query): Query<ObjectTypeVersionQuery>,
-) -> Result<Json<ObjectTypeDetail>, RestError> {
+) -> Result<Response, RestError> {
     authorize_ontology(&state, &headers).await?;
     let detail = state
         .registry
         .get_object_type(&key, query.version)
         .await
         .map_err(RestError::from_ontology)?;
-    Ok(Json(detail))
+    let write_version = detail.object_type.write_version();
+    object_type_response(StatusCode::OK, detail, &write_version)
 }
 
 async fn stage_object_type_revision(
@@ -295,18 +361,21 @@ async fn stage_object_type_revision(
     Json(draft): Json<CreateObjectTypeDraft>,
 ) -> Result<impl IntoResponse, RestError> {
     let principal = authorize_ontology(&state, &headers).await?;
+    let expected = required_object_type_write_precondition(&headers)?;
     let summary = state
         .registry
         .stage_revision(
             principal.user_id,
             &key,
+            expected,
             draft,
             TraceContext::generate(),
             OffsetDateTime::now_utc(),
         )
         .await
         .map_err(RestError::from_ontology)?;
-    Ok((StatusCode::CREATED, Json(summary)))
+    let write_version = summary.write_version();
+    object_type_response(StatusCode::CREATED, summary, &write_version)
 }
 
 // ---------------------------------------------------------------------------
@@ -1366,6 +1435,7 @@ struct RestError {
     status: StatusCode,
     code: &'static str,
     message: String,
+    current: Option<ObjectTypeWriteVersion>,
 }
 
 impl RestError {
@@ -1374,6 +1444,7 @@ impl RestError {
             status: StatusCode::UNAUTHORIZED,
             code: "unauthorized",
             message: message.into(),
+            current: None,
         }
     }
 
@@ -1382,6 +1453,7 @@ impl RestError {
             status: StatusCode::SERVICE_UNAVAILABLE,
             code: "unavailable",
             message: message.into(),
+            current: None,
         }
     }
 
@@ -1390,6 +1462,7 @@ impl RestError {
             status: StatusCode::INTERNAL_SERVER_ERROR,
             code: "internal",
             message: message.into(),
+            current: None,
         }
     }
 
@@ -1399,6 +1472,7 @@ impl RestError {
             status: StatusCode::FORBIDDEN,
             code: "gate_denied",
             message: message.into(),
+            current: None,
         }
     }
 
@@ -1420,6 +1494,25 @@ impl RestError {
             status: StatusCode::NOT_IMPLEMENTED,
             code: "not_wired_yet",
             message,
+            current: None,
+        }
+    }
+
+    fn write_precondition_required() -> Self {
+        Self {
+            status: StatusCode::PRECONDITION_REQUIRED,
+            code: "ontology_write_precondition_required",
+            message: "If-Match is required for ontology object type writes".to_owned(),
+            current: None,
+        }
+    }
+
+    fn invalid_write_precondition() -> Self {
+        Self {
+            status: StatusCode::BAD_REQUEST,
+            code: "invalid_ontology_write_precondition",
+            message: "If-Match must contain exactly one strong ontology key validator".to_owned(),
+            current: None,
         }
     }
 
@@ -1428,6 +1521,7 @@ impl RestError {
             status: status_for_error_kind(error.kind),
             code: code_for_error_kind(error.kind),
             message: error.message,
+            current: None,
         }
     }
 
@@ -1435,6 +1529,12 @@ impl RestError {
         match error {
             PgOntologyError::Domain(kernel) => Self::from_kernel(kernel),
             PgOntologyError::Db(db) => Self::from_db(db),
+            PgOntologyError::PreconditionFailed { current } => Self {
+                status: StatusCode::PRECONDITION_FAILED,
+                code: "ontology_write_precondition_failed",
+                message: "stale ontology object type write validator".to_owned(),
+                current: Some(current),
+            },
         }
     }
 
@@ -1447,12 +1547,14 @@ impl RestError {
                 status: StatusCode::UNPROCESSABLE_ENTITY,
                 code: "validation",
                 message,
+                current: None,
             },
             ActionError::GateDenied(message) => Self::gate_denied(message),
             ActionError::CriteriaFailed(message) => Self {
                 status: StatusCode::UNPROCESSABLE_ENTITY,
                 code: "criteria_failed",
                 message,
+                current: None,
             },
             ActionError::NotWiredYet { target } => Self::not_wired_yet(target.as_deref()),
             ActionError::Store(error) => Self::from_ontology(error),
@@ -1517,20 +1619,36 @@ struct ErrorBody {
 struct ErrorPayload {
     code: &'static str,
     message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    current_key_write_revision: Option<i64>,
 }
 
 impl IntoResponse for RestError {
     fn into_response(self) -> Response {
-        (
+        let current_revision = self.current.as_ref().map(|current| current.revision);
+        let mut response = (
             self.status,
             Json(ErrorBody {
                 error: ErrorPayload {
                     code: self.code,
                     message: self.message,
+                    current_key_write_revision: current_revision,
                 },
             }),
         )
-            .into_response()
+            .into_response();
+        if let Some(current) = self.current {
+            if let Ok(etag) = axum::http::HeaderValue::from_str(&current.etag) {
+                response
+                    .headers_mut()
+                    .insert(axum::http::header::ETAG, etag);
+            }
+            response.headers_mut().insert(
+                axum::http::header::CACHE_CONTROL,
+                axum::http::HeaderValue::from_static("no-store"),
+            );
+        }
+        response
     }
 }
 
@@ -1552,5 +1670,87 @@ const fn code_for_error_kind(kind: ErrorKind) -> &'static str {
         ErrorKind::Conflict => "conflict",
         ErrorKind::InvalidTransition => "invalid_transition",
         ErrorKind::Internal => "internal",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::http::header::IF_MATCH;
+
+    #[test]
+    fn divergent_child_identity_conflict_maps_to_http_409() {
+        let error = RestError::from_ontology(PgOntologyError::Domain(KernelError::conflict(
+            "child identity already names a different definition",
+        )));
+        assert_eq!(error.status, StatusCode::CONFLICT);
+        assert_eq!(error.code, "conflict");
+    }
+
+    #[test]
+    fn object_type_if_match_requires_one_strong_key_validator() {
+        let mut headers = HeaderMap::new();
+        let missing = required_object_type_write_precondition(&headers).unwrap_err();
+        assert_eq!(missing.status, StatusCode::PRECONDITION_REQUIRED);
+        assert_eq!(missing.code, "ontology_write_precondition_required");
+
+        for malformed in [
+            "W/\"ont-object-type-key:00000000000000000000000000000001:r7\"",
+            "*",
+            "\"ont-object-type-key:00000000000000000000000000000001:r7\", \"other\"",
+            "\"not-an-ontology-key-validator\"",
+        ] {
+            headers.insert(IF_MATCH, malformed.parse().unwrap());
+            let error = required_object_type_write_precondition(&headers).unwrap_err();
+            assert_eq!(error.status, StatusCode::BAD_REQUEST, "{malformed}");
+            assert_eq!(error.code, "invalid_ontology_write_precondition");
+        }
+
+        headers.insert(
+            IF_MATCH,
+            "\"ont-object-type-key:00000000000000000000000000000001:r7\""
+                .parse()
+                .unwrap(),
+        );
+        headers.append(
+            IF_MATCH,
+            "\"ont-object-type-key:00000000000000000000000000000001:r8\""
+                .parse()
+                .unwrap(),
+        );
+        let duplicate = required_object_type_write_precondition(&headers).unwrap_err();
+        assert_eq!(duplicate.status, StatusCode::BAD_REQUEST);
+        headers.remove(IF_MATCH);
+        headers.insert(
+            IF_MATCH,
+            "\"ont-object-type-key:00000000000000000000000000000001:r7\""
+                .parse()
+                .unwrap(),
+        );
+        let parsed = required_object_type_write_precondition(&headers).unwrap();
+        assert_eq!(parsed.revision, 7);
+        assert_eq!(
+            parsed.validator_id,
+            uuid::Uuid::from_u128(1),
+            "the opaque strong validator is parsed exactly once at the REST boundary"
+        );
+    }
+
+    #[test]
+    fn stale_key_precondition_maps_to_412_with_current_etag_and_no_store() {
+        let current = mnt_ontology_adapter_postgres::ObjectTypeWriteVersion {
+            etag: "\"ont-object-type-key:00000000000000000000000000000001:r8\"".to_owned(),
+            revision: 8,
+        };
+        let response = RestError::from_ontology(PgOntologyError::PreconditionFailed {
+            current: current.clone(),
+        })
+        .into_response();
+        assert_eq!(response.status(), StatusCode::PRECONDITION_FAILED);
+        assert_eq!(
+            response.headers().get("etag").unwrap(),
+            current.etag.as_str()
+        );
+        assert_eq!(response.headers().get("cache-control").unwrap(), "no-store");
     }
 }

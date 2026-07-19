@@ -412,6 +412,46 @@ describe("ObjectExplorerScreen pinned-window integration (§4.7 catalog #2)", ()
     expect(hostWrapper().style.paddingRight).toBe(`${String(PANEL_DEFAULT_WIDTH + QUADRANT_GAP)}px`);
   });
 
+  it("treats an undefined node resolution as authority cancellation without opening fallback", async () => {
+    const resolveNodeDescriptor = vi.fn().mockResolvedValue(undefined);
+    render(
+      <WindowManagerProvider>
+        <PolicyGateProvider gate={allowGate}>
+          <ObjectExplorerScreen
+            model={graphModel}
+            initialFocusId="c207"
+            resolveNodeDescriptor={resolveNodeDescriptor}
+          />
+        </PolicyGateProvider>
+      </WindowManagerProvider>,
+    );
+
+    fireEvent.click(screen.getByLabelText("조이슨 근태 중심으로 이동"));
+    await waitFor(() => {
+      expect(resolveNodeDescriptor).toHaveBeenCalledWith(expect.objectContaining({ id: "att_cho" }));
+    });
+    expect(screen.queryByRole("region", { name: "조이슨 근태" })).not.toBeInTheDocument();
+  });
+
+  it("preserves the local fallback card for a genuine same-authority node read error", async () => {
+    const resolveNodeDescriptor = vi.fn().mockRejectedValue(new Error("same authority read failed"));
+    render(
+      <WindowManagerProvider>
+        <PolicyGateProvider gate={allowGate}>
+          <ObjectExplorerScreen
+            model={graphModel}
+            initialFocusId="c207"
+            resolveNodeDescriptor={resolveNodeDescriptor}
+          />
+        </PolicyGateProvider>
+      </WindowManagerProvider>,
+    );
+
+    fireEvent.click(screen.getByLabelText("조이슨 근태 중심으로 이동"));
+    expect(await screen.findByRole("region", { name: "조이슨 근태" })).toBeVisible();
+    expect(resolveNodeDescriptor).toHaveBeenCalledWith(expect.objectContaining({ id: "att_cho" }));
+  });
+
   it("round-trips the pinned panel through minimize → tray chip → restore", () => {
     renderWithWindows();
     fireEvent.click(screen.getByLabelText("조이슨 근태 중심으로 이동"));

@@ -18,7 +18,7 @@ import { cn } from "../../lib/utils";
  * the stop event so the operator is never stuck in the tenant context.
  */
 export function ViewAsBanner() {
-  const { viewAs, exitViewAs } = useAuth();
+  const { viewAs, exitViewAs, sourceRefreshAuthority } = useAuth();
   const navigate = useNavigate();
   const [exiting, setExiting] = useState(false);
 
@@ -42,13 +42,14 @@ export function ViewAsBanner() {
       await exitGroupTenantContext(
         operatorToken,
         activeViewAs.actingOrgId,
+        sourceRefreshAuthority,
       ).catch(() => {});
       void navigate("/settings/group");
       return;
     }
 
     const exitApi = isManage ? exitTenantContextApi : exitViewAsApi;
-    await exitApi(operatorToken).catch(() => {});
+    await exitApi(operatorToken, sourceRefreshAuthority).catch(() => {});
     void navigate("/platform/tenants");
   }
 

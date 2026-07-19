@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
@@ -14,7 +14,12 @@ import {
 } from "vitest";
 
 import { createConsoleApiClient } from "../../api/client";
-import { AuthContext } from "../../context/auth";
+import {
+  createRefreshAuthority,
+  createRefreshCoordinator,
+  setRefreshCallbacks,
+} from "../../api/refresh";
+import { AuthContext, AuthProvider, useAuth } from "../../context/auth";
 import type {
   AuthContextValue,
   AuthSession,
@@ -88,10 +93,10 @@ function makeAuthContext(
     login: async () => {},
     logout: async () => {},
     refresh: async () => {},
-    acceptTokens: () => {},
+    acceptTokens: () => true,
     clearPasskeySetup: () => {},
     viewAs: overrides.viewAs,
-    enterViewAs: overrides.enterViewAs ?? (() => {}),
+    enterViewAs: overrides.enterViewAs ?? (() => true),
     exitViewAs: overrides.exitViewAs ?? (() => undefined),
     api: createConsoleApiClient(session.access_token),
   };
@@ -125,7 +130,7 @@ function renderSwitcher(ctx: AuthContextValue, initialPath = "/settings/group") 
 describe("GroupScopeSwitcher", () => {
   it("switches from group-wide scope to any subsidiary with an audited tenant context", async () => {
     const user = userEvent.setup();
-    const enterViewAs = vi.fn();
+    const enterViewAs = vi.fn(() => true);
     groupHandlers();
     server.use(
       http.post("*/api/v1/group-admin/tenant-context", async ({ request }) => {
@@ -222,5 +227,323 @@ describe("GroupScopeSwitcher", () => {
     expect(await screen.findByTestId("location")).toHaveTextContent(
       "/settings/group",
     );
+  });
+
+
+  it("uses the provider source authority to recover a stale group-console bearer", async () => {
+    const authority = createRefreshAuthority(
+      createRefreshCoordinator(),
+      "group-ui-source-incarnation",
+    );
+    const refresh = vi.fn(() => Promise.resolve({ access_token: "fresh-group-source-token" }));
+    setRefreshCallbacks(authority, refresh, () => {});
+    server.use(
+      http.get("*/api/v1/group-admin/groups", ({ request }) => {
+        if (request.headers.get("authorization") !== "Bearer fresh-group-source-token") {
+          return HttpResponse.json({ error: "unauthorized" }, { status: 401 });
+        }
+        return HttpResponse.json({
+          groups: [
+            {
+              id: "group-1",
+              slug: "group",
+              name: "그룹",
+              status: "ACTIVE",
+              members: [],
+            },
+          ],
+        });
+      }),
+    );
+
+    const ctx = makeAuthContext();
+    Object.assign(ctx, {
+      refreshAuthority: authority,
+      sourceRefreshAuthority: authority,
+    });
+    renderSwitcher(ctx);
+
+    expect(
+      await screen.findByRole("combobox", { name: "그룹/법인 범위" }),
+    ).toBeVisible();
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+  it("fences rapid org changes and retained completions after unmount", async () => {
+    const enterViewAs = vi.fn(() => true);
+    const started: string[] = [];
+    const completed: string[] = [];
+    let releaseBestec!: () => void;
+    let releaseCoss!: () => void;
+    const bestecGate = new Promise<void>((resolve) => {
+      releaseBestec = resolve;
+    });
+    const cossGate = new Promise<void>((resolve) => {
+      releaseCoss = resolve;
+    });
+    groupHandlers();
+    server.use(
+      http.post("*/api/v1/group-admin/tenant-context", async ({ request }) => {
+        const { org_id: orgId } = (await request.json()) as { org_id: string };
+        started.push(orgId);
+        await (orgId === "org-bestec" ? bestecGate : cossGate);
+        completed.push(orgId);
+        return HttpResponse.json({
+          access_token: orgId + "-context-token",
+          acting_org_id: orgId,
+          acting_org_name: orgId,
+          acting_role: "GROUP_ADMIN_DELEGATED_ADMIN",
+          expires_at: "2099-01-01T00:00:00Z",
+        });
+      }),
+    );
+
+    const view = renderSwitcher(makeAuthContext({ enterViewAs }));
+    const scope = await screen.findByRole("combobox");
+    fireEvent.change(scope, { target: { value: "org:org-bestec" } });
+    fireEvent.change(scope, { target: { value: "org:org-coss" } });
+    await waitFor(() => {
+      expect(started).toEqual(["org-bestec", "org-coss"]);
+    });
+
+    await act(async () => {
+      releaseBestec();
+      await bestecGate;
+    });
+    await waitFor(() => {
+      expect(completed).toContain("org-bestec");
+    });
+    expect(enterViewAs).not.toHaveBeenCalled();
+
+    view.unmount();
+    releaseCoss();
+    await waitFor(() => {
+      expect(completed).toContain("org-coss");
+    });
+    expect(enterViewAs).not.toHaveBeenCalled();
+  });
+
+  it("treats selecting the already effective org as an authority no-op", async () => {
+    const enterViewAs = vi.fn(() => true);
+    const exitViewAs = vi.fn(() => "group-source-token");
+    const groupViewAs: ViewAsState = {
+      token: "coss-context-token",
+      mode: "MANAGE",
+      source: "GROUP_ADMIN",
+      actingOrgId: "org-coss",
+      actingOrgName: "Coss",
+      actingRole: "GROUP_ADMIN_DELEGATED_ADMIN",
+      platformSession: groupAdminSession,
+    };
+    groupHandlers();
+    renderSwitcher(
+      makeAuthContext({
+        session: { access_token: "coss-context-token", roles: ["ADMIN"] },
+        viewAs: groupViewAs,
+        enterViewAs,
+        exitViewAs,
+      }),
+      "/equipment",
+    );
+
+    const scope = await screen.findByRole("combobox");
+    fireEvent.change(scope, { target: { value: "org:org-coss" } });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(enterViewAs).not.toHaveBeenCalled();
+    expect(exitViewAs).not.toHaveBeenCalled();
+    expect(screen.getByTestId("location")).toHaveTextContent("/equipment");
+  });
+
+});
+
+function groupJwt(claims: Record<string, unknown>, signature: string): string {
+  return `${btoa(JSON.stringify({ alg: "ES256", typ: "JWT" }))}.${btoa(
+    JSON.stringify(claims),
+  )}.${signature}`;
+}
+
+function RealGroupAuthorityProbe({ orgAToken }: { orgAToken: string }) {
+  const auth = useAuth();
+  return (
+    <div>
+      <output data-testid="real-effective-authority">
+        {`${auth.session?.access_token ?? "anon"}|${auth.viewAs?.actingOrgId ?? "group-all"}`}
+      </output>
+      <button
+        type="button"
+        onClick={() => {
+          auth.enterViewAs({
+            token: orgAToken,
+            mode: "MANAGE",
+            source: "GROUP_ADMIN",
+            actingOrgId: "org-coss",
+            actingOrgName: "코스",
+            actingRole: "GROUP_ADMIN_DELEGATED_ADMIN",
+          });
+        }}
+      >
+        establish-org-a
+      </button>
+    </div>
+  );
+}
+
+function renderRealProviderSwitcher(orgAToken: string) {
+  return render(
+    <AuthProvider>
+      <MemoryRouter initialEntries={["/settings/group"]}>
+        <Routes>
+          <Route
+            path="*"
+            element={
+              <>
+                <GroupScopeSwitcher />
+                <RealGroupAuthorityProbe orgAToken={orgAToken} />
+                <LocationProbe />
+              </>
+            }
+          />
+        </Routes>
+      </MemoryRouter>
+    </AuthProvider>,
+  );
+}
+
+describe("GroupScopeSwitcher real-provider delegated replacement", () => {
+  it("audits with source authority and navigates only after orgB atomically replaces orgA", async () => {
+    const user = userEvent.setup();
+    const sourceToken = groupJwt(
+      { sub: "group-admin", roles: ["MEMBER"], group_roles: ["GROUP_ADMIN"] },
+      "source",
+    );
+    const orgAToken = groupJwt(
+      { sub: "group-admin", org: "org-coss", roles: ["ADMIN"] },
+      "org-a",
+    );
+    const orgBToken = groupJwt(
+      { sub: "group-admin", org: "org-bestec", roles: ["ADMIN"] },
+      "org-b",
+    );
+    const audit: string[] = [];
+    server.use(
+      http.post("*/api/v1/auth/token/refresh", () =>
+        HttpResponse.json({ access_token: sourceToken }),
+      ),
+      http.get("*/api/v1/group-admin/groups", ({ request }) => {
+        expect(request.headers.get("authorization")).toBe(`Bearer ${sourceToken}`);
+        return HttpResponse.json({
+          groups: [
+            {
+              id: "group-1",
+              slug: "group",
+              name: "그룹",
+              status: "ACTIVE",
+              members: [
+                { id: "org-coss", slug: "coss", name: "코스", status: "ACTIVE" },
+                { id: "org-bestec", slug: "bestec", name: "베스텍", status: "ACTIVE" },
+              ],
+            },
+          ],
+        });
+      }),
+      http.post("*/api/v1/group-admin/tenant-context", async ({ request }) => {
+        expect(request.headers.get("authorization")).toBe(`Bearer ${sourceToken}`);
+        expect(await request.json()).toEqual({ org_id: "org-bestec" });
+        audit.push("start-b-with-source");
+        return HttpResponse.json({
+          access_token: orgBToken,
+          acting_org_id: "org-bestec",
+          acting_org_name: "베스텍",
+          acting_role: "GROUP_ADMIN_DELEGATED_ADMIN",
+          expires_at: "2099-01-01T00:00:00Z",
+        });
+      }),
+      http.post("*/api/v1/group-admin/tenant-context/exit", async ({ request }) => {
+        expect(request.headers.get("authorization")).toBe(`Bearer ${sourceToken}`);
+        expect(await request.json()).toEqual({ org_id: "org-coss" });
+        audit.push("exit-a-with-source");
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+
+    renderRealProviderSwitcher(orgAToken);
+    await waitFor(() => {
+      expect(screen.getByTestId("real-effective-authority")).toHaveTextContent(sourceToken);
+    });
+    await user.click(screen.getByRole("button", { name: "establish-org-a" }));
+    await waitFor(() => {
+      expect(screen.getByTestId("real-effective-authority")).toHaveTextContent(`${orgAToken}|org-coss`);
+    });
+    const scope = await screen.findByRole("combobox", { name: "그룹/법인 범위" });
+    await user.selectOptions(scope, "org:org-bestec");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("real-effective-authority")).toHaveTextContent(`${orgBToken}|org-bestec`);
+      expect(screen.getByTestId("location")).toHaveTextContent("/overview");
+    });
+    expect(audit).toEqual(["start-b-with-source", "exit-a-with-source"]);
+  });
+
+  it("keeps orgA effective and does not navigate when the source-authority exit audit fails", async () => {
+    const user = userEvent.setup();
+    const sourceToken = groupJwt(
+      { sub: "group-admin", roles: ["MEMBER"], group_roles: ["GROUP_ADMIN"] },
+      "source-fail",
+    );
+    const orgAToken = groupJwt(
+      { sub: "group-admin", org: "org-coss", roles: ["ADMIN"] },
+      "org-a-fail",
+    );
+    const orgBToken = groupJwt(
+      { sub: "group-admin", org: "org-bestec", roles: ["ADMIN"] },
+      "org-b-fail",
+    );
+    server.use(
+      http.post("*/api/v1/auth/token/refresh", () =>
+        HttpResponse.json({ access_token: sourceToken }),
+      ),
+      http.get("*/api/v1/group-admin/groups", () =>
+        HttpResponse.json({
+          groups: [
+            {
+              id: "group-1",
+              slug: "group",
+              name: "그룹",
+              status: "ACTIVE",
+              members: [
+                { id: "org-coss", slug: "coss", name: "코스", status: "ACTIVE" },
+                { id: "org-bestec", slug: "bestec", name: "베스텍", status: "ACTIVE" },
+              ],
+            },
+          ],
+        }),
+      ),
+      http.post("*/api/v1/group-admin/tenant-context", () =>
+        HttpResponse.json({
+          access_token: orgBToken,
+          acting_org_id: "org-bestec",
+          acting_org_name: "베스텍",
+          acting_role: "GROUP_ADMIN_DELEGATED_ADMIN",
+          expires_at: "2099-01-01T00:00:00Z",
+        }),
+      ),
+      http.post("*/api/v1/group-admin/tenant-context/exit", () =>
+        HttpResponse.json({ error: "audit failed" }, { status: 500 }),
+      ),
+    );
+
+    renderRealProviderSwitcher(orgAToken);
+    await waitFor(() => {
+      expect(screen.getByTestId("real-effective-authority")).toHaveTextContent(sourceToken);
+    });
+    await user.click(screen.getByRole("button", { name: "establish-org-a" }));
+    const scope = await screen.findByRole("combobox", { name: "그룹/법인 범위" });
+    await user.selectOptions(scope, "org:org-bestec");
+    await waitFor(() => {
+      expect(scope).toHaveClass("border-console-danger-bd");
+    });
+    expect(screen.getByTestId("real-effective-authority")).toHaveTextContent(`${orgAToken}|org-coss`);
+    expect(screen.getByTestId("location")).toHaveTextContent("/settings/group");
   });
 });

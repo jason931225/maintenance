@@ -25,6 +25,11 @@ import { RequirePlatformRoute } from "../components/RequirePlatformRoute";
 import { AuthContext } from "../context/auth";
 import type { AuthContextValue, AuthSession } from "../context/auth";
 import { createConsoleApiClient } from "../api/client";
+import {
+  createRefreshAuthority,
+  createRefreshCoordinator,
+  setRefreshCallbacks,
+} from "../api/refresh";
 import { PlatformOpsPage } from "../features/platform/PlatformOpsPage";
 import { PlatformGroupsPage } from "./PlatformGroupsPage";
 import { PlatformAccountPage } from "./PlatformAccountPage";
@@ -182,6 +187,32 @@ describe("Platform console routing", () => {
     ).toBeVisible();
     expect(await screen.findByText("Acme Corporation")).toBeVisible();
     expect(screen.getByText("Globex Corporation")).toBeVisible();
+  });
+
+  it("uses the provider authority to recover a stale platform-console bearer", async () => {
+    const authority = createRefreshAuthority(
+      createRefreshCoordinator(),
+      "platform-ui-source-incarnation",
+    );
+    const refresh = vi.fn(() => Promise.resolve({ access_token: "fresh-platform-token" }));
+    setRefreshCallbacks(authority, refresh, () => {});
+    server.use(
+      http.get("*/api/platform/orgs", ({ request }) =>
+        request.headers.get("authorization") === "Bearer fresh-platform-token"
+          ? HttpResponse.json(orgs)
+          : HttpResponse.json({ error: "unauthorized" }, { status: 401 }),
+      ),
+    );
+
+    const ctx = makeAuthContext(platformSession);
+    Object.assign(ctx, {
+      refreshAuthority: authority,
+      sourceRefreshAuthority: authority,
+    });
+    renderApp("/platform/tenants", ctx);
+
+    expect(await screen.findByText("Acme Corporation")).toBeVisible();
+    expect(refresh).toHaveBeenCalledTimes(1);
   });
 
   it("redirects a tenant session away from /platform", async () => {

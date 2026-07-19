@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
@@ -6,7 +6,7 @@ import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { createConsoleApiClient } from "../api/client";
-import { AuthContext } from "../context/auth";
+import { AuthContext, AuthProvider, useAuth } from "../context/auth";
 import type {
   AuthContextValue,
   AuthSession,
@@ -15,7 +15,7 @@ import type {
 import { GroupAdminPage } from "./GroupAdminPage";
 
 const server = setupServer();
-const enterViewAs = vi.fn();
+const enterViewAs = vi.fn(() => true);
 
 const groupAdminSession: AuthSession = {
   access_token: "group-admin-token",
@@ -31,7 +31,7 @@ beforeAll(() => {
 
 afterEach(() => {
   server.resetHandlers();
-  enterViewAs.mockReset();
+  enterViewAs.mockReset().mockReturnValue(true);
 });
 
 afterAll(() => {
@@ -48,7 +48,7 @@ function makeAuthContext(
     login: async () => {},
     logout: async () => {},
     refresh: async () => {},
-    acceptTokens: () => {},
+    acceptTokens: () => true,
     clearPasskeySetup: () => {},
     viewAs: undefined,
     enterViewAs,
@@ -323,15 +323,296 @@ describe("GroupAdminPage", () => {
 
     await user.click(screen.getByRole("button", { name: "코스 사용자 관리" }));
 
-    await waitFor(() => {
-      expect(enterViewAs).toHaveBeenCalledWith({
-        token: "tenant-context-token",
-        mode: "MANAGE",
-        source: "GROUP_ADMIN",
-        actingOrgId: "org-coss",
-        actingOrgName: "코스",
-        actingRole: "GROUP_ADMIN_DELEGATED_ADMIN",
-      });
-    });
+    expect(enterViewAs).not.toHaveBeenCalled();
+    expect(await screen.findByTestId("location")).toHaveTextContent(
+      "/settings/users",
+    );
   });
+  it("fences rapid subsidiary starts and retained completions after unmount", async () => {
+    const user = userEvent.setup();
+    const started: string[] = [];
+    const completed: string[] = [];
+    let releaseCoss!: () => void;
+    let releaseBestec!: () => void;
+    const cossGate = new Promise<void>((resolve) => {
+      releaseCoss = resolve;
+    });
+    const bestecGate = new Promise<void>((resolve) => {
+      releaseBestec = resolve;
+    });
+    server.use(
+      http.get("*/api/v1/group-admin/groups", () =>
+        HttpResponse.json({
+          groups: [
+            {
+              id: "group-1",
+              slug: "group",
+              name: "Group",
+              status: "ACTIVE",
+              members: [
+                { id: "org-coss", slug: "coss", name: "Coss", status: "ACTIVE" },
+                {
+                  id: "org-bestec",
+                  slug: "bestec",
+                  name: "Bestec",
+                  status: "ACTIVE",
+                },
+              ],
+            },
+          ],
+        }),
+      ),
+      http.post("*/api/v1/group-admin/tenant-context", async ({ request }) => {
+        const { org_id: orgId } = (await request.json()) as { org_id: string };
+        started.push(orgId);
+        await (orgId === "org-coss" ? cossGate : bestecGate);
+        completed.push(orgId);
+        return HttpResponse.json({
+          access_token: orgId + "-context-token",
+          acting_org_id: orgId,
+          acting_org_name: orgId,
+          acting_role: "GROUP_ADMIN_DELEGATED_ADMIN",
+          expires_at: "2099-01-01T00:00:00Z",
+        });
+      }),
+    );
+
+    const view = renderPage();
+    const cossCell = (await screen.findAllByText("Coss")).find((element) =>
+      element.closest("tr")?.querySelector("button"),
+    );
+    const cossRow = cossCell?.closest("tr");
+    if (!cossRow) throw new Error("Coss action row not found");
+    await user.click(within(cossRow).getAllByRole("button")[0]);
+    await user.click(within(cossRow).getAllByRole("button")[1]);
+
+    const bestecCell = screen
+      .getAllByText("Bestec")
+      .find((element) => element.closest("tr")?.querySelector("button"));
+    const bestecRow = bestecCell?.closest("tr");
+    if (!bestecRow) throw new Error("Bestec action row not found");
+    await user.click(within(bestecRow).getAllByRole("button")[0]);
+    await user.click(within(bestecRow).getAllByRole("button")[1]);
+    await waitFor(() => {
+      expect(started).toEqual(["org-coss", "org-bestec"]);
+    });
+
+    await act(async () => {
+      releaseCoss();
+      await cossGate;
+    });
+    await waitFor(() => {
+      expect(completed).toContain("org-coss");
+    });
+    expect(enterViewAs).not.toHaveBeenCalled();
+
+    view.unmount();
+    releaseBestec();
+    await waitFor(() => {
+      expect(completed).toContain("org-bestec");
+    });
+    expect(enterViewAs).not.toHaveBeenCalled();
+  });
+
+});
+
+function groupAdminJwt(claims: Record<string, unknown>, signature: string): string {
+  return `${btoa(JSON.stringify({ alg: "ES256", typ: "JWT" }))}.${btoa(
+    JSON.stringify(claims),
+  )}.${signature}`;
+}
+
+function RealGroupAdminAuthorityProbe({ orgAToken }: { orgAToken: string }) {
+  const auth = useAuth();
+  return (
+    <div>
+      <output data-testid="real-group-admin-authority">
+        {`${auth.session?.access_token ?? "anon"}|${auth.viewAs?.actingOrgId ?? "group-all"}`}
+      </output>
+      <button
+        type="button"
+        onClick={() => {
+          auth.enterViewAs({
+            token: orgAToken,
+            mode: "MANAGE",
+            source: "GROUP_ADMIN",
+            actingOrgId: "org-bestec",
+            actingOrgName: "베스텍",
+            actingRole: "GROUP_ADMIN_DELEGATED_ADMIN",
+          });
+        }}
+      >
+        establish-group-admin-org-a
+      </button>
+    </div>
+  );
+}
+
+function renderRealProviderGroupAdmin(orgAToken: string) {
+  return render(
+    <AuthProvider>
+      <MemoryRouter initialEntries={["/settings/group"]}>
+        <RealGroupAdminAuthorityProbe orgAToken={orgAToken} />
+        <Routes>
+          <Route path="/settings/group" element={<GroupAdminPage />} />
+          <Route path="*" element={<LocationProbe />} />
+        </Routes>
+      </MemoryRouter>
+    </AuthProvider>,
+  );
+}
+
+describe("GroupAdminPage real-provider delegated replacement", () => {
+  it("uses source bearer for start/exit and navigates only after orgB replaces orgA", async () => {
+    const user = userEvent.setup();
+    const sourceToken = groupAdminJwt(
+      { sub: "group-admin-page", roles: ["MEMBER"], group_roles: ["GROUP_ADMIN"] },
+      "source",
+    );
+    const orgAToken = groupAdminJwt(
+      { sub: "group-admin-page", org: "org-bestec", roles: ["ADMIN"] },
+      "org-a",
+    );
+    const orgBToken = groupAdminJwt(
+      { sub: "group-admin-page", org: "org-coss", roles: ["ADMIN"] },
+      "org-b",
+    );
+    const audit: string[] = [];
+    server.use(
+      http.post("*/api/v1/auth/token/refresh", () =>
+        HttpResponse.json({ access_token: sourceToken }),
+      ),
+      http.get("*/api/v1/group-admin/groups", ({ request }) => {
+        const authorization = request.headers.get("authorization");
+        if (authorization !== `Bearer ${sourceToken}`) {
+          return HttpResponse.json({ groups: [] });
+        }
+        return HttpResponse.json({
+          groups: [
+            {
+              id: "group-1",
+              slug: "group",
+              name: "그룹",
+              status: "ACTIVE",
+              members: [
+                { id: "org-coss", slug: "coss", name: "코스", status: "ACTIVE" },
+              ],
+            },
+          ],
+        });
+      }),
+      http.post("*/api/v1/group-admin/tenant-context", async ({ request }) => {
+        expect(request.headers.get("authorization")).toBe(`Bearer ${sourceToken}`);
+        expect(await request.json()).toEqual({ org_id: "org-coss" });
+        audit.push("start-b-with-source");
+        return HttpResponse.json({
+          access_token: orgBToken,
+          acting_org_id: "org-coss",
+          acting_org_name: "코스",
+          acting_role: "GROUP_ADMIN_DELEGATED_ADMIN",
+          expires_at: "2099-01-01T00:00:00Z",
+        });
+      }),
+      http.post("*/api/v1/group-admin/tenant-context/exit", async ({ request }) => {
+        expect(request.headers.get("authorization")).toBe(`Bearer ${sourceToken}`);
+        expect(await request.json()).toEqual({ org_id: "org-bestec" });
+        audit.push("exit-a-with-source");
+        return HttpResponse.json({ ok: true });
+      }),
+    );
+
+    renderRealProviderGroupAdmin(orgAToken);
+    await waitFor(() => {
+      expect(screen.getByTestId("real-group-admin-authority")).toHaveTextContent(sourceToken);
+    });
+    await user.click(screen.getByRole("button", { name: "establish-group-admin-org-a" }));
+    await waitFor(() => {
+      expect(screen.getByTestId("real-group-admin-authority")).toHaveTextContent(`${orgAToken}|org-bestec`);
+    });
+    await user.click(
+      await screen.findByRole("button", { name: "코스 개인/부서 업무 바로가기" }),
+    );
+    await user.click(screen.getByRole("button", { name: "코스 전자결재시스템" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("real-group-admin-authority")).toHaveTextContent(`${orgBToken}|org-coss`);
+      expect(screen.getByTestId("location")).toHaveTextContent("/approvals");
+    });
+    expect(audit).toEqual(["start-b-with-source", "exit-a-with-source"]);
+  });
+
+  it("keeps orgA effective and does not navigate when its exit audit fails", async () => {
+    const user = userEvent.setup();
+    const sourceToken = groupAdminJwt(
+      { sub: "group-admin-page", roles: ["MEMBER"], group_roles: ["GROUP_ADMIN"] },
+      "source-fail",
+    );
+    const orgAToken = groupAdminJwt(
+      { sub: "group-admin-page", org: "org-bestec", roles: ["ADMIN"] },
+      "org-a-fail",
+    );
+    const orgBToken = groupAdminJwt(
+      { sub: "group-admin-page", org: "org-coss", roles: ["ADMIN"] },
+      "org-b-fail",
+    );
+    server.use(
+      http.post("*/api/v1/auth/token/refresh", () =>
+        HttpResponse.json({ access_token: sourceToken }),
+      ),
+      http.get("*/api/v1/group-admin/groups", () =>
+        HttpResponse.json({
+          groups: [
+            {
+              id: "group-1",
+              slug: "group",
+              name: "Group",
+              status: "ACTIVE",
+              members: [
+                { id: "org-coss", slug: "coss", name: "Coss", status: "ACTIVE" },
+              ],
+            },
+          ],
+        }),
+      ),
+      http.post("*/api/v1/group-admin/tenant-context", () =>
+        HttpResponse.json({
+          access_token: orgBToken,
+          acting_org_id: "org-coss",
+          acting_org_name: "Coss",
+          acting_role: "GROUP_ADMIN_DELEGATED_ADMIN",
+          expires_at: "2099-01-01T00:00:00Z",
+        }),
+      ),
+      http.post("*/api/v1/group-admin/tenant-context/exit", () =>
+        HttpResponse.json({ error: "audit failed" }, { status: 500 }),
+      ),
+    );
+
+    renderRealProviderGroupAdmin(orgAToken);
+    await waitFor(() => {
+      expect(screen.getByTestId("real-group-admin-authority")).toHaveTextContent(sourceToken);
+    });
+    await user.click(
+      screen.getByRole("button", { name: "establish-group-admin-org-a" }),
+    );
+    await waitFor(() => {
+      expect(screen.getByTestId("real-group-admin-authority")).toHaveTextContent(
+        orgAToken + "|org-bestec",
+      );
+    });
+    const cossCell = (await screen.findAllByText("Coss")).find((element) =>
+      element.closest("tr")?.querySelector("button"),
+    );
+    const cossRow = cossCell?.closest("tr");
+    if (!cossRow) throw new Error("Coss action row not found");
+    await user.click(within(cossRow).getAllByRole("button")[0]);
+    await user.click(within(cossRow).getAllByRole("button")[1]);
+
+    expect(await screen.findByRole("alert")).toBeVisible();
+    expect(screen.getByTestId("real-group-admin-authority")).toHaveTextContent(
+      orgAToken + "|org-bestec",
+    );
+    expect(screen.getByRole("heading", { level: 1 })).toBeVisible();
+  });
+
 });

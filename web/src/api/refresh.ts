@@ -1,23 +1,9 @@
 /**
- * Single-flight token refresh for the 401-retry interceptor.
+ * Provider-local, incarnation-scoped refresh coordination.
  *
- * Why a module-level singleton?
- * - `openapi-fetch` middleware and `platformFetch` callers run concurrently.
- *   Without deduplication, two simultaneous 401s would each call the refresh
- *   endpoint, which triggers the backend's refresh-token reuse-detection and
- *   revokes the whole family.
- * - A module-level Promise ref survives across the multiple `createConsoleApiClient`
- *   instances that AuthProvider creates (one per token), so concurrent 401s from
- *   different calls still share one in-flight refresh.
- *
- * Usage:
- *   1. AuthProvider calls `setRefreshCallbacks` on mount to wire in its own
- *      `refresh()` (which calls the backend and updates session state) and an
- *      `onUnauthenticated` handler that clears the session.
- *   2. The `client.ts` onResponse middleware and `platformFetch` wrapper both
- *      call `singleFlightRefresh()` on a 401; it dedupes concurrent callers
- *      into one in-flight Promise and returns the new access token on success,
- *      or throws (which the callers turn into a session clear + redirect).
+ * Coordinator and authority identity lives exclusively in module-private
+ * WeakMaps. Runtime handles are frozen, property-free capabilities: callers
+ * can carry them, but cannot inspect, copy, mutate, or reconstruct custody.
  */
 
 /** The backend's `POST /api/v1/auth/token/refresh` result, minimally typed. */
@@ -28,47 +14,228 @@ export interface RefreshResult {
 type RefreshFn = () => Promise<RefreshResult>;
 type OnUnauthenticated = () => void;
 
-let _refresh: RefreshFn | null = null;
-let _onUnauthenticated: OnUnauthenticated | null = null;
+declare const refreshCoordinatorBrand: unique symbol;
+declare const refreshAuthorityBrand: unique symbol;
 
-/** Called by AuthProvider on mount to wire in the live auth callbacks. */
+/** Provider-local owner of refresh bindings and in-flight work. */
+export interface RefreshCoordinator {
+  readonly [refreshCoordinatorBrand]: true;
+}
+
+/** Opaque, non-secret capability for one current refresh registration. */
+export interface RefreshAuthority {
+  readonly [refreshAuthorityBrand]: true;
+}
+
+export interface RefreshRegistration {
+  readonly authority: RefreshAuthority;
+  dispose: () => void;
+}
+
+interface RefreshCoordinatorState {
+  readonly marker: true;
+}
+
+interface RefreshAuthorityState {
+  readonly coordinator: RefreshCoordinatorState;
+  rebindable: boolean;
+  binding?: RefreshBinding;
+}
+
+interface RefreshBinding {
+  active: boolean;
+  readonly authority: RefreshAuthority;
+  readonly authorityState: RefreshAuthorityState;
+  readonly refresh: RefreshFn;
+  readonly onUnauthenticated: OnUnauthenticated;
+  inflight?: Promise<string>;
+}
+
+const coordinatorCustody = new WeakMap<object, RefreshCoordinatorState>();
+const authorityCustody = new WeakMap<object, RefreshAuthorityState>();
+
+export function createRefreshCoordinator(): RefreshCoordinator {
+  const coordinator = Object.freeze({}) as RefreshCoordinator;
+  coordinatorCustody.set(coordinator, { marker: true });
+  return coordinator;
+}
+
+/**
+ * Compatibility seed for callers that still allocate before registration.
+ * The label is deliberately ignored: it is neither identity nor authority.
+ */
+export function createRefreshAuthority(
+  coordinator: RefreshCoordinator,
+  legacyIncarnation?: string,
+): RefreshAuthority {
+  void legacyIncarnation;
+  const coordinatorState = coordinatorCustody.get(coordinator);
+  if (!coordinatorState) {
+    throw new Error("Refresh coordinator is not registered");
+  }
+  return mintAuthority(coordinatorState, true);
+}
+
+function mintAuthority(
+  coordinator: RefreshCoordinatorState,
+  rebindable: boolean,
+): RefreshAuthority {
+  const authority = Object.freeze({}) as RefreshAuthority;
+  authorityCustody.set(authority, { coordinator, rebindable });
+  return authority;
+}
+
+/** Register callbacks and return the only authority accepted by the binding. */
+export function setRefreshCallbacks(
+  owner: RefreshCoordinator | RefreshAuthority,
+  refresh: RefreshFn,
+  onUnauthenticated: OnUnauthenticated,
+): RefreshRegistration;
+/** Isolated compatibility overload; the returned handle is still mandatory. */
 export function setRefreshCallbacks(
   refresh: RefreshFn,
   onUnauthenticated: OnUnauthenticated,
-): void {
-  _refresh = refresh;
-  _onUnauthenticated = onUnauthenticated;
+): RefreshRegistration;
+export function setRefreshCallbacks(
+  ownerOrRefresh: RefreshCoordinator | RefreshAuthority | RefreshFn,
+  refreshOrUnauthenticated: RefreshFn | OnUnauthenticated,
+  maybeOnUnauthenticated?: OnUnauthenticated,
+): RefreshRegistration {
+  if (typeof ownerOrRefresh === "function") {
+    const coordinator = createRefreshCoordinator();
+    return registerCoordinator(
+      coordinator,
+      ownerOrRefresh,
+      () => {
+        void refreshOrUnauthenticated();
+      },
+    );
+  }
+
+  const onUnauthenticated = maybeOnUnauthenticated;
+  if (!onUnauthenticated) {
+    throw new Error("Refresh registration requires an unauthenticated callback");
+  }
+  const coordinatorState = coordinatorCustody.get(ownerOrRefresh);
+  if (coordinatorState) {
+    return bindAuthority(
+      mintAuthority(coordinatorState, false),
+      refreshOrUnauthenticated as RefreshFn,
+      onUnauthenticated,
+    );
+  }
+
+  const seedState = authorityCustody.get(ownerOrRefresh);
+  if (!seedState) {
+    throw new Error("Refresh authority or coordinator is not registered");
+  }
+  if (!seedState.rebindable) {
+    throw new Error("Refresh authority registration is coordinator-owned");
+  }
+
+  let authority: RefreshAuthority = ownerOrRefresh as RefreshAuthority;
+  if (seedState.binding) {
+    if (!seedState.binding.active) {
+      throw new Error("Refresh authority is retired");
+    }
+    seedState.rebindable = false;
+    seedState.binding.active = false;
+    authority = mintAuthority(seedState.coordinator, true);
+  }
+  return bindAuthority(
+    authority,
+    refreshOrUnauthenticated as RefreshFn,
+    onUnauthenticated,
+  );
 }
 
-/** The single in-flight refresh Promise, or null when no refresh is running. */
-let _inflightRefresh: Promise<RefreshResult> | null = null;
+function registerCoordinator(
+  coordinator: RefreshCoordinator,
+  refresh: RefreshFn,
+  onUnauthenticated: OnUnauthenticated,
+): RefreshRegistration {
+  const coordinatorState = coordinatorCustody.get(coordinator);
+  if (!coordinatorState) {
+    throw new Error("Refresh coordinator is not registered");
+  }
+  return bindAuthority(
+    mintAuthority(coordinatorState, false),
+    refresh,
+    onUnauthenticated,
+  );
+}
+
+function bindAuthority(
+  authority: RefreshAuthority,
+  refresh: RefreshFn,
+  onUnauthenticated: OnUnauthenticated,
+): RefreshRegistration {
+  const authorityState = authorityCustody.get(authority);
+  if (!authorityState) {
+    throw new Error("Refresh authority is not registered");
+  }
+  const binding: RefreshBinding = {
+    active: true,
+    authority,
+    authorityState,
+    refresh,
+    onUnauthenticated,
+  };
+  authorityState.binding = binding;
+
+  return Object.freeze({
+    authority,
+    dispose: () => {
+      if (!binding.active) return;
+      binding.active = false;
+    },
+  });
+}
+
+function isCurrentBinding(binding: RefreshBinding): boolean {
+  return binding.active && binding.authorityState.binding === binding;
+}
 
 /**
- * Call the refresh endpoint at most once across concurrent 401 responses.
- * Returns a fresh access token on success.
- * On failure: calls onUnauthenticated() and re-throws so callers abort.
+ * Refresh at most once for concurrent callers carrying the same exact authority.
+ * Retired work is rejected before it can supply a retry bearer or clear a newer
+ * session. Failures notify only the still-current originating registration.
  */
-export async function singleFlightRefresh(): Promise<string> {
-  if (!_refresh) {
-    // No auth callbacks registered yet (e.g. during boot before AuthProvider
-    // mounts). Treat as an unrecoverable auth failure.
-    _onUnauthenticated?.();
-    throw new Error("No refresh callback registered");
+export function singleFlightRefresh(
+  authority: RefreshAuthority | undefined,
+): Promise<string> {
+  if (!authority) {
+    return Promise.reject(new Error("Refresh authority is required"));
   }
+  const authorityState = authorityCustody.get(authority);
+  if (!authorityState) {
+    throw new Error("Refresh authority is not registered");
+  }
+  const binding = authorityState.binding;
+  if (!binding || !isCurrentBinding(binding)) {
+    return Promise.reject(new Error("Refresh authority is retired or not registered"));
+  }
+  if (binding.inflight) return binding.inflight;
 
-  if (!_inflightRefresh) {
-    _inflightRefresh = _refresh().finally(() => {
-      _inflightRefresh = null;
+  const flight = Promise.resolve()
+    .then(binding.refresh)
+    .then(
+      (result) => {
+        if (!isCurrentBinding(binding)) {
+          throw new Error("Refresh authority was retired");
+        }
+        return result.access_token;
+      },
+      (error: unknown) => {
+        if (isCurrentBinding(binding)) binding.onUnauthenticated();
+        throw error;
+      },
+    )
+    .finally(() => {
+      if (binding.inflight === flight) binding.inflight = undefined;
     });
-  }
-
-  try {
-    const result = await _inflightRefresh;
-    return result.access_token;
-  } catch (err) {
-    _onUnauthenticated?.();
-    throw err;
-  }
+  binding.inflight = flight;
+  return flight;
 }
 
 const AUTH_REFRESH_BYPASS_PATHS = new Set([

@@ -71,7 +71,7 @@ export interface ObjectExplorerScreenProps {
    * GET /ontology/instances/{id} (+history/traverse) → the pinned card payload.
    * Absent (or failing), the card degrades to the node's own graph fields.
    */
-  resolveNodeDescriptor?: (node: ObjectExplorerNode) => Promise<ObjectCardDescriptor>;
+  resolveNodeDescriptor?: (node: ObjectExplorerNode) => Promise<ObjectCardDescriptor | undefined>;
 }
 
 interface ObjectSearchResult {
@@ -855,9 +855,13 @@ export function ObjectExplorerScreen({
     if (!windowManager) return;
     let descriptor: ObjectCardDescriptor;
     try {
-      descriptor = resolveNodeDescriptor
-        ? await resolveNodeDescriptor(node)
-        : nodeDescriptor(node);
+      if (resolveNodeDescriptor) {
+        const resolved = await resolveNodeDescriptor(node);
+        if (!resolved) return;
+        descriptor = resolved;
+      } else {
+        descriptor = nodeDescriptor(node);
+      }
     } catch {
       descriptor = nodeDescriptor(node);
     }

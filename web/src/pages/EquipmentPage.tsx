@@ -33,7 +33,13 @@ const EQUIPMENT_MANAGE_ROLES = [
 const MASTER_IMPORT_ROLES = [ROLES.ADMIN, ROLES.SUPER_ADMIN] as const;
 
 export function EquipmentPage() {
-  const { api, session, viewAs } = useAuth();
+  const {
+    api,
+    session,
+    viewAs,
+    refreshAuthority,
+    sourceRefreshAuthority,
+  } = useAuth();
   const canManage = hasAnyRole(session?.roles, EQUIPMENT_MANAGE_ROLES);
   const canImport = hasAnyRole(session?.roles, MASTER_IMPORT_ROLES);
   const sourceIsGroupAdminContext = viewAs?.source === "GROUP_ADMIN";
@@ -42,6 +48,9 @@ export function EquipmentPage() {
   const groupAdminSourceToken = sourceIsGroupAdminContext
     ? viewAs.platformSession.access_token
     : session?.access_token;
+  const groupAdminSourceAuthority = sourceIsGroupAdminContext
+    ? sourceRefreshAuthority
+    : refreshAuthority;
   const activeOrgId = viewAs?.actingOrgId ?? session?.org_id;
   const [managementNo, setManagementNo] = useState("");
   const [suggestions, setSuggestions] = useState<EquipmentLookupResponse[]>([]);
@@ -134,7 +143,7 @@ export function EquipmentPage() {
 
     async function loadOwnerOrgs() {
       try {
-        const groups = await listGroupAdminGroups(groupAdminSourceToken);
+        const groups = await listGroupAdminGroups(groupAdminSourceToken, groupAdminSourceAuthority);
         if (cancelled) return;
         setOwnerOrgOptions(flattenEquipmentOwnerOrgOptions(groups));
       } catch {
@@ -146,7 +155,11 @@ export function EquipmentPage() {
     return () => {
       cancelled = true;
     };
-  }, [canSelectEquipmentOwnerOrg, groupAdminSourceToken]);
+  }, [
+    canSelectEquipmentOwnerOrg,
+    groupAdminSourceAuthority,
+    groupAdminSourceToken,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -249,6 +262,7 @@ export function EquipmentPage() {
             onSelectedOwnerOrgIdChange={setSelectedOwnerOrgId}
             activeOrgId={activeOrgId}
             groupAdminSourceToken={groupAdminSourceToken}
+            groupAdminRefreshAuthority={groupAdminSourceAuthority}
           />
         ) : null}
         {/* Master-list bulk .xlsx import (MasterListImport: ADMIN/SUPER_ADMIN). */}

@@ -17,7 +17,11 @@
 import type { components } from "@maintenance/api-client-ts";
 
 import type { ConsoleApiClient } from "./client";
-import { ApiCallError, parseGateChain, type GateChain } from "./ontologyActions";
+import {
+  ApiCallError,
+  parseGateChain,
+  type GateChain,
+} from "./ontologyActions";
 
 export type CreateObjectTypeDraft =
   components["schemas"]["CreateObjectTypeDraft"];
@@ -25,19 +29,11 @@ type ErrorBody = components["schemas"]["ErrorBody"];
 
 /** §3a schema lifecycle (serde snake_case of SchemaLifecycleState). */
 export type WireSchemaLifecycle =
-  | "draft"
-  | "review_pending"
-  | "published"
-  | "superseded"
-  | "retired";
+  "draft" | "review_pending" | "published" | "superseded" | "retired";
 
 /** §3b instance lifecycle (serde snake_case of InstanceLifecycleState). */
 export type WireInstanceLifecycle =
-  | "draft"
-  | "active"
-  | "locked"
-  | "archived"
-  | "disposed";
+  "draft" | "active" | "locked" | "archived" | "disposed";
 
 /** ObjectTypeSummary — one ont_object_types head row. */
 export interface ObjectTypeSummaryWire {
@@ -47,6 +43,8 @@ export interface ObjectTypeSummaryWire {
   backing_kind: "projected" | "instance";
   schema_version: number;
   lifecycle_state: WireSchemaLifecycle;
+  key_write_revision: number;
+  key_write_etag: string;
 }
 
 /** ActingRule — one automation or PBAC policy acting on the instance's type (§2 dynamics). */
@@ -124,6 +122,44 @@ export type TraversalEdgeWire = components["schemas"]["TraversalEdge"];
 
 export type TraversalGraphWire = components["schemas"]["TraversalGraph"];
 
+export interface ObjectTypeWriteVersion {
+  etag: string;
+  keyWriteRevision: number;
+}
+
+export interface ObjectTypeWriteReceipt {
+  objectType: ObjectTypeSummaryWire;
+  writeVersion: ObjectTypeWriteVersion;
+}
+
+export class OntologyWritePreconditionError extends Error {
+  readonly current: ObjectTypeWriteVersion;
+
+  constructor(current: ObjectTypeWriteVersion) {
+    super(
+      "The ontology object type changed; rebase on the current server version.",
+    );
+    this.name = "OntologyWritePreconditionError";
+    this.current = current;
+  }
+}
+
+function writeVersionFromSummary(
+  summary: ObjectTypeSummaryWire,
+  response: Response,
+): ObjectTypeWriteVersion {
+  const etag = response.headers.get("etag");
+  if (etag === null || etag !== summary.key_write_etag) {
+    throw new Error(
+      "Ontology write response omitted or mismatched its strong ETag",
+    );
+  }
+  return {
+    etag,
+    keyWriteRevision: summary.key_write_revision,
+  };
+}
+
 function throwing(status: number, error: ErrorBody | undefined): never {
   throw new ApiCallError(status, error);
 }
@@ -168,7 +204,7 @@ export async function createObjectType(
     { body: draft },
   );
   if (!data) throwing(response.status, error);
-  return data as unknown as ObjectTypeSummaryWire;
+  return data;
 }
 
 /** PUT /api/v1/ontology/object-types/{key} — stage a v+1 schema revision. */
@@ -176,13 +212,47 @@ export async function stageObjectTypeRevision(
   api: ConsoleApiClient,
   key: string,
   draft: CreateObjectTypeDraft,
-): Promise<ObjectTypeSummaryWire> {
+  options: {
+    expected: ObjectTypeWriteVersion;
+    signal: AbortSignal;
+  },
+): Promise<ObjectTypeWriteReceipt> {
   const { data, error, response } = await api.PUT(
     "/api/v1/ontology/object-types/{key}",
-    { params: { path: { key } }, body: draft },
+    {
+      params: {
+        path: { key },
+        header: { "If-Match": options.expected.etag },
+      },
+      body: draft,
+      signal: options.signal,
+    },
   );
-  if (!data) throwing(response.status, error);
-  return data as unknown as ObjectTypeSummaryWire;
+  if (!data) {
+    const currentRevision =
+      "current_key_write_revision" in error.error
+        ? error.error.current_key_write_revision
+        : undefined;
+    const currentEtag = response.headers.get("etag");
+    if (
+      response.status === 412 &&
+      currentEtag !== null &&
+      typeof currentRevision === "number" &&
+      Number.isSafeInteger(currentRevision) &&
+      currentRevision >= 1
+    ) {
+      throw new OntologyWritePreconditionError({
+        etag: currentEtag,
+        keyWriteRevision: currentRevision,
+      });
+    }
+    throwing(response.status, error);
+  }
+  const objectType = data;
+  return {
+    objectType,
+    writeVersion: writeVersionFromSummary(objectType, response),
+  };
 }
 
 /** GET /api/v1/ontology/instances?type= — current-state instances of one type version. */
@@ -190,9 +260,12 @@ export async function listInstances(
   api: ConsoleApiClient,
   objectTypeVersionId: string,
 ): Promise<InstanceStateWire[]> {
-  const { data, error, response } = await api.GET("/api/v1/ontology/instances", {
-    params: { query: { type: objectTypeVersionId } },
-  });
+  const { data, error, response } = await api.GET(
+    "/api/v1/ontology/instances",
+    {
+      params: { query: { type: objectTypeVersionId } },
+    },
+  );
   if (!data) throwing(response.status, error);
   return data as unknown as InstanceStateWire[];
 }

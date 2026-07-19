@@ -3,7 +3,11 @@ import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { createConsoleApiClient } from "./client";
-import { setRefreshCallbacks } from "./refresh";
+import {
+  createRefreshAuthority,
+  createRefreshCoordinator,
+  setRefreshCallbacks,
+} from "./refresh";
 
 const server = setupServer();
 
@@ -124,7 +128,15 @@ describe("console API read cache", () => {
     vi.spyOn(Date, "now").mockReturnValue(0);
     const refreshCalled = vi.fn(() => Promise.resolve({ access_token: TOKEN_V2 }));
     const onUnauthenticated = vi.fn();
-    setRefreshCallbacks(refreshCalled, onUnauthenticated);
+    const refreshAuthority = createRefreshAuthority(
+      createRefreshCoordinator(),
+      "cache-test-session",
+    );
+    setRefreshCallbacks(
+      refreshAuthority,
+      refreshCalled,
+      onUnauthenticated,
+    );
     let calls = 0;
     let resolveRetriedRefresh!: () => void;
     const retriedRefresh = new Promise<void>((resolve) => {
@@ -145,7 +157,7 @@ describe("console API read cache", () => {
       }),
     );
 
-    const client = createConsoleApiClient(TOKEN_V1);
+    const client = createConsoleApiClient(TOKEN_V1, refreshAuthority);
     const first = await client.GET("/api/v1/users", USERS_REQUEST);
     expect(first.data?.items[0]?.display_name).toBe("cached protected roster");
 

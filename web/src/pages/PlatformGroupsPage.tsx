@@ -56,7 +56,7 @@ type ReadState = "idle" | "loading" | "error";
 type AccountsByGroup = Record<string, PlatformGroupAccount[]>;
 
 export function PlatformGroupsPage() {
-  const { session, enterViewAs } = useAuth();
+  const { session, enterViewAs, refreshAuthority } = useAuth();
   const navigate = useNavigate();
   const token = session?.access_token;
 
@@ -81,8 +81,8 @@ export function PlatformGroupsPage() {
     setReadState("loading");
     setError(undefined);
     const [groupResult, orgResult] = await Promise.all([
-      listPlatformGroups(token).catch(() => undefined),
-      listPlatformOrgs(token).catch(() => undefined),
+      listPlatformGroups(token, refreshAuthority).catch(() => undefined),
+      listPlatformOrgs(token, refreshAuthority).catch(() => undefined),
     ]);
     if (!groupResult || !orgResult) {
       setReadState("error");
@@ -91,7 +91,7 @@ export function PlatformGroupsPage() {
 
     const accountEntries = await Promise.all(
       groupResult.map(async (group) => {
-        const accounts = await listPlatformGroupAccounts(token, group.id).catch(
+        const accounts = await listPlatformGroupAccounts(token, group.id, refreshAuthority).catch(
           () => undefined,
         );
         return [group.id, accounts ?? []] as const;
@@ -102,7 +102,7 @@ export function PlatformGroupsPage() {
     setOrgs(orgResult);
     setAccountsByGroup(Object.fromEntries(accountEntries));
     setReadState("idle");
-  }, [token]);
+  }, [refreshAuthority, token]);
 
   useEffect(() => {
     void Promise.resolve().then(load);
@@ -122,7 +122,11 @@ export function PlatformGroupsPage() {
     }
     setPending(true);
     try {
-      await createPlatformGroup(token, { name: nextName, slug: nextSlug });
+      await createPlatformGroup(
+        token,
+        { name: nextName, slug: nextSlug },
+        refreshAuthority,
+      );
       setName("");
       setSlug("");
       await load();
@@ -150,10 +154,12 @@ export function PlatformGroupsPage() {
     }
     setPending(true);
     try {
-      await updatePlatformGroup(token, group.id, {
-        name: nextName,
-        slug: nextSlug,
-      });
+      await updatePlatformGroup(
+        token,
+        group.id,
+        { name: nextName, slug: nextSlug },
+        refreshAuthority,
+      );
       await load();
     } catch {
       setError(ko.platform.groups.editFailed);
@@ -168,7 +174,7 @@ export function PlatformGroupsPage() {
     setError(undefined);
     setPending(true);
     try {
-      await assignPlatformOrgToGroup(token, group.id, orgId);
+      await assignPlatformOrgToGroup(token, group.id, orgId, refreshAuthority);
       setSelectedOrgByGroup((current) => ({ ...current, [group.id]: "" }));
       await load();
     } catch {
@@ -182,7 +188,7 @@ export function PlatformGroupsPage() {
     setError(undefined);
     setPending(true);
     try {
-      await removePlatformOrgFromGroup(token, group.id, orgId);
+      await removePlatformOrgFromGroup(token, group.id, orgId, refreshAuthority);
       await load();
     } catch {
       setError(ko.platform.groups.removeFailed);
@@ -213,13 +219,18 @@ export function PlatformGroupsPage() {
     }
     setPending(true);
     try {
-      const created = await createPlatformGroupAccount(token, group.id, {
-        org_id: body.orgId,
-        display_name: displayName,
-        phone: body.phone?.trim() || undefined,
-        tenant_roles: [body.tenantRole],
-        group_role: body.groupRole,
-      });
+      const created = await createPlatformGroupAccount(
+        token,
+        group.id,
+        {
+          org_id: body.orgId,
+          display_name: displayName,
+          phone: body.phone?.trim() || undefined,
+          tenant_roles: [body.tenantRole],
+          group_role: body.groupRole,
+        },
+        refreshAuthority,
+      );
       await load();
       return created;
     } catch {
@@ -238,7 +249,13 @@ export function PlatformGroupsPage() {
     setError(undefined);
     setPending(true);
     try {
-      await revokePlatformGroupRole(token, group.id, account.user_id, role);
+      await revokePlatformGroupRole(
+        token,
+        group.id,
+        account.user_id,
+        role,
+        refreshAuthority,
+      );
       await load();
     } catch {
       setError(ko.platform.groups.accountRevokeFailed);
@@ -250,7 +267,7 @@ export function PlatformGroupsPage() {
   async function startManageOrg(org: PlatformOrg) {
     setError(undefined);
     try {
-      const result = await startTenantContext(token, { org_id: org.id });
+      const result = await startTenantContext(token, { org_id: org.id }, refreshAuthority);
       enterViewAs({
         token: result.access_token,
         mode: "MANAGE",

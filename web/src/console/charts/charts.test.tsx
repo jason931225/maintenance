@@ -93,7 +93,16 @@ describe("ProjectionPanel (change-log 68 정량 투영)", () => {
       />,
     );
 
-    expect(screen.getByText(T.projection.assumptionEwmaVolatility("0.123"))).toBeTruthy();
+    expect(
+      screen.getByText(
+        T.projection.assumptionEwmaVolatility(
+          new Intl.NumberFormat("ko-KR", {
+            style: "percent",
+            maximumFractionDigits: 1,
+          }).format(0.123),
+        ),
+      ),
+    ).toBeTruthy();
     expect(screen.getByText(T.projection.assumptionStudentT(7))).toBeTruthy();
     expect(screen.queryByText(T.projection.assumptionEwma("0.5"))).toBeNull();
   });

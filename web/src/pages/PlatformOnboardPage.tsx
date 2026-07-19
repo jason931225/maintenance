@@ -15,7 +15,7 @@ import { ko } from "../i18n/ko";
 const SLUG_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 export function PlatformOnboardPage() {
-  const { session } = useAuth();
+  const { session, refreshAuthority } = useAuth();
   const navigate = useNavigate();
   const token = session?.access_token;
 
@@ -41,10 +41,11 @@ export function PlatformOnboardPage() {
     }
     setPending(true);
     try {
-      const response = await onboardPlatformOrg(token, {
-        name: trimmedName,
-        slug: trimmedSlug,
-      });
+      const response = await onboardPlatformOrg(
+        token,
+        { name: trimmedName, slug: trimmedSlug },
+        refreshAuthority,
+      );
       setResult(response);
     } catch (err) {
       if (err instanceof PlatformApiError && err.status === 409) {

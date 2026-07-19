@@ -5,7 +5,7 @@ import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { createConsoleApiClient } from "../../api/client";
-import { AuthContext, type AuthContextValue, type AuthSession } from "../../context/auth";
+import { AuthContext, type AcceptableTokens, type AuthContextValue, type AuthSession, type TokenAcceptanceLease } from "../../context/auth";
 import { setRefreshCallbacks } from "../../api/refresh";
 import { FirstLoginOnboarding } from "./FirstLoginOnboarding";
 import { REQUIRED_PRIVACY_TERMS_VERSION } from "./useFirstLoginFlow";
@@ -42,7 +42,10 @@ function makeAuthContext(
     login: overrides.login ?? (async () => {}),
     logout: overrides.logout ?? (async () => {}),
     refresh: overrides.refresh ?? (async () => {}),
-    acceptTokens: overrides.acceptTokens ?? (() => {}),
+    acceptTokens: overrides.acceptTokens ?? (() => true),
+    beginTokenAcceptance:
+      overrides.beginTokenAcceptance ??
+      (() => Object.freeze({}) as TokenAcceptanceLease),
     clearPasskeySetup: overrides.clearPasskeySetup ?? (() => {}),
     api,
     viewAs: overrides.viewAs,
@@ -247,7 +250,7 @@ describe("FirstLoginOnboarding", () => {
       expect(acceptTokens).toHaveBeenCalledWith({
         access_token: "phone-qr-desktop-access",
         requires_passkey_setup: false,
-      });
+      }, expect.any(Object));
     });
     expect(clearPasskeySetup).toHaveBeenCalledTimes(1);
     expect(handoffCalls).toBe(1);
@@ -271,5 +274,82 @@ describe("FirstLoginOnboarding", () => {
 
     await screen.findByRole("button", { name: "QR 표시" });
     expect(screen.queryByRole("button", { name: "이 기기에 등록" })).not.toBeInTheDocument();
+  });
+});
+
+describe("useFirstLoginFlow provider-owned acceptance lease fencing", () => {
+  it("acquires before handoff issuance and rejects delayed phone A after accepted B", async () => {
+    const events: string[] = [];
+    let sequence = 0;
+    let currentLease: TokenAcceptanceLease | undefined;
+    let acceptedToken = "none";
+    const beginTokenAcceptance = vi.fn(() => {
+      events.push(`lease-${String(sequence + 1)}`);
+      currentLease = Object.freeze({ sequence: ++sequence }) as unknown as TokenAcceptanceLease;
+      return currentLease;
+    });
+    const acceptTokens = vi.fn((
+      tokens: AcceptableTokens | undefined,
+      lease?: TokenAcceptanceLease,
+    ) => {
+      if (!lease || lease !== currentLease) return false;
+      currentLease = undefined;
+      acceptedToken = tokens?.access_token ?? "none";
+      return true;
+    });
+    const clearPasskeySetup = vi.fn();
+    let markPollStarted!: () => void;
+    const pollStarted = new Promise<void>((resolve) => {
+      markPollStarted = resolve;
+    });
+    let releasePoll!: () => void;
+    const pollBarrier = new Promise<void>((resolve) => {
+      releasePoll = resolve;
+    });
+    usePrivacyConsentHandlers(true);
+    server.use(
+      http.post("*/api/v1/auth/passkey/enroll-handoff", () => {
+        events.push("handoff-request");
+        return HttpResponse.json(phoneQrHandoffResponse("Lease123"));
+      }),
+      http.post("*/api/v1/auth/device-login/poll", async () => {
+        events.push("poll-start");
+        markPollStarted();
+        await pollBarrier;
+        events.push("poll-resolve");
+        return HttpResponse.json({
+          status: "approved",
+          access_token: "delayed-first-login-a",
+          requires_passkey_setup: false,
+        });
+      }),
+    );
+
+    renderFirstLogin(
+      makeAuthContext({
+        session: { access_token: "source", requires_passkey_setup: true },
+        beginTokenAcceptance,
+        acceptTokens,
+        clearPasskeySetup,
+      }),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "QR 표시" }));
+    await pollStarted;
+    expect(events.indexOf("lease-1")).toBeLessThan(events.indexOf("handoff-request"));
+    expect(events.indexOf("lease-1")).toBeLessThan(events.indexOf("poll-start"));
+
+    const leaseB = beginTokenAcceptance();
+    expect(acceptTokens({ access_token: "accepted-b" }, leaseB)).toBe(true);
+    releasePoll();
+    await waitFor(() => {
+      expect(events).toContain("poll-resolve");
+      expect(acceptTokens).toHaveBeenCalledWith(
+        { access_token: "delayed-first-login-a", requires_passkey_setup: false },
+        expect.any(Object),
+      );
+    });
+    expect(acceptedToken).toBe("accepted-b");
+    expect(clearPasskeySetup).not.toHaveBeenCalled();
+    expect(screen.getByTestId("location")).toHaveTextContent("/onboarding");
   });
 });

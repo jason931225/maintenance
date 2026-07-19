@@ -62,9 +62,28 @@ const FALLBACK: InboxStrings = {
 };
 
 export function inboxStrings(): InboxStrings {
-  const wired = (ko.console as unknown as { inboxVault?: Partial<InboxStrings> })
-    .inboxVault;
-  return wired ? { ...FALLBACK, ...wired } : FALLBACK;
+  const wired = (
+    ko.console as unknown as {
+      inboxVault?: Partial<InboxStrings> & {
+        filters?: Partial<InboxStrings["filters"]>;
+        status?: Partial<InboxStrings["status"]>;
+        kind?: Partial<InboxStrings["kind"]>;
+        detail?: Partial<InboxStrings["detail"]>;
+        empty?: Partial<InboxStrings["empty"]>;
+      };
+    }
+  ).inboxVault;
+  return wired
+    ? {
+        ...FALLBACK,
+        ...wired,
+        filters: { ...FALLBACK.filters, ...wired.filters },
+        status: { ...FALLBACK.status, ...wired.status },
+        kind: { ...FALLBACK.kind, ...wired.kind },
+        detail: { ...FALLBACK.detail, ...wired.detail },
+        empty: { ...FALLBACK.empty, ...wired.empty },
+      }
+    : FALLBACK;
 }
 
 // ── filter tabs (order mirrors the server enum) ──────────────────────────────

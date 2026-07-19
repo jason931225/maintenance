@@ -2,11 +2,11 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useNavigate } from "react-router-dom";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
-import { AuthContext } from "../../context/auth";
-import type { AuthContextValue, AuthSession } from "../../context/auth";
+import { AuthContext, useAuth } from "../../context/auth";
+import type { AuthContextValue, AuthSession, ViewAsState } from "../../context/auth";
 import { createConsoleApiClient } from "../../api/client";
 import { useWindowManager } from "../../console/window";
 import { ko } from "../../i18n/ko";
@@ -28,14 +28,22 @@ afterAll(() => {
   server.close();
 });
 
-function makeAuthContext(roles: string[], featureGrants: string[] = []): AuthContextValue {
+function makeAuthContext(
+  roles: string[],
+  featureGrants: string[] = [],
+  orgId = "tenant-default",
+  sessionOverrides: Partial<AuthSession> = {},
+): AuthContextValue {
   const session: AuthSession = {
     access_token: "test-token",
+    client_session_incarnation: "test-session",
     user_id: "user-1",
     display_name: "테스터",
     roles,
     branches: [],
+    org_id: orgId,
     feature_grants: featureGrants,
+    ...sessionOverrides,
   };
   return {
     session,
@@ -52,6 +60,71 @@ function makeAuthContext(roles: string[], featureGrants: string[] = []): AuthCon
   };
 }
 
+function makeViewAsAuthContext(
+  sourceOverrides: Partial<AuthSession> = {},
+  effectiveOverrides: Partial<AuthSession> = {},
+): AuthContextValue {
+  const effectiveToken = effectiveOverrides.access_token ?? "view-token-a";
+  const auth = makeAuthContext(["ADMIN"], [], "tenant-a", {
+    access_token: effectiveToken,
+    client_session_incarnation: "view-session",
+    user_id: "operator-1",
+    branches: ["tenant-branch"],
+    ...effectiveOverrides,
+  });
+  const viewAs: ViewAsState = {
+    token: effectiveToken,
+    client_session_incarnation: "view-session",
+    actingOrgId: "tenant-a",
+    actingOrgName: "Tenant A",
+    actingRole: "ADMIN",
+    mode: "MANAGE",
+    source: "PLATFORM",
+    platformSession: {
+      access_token: "source-token-a",
+      client_session_incarnation: "source-session",
+      org_id: "platform-org",
+      user_id: "operator-1",
+      roles: ["SUPER_ADMIN"],
+      group_roles: ["GROUP_ADMIN"],
+      feature_grants: ["tenant_manage"],
+      branches: ["source-branch"],
+      isPlatform: true,
+      ...sourceOverrides,
+    },
+  };
+  return { ...auth, viewAs };
+}
+
+type SessionWithClientIncarnation = AuthSession & {
+  client_session_incarnation?: string;
+};
+
+function withSessionIncarnation(
+  auth: AuthContextValue,
+  incarnation: string,
+): AuthContextValue {
+  if (auth.session) {
+    (auth.session as SessionWithClientIncarnation).client_session_incarnation =
+      incarnation;
+  }
+  return auth;
+}
+
+function withViewAsIncarnations(
+  auth: AuthContextValue,
+  effectiveIncarnation: string,
+  sourceIncarnation: string,
+): AuthContextValue {
+  withSessionIncarnation(auth, effectiveIncarnation);
+  if (auth.viewAs) {
+    (
+      auth.viewAs.platformSession as SessionWithClientIncarnation
+    ).client_session_incarnation = sourceIncarnation;
+  }
+  return auth;
+}
+
 function StubPage({ title, marker }: { title: string; marker: string }) {
   return (
     <>
@@ -62,16 +135,46 @@ function StubPage({ title, marker }: { title: string; marker: string }) {
 }
 
 function WindowStubPage() {
-  const { open, minimize } = useWindowManager();
+  const { entries, open, minimize, register, saveLayout } = useWindowManager();
+  const { session } = useAuth();
+  const navigate = useNavigate();
+  const branchSnapshot = (session?.branches ?? []).join(",") || "none";
   return (
     <>
+      <p data-testid="window-entry-count">{String(entries.size)}</p>
       <button
         type="button"
         onClick={() => {
-          open({ id: "WO-1", title: "패널 A", render: () => <p>panel body</p> });
+          open({
+            id: "WO-1",
+            title: "패널 A",
+            render: () => (
+              <>
+                <p>panel body</p>
+                <p>{`panel scope ${branchSnapshot}`}</p>
+              </>
+            ),
+          });
         }}
       >
         open-window
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          open({
+            id: "WO-2",
+            title: "패널 B",
+            render: () => (
+              <>
+                <p>second panel body</p>
+                <p>{`second panel scope ${branchSnapshot}`}</p>
+              </>
+            ),
+          });
+        }}
+      >
+        open-second-window
       </button>
       <button
         type="button"
@@ -81,13 +184,31 @@ function WindowStubPage() {
       >
         minimize-window
       </button>
+      <button
+        type="button"
+        onClick={() => {
+          register({
+            id: "WO-1",
+            title: "패널 A",
+            render: () => <p>panel body</p>,
+          });
+        }}
+      >
+        register-window
+      </button>
+      <button type="button" onClick={() => { saveLayout(); }}>
+        save-window-layout
+      </button>
+      <button type="button" onClick={() => { void navigate("/equipment"); }}>
+        navigate-window
+      </button>
     </>
   );
 }
 
-function renderShell(roles: string[], initialPath = "/dispatch", featureGrants: string[] = []) {
-  return render(
-    <AuthContext.Provider value={makeAuthContext(roles, featureGrants)}>
+function shellTree(auth: AuthContextValue, initialPath = "/dispatch") {
+  return (
+    <AuthContext.Provider value={auth}>
       <MemoryRouter initialEntries={[initialPath]}>
         <Routes>
           <Route element={<AppShell />}>
@@ -107,8 +228,12 @@ function renderShell(roles: string[], initialPath = "/dispatch", featureGrants: 
           </Route>
         </Routes>
       </MemoryRouter>
-    </AuthContext.Provider>,
+    </AuthContext.Provider>
   );
+}
+
+function renderShell(roles: string[], initialPath = "/dispatch", featureGrants: string[] = []) {
+  return render(shellTree(makeAuthContext(roles, featureGrants), initialPath));
 }
 
 function openCommandPalette() {
@@ -349,6 +474,503 @@ describe("AppShell chrome", () => {
     );
 
     expect(screen.getByRole("dialog", { name: "명령 팔레트" })).toBeVisible();
+  });
+
+  it("preserves windows across same-authority navigation and clears them synchronously on authority change", () => {
+    const authA = makeAuthContext(["ADMIN"], [], "tenant-a");
+    const authB = makeAuthContext(["ADMIN"], [], "tenant-b");
+    const view = render(shellTree(authA, "/window-stub"));
+
+    fireEvent.click(screen.getByRole("button", { name: "open-window" }));
+    expect(screen.getByText("panel body")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "navigate-window" }));
+    expect(screen.getByText("equipment page")).toBeVisible();
+    expect(screen.getByText("panel body")).toBeVisible();
+
+    view.rerender(shellTree(authB, "/window-stub"));
+    expect(screen.queryByText("panel body")).not.toBeInTheDocument();
+  });
+
+  it("preserves windows when branch claims only reorder or duplicate", () => {
+    const authA = makeAuthContext(["ADMIN"], [], "tenant-a", {
+      branches: ["branch-b", "branch-a", "branch-a"],
+    });
+    const authB = makeAuthContext(["ADMIN"], [], "tenant-a", {
+      branches: ["branch-a", "branch-b"],
+    });
+    const view = render(shellTree(authA, "/window-stub"));
+
+    fireEvent.click(screen.getByRole("button", { name: "open-window" }));
+    view.rerender(shellTree(authB, "/window-stub"));
+
+    expect(screen.getByText("panel body")).toBeVisible();
+  });
+
+  it("preserves windows across access-token rotation", () => {
+    const authA = makeAuthContext(["ADMIN"], [], "tenant-a", {
+      access_token: "token-a",
+      branches: ["branch-a"],
+    });
+    const authB = makeAuthContext(["ADMIN"], [], "tenant-a", {
+      access_token: "token-b",
+      branches: ["branch-a"],
+    });
+    const view = render(shellTree(authA, "/window-stub"));
+
+    fireEvent.click(screen.getByRole("button", { name: "open-window" }));
+    view.rerender(shellTree(authB, "/window-stub"));
+
+    expect(screen.getByText("panel body")).toBeVisible();
+  });
+
+  it("session incarnation clears a pinned missing-user replacement synchronously", () => {
+    const authA = withSessionIncarnation(
+      makeAuthContext(["ADMIN"], [], "tenant-a", {
+        access_token: "missing-user-a",
+        user_id: undefined,
+      }),
+      "direct-a",
+    );
+    const authB = withSessionIncarnation(
+      makeAuthContext(["ADMIN"], [], "tenant-a", {
+        access_token: "missing-user-b",
+        user_id: undefined,
+      }),
+      "direct-b",
+    );
+    const view = render(shellTree(authA, "/window-stub"));
+
+    fireEvent.click(screen.getByRole("button", { name: "open-window" }));
+    expect(screen.getByText("panel body")).toBeVisible();
+
+    view.rerender(shellTree(authB, "/window-stub"));
+
+    expect(screen.queryByText("panel body")).not.toBeInTheDocument();
+    expect(screen.getByTestId("window-entry-count")).toHaveTextContent("0");
+  });
+
+  it("session incarnation clears a minimized missing-org replacement and retained tray closure synchronously", () => {
+    const authA = withSessionIncarnation(
+      makeAuthContext(["ADMIN"], [], "tenant-a", {
+        access_token: "missing-org-a",
+        org_id: undefined,
+      }),
+      "direct-a",
+    );
+    const authB = withSessionIncarnation(
+      makeAuthContext(["ADMIN"], [], "tenant-a", {
+        access_token: "missing-org-b",
+        org_id: undefined,
+      }),
+      "direct-b",
+    );
+    const view = render(shellTree(authA, "/window-stub"));
+
+    fireEvent.click(screen.getByRole("button", { name: "open-window" }));
+    fireEvent.click(screen.getByRole("button", { name: "minimize-window" }));
+    expect(screen.getByRole("button", { name: "패널 A 복원" })).toBeVisible();
+
+    view.rerender(shellTree(authB, "/window-stub"));
+
+    expect(
+      screen.queryByRole("button", { name: "패널 A 복원" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("panel body")).not.toBeInTheDocument();
+  });
+
+  it("session incarnation fail-closes replacement when both stable IDs are missing", () => {
+    const authA = withSessionIncarnation(
+      makeAuthContext(["ADMIN"], [], "tenant-a", {
+        access_token: "missing-both-a",
+        org_id: undefined,
+        user_id: undefined,
+      }),
+      "direct-a",
+    );
+    const authB = withSessionIncarnation(
+      makeAuthContext(["ADMIN"], [], "tenant-a", {
+        access_token: "missing-both-b",
+        org_id: undefined,
+        user_id: undefined,
+      }),
+      "direct-b",
+    );
+    const view = render(shellTree(authA, "/window-stub"));
+
+    fireEvent.click(screen.getByRole("button", { name: "open-window" }));
+    view.rerender(shellTree(authB, "/window-stub"));
+
+    expect(screen.queryByText("panel body")).not.toBeInTheDocument();
+  });
+
+  it("custom context fail-closes incomplete identity by weak object partition", () => {
+    const authA = makeAuthContext(["ADMIN"], [], "tenant-a", {
+      access_token: "custom-a",
+      client_session_incarnation: undefined,
+      org_id: undefined,
+      user_id: undefined,
+    });
+    const authB = makeAuthContext(["ADMIN"], [], "tenant-a", {
+      access_token: "custom-b",
+      client_session_incarnation: undefined,
+      org_id: undefined,
+      user_id: undefined,
+    });
+    const view = render(shellTree(authA, "/window-stub"));
+
+    fireEvent.click(screen.getByRole("button", { name: "open-window" }));
+    view.rerender(shellTree(authB, "/window-stub"));
+
+    expect(screen.queryByText("panel body")).not.toBeInTheDocument();
+    expect(screen.getByTestId("window-entry-count")).toHaveTextContent("0");
+  });
+
+  it("disables retained window state when a custom context omits an owned incarnation", () => {
+    const auth = makeAuthContext(["ADMIN"], [], "tenant-a", {
+      access_token: "custom-stable",
+      client_session_incarnation: undefined,
+      org_id: undefined,
+      user_id: undefined,
+    });
+    const view = render(shellTree(auth, "/window-stub"));
+
+    fireEvent.click(screen.getByRole("button", { name: "open-window" }));
+    view.rerender(shellTree(auth, "/window-stub"));
+
+    expect(screen.queryByText("panel body")).not.toBeInTheDocument();
+    expect(screen.getByTestId("window-entry-count")).toHaveTextContent("0");
+  });
+
+  it("does not infer session continuity from equal populated identity without an incarnation", () => {
+    const authA = makeAuthContext(["ADMIN"], ["mail_use"], "tenant-a", {
+      access_token: "incarnationless-a",
+      client_session_incarnation: undefined,
+      branches: ["branch-a"],
+    });
+    const authB = makeAuthContext(["ADMIN"], ["mail_use"], "tenant-a", {
+      access_token: "incarnationless-b",
+      client_session_incarnation: undefined,
+      branches: ["branch-a"],
+    });
+    const view = render(shellTree(authA, "/window-stub"));
+
+    fireEvent.click(screen.getByRole("button", { name: "open-window" }));
+    expect(screen.queryByText("panel body")).not.toBeInTheDocument();
+    expect(screen.getByTestId("window-entry-count")).toHaveTextContent("0");
+
+    view.rerender(shellTree(authB, "/window-stub"));
+    expect(screen.queryByText("panel body")).not.toBeInTheDocument();
+    expect(screen.getByTestId("window-entry-count")).toHaveTextContent("0");
+  });
+
+  it("does not rehydrate saved A window or tray state into equal-claim B", () => {
+    const authA = withSessionIncarnation(
+      makeAuthContext(["ADMIN"], ["mail_use"], "tenant-a", {
+        access_token: "layout-a",
+        branches: ["branch-a"],
+      }),
+      "layout-session-a",
+    );
+    const authB = withSessionIncarnation(
+      makeAuthContext(["ADMIN"], ["mail_use"], "tenant-a", {
+        access_token: "layout-b",
+        branches: ["branch-a"],
+      }),
+      "layout-session-b",
+    );
+    const view = render(shellTree(authA, "/window-stub"));
+
+    fireEvent.click(screen.getByRole("button", { name: "open-window" }));
+    fireEvent.click(screen.getByRole("button", { name: "minimize-window" }));
+    fireEvent.click(screen.getByRole("button", { name: "save-window-layout" }));
+    expect(screen.getByRole("button", { name: "패널 A 복원" })).toBeVisible();
+
+    view.rerender(shellTree(authB, "/window-stub"));
+    fireEvent.click(screen.getByRole("button", { name: "register-window" }));
+
+    expect(
+      screen.queryByRole("button", { name: "패널 A 복원" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("panel body")).not.toBeInTheDocument();
+  });
+
+  it("session incarnation change clears equal populated identity and claims", () => {
+    const authA = withSessionIncarnation(
+      makeAuthContext(["ADMIN"], ["mail_use"], "tenant-a", {
+        access_token: "equal-authority-a",
+        branches: ["branch-a"],
+      }),
+      "direct-a",
+    );
+    const authB = withSessionIncarnation(
+      makeAuthContext(["ADMIN"], ["mail_use"], "tenant-a", {
+        access_token: "equal-authority-b",
+        branches: ["branch-a"],
+      }),
+      "direct-b",
+    );
+    const view = render(shellTree(authA, "/window-stub"));
+
+    fireEvent.click(screen.getByRole("button", { name: "open-window" }));
+    view.rerender(shellTree(authB, "/window-stub"));
+
+    expect(screen.queryByText("panel body")).not.toBeInTheDocument();
+  });
+
+  it("stable session incarnation preserves navigation, rerender, refresh, and normalized claims", () => {
+    const authA = withSessionIncarnation(
+      makeAuthContext(
+        ["ADMIN", "MECHANIC", "ADMIN"],
+        ["mail_use", "dispatch_read", "mail_use"],
+        "tenant-a",
+        {
+          access_token: "stable-refresh-a",
+          branches: ["branch-b", "branch-a", "branch-a"],
+        },
+      ),
+      "stable-session",
+    );
+    const authB = withSessionIncarnation(
+      makeAuthContext(
+        ["MECHANIC", "ADMIN"],
+        ["dispatch_read", "mail_use"],
+        "tenant-a",
+        {
+          access_token: "stable-refresh-b",
+          branches: ["branch-a", "branch-b"],
+        },
+      ),
+      "stable-session",
+    );
+    const view = render(shellTree(authA, "/window-stub"));
+
+    fireEvent.click(screen.getByRole("button", { name: "open-window" }));
+    fireEvent.click(screen.getByRole("button", { name: "navigate-window" }));
+    expect(screen.getByText("panel body")).toBeVisible();
+
+    view.rerender(shellTree(authB, "/window-stub"));
+
+    expect(screen.getByText("panel body")).toBeVisible();
+  });
+
+  it("view-as uses source-user fallback and preserves a stable effective incarnation", () => {
+    const authA = withViewAsIncarnations(
+      makeViewAsAuthContext({}, {
+        access_token: "view-token-a",
+        user_id: undefined,
+      }),
+      "view-session",
+      "source-session",
+    );
+    const authB = withViewAsIncarnations(
+      makeViewAsAuthContext(
+        { access_token: "source-token-b" },
+        {
+          access_token: "view-token-b",
+          user_id: undefined,
+        },
+      ),
+      "view-session",
+      "source-session",
+    );
+    const view = render(shellTree(authA, "/window-stub"));
+
+    fireEvent.click(screen.getByRole("button", { name: "open-window" }));
+    view.rerender(shellTree(authB, "/window-stub"));
+
+    expect(screen.getByText("panel body")).toBeVisible();
+  });
+
+  it("view-as source incarnation clears replacement when source stable identity is missing", () => {
+    const authA = withViewAsIncarnations(
+      makeViewAsAuthContext(
+        { org_id: undefined, user_id: undefined },
+        { user_id: undefined },
+      ),
+      "view-session",
+      "source-a",
+    );
+    const authB = withViewAsIncarnations(
+      makeViewAsAuthContext(
+        {
+          access_token: "source-token-b",
+          org_id: undefined,
+          user_id: undefined,
+        },
+        { access_token: "view-token-b", user_id: undefined },
+      ),
+      "view-session",
+      "source-b",
+    );
+    const view = render(shellTree(authA, "/window-stub"));
+
+    fireEvent.click(screen.getByRole("button", { name: "open-window" }));
+    view.rerender(shellTree(authB, "/window-stub"));
+
+    expect(screen.queryByText("panel body")).not.toBeInTheDocument();
+  });
+
+  it("A-B-A session incarnations do not resurrect removed window state", () => {
+    const authA = withSessionIncarnation(
+      makeAuthContext(["ADMIN"], [], "tenant-a"),
+      "session-a",
+    );
+    const authB = withSessionIncarnation(
+      makeAuthContext(["ADMIN"], [], "tenant-a"),
+      "session-b",
+    );
+    const authAReturn = withSessionIncarnation(
+      makeAuthContext(["ADMIN"], [], "tenant-a"),
+      "session-a",
+    );
+    const view = render(shellTree(authA, "/window-stub"));
+
+    fireEvent.click(screen.getByRole("button", { name: "open-window" }));
+    view.rerender(shellTree(authB, "/window-stub"));
+    expect(screen.queryByText("panel body")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "open-window" }));
+    fireEvent.click(screen.getByRole("button", { name: "minimize-window" }));
+    expect(screen.getByRole("button", { name: "패널 A 복원" })).toBeVisible();
+
+    view.rerender(shellTree(authAReturn, "/window-stub"));
+
+    expect(
+      screen.queryByRole("button", { name: "패널 A 복원" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByText("panel body")).not.toBeInTheDocument();
+  });
+
+  it("window partition output contains no raw, digested, or reversible token material", () => {
+    const accessToken = "opaque-secret-token-material";
+    const tokenDigest =
+      "f859daea54282132e61ac9cb7d95553d32540a2072bb164e31e03c2fa2988c22";
+    const reversibleToken = btoa(accessToken);
+    const stringify = vi.spyOn(JSON, "stringify");
+    const logOutput: string[] = [];
+    const logSpies = [
+      vi.spyOn(console, "log").mockImplementation((...values: unknown[]) => {
+        logOutput.push(values.map(String).join(" "));
+      }),
+      vi.spyOn(console, "warn").mockImplementation((...values: unknown[]) => {
+        logOutput.push(values.map(String).join(" "));
+      }),
+      vi.spyOn(console, "error").mockImplementation((...values: unknown[]) => {
+        logOutput.push(values.map(String).join(" "));
+      }),
+    ];
+
+    const view = render(
+      shellTree(
+        withSessionIncarnation(
+          makeAuthContext(["ADMIN"], [], "tenant-a", {
+            access_token: accessToken,
+          }),
+          "non-secret-session",
+        ),
+      ),
+    );
+    const serialized = stringify.mock.results.flatMap((result) =>
+      result.type === "return" && typeof result.value === "string"
+        ? [result.value]
+        : [],
+    );
+    const exposed = [
+      view.container.innerHTML,
+      ...serialized,
+      ...logOutput,
+      JSON.stringify(Object.entries(localStorage)),
+      JSON.stringify(Object.entries(sessionStorage)),
+    ].join("\n");
+
+    for (const forbidden of [accessToken, tokenDigest, reversibleToken]) {
+      expect(exposed).not.toContain(forbidden);
+    }
+    for (const spy of logSpies) spy.mockRestore();
+    stringify.mockRestore();
+  });
+
+  it("clears all windows and retained branch closures synchronously when branch scope changes", () => {
+    const authA = makeAuthContext(["ADMIN"], [], "tenant-a", {
+      branches: ["branch-a"],
+    });
+    const authB = makeAuthContext(["ADMIN"], [], "tenant-a", {
+      branches: ["branch-b"],
+    });
+    const view = render(shellTree(authA, "/window-stub"));
+
+    fireEvent.click(screen.getByRole("button", { name: "open-window" }));
+    expect(screen.getByText("panel scope branch-a")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "open-second-window" }));
+    expect(screen.getByText("second panel scope branch-a")).toBeVisible();
+    expect(screen.getByRole("button", { name: "패널 A 복원" })).toBeVisible();
+
+    view.rerender(shellTree(authB, "/window-stub"));
+
+    expect(screen.queryByText("second panel body")).not.toBeInTheDocument();
+    expect(screen.queryByText("second panel scope branch-a")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "패널 A 복원" })).not.toBeInTheDocument();
+  });
+
+  const sourceAuthorityChanges: Array<[string, Partial<AuthSession>]> = [
+    ["organization", { org_id: "other-platform-org" }],
+    ["user", { user_id: "operator-2" }],
+    ["roles", { roles: ["PLATFORM_AUDITOR"] }],
+    ["group roles", { group_roles: ["GROUP_AUDITOR"] }],
+    ["feature grants", { feature_grants: ["tenant_read"] }],
+    ["branches", { branches: ["other-source-branch"] }],
+    ["platform status", { isPlatform: false }],
+  ];
+
+  it.each(sourceAuthorityChanges)(
+    "clears persistent windows when view-as source %s changes",
+    (_claim, sourceOverrides) => {
+      const authA = makeViewAsAuthContext();
+      const authB = makeViewAsAuthContext(sourceOverrides);
+      const view = render(shellTree(authA, "/window-stub"));
+
+      fireEvent.click(screen.getByRole("button", { name: "open-window" }));
+      expect(screen.getByText("panel body")).toBeVisible();
+
+      view.rerender(shellTree(authB, "/window-stub"));
+
+      expect(screen.queryByText("panel body")).not.toBeInTheDocument();
+    },
+  );
+
+  it("preserves windows when all view-as source set claims only reorder or duplicate", () => {
+    const authA = makeViewAsAuthContext({
+      roles: ["SUPER_ADMIN", "PLATFORM_AUDITOR", "SUPER_ADMIN"],
+      group_roles: ["GROUP_AUDITOR", "GROUP_ADMIN", "GROUP_ADMIN"],
+      feature_grants: ["tenant_read", "tenant_manage", "tenant_manage"],
+      branches: ["source-b", "source-a", "source-a"],
+    });
+    const authB = makeViewAsAuthContext({
+      roles: ["PLATFORM_AUDITOR", "SUPER_ADMIN"],
+      group_roles: ["GROUP_ADMIN", "GROUP_AUDITOR"],
+      feature_grants: ["tenant_manage", "tenant_read"],
+      branches: ["source-a", "source-b"],
+    });
+    const view = render(shellTree(authA, "/window-stub"));
+
+    fireEvent.click(screen.getByRole("button", { name: "open-window" }));
+    view.rerender(shellTree(authB, "/window-stub"));
+
+    expect(screen.getByText("panel body")).toBeVisible();
+  });
+
+  it("preserves windows across effective, view-as, and source token-only rotation", () => {
+    const authA = makeViewAsAuthContext();
+    const authB = makeViewAsAuthContext(
+      { access_token: "source-token-b" },
+      { access_token: "view-token-b" },
+    );
+    const view = render(shellTree(authA, "/window-stub"));
+
+    fireEvent.click(screen.getByRole("button", { name: "open-window" }));
+    view.rerender(shellTree(authB, "/window-stub"));
+
+    expect(screen.getByText("panel body")).toBeVisible();
   });
 
   it("hosts the single minimized-window tray in the bottom dock", () => {

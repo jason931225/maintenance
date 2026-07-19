@@ -36,6 +36,8 @@ export interface LaborHours {
   holiday: number;
 }
 
+export type LaborCostLoadError = "list" | "detail";
+
 export interface LaborCostScreenProps {
   periods: readonly LaborCostPeriod[];
   hours: LaborHours;
@@ -43,6 +45,8 @@ export interface LaborCostScreenProps {
   trend: readonly number[];
   projectionResult?: BackendProjection;
   isLoading: boolean;
+  loadError: LaborCostLoadError | null;
+  onRetry: () => void;
   /** Every affordance drills to the payroll source screen (§4-11). */
   onDrill: () => void;
 }
@@ -129,6 +133,8 @@ export function LaborCostScreen({
   trend,
   projectionResult,
   isLoading,
+  loadError,
+  onRetry,
   onDrill,
 }: LaborCostScreenProps) {
   const S = laborCostStrings();
@@ -150,7 +156,23 @@ export function LaborCostScreen({
         ) : null}
       </header>
 
-      {!isLoading && periods.length === 0 ? (
+      {loadError ? (
+        <section style={panelStyle} role="alert">
+          <p style={{ margin: 0, fontSize: "var(--text-body)", color: "var(--danger-tx)" }}>
+            {loadError === "list" ? S.listError : S.detailError}
+          </p>
+          <button
+            type="button"
+            data-window-control="true"
+            style={emptyActionStyle}
+            onClick={onRetry}
+          >
+            {S.retry}
+          </button>
+        </section>
+      ) : null}
+
+      {!isLoading && !loadError && periods.length === 0 ? (
         <section style={panelStyle}>
           <p style={{ margin: 0, fontSize: "var(--text-body)", color: "var(--steel)" }}>
             {S.emptyReason}
@@ -187,7 +209,7 @@ export function LaborCostScreen({
         </section>
       ) : null}
 
-      {composition.length > 0 ? (
+      {!isLoading && !loadError && composition.length > 0 ? (
         <section style={panelStyle} aria-label={S.compositionTitle}>
           <h2 style={panelTitleStyle}>{S.compositionTitle}</h2>
           <HonestBar
@@ -199,7 +221,7 @@ export function LaborCostScreen({
         </section>
       ) : null}
 
-      {trendSeries.length >= 3 ? (
+      {!isLoading && !loadError && trendSeries.length >= 3 ? (
         <ProjectionPanel
           title={S.trendTitle}
           kind="percent"

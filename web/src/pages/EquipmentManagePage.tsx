@@ -35,7 +35,13 @@ const MASTER_IMPORT_ROLES = [ROLES.ADMIN, ROLES.SUPER_ADMIN] as const;
  *  - Site coordinate entry for the dispatch map (SiteGeographyPanel)
  */
 export function EquipmentManagePage() {
-  const { api, session, viewAs } = useAuth();
+  const {
+    api,
+    session,
+    viewAs,
+    refreshAuthority,
+    sourceRefreshAuthority,
+  } = useAuth();
   const canImport = hasAnyRole(session?.roles, MASTER_IMPORT_ROLES);
   const sourceIsGroupAdminContext = viewAs?.source === "GROUP_ADMIN";
   const canSelectEquipmentOwnerOrg =
@@ -43,6 +49,9 @@ export function EquipmentManagePage() {
   const groupAdminSourceToken = sourceIsGroupAdminContext
     ? viewAs.platformSession.access_token
     : session?.access_token;
+  const groupAdminSourceAuthority = sourceIsGroupAdminContext
+    ? sourceRefreshAuthority
+    : refreshAuthority;
   const activeOrgId = viewAs?.actingOrgId ?? session?.org_id;
 
   const [managementNo, setManagementNo] = useState("");
@@ -88,7 +97,7 @@ export function EquipmentManagePage() {
 
     async function loadOwnerOrgs() {
       try {
-        const groups = await listGroupAdminGroups(groupAdminSourceToken);
+        const groups = await listGroupAdminGroups(groupAdminSourceToken, groupAdminSourceAuthority);
         if (cancelled) return;
         setOwnerOrgOptions(flattenEquipmentOwnerOrgOptions(groups));
       } catch {
@@ -100,7 +109,11 @@ export function EquipmentManagePage() {
     return () => {
       cancelled = true;
     };
-  }, [canSelectEquipmentOwnerOrg, groupAdminSourceToken]);
+  }, [
+    canSelectEquipmentOwnerOrg,
+    groupAdminSourceAuthority,
+    groupAdminSourceToken,
+  ]);
 
   useEffect(() => {
     let cancelled = false;
@@ -212,6 +225,7 @@ export function EquipmentManagePage() {
             onSelectedOwnerOrgIdChange={setSelectedOwnerOrgId}
             activeOrgId={activeOrgId}
             groupAdminSourceToken={groupAdminSourceToken}
+            groupAdminRefreshAuthority={groupAdminSourceAuthority}
           />
 
           {/* Site coordinate entry for dispatch map (EquipmentManage) */}

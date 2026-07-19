@@ -9461,6 +9461,8 @@ export interface components {
             error: {
                 code: string;
                 message: string;
+                /** Format: int64 */
+                current_key_write_revision?: number;
             };
         };
         /** @enum {string} */
@@ -11888,6 +11890,9 @@ export interface components {
             schema_version: number;
             /** @enum {string} */
             lifecycle_state: "draft" | "review_pending" | "published" | "superseded" | "retired";
+            /** Format: int64 */
+            key_write_revision: number;
+            key_write_etag: string;
         };
         /** @enum {string} */
         InstanceLifecycleState: "draft" | "active" | "locked" | "archived" | "disposed";
@@ -12277,6 +12282,15 @@ export interface components {
                 "application/json": components["schemas"]["ErrorBody"];
             };
         };
+        /** @description Request syntax or conditional validator is malformed. */
+        BadRequest: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorBody"];
+            };
+        };
         /** @description Request failed validation. */
         ValidationError: {
             headers: {
@@ -12298,6 +12312,18 @@ export interface components {
         /** @description State conflict or illegal transition. */
         Conflict: {
             headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorBody"];
+            };
+        };
+        /** @description The submitted ontology key write validator is stale. */
+        PreconditionFailed: {
+            headers: {
+                /** @description Current strong tenant/key write validator. */
+                ETag?: string;
+                "Cache-Control"?: "no-store";
                 [name: string]: unknown;
             };
             content: {
@@ -21836,12 +21862,12 @@ export interface operations {
             /** @description Draft object type created. */
             201: {
                 headers: {
+                    /** @description Strong tenant/key write validator for the created object type. */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["ObjectTypeSummary"];
                 };
             };
             401: components["responses"]["Unauthorized"];
@@ -21867,6 +21893,8 @@ export interface operations {
             /** @description Object type definition. */
             200: {
                 headers: {
+                    /** @description Strong tenant/key write validator for subsequent mutations. */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -21884,7 +21912,10 @@ export interface operations {
     stageObjectTypeRevision: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                /** @description Exactly one strong ontology tenant/key write validator. */
+                "If-Match": string;
+            };
             path: {
                 key: string;
             };
@@ -21899,19 +21930,22 @@ export interface operations {
             /** @description Staged schema revision. */
             201: {
                 headers: {
+                    /** @description Strong successor tenant/key write validator. */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["ObjectTypeSummary"];
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+            412: components["responses"]["PreconditionFailed"];
             422: components["responses"]["ValidationError"];
+            428: components["responses"]["PreconditionRequired"];
             503: components["responses"]["ServiceUnavailable"];
         };
     };
