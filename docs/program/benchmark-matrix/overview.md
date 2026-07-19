@@ -14,38 +14,34 @@ product patterns). Our own column is grounded in the actual code state (grep'd, 
 
 ## 0. Our console — evidence-based baseline (what actually exists today)
 
-Read from `web/src/console/` on `feat/cedar-activation` (2026-07-11):
+Read from `origin/main@86a97771a76b7e770dfcf8c6c7d83fd9d70a98bf` (source-only audit, 2026-07-18):
 
-- **`dashboard/DashboardScreen.tsx`** — the built overview content. A **PBAC-relative scope × period**
-  header (scope segments = only the KPI rollups the caller is authorized for; six typed month
-  segments, current month marked 진행 / closed months 확정 — no raw date input). A **one-row stat
-  strip** of 7 KPI stats (completed count, response speed, completion duration + due compliance,
-  revisit rate, delay rate, inspection-plan completion, P1 acceptance) **+ 4 ops alerts**
-  (`sla_breached`, `sla_at_risk`, `pending_approvals`, `open_support`, red tone when > 0). **Every
-  stat is authored as a drill `<Link>`** to its source screen (e.g. `/dispatch?status=COMPLETED`,
-  `/approvals`, `/support`, `/dispatch?priority=P1`). ⚠️ **Known wiring gap** (ia-layout lens,
-  code-confirmed): those drills are react-router paths that resolve in the legacy `KpiPage` mount, but
-  the target console is `state.screen`-driven — they must be rewired to the shell model, so
-  "drill-everything" is the *intent*, not yet a clean law. Two **honest-scale** `HonestBar` charts
-  (completion by scope, delay-reason distribution). Sections with no backing API are **omitted, not
-  placeholdered** (a hard house rule).
-- **`shell/ConsoleShell.tsx`** — new 3-column shell: **sidebar · main · comms-rail**. Foundry-style
-  grouped nav (개요 · 인사 · 급여·근태 · ERP · 현장운영 · 거버넌스 · 분석 · 자동화 · 커뮤니케이션).
-  Quick-actions **ShellDock** + single **TrayDock**, `WindowManagerProvider`. **Honest partial state:**
-  the main body currently renders an *empty themed canvas* per active screen (P0.1); the comms rail is
-  a **collapsed 54px glyph strip** (msg / mail / notif) — the interactive rail is P2, so no unwired
-  handlers.
-- **`shell/nav.ts`** — the 개요 group is `overview · mywork (내 작업 inbox) · inbox (mailbox)`.
-  `mywork`/`inbox` are **nav entries whose screens are wire-pending**; the built dashboard is reached
-  via the legacy `KpiPage` route today. Nav is **deny-by-omission** on Cedar/PBAC grants; backend
-  re-authorizes every call.
-- Program ledger (`docs/program/console-program-ledger.md`): visual-verdict has `overview` at 74
-  (revise), and `dashboard` was rebuilt 35 → real-API in `fe-fix-wave1`. No-AI / deterministic;
-  tamper-evident audit chain under everything; scoping is Group → 법인 → branch → worksite.
+Fixed-target source observation only; no browser, deployment, activation, or production-runtime validation was performed.
 
-**Net:** the *executive KPI hub* is real and strong (authorized scope, drill-everything, no fake
-tiles). The *personal work hub* (unified My-Tasks/To-Do queue, agenda, activity feed, live comms
-rail) is **chartered but not yet wired** — exactly where the vendors below are strongest.
+- **`screens/overview/OverviewBody.tsx`** — the mounted-in-source Overview body calls the
+  `/api/v1/me/action-inbox`, derives queue stats and filter counts from those same items, and renders
+  source-route row actions. The same source-observed action-inbox response supplies a source-derived due-today agenda/timeline with a week
+  ribbon. Rows navigate to their source screen; inline or ObjectCard completion is not implemented.
+- **`shell/ConsoleShell.tsx` + `shell/navBadges.ts`** — the 3-column shell is
+  **sidebar · main · comms-rail**. `overview` is registered and mounted; action-inbox and notification
+  summary reads supply real badges for approvals, dispatch, support, personal work, and unread inbox.
+- **`shell/CommsRailPanel.tsx`** — the comms rail is default-expanded and interactive. It calls the notification and mail endpoints in source to read
+  notifications and mail threads, groups them into messenger/mail/notification/notice sections, shows
+  unread counts, and calls the real mark-all-notifications-read mutation. A user may collapse it to the
+  glyph strip.
+- **Authorization today** — the source-designated server/legacy authorization path remains the current authority in source;
+  the UI feature projection only shapes offered navigation and is explicitly non-authoritative. Cedar
+  remains the accepted target/shadow path until an action is enrolled, shadow-proven, and promoted under
+  ADR-0021 and `docs/specs/cedar-pbac-coexistence-map.json`; every current coexistence-map entry is
+  `legacy_only`. Console semantics follow ADR-0023 as amended by ADR-0025.
+- Historical program-ledger scores are revision-bound planning evidence, not current runtime proof. The
+  current source keeps the deterministic/no-AI UI and Group → 법인 → branch → worksite model. Audit
+  seal/verify/gap-detection is partial/DARK: production sealing is OFF, the in-memory signer is not a
+  trust root, NULL-org rows are excluded, and an external signer plus out-of-band anchor are required.
+
+**Net:** Overview is a source-wired personal operations hub: action-inbox reads, derived queue stats, nav
+badges, source-route row actions, a real due-item agenda, and a default-expanded notification/mail
+rail. Inline/ObjectCard completion and richer cross-source triage remain gaps.
 
 ---
 
@@ -55,8 +51,11 @@ Columns: **Us** = our console. **Fnd** = Foundry. **Slk** = Slack. **Tms** = Tea
 **n8n**. **Rip** = Rippling. **SAP** = S/4HANA Fiori + SuccessFactors.
 
 ### Row 1 — Information architecture (the landing surface)
-- **Us:** 3-column shell (sidebar · KPI/ops main · comms rail); overview = scope×period + stat strip +
-  honest charts. Personal work-hub panes wire-pending. `[code: ConsoleShell.tsx, DashboardScreen.tsx]`
+
+- **Us:** 3-column shell (sidebar · source-wired work main · comms rail); overview = source-observed action inbox +
+  derived stats/counts + source-route row actions + due-item agenda. The default-expanded rail reads
+  notifications/mail and supports mark-all-read. Inline/ObjectCard completion remains a gap.
+  `[code: ConsoleShell.tsx, OverviewBody.tsx, navBadges.ts]`
 - **Fnd:** Workshop module = module-header + pages + sections + widgets; a "homepage" is just another
   Workshop app you build, no fixed home. `[V]` [layouts](https://www.palantir.com/docs/foundry/workshop/concepts-layouts)
 - **Slk:** Left rail + Home (channels/DMs) and a dedicated **Activity view** as the triage surface.
@@ -74,8 +73,10 @@ Columns: **Us** = our console. **Fnd** = Foundry. **Slk** = Slack. **Tms** = Tea
   **redesigned Home Page** (2H 2025). `[V]` [My Home](https://community.sap.com/t5/technology-blog-posts-by-sap/sap-fiori-for-sap-s-4hana-empowering-your-homepage-enabling-my-home-for-sap/ba-p/13672904)
 
 ### Row 2 — Unified work queue / personal task inbox ("my tasks / to-dos")
-- **Us:** `mywork` (내 작업) nav slot exists; **screen not yet wired**. Ops alerts partially proxy it
-  (pending approvals, open support drill to lists). Gap vs vendors. `[code: nav.ts]`
+
+- **Us:** Overview already renders the source-observed personal action inbox with source-route actions, derived
+  counts, filtering, and a mirrored personal-work nav badge. The gap vs vendors is inline terminal
+  completion, not an absent queue. `[code: OverviewBody.tsx, navBadges.ts]`
 - **Fnd:** No native "my tasks" — you build an object-set widget filtered to `assignee = me` over an
   ontology task type; Automate can route. `[I]` (pattern from Workshop object-set widgets + Automate)
 - **Slk:** Not a task manager, but **Later / saved items** + reminders act as a personal follow-up
@@ -83,7 +84,7 @@ Columns: **Us** = our console. **Fnd** = Foundry. **Slk** = Slack. **Tms** = Tea
 - **Tms:** No first-class task queue in Activity; tasks live in the Planner/Tasks app, not the hub.
   `[I]` (Activity is notifications, not assignments)
 - **Asa:** **My Tasks** is the flagship — Today/Upcoming/Later sections, list/board/calendar views,
-  auto-promotion by due date. Best-in-class. `[V]` [My Tasks](https://asana.com/features/project-management/my-tasks)
+  auto-promotion by due date. Source-cited. `[V]` [My Tasks](https://asana.com/features/project-management/my-tasks)
 - **n8n:** N/A as a human task queue — its "queue" is workflow **executions** (Failed/Running/Success/
   Waiting), a machine work log, not assignments. `[V]` [executions](https://docs.n8n.io/workflows/executions/all-executions/)
 - **Rip:** **Task inbox** surfaces pending approvals, onboarding tasks, and compliance deadlines to act
@@ -92,8 +93,10 @@ Columns: **Us** = our console. **Fnd** = Foundry. **Slk** = Slack. **Tms** = Tea
   scenario-filtered tiles); **Task Center** consolidates cross-system. `[V]` [My Inbox](https://community.sap.com/t5/technology-blog-posts-by-sap/sap-fiori-for-sap-s-4hana-fiori-my-inbox-part-1-activation/ba-p/13326175)
 
 ### Row 3 — Approvals surfacing (전자결재 / 결재함)
-- **Us:** `pending_approvals` ops-alert stat drills to `/approvals`; approvals module (`appr/`) exists
-  separately. First-class Korean 결재 surfacing on the hub itself is thin. `[code: DashboardScreen.tsx]`
+
+- **Us:** Approval items returned by the source-observed action-inbox call appear in the Overview queue and contribute
+  the real approvals nav badge; the row action source-routes to the approvals screen. Inline approve /
+  reject is not implemented. `[code: OverviewBody.tsx, overviewModel.ts, navBadges.ts]`
 - **Fnd:** Approvals modeled as ontology Actions + Automate; a Workshop widget can list pending. `[I]`
 - **Slk:** Approvals via **Workflow Builder** / approval apps posting to a channel or DM, not a native
   hub queue. `[I]`
@@ -104,16 +107,19 @@ Columns: **Us** = our console. **Fnd** = Foundry. **Slk** = Slack. **Tms** = Tea
 - **Rip:** Pending **approvals** are a headline item on the home attention panel & task inbox. `[V]`
   [platform](https://www.rippling.com/platform)
 - **SAP:** **My Inbox** IS the approval engine — multi-step workflow approvals, delegation, mass
-  actions; the gold standard for 전자결재-style flows. `[V]` [My Inbox](https://community.sap.com/t5/enterprise-resource-planning-blog-posts-by-sap/sap-fiori-for-sap-s-4hana-replacing-sap-fiori-apps-during-system-conversion/ba-p/14260897)
+  actions; a cited reference for 전자결재-style flows. `[V]` [My Inbox](https://community.sap.com/t5/enterprise-resource-planning-blog-posts-by-sap/sap-fiori-for-sap-s-4hana-replacing-sap-fiori-apps-during-system-conversion/ba-p/14260897)
 
 ### Row 4 — Activity / notification feed & triage
-- **Us:** Comms rail exposes msg/mail/notif glyphs but the **interactive feed is P2** (not built).
-  No unified activity stream yet. `[code: ConsoleShell.tsx]`
+
+- **Us:** The default-expanded comms rail calls notification and mail endpoints in source to read notifications and mail threads, groups messenger /
+  mail / notification / notice rows, shows unread counts, and provides a real mark-all-notifications-read
+  action. Cross-source filters, snooze, and per-row terminal actions remain gaps.
+  `[code: ConsoleShell.tsx, CommsRailPanel.tsx, overviewApi.ts]`
 - **Fnd:** Notifications from Action side-effects + Automate effects; no consumer-grade unified feed —
   you compose one. `[I]` / `[V]` effects [Automate](https://www.palantir.com/docs/foundry/automate/effect-actions)
 - **Slk:** **Activity view** with tabs Unreads / DMs / Mentions / Threads / Reactions (all but "All
   notifications" and "DMs" now hidden by default behind the Filters control) + custom filters; clear-all
-  triage. Best-in-class triage UX. `[V]` [Activity](https://slack.com/help/articles/19693583638803)
+  triage. Source-cited triage UX. `[V]` [Activity](https://slack.com/help/articles/19693583638803)
 - **Tms:** **Activity feed** = all @mentions/replies/likes/meeting events, 30-day retention, filter
   pills for @mention & unread, keyword filter (via the Filter control). `[V]` [feed](https://support.microsoft.com/en-us/office/explore-the-activity-feed-in-microsoft-teams-91c635a1-644a-4c60-9c98-233db3e13a56)
 - **Asa:** **Inbox** = per-task activity/notifications, archive/snooze, filterable. `[V]`
@@ -125,8 +131,10 @@ Columns: **Us** = our console. **Fnd** = Foundry. **Slk** = Slack. **Tms** = Tea
   type filters; notification bell in Launchpad. `[V]` [2H 2025 home](https://community.sap.com/t5/human-capital-management-blog-posts-by-sap/sap-successfactors-hcm-updated-home-page-2h-2025/ba-p/14269975)
 
 ### Row 5 — Stat strip / at-a-glance KPI tiles
-- **Us:** Strong — one compact scrollable stat row; 7 KPIs + 4 ops alerts; tabular-nums, danger tone,
-  every tile drills. Honest-scale charts below. `[code: DashboardScreen.tsx]`
+
+- **Us:** Overview's compact stat buttons are derived from the source-observed action-inbox response, carry urgency tones,
+  and filter the queue below. They are work-queue counts, not executive analytical KPI tiles.
+  `[code: OverviewBody.tsx, overviewModel.ts]`
 - **Fnd:** Metric-card / KPI widgets in Workshop bound to object-set aggregations; fully composable. `[V]`
   [widgets](https://www.palantir.com/docs/foundry/workshop/concepts-widgets)
 - **Slk:** N/A — no KPI tiles; not an analytics surface. `[I]`
@@ -140,7 +148,10 @@ Columns: **Us** = our console. **Fnd** = Foundry. **Slk** = Slack. **Tms** = Tea
   drill-from-tile pattern. `[V]` [Launchpad](https://help.sap.com/docs/SAP_S4HANA_ON-PREMISE/22bbe89ef68b4d0e98d05f0d56a7f6c8/753af2c410584bc98f0363ca69a404f1.html)
 
 ### Row 6 — Agenda / today / calendar view
-- **Us:** None on the hub yet (no agenda pane). Gap. `[code: — no agenda component]`
+
+- **Us:** A source-derived due-today agenda/timeline is rendered from the source-observed action-inbox items, with a week
+  ribbon, due time, completion marker, source-route action, site, and responsible person. Broader
+  Today/Upcoming/Later and calendar views remain gaps. `[code: OverviewBody.tsx, overviewModel.ts]`
 - **Fnd:** Build a calendar/Gantt-style widget over a date property; no native agenda. `[I]`
 - **Slk:** Reminders + calendar-app unfurls; no agenda pane per se. `[I]`
 - **Tms:** Calendar app + meeting notifications in Activity (2024+); not on a home pane. `[V]`
@@ -153,8 +164,11 @@ Columns: **Us** = our console. **Fnd** = Foundry. **Slk** = Slack. **Tms** = Tea
   app but not a home agenda. `[I]`
 
 ### Row 7 — Comms rail / embedded messaging
-- **Us:** Dedicated rail column reserved (msg/mail/notif); auditable in-app chat exists as a module
-  (`messenger/`); rail interactivity = P2. Architecturally first-class, not yet live. `[code: ConsoleShell.tsx, messenger/]`
+
+- **Us:** Dedicated, default-expanded rail is source-wired for notification and mail reads, grouped messenger /
+  mail / notification / notice display, unread counts, and mark-all-notifications-read. It remains a
+  triage/read surface rather than inline reply or terminal action UI.
+  `[code: ConsoleShell.tsx, CommsRailPanel.tsx, overviewApi.ts]`
 - **Fnd:** N/A — no built-in chat; comms happen in the object/notification layer, not a rail. `[I]`
 - **Slk:** IS the comms product — DMs/threads/huddles are the whole app. `[V]`
   [threads](https://slack.com/help/articles/115000769927-Use-threads-to-organize-discussions)
@@ -166,10 +180,10 @@ Columns: **Us** = our console. **Fnd** = Foundry. **Slk** = Slack. **Tms** = Tea
 - **SAP:** No native persistent chat rail (SAP Jam retired; relies on Teams integration). `[I]`
 
 ### Row 8 — Drill-down navigation (stat → source records)
-- **Us:** every stat/alert is *authored* as a deep-link with query params to the filtered source screen;
-  chart bars drill too. ⚠️ Caveat (ia-layout lens, code-confirmed): the `to:` targets are react-router
-  paths (`/dispatch`,`/approvals`,`/ops`) that resolve in the legacy `KpiPage` mount and must be rewired
-  to the `state.screen` shell — a real wiring gap, not yet a "no dead numbers" law. `[code: DashboardScreen.tsx kpiStats/opsStats `to:`]`
+
+- **Us:** each source-observed queue row and due-item title calls `openItem`; absent an override, `kindRoute`
+  source-routes approval, dispatch, support, and work items to their source screen. There is no inline
+  completion or ObjectCard hop today. `[code: OverviewBody.tsx, overviewModel.ts]`
 - **Fnd:** Widget events → navigate/filter; object-set drill into Object Explorer search-around. `[V]`
   [events](https://www.palantir.com/docs/foundry/workshop/concepts-events)
 - **Slk:** Activity item → jump to message-in-channel. `[V]` [Activity](https://slack.com/help/articles/19693583638803-Get-your-work-done-from-the-Activity-view)
@@ -182,6 +196,7 @@ Columns: **Us** = our console. **Fnd** = Foundry. **Slk** = Slack. **Tms** = Tea
   [Launchpad](https://help.sap.com/docs/SAP_S4HANA_ON-PREMISE/22bbe89ef68b4d0e98d05f0d56a7f6c8/753af2c410584bc98f0363ca69a404f1.html)
 
 ### Row 9 — Personalization / configurable widgets
+
 - **Us:** No end-user home personalization yet; layout is fixed code. Config-as-governed-object is the
   charter (dashboard widget slots) but not on the overview surface. `[code: — fixed layout]`
 - **Fnd:** Fully config-as-data (widgets + typed variables + events); but that's *builder-time*, not
@@ -189,7 +204,7 @@ Columns: **Us** = our console. **Fnd** = Foundry. **Slk** = Slack. **Tms** = Tea
 - **Slk:** Sidebar sections + Activity filters are the personalization; layout is fixed. `[V]`
   [Activity](https://slack.com/help/articles/46751260742035-Introducing-the-new-Activity-view-in-Slack)
 - **Tms:** Pin/reorder apps in app bar; filter Activity; layout fixed. `[V]` [manage notifications](https://support.microsoft.com/en-us/office/manage-notifications-in-microsoft-teams-1cc31834-5fe5-412b-8edb-43fecc78413d)
-- **Asa:** **Best for end-users** — drag/drop/resize Home widgets, background styles, add/remove widget
+- **Asa:** **Selected end-user personalization reference** — drag/drop/resize Home widgets, background styles, add/remove widget
   types, private notepad. `[V]` [customize Home](https://help.asana.com/s/article/how-to-customize-your-home-page)
 - **n8n:** Home metrics are fixed; no widget personalization. `[I]`
 - **Rip:** Role-shaped home; limited end-user layout control. `[I]`
@@ -198,11 +213,14 @@ Columns: **Us** = our console. **Fnd** = Foundry. **Slk** = Slack. **Tms** = Tea
   [what's new 2025](https://avotechs.com/blog/sap-fiori-for-s4hana-2025-release/)
 
 ### Row 10 — Permissions / scoping (who sees which stats & items)
-- **Us:** **Deny-by-omission** nav + **PBAC-relative scope segments** (only the KPI rollups Cedar
-  authorizes render); backend re-authorizes every call; group→법인→branch→worksite scoping. Strongest
-  in class for *hub-level* authz. `[code: nav.ts, DashboardScreen scopeChipLabel]`
+
+- **Us:** UI navigation uses deny-by-omission from a non-authoritative feature projection; the current
+  source-designated server/legacy authorization path re-authorizes calls and remains the current authority in source. Cedar is target /
+  shadow only until per-action enrollment, evidence, and explicit promotion; current coexistence entries
+  are `legacy_only`. `[code: nav.ts, policy/authz.ts; ADR-0021 +
+  docs/specs/cedar-pbac-coexistence-map.json; console: ADR-0023 amended by ADR-0025]`
 - **Fnd:** Object/property policies (row + cell-level), mandatory markings; a stat computed over an
-  object-set inherits them. Deepest data-level model. `[V]`
+  object-set inherits them. Substantial data-level model. `[V]`
   [object policies](https://www.palantir.com/docs/foundry/object-permissioning/object-and-property-policies)
 - **Slk:** Channel membership + workspace/org roles; DLP/enterprise controls. Coarse vs data-cell. `[I]`
 - **Tms:** Team/channel roles, sensitivity labels; feed shows only what you can access. `[I]`
@@ -214,10 +232,11 @@ Columns: **Us** = our console. **Fnd** = Foundry. **Slk** = Slack. **Tms** = Tea
   Inbox items. Mature but role-catalog-heavy. `[V]` [My Inbox activation](https://community.sap.com/t5/technology-blog-posts-by-sap/sap-fiori-for-sap-s-4hana-fiori-my-inbox-part-1-activation/ba-p/13326175)
 
 ### Row 11 — Automation hooks (surfacing automated conditions on the hub)
-- **Us:** Ops alerts (SLA breach/at-risk) are the automation-surfaced signals; broader Automate→home
-  wiring is charter, not built. `[code: opsStats]`
+
+- **Us:** Inbox urgency and due tones surface source-observed conditions already returned by the action-inbox API;
+  a general Automate→Overview monitor/feed contract remains target work. `[code: overviewModel.ts]`
 - **Fnd:** **Automate**: Condition(s)→Effect(s) continuous/scheduled monitors feed notifications/cards.
-  Deepest. `[V]` [Automate](https://www.palantir.com/docs/foundry/automate/overview)
+  Substantial. `[V]` [Automate](https://www.palantir.com/docs/foundry/automate/overview)
 - **Slk:** Workflow Builder can post scheduled/triggered items into channels/Activity. `[I]`
 - **Tms:** Power Automate cards land in Activity/chat. `[I]`
 - **Asa:** **Rules** trigger task moves/assignments that surface in My Tasks/Inbox. `[V]`
@@ -230,8 +249,10 @@ Columns: **Us** = our console. **Fnd** = Foundry. **Slk** = Slack. **Tms** = Tea
   [My Inbox](https://community.sap.com/t5/enterprise-resource-planning-blog-posts-by-sap/sap-fiori-for-sap-s-4hana-replacing-sap-fiori-apps-during-system-conversion/ba-p/14260897)
 
 ### Row 12 — Mobile
+
 - **Us:** Native field app exists (Android `com.maintenance.field`); console overview is web-responsive;
-  no dedicated overview mobile widget. `[memory: native-app-identifiers]`
+  no dedicated overview mobile widget appears in the current console tree. `[code: android/app/build.gradle.kts;
+  web/src/console/screens/overview]`
 - **Fnd:** Workshop **mobile** modules + app launcher + mobile nav-bar widget. `[V]`
   [mobile](https://www.palantir.com/docs/foundry/workshop/mobile-overview)
 - **Slk:** Full native apps; Activity/reminders parity. `[V]` [Activity](https://slack.com/help/articles/19693583638803-Get-your-work-done-from-the-Activity-view)
@@ -243,8 +264,11 @@ Columns: **Us** = our console. **Fnd** = Foundry. **Slk** = Slack. **Tms** = Tea
 - **SAP:** Fiori is responsive; SAP Mobile Start app aggregates tiles/notifications. `[I]`
 
 ### Row 13 — Audit / compliance
-- **Us:** **Tamper-evident append-only audit chain** under every mutation; deterministic (no AI);
-  drill targets are audited screens. Strongest compliance posture. `[memory: audit-chain-status]`
+
+- **Us:** Append-oriented audit plus seal/verify and gap-detection code exists, but the seam is
+  **partial/DARK**: production sealing defaults OFF, the in-memory signer is not a trust root,
+  NULL-org rows are excluded, and current evidence does not prove coverage under every Overview mutation.
+  `[code: backend/crates/platform/audit-chain; migrations 0100/0101]`
 - **Fnd:** Ontology changelog + Action writeback lineage; full history. `[V]`
   [proposals/changelog](https://www.palantir.com/docs/foundry/ontologies/ontologies-proposals)
 - **Slk:** Enterprise audit logs API + eDiscovery/DLP (Enterprise Grid). `[I]`
@@ -256,8 +280,9 @@ Columns: **Us** = our console. **Fnd** = Foundry. **Slk** = Slack. **Tms** = Tea
 - **SAP:** Workflow item history, change docs, GRC; deep regulated-industry audit. `[I]`
 
 ### Row 14 — Extensibility (custom cards/widgets on the hub)
-- **Us:** Charts/StatusChip are shared primitives; adding a hub card = code today (config-as-data
-  charter pending). `[code: charts/, components/]`
+
+- **Us:** StatusChip and the Overview model helpers are shared primitives; adding a new Overview section
+  is code today (config-as-data charter pending). `[code: components/, overviewModel.ts]`
 - **Fnd:** **Custom (iframe) widgets** read/write Workshop variables via a documented bridge. `[V]`
   [embed apps](https://www.palantir.com/docs/foundry/workshop/widgets-embed-foundry-apps)
 - **Slk:** App home tab + Block Kit; apps post to Activity. `[I]`
@@ -270,6 +295,7 @@ Columns: **Us** = our console. **Fnd** = Foundry. **Slk** = Slack. **Tms** = Tea
   [custom SF tile](https://userapps.support.sap.com/sap/support/knowledge/en/2641544)
 
 ### Row 15 — Korean B2B fit (전자결재 culture, 근로기준법, group-company scoping)
+
 - **Us:** **Purpose-built** — Korean-first copy, 진행/확정 period grammar, group→법인→branch→worksite
   scope, 결재/approvals surfacing, and 근로기준법-aware modules (leave/att/pay). Native fit. `[code]`
 - **Fnd:** Locale-agnostic; you build 전자결재 as Actions/Automate — flexible but from scratch. `[I]`
@@ -288,8 +314,8 @@ Columns: **Us** = our console. **Fnd** = Foundry. **Slk** = Slack. **Tms** = Tea
 bound to object-set aggregations over a `WorkOrder`/`Approval` ontology type, each with an event that
 navigates to a filtered Object Explorer view. The "work queue" = an object-table widget filtered to
 `assignee = currentUser`; the "alerts" = Automate monitors (Condition→Effect) writing notification
-cards. No fixed home — the home *is* config-as-data, versioned like the ontology. Our stat-drill and
-authorized-scope patterns already echo this; Foundry would push us to make the whole surface a
+cards. No fixed home — the home *is* config-as-data, versioned like the ontology. Our source-observed inbox and
+source-route patterns already echo this; Foundry would push us to make the whole surface a
 declarative document, not TSX. `[V]` widgets/events/automate cited above.
 
 **Slack.** Overview = an **Activity view**: Unreads / Mentions / Reactions / Approvals(app) tabs with
@@ -303,10 +329,10 @@ Workflow-Builder messages with interactive approve buttons; "later" = saved item
 app; approvals to the Approvals app. Teams would deliver a strong notification-triage home but a
 fragmented task story (many apps, one feed). `[V]` feed/filters cited.
 
-**Asana.** The most complete personal work hub: a customizable **Home** (drag/resize widgets: My
+**Asana.** A selected personal-work-hub reference: a customizable **Home** (drag/resize widgets: My
 Priorities, upcoming, completion stats, notepad) + **My Tasks** (Today/Upcoming/Later, list/board/
 calendar) + **Inbox** (per-item activity, snooze/archive). Rules auto-route tasks; number widgets drill
-to filtered lists. Asana would give us the best *end-user personalization and agenda*, but no KPI-grade
+to filtered lists. Asana provides the cited *end-user personalization and agenda* patterns, but no KPI-grade
 authorized rollups or 전자결재/audit-chain rigor. `[V]` Home/My Tasks/widgets cited.
 
 **n8n.** An **Overview** page of fixed operational metrics (executions, failure rate, time saved) + a
@@ -323,7 +349,7 @@ would push cross-domain task unification hard, but its home is HR-ops-shaped and
 **SAP (S/4HANA + SuccessFactors).** A **Fiori Launchpad** of role-assigned spaces/pages with dynamic
 KPI-count tiles drilling tile→list→object, plus **My Inbox 2.0 / Task Center** as the unified,
 delegation-capable approval queue, and a SuccessFactors **"Needs Attention" / "For You Today"** home
-with configurable cards. SAP would deliver the deepest approval-workflow + role-catalog machinery and
+with configurable cards. SAP would deliver a substantial approval-workflow + role-catalog machinery and
 the original drill-from-tile pattern — at the cost of weight and a role-catalog burden, and My Inbox
 still isn't Korean 결재선/전결 규정 natively. `[V]` My Inbox/Launchpad/2H-2025 home cited.
 
@@ -331,41 +357,39 @@ still isn't Korean 결재선/전결 규정 natively. `[V]` My Inbox/Launchpad/2H
 
 ## 3. What we'd steal (ranked, actionable)
 
-Fit rated against our **ontology-first, Cedar-PBAC, deterministic, audited, Korean-B2B** grammar. Cost
+Fit rated against our accepted target **ontology-first, Cedar-PBAC, deterministic, audited, Korean-B2B** grammar. Cost
 S/M/L.
 
-1. **Unified personal work queue (My Tasks / To-Do) → best: Asana; enterprise proof: SAP My Inbox.**
-   Wire the empty `mywork` slot into a real cross-module queue (approvals + assigned WOs + support +
-   inspections) with Today/Upcoming/Later sections. Fit: excellent — it's an authorized object-set over
-   our ontology; each row is already a drill target. This is our single biggest gap vs every vendor.
-   **Cost: M.**
+1. **Inline terminal actions on the source-observed personal queue → cited reference: Teams; enterprise proof: SAP My Inbox.**
+   Extend the existing cross-module action inbox so eligible rows can approve/reject/acknowledge without
+   leaving Overview, while retaining source-route navigation for deeper work. Fit: excellent — the source-observed
+   queue and source routes exist; inline policy-gated completion is the missing layer. **Cost: M.**
 
-2. **Activity/triage view with filter pills → best: Slack; enterprise: SAP "Needs Attention".**
-   Build the P2 comms-rail feed as a real triage surface: Unreads / Mentions / Approvals / Reminders
-   pills, snooze, clear-all, deep-link to source. Fit: strong — our audit chain makes "who cleared what
-   when" free. **Cost: M.**
+2. **Activity/triage filters on the source-wired rail → cited reference: Slack; enterprise: SAP "Needs Attention".**
+   Extend the existing notification/mail rail beyond reads and mark-all-read with Unreads / Mentions /
+   Approvals / Reminders filters, snooze, and source deep-links. Fit: strong — the source-wired rail and unread
+   mutation exist. **Cost: M.**
 
-3. **Dynamic KPI tile → filtered-list → object drill chain → best: SAP Fiori; also Foundry.**
-   We already do stat→screen drilling; formalize it as a reusable *tile primitive* with a live count on
-   the face and a governed target query, so every module gets it. Fit: native — extends our stat strip.
-   **Cost: S.**
+3. **Today/Upcoming/Later agenda depth → cited reference: Asana.**
+   Extend the source-observed due-today timeline into grouped upcoming work and calendar/week views without
+   fabricating events. Fit: native — due items and the week ribbon already exist. **Cost: S–M.**
 
-4. **End-user home personalization (drag/resize widgets) → best: Asana; governed: SAP.**
+4. **End-user home personalization (drag/resize widgets) → cited reference: Asana; governed: SAP.**
    Let operators arrange overview widgets, backed by our config-as-governed-object charter (draft→
    approve→effective, per-persona defaults). Fit: good, but must stay inside the governed-config model,
    not free-form localStorage. **Cost: L.**
 
-5. **Approval delegation + escalation semantics → best: SAP My Inbox.**
+5. **Approval delegation + escalation semantics → cited reference: SAP My Inbox.**
    Add delegation (위임) and escalation to the approvals surfaced on the hub — the piece 전자결재 culture
    actually needs (전결/대결/부재중 위임). Fit: strong and locally required; global vendors miss the
    Korean 결재선 semantics, so we build it, informed by SAP's model. **Cost: M.**
 
-6. **Automate-style Condition→Effect monitors feeding the hub → best: Foundry; ops-proof: n8n.**
-   Generalize our two SLA ops-alerts into declarative monitors that any ontology type can raise onto the
-   overview + comms feed. Fit: native to the ontology/Cedar substrate; deterministic (no AI) keeps it in
+6. **Automate-style Condition→Effect monitors feeding the hub → cited reference: Foundry; ops-proof: n8n.**
+   Generalize the source-observed inbox urgency/due signals into declarative monitors that any ontology type can raise onto the
+   overview + comms feed. Fit: native to the target ontology/Cedar substrate; deterministic (no AI) keeps it in
    bounds. **Cost: M.**
 
-7. **Home-screen mobile widget (top-N today) → best: Asana.**
+7. **Home-screen mobile widget (top-N today) → cited reference: Asana.**
    A small overview widget for the native field app (top open WOs / pending approvals). Fit: good, low
    priority vs the web hub gaps. **Cost: S.**
 
@@ -381,10 +405,12 @@ the org model.
 
 Five reviewers each swept all 14 modules through one lens (evidence read from `web/src/console/**` + the program ledger). Their `overview`-specific findings:
 
-- **Task-flow (money-task step count):** money task = *triage my inbox → act*. Ours today = **2–3 steps** (inbox row → open ObjectCard pin → act inside the card); the row is **not yet an actionable card** (no inline approve on the row). Slack/Teams make the notification itself terminal — **0 navigation, 1 click** (approve/reject render inline). **Steal:** actionable inbox rows (top action rendered inline, PolicyGated) collapses 3 → 1; the `PolicyGated` + `GovernedObjectCard` action layer already exists. Cost **M**. This is the highest cross-module ROI item (touches overview/comms/appr/leave/finance).
-- **IA / layout:** the landing is **thin** — `overview`/`mywork`/`inbox` nav slots with no rich landing component, `badges = {}` hard-coded (**zero live counts anywhere**). Korean 전자결재 culture wants **결재 대기함 as the hero of home** (다우오피스 makes 상신/수신함 the landing) — our `mywork` instinct is right but unbuilt. **Steal:** live nav/tile counts → Fiori (`NavBadge` type exists, unwired) [S]; Actions\|Views landing grammar → Workday [M]; 결재 대기함 hero card [S].
+- **Task-flow (money-task step count):** money task = *triage my inbox → act*. Ours today requires one source-route navigation and then the action on the source screen; the Overview row has no inline completion and does not open an ObjectCard. Slack/Teams make the notification itself terminal — **0 navigation, 1 click** (approve/reject render inline). **Steal:** policy-gated actions on eligible inbox rows collapse the flow to one click. Cost **M**. This is the highest cross-module ROI item (touches overview/comms/appr/leave/finance).
+- **IA / layout:** the landing has a source-observed action-inbox surface, derived stats/counts, nav badges, and source-route actions. Korean 전자결재 culture still favors **결재 대기함 as the hero of home** (다우오피스 makes 상신/수신함 the landing). **Steal:** inline/ObjectCard completion on each source-observed row [M]; Actions\|Views landing grammar → Workday [M]; richer 결재 대기함 hero treatment [S].
 - **Data-model / object-semantics:** the landing *projects* other objects; its config (`console_view`) is **engine-registered TODAY** as a governed ontology instance (draft→approve→effective + rollback + as-of) — **stronger than Foundry Home**, which is configured but not itself a first-class versioned business object with four-eyes. **Weaker:** Foundry ships live object-set widgets out of the box; ours needs the widget→ontQuery binding finished.
-- **Governance:** **Behind on governance-posture summary, Ahead on enforcement.** We render only the permitted subset (deny-by-omission) but never *summarize the governance system itself*. **Steal:** a governance-posture strip (pending four-eyes · active legal holds · Cedar denials 24h · overdue lifecycle reviews) → Vanta/Drata — trivially an ontQuery widget over `gov_approvals`/holds/`cedar_decision_log`. Cost **S**, high-visibility.
-- **Automation / extensibility:** dashboard/overview extensibility = **alert-as-trigger** + **drill-to-action**. **Steal:** alert-rule trigger (metric crosses threshold → run workflow) → Grafana; drill-to-action from a stat (click → governed ontology Action on the underlying set) → Foundry/Retool; scheduled digest effect (needs a notification effect first).
+- **Governance:** **Behind on governance-posture summary; no current Cedar-enforcement lead.** The UI uses a non-authoritative deny-by-omission projection while the source-designated server/legacy authorization path remains the current authority in source; Cedar denial posture is target/shadow telemetry until an action is enrolled, shadow-proven, and promoted. **Steal:** a governance-posture strip (pending four-eyes · active legal holds · shadow Cedar denials · overdue lifecycle reviews) → Vanta/Drata — an ontQuery widget over `gov_approvals`/holds/`cedar_decision_log`. Cost **S**, high-visibility.
+- **Automation / extensibility:** Overview currently consumes inbox conditions and source-routes rows; it does not execute inline actions. **Steal:** alert-rule trigger (condition crosses threshold → run workflow) → Grafana; source-row-to-inline governed Action → Foundry/Retool; scheduled digest effect.
 
-**Adjudicated contradiction:** the flagship "every stat is a `<Link>` that drills" strength is **overstated** — code-confirmed by the ia-layout lens (finding #6): the drills are react-router paths that resolve only in the legacy `KpiPage` mount, not the `state.screen` console shell, so they dead-end until rewired. The §0 and Row 8 caveats above reflect the lens's (correct) adjudication.
+**Adjudicated current state:** Overview is mounted in source and source-wired: action-inbox reads feed derived queue stats,
+nav badges, source-route rows, and the due-item agenda; the default-expanded rail reads notifications /
+mail and supports mark-all-read. Inline/ObjectCard completion and richer triage remain target gaps.

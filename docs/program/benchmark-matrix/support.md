@@ -1,6 +1,6 @@
 # Benchmark Matrix — Module: **support** (Support / CX tickets: intake, SLO, linked objects, comment threads)
 
-Scope of our module (evidence, grepped from `/Users/jasonlee/Developer/maintenance`):
+Scope of our module (evidence, grepped from this repository):
 - Backend crate `backend/crates/support/{domain,application,adapter-postgres,rest}` — status FSM + priority→SLA in `domain/src/lib.rs`; REST in `rest/src/lib.rs`; schema in `platform/db/migrations/0022_create_support.sql`.
 - Frontend `web/src/features/support/*` — `SupportTicketList.tsx`, `SupportTicketDetail.tsx`, `SupportTicketPin.tsx`, `CustomerIntakeForm.tsx`, `CreateTicketForm.tsx`, `SloSettingsCard.tsx`, `slo-settings.ts`, `support-format.ts`.
 - Ledger: `docs/program/console-program-ledger.md` (§4-26 SLO≠SLA; support row "58 / revise / §4-11 KPI tiles + chip filters + right-pin detail"; BE2 `support_slo_setting` config-object seeded through the engine).
@@ -9,13 +9,14 @@ Scope of our module (evidence, grepped from `/Users/jasonlee/Developer/maintenan
 
 Columns: **Our Console** · Palantir Foundry · Slack · Microsoft Teams · Asana · n8n · Rippling · SAP (Service Cloud / SuccessFactors).
 
-Module-relevant vendor weighting (per brief): **Asana** (service-desk patterns), **Slack/Teams** (huddle/swarm support), **SAP** (CRM service) carry the most signal; Foundry (object grammar), n8n (automation), Rippling (IT/HR-linked desk) are secondary but covered.
+Module-relevant vendor weighting (per brief): **Asana** (service-desk patterns), **Slack/Teams** (huddle/swarm support), **SAP** (CRM service) are the primary sampled references; Foundry (object grammar), n8n (automation), Rippling (IT/HR-linked desk) are secondary but covered.
 
 ---
 
 ## Capability matrix
 
 ### 1. Information architecture (ticket object model)
+
 | Vendor | How |
 |---|---|
 | **Our Console** | Dedicated `support_tickets` table, first-class `SUP-` object code. Typed enums: origin `INTERNAL`/`CUSTOMER`, 6 categories, 4 priorities, 5-state status. Branch-scoped (`branch_id` nullable for untriaged customer tickets). Separate FSM from the 16-state work-order flow — deliberately not overloaded (`domain/src/lib.rs:1-8`). |
@@ -28,6 +29,7 @@ Module-relevant vendor weighting (per brief): **Asana** (service-desk patterns),
 | SAP | [V] Service Cloud V2 replaces V1 flat "tickets" with a lifecycle **Case** entity (system of record, contact/account/product linked). https://www.spadoom.com/en/blog/sap-service-cloud-v2-whats-different/ |
 
 ### 2. Intake channels
+
 | Vendor | How |
 |---|---|
 | **Our Console** | Two channels, both real: (a) authenticated internal create (`CreateTicketForm.tsx`), (b) **unauthenticated customer intake** endpoint (`SUPPORT_INTAKE_PATH`, `CustomerIntakeForm.tsx`) — DB-backed fixed-window rate limit reusing the auth `auth_rate_limit` scheme + `X-Forwarded-For` trusted-proxy-count derivation; ack response is deliberately minimal (no internal IDs leaked). No email-to-ticket, no chat intake yet. |
@@ -40,6 +42,7 @@ Module-relevant vendor weighting (per brief): **Asana** (service-desk patterns),
 | SAP | [V] Channel-agnostic inbox: email, phone, chat, social, web form all land as cases in one queue. https://www.spadoom.com/en/blog/discover-the-power-of-sap-service-cloud/ |
 
 ### 3. Triage, assignment & routing
+
 | Vendor | How |
 |---|---|
 | **Our Console** | Manual triage: self-assign ("claim") + explicit assignee set, gated by `AssigneeManage` (admin-only) feature. Untriaged customer queue is a partial index (`branch_id IS NULL`). No skills/load-based auto-routing. (`rest/src/lib.rs` `assign_ticket`; `SupportTicketDetail.tsx` claim button.) |
@@ -52,9 +55,10 @@ Module-relevant vendor weighting (per brief): **Asana** (service-desk patterns),
 | SAP | [V] Real routing engine: **skills matching** (language/product/cert), **load balancing** by agent workload, priority queues. https://www.spadoom.com/en/blog/discover-the-power-of-sap-service-cloud/ |
 
 ### 4. SLA / SLO tracking & escalation
+
 | Vendor | How |
 |---|---|
-| **Our Console** | Priority→SLA `due_at` derived on create (URGENT 4h / HIGH 1d / MED 3d / LOW 7d, `SlaPolicy::due_at`). **Deliberate §4-26 distinction: support = SLO (internal target, breach = alert) not SLA (contractual, breach = penalty).** SLO is a **configurable setting object per ticket type** (thresholdHours / windowDays / escalationTarget `TEAM_LEAD`/`DEDICATED`/`ADMIN`), edited no-code with revision staging; live timer chip re-stamped each minute; escalation posts an **audited internal note**. (`slo-settings.ts`, `SloSettingsCard.tsx`, `support-format.ts` `sloTimerChip`.) |
+| **Our Console** | Priority→SLA `due_at` derived on create (URGENT 4h / HIGH 1d / MED 3d / LOW 7d, `SlaPolicy::due_at`). **Deliberate §4-26 distinction: support = SLO (internal target, breach = alert) not SLA (contractual, breach = penalty).** SLO is a **configurable setting object per ticket type** (thresholdHours / windowDays / escalationTarget `TEAM_LEAD`/`DEDICATED`/`ADMIN`), edited no-code with revision staging; source-computed timer chip is re-stamped in source each minute; escalation posts an **audited internal note**. (`slo-settings.ts`, `SloSettingsCard.tsx`, `support-format.ts` `sloTimerChip`.) |
 | Palantir Foundry | [I] No SLA primitive; a due-date property + scheduled automation that fires when breached — you build it. https://www.palantir.com/docs/foundry/use-case-patterns/alerting-workflow |
 | Slack | [I] No native SLA; urgency captured in the swarm form, breach handling lives in the connected Service Cloud. https://slack.com/blog/collaboration/salesforces-support-resolves-cases-faster |
 | MS Teams | [I] SLA enforced in ServiceNow; Teams only relays breach notifications. https://aelumconsulting.com/blogs/servicenow-microsoft-teams-integration/ |
@@ -64,6 +68,7 @@ Module-relevant vendor weighting (per brief): **Asana** (service-desk patterns),
 | SAP | [V] SLA baked into the case entity: response + resolution targets fire by priority **and customer tier**; agent countdown timers, manager compliance dashboards, escalation alerts to management/experts. https://www.spadoom.com/en/blog/discover-the-power-of-sap-service-cloud/ · https://help.sap.com/docs/CX_NG_SVC/56436b4e8fa84dc8b4408c7795a012c4/3292dfa8eaf64e219a2261860411acb4.html |
 
 ### 5. Status lifecycle (FSM)
+
 | Vendor | How |
 |---|---|
 | **Our Console** | Enforced FSM `OPEN→IN_PROGRESS→ON_HOLD⇄IN_PROGRESS→RESOLVED→CLOSED`, RESOLVED can reopen to IN_PROGRESS, CLOSED terminal; every edge validated + audited (`domain/src/lib.rs:64-93`; exhaustive transition-matrix unit tests). |
@@ -76,6 +81,7 @@ Module-relevant vendor weighting (per brief): **Asana** (service-desk patterns),
 | SAP | [V] V2 "lifecycle case engine" — structured case stages replacing V1's flat status. https://www.spadoom.com/en/blog/sap-service-cloud-v2-whats-different/ |
 
 ### 6. Comment threads / collaboration
+
 | Vendor | How |
 |---|---|
 | **Our Console** | `support_ticket_comments` thread with **internal-note vs customer-visible** flag (`is_internal_note`); internal notes never returned on the customer path; system/customer author = NULL user id. Comment triggers notification fan-out. (`0022_create_support.sql`; `SupportTicketDetail.tsx` `CommentThread`/`AddCommentForm`.) |
@@ -88,10 +94,11 @@ Module-relevant vendor weighting (per brief): **Asana** (service-desk patterns),
 | SAP | [V] Case interaction timeline (emails, notes, internal vs external) plus Joule-drafted replies. https://www.spadoom.com/en/blog/discover-the-power-of-sap-service-cloud/ |
 
 ### 7. Linked objects / ontology
+
 | Vendor | How |
 |---|---|
 | **Our Console** | `SUP-` code is a **§4-20 drag source** (`objDrag`); ticket detail has an **object rail** linking to work order (`/dispatch?source=support`), messenger, mail, reporting. Ticket → work-order handoff is a first-class path. (`SupportTicketDetail.tsx` `TicketObjectRail`.) Semantic-layer registration still projected/partial (ledger §193). |
-| Palantir Foundry | [V] **Best-in-class** — the ticket is a node in one ontology graph; links to any object (asset, person, order) are the whole point; Actions traverse links. https://www.palantir.com/explore/platforms/foundry/ontology/ |
+| Palantir Foundry | [V] **Source-cited** — the ticket is a node in one ontology graph; links to any object (asset, person, order) are the whole point; Actions traverse links. https://www.palantir.com/explore/platforms/foundry/ontology/ |
 | Slack | [I] "Linking" = a URL back to the source ticket + Salesforce record unfurl; no object graph. https://www.salesforce.com/slack/crm/ |
 | MS Teams | [I] Adaptive card deep-links to the ServiceNow record; no native graph. https://kanini.com/resources/servicenow-virtual-agent-teams-integration/ |
 | Asana | [V] Task can link to other tasks/projects, custom-field references; portfolio rollups; no formal ontology. https://asana.com/resources/asana-request-tracking-ticketing |
@@ -100,18 +107,20 @@ Module-relevant vendor weighting (per brief): **Asana** (service-desk patterns),
 | SAP | [V] Case linked to account/contact/product/installed-base in the CX data model. https://help.sap.com/docs/sap-cloud-for-customer/solution-guide-for-sap-service-cloud/2b7d1a1a1cc44691a8fd585495fc1712.html |
 
 ### 8. Permissions / RBAC / SoD
+
 | Vendor | How |
 |---|---|
-| **Our Console** | Deny-by-default feature-map: `AssigneeManage` (admin-only) gates triage/assign/transition; `WorkOrderStart` gates commenting (MECHANIC/ADMIN/SUPER_ADMIN); receptionist (Limited) reads but composer is hidden, not 403-on-click. RLS FORCE + branch scoping on every read; SLO edit is **four-eyes (approver≠requester)**. (`rest/src/lib.rs` `authorize_on_ticket`; `slo-settings.ts` `approveSloRevision`.) |
+| **Our Console** | Deny-by-default feature-map: `AssigneeManage` (admin-only) gates triage/assign/transition; `WorkOrderStart` gates commenting (MECHANIC/ADMIN/SUPER_ADMIN); receptionist (Limited) reads but composer is hidden, not 403-on-click. RLS FORCE + branch scoping on every read; `approveSloRevision` blocks self-approval client-side, while backend route enforcement remains pending. |
 | Palantir Foundry | [V] Granular ontology security incl. dynamic/row-level security on objects and Actions. https://www.palantir.com/docs/foundry/ontology/overview |
 | Slack | [I] Channel membership = visibility; private channels for sensitive cases; no field-level ticket ACL. https://slack.com/blog/collaboration/salesforces-support-resolves-cases-faster |
 | MS Teams | [I] Team/channel roles + ServiceNow ACLs behind; approvals via adaptive cards. https://aelumconsulting.com/blogs/servicenow-microsoft-teams-integration/ |
 | Asana | [V] Project-level roles/permissions + form-response privacy; no case-field SoD. https://asana.com/apps/service-desk-for-asana |
 | n8n | [I] Workflow-level credentials/roles; no per-ticket authz. https://docs.n8n.io/flow-logic/error-handling/ |
-| Rippling | [V] **Best-in-class identity/RBAC** — policy-driven access off the employee graph is the core product. https://www.rippling.com/products/it |
+| Rippling | [V] **Source-cited identity/RBAC** — policy-driven access off the employee graph is the core product. https://www.rippling.com/products/it |
 | SAP | [I] Role-based case access + org/territory scoping in CX. https://www.spadoom.com/en/blog/discover-the-power-of-sap-service-cloud/ |
 
 ### 9. Automation hooks
+
 | Vendor | How |
 |---|---|
 | **Our Console** | Notification fan-out on assign/status/comment — `deliver_notifications` resolves staff push tokens and fans out **FCM** (degrades gracefully if no notifier). Automation is hard-wired to these events today, not a user-authored rule builder. (`rest/src/lib.rs:460+`.) |
@@ -124,6 +133,7 @@ Module-relevant vendor weighting (per brief): **Asana** (service-desk patterns),
 | SAP | [V] Automatic case classification (70-90%), sentiment, Joule suggestions, skills routing. https://www.spadoom.com/en/blog/discover-the-power-of-sap-service-cloud/ |
 
 ### 10. Mobile
+
 | Vendor | How |
 |---|---|
 | **Our Console** | Native app exists (`com.maintenance.field`) but is work-order/field focused; **support-ticket surface on mobile is a gap** (no `support` screens found under `android/`). Web console is responsive. |
@@ -136,9 +146,10 @@ Module-relevant vendor weighting (per brief): **Asana** (service-desk patterns),
 | SAP | [V] SAP Sales/Service Cloud mobile app for agents. https://www.spadoom.com/en/blog/discover-the-power-of-sap-service-cloud/ |
 
 ### 11. Audit / compliance / PII
+
 | Vendor | How |
 |---|---|
-| **Our Console** | **Strongest by design.** `support_tickets` + `support_ticket_comments` are `mnt-gate: audited-table`; every transition/assign/comment writes an audit event. Customer PII (`requester_contact`) **never written to logs** (pii-no-logs gate over logging macros) and **never copied into audit snapshots**. Tamper-evident audit chain platform-wide. (`0022_create_support.sql` header + migration comments.) |
+| **Our Console** | `support_tickets` + `support_ticket_comments` are `mnt-gate: audited-table`; evidenced transition/assign/comment paths write audit events. Customer PII (`requester_contact`) is excluded from logging macros and audit snapshots by the cited gates. The platform audit-chain seam is partial/DARK, not proved universal or production-tamper-evident. (`0022_create_support.sql` header + migration comments.) |
 | Palantir Foundry | [V] Full lineage + object edit history + dynamic security; audit is a platform property. https://www.palantir.com/docs/foundry/object-backend/overview |
 | Slack | [I] Enterprise Grid audit logs + DLP + eDiscovery, but PII sits in conversation text. https://slack.com/ |
 | MS Teams | [I] Purview audit/retention/DLP; ticket audit lives in ServiceNow. https://www.usepylon.com/blog/microsoft-teams-helpdesk-2025-guide |
@@ -148,10 +159,11 @@ Module-relevant vendor weighting (per brief): **Asana** (service-desk patterns),
 | SAP | [I] Enterprise audit + data-privacy tooling in CX/BTP. https://www.spadoom.com/en/blog/discover-the-power-of-sap-service-cloud/ |
 
 ### 12. Extensibility / no-code config
+
 | Vendor | How |
 |---|---|
 | **Our Console** | SLO policy is a **governed config object** (per-type thresholds edited no-code with revision staging + four-eyes); but ticket categories/priorities/fields are code enums, not user-extensible yet. (`slo-settings.ts`; ledger BE2 `support_slo_setting` seeded through the engine.) |
-| Palantir Foundry | [V] **Best-in-class** — define object types/props/links/Actions with no code; app built in Workshop. https://www.palantir.com/docs/foundry/action-types/overview |
+| Palantir Foundry | [V] **Source-cited** — define object types/props/links/Actions with no code; app built in Workshop. https://www.palantir.com/docs/foundry/action-types/overview |
 | Slack | [I] Workflow Builder (no-code) + apps; ticket schema comes from the connected system. https://slack.com/ |
 | MS Teams | [I] Power Platform low-code; schema from ServiceNow/Dataverse. https://aelumconsulting.com/blogs/servicenow-microsoft-teams-integration/ |
 | Asana | [V] Custom fields, forms, rules, templates — all no-code; strong config. https://asana.com/apps/service-desk-for-asana |
@@ -160,9 +172,10 @@ Module-relevant vendor weighting (per brief): **Asana** (service-desk patterns),
 | SAP | [V] Key-user extensibility (custom fields, rules) on the case entity; BTP for deep custom. https://www.spadoom.com/en/blog/discover-the-power-of-sap-service-cloud/ |
 
 ### 13. AI assist (triage / draft / deflection)
+
 | Vendor | How |
 |---|---|
-| **Our Console** | **Deliberate N/A** — platform mandate is "carbon-copy Palantir Foundry, **NO AI**" (project memory / forklift-fsm decisions). No auto-classify, no draft replies. This is a product stance, not a gap. |
+| **Our Console** | **Deliberate N/A for this benchmark scope** — `docs/program/benchmark-brief.md` defines the console comparison as deterministic/no-AI. No auto-classify or draft-reply implementation is claimed. |
 | Palantir Foundry | [V] AIP adds LLM-in-loop over the ontology, but the base object grammar is deterministic. https://build.palantir.com/ |
 | Slack | [V] Agentforce Service in Slack: AI answers + case-swarm assist. https://trailhead.salesforce.com/content/learn/modules/slack-for-agentforce-it-service/maximize-your-it-team-with-ai-and-swarming |
 | MS Teams | [V] ServiceNow **EmployeeWorks** (Moveworks AI) in Teams — up to 30% ticket deflection in pilots. https://windowsnews.ai/article/servicenow-unveils-employeeworks-ai-driven-help-desk-tightly-integrated-with-microsoft-teams.431820 |
@@ -172,6 +185,7 @@ Module-relevant vendor weighting (per brief): **Asana** (service-desk patterns),
 | SAP | [V] Joule + Digital Service Agent (available since Q3 2025, GA'd in the SAP H2-2025 cycle) resolves routine cases end-to-end. https://www.spadoom.com/en/blog/discover-the-power-of-sap-service-cloud/ |
 
 ### 14. Korean B2B fit (전자결재 · 근로기준법 · group-company scoping)
+
 | Vendor | How |
 |---|---|
 | **Our Console** | **Native.** Four-eyes 적용 승인/철회 revision staging = 전자결재 culture; escalation targets 팀장/전담자/관리자; branch/group (법인→branch→worksite) scoping is the RLS backbone; Korean strings throughout (`ko.support.*`, `supportslo-strings.ts`). |
@@ -187,17 +201,17 @@ Module-relevant vendor weighting (per brief): **Asana** (service-desk patterns),
 
 ## Per-vendor: "how they'd build OUR support module"
 
-**Palantir Foundry** — Ticket becomes one Ontology object type with links to Work Order, Equipment, Employee; status transitions and SLO escalation are Actions with dynamic security; the whole desk is a Workshop app with no bespoke code. SLO breach = a scheduled automation firing an Action. Deepest object-graph + lineage of anyone; weakest on turnkey intake channels and out-of-box case ergonomics — you build everything.
+**Palantir Foundry** — Ticket becomes one Ontology object type with links to Work Order, Equipment, Employee; status transitions and SLO escalation are Actions with dynamic security; the whole desk is a Workshop app with no bespoke code. SLO breach = a scheduled automation firing an Action. The cited surface provides substantial object-graph + lineage coverage; limited on turnkey intake channels and out-of-box case ergonomics — you build everything.
 
 **Slack** — There is no ticket screen; a case is a message in a product/region channel, swarmed in a thread, with a Workflow-Builder intake form and a swarm lead. Internal notes = the thread; customer reply = the connected Service Cloud. They'd nail collaboration + speed (26% faster close, 64% backlog cut) and mobile, but SLO/FSM/audit/PII-redaction would all be delegated to the system of record.
 
 **Microsoft Teams** — The desk is adaptive cards inside Teams: Virtual Agent intake, inline approvals, task modules for triage, with ServiceNow (EmployeeWorks/Moveworks AI) as the engine behind. Strong for in-flow approvals and 30%-deflection AI; the case lifecycle, SLA, and audit are ServiceNow's, not Teams'.
 
-**Asana** — A dedicated intake project: Forms → tasks in an intake section, Rules to assign + start SLA timers (that pause on hold), custom fields for priority/category, AI to auto-name/triage. Closest match to our module's *shape* of any vendor, and the cleanest no-code intake + rules. Weaker on enforced FSM, field-level PII redaction, and audited four-eyes config.
+**Asana** — A dedicated intake project: Forms → tasks in an intake section, Rules to assign + start SLA timers (that pause on hold), custom fields for priority/category, AI to auto-name/triage. Selected sampled comparator for this module's shape and a direct no-code intake + rules reference. Weaker on enforced FSM, field-level PII redaction, and audited four-eyes config.
 
 **n8n** — Not a desk; the *connective tissue* between one. Webhook intake → classify → route → Wait-node human approval → SLA cron → escalate on breach, all as a node graph with a dedicated Error Workflow. They'd build our automation layer beautifully and leave the object store/UI to us.
 
-**Rippling** — They'd try to make the ticket *not exist*: bind support to the employee/identity graph so access-request and onboarding tickets auto-resolve via policy (their claim: 80% IT ticket reduction). Best-in-class RBAC/identity, but no case lifecycle/SLA/thread — for genuine CX complaints they'd hand off to Zendesk.
+**Rippling** — They'd try to make the ticket *not exist*: bind support to the employee/identity graph so access-request and onboarding tickets auto-resolve via policy (their claim: 80% IT ticket reduction). Source-cited RBAC/identity, but no case lifecycle/SLA/thread — for genuine CX complaints they'd hand off to Zendesk.
 
 **SAP (Service Cloud V2)** — The heavyweight: a lifecycle Case engine with channel-agnostic inbox, skills-based + load-balanced routing, SLA by priority **and customer tier** with manager compliance dashboards, Joule AI + Digital Service Agent. Everything our SLO row wants and more, but enterprise-heavy, expensive, and its 전자결재/법인 model is generic vs our purpose-built one.
 
@@ -205,7 +219,7 @@ Module-relevant vendor weighting (per brief): **Asana** (service-desk patterns),
 
 ## What we'd steal (ranked)
 
-1. **SLA timer that starts on acknowledgement and auto-pauses on "on hold"/"awaiting info"** → **Asana** does it best. Our `due_at` is a static create-time stamp; a pause/resume clock is truer to real SLO. Fits our SLO setting object cleanly (add `pausedStates` + accrued-time fields). **Cost: M.**
+1. **SLA timer that starts on acknowledgement and auto-pauses on "on hold"/"awaiting info"** → **Asana** is the cited reference for this capability. Our `due_at` is a static create-time stamp; a pause/resume clock is truer to real SLO. Fits our SLO setting object cleanly (add `pausedStates` + accrued-time fields). **Cost: M.**
 2. **SLA by customer tier, not just priority** → **SAP**. Our SLO keys only on category/priority; a tier dimension (VIP account, contract level) is a natural second axis on the setting object. **Cost: S–M.**
 3. **Skills-based + load-balanced auto-routing** → **SAP**. We only self-assign/manual-assign. A routing Action over branch + skill tags + open-ticket count would cut triage latency. Fits our authz/branch model. **Cost: M.**
 4. **Swarm thread with a designated swarm lead** → **Slack**. Our comment thread is flat agent/customer; a "pull in an expert / escalate to a swarm" affordance on high-priority tickets (reusing messenger) mirrors the 26%-faster-close pattern. **Cost: M.**
@@ -222,8 +236,8 @@ Module-relevant vendor weighting (per brief): **Asana** (service-desk patterns),
 
 - **Task-flow:** money task = *resolve a ticket* — **~3 steps, one ticket at a time, no canned reply/macro**. Zendesk's **one-click macro** bundles a canned reply + N field changes and applies via toolbar or `/`-inline. **Steal:** saved macros (a bundled field-set + reply exposed as a reusable ontology Action) + `/`-inline apply — our ontology Action types *are* bundled writebacks. Cost **M**.
 - **IA / layout:** generic ModuleScreen — list + single 22rem panel + resolve action. **GAP:** no multi-record **tabs/subtabs**, no **split-view** persistence, no **utility bar** — an agent juggling 5 tickets can't tab between them. **Steal:** Salesforce **workspace tabs + subtabs** (the biggest agent-productivity gap) [L]; utility bar (notes/recent) as a docked footer [M]; ServiceNow progressive-disclosure tabbed record [M].
-- **Data-model:** Zendesk's custom-objects + typed lookups are a mature no-code extension model (ahead of our *populated* state). **Where we're stronger:** the **SLO setting is a governed ontology instance with draft→approve staging + as-of** — no support vendor governs their config that way — and our ticket FSM is hash-fixity-audited; our uncapped typed 4-tuple links beat Zendesk's 5–10 lookup cap. **Steal:** Zendesk custom-objects + typed lookup UX [M]; junction-object / relationship-field authoring UI [S].
-- **Governance:** **Par**, subtly Ahead — SLO-as-governed-config-object means a config change is itself four-eyes-able (ServiceNow SLA definitions are plain admin-config). **Steal:** SLO-threshold four-eyes is **already enforced client-side** (`approveSloRevision` blocks self-approval); the remaining work is **backend enforcement** (route through `gov_approvals`) [S]; high-risk ticket → step-up SoD before a privileged support action (impersonation/data-export) → ServiceNow [M].
+- **Data-model:** Zendesk's custom-objects + typed lookups are a mature no-code extension model (more mature than our currently populated state). **Source-bounded difference:** the **SLO setting is a governed ontology instance with draft→approve staging + as-of** — the sampled support-vendor citations do not show their config that way — and our ticket FSM is hash-fixity-audited; our uncapped typed 4-tuple links differs from Zendesk's documented 5–10 lookup cap. **Steal:** Zendesk custom-objects + typed lookup UX [M]; junction-object / relationship-field authoring UI [S].
+- **Governance:** scoped design difference — SLO-as-governed-config-object means a config change is itself four-eyes-able (ServiceNow SLA definitions are plain admin-config). **Steal:** SLO-threshold four-eyes is **already enforced client-side** (`approveSloRevision` blocks self-approval); the remaining work is **backend enforcement** (route through `gov_approvals`) [S]; high-risk ticket → step-up SoD before a privileged support action (impersonation/data-export) → ServiceNow [M].
 - **Automation / extensibility:** **Steal:** on-ticket-event → workflow as a first-class lifecycle-transition trigger (not just a periodic monitor) → Zendesk [S–M]; reusable action groups (subflows/spokes) → ServiceNow [M]; SLA-breach timer trigger wired to the SLO setting object [M].
 
-**Adjudication (support.md is right, governance.md was stale):** support.md's claim that "SLO edit is four-eyes (approver≠requester)" is **CONFIRMED** — `approveSloRevision` (`web/src/features/support/slo-settings.ts:118-122`) returns a no-op when `pending.stagedById === approverId`. An earlier governance-lens steal item framed this gate as not-yet-built; it is built on the client — only backend enforcement remains (reconciled above and in the governance lens).
+**Adjudication:** `approveSloRevision` (`web/src/features/support/slo-settings.ts:118-122`) blocks self-approval on the client. This is not a backend four-eyes guarantee; route enforcement through `gov_approvals` remains pending.

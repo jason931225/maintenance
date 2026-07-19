@@ -28,7 +28,8 @@ Read from `web/src/console/workflows/*`, `console/canvas/*`, `console/policycanv
   governed ontology Action through `actions/execute`, the SAME verb a human invokes. No other effect type.
 - **Governance of the automation itself**: draft→stage→**four-eyes approve** (self-approval blocked,
   `sameActor` guard + backend `gov_approvals` CHECK, ledger L135) →effective, version history, as-of,
-  content-hash rollback. Every button Cedar-gated (`PolicyGated` / `WORKFLOW_AUTO_ACTIONS`).
+  content-hash rollback. `PolicyGated` shapes advisory UI affordances; live authorization remains the
+  legacy server boundary until each Cedar action is enrolled and promoted.
 - **Ontology extensibility**: no-code **add-a-type** with the intent that a new type wires itself
   end-to-end (instances CRUD, module surface, policy resource, automation triggers, graph, i18n, route) —
   ledger L78. This is our extensibility story: extend the **model**, not plug in third-party code.
@@ -47,7 +48,7 @@ Read from `web/src/console/workflows/*`, `console/canvas/*`, `console/policycanv
   (ledger L116, "85 판정").
 
 Bottom line: we are a **governed, internal, model-extensible** automation engine. Every commodity
-automation vendor is an **open, connector-rich, externally-extensible** one. The gap and the moat are the
+automation vendor is an **open, connector-rich, externally-extensible** one. The gap and the design distinction are the
 same fact.
 
 ---
@@ -70,7 +71,7 @@ Durable-execution benchmark = **Temporal**: append-only Event History, determini
 side effects `[brief]`. Our retries are `retryable`/`retryCount` flags on runLog events — not a replayable log.
 
 **What we'd steal (ranked):**
-1. **Inbound webhook trigger** → n8n/Zapier do it best → new `WorkflowBlockKind:"webhook"`; the URL mints a
+1. **Inbound webhook trigger** → selected references: n8n/Zapier → new `WorkflowBlockKind:"webhook"`; the URL mints a
    Cedar-scoped ingress principal, payload maps into an ontology action's parameters. Fits "humans+automation
    share one mutation surface." **M** (needs a public ingress route + HMAC verify + replay guard).
 2. **Effect taxonomy beyond ontology-action** → Foundry Automate (action / function / **notification** /
@@ -93,7 +94,8 @@ side effects `[brief]`. Our retries are `retryable`/`retryCount` flags on runLog
 | Marketplace distribution | Slack Marketplace `[V]` | Teams store `[I]` | **none (single-tenant internal)** |
 | Link unfurl (event → metadata → post-back) | `link_shared` → `chat.unfurl` `[brief]` | — | objDrag `#code` markers (internal analog) |
 
-Our comms is an **auditable in-app messenger** (memory: no E2EE, native push), not a third-party app host.
+Our repository contains an in-app messenger and audit surfaces (`backend/crates/messenger`,
+`web/src/console/messenger`); the cited paths do not prove E2EE or native-push posture.
 A power user coming from Slack loses **slash commands** and **chat-native workflow triggers** most.
 
 **What we'd steal (ranked):**
@@ -107,7 +109,7 @@ A power user coming from Slack loses **slash commands** and **chat-native workfl
 
 ---
 
-## 3. APPR — 전자결재 / approvals (no strong global vendor)
+## 3. APPR — 전자결재 / approvals (sampled product references are weakly matched)
 
 Global automation vendors do NOT model Korean 전자결재 as first-class: **결재선**(approval line), **전결규정**
 (delegation-of-authority matrix), **대결/전결/합의/병렬**(deputy/final/concur/parallel), and 근로기준법-bound
@@ -117,12 +119,12 @@ framework**: ordered steps (approval/to-do/checklist/integration/notification) g
 routing modifiers, ending in a mandatory commit step `[brief]`.
 
 **Ours**: governance four-eyes approve/withdraw (self-approval banned, `gov_approvals` CHECK), AP- approval
-objects, console-change AP- template gating (ledger L137 #73). We are **closer to 전자결재 than any global
-vendor** but lack 결재선-as-config.
+objects, console-change AP- template gating (ledger L137 #73). This design contains **more of the Korean 전자결재 grammar than the sampled global-product
+surfaces** but lack 결재선-as-config.
 
 **What we'd steal (ranked):**
 1. **Routing-modifier rules as governed config** → Workday BP `[brief]` → 전결규정 becomes a governed ontology
-   object (amount/type → 결재선), evaluated by the same predicate engine as policies. Local-fit moat. **M**.
+   object (amount/type → 결재선), evaluated by the same predicate engine as policies. Local-fit recommendation. **M**.
 2. **Parallel + 합의(concur) + 대결(deputy) step types** → Workday step taxonomy → extend AP- lifecycle FSM.
    **M**.
 3. **Mandatory commit step** → Workday `[brief]` → make "결재 완료" an explicit terminal transition that
@@ -141,7 +143,8 @@ vendor** but lack 결재선-as-config.
 | App framework | ZAF (`client.on/get`) + Marketplace `[V]` | scoped apps + Spokes `[V]` | **none (no-code type authoring instead)** |
 | Reusable action steps | — | Custom Actions + Subflows + Spokes `[V]` | ontology actions ✓ (not composable-as-subflow) |
 
-We have SUP- tickets (memory) and object monitors. Zendesk/ServiceNow win on **webhook-out on ticket event**
+We have SUP- tickets and object monitors (`backend/crates/support`, `web/src/console/screens/support`).
+Zendesk/ServiceNow win on **webhook-out on ticket event**
 and **spoke/app extensibility**; we win on **typed custom objects with governance** (their custom objects are
 schema-thin vs our ontology).
 
@@ -161,7 +164,7 @@ Both drive field automation through their platform engines: ServiceNow **Flow De
 triggers, custom actions, spokes) `[V]`; Salesforce Field Service via **Flow + Apex** triggers `[I]`. Dispatch,
 SLA timers, and mobile-work-order state changes are the automation surface.
 
-**Ours**: WO- work orders with a domain FSM (memory: forklift FSM), projected into ontology; the "cover-planner /
+**Ours**: WO- work orders have a domain FSM (`backend/crates/workorder/domain` and its FSM tests); projecting that FSM into the ontology remains a target. The "cover-planner /
 사전 대근 cron" is an explicit TODO (ledger L116). A field power user expects **on-status-change** and
 **geo/SLA** triggers.
 
@@ -181,7 +184,7 @@ an event instance through a configurable BP — ordered steps, condition rules, 
 commit; all records effective-dated `[brief]`. BambooHR-class tools add **webhooks + REST API** on HR events
 `[I]`.
 
-**Ours**: HR + Korean payroll modules (memory); leave has `hr_leave_workflow` (migration 0111, ledger L188);
+**Ours**: HR/payroll crates exist and leave has `hr_leave_workflow` (migration 0111, ledger L188);
 effective-dated ontology instances already exist (append-only, as-of). We have the **substrate** Workday relies
 on. Missing: HR-event **triggers** (on-hire → provision, on-leave-approve → adjust balance) as automation, and
 outbound HR webhooks.
@@ -189,7 +192,7 @@ outbound HR webhooks.
 **What we'd steal (ranked):**
 1. **HR-event lifecycle triggers** → Workday BP `[brief]` → on-approve-leave → auto ontology action
    (balance decrement, 연차촉진 round). We have effective-dating + actions; just need the trigger kind. **S–M**.
-2. **연차촉진 round scheduler** → 근로기준법-specific, no global vendor `[I]` → schedule trigger + notification
+2. **연차촉진 round scheduler** → 근로기준법-specific; an equivalent was not observed in the sampled product sources `[I]` → schedule trigger + notification
    effect (촉진 통보). Local-fit. **M** (needs notification effect first).
 3. **Routing modifiers by org scope** (Group→법인→branch→worksite) → Workday `[brief]` → our scoped RBAC already
    models the hierarchy; bind routing to it. **M**.
@@ -245,9 +248,9 @@ Extensibility here = **policy-as-code** authored no-code. Cedar: schema-validate
 (`?principal`/`?resource` slots), partial-eval residuals → SQL WHERE `[brief]`. OPA: rego + bundles + decision
 logs `[I]`. Both are extended by **writing policies as governed data**, not plugins.
 
-**Ours**: no-code P→R→A→Effect canvas + typed predicates + live simulator (ledger L47, L152); real Cedar
-authoring (`cedar_pbac/authoring.rs`) with four-eyes review FSM, deny-by-omission, forbid-wins. This is
-**best-in-class already** and beats vendors on *governance of the policy itself* (four-eyes + as-of).
+**Ours**: no-code P→R→A→Effect canvas + typed predicates + server-backed simulator (ledger L47, L152); Cedar
+authoring (`cedar_pbac/authoring.rs`) has a four-eyes review FSM, deny-by-omission, and forbid-wins semantics.
+This proves authoring/evaluation substrate, not live-route Cedar enforcement.
 
 **What we'd steal (ranked):**
 1. **Policy templates for discretionary grants** → Cedar templates `[brief]` → "share object X with user Y"
@@ -256,7 +259,7 @@ authoring (`cedar_pbac/authoring.rs`) with four-eyes review FSM, deny-by-omissio
    (could itself be a trigger: on-deny → notify). **M**.
 3. Policy-as-automation-trigger → Cedar `[I]` → on policy-change, re-simulate affected surfaces. **M**.
 
-N/A: no vendor "app marketplace" concept applies to policy — extensibility here is intentionally
+N/A: the sampled product sources do not show an applicable "app marketplace" concept to policy — extensibility here is intentionally
 data-authoring, which we've nailed.
 
 ---
@@ -267,9 +270,10 @@ data-authoring, which we've nailed.
 systems** on a schedule (hourly/daily), cross-framework mapping lets one evidence item satisfy overlapping
 controls `[brief]`. Extensibility = a large **integrations catalog** + API to feed evidence `[I]`.
 
-**Ours**: L20 tamper-evident audit chain (fixity/WORM, memory), CP-/RG- compliance objects, evidence records
-(EV-). We have the **evidence substrate** (better than Vanta on integrity: SHA-256 fixity + WORM + FRE
-902(14)). We lack the **continuous-test scheduler** and **integration-sourced evidence collection**.
+**Ours**: audit-chain seal/verify code (`backend/crates/platform/audit-chain`, migrations `0100`/`0101`),
+CP-/RG- compliance objects, and evidence records (EV-). These are partial source seams: production sealing
+defaults OFF, trusted external signing/anchoring and object-lock deployment are unproved. We also lack the
+**continuous-test scheduler** and **integration-sourced evidence collection**.
 
 **What we'd steal (ranked):**
 1. **Continuous control-test scheduler** → Vanta/Drata `[brief]` → schedule trigger (exists) + an ontology
@@ -288,9 +292,10 @@ controls `[brief]`. Extensibility = a large **integrations catalog** + API to fe
 Workflows (cron/webhook-triggered) + custom components + query-triggered actions `[I]`. Dashboard extensibility
 = **alert-as-trigger** and **drill-to-action**.
 
-**Ours**: config-console (widget palette, live count widgets, honest charts, 팀 배포 결재 — ledger L153); dashboard
-= live ontQuery widget slots (L130 #67); ProjectionPanel (CI95/CVaR95, deterministic). We can render and
-governance-gate a dashboard, but a **threshold-alert → automation** loop isn't wired.
+**Ours**: config-console (widget palette, stub-fed count widgets, honest charts, 팀 배포 결재 — ledger L153);
+Dashboard source-observed data comes from current API calls, not `ontQuery`. Generic widget→`ontQuery` binding and Cedar
+residual filtering are wire-pending target work. ProjectionPanel (CI95/CVaR95) is deterministic, and a
+**threshold-alert → automation** loop is not wired.
 
 **What we'd steal (ranked):**
 1. **Alert-rule trigger** (metric crosses threshold → run workflow) → Grafana `[I]` → a monitor over an
@@ -304,11 +309,11 @@ governance-gate a dashboard, but a **threshold-alert → automation** loop isn't
 
 ## Cross-module synthesis
 
-The single structural fact: **every commodity vendor's extensibility is OUTWARD (connectors, webhooks, apps,
-code) and ungoverned; ours is INWARD (extend the ontology model) and governed.** The four things a power user
-loses moving from n8n/Slack-platform to us — inbound webhook trigger, connector catalog, code node, app
-platform — are exactly the four we've deliberately (webhook/effect: gap; code/app: no-AI + single-tenant) not
-built. The two things they GAIN — every automation runs the same Cedar-gated, four-eyes-published, as-of-audited
-ontology action a human runs — are our moat. The highest-ROI investments close the *governed* versions of the
+Bounded inference from the sampled product surfaces (observed 2026-07-18): **the cited n8n/Slack-platform
+surfaces emphasize outward extension through connectors, webhooks, apps, or code; this design emphasizes
+inward ontology-model extension.** Inbound webhook trigger, connector catalog, code node, and app platform
+remain deliberate gaps rather than proof of market-wide differentiation. The target gain is one governed ontology Action shape for humans and automation. Cedar evaluation and
+an explicit `runs_as` principal still require per-action enrollment, shadow evidence, and promotion. The
+highest-ROI investments close the *governed* versions of the
 gaps (webhook-in as a Cedar-scoped ingress; notification/webhook-out effects; lifecycle-transition triggers)
 without importing the ungoverned service-account model.

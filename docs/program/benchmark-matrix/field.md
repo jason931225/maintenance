@@ -1,5 +1,12 @@
 # Benchmark Matrix — Module: **field** (field ops: dispatch, work orders, mobile handoff, geofence check-in)
 
+> **Benchmark evidence metadata**
+> - Observation/revalidation date: 2026-07-19.
+> - Sampled products/surfaces: Oyatie legacy dispatch, backend FSM, and Android field source; SAP Field Service Management, S/4HANA, and SuccessFactors; Rippling Time Clock; Asana mobile/tasks; Palantir Workshop/Ontology; Slack; Microsoft Teams Frontline; n8n.
+> - Evidence modality: Fixed-target repository source plus live-checked public official documentation/product pages and explicitly labeled public secondary pages; hands-on product tenants, screenshot capture, deployment, activation, and production validation were not performed.
+> - Scope/claim ceiling: Only the named pages, surfaces, and fixed-target source are in scope; no whole-product, current-production, provider-parity, universal-superiority, legal, tax, labor, deployment, activation, or production conclusion.
+> - Legend: [V] = bounded external observation with a direct URL or same-document source-list entry; [E]/[code] = fixed-target repository observation; [I] = recommendation or inference. Every steal/adopt item is [I].
+
 Compared: **Our Console** vs SAP (FSM + S/4HANA + SuccessFactors), Rippling, Asana, Palantir Foundry, Slack, Microsoft Teams, n8n.
 Rigor: every vendor cell is `[V]` VERIFIED (source URL) or `[I]` INFERRED (reasoned from known product patterns). Our column is code-grounded (paths cited).
 
@@ -19,7 +26,7 @@ Rigor: every vendor cell is `[V]` VERIFIED (source URL) or `[I]` INFERRED (reaso
 - **SLA**: `features/dispatch/sla.ts` + `SlaBadge.tsx` — on-track/at-risk(≤30m)/breached from `target_due_at`; org rollup via `OpsSummary.sla_at_risk/breached`.
 - **Evidence**: `WorkOrderEvidenceList.tsx`, `EvidenceUpload.tsx`; Android `CameraCaptureScreen.kt` + evidence module (RustFS-backed).
 - **Mobile app** (`android/app/.../field`): tabs Today / WorkHub / Messenger / Operations; **offline mutation queue** (`data/offline/*`: `MutationQueueStore`, `OfflineQueueRepository`, `ConnectivityReplayScheduler`, idempotent `RequestIdFactory`), passkey step-up for sensitive actions, WO approve from mobile.
-- **Permissions**: Cedar PBAC shadow-wired at role_manage + deny-by-omission residual→SQL WHERE (memory: Cedar activation); role gates `ADMIN/EXECUTIVE/SUPER_ADMIN` on dispatch/equipment surfaces.
+- **Permissions**: current field access uses legacy server/role checks plus evidenced RLS; `ADMIN/EXECUTIVE/SUPER_ADMIN` gates appear on dispatch/equipment surfaces. Cedar PBAC and residual→SQL lowering remain target/shadow until per-action enrollment and promotion under ADR-0021.
 - **Audit/gov**: append-only effective-dated event log, org-scoped FORCE-RLS, three-layer ontology object tracking (semantic/kinetic/dynamic) for WO- objects.
 
 ---
@@ -27,6 +34,7 @@ Rigor: every vendor cell is `[V]` VERIFIED (source URL) or `[I]` INFERRED (reaso
 ## Capability Matrix (rows = dimensions, cells = how each does it)
 
 ### 1. Information architecture (the dispatch surface)
+
 | | How |
 |---|---|
 | **Our Console** | Status-kanban board (6 collapsed lanes over 16 states) + separate Leaflet dispatch map; WO opens as 3-layer ObjectCard. Board + map are distinct surfaces. `DispatchBoard.tsx`. |
@@ -39,10 +47,11 @@ Rigor: every vendor cell is `[V]` VERIFIED (source URL) or `[I]` INFERRED (reaso
 | **n8n** | N/A — automation engine, no operator UI for field ops (canvas is for building flows, not dispatching work). |
 
 ### 2. Work-order lifecycle / state model
+
 | | How |
 |---|---|
 | **Our Console** | Domain-owned 16-state FSM incl. maintenance-native states (TEMPORARY_ACTION 응급조치, PART_WAITING 부품대기, REVISIT_REQUIRED 재방문, EQUIPMENT_IN_USE); every transition audited, version history + as-of. `dispatch/domain`. |
-| **SAP FSM** | [V] Full service-order lifecycle: create→plan→dispatch→execute→confirm→invoice, asset- and customer-service variants in one model; status-driven. ([sap.com/features](https://www.sap.com/products/scm/field-service-management/features.html)) |
+| **SAP FSM** | [I] Full service-order lifecycle: create→plan→dispatch→execute→confirm→invoice, asset- and customer-service variants in one model; status-driven. ([sap.com/features](https://www.sap.com/products/scm/field-service-management/features.html)) |
 | **Rippling** | N/A — no work-order object; unit of work is a time entry / job code, not a serviceable order. ([rippling.com glossary](https://www.rippling.com/glossary/time-and-attendance)) |
 | **Asana** | [V] Task status = custom fields / sections; no domain lifecycle — you model states as columns/fields yourself. Rules fire on status change. ([asana.com](https://asana.com/features/workflow-automation/rules)) |
 | **Palantir** | [V] Lifecycle = Ontology Action Types (create/modify/link/delete) gated by rule sets; you author the states as object properties + allowed actions. No built-in WO type. ([palantir.com](https://www.palantir.com/docs/foundry/workshop/actions-use)) |
@@ -51,10 +60,11 @@ Rigor: every vendor cell is `[V]` VERIFIED (source URL) or `[I]` INFERRED (reaso
 | **n8n** | [I] Stateless per-execution; "state" = whatever you persist to an external store between webhook calls. |
 
 ### 3. Dispatch & assignment (manual / auto / broadcast)
+
 | | How |
 |---|---|
 | **Our Console** | Manual multi-mechanic assign (PRIMARY/SECONDARY) + **P1 broadcast-accept** w/ GPS proximity scoring + escalation timers + manager force-assign + outsource route. `WorkOrderDispatchControls` + `dispatch/worker`. |
-| **SAP FSM** | [V] Manual, semi-automatic, and **fully automatic** AI scheduling on the dispatch board, matched on skills + availability; plus **Crowd Service** to broadcast to external/partner technicians. ([sap.com](https://www.sap.com/products/scm/field-service-management.html)) |
+| **SAP FSM** | [I] Manual, semi-automatic, and **fully automatic** AI scheduling on the dispatch board, matched on skills + availability; plus **Crowd Service** to broadcast to external/partner technicians. ([sap.com](https://www.sap.com/products/scm/field-service-management.html)) |
 | **Rippling** | [I] Job/shift assignment via scheduling, not skill-matched dispatch; clock-in prompts worker to pick job/customer. ([rippling.com](https://www.rippling.com/mobile-time-clock)) |
 | **Asana** | [V] Rules auto-assign tasks by field/form data; single assignee per task (+ subtask assignees). No broadcast/claim model. ([asana.com forms](https://asana.com/features/workflow-automation/forms)) |
 | **Palantir** | [V] Dispatch = an Action exposed via Button Group widget; "dynamic resource allocation tools optimize scheduling, routing, task prioritization for large-scale field ops" — but you build the optimizer. ([palantir.com](https://www.palantir.com/docs/foundry/workshop/actions-use)) |
@@ -63,6 +73,7 @@ Rigor: every vendor cell is `[V]` VERIFIED (source URL) or `[I]` INFERRED (reaso
 | **n8n** | [I] Can implement broadcast/round-robin in a flow (webhook→branch→notify), but no native assignee model or UI. ([n8n.io](https://n8n.io/integrations/webhook/)) |
 
 ### 4. Scheduling & SLA
+
 | | How |
 |---|---|
 | **Our Console** | `target_due_at`-driven SLA (on-track/at-risk≤30m/breached) + board rollup counts; schedule-change requests carry reason (audited). No optimizer yet. `sla.ts`. |
@@ -75,10 +86,11 @@ Rigor: every vendor cell is `[V]` VERIFIED (source URL) or `[I]` INFERRED (reaso
 | **n8n** | [I] Cron/interval + wait nodes can implement SLA timers/escalation, but you wire the whole thing. |
 
 ### 5. Geofence / GPS check-in & location
+
 | | How |
 |---|---|
 | **Our Console** | Per-site geofence radius (`0041`, default 300m, admin PATCH-able), haversine eval in kernel, consented LocationPing (coord-validated), arrival/departure events on the dispatch map. Consent state machine on Android. |
-| **Rippling** | [V] **Best-in-class**: set a GPS radius workers must be within to clock in; phone GPS logged at every punch; geofence verifies field clock-ins; labor-law enforcement by location. ([rippling.com](https://www.rippling.com/mobile-time-clock)) |
+| **Rippling** | [V] **Source-cited**: set a GPS radius workers must be within to clock in; phone GPS logged at every punch; geofence verifies field clock-ins; labor-law enforcement by location. ([rippling.com](https://www.rippling.com/mobile-time-clock)) |
 | **MS Teams** | [V] Shifts location detection: "on location" if clock in/out within **200m** of set location; export shows only true/false, not coordinates; stricter geofence needs Power Automate / WFM partner. ([support.microsoft.com](https://support.microsoft.com/en-us/teams/free/clock-in-and-out-with-shifts)) |
 | **SAP FSM** | [I] Mobile app captures technician GPS for tracking/routing; geofenced check-in is typically via the mobile execution flow, not a headline feature. ([sap.com features](https://www.sap.com/products/scm/field-service-management/features.html)) |
 | **Asana** | N/A — no location/geo capability. |
@@ -87,10 +99,11 @@ Rigor: every vendor cell is `[V]` VERIFIED (source URL) or `[I]` INFERRED (reaso
 | **n8n** | [I] Could compute haversine in a Function node on ping payloads; no capture surface. |
 
 ### 6. Mobile field execution (offline, evidence capture)
+
 | | How |
 |---|---|
 | **Our Console** | Native Android app: offline mutation queue w/ connectivity replay + idempotent request ids, camera evidence capture, WO detail + approve, passkey step-up for sensitive ops. `data/offline/*`, `CameraCaptureScreen.kt`. |
-| **SAP FSM** | [V] Mobile-first execution: guided workflows, **offline capabilities**, real-time collab, digital task completion for technicians. ([sap.com](https://www.sap.com/products/scm/field-service-management.html)) |
+| **SAP FSM** | [I] Mobile-first execution: guided workflows, **offline capabilities**, real-time collab, digital task completion for technicians. ([sap.com](https://www.sap.com/products/scm/field-service-management.html)) |
 | **Rippling** | [V] Mobile app: web/mobile/kiosk clock-in, break tracking, job assignment at punch. Time-focused, not task-execution. ([rippling.com](https://www.rippling.com/mobile-time-clock)) |
 | **Asana** | [I] Mobile app for task view/update/comment/attach; no offline-first queue or field evidence workflow. ([asana.com](https://asana.com/features/workflow-automation)) |
 | **Palantir** | [I] Ontology-aware mobile via Workshop/mobile SDK; offline is limited/bespoke. Strong at data context, weak as a turnkey field app. |
@@ -99,10 +112,11 @@ Rigor: every vendor cell is `[V]` VERIFIED (source URL) or `[I]` INFERRED (reaso
 | **n8n** | N/A — no mobile end-user app. |
 
 ### 7. Mobile handoff / shift handover
+
 | | How |
 |---|---|
 | **Our Console** | WO reassign (PRIMARY/SECONDARY swap) + REVISIT_REQUIRED / TEMPORARY_ACTION states carry work across visits; HO- handover policy is a default catalog type (ledger §78). Handover as a governed object, evidence-backed. |
-| **MS Teams** | [V] Shifts open-shift/swap/handoff requests, shift notes, Walkie Talkie for live handover; strongest turnkey shift-handover. ([learn.microsoft.com Shifts](https://learn.microsoft.com/en-us/microsoftteams/expand-teams-across-your-org/shifts/manage-the-shifts-app-for-your-organization-in-teams)) |
+| **MS Teams** | [V] Shifts open-shift/swap/handoff requests, shift notes, Walkie Talkie for live handover; prominent turnkey shift-handover. ([learn.microsoft.com Shifts](https://learn.microsoft.com/en-us/microsoftteams/expand-teams-across-your-org/shifts/manage-the-shifts-app-for-your-organization-in-teams)) |
 | **SAP FSM** | [I] Assignment reassignment on the dispatch board + mobile checklists carry state; shift-handover per se is more an S/4 EAM / shift-log concern. |
 | **Rippling** | [I] Shift swap/schedule handoff exists on the scheduling side; no work-content handover. |
 | **Asana** | [I] Reassign task + comment history = lightweight handoff; no shift concept. |
@@ -111,22 +125,24 @@ Rigor: every vendor cell is `[V]` VERIFIED (source URL) or `[I]` INFERRED (reaso
 | **n8n** | N/A. |
 
 ### 8. Permissions / scoping (RBAC → PBAC)
+
 | | How |
 |---|---|
-| **Our Console** | Cedar PBAC (policies over principal/action/resource/context), deny-by-omission residual→SQL WHERE list filtering, Group→법인→branch→worksite scoped RBAC, FORCE-RLS org isolation, backend re-check on every call. Strongest fine-grained model here. |
+| **Our Console** | Current field access is legacy server/role authorization plus evidenced FORCE-RLS org isolation. Cedar PBAC and deny-by-omission residual→SQL list filtering are target/shadow capabilities, not universal live field enforcement. |
 | **SAP FSM** | [I] SAP authorization objects / BTP roles; mature but role-centric, coarser than attribute/row-level policy without custom work. |
 | **Rippling** | [I] Role + org-graph-based permissions (HR/IdP heritage); good org scoping, not resource-attribute policy. |
 | **Asana** | [V] Project/team membership + admin roles + guest access; no row/attribute policy engine. ([asana.com](https://asana.com/features/workflow-automation)) |
-| **Palantir** | [V] Ontology security: object/property-level permissions, action rule sets, mandatory + role controls — closest peer to our PBAC ambition. ([palantir.com](https://www.palantir.com/docs/foundry/architecture-center/ontology-system)) |
+| **Palantir** | [V] Ontology security: object/property-level permissions, action rule sets, mandatory + role controls — selected comparator to our PBAC ambition. ([palantir.com](https://www.palantir.com/docs/foundry/architecture-center/ontology-system)) |
 | **Slack** | [V] Workflow Builder connector-access admin controls; channel membership scoping. Not resource-policy. ([slack.com](https://slack.com/help/articles/16749280664595-Manage-access-to-Slack-Workflow-Builder-connectors)) |
 | **MS Teams** | [I] Entra ID roles + team/channel membership; org-level, not per-object field policy. |
 | **n8n** | [I] Instance/project RBAC + credential scoping (self-host); no domain resource policy. |
 
 ### 9. Automation hooks
+
 | | How |
 |---|---|
 | **Our Console** | Automate hub (workflows/schedules/monitors) + BlockCanvas typed nodes, effect = ontology-action; declarative Action types → writeback (humans + automation fire the same action). Governed, in-platform. `console/canvas/*`. |
-| **n8n** | [V] **Best-in-class raw automation**: webhook triggers (unique URL per flow), HTTP-request node to any REST API, code nodes, self-hosted (no per-task fee, credentials stay on prem). ([n8n.io](https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.webhook)) |
+| **n8n** | [V] **Source-cited raw automation**: webhook triggers (unique URL per flow), HTTP-request node to any REST API, code nodes, self-hosted (no per-task fee, credentials stay on prem). ([n8n.io](https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.webhook)) |
 | **Asana** | [V] Rules: rich trigger/condition/action library (up to many conditions), form→task automation, cross-tool integrations. Strong no-code. ([asana.com rules](https://asana.com/features/workflow-automation/rules)) |
 | **Slack** | [V] Workflow Builder: triggers→steps, conditional branching (up to **15 branches, ≤10 rules each**, Business+/Grid plans only), connectors to external systems, mobile-friendly. ([slack.com](https://slack.com/features/workflow-automation)) |
 | **SAP FSM** | [I] Business rules / workflow config + BTP integration suite; powerful but developer-heavy. |
@@ -135,9 +151,10 @@ Rigor: every vendor cell is `[V]` VERIFIED (source URL) or `[I]` INFERRED (reaso
 | **MS Teams** | [I] Power Automate flows (incl. geofence enforcement pattern) — external engine, not native. ([techcommunity](https://techcommunity.microsoft.com/discussions/microsoftteams/geofencing-shifts-or-time-clock/763625)) |
 
 ### 10. Audit / compliance
+
 | | How |
 |---|---|
-| **Our Console** | Append-only, effective-dated, fixity-stamped event log; every FSM transition = audit event; tamper-evident audit chain (seal+verify, #204); as-of reconstruction. Strongest evidentiary posture. |
+| **Our Console** | Append-oriented, effective-dated event seams and as-of reconstruction exist on evidenced paths. Audit seal/verify code is partial/DARK: production sealing is OFF, the in-memory signer is not a trust root, NULL-org rows are excluded, and universal FSM coverage is not proved. |
 | **SAP FSM** | [I] Enterprise audit via S/4 + change docs; mature but configuration-dependent. |
 | **Palantir** | [V] Ontology edits go through Actions (recorded), lineage/provenance native; strong auditability. ([palantir.com](https://www.palantir.com/docs/foundry/ontology/overview)) |
 | **Rippling** | [I] Payroll/time audit trails for labor compliance; scoped to HR domain. |
@@ -147,10 +164,11 @@ Rigor: every vendor cell is `[V]` VERIFIED (source URL) or `[I]` INFERRED (reaso
 | **n8n** | [I] Execution logs per run; no domain audit. |
 
 ### 11. Extensibility / customization
+
 | | How |
 |---|---|
 | **Our Console** | No-code add-anything (row/column/stat/type/action) through governed draft→approve→effective; new ontology type wires itself end-to-end (surface/policy/automation/graph). `console/ontology/*`, ledger §78. |
-| **Palantir** | [V] **Best-in-class**: Workshop no/low/pro-code widgets over a fully customizable Ontology; build any operational app. ([palantir.com applications](https://www.palantir.com/docs/foundry/ontology/applications)) |
+| **Palantir** | [V] **Source-cited**: Workshop no/low/pro-code widgets over a fully customizable Ontology; build any operational app. ([palantir.com applications](https://www.palantir.com/docs/foundry/ontology/applications)) |
 | **Asana** | [V] Custom fields, forms, task templates, rules, app integrations per project. No-code, but bounded to task model. ([asana.com](https://asana.com/features/workflow-automation/forms)) |
 | **SAP FSM** | [I] Extensible via BTP extensions, custom fields, smartforms/checklists; developer effort high. |
 | **n8n** | [V] Custom nodes + code nodes + any HTTP API; infinitely extensible for logic, nothing for UI. ([n8n.io features](https://n8n.io/features/)) |
@@ -159,6 +177,7 @@ Rigor: every vendor cell is `[V]` VERIFIED (source URL) or `[I]` INFERRED (reaso
 | **Rippling** | [I] Custom fields/policies within HR modules; not an app builder. |
 
 ### 12. Korean B2B operations fit (전자결재 / 근로기준법 / group scoping)
+
 | | How |
 |---|---|
 | **Our Console** | Native: 전자결재-style approval (AP-) + four-eyes/SoD guards, 근로기준법-aware attendance/leave, Group→법인→branch→worksite scoping, Alimtalk/KCC hooks (operator-templated), Korean-terrain dispatch map, full ko i18n. Purpose-built for the locale. |
@@ -173,7 +192,7 @@ Rigor: every vendor cell is `[V]` VERIFIED (source URL) or `[I]` INFERRED (reaso
 
 ## Per-vendor: "how they'd build OUR field module"
 
-- **SAP FSM** — The closest analog by design. They'd ship a Gantt dispatch board with an AI scheduler matching mechanics to WOs on skill+availability+route, a full service-order lifecycle, offline mobile execution with guided checklists, and **Crowd Service** to broadcast overflow to external forklift techs. Heavy, enterprise, config-first; Korea via SuccessFactors payroll. Our P1-broadcast + geofence would be sub-features of their scheduler. Weakness vs us: 전자결재-culture approval and per-object PBAC need bespoke config.
+- **SAP FSM** — A selected design comparator. They'd ship a Gantt dispatch board with an AI scheduler matching mechanics to WOs on skill+availability+route, a full service-order lifecycle, offline mobile execution with guided checklists, and **Crowd Service** to broadcast overflow to external forklift techs. Heavy, enterprise, config-first; Korea via SuccessFactors payroll. Our P1-broadcast + geofence would be sub-features of their scheduler. Weakness vs us: 전자결재-culture approval and per-object PBAC need bespoke config.
 
 - **Rippling** — Would treat the field module as a **time-and-location problem**: every mechanic clock-in is geofenced (GPS radius), auto-tagged to a job/customer, and fed straight into payroll with labor-law enforcement. The "work order" would be a job code, not a serviceable object. Excellent for 근태/geo compliance and payroll truth; no dispatch board, no WO lifecycle, no evidence chain. Their version answers "who worked where, paid correctly" — not "is the forklift fixed."
 
@@ -183,30 +202,30 @@ Rigor: every vendor cell is `[V]` VERIFIED (source URL) or `[I]` INFERRED (reaso
 
 - **Slack** — Dispatch as a channel + **Workflow Builder**: a form posts a WO to `#dispatch`, a workflow routes it to an on-call mechanic, escalates to a backup if unacknowledged, and mobile approve/deny updates the thread. Superb for the human coordination + approval loop and mobile notifications. Zero system-of-record: no lifecycle, no geofence, no audit object. A collaboration layer *around* a field system, not the system.
 
-- **Microsoft Teams** — The strongest **frontline-comms** take: Shifts for schedule + geofenced (200m) clock-in + swap/handover, Tasks/Planner for assignment, Walkie Talkie for live coordination, Approvals for sign-off, all mobile-first, Power Automate for geofence enforcement. Great shift-handover and clock-in; but assignment is coarse (Planner), no WO lifecycle/SLA/evidence chain, geofence export is true/false only. A frontline hub, not a dispatch engine.
+- **Microsoft Teams** — A prominent **frontline-comms** take: Shifts for schedule + geofenced (200m) clock-in + swap/handover, Tasks/Planner for assignment, Walkie Talkie for live coordination, Approvals for sign-off, all mobile-first, Power Automate for geofence enforcement. Great shift-handover and clock-in; but assignment is coarse (Planner), no WO lifecycle/SLA/evidence chain, geofence export is true/false only. A frontline hub, not a dispatch engine.
 
-- **n8n** — Not an operator product. They'd build the **connective tissue**: webhook receives a WO event, branches to round-robin a mechanic, calls the maintenance REST API, fires Alimtalk, runs SLA-timer escalation on a cron. Self-hosted, credentials on-prem (fits our bare-metal mandate). It would *drive* automation behind our module, never *be* the module.
+- **n8n** — Not an operator product. They'd build the **connective tissue**: webhook receives a WO event, branches to round-robin a mechanic, calls the maintenance REST API, fires Alimtalk, runs SLA-timer escalation on a cron. Self-hosted, credentials on-prem (fits our bare-metal mandate). It would *drive* automation behind our module, never *be* the module. **[I]**
 
 ---
 
-## What we'd steal — ranked (capability → best vendor → fit with our ontology-first grammar → cost)
+## What we'd steal — ranked (capability → selected cited reference → fit with our ontology-first grammar → cost) **[I]**
 
-1. **AI/optimizer-assisted auto-scheduling on the dispatch board** → **SAP FSM** [V] → fits: an optimizer that reads skills/availability/geo and proposes assignments = a new Automate effect emitting our existing assign Action; the ontology already has mechanic/equipment/site + geo. Big value over today's manual+P1-only dispatch. **Cost: L**.
-2. **Turnkey geofenced clock-in with labor-law binding** → **Rippling** [V] → fits: we already have per-site geofence + LocationPing + 근로기준법 attendance; steal the *tight punch↔geofence↔payroll* loop and the "assign hours to job/customer at clock-in" prompt to bind attendance to WOs. **Cost: M**.
-3. **Shift handover UX (open-shift/swap/notes + live PTT)** → **MS Teams** [V] → fits: our HO- handover type + REVISIT/TEMPORARY states are the data; steal the mobile swap/handoff request flow and shift-note affordance for the Android app. Walkie-Talkie PTT is a stretch (defer). **Cost: M**.
-4. **No-code intake form → auto-created & auto-assigned WO** → **Asana** [V] → fits directly: our add-anything + Automate rules can bind a public/internal form to a WO create Action with rule-based assignment. Cheap, high daily value for dispatchers. **Cost: S**.
-5. **Escalation-if-unacknowledged + mobile approve-from-notification** → **Slack** [V] → fits: our P1 dispatch already escalates on timer; generalize the ack-or-escalate-to-backup pattern to all assignments, and enrich the FCM push with inline accept/decline. **Cost: S**.
-6. **Crowd/partner-technician broadcast for overflow** → **SAP FSM** (Crowd Service) [V] → fits: our OUTSOURCE priority + P1 broadcast are the seed; extend broadcast to an external/partner mechanic pool with a vendor object. **Cost: M**.
-7. **Self-hosted webhook/HTTP automation escape hatch** → **n8n** [V] → fits our bare-metal mandate: expose WO lifecycle events as webhooks so ops can wire external systems without code — complements (doesn't replace) the governed Automate hub. **Cost: S** (event webhooks) / M (bidirectional).
+1. **AI/optimizer-assisted auto-scheduling on the dispatch board** → **SAP FSM** [I] → fits: an optimizer that reads skills/availability/geo and proposes assignments = a new Automate effect emitting our existing assign Action; the ontology already has mechanic/equipment/site + geo. Big value over today's manual+P1-only dispatch. **Cost: L**.
+2. **Turnkey geofenced clock-in with labor-law binding** → **Rippling** [I] → fits: we already have per-site geofence + LocationPing + 근로기준법 attendance; steal the *tight punch↔geofence↔payroll* loop and the "assign hours to job/customer at clock-in" prompt to bind attendance to WOs. **Cost: M**.
+3. **Shift handover UX (open-shift/swap/notes + live PTT)** → **MS Teams** [I] → fits: our HO- handover type + REVISIT/TEMPORARY states are the data; steal the mobile swap/handoff request flow and shift-note affordance for the Android app. Walkie-Talkie PTT is a stretch (defer). **Cost: M**.
+4. **No-code intake form → auto-created & auto-assigned WO** → **Asana** [I] → fits directly: our add-anything + Automate rules can bind a public/internal form to a WO create Action with rule-based assignment. Cheap, high daily value for dispatchers. **Cost: S**.
+5. **Escalation-if-unacknowledged + mobile approve-from-notification** → **Slack** [I] → fits: our P1 dispatch already escalates on timer; generalize the ack-or-escalate-to-backup pattern to all assignments, and enrich the FCM push with inline accept/decline. **Cost: S**.
+6. **Crowd/partner-technician broadcast for overflow** → **SAP FSM** (Crowd Service) [I] → fits: our OUTSOURCE priority + P1 broadcast are the seed; extend broadcast to an external/partner mechanic pool with a vendor object. **Cost: M**.
+7. **Self-hosted webhook/HTTP automation escape hatch** → **n8n** [I] → fits our bare-metal mandate: expose WO lifecycle events as webhooks so ops can wire external systems without code — complements (doesn't replace) the governed Automate hub. **Cost: S** (event webhooks) / M (bidirectional).
 
 ---
 
 ## Cross-cutting lens findings (5 independent review lenses)
 
-- **Task-flow:** the **new ontology console has NO dedicated field surface** — WO- is handled generically via modules/ObjectCard; the mobile employee-app is deferred; legacy `pages/*` field screens are superseded (Phase-D harvest). So dispatch = generic module row → detail → action (2–3 steps, projected-type action often `NotWiredYet`); on-site mobile isn't built in the new console. ServiceNow FSM auto-assigns (dispatcher does 0 manual matching) + gives the tech one all-in-one mobile card. **Steal:** auto-dispatch matching (skill/location) as an ontology automation; prioritize the deferred mobile employee-app (the real tech money-task surface); single all-in-one WO card. Cost **L**.
-- **IA / layout:** nav `dispatch/maintenance/field` **screens are unbuilt** in the console; work orders fall back to the generic **kanban lanes**. **GAP:** no **schedule board** (time-grid), no **map**, no **drag-drop dispatch** — the three defining FSM IA elements. **Steal:** dispatcher single-pane = unassigned-queue + schedule board + map → ServiceNow FSM (the defining gap) [L]; drag-drop assignment onto technician/timeslot [M]; local-time-aligned schedule grid [M]. (Mobile field-exec is correctly the native Android app, not the console.)
-- **Data-model:** **stronger kinetic, weaker semantic + linkage** — WO- has the **richest lifecycle FSM in the codebase (16 states, audited, RLS-tested)**, deeper than ServiceNow's typical status model. **Weaker:** WO- isn't engine-registered (no typed property schema, no as-of, still legacy page not ObjectCard), and ServiceNow/Salesforce model WO↔Asset↔CI as first-class typed reference links where ours are display link-chips. **Steal:** WO↔Asset↔CI first-class typed reference links (high value, cheap: FSM exists) [M]; ServiceAppointment as a distinct typed object (schedule≠work) [M]; open WO in the 3-layer ObjectCard [S].
-- **Governance:** **Par/Ahead** — field-action guardrails (§16 fail-closed preflight: authority/checklist/approval/egress) are strong; the checklist-gate is Ahead of SAP's cost-status gate. Korean note: 현장 coverage / 대근 (substitution) governance built-in. **Steal:** offline-approval integrity (field approvals captured offline carry signed device-context + sync-time audit) — extend the hash-chain to field-captured events [M]; WO cost-posting gate (block cost booking after TECO-equivalent) → SAP PM [S].
-- **Automation / extensibility:** **Steal:** WO lifecycle-transition trigger (CRTD→REL→TECO→CLSD → fires Automate; "every transition is an audit event" fits) [M]; 사전 대근 / cover-planner cron (schedule trigger + substitution Action) [S]; escalation timer (SLA breach → reassign) [M].
+- **Task-flow:** the **new ontology console has no dedicated field body**. Work order is a seeded projected read type, but no work-order projected action dispatch is registered; legacy dispatch/map/work-order pages and a native Android field app exist outside the new shell. ServiceNow FSM still leads on auto-assignment and one all-in-one technician card. **Steal:** auto-dispatch matching, an explicit domain-owned work-order action dispatch, and a unified mobile work card. Cost **L**. **[I]**
+- **IA / layout:** nav `dispatch/maintenance/field` **screens are unbuilt** in the console; work orders fall back to the generic **kanban lanes**. **GAP:** no **schedule board** (time-grid), no **map**, no **drag-drop dispatch** — the three defining FSM IA elements. **Steal:** dispatcher single-pane = unassigned-queue + schedule board + map → ServiceNow FSM (the defining gap) [L]; drag-drop assignment onto technician/timeslot [M]; local-time-aligned schedule grid [M]. (Mobile field-exec is correctly the native Android app, not the console.) **[I]**
+- **Data-model:** WO- has a deep domain lifecycle and is seeded as a projected read type. **Weaker:** writes remain domain-owned, projected action/as-of depth is incomplete, and ServiceNow/Salesforce model WO↔Asset↔CI as richer first-class references. **Steal:** deepen WO↔Asset↔CI typed links [M]; ServiceAppointment as a distinct typed object [M]; open WO in the 3-layer ObjectCard without adding a second writer [S]. **[I]**
+- **Governance:** **Partial** — selected field-action guardrails and audit seams exist, but universal checklist/audit coverage and trusted offline integrity are not proved. Korean note: 현장 coverage / 대근 (substitution) semantics are represented. **Steal:** offline-approval integrity (signed device-context + sync-time trusted audit) [M]; WO cost-posting gate (block cost booking after TECO-equivalent) → SAP PM [S]. **[I]**
+- **Automation / extensibility:** **Steal:** WO lifecycle-transition trigger (CRTD→REL→TECO→CLSD → fires Automate; "every transition is an audit event" fits) [M]; 사전 대근 / cover-planner cron (schedule trigger + substitution Action) [S]; escalation timer (SLA breach → reassign) [M]. **[I]**
 
-**Adjudicated contradiction (layer mismatch):** field.md was the only module doc benchmarking the **legacy** react-router app (`features/dispatch/*` + `pages/*`) while appr/compliance ground on the ontology console. The evidence base was relabeled (legacy, pending Phase-D re-implementation) and an honest gap added: the new ontology console ships NO dispatch board / map / drag-drop — so SAP-FSM-Gantt and ServiceNow-Dispatcher comparisons are against a superseded screen, per the ia-layout §13 + task-flow §13 lenses (both code-confirmed). Also: the Slack "escalate-to-backup handoff" was downgraded [V]→[I] (it's the third-party Wrangle app, not Slack-native), and Slack branching corrected to "15 branches, ≤10 rules each, Business+/Grid only".
+**Adjudicated contradiction (layer mismatch):** field.md was the only module doc benchmarking the **legacy** react-router app (`features/dispatch/*` + `pages/*`) while appr/compliance ground on the ontology console. The evidence base was relabeled (legacy, pending Phase-D re-implementation) and an honest gap added: the new ontology console ships NO dispatch board / map / drag-drop — so SAP-FSM-Gantt and ServiceNow-Dispatcher comparisons are against a superseded screen, per the ia-layout §13 + task-flow §13 lenses (both code-confirmed). Also: the Slack "escalate-to-backup handoff" was downgraded [I]→[I] (it's the third-party Wrangle app, not Slack-native), and Slack branching corrected to "15 branches, ≤10 rules each, Business+/Grid only".

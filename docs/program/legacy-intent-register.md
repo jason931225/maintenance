@@ -26,15 +26,32 @@
 > (`docs/design/oyatie-console/LEGACY-PARITY-BACKLOG.md`, cross-referenced as `[parity #N]`). Legacy
 > markdowns distilled: `SPEC.md`, root `HANDOFF.md`, `docs/specs/**`, `android/E2E-MANUAL-SMOKE.md`.
 
+> **Evidence and retirement ceiling (binding).** This register is a revision-bound mapping of intentions to
+> fixed-target source; it does not validate browser behavior, backend evaluation, deployment, activation, or
+> production operation. Those layers remain unverified here. `COVERED` and `retire` are planning labels
+> only, not evidence that a capability is shipped or that a route may be disabled or deleted. Under accepted
+> ADR-0025, shipped/readiness requires every applicable complete-slice gate: a reachable body, typed
+> real-backend reads/mutations, source-object drill, server authorization/fail-closed client behavior,
+> audit/atomicity, failure states, persona real-backend E2E, quality gates, and explicit legacy parity or an
+> owner-approved deferral. Retirement additionally requires the complete workflow/persona/cadence inventory,
+> parity/descope and policy/audit evidence, rollback rehearsal and budgets, recurrence-aware proof (including
+> the two-revision/fourteen-day floor and representative recurrence), at least 99.9% reconciled classification
+> with lost/unknown events counted as legacy, and the two-stage decommission: disable while retaining a signed,
+> restorable packet, then remove only after restoration-drill and observation gates, retaining the last verified
+> packet for at least 90 days.
+
 ## Legend
 
-- **Coverage** — `COVERED`: the new console already carries the intent (retire the legacy route after the
-  D5 cutover/fidelity gate). `PARTIAL`: the console owns the domain surface but misses operational depth.
-  `UNCOVERED`: no console surface carries it. `DESCOPED`: belongs to a separate program (public
+- **Coverage** — a planning/source-mapping classification at the fixed target. `COVERED` means the
+  target-source mapping carries the distilled intent; it is not shipped, readiness, or complete-slice
+  evidence and never waives the binding ceiling above. `PARTIAL`: the target source maps a domain surface but misses named depth.
+  `UNCOVERED`: no target-source surface maps it. `DESCOPED`: belongs to a separate program (public
   storefront / sales #6). `DO-NOT-PORT`: the legacy shape itself violates the bar and is deleted, not
   re-expressed.
-- **Verdict** — the Phase D disposition: `retire` (cutover), `depth charter`, `new charter`, `fold`,
-  `delete`, `separate program`.
+- **Verdict** — a Phase D planning disposition. `retire` is only a candidate label and does not authorize
+  cutover, disablement, or deletion; it may take effect only after accepted ADR-0025's complete-slice and
+  decommission gates pass. Other labels are `depth charter`, `new charter`, `fold`, `delete`, and
+  `separate program`.
 
 ## Personas (design ROADMAP §8 — the workflow matrix that gates every reimagined surface)
 
@@ -56,7 +73,7 @@
 ## Inventory
 
 Counts: **59 legacy surfaces** total (51 tenant-console + 8 public storefront). Of the 51 tenant-console
-surfaces: **12 COVERED**, **25 PARTIAL**, **11 UNCOVERED**, **2 DO-NOT-PORT/fold**
+surfaces: **8 COVERED**, **29 PARTIAL**, **11 UNCOVERED**, **2 DO-NOT-PORT/fold**
 (`/reporting`, `/equipment/legacy`), **1 DESCOPED** to the sales program (`/catalog`). The 8 storefront
 pages are a separate public program.
 
@@ -100,7 +117,7 @@ pages are a separate public program.
 |---|---|---|---|---|
 | Financial (`/financial`) | rental-quote objects + finance postings linked to the C- chain | executive / sales | PARTIAL → `finance` | depth charter (+ ERP spine, see UNCOVERED) [parity #18] |
 | Payroll (`/payroll`) | payroll run: attendance-close gate → run → exception review → 명세서 | payroll | PARTIAL → `pay` | depth charter (+ offboarding settlement) [parity #4] |
-| Leave management (`/hr/leave-management`) | 연차 request/approve + 촉진 + 거부권 | HR / all-staff | COVERED → `leave` | retire |
+| Leave management (`/hr/leave-management`) | 연차 request/approve + 촉진 + 거부권 | HR / all-staff | PARTIAL → `leave` | depth charter — retain intent until request creation + committed closed-loop Playwright E2E land |
 | Insurance assist (`/hr/insurance`) | 4대보험 acquisition/loss classification + EDI readiness | HR / payroll | **UNCOVERED** | new charter (Korean legal) [parity #4] |
 | Employees (`/settings/employees`) | employee master + attendance import + identity-resolution + Korean 4-item sign-off | HR | PARTIAL → `hr`/`recruit` | depth charter [parity #15] |
 
@@ -114,10 +131,10 @@ pages are a separate public program.
 | Admin settings / security (`/settings/security`) | tenant security posture + credential recovery | admin | **UNCOVERED** | new charter (rides Identity Console) [parity #1] |
 | Group admin (`/settings/group`) | enter-subsidiary MANAGE context, per-group health, DoA-gated context switch | executive / group-admin | PARTIAL → view-as | depth charter [parity #21] |
 | Policy Studio (`/settings/policy`) | no-code Cedar P→R→A→Effect + assignment planner (impact-preview receipt, custom-role CRUD, 16-attr editor) | compliance / admin | COVERED → `policy` | retire; planner depth (+ DO-NOT-PORT dark condition editor) [parity #12] |
-| Workflow Studio (`/settings/workflows`) | typed·actionable workflow builder + live sim | compliance / admin | COVERED → `workflows` | retire; depth (clone, DAG validate, connector catalog) [parity #13] |
+| Workflow Studio (`/settings/workflows`) | typed field·op·value editor and server-simulation paths observed in fixed-target source; browser behavior, backend evaluation, deployment, activation, and production operation unverified | compliance / admin | COVERED → `workflows` (source mapping only) | retire candidate blocked on ADR-0025 complete-slice and decommission gates; depth (clone, DAG validate, connector catalog) [parity #13] |
 | Location settings (`/settings/location`) | per-branch GPS / PIPA consent objects | admin | PARTIAL → `map`/consent | depth charter (rides PII program) [parity #7] |
 | Profile (`/settings/profile`) | self card: passkey list/register/revoke (last-credential guard) + self name/phone edit | all-staff | PARTIAL → self-card | depth charter (Identity Console) [parity #3] |
-| Approvals (`/approvals`) | federated Approval Command Center (#55) — one policy-scoped queue over all sources | executive / all-staff | COVERED → `appr` | retire (+ DO-NOT-PORT ApprovalDocumentDesk fixture farm) |
+| Approvals (`/approvals`) | federated Approval Command Center queue | executive / all-staff | PARTIAL → `appr` | keep legacy `ApprovalCompose` special-case until new-shell mount; federated queue/boxes and new-shell integration remain open |
 | Catalog admin (`/catalog`) | sales-listing catalog admin | sales | DESCOPED → sales #6 | separate program [parity #22] |
 
 ### Equipment / Asset
@@ -163,8 +180,10 @@ it is **DO-NOT-PORT** into any authenticated console surface.
 
 ### Already the new console
 
-`/overview` and `/attendance` render inside `ConsoleShell` (the window-engine shell, UI-M1b) — these are
-the new console, not legacy. Listed for completeness; no Phase D action.
+| Feature (route) | Distilled intent | Persona | Coverage → module | Verdict |
+|---|---|---|---|---|
+| Overview (`/overview`) | role-aware landing and action inbox | all-staff | COVERED → `overview` | new-console entry point |
+| Attendance (`/attendance`) | attendance plan/actuals and self-service | all-staff / payroll | PARTIAL → `att` | `ConsoleShell` chrome only; absent from `SCREEN_REGISTRY` |
 
 ---
 
@@ -174,6 +193,7 @@ Only the surfaces where the code reveals intent the markdowns missed, or where r
 `COVERED` surfaces are omitted (their intent is already carried; the table verdict is `retire`).
 
 ### Dispatch (`DispatchPage.tsx`) — PARTIAL → `dispatch`
+
 - **Problem/when:** the dispatcher's core loop — a WO- lands, they match it to an available mechanic by
   location/skill and push the assignment. Fires continuously through the dispatcher's day.
 - **Missing depth:** P1 auto-dispatch broadcast + mechanic offer accept/decline; policy-gated **force-assign**
@@ -184,6 +204,7 @@ Only the surfaces where the code reveals intent the markdowns missed, or where r
   assignment. Shape: shared-track list + process panel (§4-18, reuse `dpRows`).
 
 ### Intake (`IntakePage.tsx`) — PARTIAL → `field`
+
 - **Implicit intent (code):** the real need is **equipment-code → customer + site resolution** with
   auto-attached branch chips, so a receptionist creates a correct ticket from one code. [parity #17]
 - **DO-NOT-PORT:** the legacy tag-packing form (multiple structured fields flattened into freeform
@@ -192,6 +213,7 @@ Only the surfaces where the code reveals intent the markdowns missed, or where r
   never packed tags.
 
 ### Daily plan (`DailyPlanPage.tsx`) — UNCOVERED
+
 - **Implicit intent (code):** a **branch daily-plan object** with a DRAFT→REQUESTED→APPROVED→confirmed
   review chain, a branch queue, and an absence/exit-warning panel — the foreman's morning planning ritual.
   The console's My-Work aggregates tasks but has **no plan lifecycle object**. [parity #9]
@@ -199,6 +221,7 @@ Only the surfaces where the code reveals intent the markdowns missed, or where r
   queue = module surface; warning panel = attendance/exit dynamic reads.
 
 ### Inspection (`InspectionPage.tsx`) — UNCOVERED
+
 - **Implicit intent (code):** PM **schedule CRUD** with cycle presets → interval, overdue detection, and
   checklist-round completion. This is literally design §4-15 series SR- (정기 검진) + §3.10 checklist objects,
   riding the BE-AUTO cron substrate — none of it built. [parity #8]
@@ -206,23 +229,27 @@ Only the surfaces where the code reveals intent the markdowns missed, or where r
   completion transition.
 
 ### Wallboard (`WallBoardPage.tsx`) — PARTIAL → `dashboard`
+
 - **Implicit intent (code):** `WallBoardPage.tsx:19-24` deliberately fetches **every page** of work-orders
   (not the first 100) so the exception/SLA counts reflect the **whole queue, not a paginated slice** — the
   real intent is a *truthful org-wide SLA counter*, an invariant the markdowns never stated. Keep it.
 - **Missing:** a chrome-less kiosk / auto-rotate preset. [parity #20]
 
 ### Financial (`FinancialPage.tsx`) + the ERP spine — PARTIAL/UNCOVERED
+
 - **Implicit intent (code + `SPEC.md` §5, `erp.md`):** rental-quote objects with negative-잔존가 flooring
   linked to the C- chain, and the full ERP accounting flow — 견적→수주→세금계산서→미수금 and PO→입고→거래명세표→미지급금,
   VAT-period reconciliation, WO-consumed parts decrementing inventory + posting to the cost ledger.
-- **Coverage reality (`ontology-coverage-matrix.md`):** there is **no voucher/posting table or FSM** —
-  accounting is a cost-ledger append only; **contract C- has no table/type/crate at all**. So the ERP
-  accounting spine is UNCOVERED at the data layer, gated behind a licensed 세무사 golden-case sign-off
-  (`accounting.md`). [parity #18]
+- **Coverage reality at `origin/main@86a97771…`:** finance has voucher/header and line tables, a
+  mounted draft→submit→approve→post→reverse REST/FSM, DB/domain balance gates, posted immutability,
+  append-only lines, and FORCE RLS. Tenant seeding also publishes the C-chain ontology types.
+  Remaining intent is period-close integration, full reporting/reconciliation, source-document
+  auto-materialization, contract product workflows, and runtime/browser proof. [parity #18]
 - **Reimagine:** Accounting/GL as balanced-posting objects; Sales/AR + Procurement/AP lifecycle chains;
   E-tax relay is external-integration-gated (ask-first).
 
 ### Payroll (`PayrollPage.tsx`) + offboarding — PARTIAL/UNCOVERED
+
 - **Implicit intent (code):** payroll run gated on attendance close → run generation → exception review
   (deductions, substitute pay) → transfer approval → payslip (PS-) distribution to the inbox. The
   **offboarding half** (4대보험 loss, exit-case chain 현장 report→HR confirm→HQ confirm, 퇴직금) is a Korean legal
@@ -231,12 +258,14 @@ Only the surfaces where the code reveals intent the markdowns missed, or where r
   template with structured fields.
 
 ### Insurance assist (`InsuranceAssistPage.tsx`) — UNCOVERED
+
 - **Implicit intent (code + `korean-institutional-connectivity*.md`):** 4대보험 (national pension, health,
   employment, industrial-accident) acquisition/loss classification and NHIS/COMWEL EDI **loss-report**
   readiness — the compliance backbone HR runs on every hire/exit. Foundation-only today. [parity #4]
 - **Reimagine:** compliance CP- rows whose evidence is the working exit objects; EDI is external-gated.
 
 ### Users / Admin-settings (`UsersPage.tsx`, `AdminSettingsPage.tsx`) — UNCOVERED (Identity Console)
+
 - **Implicit intent (code):** the mandated *"operations through console only"* provisioning + recovery path —
   user CRUD/deactivate, multi-role assignment, multi-branch scope, user↔employee linking, **sign-in OTP
   issuance**, and **credential reset** (passkey wipe + re-OTP). No console surface carries it; blocks legacy
@@ -247,25 +276,29 @@ Only the surfaces where the code reveals intent the markdowns missed, or where r
   card — never a settings-form farm.
 
 ### Support (`SupportPage.tsx`) — PARTIAL → `support`
+
 - **Implicit intent (code):** a support-ticket console — CS-threaded replies, internal notes, self-assign/
   claim, and a live SLA command-center clock. Console has the SUP- ticket type + SLA lanes but not the
   threaded-desk depth. [parity #10]
 
 ### Equipment manage (`EquipmentManagePage.tsx`) — PARTIAL → `asset`
+
 - **Implicit intent (code):** management-no lookup/resolve, **bulk XLSX master import with dry-run
   diagnostics**, owner-org cross-context, and equipment **substitution** assign/return (예비차량). The
   bulk-import-with-dry-run is the real operational need (445-unit master loads), not single-row CRUD.
   [parity #14]
 
 ### Integrity (`IntegrityPage.tsx`) — PARTIAL → `audit`
+
 - **Implicit intent (code):** detector **finding objects** with a REVIEWED/DISMISSED/ESCALATED triage
   lifecycle and a **mandatory memo** on every decision. The console has the audit stream + anomaly chips but
   not the finding-object triage FSM. [parity #11]
 
 ### Platform operator console (`Platform*Page.tsx`) — UNCOVERED
+
 - **Implicit intent (code):** tenant provision/activate/suspend/archive + guarded force-erase, group CRUD +
   org assignment, bootstrap/group-account OTP issuance, cross-tenant ops health, read-only impersonation
-  (view-as tenant). The console ships view-as *personas* only, not a vendor operator surface. [parity #5]
+  (view-as tenant). The fixed-target source reviewed here does not establish a replacement vendor-operator surface; [parity #5] remains UNCOVERED.
 - **Open decision:** separate operator program vs. operator-scoped module. Until decided + built, the
   `/platform/*` routes must outlive tenant-console replacement.
 
@@ -283,8 +316,7 @@ Ranked by user value + how hard they block "operations through console only" and
    [parity #5]
 3. **4대보험 & offboarding settlement** (`/hr/insurance` + payroll exit) — social-insurance acquisition/loss
    + EDI readiness, exit-case chain, 퇴직금 calculation. Korean legal payroll obligation. [parity #4]
-4. **Contract (C-) lifecycle module** — C- has no table/type/crate; the C-→Position→Posting→Employee chain
-   is the design's own acceptance test. Positions are also not entities (a string column today).
+4. **Contract (C-) lifecycle depth** — target-base tenant seeding publishes **27 published tenant types (9 governed config + 3 C-chain + 15 projected domain)**. The C-chain types are published, but product lifecycle depth remains incomplete: legacy `employees.position` is still a string, and the contract→position→posting→employee consumer/link flow is unfinished.
 5. **ERP accounting spine** (`/financial` depth) — GL postings/vouchers, tax-invoice draft, VAT
    reconciliation, AR/AP aging; gated on a 세무사 golden-case sign-off. [parity #18]
 6. **Daily-plan lifecycle** (`/daily-plan`) — plan object DRAFT→REQUESTED→APPROVED→confirmed + branch queue
@@ -310,8 +342,8 @@ MANAGE-context switch + per-group health [parity #21]; collaboration cross-objec
 | Shape | Where | Why it violates the bar |
 |---|---|---|
 | **`PageHeader.description` subtitle** | `web/src/components/shell/PageHeader.tsx:26` (`<p class="… text-steel">{description}</p>`), used by ~44 pages | Explanatory subtitle under every page title — the systemic §4-12 violation. Console UI is self-explanatory; status is a chip, not a caption. |
-| **ApprovalDocumentDesk fixture farm** | `web/src/features/approvals/ApprovalDocumentDesk.tsx` | Renders a document desk from fixtures — fails mock-independence (§4-25-⑥). The intent is already carried by the `appr` federated command center. |
-| **Dark condition editors** | `WorkflowStudioPage.tsx`, `PolicyStudioPage.tsx` condition builders | Condition UI rendered but non-evaluating ("dark") — a non-functional affordance. The console shipped a typed field·op·value builder with **live** simulation. |
+| **ApprovalDocumentDesk fixture farm** | web/src/features/approvals/ApprovalDocumentDesk.tsx | Renders a document desk from fixtures and fails mock-independence (section 4-25-6). Retire the fixture-fed implementation, but preserve its document-desk intent as open appr work: only legacy ApprovalCompose is Source-present; federated queue/boxes and new-shell integration remain open. |
+| **Dark condition editors** | `WorkflowStudioPage.tsx`, `PolicyStudioPage.tsx` condition builders | Condition UI rendered but non-evaluating ("dark") — a non-functional affordance. Replace it only with the fixed-target typed field·op·value editor and server-simulation path after closed-loop proof; current evidence is source-only, with browser behavior, backend evaluation, deployment, activation, and production operation unverified. |
 | **JSON/UUID-dump object inspector** | `OntologyPage.tsx` / `features/object-view` | Dumps raw JSON / bare UUIDs — violates the `ObjectLink`/`safeLabel` + 3-layer ObjectCard grammar (never render a raw UUID). |
 | **Standalone export farm** | `ReportingPage.tsx` (`/reporting`) | A page of export buttons. Exports belong as per-module **egress-gated actions** (§13 / [parity #19]), not a farm. |
 | **Explainer hero blocks in authenticated surfaces** | storefront/`PlatformFsmPage` marketing heroes | Explanatory hero copy is fine on the public site; inside the console it is filler. No hero explainers in authenticated surfaces. |
@@ -323,7 +355,7 @@ MANAGE-context switch + per-group health [parity #21]; collaboration cross-objec
 
 | Primitive | Where | The invariant |
 |---|---|---|
-| **Consent-before-enrollment** | `OnboardingPage.tsx:86-93` (`consentAccepted` gates the passkey ceremony) | PIPA-compliant: versioned consent must be accepted *before* credential enrollment. |
+| **Consent-before-enrollment** | `OnboardingPage.tsx:86-93` (`consentAccepted` gates the passkey ceremony) | The consent-before-passkey ordering is a product/policy control, not a PIPA conclusion. Whether the [Personal Information Protection Act](https://www.law.go.kr/%EB%B2%95%EB%A0%B9/%EA%B0%9C%EC%9D%B8%EC%A0%95%EB%B3%B4%EB%B3%B4%ED%98%B8%EB%B2%95) applies, and what notice, basis, or ordering is required for the actual data flow, remains scenario-specific for qualified Korean counsel. |
 | **Desktop device-login QR approval** | `OnboardingPage.tsx` (`EnrollHandoffQr`, `approveDeviceLoginSession`) | Cross-device login handoff — a signed-in phone approves a desktop session. |
 | **Last-passkey guard** | `features/auth/SecurityPanel.tsx:25,91,114,164` (backend 409 + `isLastPasskey` disables revoke) | Account-lockout prevention: a user can never delete their only credential. |
 | **Whole-queue SLA count** | `WallBoardPage.tsx:19-24` (fetch-all, not paginated) | The counter must reflect the entire queue; a paginated count silently undercounts. |
