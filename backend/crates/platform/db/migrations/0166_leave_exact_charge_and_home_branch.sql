@@ -254,12 +254,15 @@ CREATE TRIGGER trg_leave_requests_charge_pointer_consistent
 -- Complete single-writer command boundary for leave intent, charge evidence,
 -- decisions, ledger movements, and employee approval routing.
 --
--- mnt_rt retains read access only.  It cannot call these routines even after
--- spoofing arbitrary app.* GUCs.  A separate NOLOGIN command capability has
--- EXECUTE only, while every table mutation runs as a pinned NOLOGIN definer
--- which is itself subject to FORCE RLS under the explicit org supplied to the
--- command.  The routines lock and derive all routing/version/ledger authority
--- and append exactly one intrinsic audit row on every successful command.
+-- mnt_rt cannot call these routines even after spoofing arbitrary app.* GUCs.
+-- During this expand phase it retains only the guarded legacy request
+-- INSERT/UPDATE bridge documented below so a pre-0166 binary can be restored;
+-- exact-charge and all other writes remain command-only. A separate NOLOGIN
+-- command capability has EXECUTE only, while every command mutation runs as a
+-- pinned NOLOGIN definer which is itself subject to FORCE RLS under the
+-- explicit org supplied to the command. The routines lock and derive all
+-- routing/version/ledger authority and append exactly one intrinsic audit row
+-- on every successful command.
 -- Cluster-global roles are infrastructure-owned and must exist before this
 -- non-CREATEROLE migration runs. Fail closed on any attribute or membership
 -- drift instead of attempting CREATE/ALTER/REVOKE ROLE from mnt_app.

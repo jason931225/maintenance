@@ -139,6 +139,19 @@ async fn seed_user(owner_pool: &PgPool, org: Uuid) -> UserId {
     user_id
 }
 
+async fn link_user_to_branch(owner_pool: &PgPool, org: Uuid, user: UserId, branch: Uuid) {
+    sqlx::query(
+        "INSERT INTO user_branches (user_id, branch_id, org_id) VALUES ($1, $2, $3) \
+         ON CONFLICT DO NOTHING",
+    )
+    .bind(user.as_uuid())
+    .bind(branch)
+    .bind(org)
+    .execute(owner_pool)
+    .await
+    .unwrap();
+}
+
 async fn link_user_to_employee_and_branch(
     owner_pool: &PgPool,
     org: Uuid,
@@ -153,16 +166,7 @@ async fn link_user_to_employee_and_branch(
         .execute(owner_pool)
         .await
         .unwrap();
-    sqlx::query(
-        "INSERT INTO user_branches (user_id, branch_id, org_id) VALUES ($1, $2, $3) \
-         ON CONFLICT DO NOTHING",
-    )
-    .bind(user.as_uuid())
-    .bind(branch)
-    .bind(org)
-    .execute(owner_pool)
-    .await
-    .unwrap();
+    link_user_to_branch(owner_pool, org, user, branch).await;
     let routing_admin = UserId::new();
     sqlx::query(
         "INSERT INTO users (id, display_name, roles, org_id, is_active) \
@@ -425,6 +429,8 @@ async fn unresolved_charge_is_audited_without_mutation_then_exact_resolution_is_
     let approver = seed_user(&owner_pool, org_uuid).await;
     let employee = seed_employee(&owner_pool, org_uuid, 10.0, 0.0, 10.0).await;
     link_user_to_employee_and_branch(&owner_pool, org_uuid, requester, employee, home).await;
+    link_user_to_branch(&owner_pool, org_uuid, resolver, home).await;
+    link_user_to_branch(&owner_pool, org_uuid, approver, home).await;
     sqlx::query("INSERT INTO user_branches (user_id, branch_id, org_id) VALUES ($1, $2, $3)")
         .bind(requester.as_uuid())
         .bind(secondary)
@@ -553,6 +559,8 @@ async fn concurrent_resolver_wins_before_blocked_approval_without_partial_mutati
     let approver = seed_user(&owner_pool, org_uuid).await;
     let employee = seed_employee(&owner_pool, org_uuid, 10.0, 0.0, 10.0).await;
     link_user_to_employee_and_branch(&owner_pool, org_uuid, requester, employee, home).await;
+    link_user_to_branch(&owner_pool, org_uuid, resolver, home).await;
+    link_user_to_branch(&owner_pool, org_uuid, approver, home).await;
 
     let store = PgLeaveStore::new(rt.clone(), Arc::new(PgInboxStore::new(rt)))
         .with_leave_command_pool(command_pool.clone());
@@ -881,12 +889,30 @@ async fn leave_command_preprovision_and_privilege_matrix_are_fail_closed(owner_p
     .await
     .unwrap();
     assert_eq!(public_execute_count, 0, "PUBLIC executes no leave function");
-    let (cmd_schema, rt_schema, cmd_request_dml, rt_request_dml, cmd_resolution_dml, rt_resolution_dml):
-        (bool, bool, bool, bool, bool, bool) = sqlx::query_as(
+    let (
+        cmd_schema,
+        rt_schema,
+        cmd_request_insert,
+        rt_request_insert,
+        cmd_request_update,
+        rt_request_update,
+        cmd_request_delete,
+        rt_request_delete,
+        cmd_request_truncate,
+        rt_request_truncate,
+        cmd_resolution_dml,
+        rt_resolution_dml,
+    ): (bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool, bool) = sqlx::query_as(
             "SELECT has_schema_privilege('mnt_leave_cmd','leave_api','USAGE'), \
                     has_schema_privilege('mnt_rt','leave_api','USAGE'), \
-                    has_table_privilege('mnt_leave_cmd','leave_requests','INSERT,UPDATE,DELETE,TRUNCATE'), \
-                    has_table_privilege('mnt_rt','leave_requests','INSERT,UPDATE,DELETE,TRUNCATE'), \
+                    has_table_privilege('mnt_leave_cmd','leave_requests','INSERT'), \
+                    has_table_privilege('mnt_rt','leave_requests','INSERT'), \
+                    has_table_privilege('mnt_leave_cmd','leave_requests','UPDATE'), \
+                    has_table_privilege('mnt_rt','leave_requests','UPDATE'), \
+                    has_table_privilege('mnt_leave_cmd','leave_requests','DELETE'), \
+                    has_table_privilege('mnt_rt','leave_requests','DELETE'), \
+                    has_table_privilege('mnt_leave_cmd','leave_requests','TRUNCATE'), \
+                    has_table_privilege('mnt_rt','leave_requests','TRUNCATE'), \
                     has_table_privilege('mnt_leave_cmd','leave_charge_resolutions','INSERT,UPDATE,DELETE,TRUNCATE'), \
                     has_table_privilege('mnt_rt','leave_charge_resolutions','INSERT,UPDATE,DELETE,TRUNCATE')",
         )
@@ -895,7 +921,13 @@ async fn leave_command_preprovision_and_privilege_matrix_are_fail_closed(owner_p
         .unwrap();
     assert!(cmd_schema);
     assert!(!rt_schema);
-    assert!(!cmd_request_dml && !rt_request_dml);
+    assert!(
+        !cmd_request_insert && !cmd_request_update && rt_request_insert && rt_request_update,
+        "only mnt_rt retains both guarded legacy INSERT and UPDATE expand bridges"
+    );
+    assert!(
+        !cmd_request_delete && !rt_request_delete && !cmd_request_truncate && !rt_request_truncate
+    );
     assert!(!cmd_resolution_dml && !rt_resolution_dml);
 }
 
@@ -1473,6 +1505,7 @@ async fn approve_writes_ledger_and_enforces_sod_branch_and_tenant(owner_pool: Pg
     let approver = seed_user(&owner_pool, knl_uuid).await;
     let employee = seed_employee(&owner_pool, knl_uuid, 15.0, 0.0, 15.0).await;
     link_user_to_employee_and_branch(&owner_pool, knl_uuid, requester, employee, branch_a).await;
+    link_user_to_branch(&owner_pool, knl_uuid, approver, branch_b).await;
 
     let store = test_store(&rt, &command_pool);
 
@@ -1522,6 +1555,8 @@ async fn approve_writes_ledger_and_enforces_sod_branch_and_tenant(owner_pool: Pg
             .kind(),
         ErrorKind::NotFound,
     );
+
+    link_user_to_branch(&owner_pool, knl_uuid, approver, branch_a).await;
 
     // Approve in-branch: status flips AND the ledger moves in the same tx.
     let approved = mnt_platform_request_context::scope_org(knl, async {
@@ -1651,6 +1686,7 @@ async fn approve_rejects_when_days_exceed_remaining_balance(owner_pool: PgPool) 
     // the balance negative.
     let employee = seed_employee(&owner_pool, knl_uuid, 15.0, 14.0, 1.0).await;
     link_user_to_employee_and_branch(&owner_pool, knl_uuid, requester, employee, branch).await;
+    link_user_to_branch(&owner_pool, knl_uuid, approver, branch).await;
 
     let store = test_store(&rt, &command_pool);
 
