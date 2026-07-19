@@ -7,9 +7,9 @@ Last upstream sync: **2026-07-11 (delta pass)** via DesignSync read API. Local t
 
 | file | etag | this pass |
 |---|---|---|
-| `AGENTS.md` | `1783710623650166` | historical upstream etag; locally amended/not byte-identical; final size **102309**, SHA-256 `bb075d3780f50c5b7cc38c0cbf62780f8714220cdd764b0a45165e698f53daec` |
-| `TODO.md` | `1783710505767805` | historical upstream etag; locally amended/not byte-identical; final size **89636**, SHA-256 `06edb341bf4f50aee72721b7530841dae4489f417dd13c91715d9f37245393cd` |
-| `ROADMAP.md` | `1783710735311137` | historical upstream etag; locally amended/not byte-identical; final size **32228**, SHA-256 `cba516c086df5451f07b90fc75815feff3d0bae4cf6378200e8dc7925688e25d` |
+| `AGENTS.md` | `1783710623650166` | historical upstream etag; locally amended/not byte-identical; final size **102476**, SHA-256 `a76c43e01872457b42669963c8b4fce7b73158623c85dce6308860387911cf5e` |
+| `TODO.md` | `1783710505767805` | historical upstream etag; locally amended/not byte-identical; final size **89742**, SHA-256 `0e3848dd17fbd92d4ba63bd5400ed937e7fcdbfd63939707f4e645c2966a93b6` |
+| `ROADMAP.md` | `1783710735311137` | historical upstream etag; locally amended/not byte-identical; final size **32391**, SHA-256 `7bf7c02447d322aed64d030bec453d0d2bc7c7db09205f481f1ebb3116b8db0c` |
 | `DESIGN.md` | `1783659938373543` | unchanged (size 53176) |
 | `HANDOFF.md` | `1783661269027052` | unchanged (size 36418) |
 | `README.md` | `1783658590972921` | unchanged (size 6900) |

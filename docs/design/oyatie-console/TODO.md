@@ -1,6 +1,6 @@
 # Acme Group 콘솔 — TODO
 
-> 세션 간 이어지는 작업 목록. DESIGN.md 헌장(온톨로지·target/shadow Cedar PBAC·no-code 우선·패턴 전파 §4.7)을 전제로 한다. `[x]` Cedar/PBAC 항목은 목업·작성·시뮬레이션 계약 완료를 뜻하며 별도 공존 맵 승격 없이는 라이브 집행 증거가 아니다. 현재 집행은 레거시 서버 권한/미들웨어와 입증된 PostgreSQL RLS다. 완료 시 `[x]`, 새 directive는 여기와 DESIGN.md 카탈로그에 함께 반영.
+> 세션 간 이어지는 작업 목록. DESIGN.md 헌장(온톨로지·target/shadow Cedar PBAC·no-code 우선·패턴 전파 §4.7)을 전제로 한다. `[x]` Cedar/PBAC 항목은 목업·작성·시뮬레이션 계약 완료를 뜻하며 별도 공존 맵 승격 없이는 라이브 집행 증거가 아니다. 이 작업목록이 전제하는 상태는 레거시 서버 권한/미들웨어와 PostgreSQL RLS 집행, Cedar target/shadow이며, 실제 배포·런타임 집행을 입증하지 않는다. 완료 시 `[x]`, 새 directive는 여기와 DESIGN.md 카탈로그에 함께 반영.
 
 ## ▶ 실행 큐 (2026-07-10 — 권장 순서 · 단일 출처)
 
