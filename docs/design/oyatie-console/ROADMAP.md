@@ -2,8 +2,10 @@
 
 > 목적: 콘솔 **전 모듈을 엔터프라이즈 프로덕션 목업 품질**로 완성한다 — no stubs·no filler·no "good for now". 모든 화면이 상호작용하고, **온톨로지·데이터 상관·워크플로·자동화**를 실증한다. "배선(백엔드 연결)만 하면 되는" 상태가 목표.
 > 이 문서는 실행 계획의 단일 출처다. 설계 원칙=DESIGN.md, 백엔드 계약=HANDOFF.md, 세션 작업목록=TODO.md, 운영노트=AGENTS.md. 매 모듈 완료 시 본 문서의 상태표를 갱신한다.
+> **권한 연대기(문서 범위 상태 구분):** 이 문서의 Cedar/PBAC 항목과 완료 로그는 목업·작성·시뮬레이션·목표 계약을 기록한다. 별도 공존 맵 승격 증거가 없는 한 이 문서가 전제하는 상태는 레거시 서버 권한/미들웨어와 PostgreSQL RLS 집행, Cedar target/shadow다. 이 상태 구분은 배포·런타임 검증 증거가 아니며, 실제 집행 상태는 별도 운영 증거로 검증해야 한다.
 
 ## 0. 품질 기준 (Definition of Done — 모든 모듈 공통)
+
 1. **완결성**: 빈 화면·placeholder·"준비 중" 금지. 모든 목록·카드·액션이 실제 시드 데이터로 동작.
 2. **온톨로지**: 화면의 모든 명사가 개체 — 클릭(핀 패널)/드래그(참조 토큰)/코드 링크로 상·하류 이동 가능.
 3. **상관(correlation)**: 최소 2개 상류·2개 하류 개체와 실제 링크. 상태 전이 시 연결 개체에 역참조+감사 이벤트.
@@ -15,23 +17,26 @@
 9. **생애주기(§3.9)**: 해당 업무 개체는 draft→archive 단계를 명시 — 초안·상신/승인(maker-checker·SoD)·발효일(effective-dating)·개정(버전)·정산 게이트·보관(숨김·이력 보존). 파괴적 작업(폐지)은 의존 개체+법정 정산 완료 후. 하드삭제 금지.
 
 ## 1. 제품 논지 (refined)
+
 **대기업 아웃소싱 운영 OS** — 하나의 개체 그래프 위에서 계약→인력편성→채용→근태→급여→분석→계약 수익성의 전 수명주기를 운영. **결정적(no-AI)** 거버넌스(Cedar PBAC·감사·워크플로·데이터 통합). Palantir Foundry의 온톨로지/파이프라인/계보 사고를, AI 없이 규칙·템플릿·통계로 구현. 전 직원(현장직 포함)+모바일. 다중 관할 규제 대비.
 
 ## 2. 온톨로지 (마스터 개체 그래프 — 상관의 근간)
+
 > 개체 = (의미: 타입·속성·관계) × (동작: 이벤트·상태전이) × (역학: 정책·파생지표). 코드 발급 개체는 `!코드`로 어디서나 링크.
 
 **조직/사람**: Group▸Entity(법인)▸Site(사업장)▸Team ; Person(직원·지원자·비정규 WorkforcePool) ; Position(사업장×직무×직책×TO) ; PolicyPreset(근무·휴게·연차·수당·여비 — 상속)
 **계약/수익**: Contract`C-`(입찰·체결·이행·정산) ▸ Position ▸ Posting(공고) ▸ Applicant ▸ Employee ; Grant(국가지원) ; Bid(입찰)
 **근무/급여**: Timetable ▸ Attendance(일·주52·월마감) ⇄ Substitution(대근) ⇄ OT`AP-` ▸ PayrollRun▸PayItem▸Payslip`PS-` ▸ LaborCost ▸ ContractProfitability(환류)
 **거버넌스**: Approval`AP-`(기안→결재선→종결) ; AuditEvent(who/what/when/where/how/on-what/decision/integrity) ; Policy(Cedar 규칙) ; AccessGrant(일회성 TTL 토큰) ; Workflow ; Schedule
-**문서/데이터**: WorkObject(`WO-`정비·`CS-`회신·`AT-`근태·`JL-`일지·`IN-`접수) ; InboxDoc(수령확인) ; IngestJob`DX-`(파일·API→온톨로지) ; Source(커넥터) ; MappingTemplate ; EvidenceRecord(원본 WORM+파생) ; EditableDocument(버전·승인)
+**문서/데이터 목표 모델**: WorkObject(`WO-`정비·`CS-`회신·`AT-`근태·`JL-`일지·`IN-`접수) ; InboxDoc(수령확인) ; IngestJob`DX-`(파일·API→온톨로지) ; Source(커넥터) ; MappingTemplate ; EvidenceRecord(원본 보존/불변 목표+파생; object-lock·신뢰 앵커 미입증) ; EditableDocument(버전·승인)
 **커뮤니케이션**: Notice·Mail·Thread·Notification(포인터) ; Task(범위+링크)
 **ERP/현장/규제**: Ledger·Voucher·Purchase·Asset·Inventory ; Vendor ; DispatchOrder·MaintenanceOrder·CustomerSite ; Jurisdiction·Consent·DSR·DataClass ; Benefit(수명주기)
 
 **표준 관계 체인**: `C- → Position → PolicyPreset → Posting → Applicant → Employee → Timetable ⇄ Attendance ⇄ Substitution/OT(AP-) → PayrollRun → Payslip → LaborCost → ContractProfitability → (환류) C-`. 어느 노드에서든 1클릭 상·하류.
 
 ## 3. 교차 시스템 (모든 모듈이 계승 — 재구현 금지)
-> **북극성 벤치마크 (전반)**: **Palantir Foundry**(온톨로지·Actions·Functions·Workshop·Pipeline·계보 — 개체·구성·분석의 근간) · **Slack/Teams**(커뮤니케이션·프레젠스·스레드·협업·링크 unfurl·회의) · 모듈별 best-in-class(Workday·Greenhouse·ServiceNow·Retool/Appsmith/ToolJet 등 §4 매트릭스·HANDOFF §19). 새 표면은 이 셋 + 해당 모듈 best-in-class에 대조해 심화.
+
+> **북극성 벤치마크 (전반)**: **Palantir Foundry**(온톨로지·Actions·Functions·Workshop·Pipeline·계보 — 개체·구성·분석의 근간) · **Slack/Teams**(커뮤니케이션·프레젠스·스레드·협업·링크 unfurl·회의) · 모듈별 source-cited(Workday·Greenhouse·ServiceNow·Retool/Appsmith/ToolJet 등 §4 매트릭스·HANDOFF §19). 새 표면은 이 셋 + 해당 모듈 source-cited에 대조해 심화.
 - **PBAC(Cedar)**: `permit(principal,action,resource)`; principal=직책·직급·직무·대상관계·clearance; resource=개체×카테고리; action=view/edit/export. 스코프="인가 법인 합집합". covert=deny-by-omission. `tokenVisible`·`viewerClasses` 재사용.
 - **감사 백본**: `logEvent(partial)` — 상태 전이·열람 전부. seq+해시체인·deviceCtx·분류. `screen:"audit"` 피드.
 - **핀/창 모델**: 헤더 드래그=팝아웃·더블클릭=핀(분할)·트레이=최소화; 상세 기본=우측 핀. `cardVal/cardToolVals/cardGrab/cardPinRight/snapTo/panels`.
@@ -41,64 +46,63 @@
 - **no-code 편집기**: 정책·워크플로·매핑 템플릿·프리셋 = 자연어 블록 캔버스 + 시뮬레이션 + 버전/되돌리기.
 - **디자인 토큰**: `tokens/*.css` + `.console` 테마(라이트/다크). 인라인 스타일. Pretendard. 아이콘=인라인 스트로크 SVG.
 
-## 4. 모듈 매트릭스 (벤치마크 · 상태)
-> 상태: ✅완료 · 🟡부분 · ⬜신규. 각 모듈은 §0 DoD 통과 필요.
+## 4. 모듈 매트릭스 (레이어 정규화 · 39개 단일 행)
 
-| 모듈 | screen | 벤치마크(best-in-class) | 핵심 개체 | 상태 |
-|---|---|---|---|---|
-| 오버뷰 | overview | Palantir/Workday home | Task·WorkObject·KPI | 🟡 심화 |
-| 인사 | hr | Workday HCM | Person·인사카드(카테고리) | 🟡 |
-| 채용 | recruit | Greenhouse·Lever·Ashby | Posting·Applicant·인재풀 | 🟡 |
-| 조직도 | org | Workday Org·Foundry | Entity·Site·Team·Position | 🟢 생애주기(draft→archive) |
-| 인사평가 | review | Lattice·15Five | Review·KPI·근태연동 | 🟡 |
-| 근태 | att | Kronos·Deputy·Workday Time | Attendance·계획/실적·대근 | 🟡 심화 |
-| 급여 | pay | Workday Payroll·ADP | PayrollRun·PayItem·PS- | 🟡 |
-| 전자결재 | appr | 그룹웨어+ServiceNow | Approval AP-·종결 | ✅ |
-| 연차 | leave | Workday Absence | Leave·촉진·거부권 | ✅ |
-| 복리후생 | benefit | Workday Benefits | Benefit(수명주기)·tier | ✅ |
-| 문서·기록물 | docs | Foundry Docs·M-Files·iManage | 기록물·IN-·증거(WORM) | 🟡→증거·미디어·ZIP |
-| **데이터 인제스트** | ingest | **Foundry Pipeline/Data Connection**·Rossum·Airbyte | IngestJob DX-·Source·Template | ✅ UI·검증 |
-| **오피스 편집기** | editor | **ONLYOFFICE/Euro-Office**·Collabora | EditableDocument·버전 | ⬜ P3 |
-| 권한·정책 | policy | AWS Cedar·OPA·Foundry Governance | Policy·AccessGrant | 🟡→일회성 토큰·컨텍스트 · ONT resource 소비 |
-| 컴플라이언스 | compliance | OneTrust·AWS Audit Manager·Purview | Jurisdiction·Consent·DSR | ⬜ P2 |
-| 감사 로그 | audit | Splunk·CloudTrail·Workday audit | AuditEvent | ✅→개체별 이력·시간범위 |
-| 자동화 | auto | Workato·ServiceNow Flow·Airflow | Workflow·Schedule | ✅ **typed·actionable 빌더**(파라미터화 트리거/액션·field·op·value 조건·실평가 시뮬) |
-| 객체 탐색 | explore | **Foundry Object Explorer/그래프** | (전 개체 그래프) | ✅ **온톨로지 엔진**(ONT_TYPES · 노드 속성/액션/분석 패널) |
-| 대시보드 | dashboard | Foundry Quiver·Tableau | 파생지표 drill | 🟡 v1(수익성·추이·커버리지·내 지표 · 전 수치 drill) |
-| 인건비 분석 | laborcost | Foundry Contour·Adaptive | LaborCost·수익성 | 🟡 v1 모듈 서피스(계약별 breakdown·예측 포함) |
-| 재무 | finance | SAP·NetSuite·더존 | Voucher VC-·자동전표 | 🟡 v1 모듈 서피스(wf6·급여·AP- 연동) |
-| 구매 | purchase | Coupa·SAP Ariba | PO-·Vendor | 🟡 v1 모듈 서피스(WO-·재고 연동) |
-| 재고 | inventory | SAP MM·Fishbowl | IV-·안전재고 | 🟡 v1 모듈 서피스 |
-| 자산 | asset | ServiceNow ITAM·EAM | FL-·GPU·렌탈 | 🟡 v1 모듈 서피스(WO-·C- 연동) |
-| 정비 | maintenance | UpKeep·Fiix·SAP PM | WO- | 🟡 v1(기존 WO- 개체·처리 패널 재사용) |
-| 고객·현장 | field | ServiceNow FSM | CustomerSite·SLA | 🟡 v1 모듈 서피스(계약·근태·CS- 연동) |
-| 컴플라이언스 | compliance | OneTrust·Purview | 의무 CP-·DSR | 🟡 v1 모듈 서피스(규제×개체 연동) |
-| 게시판·공지 | board | Confluence·Slack | Notice NT- | ✅ 수령확인 진행 바 |
-| 주소록 | directory | Workday·People | Person | 🟡 v1(PEOPLE 동적·메시지/메일/카드) |
-| 인건비 분석 | laborcost | Foundry Contour·Adaptive | LaborCost·수익성 | ⬜ P2 |
-| 예측 | forecast | Anaplan·Foundry | 시나리오(규칙기반) | ⬜ P4 |
-| 재무 | finance | SAP·NetSuite·더존 | Ledger·Voucher | ⬜ P3 |
-| 구매 | purchase | Coupa·SAP Ariba | Purchase·Vendor·PO | ⬜ P3 |
-| 재고 | inventory | SAP MM·Fishbowl | Inventory·Lot | ⬜ P3 |
-| 자산 | asset | ServiceNow ITAM·EAM | Asset·수명주기 | ⬜ P3 |
-| 배차 | dispatch | Samsara·Geotab·Onfleet | WO- 큐×기사×SLA·지도 왕복 | ✅ 화면·지도 연동 |
-| 정비 | maintenance | UpKeep·Fiix·SAP PM | MaintenanceOrder WO- | ⬜ P3 |
-| 고객·현장 | field | ServiceNow FSM·Salesforce FS | CustomerSite·SLA | ⬜ P3 |
-| 게시판·공지 | board | Confluence·Slack | Notice | ⬜ P4 |
-| 주소록 | directory | Workday·People | Person·조직 | ⬜ P4 |
-| 커뮤니케이션(rail↔main) | comms · mail · msgr | Slack · Gmail · **mox** | Thread·Mail·Notice | 🟢 메일·메신저 풀뷰·게시판·주소록 |
-| 국가지원·조달·계약 | contract | SAM.gov·나라장터·Icertis CLM | Contract C-·Grant·Bid | ⬜ P2 |
-| 개인 수신함 | inbox | Workday·payslip vault | InboxDoc·passkey | ✅ |
+> 판정은 `origin/main@86a97771a76b7e770dfcf8c6c7d83fd9d70a98bf` 소스 기준이며, 표의 `소스 판정`은 **revision-bound source integration classification** 축이다. 이 축에서 `PARITY`는 새 콘솔 body와 실제 백엔드 계약이 소스에서 연결됐음을 뜻하고, named material source or integration-depth gap이 있으면 `PARTIAL`이다. This source axis is independent of ADR-0025's complete-slice/readiness evidence axis: source `PARITY` never authorizes a shipped or readiness claim, and missing runtime/deployment evidence does not by itself downgrade the source classification. 별도로 ADR-0025 complete-slice 증거가 없는 행은 배포·DB·브라우저·운영·엔터프라이즈 준비 완료로 주장할 수 없다. 합계: **5 PARITY / 25 PARTIAL / 7 MISSING / 2 N/A = 39**.
+
+| 모듈 / screen | 레거시 서피스 | 백엔드 substrate | 새 콘솔 body | 소스 판정 | 남은 게이트 |
+|---|---|---|---|---|---|
+| 오버뷰 / overview | 일부 대시보드 | action-inbox·todos | registry body | PARITY | 런타임·inline 완료 증거 |
+| 내 업무 / mywork | 일부 개인 큐 | action-inbox·todos | 없음 | PARTIAL | body·완전한 폐루프 |
+| 개인 수신함 / inbox | 별도 수신 흐름 | inbox·passkey | 없음 | PARTIAL | body·수령증거 E2E |
+| 인사 / hr | EmployeesPage | hr·employees | 없음 | PARTIAL | body·생애주기 폐루프 |
+| 채용 / recruit | 없음 | recruiting REST 없음 | 없음 | MISSING | 전체 슬라이스 |
+| 조직도 / org | OrgPage·GroupAdminPage | branches·regions·sites | 없음 | PARTIAL | body |
+| 인사평가 / review | 없음 | 없음 | 없음 | MISSING | 전체 슬라이스 |
+| 주소록 / directory | 일부 users/employees | employees·users | 없음 | PARTIAL | body·comms 연계 |
+| 근태 / att | AttendancePage | daily-work-plans | 없음 | PARTIAL | body·월마감/주52h 깊이 |
+| 급여 / pay | PayrollPage | read-only draft readiness REST | 없음 | PARTIAL | 계산결과·발급 급여명세·body |
+| 연차 / leave | 일부 기존 흐름 | leave REST | registry body | PARTIAL | 신청 생성·법정 타이밍/순서·E2E |
+| 복리후생 / benefit | 없음 | domain/table DARK | 없음 | MISSING | REST·body |
+| 전자결재 / appr | compose 특수 라우트 | workflow/governance | registry 없음 | PARTIAL | 기안 외 함 IA·새 shell mount |
+| 문서·증거 / docs | 기록물 흐름 | evidence·integrity·lifecycle | registry body | PARTIAL | 외부 signer·anchor·object-lock·TSA |
+| 권한·정책 / policy | 일부 정책 화면 | Cedar authoring/sim | registry body | PARITY | live Cedar 승격은 별도 DARK 게이트 |
+| 컴플라이언스 / compliance | 일부 위치동의 | compliance REST | 없음 | PARTIAL | 사용자 제품 body·다중 관할 |
+| 감사 / audit | IntegrityPage/AuditFeed | integrity·audit | body 미라우팅 | PARTIAL | production sealing OFF·trust root/anchor 없음 |
+| 객체 탐색 / explore | 없음 | objects·traverse | registry body | PARITY | 런타임 증거 |
+| 타입 매니저 / ontology-manager | 없음 | ontology REST·27 seed types | registry body | PARITY | projected action 폭·소비자 깊이 |
+| 자동화 / auto | 일부 workflow | workflow studio/runs | registry bodies 2개 | PARTIAL | Source-present schedule body/backend; runtime/browser, run-as, durable replay, and trigger-library depth remain open |
+| 대시보드 / dashboard | KPI pages | reporting·KPI·quant projection | registry body | PARTIAL | Source-present body/backend; drill links are not wired into the state.screen shell |
+| 인건비 분석 / laborcost | KPI/ops intelligence | financial·reporting 일부 | 없음 | PARTIAL | body·계약 연결 |
+| 예측 / forecast | ForecastPage | narrow quant endpoint | 없음 | N/A (P4) | Monte-Carlo/EVT 제품은 유예 |
+| 재무 / finance | FinancialPage | mounted finance-gl REST·migration 0160 | registry body | PARTIAL | period-close·CoA·보고·런타임 |
+| 구매 / purchase | 일부 ERP 의도 | purchase REST 없음 | 없음 | MISSING | 전체 슬라이스 |
+| 재고 / inventory | 일부 레거시 | domain/table DARK | 없음 | MISSING | REST·body |
+| 자산 / asset | EquipmentPage | equipment REST | 없음 | PARTIAL | body·C-chain 연결 |
+| 배차 / dispatch | DispatchPage/Map | dispatch REST | 없음 | PARTIAL | 새 body·지도 폐루프 |
+| 정비 / maintenance | Maintenance/WO pages | work-orders | 없음 | PARTIAL | 새 body |
+| 고객·현장 / field | Intake/field pages | customers·work-orders | 없음 | PARTIAL | 새 body·모바일 폐루프 |
+| 메일 / mail | mail 화면 | comms/mail REST | main body 없음 | PARTIAL | rail→main 승격 |
+| 메신저 / messenger | messenger 화면 | messenger REST | main body 없음 | PARTIAL | rail→main 승격 |
+| 알림 / notif | 일부 알림 | notifications | 없음 | PARTIAL | body |
+| 게시판·공지 / board | 없음 | mounted notices REST | 없음 | PARTIAL | 새 body·수령확인 UI |
+| 계약·조달 / contract | 일부 의도 | 3 C-chain seed types | 없음 | PARTIAL | 계약 workflow·Grant/Bid·body |
+| 데이터 인제스트 / ingest | 프로토타입 | ingest REST/pipeline 없음 | 없음 | MISSING | 전체 실제 슬라이스 |
+| 인력풀 / workforce | 일부 대근 | substitutions 일부 | 없음 | MISSING | 전체 제품 슬라이스 |
+| 지원센터 / support | SupportPage | support REST·SLO setting | registry body | PARITY | backend four-eyes 심화·런타임 |
+| 오피스 편집기 / editor | prototype shell | office governance shell | 실 editor 없음 | N/A (P3) | iframe/JWT/callback 저장 유예 |
 
 ## 5. 시그니처 데이터-상관 데모 (온톨로지 증명 — 반드시 재현)
+
 1. **계약 수익성 환류**: ContractProfitability(C-207) → LaborCost → PayrollRun → Attendance/Substitution → WorkforcePool. 한 화면에서 상·하류 drill.
 2. **인제스트→온톨로지**: 은행 거래내역(API DX-) → Voucher(전표) → Ledger; 나라장터 공고(DX-) → Bid → Contract 후보. 계약서 스캔(DX-) → Contract C- 필드 자동 매핑.
 3. **결원→대근→급여→계약**: 무단결근(AT-) → 대근(AP-·WorkforcePool) → 급여 일당 반영 → 계약 인건비.
 4. **감사 상관**: AuditEvent → 「개체로 이동」+「연관 이벤트(세션·체인)」 → 객체 탐색 그래프.
 5. **정책 시뮬레이션**: Policy 편집 → "누가 무엇을 보는가" 시뮬 → 실제 화면 렌더 변화(persona 전환).
-6. **증거 체인**: 현장 사진/영상(EvidenceRecord WORM) → 정비오더(WO-) → 계약 이행 증빙 → 감사.
+6. **증거 체인 목표**: 현장 사진/영상(EvidenceRecord; durable WORM/object-lock·신뢰 앵커는 미입증) → 정비오더(WO-) → 계약 이행 증빙 → 감사.
 
 ## 6. 실행 순서 (phased — 가치·의존성 우선)
+
 - **P1 (데이터 중추)**: 데이터 인제스트 화면 → 객체 탐색(그래프) → 자동화 외부 API/no-code 캔버스. (온톨로지·상관·워크플로를 가장 강하게 실증)
 - **P2 (분석·규제·계약 상류)**: 대시보드 → 인건비 분석/수익성 → 컴플라이언스(다중 관할·DSR·동의) → 국가지원·조달·계약(C- 수명주기).
 - **P3 (ERP·현장운영·문서 심화)**: 재무·구매·재고·자산 → 정비(WO-)·배차·고객현장 → 문서 증거 아카이빙(미디어/ZIP) → 오피스 편집기 거버넌스 셸.
@@ -106,6 +110,7 @@
 - **상시**: 각 신규 모듈은 §5 상관 중 관련 데모를 반드시 연결. 각 완료 후 TODO/AGENTS 갱신 + 검증.
 
 ## 7. 진행 로그
+
 - 2026-07-04: 블루프린트 수립.
 - 2026-07-04: **메일 풀뷰(커뮤니케이션 > 메일) 완료·검증** — mox 백엔드 모델(자체 프런트) · 3-pane(폴더 7·리스트·리딩) · 13메일 · 발신자 인증(SPF/DKIM/DMARC)·저장암호화 보안 패널 · 분류·PBAC·보존·litigation hold 거버넌스 · 첨부→인제스트/증거 · 연결 개체 · 컴포저(분류·DLP 외부발송 경고).
 - 2026-07-04: **P1 객체 탐색(관계 그래프) 완료·검증** — 20노드 온톨로지 그래프(계약→편성→공고→지원자 · 현장→팀→직원→근태→대근→인력풀 · 근태→급여→회차→수익성 환류 · 인제스트→계약 · 감사→직원), 방사형+SVG 엣지, 노드 클릭 재중심·상/하류 패널·트레일·범례. 검증 c207→att_cho→pay_cho.
@@ -119,6 +124,7 @@
 - 2026-07-09: **잔여 갭 소진 + 지원자 페르소나** — as-of 재구성(버전 「시점 보기」 읽기 전용·감사) · 타입 속성 스키마 no-code 편집(활성=개정 스테이징→v+1 발효) · 내 업무 할 일 행+완료 토글 · 인력풀 서피스(workforce·대근 연동) · 메일 본문 실링크 · 시리즈 자동 탐지 · **지원자 view-as v6**(「내 지원」 서피스·오퍼=수신함 passkey 수령·수신함 owner 스코프·rail 미렌더). 벤치마크 갭 레지스터 소진.
 
 ## 8. 페르소나 워크플로 매트릭스 (2026-07-08 directive · 역할별 e2e 기준)
+
 > 각 역할의 실제 하루 동선이 설계 기준. 신규 화면은 해당 역할 동선에서 3클릭 내 핵심 업무 도달을 검증한다.
 - **HR 담당(김성아)**: 채용 파이프라인→입사확정→근로계약(수신함 passkey)→온보딩 체크→인사카드 · 예외: 무단결근 소명·촉진 발송. **✓ audit 2026-07-09** — v2 nav 26종·recruit 카드 양방향·leave 촉진 도달 3클릭 내.
 - **배차 담당**: WO- 큐(SLA 칩)→가용 기사 매칭→배정 승인→추적→정산 연동. **✓ audit** — dispatch 화면(v1·v3)·처리 패널·지도 왕복; 전담 페르소나는 미분리(v1 수행).
@@ -165,3 +171,6 @@
 - 2026-07-09: **워크플로 스튜디오 = typed·actionable config (directive · n8n/Workato/Foundry)** — 트리거/액션 **파라미터화**(cfg·enum/text) + 조건 = **field·operator·value 술어**(WF_COND_FIELDS 8종·타입·연산·단위) + 시뮬 **실평가**(트리거 cfg 필터·조건 평가·표본×통과 실계산·감사) + 저장 cfg 영속·개정 rehydrate. 인수인계 → wf7 「결원→인수인계」 규칙 이전 + HO-01 단독 정책 에디터. 검증 e2e: 근태·무단결근·전사 + 결근≥3회 → 표본 1·통과 1 → AP- 생성. 자동화 모듈 매트릭스 = **typed·actionable 빌더**.
 
 - 2026-07-09: **온톨로지 엔진 (single engine, multiple consumers — directive · Foundry/Maven)** — `ONT_TYPES()` 단일 타입 레지스트리(16 타입 = typed 속성 스키마 + 관계(링크) 유형 + 액션(writeback) + 분석(파생), `state.ontTypeDefs` no-code 오버레이). **소비자**: 객체 탐색 그래프 노드 카드(**액션**·invokable `ogActionRun` 감사 / **속성**·타입 배지 / **분석**·산식 패널 — 단순 노드 이동 초월) · 정책 resource(ONT 타입 자동 노출 — single source). 검증 e2e: C-207 계약 카드 액션 3·속성 7(typed)·분석 2, 「수익성 분석」→분석 노드 재중심. **잔여**: 관계 유형 편집기·분석 편집기·모듈 서피스 엔진 소비(하드코딩 제거)·객체/타입 CRUD 단일 엔진화·정책/컴플라이언스 typed 실평가.
+
+- 2026-07-10: **실행 큐 레인 1·2·3·5·7·9·10·17 + 16 시드 완료 (AGENTS 91–100)** — ① 창 모델 소급: leave 3섹션 카드 존(패턴 세터 — 핀·플로트·트레이·split·프리셋) → benefit·docs 단일 카드 존 재사용(appr=탭 워크스페이스 의도적 제외) ② 대시보드: 구성 위젯 {count|trend|dist} 온톨로지 쿼리 바인딩 제네릭화 + 7월 스탯 6종 라이브 실계산(DASH_CONTRACTS 단일 소스·6월=마감 스냅샷·추이=SR-205 소비) ③ 기안: 증빙 fail-closed 지출류 전체 + §68 금액 투영 패널 ④ 키보드: 급여·공고·월간 J/K/Enter(초크포인트 공용)·aria 무명 버튼 0 ⑤ WORM 뷰어: EV- 원본 봉인 페인(fail-closed)·파생 프리뷰(열람 감사)·ZIP readonly 엔트리 트리 ⑥ 미편성 결원 SLO 알림 시드(대근 편성 시 자동 해소).
+- 2026-07-10: **실행 큐 잔여 소진 (AGENTS 101) — 레인 7·#11·체크인·§18.2·커버 플래너** — 인제스트 매핑 템플릿 TP-01~07 = 재사용 개체(no-code 에디터·변환 enum·사용 작업 drill·활성=개정 스테이징 four-eyes·초안→게시·보관=참조 무결성) + **계보 스트립**(소스→변환·템플릿→검증→개체 — 전 노드 drill) · **퇴사·휴직 생애주기**(사유 enum·발효일·사전점검·SoD 4단계·empSt 전환·회수 정산 6항 fail-closed·복직 전환) · **출근 체크인 심화**(기기×지오펜스 게이트·실적 타임라인 실시간·교대 스왑=결재 큐) · **§18.2**(정의 개정 발효일 구현 창·속성/관계 일몰 deprecated 30일→보관) · **커버 플래너 D+7**(승인 부재×커버 필수×편성 포워드 큐·미래 일자 대근 편성·주간 점검 예약 시드). **다음 = AGENTS 「다음」**: §4-22/23 audit → [~]13 엣지·14·15·17·18 → 대형 에픽 19–23.
