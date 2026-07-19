@@ -6139,6 +6139,13 @@ paths:
           minimum: 1
           maximum: 200
           default: 100
+      - name: cursor
+        in: query
+        required: false
+        description: Last request id from the preceding stable self-service page.
+        schema:
+          type: string
+          format: uuid
       responses:
         '200':
           description: Exact self balance plus self-only request history.
@@ -6175,10 +6182,20 @@ paths:
       - name: limit
         in: query
         required: false
-        description: Page size (clamped server-side to 1..=200; default 100).
+        description: Page size for the stable pending-first queue.
         schema:
           type: integer
           format: int64
+          minimum: 1
+          maximum: 200
+          default: 100
+      - name: cursor
+        in: query
+        required: false
+        description: Last request id from the preceding branch-scoped page.
+        schema:
+          type: string
+          format: uuid
       responses:
         '200':
           description: A branch-scoped page of leave requests.
@@ -6212,7 +6229,10 @@ paths:
         stable 409 `leave_home_branch_review_required`. The request preserves
         date and AM/PM intent in `review_required`; no calendar-day or fixed-half
         quantity is invented. A separate resolver pins authoritative evidence
-        before any approval can move the ledger.
+        before any approval can move the ledger. Modern clients generate one
+        `idempotency_key` per user intent and reuse it after an unknown or lost
+        response. The same key and canonical client intent return the original
+        request without another mutation or audit; a different intent conflicts.
       security:
         - bearerAuth: []
       requestBody:
@@ -6233,7 +6253,7 @@ paths:
         '403':
           $ref: '#/components/responses/Forbidden'
         '409':
-          description: The linked active employee has no explicit home branch (`leave_home_branch_review_required`).
+          description: The linked active employee has no explicit home branch (`leave_home_branch_review_required`), or the supplied `idempotency_key` is already bound to different client intent (`leave_create.idempotency_conflict`).
           content:
             application/json:
               schema:
@@ -6318,12 +6338,15 @@ paths:
         Separation of duties — a request cannot be
         decided by its own requester (403). `return`/`reject` require a comment.
         Approval additionally requires a resolved exact charge and a distinct
-        resolver. The body must carry the current request_version as
-        `expected_version`; charge_version identifies immutable evidence and is
-        never a request mutation precondition. A successful decision increments
-        request_version only; charge_version remains unchanged. An unresolved
-        approval returns 409 `leave_calendar_review_required` plus review reasons,
-        audits the blocked attempt, and changes neither request nor ledger.
+        resolver. New clients carry the current request_version as
+        `expected_version`; omission remains accepted only for backward
+        compatibility with deployed v1 clients and retains first-writer-wins
+        pending-state semantics. charge_version identifies immutable evidence
+        and is never a request mutation precondition. A successful decision
+        increments request_version only; charge_version remains unchanged. An
+        unresolved approval returns 409 `leave_calendar_review_required` plus
+        review reasons, audits the blocked attempt, and changes neither request
+        nor ledger.
       security:
       - bearerAuth: []
       parameters:
@@ -6799,9 +6822,29 @@ paths:
         the overview prototype carries but no backend source can supply are
         omitted (entity, amount, detail, files, stats, mailId); site/who/submitted
         are present only for the sources that carry them. Attendance exceptions
-        are not aggregated (no exception object exists yet).
+        are not aggregated (no exception object exists yet). Results use a stable
+        server snapshot and bounded per-source fan-in. `total_is_exact` is false
+        when an authorization-filtered source reaches its bounded counting budget;
+        source failures fail the whole request rather than returning a deceptively
+        partial queue.
       security:
       - bearerAuth: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        description: Page size, clamped server-side to 1..=200.
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 200
+          default: 100
+      - name: cursor
+        in: query
+        required: false
+        description: Opaque snapshot cursor returned as `next_cursor` by the previous page.
+        schema:
+          type: string
       responses:
         '200':
           description: The caller's actionable items, most urgent first.
@@ -6811,6 +6854,12 @@ paths:
                 $ref: '#/components/schemas/ActionInboxResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '422':
+          description: The action-inbox cursor is malformed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
         '503':
           description: JWT verification is not configured.
           content:
@@ -13267,6 +13316,10 @@ components:
         - end_date
         - reason
       properties:
+        idempotency_key:
+          type: string
+          format: uuid
+          description: Stable client submission id. Reuse it only to retry the same canonical client intent after an unknown or lost response. Optional only for deployed v1 compatibility; modern clients should always send it.
         leave_type:
           type: string
           enum: [annual, half_day]
@@ -20588,16 +20641,14 @@ components:
           type: string
           enum: [annual, half_day]
         days:
-          type:
-          - number
-          - 'null'
+          type: number
           format: double
           deprecated: true
-          description: Legacy compatibility projection; never authoritative for new approvals.
+          description: Non-null legacy compatibility projection; never authoritative for new approvals.
         charge_units:
-          allOf:
+          anyOf:
           - $ref: '#/components/schemas/LeaveUnits'
-          nullable: true
+          - type: 'null'
           description: Exact resolved charge; null while review is required or no charge applies.
         charge_state:
           type: string
@@ -20663,23 +20714,29 @@ components:
       type: object
       required:
       - items
+      - next_cursor
       properties:
         items:
           type: array
           items:
             $ref: '#/components/schemas/LeaveRequestView'
+        next_cursor:
+          type:
+          - string
+          - 'null'
+          format: uuid
+          description: Last request id for the next stable keyset page, or null when exhausted.
     LeaveDecideRequest:
       type: object
       additionalProperties: false
       required:
-      - expected_version
       - decision
       properties:
         expected_version:
           type: integer
           format: int64
           minimum: 1
-          description: Expected mutable request_version, not charge_version.
+          description: Expected mutable request_version, not charge_version. Strongly recommended for new clients; omission is accepted only for deployed v1 compatibility.
         decision:
           type: string
           enum: [approve, return, reject]
@@ -21158,6 +21215,8 @@ components:
       required:
       - items
       - total
+      - total_is_exact
+      - next_cursor
       properties:
         items:
           type: array
@@ -21165,6 +21224,16 @@ components:
             $ref: '#/components/schemas/ActionInboxItem'
         total:
           type: integer
+          minimum: 0
+          description: Visible item count across sources; inspect total_is_exact before treating it as authoritative.
+        total_is_exact:
+          type: boolean
+          description: False only when a bounded authorization-filtered count reached its scan budget.
+        next_cursor:
+          type:
+          - string
+          - 'null'
+          description: Opaque cursor for the next stable-snapshot page, or null when exhausted.
     EquipmentStatus:
       type: string
       enum:

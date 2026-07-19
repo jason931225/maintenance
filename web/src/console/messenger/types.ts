@@ -70,7 +70,7 @@ export interface MessengerConsoleApi {
   ) => Promise<{ items: ConsoleMessengerMessage[]; next_cursor: string | null }>;
   markRead: (threadId: string, messageId: string) => Promise<void>;
   listPresence: (threadId: string) => Promise<ConsoleMessengerPresence[]>;
-  listMembers: (branchId?: string) => Promise<ConsoleMessengerMember[]>;
+  listMembers: (branchId: string) => Promise<ConsoleMessengerMember[]>;
   searchMessages: (query: string) => Promise<ConsoleMessengerMessage[]>;
   sendMessage: (
     threadId: string,

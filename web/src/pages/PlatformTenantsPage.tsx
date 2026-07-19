@@ -135,12 +135,16 @@ export function PlatformTenantsPage() {
     // Switch the app into the tenant view: store the view_as token + platform
     // session, then navigate into the tenant shell. The persistent banner is
     // rendered by AppShell while impersonating.
-    enterViewAs({
-      token: result.access_token,
-      actingOrgId: result.acting_org_id,
-      actingOrgName: result.acting_org_name,
-      actingRole: result.acting_role,
-    });
+    if (
+      enterViewAs({
+        token: result.access_token,
+        actingOrgId: result.acting_org_id,
+        actingOrgName: result.acting_org_name,
+        actingRole: result.acting_role,
+      }) !== true
+    ) {
+      throw new Error("tenant view-as authority was retired");
+    }
     setPendingViewAs(undefined);
     void navigate("/overview");
   }
@@ -152,13 +156,17 @@ export function PlatformTenantsPage() {
       { org_id: org.id },
       refreshAuthority,
     );
-    enterViewAs({
-      token: result.access_token,
-      mode: "MANAGE",
-      actingOrgId: result.acting_org_id,
-      actingOrgName: result.acting_org_name,
-      actingRole: result.acting_role,
-    });
+    if (
+      enterViewAs({
+        token: result.access_token,
+        mode: "MANAGE",
+        actingOrgId: result.acting_org_id,
+        actingOrgName: result.acting_org_name,
+        actingRole: result.acting_role,
+      }) !== true
+    ) {
+      throw new Error("tenant management authority was retired");
+    }
     void navigate("/settings/org");
   }
 

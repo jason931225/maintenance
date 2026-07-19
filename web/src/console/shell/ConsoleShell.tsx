@@ -10,6 +10,7 @@ import { Icon } from "./icons";
 import {
   consoleScreenPath,
   defaultScreen,
+  isShippedScreenKey,
   screenFromConsolePath,
   visibleConsoleNav,
 } from "./nav";
@@ -88,7 +89,9 @@ export function ConsoleShell({
 
   const routeScreen = screenFromConsolePath(location.pathname);
   const activeScreen =
-    routeScreen && groups.some((g) => g.items.some((i) => i.screen === routeScreen))
+    routeScreen &&
+    isShippedScreenKey(routeScreen) &&
+    groups.some((g) => g.items.some((i) => i.screen === routeScreen))
       ? routeScreen
       : defaultScreen(grants);
   const ScreenBody = SCREEN_REGISTRY[activeScreen];
@@ -246,7 +249,7 @@ export function ConsoleShell({
           data-cshell-screen={activeScreen}
           style={{ flex: "1 1 auto", minHeight: 0, minWidth: 0, background: "var(--canvas)" }}
         >
-          {ScreenBody ? <ScreenBody /> : null}
+          <ScreenBody />
         </section>
       </main>
 

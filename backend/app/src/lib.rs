@@ -145,6 +145,11 @@ mod workflow_studio;
 const DEFAULT_HTTP_ADDR: &str = "0.0.0.0:8080";
 const DEFAULT_SERVICE_NAME: &str = "mnt-app";
 const DEFAULT_SHUTDOWN_TIMEOUT_SECS: u64 = 10;
+// Blue/green may temporarily run four API pods and the worker rolling update
+// two workers. Six runtime connections per process, plus the API's two
+// 2-connection command pools, caps that surge at 52 and reserves eight of
+// PostgreSQL's configured 60 for migration/topology/operator work.
+const RUNTIME_DATABASE_POOL_MAX_CONNECTIONS: u32 = 6;
 const DEFAULT_EVIDENCE_TRANSCODE_CONCURRENCY: usize = 2;
 const DEFAULT_JWT_ISSUER: &str = "mnt-platform-auth";
 const DEFAULT_JWT_AUDIENCE: &str = "mnt-api";
@@ -1269,7 +1274,7 @@ impl AppState {
             Some(url) => {
                 let after_connect_role = "mnt_rt".to_owned();
                 let pool = PgPoolOptions::new()
-                    .max_connections(8)
+                    .max_connections(RUNTIME_DATABASE_POOL_MAX_CONNECTIONS)
                     .acquire_timeout(Duration::from_secs(3))
                     // Tenant-isolation backstop. The app connects as the non-owner
                     // `mnt_rt` role under RLS keyed on the `app.current_org` GUC.
@@ -1552,7 +1557,7 @@ async fn validate_database_connection_identity(
         can_create_db,
         can_create_role,
         can_replicate,
-        has_unexpected_membership,
+        has_forbidden_membership_edge,
     ): (
         String,
         String,
@@ -1581,7 +1586,7 @@ async fn validate_database_connection_identity(
             can_create_role,
             can_replicate,
         },
-        has_unexpected_membership,
+        has_forbidden_membership_edge,
     )
     .map_err(|error| sqlx::Error::Protocol(error.to_string()))
 }
@@ -1601,6 +1606,10 @@ fn serving_database_identity_query() -> &'static str {
                   FROM pg_catalog.pg_roles AS candidate
                   WHERE candidate.rolname <> session_user
                     AND pg_catalog.pg_has_role(session_user, candidate.oid, 'MEMBER')
+              ) OR EXISTS (
+                  SELECT 1
+                  FROM pg_catalog.pg_auth_members AS membership
+                  WHERE membership.roleid = authenticated.oid
               )
        FROM pg_catalog.pg_roles AS authenticated
        WHERE authenticated.rolname = session_user"#
@@ -1658,7 +1667,7 @@ fn ensure_expected_serving_database_identity(
     current_user: &str,
     expected_role: &str,
     attributes: RoleAttributes,
-    has_unexpected_membership: bool,
+    has_forbidden_membership_edge: bool,
 ) -> Result<(), AppError> {
     if session_user != expected_role || current_user != expected_role {
         return Err(AppError::Config(format!(
@@ -1672,9 +1681,9 @@ fn ensure_expected_serving_database_identity(
              NOBYPASSRLS, NOCREATEDB, NOCREATEROLE, and NOREPLICATION"
         )));
     }
-    if has_unexpected_membership {
+    if has_forbidden_membership_edge {
         return Err(AppError::Config(format!(
-            "{env_name} PostgreSQL role {expected_role:?} must not have direct or inherited role membership"
+            "{env_name} PostgreSQL role {expected_role:?} must not participate in any direct or inherited role membership edge"
         )));
     }
     Ok(())
@@ -1841,6 +1850,24 @@ async fn validate_migration_database_connection(
     .fetch_one(&mut *conn)
     .await?;
 
+    // Database ownership implicitly makes mnt_app a member of
+    // pg_database_owner. Apart from that safe database-local capability and
+    // the two direct SET edges required to transfer SECURITY DEFINER function
+    // ownership, the migration login must not inherit any effective role.
+    let has_unexpected_effective_migration_membership: bool = sqlx::query_scalar(
+        r#"SELECT EXISTS (
+               SELECT 1
+               FROM pg_catalog.pg_roles AS candidate
+               WHERE candidate.rolname <> session_user
+                 AND candidate.rolname NOT IN (
+                     'pg_database_owner', 'mnt_leave_definer', 'mnt_ontology_writer'
+                 )
+                 AND pg_catalog.pg_has_role(session_user, candidate.oid, 'MEMBER')
+           )"#,
+    )
+    .fetch_one(&mut *conn)
+    .await?;
+
     ensure_expected_migration_database_identity(
         &session_user,
         &current_user,
@@ -1856,7 +1883,7 @@ async fn validate_migration_database_connection(
         },
         &memberships,
         &subordinate_roles,
-        has_unexpected_application_membership_edge,
+        has_unexpected_application_membership_edge || has_unexpected_effective_migration_membership,
     )
     .map_err(|error| sqlx::Error::Protocol(error.to_string()))
 }
@@ -2172,6 +2199,8 @@ struct ReadyBody<'a> {
     service: String,
     role: AppRole,
     database: &'a str,
+    leave_command_database: &'a str,
+    ontology_command_database: &'a str,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -2895,47 +2924,77 @@ async fn healthz(State(state): State<AppState>) -> impl IntoResponse {
 }
 
 async fn readyz(State(state): State<AppState>) -> impl IntoResponse {
-    match &state.database {
-        DatabaseDependency::NotConfigured => (
-            StatusCode::OK,
-            Json(ReadyBody {
-                status: "ready",
-                service: state.config.service_name,
-                role: state.config.role,
-                database: "not_configured",
-            }),
-        ),
+    let database = readiness_dependency_status(&state.database, "runtime").await;
+    let command_databases_required = state.config.role == AppRole::Api
+        && matches!(state.database, DatabaseDependency::Postgres(_));
+    let leave_command_database =
+        readiness_dependency_status(&state.leave_command_database, "leave_command").await;
+    let ontology_command_database =
+        readiness_dependency_status(&state.ontology_command_database, "ontology_command").await;
+
+    let ready = database.healthy()
+        && (!command_databases_required
+            || (leave_command_database.configured
+                && leave_command_database.ready
+                && ontology_command_database.configured
+                && ontology_command_database.ready));
+    let status = if ready {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
+    (
+        status,
+        Json(ReadyBody {
+            status: if ready { "ready" } else { "not_ready" },
+            service: state.config.service_name,
+            role: state.config.role,
+            database: database.label,
+            leave_command_database: leave_command_database.label,
+            ontology_command_database: ontology_command_database.label,
+        }),
+    )
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ReadinessDependencyStatus {
+    configured: bool,
+    ready: bool,
+    label: &'static str,
+}
+
+impl ReadinessDependencyStatus {
+    fn healthy(self) -> bool {
+        !self.configured || self.ready
+    }
+}
+
+async fn readiness_dependency_status(
+    dependency: &DatabaseDependency,
+    dependency_name: &'static str,
+) -> ReadinessDependencyStatus {
+    match dependency {
+        DatabaseDependency::NotConfigured => ReadinessDependencyStatus {
+            configured: false,
+            ready: false,
+            label: "not_configured",
+        },
         DatabaseDependency::Postgres(pool) => {
-            let database_ready = sqlx::query("SELECT 1")
+            let ready = sqlx::query("SELECT 1")
                 .execute(pool)
                 .instrument(tracing::info_span!(
-                    "db.query",
+                    "db.readiness",
                     db_system = "postgresql",
                     db_operation = "SELECT",
                     db_statement = "SELECT 1",
+                    dependency = dependency_name,
                 ))
                 .await
                 .is_ok();
-            if database_ready {
-                (
-                    StatusCode::OK,
-                    Json(ReadyBody {
-                        status: "ready",
-                        service: state.config.service_name,
-                        role: state.config.role,
-                        database: "ready",
-                    }),
-                )
-            } else {
-                (
-                    StatusCode::SERVICE_UNAVAILABLE,
-                    Json(ReadyBody {
-                        status: "not_ready",
-                        service: state.config.service_name,
-                        role: state.config.role,
-                        database: "unreachable",
-                    }),
-                )
+            ReadinessDependencyStatus {
+                configured: true,
+                ready,
+                label: if ready { "ready" } else { "unreachable" },
             }
         }
     }
@@ -3971,6 +4030,51 @@ impl From<DbError> for AppError {
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+mod readiness_tests {
+    use axum::extract::State;
+    use axum::response::IntoResponse;
+    use http::StatusCode;
+    use sqlx::PgPool;
+    use sqlx::postgres::PgPoolOptions;
+
+    use super::{AppConfig, AppRole, AppState, DatabaseDependency, readyz};
+
+    fn api_config() -> AppConfig {
+        AppConfig::from_pairs([
+            ("MNT_APP_ROLE", AppRole::Api.to_string()),
+            ("MNT_HTTP_ADDR", "127.0.0.1:0".to_owned()),
+        ])
+        .expect("valid api test config")
+    }
+
+    async fn separate_pool(pool: &PgPool) -> PgPool {
+        PgPoolOptions::new()
+            .max_connections(1)
+            .connect_with(pool.connect_options().as_ref().clone())
+            .await
+            .expect("separate readiness pool connects")
+    }
+
+    #[sqlx::test(migrations = "../crates/platform/db/migrations")]
+    async fn api_readiness_fails_closed_when_either_command_pool_degrades(pool: PgPool) {
+        let leave = separate_pool(&pool).await;
+        let ontology = separate_pool(&pool).await;
+        let mut state =
+            AppState::new(api_config(), DatabaseDependency::Postgres(pool)).expect("state builds");
+        state.leave_command_database = DatabaseDependency::Postgres(leave.clone());
+        state.ontology_command_database = DatabaseDependency::Postgres(ontology);
+
+        let healthy = readyz(State(state.clone())).await.into_response();
+        assert_eq!(healthy.status(), StatusCode::OK);
+
+        leave.close().await;
+        let degraded = readyz(State(state)).await.into_response();
+        assert_eq!(degraded.status(), StatusCode::SERVICE_UNAVAILABLE);
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 mod wide_event_middleware_tests {
     use axum::body::{Body, to_bytes};
     use axum::routing::get;
@@ -4575,6 +4679,8 @@ mod command_database_config_tests {
         let query = serving_database_identity_query();
         assert!(query.contains("pg_has_role"));
         assert!(query.contains("'MEMBER'"));
+        assert!(query.contains("pg_auth_members"));
+        assert!(query.contains("membership.roleid = authenticated.oid"));
         for attribute in [
             "rolcanlogin",
             "rolsuper",
@@ -4765,6 +4871,20 @@ mod command_database_config_tests {
             error.to_string().contains("forbidden membership edge"),
             "unexpected error: {error}"
         );
+    }
+
+    #[test]
+    fn serving_identity_rejects_outgoing_or_incoming_membership_edges() {
+        let error = ensure_expected_serving_database_identity(
+            "DATABASE_URL",
+            "mnt_rt",
+            "mnt_rt",
+            "mnt_rt",
+            RoleAttributes::HARDENED_LOGIN,
+            true,
+        )
+        .unwrap_err();
+        assert!(error.to_string().contains("membership edge"));
     }
 
     #[test]

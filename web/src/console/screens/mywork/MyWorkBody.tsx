@@ -51,9 +51,11 @@ export function MyWorkBody({ api, now, onOpen }: MyWorkBodyProps) {
   const today = useMemo(() => now ?? new Date(), [now]);
   const currentApiRef = useRef<MyWorkApi | undefined>(api);
   const todosRequest = useRef(0);
+  const inboxCursors = useRef(new Set<string>());
 
   useLayoutEffect(() => {
     currentApiRef.current = api;
+    inboxCursors.current = new Set();
     todosRequest.current += 1;
     return () => {
       if (currentApiRef.current === api) currentApiRef.current = undefined;
@@ -66,6 +68,12 @@ export function MyWorkBody({ api, now, onOpen }: MyWorkBodyProps) {
   );
   const [itemsOwned, setItemsOwned] = useState<ApiOwned<ActionInboxItem[]>>(() =>
     ownedBy(api, []),
+  );
+  const [nextCursorOwned, setNextCursorOwned] = useState<ApiOwned<string | null>>(() =>
+    ownedBy(api, null),
+  );
+  const [loadingMoreOwned, setLoadingMoreOwned] = useState<ApiOwned<boolean>>(() =>
+    ownedBy(api, false),
   );
   const [dayFilter, setDayFilter] = useState<DayFilter>("all");
   const [reloadKey, setReloadKey] = useState(0);
@@ -86,6 +94,8 @@ export function MyWorkBody({ api, now, onOpen }: MyWorkBodyProps) {
 
   const inboxState = inboxStateOwned.api === api ? inboxStateOwned.value : "loading";
   const items = itemsOwned.api === api ? itemsOwned.value : EMPTY_ACTION_ITEMS;
+  const nextCursor = nextCursorOwned.api === api ? nextCursorOwned.value : null;
+  const loadingMore = loadingMoreOwned.api === api && loadingMoreOwned.value;
   const todosState = todosStateOwned.api === api ? todosStateOwned.value : "loading";
   const todos = todosOwned.api === api ? todosOwned.value : [];
   const text = textOwned.api === api ? textOwned.value : "";
@@ -107,6 +117,9 @@ export function MyWorkBody({ api, now, onOpen }: MyWorkBodyProps) {
       .then((res) => {
         if (!live || currentApiRef.current !== api) return;
         setItemsOwned(ownedBy(api, res.items));
+        const next = res.next_cursor ?? null;
+        inboxCursors.current = new Set(next ? [next] : []);
+        setNextCursorOwned(ownedBy(api, next));
         setInboxStateOwned(ownedBy(api, "ready"));
       })
       .catch(() => {
@@ -118,6 +131,41 @@ export function MyWorkBody({ api, now, onOpen }: MyWorkBodyProps) {
       live = false;
     };
   }, [api, reloadKey]);
+
+  const loadMoreInbox = useCallback(() => {
+    if (!nextCursor || loadingMore || currentApiRef.current !== api) return;
+    const requestedCursor = nextCursor;
+    setLoadingMoreOwned(ownedBy(api, true));
+    api
+      .loadInbox(requestedCursor)
+      .then((page) => {
+        if (currentApiRef.current !== api) return;
+        const next = page.next_cursor ?? null;
+        if (next && inboxCursors.current.has(next)) {
+          throw new Error("action-inbox cursor repeated");
+        }
+        if (next) inboxCursors.current.add(next);
+        setItemsOwned((current) => {
+          const existing = current.api === api ? current.value : [];
+          const ids = new Set(existing.map((item) => item.id));
+          return ownedBy(api, [
+            ...existing,
+            ...page.items.filter((item) => !ids.has(item.id)),
+          ]);
+        });
+        setNextCursorOwned(ownedBy(api, next));
+      })
+      .catch(() => {
+        if (currentApiRef.current === api) {
+          setInboxStateOwned(ownedBy(api, "error"));
+        }
+      })
+      .finally(() => {
+        if (currentApiRef.current === api) {
+          setLoadingMoreOwned(ownedBy(api, false));
+        }
+      });
+  }, [api, loadingMore, nextCursor]);
 
   // loadTodos never sets "loading" synchronously (it would cascade when called
   // from the mount effect); callers that want the flash set it themselves.
@@ -405,8 +453,9 @@ export function MyWorkBody({ api, now, onOpen }: MyWorkBodyProps) {
           ) : rows.length === 0 ? (
             <p style={emptyStyle}>{S.assigned.empty}</p>
           ) : (
-            <ul style={listStyle}>
-              {rows.map((item) => {
+            <div style={{ display: "grid", gap: "var(--sp-3)" }}>
+              <ul style={listStyle}>
+                {rows.map((item) => {
                 const destination = actionInboxLinkRoute(item);
                 const resolved = resolveRowTitle(
                   item.title,
@@ -441,8 +490,20 @@ export function MyWorkBody({ api, now, onOpen }: MyWorkBodyProps) {
                     </button>
                   </li>
                 );
-              })}
-            </ul>
+                })}
+              </ul>
+              {nextCursor ? (
+                <button
+                  type="button"
+                  data-window-control="true"
+                  style={ghostButtonStyle}
+                  disabled={loadingMore}
+                  onClick={loadMoreInbox}
+                >
+                  {loadingMore ? S.loading : S.assigned.loadMore}
+                </button>
+              ) : null}
+            </div>
           )}
         </section>
       </div>

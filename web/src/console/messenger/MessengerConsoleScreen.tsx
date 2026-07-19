@@ -36,7 +36,7 @@ import type {
 } from "./types";
 import "../tokens.css";
 
-type LoadState = "idle" | "loading" | "error";
+type LoadState = "idle" | "loading" | "error" | "branch-required";
 
 type MessageMap = Record<string, ConsoleMessengerMessage[] | undefined>;
 type CursorMap = Record<string, string | null | undefined>;
@@ -143,13 +143,20 @@ export function MessengerConsoleScreen({
   );
 
   const refresh = useCallback(async () => {
+    if (!branchId) {
+      setThreads([]);
+      setMembers([]);
+      setSelectedThreadId(undefined);
+      setLoadState("branch-required");
+      return;
+    }
     setLoadState("loading");
     try {
       const memberThreads = await client.listThreads();
       const memberIds = new Set(memberThreads.map((thread) => thread.id));
       const [joinableChannels, branchMembers] = await Promise.all([
         client.listChannels().catch(() => [] as ConsoleMessengerThread[]),
-        client.listMembers(branchId).catch(() => [] as ConsoleMessengerMember[]),
+        client.listMembers(branchId),
       ]);
       const merged = mergeThreads(
         memberThreads.map((thread) => ({ ...thread, joined: true })),
@@ -351,6 +358,9 @@ export function MessengerConsoleScreen({
         <div style={styles.headerChips}>
           <StatusChip tone="info">{T.badge(unreadBadgeTotal(threads))}</StatusChip>
           {loadState === "error" ? <StatusChip tone="danger" role="alert">{T.status.loadFailed}</StatusChip> : null}
+          {loadState === "branch-required" ? (
+            <StatusChip tone="danger" role="alert">{T.status.branchRequired}</StatusChip>
+          ) : null}
           {statusChip ? <StatusChip tone="ok" role="status">{statusChip}</StatusChip> : null}
           <button
             type="button"

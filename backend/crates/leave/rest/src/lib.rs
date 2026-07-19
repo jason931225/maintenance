@@ -100,6 +100,7 @@ pub fn router(state: LeaveRestState) -> Router {
 struct ListParams {
     status: Option<String>,
     limit: Option<i64>,
+    cursor: Option<LeaveRequestId>,
 }
 
 #[derive(Debug, Serialize)]
@@ -126,6 +127,7 @@ async fn get_my_leave(
         .list_self_requests(ListSelfLeaveRequestsQuery {
             requester: principal.user_id,
             limit: params.limit.unwrap_or(100),
+            cursor: params.cursor,
         })
         .await
         .map_err(RestError::from_store)?;
@@ -149,6 +151,7 @@ async fn list_requests(
             branch_scope: principal.branch_scope.clone(),
             status,
             limit: params.limit.unwrap_or(100),
+            cursor: params.cursor,
         })
         .await
         .map_err(RestError::from_store)?;
@@ -158,6 +161,10 @@ async fn list_requests(
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CreateRequestBody {
+    /// Stable submission id generated once by modern clients and reused for a
+    /// retry after an unknown/lost response. Optional for deployed v1 clients.
+    #[serde(default)]
+    idempotency_key: Option<Uuid>,
     /// `annual` (full-day intent) or `half_day` (policy-resolved partial-day intent).
     leave_type: String,
     /// Required exactly for `half_day`; absent for `annual`.
@@ -222,6 +229,7 @@ async fn create_request(
         .create_request(CreateLeaveRequestCommand {
             requester_user_id: principal.user_id,
             subject_employee_id,
+            idempotency_key: body.idempotency_key.unwrap_or_else(Uuid::new_v4),
             request,
             trace: TraceContext::generate(),
             occurred_at: time::OffsetDateTime::now_utc(),
@@ -235,8 +243,10 @@ async fn create_request(
 #[serde(deny_unknown_fields)]
 struct DecideRequest {
     /// Mutable request/workflow CAS token from `LeaveRequestView.request_version`.
-    /// This is not the immutable charge-evidence revision.
-    expected_version: i64,
+    /// This is not the immutable charge-evidence revision. Optional only for
+    /// backward compatibility with deployed v1 clients; new clients send it.
+    #[serde(default)]
+    expected_version: Option<i64>,
     decision: String,
     #[serde(default)]
     comment: Option<String>,
@@ -255,7 +265,11 @@ async fn decide(
     let decision = LeaveDecision::parse(&body.decision).map_err(RestError::from_kernel)?;
     let comment = mnt_leave_domain::validate_decision_comment(decision, body.comment.as_deref())
         .map_err(RestError::from_kernel)?;
-    let expected_version = validate_expected_request_version(body.expected_version)?;
+    let expected_version = body
+        .expected_version
+        .map(validate_expected_request_version)
+        .transpose()?
+        .unwrap_or(0);
     let view = state
         .store
         .decide(DecideLeaveRequestCommand {
@@ -803,7 +817,7 @@ mod tests {
             "decision": "approve"
         }))
         .unwrap();
-        assert_eq!(body.expected_version, 7);
+        assert_eq!(body.expected_version, Some(7));
 
         let error = serde_json::from_value::<DecideRequest>(serde_json::json!({
             "expected_version": 7,
@@ -812,6 +826,39 @@ mod tests {
         }))
         .unwrap_err();
         assert!(error.to_string().contains("unknown field `charge_version`"));
+    }
+
+    #[test]
+    fn decide_body_accepts_deployed_v1_shape_without_request_cas() {
+        let body: DecideRequest = serde_json::from_value(serde_json::json!({
+            "decision": "return",
+            "comment": "needs correction"
+        }))
+        .unwrap();
+        assert_eq!(body.expected_version, None);
+    }
+
+    #[test]
+    fn create_body_accepts_stable_submission_key_and_deployed_v1_shape() {
+        let key = Uuid::new_v4();
+        let modern: CreateRequestBody = serde_json::from_value(serde_json::json!({
+            "idempotency_key": key,
+            "leave_type": "annual",
+            "start_date": "2026-08-03",
+            "end_date": "2026-08-03",
+            "reason": "vacation"
+        }))
+        .unwrap();
+        assert_eq!(modern.idempotency_key, Some(key));
+
+        let deployed_v1: CreateRequestBody = serde_json::from_value(serde_json::json!({
+            "leave_type": "annual",
+            "start_date": "2026-08-03",
+            "end_date": "2026-08-03",
+            "reason": "vacation"
+        }))
+        .unwrap();
+        assert_eq!(deployed_v1.idempotency_key, None);
     }
 
     #[test]

@@ -67,6 +67,14 @@ FROM unnest(ARRAY[
 ON CONFLICT (user_id, branch_id) DO NOTHING;
 
 -- ── employees (roster → leave + policy 인원 count) ───────────────────────────
+-- The conditional role switch keeps this file valid both before 0166 (during
+-- bootstrap/recovery) and after its leave-owned employee guard is installed.
+SELECT set_config(
+  'role',
+  CASE WHEN to_regprocedure('leave_api.employee_leave_writer_guard()') IS NULL
+    THEN current_user ELSE 'mnt_leave_definer' END,
+  true
+);
 INSERT INTO employees (
   id, org_id, company, name, source_filename, source_sheet, source_row, source_key,
   raw_row, source_metadata, employment_status, employee_number, org_unit, job, position,
@@ -89,6 +97,7 @@ INSERT INTO employees (
   ('00000000-0000-0000-0000-000000ee0011', '00000000-0000-0000-0000-0000000000a1', 'KNL로지스틱스', '신라온', 'roster_2026.xlsx', '정규직', 12, 'emp-1011', '{}'::jsonb, '{}'::jsonb, 'ACTIVE', '1011', '정비팀', '지게차 정비', '주임', '창원 본사', '2017-04-17', 20, 16, 4, 'employee_number', 'high', false, false),
   ('00000000-0000-0000-0000-000000ee0012', '00000000-0000-0000-0000-0000000000a1', 'KNL로지스틱스', '문가온', 'roster_2026.xlsx', '정규직', 13, 'emp-1012', '{}'::jsonb, '{}'::jsonb, 'ACTIVE', '1012', '접수팀', '고객 접수', '사원', '부산 지점', '2021-10-05', 15, 5, 10, 'employee_number', 'high', false, false)
 ON CONFLICT (id) DO NOTHING;
+RESET ROLE;
 
 -- ── leave: annual obligations + a couple of pending requests ─────────────────
 INSERT INTO annual_leave_obligations (id, org_id, employee_id, leave_year, leave_accrued, leave_used, leave_remaining, status, statutory_basis, notification_plan) VALUES
@@ -97,10 +106,21 @@ INSERT INTO annual_leave_obligations (id, org_id, employee_id, leave_year, leave
   ('00000000-0000-0000-0000-000000a10003', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000ee0003', 2026, 20, 2, 18, 'PROMOTION_SENT', '{"law":"근로기준법 제61조"}'::jsonb, '{"stage":"sent","sent_on":"2026-06-30"}'::jsonb)
 ON CONFLICT (id) DO NOTHING;
 
+-- 0166 makes leave-request writes command-owned. Keep this seed runnable both
+-- before and after that migration: only assume the definer role once the
+-- command guard exists, then restore the migration login immediately after the
+-- fixture insert. The retained `days` column is the expand/rollback contract.
+SELECT set_config(
+  'role',
+  CASE WHEN to_regprocedure('leave_api.protected_request_writer_guard()') IS NULL
+    THEN current_user ELSE 'mnt_leave_definer' END,
+  true
+);
 INSERT INTO leave_requests (id, org_id, branch_id, requester_user_id, subject_employee_id, leave_type, days, start_date, end_date, reason, status) VALUES
   ('00000000-0000-0000-0000-000000a20001', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-00000000d002', '00000000-0000-0000-0000-000000ee0001', 'annual', 2, '2026-07-21', '2026-07-22', '개인 사유 연차 사용', 'pending'),
   ('00000000-0000-0000-0000-000000a20002', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-0000000000c2', '00000000-0000-0000-0000-00000000d003', '00000000-0000-0000-0000-000000ee0003', 'half_day', 0.5, '2026-07-18', '2026-07-18', '오전 반차 (병원 방문)', 'pending')
 ON CONFLICT (id) DO NOTHING;
+RESET ROLE;
 
 -- ── registry chain (customer → site → equipment) backing work orders ─────────
 INSERT INTO registry_customers (id, branch_id, name, org_id) VALUES

@@ -42,9 +42,51 @@ spec:
             - name: PGPASSWORD
               valueFrom:
                 secretKeyRef: { name: mnt-db-app, key: password }
+            - name: MNT_RT_USERNAME
+              valueFrom:
+                secretKeyRef: { name: mnt-db-rt, key: username }
+            - name: MNT_RT_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: mnt-db-rt, key: password }
+            - name: MNT_LEAVE_COMMAND_USERNAME
+              valueFrom:
+                secretKeyRef: { name: mnt-db-leave-command, key: username }
+            - name: MNT_LEAVE_COMMAND_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: mnt-db-leave-command, key: password }
+            - name: MNT_ONTOLOGY_COMMAND_USERNAME
+              valueFrom:
+                secretKeyRef: { name: mnt-db-ontology-command, key: username }
+            - name: MNT_ONTOLOGY_COMMAND_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: mnt-db-ontology-command, key: password }
           command: [bash, -ceu]
           args:
             - |
+              # Secret values arrive here already decoded by Kubernetes. Reject
+              # role aliases and pairwise credential reuse before touching the
+              # database; a URL-string comparison in the application cannot
+              # protect the migration-only credential it never receives.
+              test "${PGUSER}" = mnt_app
+              test "${MNT_RT_USERNAME}" = mnt_rt
+              test "${MNT_LEAVE_COMMAND_USERNAME}" = mnt_leave_cmd
+              test "${MNT_ONTOLOGY_COMMAND_USERNAME}" = mnt_ontology_cmd
+              passwords=(
+                "${PGPASSWORD}"
+                "${MNT_RT_PASSWORD}"
+                "${MNT_LEAVE_COMMAND_PASSWORD}"
+                "${MNT_ONTOLOGY_COMMAND_PASSWORD}"
+              )
+              for ((i = 0; i < ${#passwords[@]}; i++)); do
+                test -n "${passwords[i]}"
+                for ((j = i + 1; j < ${#passwords[@]}; j++)); do
+                  test "${passwords[i]}" != "${passwords[j]}"
+                done
+              done
+
+              test "$(psql -v ON_ERROR_STOP=1 -Atqc \
+                "SELECT session_user::text || '|' || current_user::text")" = 'mnt_app|mnt_app'
+
               expected_roles='mnt_app|t|f|t|t|f|f|f
               mnt_leave_cmd|t|f|f|f|f|f|f
               mnt_leave_definer|f|f|f|f|f|f|f
@@ -85,6 +127,40 @@ spec:
               )"
               test "${actual_memberships}" = "${expected_memberships}"
               test "$(psql -v ON_ERROR_STOP=1 -Atqc "SELECT pg_get_userbyid(datdba) FROM pg_database WHERE datname=current_database()")" = mnt_app
+
+              # Prove the three serving credentials are real direct logins,
+              # not admin/owner sessions that arrive through SET ROLE. No
+              # serving identity may be on either side of a membership edge.
+              assert_direct_serving_login() {
+                local role="$1"
+                local password="$2"
+                local actual
+                actual="$(PGUSER="${role}" PGPASSWORD="${password}" psql \
+                  -v ON_ERROR_STOP=1 -At -F '|' <<'SQL'
+              SELECT session_user,
+                     current_user,
+                     authenticated.rolcanlogin,
+                     authenticated.rolsuper,
+                     authenticated.rolbypassrls,
+                     authenticated.rolinherit,
+                     authenticated.rolcreatedb,
+                     authenticated.rolcreaterole,
+                     authenticated.rolreplication,
+                     EXISTS (
+                       SELECT 1
+                       FROM pg_auth_members membership
+                       WHERE membership.member = authenticated.oid
+                          OR membership.roleid = authenticated.oid
+                     )
+              FROM pg_roles authenticated
+              WHERE authenticated.rolname = session_user;
+              SQL
+                )"
+                test "${actual}" = "${role}|${role}|t|f|f|f|f|f|f|f"
+              }
+              assert_direct_serving_login mnt_rt "${MNT_RT_PASSWORD}"
+              assert_direct_serving_login mnt_leave_cmd "${MNT_LEAVE_COMMAND_PASSWORD}"
+              assert_direct_serving_login mnt_ontology_cmd "${MNT_ONTOLOGY_COMMAND_PASSWORD}"
               echo 'database topology readback passed'
           resources:
             requests: { cpu: 25m, memory: 32Mi }

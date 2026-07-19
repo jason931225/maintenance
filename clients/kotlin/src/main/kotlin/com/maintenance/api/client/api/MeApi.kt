@@ -653,7 +653,9 @@ open class MeApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
     /**
      * GET /api/v1/me/action-inbox
      * Unified action inbox for the authenticated principal
-     * One server-side fan-in of the caller&#39;s actionable items across every source that owns a person-scoped list: workflow/approval tasks awaiting the caller (the ?assignee&#x3D;me path), pending P1 dispatch offers, support tickets assigned to the caller, and work orders assigned to the caller. Each source is queried through the exact predicate its own list endpoint uses, so the aggregate never widens visibility (deny-by-omission). Items are bucketed by urgency (now/today/wait) with a derived due tone. Fields the overview prototype carries but no backend source can supply are omitted (entity, amount, detail, files, stats, mailId); site/who/submitted are present only for the sources that carry them. Attendance exceptions are not aggregated (no exception object exists yet).
+     * One server-side fan-in of the caller&#39;s actionable items across every source that owns a person-scoped list: workflow/approval tasks awaiting the caller (the ?assignee&#x3D;me path), pending P1 dispatch offers, support tickets assigned to the caller, and work orders assigned to the caller. Each source is queried through the exact predicate its own list endpoint uses, so the aggregate never widens visibility (deny-by-omission). Items are bucketed by urgency (now/today/wait) with a derived due tone. Fields the overview prototype carries but no backend source can supply are omitted (entity, amount, detail, files, stats, mailId); site/who/submitted are present only for the sources that carry them. Attendance exceptions are not aggregated (no exception object exists yet). Results use a stable server snapshot and bounded per-source fan-in. &#x60;total_is_exact&#x60; is false when an authorization-filtered source reaches its bounded counting budget; source failures fail the whole request rather than returning a deceptively partial queue.
+     * @param limit Page size, clamped server-side to 1..&#x3D;200. (optional, default to 100)
+     * @param cursor Opaque snapshot cursor returned as &#x60;next_cursor&#x60; by the previous page. (optional)
      * @return ActionInboxResponse
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
@@ -663,8 +665,8 @@ open class MeApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun listMyActionInbox() : ActionInboxResponse = withContext(Dispatchers.IO) {
-        val localVarResponse = listMyActionInboxWithHttpInfo()
+    suspend fun listMyActionInbox(limit: kotlin.Int? = 100, cursor: kotlin.String? = null) : ActionInboxResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = listMyActionInboxWithHttpInfo(limit = limit, cursor = cursor)
 
         return@withContext when (localVarResponse.responseType) {
             ResponseType.Success -> (localVarResponse as Success<*>).data as ActionInboxResponse
@@ -684,15 +686,17 @@ open class MeApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
     /**
      * GET /api/v1/me/action-inbox
      * Unified action inbox for the authenticated principal
-     * One server-side fan-in of the caller&#39;s actionable items across every source that owns a person-scoped list: workflow/approval tasks awaiting the caller (the ?assignee&#x3D;me path), pending P1 dispatch offers, support tickets assigned to the caller, and work orders assigned to the caller. Each source is queried through the exact predicate its own list endpoint uses, so the aggregate never widens visibility (deny-by-omission). Items are bucketed by urgency (now/today/wait) with a derived due tone. Fields the overview prototype carries but no backend source can supply are omitted (entity, amount, detail, files, stats, mailId); site/who/submitted are present only for the sources that carry them. Attendance exceptions are not aggregated (no exception object exists yet).
+     * One server-side fan-in of the caller&#39;s actionable items across every source that owns a person-scoped list: workflow/approval tasks awaiting the caller (the ?assignee&#x3D;me path), pending P1 dispatch offers, support tickets assigned to the caller, and work orders assigned to the caller. Each source is queried through the exact predicate its own list endpoint uses, so the aggregate never widens visibility (deny-by-omission). Items are bucketed by urgency (now/today/wait) with a derived due tone. Fields the overview prototype carries but no backend source can supply are omitted (entity, amount, detail, files, stats, mailId); site/who/submitted are present only for the sources that carry them. Attendance exceptions are not aggregated (no exception object exists yet). Results use a stable server snapshot and bounded per-source fan-in. &#x60;total_is_exact&#x60; is false when an authorization-filtered source reaches its bounded counting budget; source failures fail the whole request rather than returning a deceptively partial queue.
+     * @param limit Page size, clamped server-side to 1..&#x3D;200. (optional, default to 100)
+     * @param cursor Opaque snapshot cursor returned as &#x60;next_cursor&#x60; by the previous page. (optional)
      * @return ApiResponse<ActionInboxResponse?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun listMyActionInboxWithHttpInfo() : ApiResponse<ActionInboxResponse?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = listMyActionInboxRequestConfig()
+    suspend fun listMyActionInboxWithHttpInfo(limit: kotlin.Int?, cursor: kotlin.String?) : ApiResponse<ActionInboxResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listMyActionInboxRequestConfig(limit = limit, cursor = cursor)
 
         return@withContext request<Unit, ActionInboxResponse>(
             localVariableConfig
@@ -702,11 +706,21 @@ open class MeApi(basePath: kotlin.String = defaultBasePath, client: Call.Factory
     /**
      * To obtain the request config of the operation listMyActionInbox
      *
+     * @param limit Page size, clamped server-side to 1..&#x3D;200. (optional, default to 100)
+     * @param cursor Opaque snapshot cursor returned as &#x60;next_cursor&#x60; by the previous page. (optional)
      * @return RequestConfig
      */
-    fun listMyActionInboxRequestConfig() : RequestConfig<Unit> {
+    fun listMyActionInboxRequestConfig(limit: kotlin.Int?, cursor: kotlin.String?) : RequestConfig<Unit> {
         val localVariableBody = null
-        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+                if (cursor != null) {
+                    put("cursor", listOf(cursor.toString()))
+                }
+            }
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
         localVariableHeaders["Accept"] = "application/json"
 

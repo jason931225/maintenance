@@ -3,6 +3,7 @@ import {
   useEffect,
   useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
 } from "react";
@@ -30,6 +31,14 @@ import {
 import "../../tokens.css";
 
 type ReadState = "loading" | "idle" | "error";
+type LeaveRequestPageWire = {
+  items: LeaveRequestView[];
+  next_cursor?: string | null;
+};
+
+function requestWasAborted(controller: AbortController): boolean {
+  return controller.signal.aborted;
+}
 
 function bodyStrings(): {
   loading: string;
@@ -156,6 +165,10 @@ function LeaveAuthorityBody({
     [],
   );
   const [managedState, setManagedState] = useState<ReadState>("idle");
+  const pendingSubmissionRef = useRef<{
+    fingerprint: string;
+    idempotencyKey: string;
+  } | undefined>(undefined);
 
   useLayoutEffect(
     () => () => {
@@ -164,20 +177,42 @@ function LeaveAuthorityBody({
     [authority],
   );
 
+  useEffect(() => {
+    pendingSubmissionRef.current = undefined;
+  }, [authority]);
+
   const loadSelf = useCallback(async () => {
     setSelfState("loading");
     setSelfError(undefined);
-    const result = await authority.api
-      .GET("/api/v1/me/leave", { params: { query: { limit: 200 } } })
-      .catch(() => undefined);
-    if (authority.controller.signal.aborted) return;
-    if (!result?.data) {
-      setSelfRequests([]);
-      setSelfError(errorMessage(result?.error, S.loadFailed));
-      setSelfState("error");
-      return;
+    const items: LeaveRequestView[] = [];
+    const seenCursors = new Set<string>();
+    let cursor: string | undefined;
+    for (;;) {
+      const query = cursor ? { limit: 200, cursor } : { limit: 200 };
+      const result = await authority.api
+        .GET("/api/v1/me/leave", { params: { query } })
+        .catch(() => undefined);
+      if (requestWasAborted(authority.controller)) return;
+      if (!result?.data) {
+        setSelfRequests([]);
+        setSelfError(errorMessage(result?.error, S.loadFailed));
+        setSelfState("error");
+        return;
+      }
+      const page = result.data.requests as LeaveRequestPageWire;
+      items.push(...page.items);
+      const next = page.next_cursor ?? undefined;
+      if (!next) break;
+      if (seenCursors.has(next)) {
+        setSelfRequests([]);
+        setSelfError(S.loadFailed);
+        setSelfState("error");
+        return;
+      }
+      seenCursors.add(next);
+      cursor = next;
     }
-    setSelfRequests(result.data.requests.items);
+    setSelfRequests(items);
     setSelfState("idle");
   }, [S.loadFailed, authority]);
 
@@ -200,21 +235,46 @@ function LeaveAuthorityBody({
   const loadManaged = useCallback(async () => {
     if (!canReadManaged) return;
     setManagedState("loading");
-    const [balances, page] = await Promise.all([
-      authority.api.GET("/api/v1/leave/balances", {}).catch(() => undefined),
-      authority.api
-        .GET("/api/v1/leave/requests", { params: { query: { limit: 200 } } })
-        .catch(() => undefined),
-    ]);
+    const balances = await authority.api
+      .GET("/api/v1/leave/balances", {})
+      .catch(() => undefined);
     if (authority.controller.signal.aborted) return;
-    if (!balances?.data || !page?.data) {
+    if (!balances?.data) {
       setManagedLedger([]);
       setManagedRequests([]);
       setManagedState("error");
       return;
     }
+    const items: LeaveRequestView[] = [];
+    const seenCursors = new Set<string>();
+    let cursor: string | undefined;
+    for (;;) {
+      const query = cursor ? { limit: 200, cursor } : { limit: 200 };
+      const result = await authority.api
+        .GET("/api/v1/leave/requests", { params: { query } })
+        .catch(() => undefined);
+      if (requestWasAborted(authority.controller)) return;
+      if (!result?.data) {
+        setManagedLedger([]);
+        setManagedRequests([]);
+        setManagedState("error");
+        return;
+      }
+      const page = result.data as LeaveRequestPageWire;
+      items.push(...page.items);
+      const next = page.next_cursor ?? undefined;
+      if (!next) break;
+      if (seenCursors.has(next)) {
+        setManagedLedger([]);
+        setManagedRequests([]);
+        setManagedState("error");
+        return;
+      }
+      seenCursors.add(next);
+      cursor = next;
+    }
     setManagedLedger(balances.data.items.map(rosterToLedgerRow));
-    setManagedRequests(page.data.items);
+    setManagedRequests(items);
     setManagedState("idle");
   }, [authority, canReadManaged]);
 
@@ -291,9 +351,27 @@ function LeaveAuthorityBody({
 
   const createRequest = useCallback(
     async (input: LeaveCreateInput): Promise<LeaveCreateOutcome> => {
-      const result = await createLeaveRequest(authority.api, input);
+      const fingerprint = [
+        input.leave_type,
+        input.partial_day_period ?? "",
+        input.start_date,
+        input.end_date,
+        input.reason,
+      ].join("\u0000");
+      if (pendingSubmissionRef.current?.fingerprint !== fingerprint) {
+        pendingSubmissionRef.current = {
+          fingerprint,
+          idempotencyKey: globalThis.crypto.randomUUID(),
+        };
+      }
+      const result = await createLeaveRequest(
+        authority.api,
+        input,
+        pendingSubmissionRef.current.idempotencyKey,
+      );
       if (authority.controller.signal.aborted) return { ok: false };
       if (!result.ok || !result.data) return { ok: false, error: result.error };
+      pendingSubmissionRef.current = undefined;
       const created = result.data;
       setSelfRequests((current) => [created, ...current]);
       if (canReadManaged)

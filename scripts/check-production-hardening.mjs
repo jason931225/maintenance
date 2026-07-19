@@ -419,9 +419,16 @@ export function evaluateWorkflowHardeningChecks(readText) {
   const ciPath = ".github/workflows/ci.yml";
   const securityPath = ".github/workflows/security.yml";
   const imageReleasePath = ".github/workflows/image-release.yml";
+  const protectedMainCiGatePath = "scripts/wait-for-protected-main-ci.sh";
   const ciWorkflow = requirePresentText(result, readText, ciPath, "CI workflow");
   const securityWorkflow = requirePresentText(result, readText, securityPath, "Security workflow");
   const imageReleaseWorkflow = requirePresentText(result, readText, imageReleasePath, "image-release workflow");
+  const protectedMainCiGate = requirePresentText(
+    result,
+    readText,
+    protectedMainCiGatePath,
+    "protected-main CI gate script",
+  );
 
   requirement(
     result,
@@ -438,16 +445,21 @@ export function evaluateWorkflowHardeningChecks(readText) {
 
   requirement(
     result,
-    workflowHasRun(imageReleaseWorkflow, [
-      /\bgh\s+run\s+list\b/,
-      /--workflow\s+ci\.yml\b/,
-      /--commit\b/,
-      /\bconclusion\b/,
-      /\bsuccess\b/,
-      /\bexit\s+1\b/,
-    ]),
+    workflowHasRun(imageReleaseWorkflow, [/\bbash\s+scripts\/wait-for-protected-main-ci\.sh\b/])
+      && [
+        /\bgh\s+run\s+list\b/,
+        /--workflow\s+ci\.yml\b/,
+        /--commit\b/,
+        /--event\s+push\b/,
+        /--branch\s+main\b/,
+        /\.event\s*==\s*["']push["']/,
+        /\.headBranch\s*==\s*["']main["']/,
+        /\bconclusion\b/,
+        /\bsuccess\b/,
+        /\bexit\s+1\b/,
+      ].every((pattern) => pattern.test(protectedMainCiGate)),
     "image-release portable gate: active CI success wait",
-    "image-release must actively wait for CI success for the same SHA and fail non-success conclusions",
+    "image-release must actively wait for successful protected-main push CI for the same SHA and fail non-success conclusions",
   );
   requirement(
     result,

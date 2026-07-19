@@ -31,10 +31,15 @@ const channel: ConsoleMessengerThread = {
   updated_at: "2026-07-09T09:02:00Z",
 };
 
+let memberRequests = 0;
+
 const server = setupServer(
   http.get("*/api/messenger/threads", () => HttpResponse.json({ items: [channel] })),
   http.get("*/api/messenger/channels", () => HttpResponse.json({ items: [channel] })),
-  http.get("*/api/messenger/members", () => HttpResponse.json({ items: [] })),
+  http.get("*/api/messenger/members", () => {
+    memberRequests += 1;
+    return HttpResponse.json({ items: [] });
+  }),
   http.get("*/api/messenger/threads/:threadId/messages", () =>
     HttpResponse.json({ items: [], next_cursor: null }),
   ),
@@ -47,6 +52,7 @@ beforeAll(() => {
 });
 afterEach(() => {
   server.resetHandlers();
+  memberRequests = 0;
 });
 afterAll(() => {
   server.close();
@@ -78,7 +84,12 @@ function renderBody(session: AuthSession) {
 
 describe("MessengerScreenBody (ConsoleShell registry body)", () => {
   it("supplies a role gate so a granted session sees the gated thread rows", async () => {
-    renderBody({ access_token: "token", roles: ["MECHANIC"], feature_grants: [] });
+    renderBody({
+      access_token: "token",
+      roles: ["MECHANIC"],
+      feature_grants: [],
+      branches: ["branch-1"],
+    });
 
     expect(await screen.findByRole("heading", { name: "메신저" })).toBeVisible();
     // The thread row is PolicyGated on messenger.thread.read — present only
@@ -87,9 +98,24 @@ describe("MessengerScreenBody (ConsoleShell registry body)", () => {
   });
 
   it("denies by omission for a session with no comms role (heading stays, rows vanish)", async () => {
-    renderBody({ access_token: "token", roles: [], feature_grants: [] });
+    renderBody({
+      access_token: "token",
+      roles: [],
+      feature_grants: [],
+      branches: ["branch-1"],
+    });
 
     expect(await screen.findByRole("heading", { name: "메신저" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: /배차 관제/ })).not.toBeInTheDocument();
+  });
+
+  it("fails closed with an explicit branch-selection state instead of an empty member directory", async () => {
+    renderBody({ access_token: "token", roles: ["SUPER_ADMIN"], feature_grants: [] });
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "메신저를 열 지점을 먼저 선택하세요.",
+    );
+    expect(memberRequests).toBe(0);
     expect(screen.queryByRole("button", { name: /배차 관제/ })).not.toBeInTheDocument();
   });
 });

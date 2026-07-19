@@ -401,7 +401,11 @@ jobs:
         if: ${{ !cancelled() }}
         run: npm run check:ts
 
-      - name: Kotlin compile
+      - name: TypeScript generated contract tests
+        if: ${{ !cancelled() }}
+        run: npm run test:api-client-contract:ts
+
+      - name: Kotlin compile and generated contract tests
         if: ${{ !cancelled() }}
         run: npm run check:kotlin
 
@@ -584,6 +588,14 @@ jobs:
         if: ${{ !cancelled() }}
         run: npm run check:openapi-app
 
+      - name: Employee import replay contract
+        if: ${{ !cancelled() }}
+        run: npm run test:employee-import-contract
+
+      - name: Ontology write precondition contract
+        if: ${{ !cancelled() }}
+        run: npm run test:ontology-write-precondition
+
       - name: Generated TypeScript client round-trip
         if: ${{ !cancelled() }}
         run: npm run test:contract
@@ -650,6 +662,10 @@ jobs:
       - name: Swift build
         if: ${{ !cancelled() }}
         run: npm run check:swift
+
+      - name: Swift generated contract tests
+        if: ${{ !cancelled() }}
+        run: npm run test:api-client-contract:swift
 
   mobile-parity:
     name: Mobile parity — checklist and strings

@@ -171,8 +171,15 @@ REVOKE ALL ON SCHEMA ontology_api FROM PUBLIC, mnt_rt;
 GRANT USAGE ON SCHEMA ontology_api TO mnt_ontology_cmd;
 GRANT USAGE ON SCHEMA public TO mnt_ontology_writer;
 
--- Direct runtime writes are closed on the parent, token, and every child table.
--- TRUNCATE is revoked too because it is not constrained by row-level security.
+-- The new binary writes only through ontology_api. During one blue/green
+-- compatibility window, however, the retained pre-0165 ReplicaSet still emits
+-- the exact 0152 parent/child DML followed by an audit row in one transaction.
+-- Keep only that old shape: parent INSERT/lifecycle UPDATE and append-only child
+-- INSERT. The triggers below make the legacy transaction audit-mandatory and
+-- advance the key sidecar exactly once; arbitrary draft UPDATE, child append to
+-- an unrelated transaction, DELETE, and TRUNCATE remain impossible. A later
+-- contract migration may remove these compatibility grants after old pods are
+-- proven absent.
 GRANT SELECT ON
     ont_object_types,
     ont_object_type_key_revisions,
@@ -197,15 +204,13 @@ REVOKE ALL PRIVILEGES ON
     gov_approvals,
     gov_approval_consumptions
 FROM mnt_ontology_cmd;
-REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON
-    ont_object_types,
-    ont_object_type_key_revisions,
-    ont_property_defs,
-    ont_link_types,
-    ont_action_types,
-    ont_analytics,
-    ont_builtin_catalog_installs
-FROM mnt_rt, PUBLIC;
+GRANT INSERT, UPDATE ON ont_object_types TO mnt_rt;
+GRANT INSERT ON ont_property_defs, ont_link_types, ont_action_types, ont_analytics TO mnt_rt;
+REVOKE DELETE, TRUNCATE ON ont_object_types FROM mnt_rt, PUBLIC;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON ont_object_type_key_revisions,
+    ont_builtin_catalog_installs FROM mnt_rt, PUBLIC;
+REVOKE UPDATE, DELETE, TRUNCATE ON ont_property_defs, ont_link_types,
+    ont_action_types, ont_analytics FROM mnt_rt, PUBLIC;
 
 GRANT SELECT, INSERT, UPDATE ON
     ont_object_types,
@@ -220,22 +225,131 @@ GRANT SELECT, INSERT ON
     gov_approval_consumptions,
     ont_builtin_catalog_installs
 TO mnt_ontology_writer;
-GRANT SELECT ON users, gov_approval_requests, gov_approvals, ont_builtin_catalog_allowlist TO mnt_ontology_writer;
+GRANT SELECT ON users, gov_approval_requests, ont_builtin_catalog_allowlist TO mnt_ontology_writer;
+-- PostgreSQL requires UPDATE privilege for SELECT ... FOR UPDATE even though
+-- the transition routine never changes the approval row itself.
+GRANT SELECT, UPDATE ON gov_approvals TO mnt_ontology_writer;
 
 -- Ontology success events are proof that a DB-owned command completed. The
 -- general runtime role must not be able to forge those audit facts directly.
+CREATE FUNCTION ontology_api.invoker_role()
+RETURNS NAME
+LANGUAGE sql
+STABLE
+SET search_path = pg_catalog
+AS $$
+    SELECT CASE
+        WHEN pg_catalog.current_setting('role', true) IS NOT NULL
+         AND pg_catalog.current_setting('role', true) <> 'none'
+        THEN pg_catalog.current_setting('role', true)::NAME
+        ELSE SESSION_USER::NAME
+    END
+$$;
+ALTER FUNCTION ontology_api.invoker_role() OWNER TO mnt_ontology_writer;
+
+-- The old binary must be able to insert a new parent before the new sidecar FK
+-- is checked. It may update only lifecycle_state+updated_at; content updates are
+-- exclusively owned by the new command functions. The shared org lock also
+-- closes the install-empty-check race for both generations of writer.
+CREATE FUNCTION ontology_api.prepare_legacy_object_type_write()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog
+SET row_security = on
+AS $$
+BEGIN
+    IF ontology_api.invoker_role() <> 'mnt_rt'::NAME THEN
+        RETURN NEW;
+    END IF;
+
+    PERFORM pg_catalog.pg_advisory_xact_lock(
+        pg_catalog.hashtextextended('ontology-bootstrap:' || NEW.org_id::TEXT, 0)
+    );
+    IF TG_OP = 'INSERT' THEN
+        INSERT INTO public.ont_object_type_key_revisions (org_id, stable_key)
+        VALUES (NEW.org_id, NEW.stable_key)
+        ON CONFLICT (org_id, stable_key) DO NOTHING;
+    ELSIF ROW(
+        NEW.id, NEW.org_id, NEW.stable_key, NEW.title, NEW.title_property_key,
+        NEW.backing_kind, NEW.backing_table, NEW.primary_key_property,
+        NEW.schema_version, NEW.created_by, NEW.created_at
+    ) IS DISTINCT FROM ROW(
+        OLD.id, OLD.org_id, OLD.stable_key, OLD.title, OLD.title_property_key,
+        OLD.backing_kind, OLD.backing_table, OLD.primary_key_property,
+        OLD.schema_version, OLD.created_by, OLD.created_at
+    ) OR NEW.lifecycle_state IS NOT DISTINCT FROM OLD.lifecycle_state
+      OR NEW.updated_at IS NOT DISTINCT FROM OLD.updated_at THEN
+        RAISE EXCEPTION USING
+            ERRCODE = '42501',
+            MESSAGE = 'ontology_legacy.lifecycle_update_only';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+ALTER FUNCTION ontology_api.prepare_legacy_object_type_write() OWNER TO mnt_ontology_writer;
+CREATE TRIGGER trg_ont_object_types_legacy_write_guard
+    BEFORE INSERT OR UPDATE ON public.ont_object_types
+    FOR EACH ROW EXECUTE FUNCTION ontology_api.prepare_legacy_object_type_write();
+
 CREATE FUNCTION ontology_api.protected_audit_writer_guard()
 RETURNS TRIGGER
 LANGUAGE plpgsql
+SECURITY DEFINER
 SET search_path = pg_catalog
+SET row_security = on
 AS $$
+DECLARE
+    v_invoker NAME := ontology_api.invoker_role();
+    v_stable_key TEXT;
 BEGIN
-    IF NEW.action = ANY (ARRAY[
+    IF NEW.action <> ALL (ARRAY[
         'ontology.object_type.create',
         'ontology.object_type.stage_revision',
         'ontology.object_type.transition',
         'ontology.object_type.builtin_install'
-    ]::TEXT[]) AND current_user <> 'mnt_ontology_writer' THEN
+    ]::TEXT[]) THEN
+        RETURN NEW;
+    END IF;
+
+    -- Direct command credentials cannot INSERT audit_events. When an approved
+    -- command reaches this trigger it is nested inside the writer-owned
+    -- SECURITY DEFINER routine, while the old compatibility path arrives as
+    -- mnt_rt and must prove a matching parent mutation in this transaction.
+    IF v_invoker = 'mnt_rt'::NAME THEN
+        IF NEW.action = 'ontology.object_type.builtin_install'
+           OR NEW.target_type <> 'ont_object_types'
+           OR NOT EXISTS (
+               SELECT 1
+               FROM public.users u
+               WHERE u.id = NEW.actor AND u.org_id = NEW.org_id AND u.is_active
+           ) THEN
+            RAISE EXCEPTION USING ERRCODE = '42501', MESSAGE = 'ontology_audit.command_required';
+        END IF;
+
+        SELECT o.stable_key INTO v_stable_key
+        FROM public.ont_object_types o
+        WHERE o.org_id = NEW.org_id
+          AND o.id::TEXT = NEW.target_id
+          AND o.updated_at = NEW.occurred_at
+          AND o.xmin = pg_catalog.pg_current_xact_id()::xid
+          AND (
+              (NEW.action = 'ontology.object_type.create' AND o.schema_version = 1 AND o.created_at = NEW.occurred_at)
+              OR (NEW.action = 'ontology.object_type.stage_revision' AND o.schema_version > 1 AND o.created_at = NEW.occurred_at)
+              OR NEW.action = 'ontology.object_type.transition'
+          );
+        IF v_stable_key IS NULL THEN
+            RAISE EXCEPTION USING ERRCODE = '42501', MESSAGE = 'ontology_audit.command_required';
+        END IF;
+        IF NEW.action IN ('ontology.object_type.stage_revision', 'ontology.object_type.transition') THEN
+            UPDATE public.ont_object_type_key_revisions k
+               SET revision = k.revision + 1, updated_at = NEW.occurred_at
+             WHERE k.org_id = NEW.org_id AND k.stable_key = v_stable_key;
+            IF NOT FOUND THEN
+                RAISE EXCEPTION USING ERRCODE = '23503', MESSAGE = 'ontology_legacy.key_revision_missing';
+            END IF;
+        END IF;
+    ELSIF v_invoker <> 'mnt_ontology_cmd'::NAME THEN
         RAISE EXCEPTION USING
             ERRCODE = '42501',
             MESSAGE = 'ontology_audit.command_required';
@@ -247,6 +361,88 @@ ALTER FUNCTION ontology_api.protected_audit_writer_guard() OWNER TO mnt_ontology
 CREATE TRIGGER trg_audit_events_ontology_command_only
     BEFORE INSERT ON public.audit_events
     FOR EACH ROW EXECUTE FUNCTION ontology_api.protected_audit_writer_guard();
+
+-- Every parent/child mutation must be accompanied by a protected audit row
+-- inserted by the same database transaction. This is deferred so the retained
+-- binary may keep its historical mutation-then-audit ordering. xmin is used
+-- only as transaction-local evidence, never as a durable business identifier.
+CREATE FUNCTION ontology_api.require_current_transaction_audit()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog
+SET row_security = on
+AS $$
+DECLARE
+    v_parent_id UUID;
+    v_org_id UUID;
+    v_stable_key TEXT;
+    v_parent_is_current BOOLEAN;
+BEGIN
+    IF TG_TABLE_NAME = 'ont_object_types' THEN
+        v_parent_id := NEW.id;
+        v_org_id := NEW.org_id;
+        v_stable_key := NEW.stable_key;
+        v_parent_is_current := TRUE;
+    ELSE
+        v_parent_id := NEW.object_type_id;
+        v_org_id := NEW.org_id;
+        SELECT o.stable_key,
+               o.xmin = pg_catalog.pg_current_xact_id()::xid
+          INTO v_stable_key, v_parent_is_current
+          FROM public.ont_object_types o
+         WHERE o.id = v_parent_id AND o.org_id = v_org_id;
+    END IF;
+
+    IF COALESCE(v_parent_is_current, FALSE) AND TG_TABLE_NAME <> 'ont_object_types' THEN
+        RETURN NEW;
+    END IF;
+    IF EXISTS (
+        SELECT 1
+        FROM public.audit_events e
+        LEFT JOIN public.ont_object_types target
+          ON target.org_id = e.org_id AND target.id::TEXT = e.target_id
+        WHERE e.org_id = v_org_id
+          AND e.action = ANY (ARRAY[
+              'ontology.object_type.create',
+              'ontology.object_type.stage_revision',
+              'ontology.object_type.transition',
+              'ontology.object_type.builtin_install'
+          ]::TEXT[])
+          AND e.xmin = pg_catalog.pg_current_xact_id()::xid
+          AND (
+              e.target_id = v_parent_id::TEXT
+              OR (e.action = 'ontology.object_type.transition' AND target.stable_key = v_stable_key)
+          )
+    ) THEN
+        RETURN NEW;
+    END IF;
+    RAISE EXCEPTION USING
+        ERRCODE = '23514',
+        MESSAGE = 'ontology_write.current_transaction_audit_required';
+END;
+$$;
+ALTER FUNCTION ontology_api.require_current_transaction_audit() OWNER TO mnt_ontology_writer;
+CREATE CONSTRAINT TRIGGER trg_ont_object_types_current_audit
+    AFTER INSERT OR UPDATE ON public.ont_object_types
+    DEFERRABLE INITIALLY DEFERRED
+    FOR EACH ROW EXECUTE FUNCTION ontology_api.require_current_transaction_audit();
+CREATE CONSTRAINT TRIGGER trg_ont_property_defs_current_audit
+    AFTER INSERT ON public.ont_property_defs
+    DEFERRABLE INITIALLY DEFERRED
+    FOR EACH ROW EXECUTE FUNCTION ontology_api.require_current_transaction_audit();
+CREATE CONSTRAINT TRIGGER trg_ont_link_types_current_audit
+    AFTER INSERT ON public.ont_link_types
+    DEFERRABLE INITIALLY DEFERRED
+    FOR EACH ROW EXECUTE FUNCTION ontology_api.require_current_transaction_audit();
+CREATE CONSTRAINT TRIGGER trg_ont_action_types_current_audit
+    AFTER INSERT ON public.ont_action_types
+    DEFERRABLE INITIALLY DEFERRED
+    FOR EACH ROW EXECUTE FUNCTION ontology_api.require_current_transaction_audit();
+CREATE CONSTRAINT TRIGGER trg_ont_analytics_current_audit
+    AFTER INSERT ON public.ont_analytics
+    DEFERRABLE INITIALLY DEFERRED
+    FOR EACH ROW EXECUTE FUNCTION ontology_api.require_current_transaction_audit();
 
 CREATE FUNCTION ontology_api.assert_write_context(
     p_org_id UUID,

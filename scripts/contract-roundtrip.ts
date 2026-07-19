@@ -52,7 +52,9 @@ await db.connect();
 try {
   await resetLocalContractDatabase(db, databaseUrl);
   const topology = await provisionDatabaseTopology(db, databaseUrl);
-  const migrationDb = new PgClient({ connectionString: topology.ownerDatabaseUrl });
+  const migrationDb = new PgClient({
+    connectionString: topology.ownerDatabaseUrl,
+  });
   await migrationDb.connect();
   try {
     await applyMigrations(migrationDb);
@@ -136,16 +138,29 @@ async function provisionDatabaseTopology(
   client: pg.Client,
   connectionString: string,
 ) {
-  const currentUser = await client.query<{ current_user: string }>("SELECT current_user");
+  const currentUser = await client.query<{ current_user: string }>(
+    "SELECT current_user",
+  );
   if (currentUser.rows[0].current_user === "mnt_app") {
-    throw new Error("CONTRACT_DATABASE_URL must use a cluster administrator distinct from mnt_app");
+    throw new Error(
+      "CONTRACT_DATABASE_URL must use a cluster administrator distinct from mnt_app",
+    );
   }
 
+  const allocatedPasswords = new Set<string>();
+  const distinctPassword = () => {
+    let password: string;
+    do {
+      password = randomBytes(32).toString("hex");
+    } while (allocatedPasswords.has(password));
+    allocatedPasswords.add(password);
+    return password;
+  };
   const rolePasswords = {
-    mnt_app: randomBytes(32).toString("hex"),
-    mnt_rt: randomBytes(32).toString("hex"),
-    mnt_leave_cmd: randomBytes(32).toString("hex"),
-    mnt_ontology_cmd: randomBytes(32).toString("hex"),
+    mnt_app: distinctPassword(),
+    mnt_rt: distinctPassword(),
+    mnt_leave_cmd: distinctPassword(),
+    mnt_ontology_cmd: distinctPassword(),
   } as const;
 
   // ALTER ROLE has no parameterized password protocol. Suppress statement and
@@ -175,15 +190,17 @@ async function provisionDatabaseTopology(
       const bypassRls = role === "mnt_app" ? "BYPASSRLS" : "NOBYPASSRLS";
       const ddl = await client.query<{ create_ddl: string; alter_ddl: string }>(
         `SELECT
-         format('CREATE ROLE %I LOGIN NOSUPERUSER ${bypassRls} ${inherit} NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD %L', $1, $2) AS create_ddl,
-         format('ALTER ROLE %I LOGIN NOSUPERUSER ${bypassRls} ${inherit} NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD %L', $1, $2) AS alter_ddl`,
+         format('CREATE ROLE %I LOGIN NOSUPERUSER ${bypassRls} ${inherit} NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD %L', $1::text, $2::text) AS create_ddl,
+         format('ALTER ROLE %I LOGIN NOSUPERUSER ${bypassRls} ${inherit} NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD %L', $1::text, $2::text) AS alter_ddl`,
         [role, password],
       );
       const exists = await client.query<{ exists: boolean }>(
         "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname=$1)",
         [role],
       );
-      await client.query(exists.rows[0].exists ? ddl.rows[0].alter_ddl : ddl.rows[0].create_ddl);
+      await client.query(
+        exists.rows[0].exists ? ddl.rows[0].alter_ddl : ddl.rows[0].create_ddl,
+      );
     }
 
     await client.query(`
@@ -212,8 +229,15 @@ async function provisionDatabaseTopology(
       WITH ADMIN FALSE, INHERIT TRUE, SET TRUE;
     ALTER SCHEMA public OWNER TO mnt_app;
   `);
+    const databaseOwnerDdl = await client.query<{ ddl: string }>(
+      "SELECT format('ALTER DATABASE %I OWNER TO mnt_app', current_database()) AS ddl",
+    );
+    await client.query(databaseOwnerDdl.rows[0].ddl);
 
-    const topology = await client.query<{ roles: string; memberships: string }>(`
+    const topology = await client.query<{
+      roles: string;
+      memberships: string;
+    }>(`
     SELECT
       (SELECT string_agg(
          rolname || ':' || rolcanlogin || ':' || rolsuper || ':' || rolbypassrls || ':' || rolinherit,
@@ -245,7 +269,9 @@ async function provisionDatabaseTopology(
       topology.rows[0].memberships !==
         "mnt_app>mnt_leave_definer:false:true:true,mnt_app>mnt_ontology_writer:false:true:true"
     ) {
-      throw new Error(`contract database topology readback failed: ${JSON.stringify(topology.rows[0])}`);
+      throw new Error(
+        `contract database topology readback failed: ${JSON.stringify(topology.rows[0])}`,
+      );
     }
     await client.query("COMMIT");
   } catch (error) {
@@ -259,12 +285,95 @@ async function provisionDatabaseTopology(
     url.password = rolePasswords[role];
     return url.toString();
   };
-  return {
+  const topology = {
     ownerDatabaseUrl: roleUrl("mnt_app"),
     runtimeDatabaseUrl: roleUrl("mnt_rt"),
     leaveCommandDatabaseUrl: roleUrl("mnt_leave_cmd"),
     ontologyCommandDatabaseUrl: roleUrl("mnt_ontology_cmd"),
   };
+  await assertDirectDatabaseLogin(topology.ownerDatabaseUrl, "mnt_app", true);
+  await assertDirectDatabaseLogin(topology.runtimeDatabaseUrl, "mnt_rt", false);
+  await assertDirectDatabaseLogin(
+    topology.leaveCommandDatabaseUrl,
+    "mnt_leave_cmd",
+    false,
+  );
+  await assertDirectDatabaseLogin(
+    topology.ontologyCommandDatabaseUrl,
+    "mnt_ontology_cmd",
+    false,
+  );
+  return topology;
+}
+
+async function assertDirectDatabaseLogin(
+  connectionString: string,
+  expectedRole: string,
+  migrationOwner: boolean,
+) {
+  const probe = new PgClient({ connectionString });
+  await probe.connect();
+  try {
+    const result = await probe.query<{
+      session_user: string;
+      current_user: string;
+      attributes_ok: boolean;
+      membership_shape_ok: boolean;
+    }>(
+      `SELECT session_user::text,
+              current_user::text,
+              authenticated.rolcanlogin
+                AND NOT authenticated.rolsuper
+                AND authenticated.rolbypassrls = $2
+                AND authenticated.rolinherit = $2
+                AND NOT authenticated.rolcreatedb
+                AND NOT authenticated.rolcreaterole
+                AND NOT authenticated.rolreplication AS attributes_ok,
+              CASE WHEN $2 THEN
+                (SELECT count(*) = 2
+                   FROM pg_auth_members membership
+                  WHERE membership.member = authenticated.oid
+                    AND membership.roleid IN (
+                      to_regrole('mnt_leave_definer'), to_regrole('mnt_ontology_writer')
+                    )
+                    AND NOT membership.admin_option
+                    AND membership.inherit_option
+                    AND membership.set_option)
+                AND NOT EXISTS (
+                  SELECT 1 FROM pg_roles candidate
+                  WHERE candidate.rolname <> session_user
+                    AND candidate.rolname NOT IN (
+                      'pg_database_owner', 'mnt_leave_definer', 'mnt_ontology_writer'
+                    )
+                    AND pg_has_role(session_user, candidate.oid, 'MEMBER')
+                )
+                AND NOT EXISTS (
+                  SELECT 1 FROM pg_auth_members membership
+                  WHERE membership.roleid = authenticated.oid
+                )
+              ELSE NOT EXISTS (
+                SELECT 1 FROM pg_auth_members membership
+                WHERE membership.member = authenticated.oid
+                   OR membership.roleid = authenticated.oid
+              ) END AS membership_shape_ok
+         FROM pg_roles authenticated
+        WHERE authenticated.rolname = $1`,
+      [expectedRole, migrationOwner],
+    );
+    const identity = result.rows[0];
+    if (
+      identity?.session_user !== expectedRole ||
+      identity.current_user !== expectedRole ||
+      !identity.attributes_ok ||
+      !identity.membership_shape_ok
+    ) {
+      throw new Error(
+        `contract database direct-login check failed for ${expectedRole}`,
+      );
+    }
+  } finally {
+    await probe.end();
+  }
 }
 
 async function applyMigrations(client: pg.Client) {

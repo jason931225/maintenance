@@ -61,6 +61,7 @@ export interface MyWorkStrings {
     allDays: string;
     today: string;
     open: string;
+    loadMore: string;
   };
   kind: { approval: string; dispatch: string; work: string; support: string };
   error: string;
@@ -90,6 +91,7 @@ const FALLBACK: MyWorkStrings = {
     allDays: "This week",
     today: "Today",
     open: "Open",
+    loadMore: "Load more",
   },
   kind: {
     approval: "Approval",

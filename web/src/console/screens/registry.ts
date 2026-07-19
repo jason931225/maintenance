@@ -2,6 +2,7 @@
 // body component mounted into its screen-body slot. Production-visible keys are
 // constrained by `../shell/nav.ts`'s shipped manifest; planned keys stay DARK.
 import type { ComponentType } from "react";
+import type { ShippedScreenKey } from "../shell/nav";
 
 import { ApprovalScreenBody } from "../appr/ApprovalScreenBody";
 import { AuditScreenBody } from "../audit/AuditScreenBody";
@@ -10,7 +11,6 @@ import { MessengerScreenBody } from "../messenger";
 import { AssetModuleScreen } from "../modules/AssetModuleScreen";
 import { AutomateBody } from "./automate/AutomateBody";
 import { DashboardBody } from "./dashboard";
-import { EvidenceScreenBody } from "./evidence/EvidenceScreenBody";
 import ExploreScreen from "./explore/ExploreBody";
 import { ForecastBody } from "./forecast";
 import InboxScreen from "./inbox/InboxScreen";
@@ -23,7 +23,7 @@ import OverviewScreen from "./overview/OverviewScreen";
 import { PolicyBody } from "./policy/PolicyBody";
 import { SupportBody } from "./support/SupportBody";
 
-export const SCREEN_REGISTRY: Readonly<Partial<Record<string, ComponentType>>> = {
+export const SCREEN_REGISTRY: Readonly<Record<ShippedScreenKey, ComponentType>> = {
   overview: OverviewScreen,
   mywork: MyWorkScreen,
   inbox: InboxScreen,
@@ -32,7 +32,6 @@ export const SCREEN_REGISTRY: Readonly<Partial<Record<string, ComponentType>>> =
   forecast: ForecastBody,
   finance: ModuleFinanceScreenBody,
   asset: AssetModuleScreen,
-  docs: EvidenceScreenBody,
   appr: ApprovalScreenBody,
   audit: AuditScreenBody,
   leave: LeaveBody,

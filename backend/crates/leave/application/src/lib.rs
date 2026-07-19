@@ -42,6 +42,10 @@ use uuid::Uuid;
 pub struct CreateLeaveRequestCommand {
     pub requester_user_id: UserId,
     pub subject_employee_id: Uuid,
+    /// Stable client submission id. The database binds it to a canonical
+    /// request-intent digest: same key + same payload replays the original;
+    /// same key + different payload is a conflict.
+    pub idempotency_key: Uuid,
     pub request: NewLeaveRequest,
     pub trace: TraceContext,
     pub occurred_at: Timestamp,
@@ -78,6 +82,9 @@ pub struct ImportEmployeeLeaveBalanceResult {
 pub struct ListSelfLeaveRequestsQuery {
     pub requester: UserId,
     pub limit: i64,
+    /// Last request returned by the previous page. The adapter resolves its
+    /// stable `(created_at, id)` coordinates inside the caller's self scope.
+    pub cursor: Option<LeaveRequestId>,
 }
 
 /// Trusted input to the work-calendar/policy seam. The organization, branch,
@@ -116,6 +123,9 @@ pub struct ListLeaveRequestsQuery {
     /// When set, only requests in this status; otherwise all four.
     pub status: Option<LeaveStatus>,
     pub limit: i64,
+    /// Last request returned by the previous page. The adapter resolves the
+    /// complete queue sort key before fetching rows strictly after it.
+    pub cursor: Option<LeaveRequestId>,
 }
 
 // ---------------------------------------------------------------------------
@@ -198,8 +208,9 @@ pub struct LeaveRequestView {
     pub requester_user_id: UserId,
     pub subject_employee_id: Uuid,
     pub leave_type: LeaveType,
-    /// Compatibility projection only. Authoritative writes use `charge_units`.
-    pub days: Option<f64>,
+    /// Non-null v1 compatibility projection only. Authoritative writes use
+    /// `charge_units`; legacy clients may continue decoding this field.
+    pub days: f64,
     pub charge_units: Option<LeaveUnits>,
     pub charge_state: LeaveChargeState,
     pub charge_review_reasons: Vec<LeaveChargeReviewReason>,
@@ -253,6 +264,9 @@ pub struct LeaveChargeResolutionView {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LeaveRequestPage {
     pub items: Vec<LeaveRequestView>,
+    /// Opaque id cursor for the next stable keyset page, or `None` when the
+    /// current page exhausted the matching result set.
+    pub next_cursor: Option<LeaveRequestId>,
 }
 
 /// Closed set for the balance roster's urgency/promotion bucket.

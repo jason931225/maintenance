@@ -115,6 +115,60 @@ describe("MyWorkBody", () => {
     expect(screen.getByText("예산 결재")).toBeInTheDocument();
   });
 
+  it("loads additional action-inbox pages only after an explicit user action", async () => {
+    const loadInbox = vi
+      .fn()
+      .mockResolvedValueOnce({
+        total: 2,
+        total_is_exact: true,
+        next_cursor: "page-2",
+        items: [item({ kind: "work", id: "work:first", title: "첫 업무" })],
+      })
+      .mockResolvedValueOnce({
+        total: 2,
+        total_is_exact: true,
+        next_cursor: null,
+        items: [item({ kind: "support", id: "support:second", title: "다음 업무" })],
+      });
+    renderBody(stubApi({ loadInbox }));
+
+    await screen.findByText("첫 업무");
+    expect(loadInbox).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText("다음 업무")).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: S.assigned.loadMore }));
+
+    expect(await screen.findByText("다음 업무")).toBeVisible();
+    expect(loadInbox).toHaveBeenNthCalledWith(2, "page-2");
+    expect(screen.queryByRole("button", { name: S.assigned.loadMore })).not.toBeInTheDocument();
+  });
+
+  it("fails closed when a later page repeats an earlier cursor", async () => {
+    const loadInbox = vi
+      .fn()
+      .mockResolvedValueOnce({
+        total: 3,
+        total_is_exact: true,
+        next_cursor: "page-2",
+        items: [item({ kind: "work", id: "work:first", title: "첫 업무" })],
+      })
+      .mockResolvedValueOnce({
+        total: 3,
+        total_is_exact: true,
+        next_cursor: "page-2",
+        items: [item({ kind: "work", id: "work:duplicate", title: "중복 커서 업무" })],
+      });
+    renderBody(stubApi({ loadInbox }));
+    await screen.findByText("첫 업무");
+
+    await userEvent.click(screen.getByRole("button", { name: S.assigned.loadMore }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toBeVisible();
+    });
+    expect(screen.queryByText("중복 커서 업무")).not.toBeInTheDocument();
+  });
+
   it("creates a todo and reloads the list", async () => {
     const createTodo = vi.fn().mockResolvedValue(undefined);
     const loadTodos = vi

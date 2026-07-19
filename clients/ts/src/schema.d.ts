@@ -3561,7 +3561,7 @@ export interface paths {
         put?: never;
         /**
          * File a self-service 연차/반차 request (본인 연차 신청)
-         * @description The caller files a leave request for THEMSELVES. `subject_employee_id` and the routing `branch_id` are resolved server-side from the caller's own account and employee.home_branch_id — never from input — so a caller can only file for their own employee record. No directory feature is required (filing one's own leave is a base employee capability); the gate is an active account linked to an active employee; an unlinked or inactive subject is denied with 403. Missing home-branch authority returns the stable 409 `leave_home_branch_review_required`. The request preserves date and AM/PM intent in `review_required`; no calendar-day or fixed-half quantity is invented. A separate resolver pins authoritative evidence before any approval can move the ledger.
+         * @description The caller files a leave request for THEMSELVES. `subject_employee_id` and the routing `branch_id` are resolved server-side from the caller's own account and employee.home_branch_id — never from input — so a caller can only file for their own employee record. No directory feature is required (filing one's own leave is a base employee capability); the gate is an active account linked to an active employee; an unlinked or inactive subject is denied with 403. Missing home-branch authority returns the stable 409 `leave_home_branch_review_required`. The request preserves date and AM/PM intent in `review_required`; no calendar-day or fixed-half quantity is invented. A separate resolver pins authoritative evidence before any approval can move the ledger. Modern clients generate one `idempotency_key` per user intent and reuse it after an unknown or lost response. The same key and canonical client intent return the original request without another mutation or audit; a different intent conflicts.
          */
         post: operations["createLeaveRequest"];
         delete?: never;
@@ -3601,7 +3601,7 @@ export interface paths {
         put?: never;
         /**
          * Approve, return, or reject a pending leave request
-         * @description Requires `employee_directory_manage` in the request's branch. An APPROVE writes the leave ledger (used += exact resolved charge units, remaining -= exact resolved charge units) in the same audited transaction. Separation of duties — a request cannot be decided by its own requester (403). `return`/`reject` require a comment. Approval additionally requires a resolved exact charge and a distinct resolver. The body must carry the current request_version as `expected_version`; charge_version identifies immutable evidence and is never a request mutation precondition. A successful decision increments request_version only; charge_version remains unchanged. An unresolved approval returns 409 `leave_calendar_review_required` plus review reasons, audits the blocked attempt, and changes neither request nor ledger.
+         * @description Requires `employee_directory_manage` in the request's branch. An APPROVE writes the leave ledger (used += exact resolved charge units, remaining -= exact resolved charge units) in the same audited transaction. Separation of duties — a request cannot be decided by its own requester (403). `return`/`reject` require a comment. Approval additionally requires a resolved exact charge and a distinct resolver. New clients carry the current request_version as `expected_version`; omission remains accepted only for backward compatibility with deployed v1 clients and retains first-writer-wins pending-state semantics. charge_version identifies immutable evidence and is never a request mutation precondition. A successful decision increments request_version only; charge_version remains unchanged. An unresolved approval returns 409 `leave_calendar_review_required` plus review reasons, audits the blocked attempt, and changes neither request nor ledger.
          */
         post: operations["decideLeaveRequest"];
         delete?: never;
@@ -3820,7 +3820,7 @@ export interface paths {
         };
         /**
          * Unified action inbox for the authenticated principal
-         * @description One server-side fan-in of the caller's actionable items across every source that owns a person-scoped list: workflow/approval tasks awaiting the caller (the ?assignee=me path), pending P1 dispatch offers, support tickets assigned to the caller, and work orders assigned to the caller. Each source is queried through the exact predicate its own list endpoint uses, so the aggregate never widens visibility (deny-by-omission). Items are bucketed by urgency (now/today/wait) with a derived due tone. Fields the overview prototype carries but no backend source can supply are omitted (entity, amount, detail, files, stats, mailId); site/who/submitted are present only for the sources that carry them. Attendance exceptions are not aggregated (no exception object exists yet).
+         * @description One server-side fan-in of the caller's actionable items across every source that owns a person-scoped list: workflow/approval tasks awaiting the caller (the ?assignee=me path), pending P1 dispatch offers, support tickets assigned to the caller, and work orders assigned to the caller. Each source is queried through the exact predicate its own list endpoint uses, so the aggregate never widens visibility (deny-by-omission). Items are bucketed by urgency (now/today/wait) with a derived due tone. Fields the overview prototype carries but no backend source can supply are omitted (entity, amount, detail, files, stats, mailId); site/who/submitted are present only for the sources that carry them. Attendance exceptions are not aggregated (no exception object exists yet). Results use a stable server snapshot and bounded per-source fan-in. `total_is_exact` is false when an authorization-filtered source reaches its bounded counting budget; source failures fail the whole request rather than returning a deceptively partial queue.
          */
         get: operations["listMyActionInbox"];
         put?: never;
@@ -6908,6 +6908,11 @@ export interface components {
         /** @description A self-service leave-request filing. The subject employee and branch are NOT accepted here — they are resolved from the authenticated caller. */
         LeaveCreateRequest: {
             /**
+             * Format: uuid
+             * @description Stable client submission id. Reuse it only to retry the same canonical client intent after an unknown or lost response. Optional only for deployed v1 compatibility; modern clients should always send it.
+             */
+            idempotency_key?: string;
+            /**
              * @description Full-day or partial-day intent; quantity is resolved only from evidence.
              * @enum {string}
              */
@@ -9816,9 +9821,9 @@ export interface components {
             /**
              * Format: double
              * @deprecated
-             * @description Legacy compatibility projection; never authoritative for new approvals.
+             * @description Non-null legacy compatibility projection; never authoritative for new approvals.
              */
-            days: number | null;
+            days: number;
             /** @description Exact resolved charge; null while review is required or no charge applies. */
             charge_units: components["schemas"]["LeaveUnits"] | null;
             /** @enum {string} */
@@ -9866,13 +9871,18 @@ export interface components {
         };
         LeaveRequestPage: {
             items: components["schemas"]["LeaveRequestView"][];
+            /**
+             * Format: uuid
+             * @description Last request id for the next stable keyset page, or null when exhausted.
+             */
+            next_cursor: string | null;
         };
         LeaveDecideRequest: {
             /**
              * Format: int64
-             * @description Expected mutable request_version, not charge_version.
+             * @description Expected mutable request_version, not charge_version. Strongly recommended for new clients; omission is accepted only for deployed v1 compatibility.
              */
-            expected_version: number;
+            expected_version?: number;
             /** @enum {string} */
             decision: "approve" | "return" | "reject";
             /** @description Mandatory for return/reject; optional for approve. */
@@ -10108,7 +10118,12 @@ export interface components {
         };
         ActionInboxResponse: {
             items: components["schemas"]["ActionInboxItem"][];
+            /** @description Visible item count across sources; inspect total_is_exact before treating it as authoritative. */
             total: number;
+            /** @description False only when a bounded authorization-filtered count reached its scan budget. */
+            total_is_exact: boolean;
+            /** @description Opaque cursor for the next stable-snapshot page, or null when exhausted. */
+            next_cursor: string | null;
         };
         /** @enum {string} */
         EquipmentStatus: "rented" | "spare" | "disposed" | "replacement" | "sold";
@@ -17805,6 +17820,8 @@ export interface operations {
         parameters: {
             query?: {
                 limit?: number;
+                /** @description Last request id from the preceding stable self-service page. */
+                cursor?: string;
             };
             header?: never;
             path?: never;
@@ -17831,8 +17848,10 @@ export interface operations {
             query?: {
                 /** @description Filter to one status; omitted returns all four. */
                 status?: "pending" | "approved" | "returned" | "rejected";
-                /** @description Page size (clamped server-side to 1..=200; default 100). */
+                /** @description Page size for the stable pending-first queue. */
                 limit?: number;
+                /** @description Last request id from the preceding branch-scoped page. */
+                cursor?: string;
             };
             header?: never;
             path?: never;
@@ -17886,7 +17905,7 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
-            /** @description The linked active employee has no explicit home branch (`leave_home_branch_review_required`). */
+            /** @description The linked active employee has no explicit home branch (`leave_home_branch_review_required`), or the supplied `idempotency_key` is already bound to different client intent (`leave_create.idempotency_conflict`). */
             409: {
                 headers: {
                     [name: string]: unknown;
@@ -18415,7 +18434,12 @@ export interface operations {
     };
     listMyActionInbox: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Page size, clamped server-side to 1..=200. */
+                limit?: number;
+                /** @description Opaque snapshot cursor returned as `next_cursor` by the previous page. */
+                cursor?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -18432,6 +18456,15 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            /** @description The action-inbox cursor is malformed. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
             /** @description JWT verification is not configured. */
             503: {
                 headers: {

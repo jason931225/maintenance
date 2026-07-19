@@ -423,9 +423,9 @@ impl PgLeaveStore {
                 }
             };
 
-        sqlx::query(
+        let created = sqlx::query(
             "SELECT * FROM leave_api.create_request(\
-             $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)",
+             $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)",
         )
         .bind(org.as_uuid())
         .bind(id.as_uuid())
@@ -441,13 +441,15 @@ impl PgLeaveStore {
         .bind(calendar_ref)
         .bind(policy_ref)
         .bind(supporting_refs)
+        .bind(command.idempotency_key)
         .bind(command.trace.trace_id())
         .bind(command.trace.span_id())
         .fetch_one(self.command_pool()?)
         .await
         .map_err(map_leave_command_sqlx)?;
+        let committed_id = LeaveRequestId::from_uuid(created.try_get("request_id")?);
 
-        self.fetch_request_scoped(org, id, &BranchScope::All)
+        self.fetch_request_scoped(org, committed_id, &BranchScope::All)
             .await?
             .ok_or_else(|| {
                 PgLeaveError::Domain(KernelError::internal(
@@ -516,6 +518,33 @@ impl PgLeaveStore {
         let limit = query.limit.clamp(1, 200);
         let rows = with_org_conn::<_, _, PgLeaveError>(&self.pool, org, move |tx| {
             Box::pin(async move {
+                let cursor = if let Some(cursor_id) = query.cursor {
+                    let mut cursor_builder = QueryBuilder::<Postgres>::new(
+                        "SELECT CASE WHEN status = 'pending' THEN 1 ELSE 0 END AS pending_rank, created_at, id FROM leave_requests WHERE id = ",
+                    );
+                    cursor_builder.push_bind(*cursor_id.as_uuid());
+                    cursor_builder.push(" AND ");
+                    push_branch_scope(&mut cursor_builder, &query.branch_scope);
+                    if let Some(status) = query.status {
+                        cursor_builder.push(" AND status = ");
+                        cursor_builder.push_bind(status.as_str());
+                    }
+                    let row = cursor_builder
+                        .build()
+                        .fetch_optional(tx.as_mut())
+                        .await?
+                        .ok_or_else(|| {
+                            KernelError::not_found("leave request cursor was not found")
+                        })?;
+                    Some((
+                        row.try_get::<i32, _>("pending_rank")?,
+                        row.try_get::<time::OffsetDateTime, _>("created_at")?,
+                        row.try_get::<uuid::Uuid, _>("id")?,
+                    ))
+                } else {
+                    None
+                };
+
                 let mut builder = QueryBuilder::<Postgres>::new(format!(
                     "SELECT {REQUEST_COLUMNS} FROM leave_requests WHERE "
                 ));
@@ -524,19 +553,38 @@ impl PgLeaveStore {
                     builder.push(" AND status = ");
                     builder.push_bind(status.as_str());
                 }
-                // Pending first (the actionable queue), then newest.
-                builder
-                    .push(" ORDER BY (status = 'pending') DESC, created_at DESC, id DESC LIMIT ");
-                builder.push_bind(limit);
+                if let Some((pending_rank, created_at, id)) = cursor {
+                    builder.push(
+                        " AND (CASE WHEN status = 'pending' THEN 1 ELSE 0 END, created_at, id) < (",
+                    );
+                    builder.push_bind(pending_rank);
+                    builder.push(", ");
+                    builder.push_bind(created_at);
+                    builder.push(", ");
+                    builder.push_bind(id);
+                    builder.push(")");
+                }
+                // Pending first (the actionable queue), then newest. Fetch one
+                // look-ahead row so the response never silently truncates.
+                builder.push(
+                    " ORDER BY CASE WHEN status = 'pending' THEN 1 ELSE 0 END DESC, created_at DESC, id DESC LIMIT ",
+                );
+                builder.push_bind(limit + 1);
                 Ok(builder.build().fetch_all(tx.as_mut()).await?)
             })
         })
         .await?;
-        let items = rows
+        let mut items = rows
             .iter()
             .map(request_from_row)
             .collect::<Result<Vec<_>, _>>()?;
-        Ok(LeaveRequestPage { items })
+        let next_cursor = if i64::try_from(items.len()).unwrap_or(0) > limit {
+            items.truncate(usize::try_from(limit).unwrap_or(items.len()));
+            items.last().map(|request| request.id)
+        } else {
+            None
+        };
+        Ok(LeaveRequestPage { items, next_cursor })
     }
 
     /// Return only the authenticated requester's own leave history. Both the
@@ -552,27 +600,56 @@ impl PgLeaveStore {
         let limit = query.limit.clamp(1, 200);
         let rows = with_org_conn::<_, _, PgLeaveError>(&self.pool, org, move |tx| {
             Box::pin(async move {
-                let select_self_requests = format!(
-                    "SELECT {REQUEST_COLUMNS} FROM leave_requests \
-                     WHERE requester_user_id = $1 AND subject_employee_id = $2 \
-                     ORDER BY created_at DESC, id DESC LIMIT $3"
-                );
-                // REQUEST_COLUMNS is an internal constant; predicates remain
-                // parameter-bound below.
-                Ok(sqlx::query(sqlx::AssertSqlSafe(select_self_requests))
+                let cursor = if let Some(cursor_id) = query.cursor {
+                    let row = sqlx::query(
+                        "SELECT created_at, id FROM leave_requests \
+                         WHERE id = $1 AND requester_user_id = $2 AND subject_employee_id = $3",
+                    )
+                    .bind(*cursor_id.as_uuid())
                     .bind(requester)
                     .bind(employee_id)
-                    .bind(limit)
-                    .fetch_all(tx.as_mut())
-                    .await?)
+                    .fetch_optional(tx.as_mut())
+                    .await?
+                    .ok_or_else(|| KernelError::not_found("leave request cursor was not found"))?;
+                    Some((
+                        row.try_get::<time::OffsetDateTime, _>("created_at")?,
+                        row.try_get::<uuid::Uuid, _>("id")?,
+                    ))
+                } else {
+                    None
+                };
+
+                let mut builder = QueryBuilder::<Postgres>::new(format!(
+                    "SELECT {REQUEST_COLUMNS} FROM leave_requests \
+                     WHERE requester_user_id = "
+                ));
+                builder.push_bind(requester);
+                builder.push(" AND subject_employee_id = ");
+                builder.push_bind(employee_id);
+                if let Some((created_at, id)) = cursor {
+                    builder.push(" AND (created_at, id) < (");
+                    builder.push_bind(created_at);
+                    builder.push(", ");
+                    builder.push_bind(id);
+                    builder.push(")");
+                }
+                builder.push(" ORDER BY created_at DESC, id DESC LIMIT ");
+                builder.push_bind(limit + 1);
+                Ok(builder.build().fetch_all(tx.as_mut()).await?)
             })
         })
         .await?;
-        let items = rows
+        let mut items = rows
             .iter()
             .map(request_from_row)
             .collect::<Result<Vec<_>, _>>()?;
-        Ok(LeaveRequestPage { items })
+        let next_cursor = if i64::try_from(items.len()).unwrap_or(0) > limit {
+            items.truncate(usize::try_from(limit).unwrap_or(items.len()));
+            items.last().map(|request| request.id)
+        } else {
+            None
+        };
+        Ok(LeaveRequestPage { items, next_cursor })
     }
 
     pub async fn get_self_balance(
@@ -717,7 +794,7 @@ impl PgLeaveStore {
             )
             .into());
         }
-        if existing.request_version != command.expected_version {
+        if command.expected_version > 0 && existing.request_version != command.expected_version {
             return Err(PgLeaveError::ConcurrentModification);
         }
 
@@ -1097,6 +1174,7 @@ fn map_leave_command_sqlx(error: sqlx::Error) -> PgLeaveError {
         "leave_resolve.not_pending"
         | "leave_decide.not_pending"
         | "employee_import_batch.run_not_dry_run"
+        | "leave_create.idempotency_conflict"
         | "leave_balance_import.idempotency_conflict" => {
             PgLeaveError::Domain(KernelError::conflict(message.to_owned()))
         }

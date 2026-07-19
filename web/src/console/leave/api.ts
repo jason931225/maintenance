@@ -26,8 +26,10 @@ export interface CreateLeaveRequestResult {
 export async function createLeaveRequest(
   api: ConsoleApiClient,
   input: CreateLeaveRequestInput,
+  idempotencyKey: string,
 ): Promise<CreateLeaveRequestResult> {
-  const { data, error } = await api.POST("/api/v1/leave/requests", { body: input });
+  const body = { ...input, idempotency_key: idempotencyKey };
+  const { data, error } = await api.POST("/api/v1/leave/requests", { body });
   if (!data) return { ok: false, error };
   return { ok: true, data };
 }

@@ -33,7 +33,9 @@ import kotlinx.serialization.Contextual
  *
  *
  * @param items
- * @param total
+ * @param total Visible item count across sources; inspect total_is_exact before treating it as authoritative.
+ * @param totalIsExact False only when a bounded authorization-filtered count reached its scan budget.
+ * @param nextCursor Opaque cursor for the next stable-snapshot page, or null when exhausted.
  */
 @Serializable
 
@@ -42,8 +44,17 @@ data class ActionInboxResponse (
     @SerialName(value = "items")
     val items: kotlin.collections.List<ActionInboxItem>,
 
+    /* Visible item count across sources; inspect total_is_exact before treating it as authoritative. */
     @SerialName(value = "total")
-    val total: kotlin.Int
+    val total: kotlin.Int,
+
+    /* False only when a bounded authorization-filtered count reached its scan budget. */
+    @SerialName(value = "total_is_exact")
+    val totalIsExact: kotlin.Boolean,
+
+    /* Opaque cursor for the next stable-snapshot page, or null when exhausted. */
+    @SerialName(value = "next_cursor")
+    val nextCursor: kotlin.String?
 
 ) {
 

@@ -19,6 +19,7 @@
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use mnt_inbox_adapter_postgres::PgInboxStore;
@@ -26,7 +27,8 @@ use mnt_kernel_core::{BranchId, BranchScope, ErrorKind, OrgId, TraceContext, Use
 use mnt_leave_adapter_postgres::PgLeaveStore;
 use mnt_leave_application::{
     ApSubmission, CreateLeaveRequestCommand, DecideLeaveRequestCommand, ListLeaveRequestsQuery,
-    ResolveLeaveChargeCommand, ResolveLeaveChargeQuery, StatutoryPushCommand, WorkCalendarPort,
+    ListSelfLeaveRequestsQuery, ResolveLeaveChargeCommand, ResolveLeaveChargeQuery,
+    StatutoryPushCommand, WorkCalendarPort,
 };
 use mnt_leave_domain::{
     LeaveChargeAssessment, LeaveChargeEvidence, LeaveChargeState, LeaveDateCharge, LeaveDecision,
@@ -210,6 +212,16 @@ async fn seed_employee(
 ) -> Uuid {
     let id = Uuid::new_v4();
     let key = format!("emp-{id}");
+    let mut command = owner_pool.begin().await.unwrap();
+    sqlx::query("SET LOCAL ROLE mnt_leave_definer")
+        .execute(&mut *command)
+        .await
+        .unwrap();
+    sqlx::query("SELECT set_config('app.current_org', $1, true)")
+        .bind(org.to_string())
+        .execute(&mut *command)
+        .await
+        .unwrap();
     sqlx::query(
         "INSERT INTO employees \
          (id, org_id, company, name, source_filename, source_sheet, source_row, source_key, \
@@ -223,9 +235,10 @@ async fn seed_employee(
     .bind(grant)
     .bind(used)
     .bind(remaining)
-    .execute(owner_pool)
+    .execute(&mut *command)
     .await
     .unwrap();
+    command.commit().await.unwrap();
     id
 }
 
@@ -242,6 +255,7 @@ fn create_cmd(
     CreateLeaveRequestCommand {
         requester_user_id: requester,
         subject_employee_id: subject,
+        idempotency_key: Uuid::new_v4(),
         request: NewLeaveRequest::new(
             LeaveType::Annual,
             date(2026, 7, 6),
@@ -280,35 +294,55 @@ fn decide_cmd(
 #[derive(Debug)]
 struct ThreeDayCalendar;
 
+fn resolved_calendar_assessment(
+    query: ResolveLeaveChargeQuery,
+    revision: &str,
+) -> Result<LeaveChargeAssessment, mnt_kernel_core::KernelError> {
+    let mut current = query.start_date;
+    let mut date_charges = Vec::new();
+    loop {
+        date_charges.push(LeaveDateCharge {
+            date: current,
+            obligation: WorkObligation::Scheduled { minutes: 480 },
+            units: LeaveUnits::ONE_DAY,
+        });
+        if current == query.end_date {
+            break;
+        }
+        current = current.next_day().expect("bounded fixture date");
+    }
+    Ok(LeaveChargeAssessment::Resolved {
+        evidence: LeaveChargeEvidence {
+            home_branch_id: query.branch_id,
+            calendar_revision_ref: SourceRevisionRef::new("test", "calendar", revision)?,
+            policy_revision_ref: SourceRevisionRef::new("test", "policy", revision)?,
+            supporting_source_refs: Vec::new(),
+            date_charges,
+        },
+    })
+}
+
 impl WorkCalendarPort for ThreeDayCalendar {
     fn resolve_charge(
         &self,
         query: ResolveLeaveChargeQuery,
     ) -> mnt_leave_application::LeaveChargeFuture<'_> {
-        Box::pin(async move {
-            let mut current = query.start_date;
-            let mut date_charges = Vec::new();
-            loop {
-                date_charges.push(LeaveDateCharge {
-                    date: current,
-                    obligation: WorkObligation::Scheduled { minutes: 480 },
-                    units: LeaveUnits::ONE_DAY,
-                });
-                if current == query.end_date {
-                    break;
-                }
-                current = current.next_day().expect("bounded fixture date");
-            }
-            Ok(LeaveChargeAssessment::Resolved {
-                evidence: LeaveChargeEvidence {
-                    home_branch_id: query.branch_id,
-                    calendar_revision_ref: SourceRevisionRef::new("test", "calendar", "v1")?,
-                    policy_revision_ref: SourceRevisionRef::new("test", "policy", "v1")?,
-                    supporting_source_refs: Vec::new(),
-                    date_charges,
-                },
-            })
-        })
+        Box::pin(async move { resolved_calendar_assessment(query, "v1") })
+    }
+}
+
+#[derive(Debug)]
+struct MutableCalendar {
+    revision: Arc<AtomicUsize>,
+}
+
+impl WorkCalendarPort for MutableCalendar {
+    fn resolve_charge(
+        &self,
+        query: ResolveLeaveChargeQuery,
+    ) -> mnt_leave_application::LeaveChargeFuture<'_> {
+        let revision = format!("v{}", self.revision.load(Ordering::SeqCst));
+        Box::pin(async move { resolved_calendar_assessment(query, &revision) })
     }
 }
 
@@ -322,7 +356,7 @@ fn test_store(rt: &PgPool, command: &PgPool) -> PgLeaveStore {
 }
 
 fn manual_resolution_command(
-    request_id: mnt_leave_domain::LeaveRequestId,
+    request_id: mnt_kernel_core::LeaveRequestId,
     resolver: UserId,
     branch: Uuid,
     expected_version: i64,
@@ -1546,6 +1580,7 @@ async fn approve_writes_ledger_and_enforces_sod_branch_and_tenant(owner_pool: Pg
                 branch_scope: scope_of(branch_a),
                 status: None,
                 limit: 50,
+                cursor: None,
             })
             .await
     })
@@ -1559,6 +1594,7 @@ async fn approve_writes_ledger_and_enforces_sod_branch_and_tenant(owner_pool: Pg
                 branch_scope: BranchScope::Branches(BTreeSet::new()),
                 status: None,
                 limit: 50,
+                cursor: None,
             })
             .await
     })
@@ -1575,6 +1611,7 @@ async fn approve_writes_ledger_and_enforces_sod_branch_and_tenant(owner_pool: Pg
                 branch_scope: BranchScope::All,
                 status: None,
                 limit: 50,
+                cursor: None,
             })
             .await
     })
@@ -1661,12 +1698,159 @@ async fn approve_rejects_when_days_exceed_remaining_balance(owner_pool: PgPool) 
                 branch_scope: scope_of(branch),
                 status: None,
                 limit: 50,
+                cursor: None,
             })
             .await
     })
     .await
     .unwrap();
     assert_eq!(still_pending.items[0].status, LeaveStatus::Pending);
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn leave_queue_keyset_pages_past_cap_without_concurrent_insert_drift(owner_pool: PgPool) {
+    let rt = runtime_role_pool(&owner_pool).await;
+    let command_pool = leave_command_role_pool(&owner_pool).await;
+    let org = OrgId::knl();
+    let org_id = *org.as_uuid();
+    let branch = seed_branch(&owner_pool, org_id).await;
+    let requester = seed_user(&owner_pool, org_id).await;
+    let employee = seed_employee(&owner_pool, org_id, 366.0, 0.0, 366.0).await;
+    link_user_to_employee_and_branch(&owner_pool, org_id, requester, employee, branch).await;
+
+    let base = OffsetDateTime::now_utc() - time::Duration::days(1);
+    let mut seed_requests = owner_pool.begin().await.unwrap();
+    sqlx::query("SET LOCAL ROLE mnt_leave_definer")
+        .execute(&mut *seed_requests)
+        .await
+        .unwrap();
+    sqlx::query("SELECT set_config('app.current_org', $1, true)")
+        .bind(org_id.to_string())
+        .execute(&mut *seed_requests)
+        .await
+        .unwrap();
+    let seeded_ids: Vec<Uuid> = sqlx::query_scalar(
+        "INSERT INTO leave_requests (\
+             org_id, branch_id, requester_user_id, subject_employee_id, leave_type, days, \
+             start_date, end_date, reason, created_at\
+         ) \
+         SELECT $1, $2, $3, $4, 'annual', 1, DATE '2026-07-06', DATE '2026-07-06', \
+                'pagination fixture', $5 + make_interval(secs => series_no) \
+         FROM generate_series(1, 205) AS series_no \
+         RETURNING id",
+    )
+    .bind(org_id)
+    .bind(branch)
+    .bind(*requester.as_uuid())
+    .bind(employee)
+    .bind(base)
+    .fetch_all(&mut *seed_requests)
+    .await
+    .unwrap();
+    seed_requests.commit().await.unwrap();
+
+    let store = test_store(&rt, &command_pool);
+    let query = |cursor| ListLeaveRequestsQuery {
+        branch_scope: scope_of(branch),
+        status: None,
+        limit: 200,
+        cursor,
+    };
+
+    let first = mnt_platform_request_context::scope_org(org, async {
+        store.list_requests(query(None)).await
+    })
+    .await
+    .unwrap();
+    assert_eq!(first.items.len(), 200);
+    let cursor = first.next_cursor.expect("five rows remain after the cap");
+    let self_first = mnt_platform_request_context::scope_org(org, async {
+        store
+            .list_self_requests(ListSelfLeaveRequestsQuery {
+                requester,
+                limit: 200,
+                cursor: None,
+            })
+            .await
+    })
+    .await
+    .unwrap();
+    assert_eq!(self_first.items.len(), 200);
+    let self_cursor = self_first
+        .next_cursor
+        .expect("five self-service rows remain after the cap");
+
+    // A row inserted after page one sorts ahead of its cursor. A stable keyset
+    // must not duplicate, skip, or splice that concurrent row into page two.
+    let mut insert_concurrent = owner_pool.begin().await.unwrap();
+    sqlx::query("SET LOCAL ROLE mnt_leave_definer")
+        .execute(&mut *insert_concurrent)
+        .await
+        .unwrap();
+    sqlx::query("SELECT set_config('app.current_org', $1, true)")
+        .bind(org_id.to_string())
+        .execute(&mut *insert_concurrent)
+        .await
+        .unwrap();
+    let concurrent_id: Uuid = sqlx::query_scalar(
+        "INSERT INTO leave_requests (\
+             org_id, branch_id, requester_user_id, subject_employee_id, leave_type, days, \
+             start_date, end_date, reason, created_at\
+         ) VALUES ($1, $2, $3, $4, 'annual', 1, DATE '2026-07-07', DATE '2026-07-07', \
+                   'concurrent pagination fixture', $5) \
+         RETURNING id",
+    )
+    .bind(org_id)
+    .bind(branch)
+    .bind(*requester.as_uuid())
+    .bind(employee)
+    .bind(OffsetDateTime::now_utc())
+    .fetch_one(&mut *insert_concurrent)
+    .await
+    .unwrap();
+    insert_concurrent.commit().await.unwrap();
+
+    let second = mnt_platform_request_context::scope_org(org, async {
+        store.list_requests(query(Some(cursor))).await
+    })
+    .await
+    .unwrap();
+    assert_eq!(second.items.len(), 5);
+    assert!(second.next_cursor.is_none());
+    let self_second = mnt_platform_request_context::scope_org(org, async {
+        store
+            .list_self_requests(ListSelfLeaveRequestsQuery {
+                requester,
+                limit: 200,
+                cursor: Some(self_cursor),
+            })
+            .await
+    })
+    .await
+    .unwrap();
+    assert_eq!(self_second.items.len(), 5);
+    assert!(self_second.next_cursor.is_none());
+
+    let paged_ids = first
+        .items
+        .iter()
+        .chain(&second.items)
+        .map(|request| *request.id.as_uuid())
+        .collect::<BTreeSet<_>>();
+    assert_eq!(paged_ids.len(), 205, "pages must neither overlap nor skip");
+    assert_eq!(
+        paged_ids,
+        seeded_ids.into_iter().collect(),
+        "paging returns exactly the original snapshot tail"
+    );
+    assert!(!paged_ids.contains(&concurrent_id));
+    let self_paged_ids = self_first
+        .items
+        .iter()
+        .chain(&self_second.items)
+        .map(|request| *request.id.as_uuid())
+        .collect::<BTreeSet<_>>();
+    assert_eq!(self_paged_ids, paged_ids);
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
@@ -1677,11 +1861,20 @@ async fn self_service_create_resolves_subject_and_branch_from_caller(owner_pool:
     let knl_uuid = *knl.as_uuid();
 
     let branch = seed_branch(&owner_pool, knl_uuid).await;
+    let changed_branch = seed_branch(&owner_pool, knl_uuid).await;
     let filer = seed_user(&owner_pool, knl_uuid).await;
     let employee = seed_employee(&owner_pool, knl_uuid, 15.0, 0.0, 15.0).await;
     link_user_to_employee_and_branch(&owner_pool, knl_uuid, filer, employee, branch).await;
 
-    let store = test_store(&rt, &command_pool);
+    let calendar_revision = Arc::new(AtomicUsize::new(1));
+    let store = PgLeaveStore::with_work_calendar(
+        rt.clone(),
+        Arc::new(PgInboxStore::new(rt.clone())),
+        Arc::new(MutableCalendar {
+            revision: calendar_revision.clone(),
+        }),
+    )
+    .with_leave_command_pool(command_pool.clone());
 
     // The caller's OWN filing context is resolved from their account — not input.
     let (subject, resolved_branch) = mnt_platform_request_context::scope_org(knl, async {
@@ -1693,10 +1886,9 @@ async fn self_service_create_resolves_subject_and_branch_from_caller(owner_pool:
     assert_eq!(resolved_branch, branch);
 
     // Filing with that resolved context creates a pending, requester=self row.
+    let create = create_cmd(resolved_branch, filer, subject, 3.0);
     let request = mnt_platform_request_context::scope_org(knl, async {
-        store
-            .create_request(create_cmd(resolved_branch, filer, subject, 3.0))
-            .await
+        store.create_request(create.clone()).await
     })
     .await
     .expect("self-service create");
@@ -1707,6 +1899,39 @@ async fn self_service_create_resolves_subject_and_branch_from_caller(owner_pool:
     assert_eq!(request.charge_state, LeaveChargeState::Resolved);
     assert_eq!(request.request_version, 1);
     assert_eq!(request.charge_version, 1);
+
+    // Simulate an HTTP response lost after the database committed. Before the
+    // retry, both server-derived contexts change: HR re-routes the employee and
+    // the calendar/policy adapter advances its evidence revision. Idempotency
+    // remains bound to the client's canonical intent, not mutable server state.
+    calendar_revision.store(2, Ordering::SeqCst);
+    let mut reroute = owner_pool.begin().await.unwrap();
+    sqlx::query("SET LOCAL ROLE mnt_leave_definer")
+        .execute(&mut *reroute)
+        .await
+        .unwrap();
+    sqlx::query("SELECT set_config('app.current_org', $1, true)")
+        .bind(knl_uuid.to_string())
+        .execute(&mut *reroute)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE employees SET home_branch_id=$1 WHERE id=$2")
+        .bind(changed_branch)
+        .bind(employee)
+        .execute(&mut *reroute)
+        .await
+        .unwrap();
+    reroute.commit().await.unwrap();
+    let replay = mnt_platform_request_context::scope_org(knl, async {
+        store.create_request(create.clone()).await
+    })
+    .await
+    .expect("lost-response retry replays the committed request");
+    assert_eq!(
+        replay, request,
+        "replay returns the original committed view"
+    );
+
     let (pointer_present, resolution_count, create_audits): (bool, i64, i64) = sqlx::query_as(
         "SELECT lr.current_charge_resolution_id IS NOT NULL, \
                 (SELECT count(*) FROM leave_charge_resolutions r WHERE r.request_id=lr.id), \
@@ -1730,6 +1955,22 @@ async fn self_service_create_resolves_subject_and_branch_from_caller(owner_pool:
         create_audits, 1,
         "resolved create appends exactly one audit event"
     );
+
+    let mut conflicting = create;
+    conflicting.request = NewLeaveRequest::new(
+        LeaveType::Annual,
+        date(2026, 7, 6),
+        date(2026, 7, 8),
+        "different intent under reused submission key",
+        None,
+    )
+    .unwrap();
+    let conflict = mnt_platform_request_context::scope_org(knl, async {
+        store.create_request(conflicting).await
+    })
+    .await
+    .expect_err("same submission key with different intent must conflict");
+    assert_eq!(conflict.kind(), ErrorKind::Conflict);
 
     // An account with NO linked employee cannot file (deny-by-omission → 422).
     let unlinked = seed_user(&owner_pool, knl_uuid).await;

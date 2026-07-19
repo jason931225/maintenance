@@ -53,32 +53,13 @@ jobs:
     name: Require CI success for this SHA
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v5
       - name: Wait for CI success
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           SHA: ${{ github.sha }}
-        run: |
-          deadline=$((SECONDS + 3600))
-          while (( SECONDS < deadline )); do
-            runs="$(gh run list --repo "$REPO" --workflow ci.yml --commit "$SHA" --limit 5 --json status,conclusion,url)"
-            if [[ "$(jq 'length' <<<"$runs")" -gt 0 ]]; then
-              status="$(jq -r '.[0].status' <<<"$runs")"
-              conclusion="$(jq -r '.[0].conclusion // ""' <<<"$runs")"
-              url="$(jq -r '.[0].url' <<<"$runs")"
-              echo "CI for $SHA: ${status}/${conclusion} ${url}"
-              if [[ "$status" == "completed" ]]; then
-                [[ "$conclusion" == "success" ]] && exit 0
-                echo "::error::CI did not pass for ${SHA}: ${conclusion} ${url}"
-                exit 1
-              fi
-            else
-              echo "No CI run for $SHA yet."
-            fi
-            sleep 30
-          done
-          echo "::error::Timed out waiting for CI to finish for ${SHA}"
-          exit 1
+        run: bash scripts/wait-for-protected-main-ci.sh
 
   # One native build per (image, arch). Each leg builds its arch on the matching
   # native runner (amd64 → ubuntu-24.04, arm64 → ubuntu-24.04-arm) and pushes the

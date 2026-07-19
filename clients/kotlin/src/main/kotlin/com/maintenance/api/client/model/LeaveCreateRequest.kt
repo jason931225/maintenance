@@ -35,6 +35,7 @@ import kotlinx.serialization.Contextual
  * @param startDate YYYY-MM-DD. A half-day request must use the same start and end date.
  * @param endDate
  * @param reason
+ * @param idempotencyKey Stable client submission id. Reuse it only to retry the same canonical client intent after an unknown or lost response. Optional only for deployed v1 compatibility; modern clients should always send it.
  * @param partialDayPeriod Required exactly when leave_type is half_day.
  */
 @Serializable
@@ -54,6 +55,10 @@ data class LeaveCreateRequest (
 
     @SerialName(value = "reason")
     val reason: kotlin.String,
+
+    /* Stable client submission id. Reuse it only to retry the same canonical client intent after an unknown or lost response. Optional only for deployed v1 compatibility; modern clients should always send it. */
+    @Contextual @SerialName(value = "idempotency_key")
+    val idempotencyKey: java.util.UUID? = null,
 
     /* Required exactly when leave_type is half_day. */
     @SerialName(value = "partial_day_period")

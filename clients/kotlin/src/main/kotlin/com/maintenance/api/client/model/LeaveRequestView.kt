@@ -37,7 +37,7 @@ import kotlinx.serialization.Contextual
  * @param requesterUserId
  * @param subjectEmployeeId
  * @param leaveType
- * @param days Legacy compatibility projection; never authoritative for new approvals.
+ * @param days Non-null legacy compatibility projection; never authoritative for new approvals.
  * @param chargeUnits Exact resolved charge; null while review is required or no charge applies.
  * @param chargeState
  * @param chargeReviewReasons
@@ -76,14 +76,14 @@ data class LeaveRequestView (
     @SerialName(value = "leave_type")
     val leaveType: LeaveRequestView.LeaveType,
 
-    /* Legacy compatibility projection; never authoritative for new approvals. */
+    /* Non-null legacy compatibility projection; never authoritative for new approvals. */
     @SerialName(value = "days")
     @Deprecated(message = "This property is deprecated.")
-    val days: kotlin.Double?,
+    val days: kotlin.Double,
 
     /* Exact resolved charge; null while review is required or no charge applies. */
     @SerialName(value = "charge_units")
-    val chargeUnits: kotlin.String,
+    val chargeUnits: kotlin.String?,
 
     @SerialName(value = "charge_state")
     val chargeState: LeaveRequestView.ChargeState,

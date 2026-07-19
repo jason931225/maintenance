@@ -219,8 +219,35 @@ ClusterRoleBinding missing).
 
 Once ESO owns the Secrets and pods are healthy, stop hand-creating them: remove
 the `kubectl create secret` instructions from your ops flow and let ESO reconcile.
-Rotating a value now = `bao kv put` the KV path; ESO repropagates within
-`refreshInterval` (1h) with **no workload redeploy**.
+Rotating a value starts with `bao kv put` on the KV path. ESO reprojects the
+Secret within `refreshInterval` (1h), and `cnpg.io/reload: "true"` makes CNPG
+apply the database password. Kubernetes does **not** refresh environment
+variables in an existing container, so every affected workload must then be
+rolled deliberately; do not claim that database credentials rotate without a
+workload restart.
+
+For `mnt-db-leave-command` or `mnt-db-ontology-command`, restart only the API
+Rollout. For `mnt-db-rt`, restart both the API Rollout and worker Deployment.
+Wait for ESO `SecretSynced` and CNPG role reconciliation, then run:
+
+```sh
+kubectl argo rollouts restart mnt-app -n maintenance
+kubectl argo rollouts status mnt-app -n maintenance --timeout 300s
+
+# Required as well when mnt-db-rt changed.
+kubectl -n maintenance rollout restart deployment/mnt-worker
+kubectl -n maintenance rollout status deployment/mnt-worker --timeout=300s
+
+# The API readiness contract probes the runtime, leave-command, and
+# ontology-command pools; any stale or rejected credential keeps rollout
+# promotion fail-closed.
+kubectl -n maintenance get pods -l app.kubernetes.io/name=mnt-app
+```
+
+This repository has static and integration coverage for fail-closed readiness,
+but it does not claim a live zero-downtime rotation until a cluster drill records
+ESO sync, CNPG reconciliation, bounded rollout behavior, readiness recovery, and
+rejection of the retired credential.
 
 **Rollback (reversible):** delete the `secrets-wiring` Application (or the
 individual ExternalSecrets). `creationPolicy: Owner` means the Secrets it created

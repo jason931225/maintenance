@@ -1931,29 +1931,118 @@ async fn list_workflow_tasks(
 /// tasks, scoped and visibility-filtered EXACTLY as `GET /api/v1/workflow-tasks?
 /// assignee=me` — same `list_waiting_tasks` predicate + `task_visible` gate, so
 /// the aggregate can never widen visibility beyond the source list endpoint.
-pub(crate) async fn my_action_inbox_tasks(
+pub(crate) async fn my_action_inbox_tasks_page(
     pool: &PgPool,
     principal: &Principal,
-) -> Result<Vec<WaitingTaskListItem>, KernelError> {
+    as_of: OffsetDateTime,
+    after: Option<(Option<OffsetDateTime>, String)>,
+    limit: usize,
+) -> Result<(Vec<WaitingTaskListItem>, bool), KernelError> {
     let org = principal.org_id;
     let branch = guard_branch(principal);
     let store = PgWorkflowRuntimeStore::new(pool.clone());
-    let items = store
-        .list_waiting_tasks(
-            org,
-            principal.user_id,
-            WaitingTaskListFilter {
-                role_key: None,
-                assignee_me: true,
-                authority_role_keys: held_authority_role_keys(principal, org, branch),
-                statuses: vec![WaitingTaskStatus::Open, WaitingTaskStatus::Claimed],
-            },
-        )
-        .await?;
-    Ok(items
-        .into_iter()
-        .filter(|item| task_visible(principal, org, branch, item))
-        .collect())
+    let filter = WaitingTaskListFilter {
+        role_key: None,
+        assignee_me: true,
+        authority_role_keys: held_authority_role_keys(principal, org, branch),
+        statuses: vec![WaitingTaskStatus::Open, WaitingTaskStatus::Claimed],
+    };
+    let mut visible = Vec::new();
+    let mut cursor = after;
+    let mut scanned = 0usize;
+    loop {
+        let (page, source_has_more) = store
+            .list_waiting_tasks_action_page(
+                org,
+                principal.user_id,
+                filter.clone(),
+                as_of,
+                cursor.clone(),
+                200,
+            )
+            .await?;
+        scanned += page.len();
+        let next_cursor = page
+            .last()
+            .map(|item| (item.due_at, format!("approval:{}", item.task_id)));
+        visible.extend(
+            page.into_iter()
+                .filter(|item| task_visible(principal, org, branch, item)),
+        );
+        if visible.len() > limit {
+            visible.truncate(limit + 1);
+            return Ok((visible, true));
+        }
+        if !source_has_more {
+            return Ok((visible, false));
+        }
+        if scanned >= 1_000 {
+            return Err(KernelError::internal(
+                "workflow action-inbox scan budget exhausted",
+            ));
+        }
+        match next_cursor {
+            Some(next) if Some(&next) != cursor.as_ref() => cursor = Some(next),
+            _ => {
+                return Err(KernelError::internal(
+                    "workflow task cursor did not advance",
+                ));
+            }
+        }
+    }
+}
+
+/// Bounded exact-count attempt for action-inbox total semantics. `exact=false`
+/// is explicit when the defensive scan budget is reached; callers must never
+/// present the returned lower bound as an exact queue size.
+pub(crate) async fn my_action_inbox_task_count(
+    pool: &PgPool,
+    principal: &Principal,
+    as_of: OffsetDateTime,
+) -> Result<(usize, bool), KernelError> {
+    let org = principal.org_id;
+    let branch = guard_branch(principal);
+    let store = PgWorkflowRuntimeStore::new(pool.clone());
+    let filter = WaitingTaskListFilter {
+        role_key: None,
+        assignee_me: true,
+        authority_role_keys: held_authority_role_keys(principal, org, branch),
+        statuses: vec![WaitingTaskStatus::Open, WaitingTaskStatus::Claimed],
+    };
+    let mut count = 0usize;
+    let mut scanned = 0usize;
+    let mut cursor = None;
+    loop {
+        let (page, has_more) = store
+            .list_waiting_tasks_action_page(
+                org,
+                principal.user_id,
+                filter.clone(),
+                as_of,
+                cursor.clone(),
+                200,
+            )
+            .await?;
+        scanned += page.len();
+        cursor = page
+            .last()
+            .map(|item| (item.due_at, format!("approval:{}", item.task_id)));
+        count += page
+            .iter()
+            .filter(|item| task_visible(principal, org, branch, item))
+            .count();
+        if !has_more {
+            return Ok((count, true));
+        }
+        if scanned >= 1_000 {
+            return Ok((count, false));
+        }
+        if cursor.is_none() {
+            return Err(KernelError::internal(
+                "workflow task cursor did not advance",
+            ));
+        }
+    }
 }
 
 async fn list_my_workflow_runs(

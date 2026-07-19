@@ -143,7 +143,7 @@ function setup(options: Setup = {}) {
             used_units: "5.000000",
             remaining_units: "15.000000",
           },
-          requests: { items: options.self ?? [request()] },
+          requests: { items: options.self ?? [request()], next_cursor: null },
         },
       };
     }
@@ -160,6 +160,7 @@ function setup(options: Setup = {}) {
               items: options.managed ?? [
                 request({ requester_user_id: "other-user" }),
               ],
+              next_cursor: null,
             },
           };
     }
@@ -257,6 +258,69 @@ describe("LeaveBody authoritative personas", () => {
     expect(screen.getByRole("button", { name: S.self.submit })).toBeVisible();
   });
 
+  it("loads every self-service keyset page beyond the server cap", async () => {
+    setup({
+      authz: projection(false),
+      onGet: (path, requestOptions) => {
+        if (path !== "/api/v1/me/leave") return undefined;
+        const cursor = (
+          requestOptions as { params: { query: { cursor?: string } } }
+        ).params.query.cursor;
+        return {
+          data: {
+            balance: {
+              employee_id: "emp-1",
+              name: "Self",
+              accrued_units: "20.000000",
+              used_units: "5.000000",
+              remaining_units: "15.000000",
+            },
+            requests: cursor
+              ? {
+                  items: [request({ id: "older", reason: "Older page" })],
+                  next_cursor: null,
+                }
+              : {
+                  items: [request({ id: "newer", reason: "Newer page" })],
+                  next_cursor: "newer",
+                },
+          },
+        };
+      },
+    });
+    render(<LeaveBody />);
+
+    expect(await screen.findByText("Newer page")).toBeVisible();
+    expect(await screen.findByText("Older page")).toBeVisible();
+  });
+
+  it("fails closed when a self-service page repeats its cursor", async () => {
+    const { GET } = setup({
+      authz: projection(false),
+      onGet: (path) =>
+        path === "/api/v1/me/leave"
+          ? {
+              data: {
+                balance: {
+                  employee_id: "emp-1",
+                  name: "Self",
+                  accrued_units: "20.000000",
+                  used_units: "5.000000",
+                  remaining_units: "15.000000",
+                },
+                requests: { items: [request()], next_cursor: "repeat" },
+              },
+            }
+          : undefined,
+    });
+    render(<LeaveBody />);
+
+    expect(await screen.findByText("연차 정보를 불러오지 못했습니다.")).toBeVisible();
+    expect(
+      GET.mock.calls.filter(([path]) => path === "/api/v1/me/leave"),
+    ).toHaveLength(2);
+  });
+
   it("Executive gets managed reads but no decide or promotion actions", async () => {
     const { GET } = setup({
       authz: projection(true),
@@ -280,6 +344,45 @@ describe("LeaveBody authoritative personas", () => {
     });
     const queue = screen.getByRole("region", { name: S.queue.title });
     expect(within(queue).queryByRole("button")).toBeNull();
+  });
+
+  it("loads every managed keyset page beyond the server cap", async () => {
+    setup({
+      authz: projection(true),
+      onGet: (path, requestOptions) => {
+        if (path !== "/api/v1/leave/requests") return undefined;
+        const cursor = (
+          requestOptions as { params: { query: { cursor?: string } } }
+        ).params.query.cursor;
+        return {
+          data: cursor
+            ? {
+                items: [
+                  request({
+                    id: "managed-older",
+                    reason: "Managed older page",
+                    requester_user_id: "other-user",
+                  }),
+                ],
+                next_cursor: null,
+              }
+            : {
+                items: [
+                  request({
+                    id: "managed-newer",
+                    reason: "Managed newer page",
+                    requester_user_id: "other-user",
+                  }),
+                ],
+                next_cursor: "managed-newer",
+              },
+        };
+      },
+    });
+    render(<LeaveBody />);
+
+    expect(await screen.findByText("Managed newer page")).toBeVisible();
+    expect(await screen.findByText("Managed older page")).toBeVisible();
   });
 
   it("authz loading and failure remain fail closed while self-service stays available", async () => {
@@ -349,7 +452,10 @@ describe("LeaveBody authoritative personas", () => {
           used_units: null,
           remaining_units: null,
         },
-        requests: { items: [request({ id: "a", reason: "A stale" })] },
+        requests: {
+          items: [request({ id: "a", reason: "A stale" })],
+          next_cursor: null,
+        },
       },
     });
     await Promise.resolve();
@@ -384,14 +490,58 @@ describe("LeaveBody authoritative personas", () => {
       await screen.findByText("Authoritative home branch review required"),
     ).toBeVisible();
     expect(POST).toHaveBeenCalledWith("/api/v1/leave/requests", {
-      body: {
+      body: expect.objectContaining({
+        idempotency_key: expect.any(String),
         leave_type: "half_day",
         partial_day_period: "pm",
         start_date: "2026-08-03",
         end_date: "2026-08-03",
         reason: S.reasons.half_pm,
-      },
+      }),
     });
+  });
+
+  it("reuses one submission key when retrying an unknown create outcome", async () => {
+    const { POST } = setup({
+      authz: projection(false),
+      self: [],
+      onPost: (path) =>
+        path === "/api/v1/leave/requests"
+          ? { error: { error: { message: "connection lost" } } }
+          : undefined,
+    });
+    render(<LeaveBody />);
+    const self = await screen.findByRole("region", { name: S.self.title });
+    fireEvent.change(within(self).getByLabelText(S.self.reasonLabel), {
+      target: { value: "annual" },
+    });
+    fireEvent.change(within(self).getByLabelText(S.self.startLabel), {
+      target: { value: "2026-08-03" },
+    });
+    fireEvent.change(within(self).getByLabelText(S.self.endLabel), {
+      target: { value: "2026-08-03" },
+    });
+    const submit = within(self).getByRole("button", { name: S.self.submit });
+
+    await userEvent.click(submit);
+    await screen.findByText("connection lost");
+    await userEvent.click(submit);
+    await waitFor(() => {
+      expect(
+        POST.mock.calls.filter(([path]) => path === "/api/v1/leave/requests"),
+      ).toHaveLength(2);
+    });
+
+    const createBodies = POST.mock.calls
+      .filter(([path]) => path === "/api/v1/leave/requests")
+      .map(([, options]) =>
+        (options as { body: { idempotency_key: string } }).body
+          .idempotency_key,
+      );
+    expect(createBodies[0]).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u,
+    );
+    expect(createBodies[1]).toBe(createBodies[0]);
   });
 
   it("Admin actions are branch-scoped and decide carries the exact request version", async () => {

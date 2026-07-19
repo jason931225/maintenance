@@ -9,8 +9,10 @@ import type { ActionInboxResponse } from "../overview/overviewModel";
 
 export type TodoSummary = components["schemas"]["TodoSummary"];
 
+export type ActionInboxPage = ActionInboxResponse;
+
 export interface MyWorkApi {
-  loadInbox(): Promise<ActionInboxResponse>;
+  loadInbox(cursor?: string): Promise<ActionInboxPage>;
   loadTodos(includeDone: boolean): Promise<TodoSummary[]>;
   createTodo(text: string): Promise<void>;
   setTodoDone(id: string, done: boolean): Promise<void>;
@@ -19,9 +21,14 @@ export interface MyWorkApi {
 
 export function createMyWorkApi(client: ConsoleApiClient): MyWorkApi {
   return {
-    loadInbox: async () => {
-      const { data } = await client.GET("/api/v1/me/action-inbox");
+    loadInbox: async (cursor) => {
+      const { data } = await client.GET("/api/v1/me/action-inbox", {
+        params: { query: { limit: 200, cursor } },
+      });
       if (!data) throw new Error("action-inbox failed");
+      if (data.next_cursor && data.next_cursor === cursor) {
+        throw new Error("action-inbox cursor did not advance");
+      }
       return data;
     },
     loadTodos: async (includeDone) => {

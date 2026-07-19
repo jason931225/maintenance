@@ -10,6 +10,10 @@ const generatedTs = readFileSync(
   new URL("../clients/ts/src/schema.d.ts", import.meta.url),
   "utf8",
 );
+const ciWorkflow = readFileSync(
+  new URL("../.github/workflows/ci.yml", import.meta.url),
+  "utf8",
+);
 
 function stageOperation(spec) {
   const start = spec.indexOf("  /api/v1/ontology/object-types/{key}:");
@@ -39,4 +43,11 @@ test("object type wire contract and regenerated TypeScript client carry key revi
   assert.match(generatedTs, /key_write_revision: number/);
   assert.match(generatedTs, /key_write_etag: string/);
   assert.match(generatedTs, /"If-Match": string/);
+});
+
+test("hosted CI runs the ontology write precondition contract", () => {
+  assert.match(
+    ciWorkflow,
+    /^\s*run:\s+npm run test:ontology-write-precondition\s*$/m,
+  );
 });

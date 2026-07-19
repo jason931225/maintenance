@@ -26152,6 +26152,13 @@ public struct Client: APIProtocol {
                     name: "limit",
                     value: input.query.limit
                 )
+                try converter.setQueryItemAsURI(
+                    in: &request,
+                    style: .form,
+                    explode: true,
+                    name: "cursor",
+                    value: input.query.cursor
+                )
                 converter.setAcceptHeader(
                     in: &request.headerFields,
                     contentTypes: input.headers.accept
@@ -26294,6 +26301,13 @@ public struct Client: APIProtocol {
                     name: "limit",
                     value: input.query.limit
                 )
+                try converter.setQueryItemAsURI(
+                    in: &request,
+                    style: .form,
+                    explode: true,
+                    name: "cursor",
+                    value: input.query.cursor
+                )
                 converter.setAcceptHeader(
                     in: &request.headerFields,
                     contentTypes: input.headers.accept
@@ -26404,7 +26418,7 @@ public struct Client: APIProtocol {
     }
     /// File a self-service 연차/반차 request (본인 연차 신청)
     ///
-    /// The caller files a leave request for THEMSELVES. `subject_employee_id` and the routing `branch_id` are resolved server-side from the caller's own account and employee.home_branch_id — never from input — so a caller can only file for their own employee record. No directory feature is required (filing one's own leave is a base employee capability); the gate is an active account linked to an active employee; an unlinked or inactive subject is denied with 403. Missing home-branch authority returns the stable 409 `leave_home_branch_review_required`. The request preserves date and AM/PM intent in `review_required`; no calendar-day or fixed-half quantity is invented. A separate resolver pins authoritative evidence before any approval can move the ledger.
+    /// The caller files a leave request for THEMSELVES. `subject_employee_id` and the routing `branch_id` are resolved server-side from the caller's own account and employee.home_branch_id — never from input — so a caller can only file for their own employee record. No directory feature is required (filing one's own leave is a base employee capability); the gate is an active account linked to an active employee; an unlinked or inactive subject is denied with 403. Missing home-branch authority returns the stable 409 `leave_home_branch_review_required`. The request preserves date and AM/PM intent in `review_required`; no calendar-day or fixed-half quantity is invented. A separate resolver pins authoritative evidence before any approval can move the ledger. Modern clients generate one `idempotency_key` per user intent and reuse it after an unknown or lost response. The same key and canonical client intent return the original request without another mutation or audit; a different intent conflicts.
     ///
     /// - Remark: HTTP `POST /api/v1/leave/requests`.
     /// - Remark: Generated from `#/paths//api/v1/leave/requests/post(createLeaveRequest)`.
@@ -26790,7 +26804,7 @@ public struct Client: APIProtocol {
     }
     /// Approve, return, or reject a pending leave request
     ///
-    /// Requires `employee_directory_manage` in the request's branch. An APPROVE writes the leave ledger (used += exact resolved charge units, remaining -= exact resolved charge units) in the same audited transaction. Separation of duties — a request cannot be decided by its own requester (403). `return`/`reject` require a comment. Approval additionally requires a resolved exact charge and a distinct resolver. The body must carry the current request_version as `expected_version`; charge_version identifies immutable evidence and is never a request mutation precondition. A successful decision increments request_version only; charge_version remains unchanged. An unresolved approval returns 409 `leave_calendar_review_required` plus review reasons, audits the blocked attempt, and changes neither request nor ledger.
+    /// Requires `employee_directory_manage` in the request's branch. An APPROVE writes the leave ledger (used += exact resolved charge units, remaining -= exact resolved charge units) in the same audited transaction. Separation of duties — a request cannot be decided by its own requester (403). `return`/`reject` require a comment. Approval additionally requires a resolved exact charge and a distinct resolver. New clients carry the current request_version as `expected_version`; omission remains accepted only for backward compatibility with deployed v1 clients and retains first-writer-wins pending-state semantics. charge_version identifies immutable evidence and is never a request mutation precondition. A successful decision increments request_version only; charge_version remains unchanged. An unresolved approval returns 409 `leave_calendar_review_required` plus review reasons, audits the blocked attempt, and changes neither request nor ledger.
     ///
     /// - Remark: HTTP `POST /api/v1/leave/requests/{id}/decide`.
     /// - Remark: Generated from `#/paths//api/v1/leave/requests/{id}/decide/post(decideLeaveRequest)`.
@@ -28447,7 +28461,7 @@ public struct Client: APIProtocol {
     }
     /// Unified action inbox for the authenticated principal
     ///
-    /// One server-side fan-in of the caller's actionable items across every source that owns a person-scoped list: workflow/approval tasks awaiting the caller (the ?assignee=me path), pending P1 dispatch offers, support tickets assigned to the caller, and work orders assigned to the caller. Each source is queried through the exact predicate its own list endpoint uses, so the aggregate never widens visibility (deny-by-omission). Items are bucketed by urgency (now/today/wait) with a derived due tone. Fields the overview prototype carries but no backend source can supply are omitted (entity, amount, detail, files, stats, mailId); site/who/submitted are present only for the sources that carry them. Attendance exceptions are not aggregated (no exception object exists yet).
+    /// One server-side fan-in of the caller's actionable items across every source that owns a person-scoped list: workflow/approval tasks awaiting the caller (the ?assignee=me path), pending P1 dispatch offers, support tickets assigned to the caller, and work orders assigned to the caller. Each source is queried through the exact predicate its own list endpoint uses, so the aggregate never widens visibility (deny-by-omission). Items are bucketed by urgency (now/today/wait) with a derived due tone. Fields the overview prototype carries but no backend source can supply are omitted (entity, amount, detail, files, stats, mailId); site/who/submitted are present only for the sources that carry them. Attendance exceptions are not aggregated (no exception object exists yet). Results use a stable server snapshot and bounded per-source fan-in. `total_is_exact` is false when an authorization-filtered source reaches its bounded counting budget; source failures fail the whole request rather than returning a deceptively partial queue.
     ///
     /// - Remark: HTTP `GET /api/v1/me/action-inbox`.
     /// - Remark: Generated from `#/paths//api/v1/me/action-inbox/get(listMyActionInbox)`.
@@ -28465,6 +28479,20 @@ public struct Client: APIProtocol {
                     method: .get
                 )
                 suppressMutabilityWarning(&request)
+                try converter.setQueryItemAsURI(
+                    in: &request,
+                    style: .form,
+                    explode: true,
+                    name: "limit",
+                    value: input.query.limit
+                )
+                try converter.setQueryItemAsURI(
+                    in: &request,
+                    style: .form,
+                    explode: true,
+                    name: "cursor",
+                    value: input.query.cursor
+                )
                 converter.setAcceptHeader(
                     in: &request.headerFields,
                     contentTypes: input.headers.accept
@@ -28517,6 +28545,28 @@ public struct Client: APIProtocol {
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
                     return .unauthorized(.init(body: body))
+                case 422:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.ListMyActionInbox.Output.UnprocessableContent.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ErrorBody.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .unprocessableContent(.init(body: body))
                 case 503:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
                     let body: Operations.ListMyActionInbox.Output.ServiceUnavailable.Body

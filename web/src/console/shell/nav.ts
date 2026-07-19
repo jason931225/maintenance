@@ -90,7 +90,6 @@ export const SHIPPED_SCREEN_KEYS = [
   "finance",
   "asset",
   "appr",
-  "docs",
   "policy",
   "audit",
   "support",
@@ -108,6 +107,10 @@ export const SHIPPED_SCREEN_KEYS = [
 export type ShippedScreenKey = (typeof SHIPPED_SCREEN_KEYS)[number];
 
 const SHIPPED_SCREENS: ReadonlySet<string> = new Set(SHIPPED_SCREEN_KEYS);
+
+export function isShippedScreenKey(screen: string): screen is ShippedScreenKey {
+  return SHIPPED_SCREENS.has(screen);
+}
 
 const g = (roles?: readonly string[], features?: readonly string[]): NavGate => ({
   roles,
@@ -288,7 +291,7 @@ export function isNavItemVisible(gate: NavGate | undefined, grants: ConsoleGrant
 export interface VisibleNavGroup {
   labelKey: string;
   labelId: string;
-  items: ConsoleNavItem[];
+  items: Array<ConsoleNavItem & { screen: ShippedScreenKey }>;
 }
 
 /** The nav groups filtered to what `grants` may see; empty groups are dropped. */
@@ -297,7 +300,8 @@ export function visibleConsoleNav(grants: ConsoleGrants): VisibleNavGroup[] {
     labelKey: group.labelKey,
     labelId: group.labelId,
     items: group.items.filter(
-      (item) => SHIPPED_SCREENS.has(item.screen) && isNavItemVisible(item.gate, grants),
+      (item): item is ConsoleNavItem & { screen: ShippedScreenKey } =>
+        isShippedScreenKey(item.screen) && isNavItemVisible(item.gate, grants),
     ),
   })).filter((group) => group.items.length > 0);
 }
@@ -319,6 +323,6 @@ export function consoleScreenPath(screen: string): string {
 }
 
 /** The default screen a session lands on (first visible item, or a stable fallback). */
-export function defaultScreen(grants: ConsoleGrants): string {
+export function defaultScreen(grants: ConsoleGrants): ShippedScreenKey {
   return visibleConsoleNav(grants)[0]?.items[0]?.screen ?? "overview";
 }

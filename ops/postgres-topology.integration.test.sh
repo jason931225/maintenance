@@ -64,6 +64,17 @@ run_fresh_reconcile() {
     "$@" "${fresh_container}" bash /topology.sh
 }
 
+query_as_direct_login() {
+  local role="$1"
+  local password="$2"
+  local sql="$3"
+  local postgres_address
+  postgres_address="$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "${fresh_container}")"
+  docker run --rm --network bridge -e PGPASSWORD="${password}" "${POSTGRES_IMAGE}" \
+    psql -h "${postgres_address}" -U "${role}" -d "${MNT_POSTGRES_DB}" \
+    -v ON_ERROR_STOP=1 -At -F '|' -c "${sql}"
+}
+
 docker run -d --name "${fresh_container}" \
   -v "${REPO_ROOT}/ops/postgres-reconcile-topology.sh:/topology.sh:ro" \
   -e POSTGRES_DB="${MNT_POSTGRES_DB}" \
@@ -94,6 +105,16 @@ done
 
 run_fresh_reconcile
 run_fresh_reconcile
+
+# The guard must compare the decoded secret values themselves, not merely DSN
+# strings or role names, and it must fail before any topology mutation.
+if run_fresh_reconcile \
+  -e MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD="${MNT_LEAVE_COMMAND_POSTGRES_PASSWORD}" \
+  >/dev/null 2>&1; then
+  echo "topology-test: pairwise-equal command credentials unexpectedly succeeded" >&2
+  exit 1
+fi
+
 fresh_runtime_defaults="$(docker exec "${fresh_container}" psql -U "${MNT_POSTGRES_ADMIN_USER}" -d "${MNT_POSTGRES_DB}" -Atqc \
   "SELECT count(*) FROM pg_default_acl defaults CROSS JOIN LATERAL aclexplode(defaults.defaclacl) privilege WHERE defaults.defaclrole=(SELECT oid FROM pg_roles WHERE rolname='mnt_app') AND privilege.grantee=(SELECT oid FROM pg_roles WHERE rolname='mnt_rt')")"
 test "${fresh_runtime_defaults}" = 0
@@ -116,6 +137,27 @@ mnt_app|mnt_ontology_writer|f|t|t'
 actual_memberships="$(docker exec "${fresh_container}" psql -U "${MNT_POSTGRES_ADMIN_USER}" -d "${MNT_POSTGRES_DB}" -At -F '|' -c \
   "SELECT member.rolname,granted.rolname,m.admin_option,m.inherit_option,m.set_option FROM pg_auth_members m JOIN pg_roles member ON member.oid=m.member JOIN pg_roles granted ON granted.oid=m.roleid WHERE member.rolname IN ('mnt_app','mnt_rt','mnt_leave_cmd','mnt_ontology_cmd','mnt_leave_definer','mnt_ontology_writer') OR granted.rolname IN ('mnt_app','mnt_rt','mnt_leave_cmd','mnt_ontology_cmd','mnt_leave_definer','mnt_ontology_writer') ORDER BY member.rolname,granted.rolname")"
 test "${actual_memberships}" = "${expected_memberships}"
+
+migration_identity="$(query_as_direct_login mnt_app "${MNT_APP_POSTGRES_PASSWORD}" \
+  "SELECT session_user,current_user,authenticated.rolcanlogin,authenticated.rolsuper,authenticated.rolbypassrls,authenticated.rolinherit,authenticated.rolcreatedb,authenticated.rolcreaterole,authenticated.rolreplication,pg_has_role(session_user,'pg_database_owner','MEMBER'),(SELECT count(*) FROM pg_auth_members membership WHERE membership.member=authenticated.oid),(SELECT count(*) FROM pg_roles candidate WHERE candidate.rolname<>session_user AND candidate.rolname NOT IN ('pg_database_owner','mnt_leave_definer','mnt_ontology_writer') AND pg_has_role(session_user,candidate.oid,'MEMBER')) FROM pg_roles authenticated WHERE authenticated.rolname=session_user")"
+test "${migration_identity}" = 'mnt_app|mnt_app|t|f|t|t|f|f|f|t|2|0'
+
+for direct_login in \
+  "mnt_rt|${MNT_RT_POSTGRES_PASSWORD}" \
+  "mnt_leave_cmd|${MNT_LEAVE_COMMAND_POSTGRES_PASSWORD}" \
+  "mnt_ontology_cmd|${MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD}"; do
+  IFS='|' read -r role password <<<"${direct_login}"
+  serving_identity="$(query_as_direct_login "${role}" "${password}" \
+    "SELECT session_user,current_user,authenticated.rolcanlogin,authenticated.rolsuper,authenticated.rolbypassrls,authenticated.rolinherit,authenticated.rolcreatedb,authenticated.rolcreaterole,authenticated.rolreplication,EXISTS(SELECT 1 FROM pg_auth_members membership WHERE membership.member=authenticated.oid OR membership.roleid=authenticated.oid) FROM pg_roles authenticated WHERE authenticated.rolname=session_user")"
+  test "${serving_identity}" = "${role}|${role}|t|f|f|f|f|f|f|f"
+done
+
+# A password from one credential must never authenticate another login.
+if query_as_direct_login mnt_leave_cmd "${MNT_RT_POSTGRES_PASSWORD}" 'SELECT 1' \
+  >/dev/null 2>&1; then
+  echo "topology-test: runtime password authenticated the leave command login" >&2
+  exit 1
+fi
 
 docker rm -f "${fresh_container}" >/dev/null
 

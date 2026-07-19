@@ -6,6 +6,8 @@ use uuid::Uuid;
 
 const ORG_A: Uuid = Uuid::from_u128(0xa165_a165_a165_a165_a165_a165_a165_a165);
 const ORG_B: Uuid = Uuid::from_u128(0xb165_b165_b165_b165_b165_b165_b165_b165);
+const LEGACY_ORG: Uuid = Uuid::from_u128(0xc165_c165_c165_c165_c165_c165_c165_c165);
+const LEGACY_ACTOR: Uuid = Uuid::from_u128(0xc165_a165_c165_a165_c165_a165_c165_a165);
 const MIGRATION_0165: &str =
     include_str!("../../../platform/db/migrations/0165_ontology_object_type_key_revisions.sql");
 const MIGRATOR_PASSWORD: &str = "migration-owner-a165";
@@ -171,6 +173,14 @@ async fn seed_legacy_object_type(
     .execute(pool)
     .await
     .unwrap();
+}
+
+async fn apply_0165_as_migrator(pool: &PgPool) {
+    let migrator = login_role_pool(pool, "mnt_app", MIGRATOR_PASSWORD).await;
+    sqlx::raw_sql(MIGRATION_0165)
+        .execute(&migrator)
+        .await
+        .expect("the exact shipped 0165 migration must run as non-superuser mnt_app");
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
@@ -347,11 +357,16 @@ async fn migration_0165_upgrades_legacy_sibling_versions_without_tenant_leakage(
     let guarded_boundary = sqlx::query(
         r#"
         SELECT
-            has_table_privilege('mnt_rt', 'ont_object_types', 'INSERT,UPDATE,DELETE,TRUNCATE') AS parent_write,
-            has_table_privilege('mnt_rt', 'ont_property_defs', 'INSERT,UPDATE,DELETE,TRUNCATE') AS property_write,
-            has_table_privilege('mnt_rt', 'ont_link_types', 'INSERT,UPDATE,DELETE,TRUNCATE') AS link_write,
-            has_table_privilege('mnt_rt', 'ont_action_types', 'INSERT,UPDATE,DELETE,TRUNCATE') AS action_write,
-            has_table_privilege('mnt_rt', 'ont_analytics', 'INSERT,UPDATE,DELETE,TRUNCATE') AS analytic_write,
+            has_table_privilege('mnt_rt', 'ont_object_types', 'INSERT,UPDATE') AS legacy_parent_write,
+            has_table_privilege('mnt_rt', 'ont_property_defs', 'INSERT') AS legacy_property_write,
+            has_table_privilege('mnt_rt', 'ont_link_types', 'INSERT') AS legacy_link_write,
+            has_table_privilege('mnt_rt', 'ont_action_types', 'INSERT') AS legacy_action_write,
+            has_table_privilege('mnt_rt', 'ont_analytics', 'INSERT') AS legacy_analytic_write,
+            has_table_privilege('mnt_rt', 'ont_object_types', 'DELETE,TRUNCATE') AS destructive_parent_write,
+            has_table_privilege('mnt_rt', 'ont_property_defs', 'UPDATE,DELETE,TRUNCATE') AS destructive_property_write,
+            has_table_privilege('mnt_rt', 'ont_link_types', 'UPDATE,DELETE,TRUNCATE') AS destructive_link_write,
+            has_table_privilege('mnt_rt', 'ont_action_types', 'UPDATE,DELETE,TRUNCATE') AS destructive_action_write,
+            has_table_privilege('mnt_rt', 'ont_analytics', 'UPDATE,DELETE,TRUNCATE') AS destructive_analytic_write,
             has_schema_privilege('mnt_rt', 'ontology_api', 'USAGE') AS runtime_api_usage,
             has_schema_privilege('mnt_ontology_cmd', 'ontology_api', 'USAGE') AS command_api_usage,
             has_schema_privilege('public', 'ontology_api', 'USAGE') AS public_api_usage,
@@ -369,15 +384,27 @@ async fn migration_0165_upgrades_legacy_sibling_versions_without_tenant_leakage(
     .await
     .unwrap();
     for column in [
-        "parent_write",
-        "property_write",
-        "link_write",
-        "action_write",
-        "analytic_write",
+        "legacy_parent_write",
+        "legacy_property_write",
+        "legacy_link_write",
+        "legacy_action_write",
+        "legacy_analytic_write",
+    ] {
+        assert!(
+            guarded_boundary.get::<bool, _>(column),
+            "0165 must retain the audited blue/green {column}"
+        );
+    }
+    for column in [
+        "destructive_parent_write",
+        "destructive_property_write",
+        "destructive_link_write",
+        "destructive_action_write",
+        "destructive_analytic_write",
     ] {
         assert!(
             !guarded_boundary.get::<bool, _>(column),
-            "0165 must revoke {column}"
+            "0165 must deny {column}"
         );
     }
     assert!(!guarded_boundary.get::<bool, _>("runtime_api_usage"));
@@ -580,13 +607,27 @@ async fn migration_0165_upgrades_legacy_sibling_versions_without_tenant_leakage(
             name
         );
         let expected_acl = match name.as_str() {
-            "ont_object_types" | "ont_object_type_key_revisions" => vec![
+            "ont_object_types" => vec![
+                "mnt_ontology_writer:INSERT",
+                "mnt_ontology_writer:SELECT",
+                "mnt_ontology_writer:UPDATE",
+                "mnt_rt:INSERT",
+                "mnt_rt:SELECT",
+                "mnt_rt:UPDATE",
+            ],
+            "ont_object_type_key_revisions" => vec![
                 "mnt_ontology_writer:INSERT",
                 "mnt_ontology_writer:SELECT",
                 "mnt_ontology_writer:UPDATE",
                 "mnt_rt:SELECT",
             ],
             "ont_builtin_catalog_allowlist" => vec!["mnt_ontology_writer:SELECT"],
+            "ont_property_defs" | "ont_link_types" | "ont_action_types" | "ont_analytics" => vec![
+                "mnt_ontology_writer:INSERT",
+                "mnt_ontology_writer:SELECT",
+                "mnt_rt:INSERT",
+                "mnt_rt:SELECT",
+            ],
             _ => vec![
                 "mnt_ontology_writer:INSERT",
                 "mnt_ontology_writer:SELECT",
@@ -620,17 +661,16 @@ async fn migration_0165_upgrades_legacy_sibling_versions_without_tenant_leakage(
     .fetch_all(&pool)
     .await
     .unwrap();
-    assert_eq!(routines.len(), 8);
+    assert_eq!(routines.len(), 11);
     for routine in routines {
         assert_eq!(routine.get::<String, _>("owner"), "mnt_ontology_writer");
         let name = routine.get::<String, _>("proname");
-        assert_eq!(
-            routine.get::<bool, _>("prosecdef"),
-            name != "protected_audit_writer_guard",
-            "only the audit trigger guard must execute as the original invoker"
+        assert!(
+            routine.get::<bool, _>("prosecdef") || name == "invoker_role",
+            "{name} must be SECURITY DEFINER unless it is the role-inspection helper"
         );
         let config = routine.get::<Vec<String>, _>("proconfig");
-        let expected = if name == "protected_audit_writer_guard" {
+        let expected = if name == "invoker_role" {
             vec!["search_path=pg_catalog"]
         } else {
             vec!["search_path=pg_catalog", "row_security=on"]
@@ -777,4 +817,265 @@ async fn migration_0165_upgrades_legacy_sibling_versions_without_tenant_leakage(
             .is_some_and(|error| error.message() == "ontology_role_topology.membership_drift")
     );
     drift.rollback().await.unwrap();
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn migration_0165_keeps_exact_old_binary_writes_audited_and_cas_consistent(pool: PgPool) {
+    restore_pre_0165_schema(&pool).await;
+    seed_organization(&pool, LEGACY_ORG, "migration-legacy-a165").await;
+    sqlx::query(
+        "INSERT INTO users (id, display_name, roles, org_id) VALUES ($1, 'Legacy writer', ARRAY['SUPER_ADMIN'], $2)",
+    )
+    .bind(LEGACY_ACTOR)
+    .bind(LEGACY_ORG)
+    .execute(&pool)
+    .await
+    .unwrap();
+    apply_0165_as_migrator(&pool).await;
+
+    let runtime = runtime_role_pool(&pool).await;
+    let first_id = Uuid::from_u128(0xc165_0000_0000_0000_0000_0000_0000_0001);
+    let second_id = Uuid::from_u128(0xc165_0000_0000_0000_0000_0000_0000_0002);
+    let first_at = time::macros::datetime!(2026-07-19 14:00 UTC);
+    let second_at = time::macros::datetime!(2026-07-19 14:01 UTC);
+    let transition_at = time::macros::datetime!(2026-07-19 14:02 UTC);
+
+    // Exact retained-binary create shape: parent, append-only children, then
+    // the with_audit row in the same transaction.
+    let mut create_tx = runtime.begin().await.unwrap();
+    sqlx::query("SELECT set_config('app.current_org', $1, true)")
+        .bind(LEGACY_ORG.to_string())
+        .execute(&mut *create_tx)
+        .await
+        .unwrap();
+    sqlx::query(
+        r#"INSERT INTO ont_object_types
+           (id,org_id,stable_key,title,backing_kind,schema_version,lifecycle_state,created_by,created_at,updated_at)
+           VALUES ($1,$2,'legacy.compat','Legacy v1','instance',1,'draft',$3,$4,$4)"#,
+    )
+    .bind(first_id)
+    .bind(LEGACY_ORG)
+    .bind(LEGACY_ACTOR)
+    .bind(first_at)
+    .execute(&mut *create_tx)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO ont_property_defs (org_id,object_type_id,key,title,type,required) VALUES ($1,$2,'name','Name','text',true)",
+    )
+    .bind(LEGACY_ORG)
+    .bind(first_id)
+    .execute(&mut *create_tx)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"INSERT INTO audit_events
+           (id,actor,action,target_type,target_id,trace_id,span_id,occurred_at,org_id)
+           VALUES (gen_random_uuid(),$1,'ontology.object_type.create','ont_object_types',$2,
+                   '0123456789abcdef0123456789abcdef','0123456789abcdef',$3,$4)"#,
+    )
+    .bind(LEGACY_ACTOR)
+    .bind(first_id.to_string())
+    .bind(first_at)
+    .bind(LEGACY_ORG)
+    .execute(&mut *create_tx)
+    .await
+    .unwrap();
+    create_tx.commit().await.unwrap();
+
+    for (state, occurred_at, trace_prefix) in [
+        (
+            "review_pending",
+            time::macros::datetime!(2026-07-19 14:00:20 UTC),
+            '3',
+        ),
+        (
+            "published",
+            time::macros::datetime!(2026-07-19 14:00:40 UTC),
+            '4',
+        ),
+    ] {
+        let mut tx = runtime.begin().await.unwrap();
+        sqlx::query("SELECT set_config('app.current_org', $1, true)")
+            .bind(LEGACY_ORG.to_string())
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        if state == "published" {
+            // The old binary adds the generic create action before publishing
+            // an instance-backed type. The deferred child guard permits it
+            // only because this same transaction later records the transition.
+            sqlx::query(
+                r#"INSERT INTO ont_action_types
+                   (org_id,object_type_id,stable_key,title,dispatch)
+                   VALUES ($1,$2,'create','Create','instance_revision')"#,
+            )
+            .bind(LEGACY_ORG)
+            .bind(first_id)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        }
+        sqlx::query("UPDATE ont_object_types SET lifecycle_state=$2, updated_at=$3 WHERE id=$1")
+            .bind(first_id)
+            .bind(state)
+            .bind(occurred_at)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let trace_id = format!("{trace_prefix}123456789abcdef0123456789abcdef");
+        let span_id = format!("{trace_prefix}123456789abcdef");
+        sqlx::query(
+            r#"INSERT INTO audit_events
+               (id,actor,action,target_type,target_id,trace_id,span_id,occurred_at,org_id)
+               VALUES (gen_random_uuid(),$1,'ontology.object_type.transition','ont_object_types',$2,$3,$4,$5,$6)"#,
+        )
+        .bind(LEGACY_ACTOR)
+        .bind(first_id.to_string())
+        .bind(trace_id)
+        .bind(span_id)
+        .bind(occurred_at)
+        .bind(LEGACY_ORG)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+        tx.commit().await.unwrap();
+    }
+
+    // Exact retained-binary stage shape. The compatibility audit trigger, not
+    // mnt_rt, owns the one-and-only CAS-sidecar advance.
+    let mut stage_tx = runtime.begin().await.unwrap();
+    sqlx::query("SELECT set_config('app.current_org', $1, true)")
+        .bind(LEGACY_ORG.to_string())
+        .execute(&mut *stage_tx)
+        .await
+        .unwrap();
+    sqlx::query(
+        r#"INSERT INTO ont_object_types
+           (id,org_id,stable_key,title,backing_kind,schema_version,lifecycle_state,created_by,created_at,updated_at)
+           VALUES ($1,$2,'legacy.compat','Legacy v2','instance',2,'draft',$3,$4,$4)"#,
+    )
+    .bind(second_id)
+    .bind(LEGACY_ORG)
+    .bind(LEGACY_ACTOR)
+    .bind(second_at)
+    .execute(&mut *stage_tx)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO ont_property_defs (org_id,object_type_id,key,title,type,required) VALUES ($1,$2,'name','Name','text',true)",
+    )
+    .bind(LEGACY_ORG)
+    .bind(second_id)
+    .execute(&mut *stage_tx)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"INSERT INTO audit_events
+           (id,actor,action,target_type,target_id,trace_id,span_id,occurred_at,org_id)
+           VALUES (gen_random_uuid(),$1,'ontology.object_type.stage_revision','ont_object_types',$2,
+                   '1123456789abcdef0123456789abcdef','1123456789abcdef',$3,$4)"#,
+    )
+    .bind(LEGACY_ACTOR)
+    .bind(second_id.to_string())
+    .bind(second_at)
+    .bind(LEGACY_ORG)
+    .execute(&mut *stage_tx)
+    .await
+    .unwrap();
+    stage_tx.commit().await.unwrap();
+
+    let mut transition_tx = runtime.begin().await.unwrap();
+    sqlx::query("SELECT set_config('app.current_org', $1, true)")
+        .bind(LEGACY_ORG.to_string())
+        .execute(&mut *transition_tx)
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE ont_object_types SET lifecycle_state='review_pending', updated_at=$2 WHERE id=$1",
+    )
+    .bind(second_id)
+    .bind(transition_at)
+    .execute(&mut *transition_tx)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"INSERT INTO audit_events
+           (id,actor,action,target_type,target_id,trace_id,span_id,occurred_at,org_id)
+           VALUES (gen_random_uuid(),$1,'ontology.object_type.transition','ont_object_types',$2,
+                   '2123456789abcdef0123456789abcdef','2123456789abcdef',$3,$4)"#,
+    )
+    .bind(LEGACY_ACTOR)
+    .bind(second_id.to_string())
+    .bind(transition_at)
+    .bind(LEGACY_ORG)
+    .execute(&mut *transition_tx)
+    .await
+    .unwrap();
+    transition_tx.commit().await.unwrap();
+
+    let state = sqlx::query(
+        r#"SELECT k.revision,
+                  (SELECT COUNT(*) FROM ont_object_types o WHERE o.org_id=k.org_id AND o.stable_key=k.stable_key) AS versions,
+                  (SELECT COUNT(*) FROM ont_property_defs p WHERE p.org_id=k.org_id) AS properties,
+                  (SELECT COUNT(*) FROM audit_events e WHERE e.org_id=k.org_id AND e.action LIKE 'ontology.object_type.%') AS audits
+           FROM ont_object_type_key_revisions k
+           WHERE k.org_id=$1 AND k.stable_key='legacy.compat'"#,
+    )
+    .bind(LEGACY_ORG)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(state.get::<i64, _>("revision"), 5);
+    assert_eq!(state.get::<i64, _>("versions"), 2);
+    assert_eq!(state.get::<i64, _>("properties"), 2);
+    assert_eq!(state.get::<i64, _>("audits"), 5);
+
+    // A direct content edit is outside the compatibility contract.
+    let mut content_tx = runtime.begin().await.unwrap();
+    sqlx::query("SELECT set_config('app.current_org', $1, true)")
+        .bind(LEGACY_ORG.to_string())
+        .execute(&mut *content_tx)
+        .await
+        .unwrap();
+    let content_error = sqlx::query("UPDATE ont_object_types SET title='forged' WHERE id=$1")
+        .bind(second_id)
+        .execute(&mut *content_tx)
+        .await
+        .expect_err("legacy authority must be lifecycle-only on existing parents");
+    assert_eq!(
+        database_error_code(&content_error).as_deref(),
+        Some("42501")
+    );
+    content_tx.rollback().await.unwrap();
+
+    // Even a structurally valid lifecycle update is rolled back at COMMIT when
+    // the same transaction did not append its protected audit fact.
+    let mut unaudited_tx = runtime.begin().await.unwrap();
+    sqlx::query("SELECT set_config('app.current_org', $1, true)")
+        .bind(LEGACY_ORG.to_string())
+        .execute(&mut *unaudited_tx)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE ont_object_types SET lifecycle_state='draft', updated_at=statement_timestamp() WHERE id=$1")
+        .bind(second_id)
+        .execute(&mut *unaudited_tx)
+        .await
+        .unwrap();
+    let commit_error = unaudited_tx
+        .commit()
+        .await
+        .expect_err("unaudited compatibility writes must fail closed at commit");
+    assert_eq!(database_error_code(&commit_error).as_deref(), Some("23514"));
+
+    let final_row = sqlx::query("SELECT title,lifecycle_state FROM ont_object_types WHERE id=$1")
+        .bind(second_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(final_row.get::<String, _>("title"), "Legacy v2");
+    assert_eq!(
+        final_row.get::<String, _>("lifecycle_state"),
+        "review_pending"
+    );
 }

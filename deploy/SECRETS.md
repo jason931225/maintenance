@@ -242,7 +242,10 @@ serving workload. `mnt_app` is deliberately `BYPASSRLS` because populated
 tenant-wide migration backfills must not depend on table-owner `FORCE RLS`
 state. Wave 0 reconciles CNPG, wave 1 verifies all role attributes,
 database ownership, and the two non-admin memberships, and only then may the
-migration run. Wave-3 API/worker workloads therefore never need DDL. See the
+migration run. The gate compares the decoded `password` keys across all four
+login Secrets and fails on any reuse; it also proves each credential opens a
+direct `session_user = current_user` connection with the expected role and no
+serving-role membership edges. Wave-3 API/worker workloads therefore never need DDL. See the
 "Database migrations" section in [`README.md`](README.md). Migrations are
 idempotent (sqlx `_sqlx_migrations` ledger), so the Job is safe to re-run on
 every sync.

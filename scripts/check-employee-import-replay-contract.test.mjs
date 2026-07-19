@@ -61,3 +61,8 @@ test("employee import replay accounting is required in OpenAPI and every typed c
   assert.match(swiftCompany, /public var skipped: Swift\.Int/);
   assert.match(swiftReport, /public var skipped: Swift\.Int/);
 });
+
+test("hosted CI runs the employee import replay contract", () => {
+  const workflow = read(".github/workflows/ci.yml");
+  assert.match(workflow, /^\s*run:\s+npm run test:employee-import-contract\s*$/m);
+});

@@ -21,11 +21,15 @@ ALTER TABLE employees
     ALTER COLUMN leave_used TYPE NUMERIC(16,6) USING leave_used::NUMERIC(16,6),
     ALTER COLUMN leave_remaining TYPE NUMERIC(16,6) USING leave_remaining::NUMERIC(16,6);
 
-ALTER TABLE leave_requests RENAME COLUMN days TO legacy_days;
 ALTER TABLE leave_requests
     ADD CONSTRAINT leave_requests_org_id_id_unique UNIQUE (org_id, id),
-    ALTER COLUMN legacy_days DROP NOT NULL,
-    ALTER COLUMN legacy_days TYPE NUMERIC(16,6) USING legacy_days::NUMERIC(16,6),
+    ALTER COLUMN days TYPE NUMERIC(16,6) USING days::NUMERIC(16,6),
+    -- Expand, do not rename: a rollback can put the pre-0166 binary back
+    -- against this schema, so its SELECT/INSERT contract must retain `days`.
+    -- New code reads the explicit legacy alias while exact charges remain in
+    -- charge_units. The generated alias makes the two names impossible to
+    -- drift during the compatibility window.
+    ADD COLUMN legacy_days NUMERIC(16,6) GENERATED ALWAYS AS (days) STORED,
     ADD COLUMN partial_day_period TEXT NULL
         CHECK (partial_day_period IN ('am', 'pm')),
     ADD COLUMN charge_state TEXT NOT NULL DEFAULT 'review_required'
@@ -33,6 +37,11 @@ ALTER TABLE leave_requests
     ADD COLUMN charge_review_reasons TEXT[] NOT NULL DEFAULT ARRAY['missing_calendar']::TEXT[],
     ADD COLUMN charge_units NUMERIC(16,6) NULL
         CHECK (charge_units IS NULL OR (charge_units > 0 AND charge_units <= 366)),
+    ADD COLUMN submission_key UUID NULL,
+    ADD COLUMN submission_digest CHAR(64) NULL
+        CHECK (submission_digest IS NULL OR submission_digest ~ '^[0-9a-f]{64}$'),
+    ADD COLUMN submission_initial_charge_version BIGINT NULL
+        CHECK (submission_initial_charge_version IN (0, 1)),
     ADD COLUMN request_version BIGINT NOT NULL DEFAULT 1 CHECK (request_version > 0),
     ADD COLUMN charge_version BIGINT NOT NULL DEFAULT 0 CHECK (charge_version >= 0),
     ADD COLUMN current_charge_resolution_id UUID NULL;
@@ -71,6 +80,10 @@ ALTER TABLE leave_requests
             AND charge_units IS NULL
             AND current_charge_resolution_id IS NULL)
     ),
+    ADD CONSTRAINT leave_requests_submission_pair CHECK (
+        (submission_key IS NULL) = (submission_digest IS NULL)
+        AND (submission_key IS NULL) = (submission_initial_charge_version IS NULL)
+    ),
     ADD CONSTRAINT leave_requests_partial_day_shape CHECK (
         legacy_days IS NOT NULL
         OR (leave_type = 'half_day') = (partial_day_period IS NOT NULL)
@@ -88,6 +101,10 @@ ALTER TABLE leave_requests
         OR (status = 'approved' AND charge_state IN ('resolved', 'legacy_unverified'))
         OR (status IN ('returned', 'rejected') AND charge_state = 'not_required')
     );
+
+CREATE UNIQUE INDEX leave_requests_requester_submission_key_uq
+    ON leave_requests (org_id, requester_user_id, submission_key)
+    WHERE submission_key IS NOT NULL;
 
 -- mnt-gate: audited-table leave_charge_resolutions
 CREATE TABLE leave_charge_resolutions (
@@ -196,8 +213,11 @@ BEGIN
        OR NEW.start_date IS DISTINCT FROM OLD.start_date
        OR NEW.end_date IS DISTINCT FROM OLD.end_date
        OR NEW.reason IS DISTINCT FROM OLD.reason
-       OR NEW.legacy_days IS DISTINCT FROM OLD.legacy_days
-       OR NEW.partial_day_period IS DISTINCT FROM OLD.partial_day_period THEN
+       OR NEW.days IS DISTINCT FROM OLD.days
+       OR NEW.partial_day_period IS DISTINCT FROM OLD.partial_day_period
+       OR NEW.submission_key IS DISTINCT FROM OLD.submission_key
+       OR NEW.submission_digest IS DISTINCT FROM OLD.submission_digest
+       OR NEW.submission_initial_charge_version IS DISTINCT FROM OLD.submission_initial_charge_version THEN
         RAISE EXCEPTION 'leave request routing and intent are immutable';
     END IF;
     RETURN NEW;
@@ -305,16 +325,27 @@ GRANT USAGE ON SCHEMA public TO mnt_leave_definer;
 GRANT SELECT ON public.organizations, public.users, public.user_branches,
     public.branches, public.employees, public.leave_requests,
     public.leave_charge_resolutions, public.leave_balance_import_receipts,
-    public.data_import_runs, public.data_import_rows TO mnt_leave_definer;
+    public.data_import_runs, public.data_import_rows, public.policy_roles,
+    public.policy_role_permissions, public.policy_role_conditions,
+    public.user_role_assignments TO mnt_leave_definer;
 GRANT INSERT, UPDATE ON public.employees, public.leave_requests TO mnt_leave_definer;
 GRANT UPDATE ON public.data_import_runs TO mnt_leave_definer;
 GRANT INSERT ON public.leave_charge_resolutions, public.leave_balance_import_receipts,
     public.audit_events TO mnt_leave_definer;
 
--- The general runtime identity may read leave data, but has no alternate writer.
+-- The general runtime identity may read leave data. During this expand phase
+-- it also retains the pre-0166 binary's create/decide surface so an application
+-- rollback does not fail against the migrated schema. The trigger below
+-- accepts only legacy pending creation or a single pending-to-terminal
+-- decision; exact-charge and other writes remain behind the command
+-- capability. A later contract migration may remove this bridge
+-- only after rollback to every pre-0166 binary is no longer supported.
 GRANT SELECT ON public.leave_requests, public.leave_charge_resolutions TO mnt_rt;
-REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public.leave_requests,
-    public.leave_charge_resolutions FROM mnt_rt, mnt_leave_cmd, PUBLIC;
+GRANT INSERT ON public.leave_requests TO mnt_rt;
+GRANT UPDATE ON public.leave_requests TO mnt_rt;
+REVOKE DELETE, TRUNCATE ON public.leave_requests FROM mnt_rt, mnt_leave_cmd, PUBLIC;
+REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public.leave_charge_resolutions
+    FROM mnt_rt, mnt_leave_cmd, PUBLIC;
 
 -- These invoker-rights guards fail closed if any future grant accidentally
 -- restores an alternate write path. The command routines execute table DML as
@@ -322,7 +353,68 @@ REVOKE INSERT, UPDATE, DELETE, TRUNCATE ON public.leave_requests,
 CREATE FUNCTION leave_api.protected_request_writer_guard()
 RETURNS TRIGGER LANGUAGE plpgsql SET search_path = pg_catalog AS $$
 BEGIN
-    IF current_user <> 'mnt_leave_definer' THEN
+    IF current_user = 'mnt_rt' AND TG_OP = 'INSERT' THEN
+        IF NEW.days IS NULL
+           OR NEW.status <> 'pending'
+           OR NEW.decided_by IS NOT NULL
+           OR NEW.decided_at IS NOT NULL
+           OR NEW.decision_comment IS NOT NULL
+           OR NEW.ap_run_id IS NOT NULL
+           OR NEW.partial_day_period IS NOT NULL
+           OR NEW.charge_state <> 'review_required'
+           OR NEW.charge_review_reasons <> ARRAY['missing_calendar']::TEXT[]
+           OR NEW.charge_units IS NOT NULL
+           OR NEW.submission_key IS NOT NULL
+           OR NEW.submission_digest IS NOT NULL
+           OR NEW.submission_initial_charge_version IS NOT NULL
+           OR NEW.request_version <> 1
+           OR NEW.charge_version <> 0
+           OR NEW.current_charge_resolution_id IS NOT NULL THEN
+            RAISE EXCEPTION USING ERRCODE = '42501', MESSAGE = 'leave_write.command_required';
+        END IF;
+        RETURN NEW;
+    ELSIF current_user = 'mnt_rt' AND TG_OP = 'UPDATE' THEN
+        IF OLD.status <> 'pending'
+           OR NEW.status NOT IN ('approved', 'returned', 'rejected')
+           OR NEW.status IS NOT DISTINCT FROM OLD.status
+           OR NEW.decided_by IS NULL
+           OR NEW.decided_at IS NULL
+           OR NEW.requester_user_id = NEW.decided_by
+           OR NEW.id IS DISTINCT FROM OLD.id
+           OR NEW.org_id IS DISTINCT FROM OLD.org_id
+           OR NEW.branch_id IS DISTINCT FROM OLD.branch_id
+           OR NEW.requester_user_id IS DISTINCT FROM OLD.requester_user_id
+           OR NEW.subject_employee_id IS DISTINCT FROM OLD.subject_employee_id
+           OR NEW.leave_type IS DISTINCT FROM OLD.leave_type
+           OR NEW.days IS DISTINCT FROM OLD.days
+           OR NEW.start_date IS DISTINCT FROM OLD.start_date
+           OR NEW.end_date IS DISTINCT FROM OLD.end_date
+           OR NEW.reason IS DISTINCT FROM OLD.reason
+           OR NEW.ap_run_id IS DISTINCT FROM OLD.ap_run_id
+           OR NEW.partial_day_period IS DISTINCT FROM OLD.partial_day_period
+           OR NEW.charge_state IS DISTINCT FROM OLD.charge_state
+           OR NEW.charge_review_reasons IS DISTINCT FROM OLD.charge_review_reasons
+           OR NEW.charge_units IS DISTINCT FROM OLD.charge_units
+           OR NEW.submission_key IS DISTINCT FROM OLD.submission_key
+           OR NEW.submission_digest IS DISTINCT FROM OLD.submission_digest
+           OR NEW.submission_initial_charge_version IS DISTINCT FROM OLD.submission_initial_charge_version
+           OR NEW.request_version IS DISTINCT FROM OLD.request_version
+           OR NEW.charge_version IS DISTINCT FROM OLD.charge_version
+           OR NEW.current_charge_resolution_id IS DISTINCT FROM OLD.current_charge_resolution_id THEN
+            RAISE EXCEPTION USING ERRCODE = '42501', MESSAGE = 'leave_write.command_required';
+        END IF;
+        NEW.request_version := OLD.request_version + 1;
+        IF NEW.status = 'approved' THEN
+            NEW.charge_state := 'legacy_unverified';
+            NEW.charge_review_reasons := ARRAY[]::TEXT[];
+            NEW.charge_units := OLD.days;
+        ELSE
+            NEW.charge_state := 'not_required';
+            NEW.charge_review_reasons := ARRAY[]::TEXT[];
+            NEW.charge_units := NULL;
+        END IF;
+        RETURN NEW;
+    ELSIF current_user <> 'mnt_leave_definer' THEN
         RAISE EXCEPTION USING ERRCODE = '42501', MESSAGE = 'leave_write.command_required';
     END IF;
     IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
@@ -358,7 +450,34 @@ BEGIN
             OR NEW.leave_used IS DISTINCT FROM OLD.leave_used
             OR NEW.leave_remaining IS DISTINCT FROM OLD.leave_remaining
         ) THEN
-            RAISE EXCEPTION USING ERRCODE = '42501', MESSAGE = 'leave_write.command_required';
+            -- The rollback binary approves a request and moves its employee
+            -- ledger in the same transaction. Preserve exactly that one write:
+            -- the request row must have been transitioned by this transaction,
+            -- the delta must equal its immutable legacy days, and this employee
+            -- row must not already have been changed in the transaction.
+            IF current_user <> 'mnt_rt'
+               OR NEW.home_branch_id IS DISTINCT FROM OLD.home_branch_id
+               OR NEW.leave_accrued IS DISTINCT FROM OLD.leave_accrued
+               OR (OLD.xmin::TEXT)::BIGINT = pg_catalog.txid_current()
+               OR (pg_catalog.to_jsonb(NEW) - ARRAY[
+                    'leave_used','leave_remaining','updated_at'
+                  ]::TEXT[]) IS DISTINCT FROM
+                  (pg_catalog.to_jsonb(OLD) - ARRAY[
+                    'leave_used','leave_remaining','updated_at'
+                  ]::TEXT[])
+               OR NOT EXISTS (
+                    SELECT 1 FROM public.leave_requests lr
+                    WHERE lr.org_id = NEW.org_id
+                      AND lr.subject_employee_id = NEW.id
+                      AND lr.status = 'approved'
+                      AND lr.charge_state = 'legacy_unverified'
+                      AND (lr.xmin::TEXT)::BIGINT = pg_catalog.txid_current()
+                      AND COALESCE(OLD.leave_remaining,0) >= lr.days
+                      AND NEW.leave_used = COALESCE(OLD.leave_used,0) + lr.days
+                      AND NEW.leave_remaining = COALESCE(OLD.leave_remaining,0) - lr.days
+               ) THEN
+                RAISE EXCEPTION USING ERRCODE = '42501', MESSAGE = 'leave_write.command_required';
+            END IF;
         END IF;
     END IF;
     RETURN NEW;
@@ -413,6 +532,30 @@ CREATE TRIGGER trg_data_import_runs_employee_hr_command_only
 CREATE FUNCTION leave_api.protected_audit_writer_guard()
 RETURNS TRIGGER LANGUAGE plpgsql SET search_path = pg_catalog AS $$
 BEGIN
+    -- The expand window also preserves the base adapter's atomic audit write.
+    -- It may attest only the legacy create/decide mutation already visible in
+    -- the same transaction; exact-charge and employee-import actions remain
+    -- exclusive to the command definer.
+    IF current_user = 'mnt_rt' AND NEW.action = 'leave_request.create'
+       AND EXISTS (
+           SELECT 1 FROM public.leave_requests lr
+           WHERE lr.org_id = NEW.org_id
+             AND lr.id::TEXT = NEW.target_id
+             AND lr.requester_user_id = NEW.actor
+             AND lr.status = 'pending'
+             AND lr.days IS NOT NULL
+       ) THEN
+        RETURN NEW;
+    ELSIF current_user = 'mnt_rt' AND NEW.action = 'leave_request.decide'
+       AND EXISTS (
+           SELECT 1 FROM public.leave_requests lr
+           WHERE lr.org_id = NEW.org_id
+             AND lr.id::TEXT = NEW.target_id
+             AND lr.decided_by = NEW.actor
+             AND lr.status IN ('approved', 'returned', 'rejected')
+       ) THEN
+        RETURN NEW;
+    END IF;
     IF NEW.action = ANY (ARRAY[
         'employee.home_branch_set',
         'employee.leave_balance_import',
@@ -502,7 +645,55 @@ BEGIN
     IF NOT EXISTS (
         SELECT 1 FROM public.users u
         WHERE u.id = p_actor AND u.org_id = p_org_id AND u.is_active
-          AND u.roles @> ARRAY['SUPER_ADMIN']::TEXT[]
+          AND (
+              u.roles @> ARRAY['SUPER_ADMIN']::TEXT[]
+              OR (
+                  -- The application can produce an org-wide custom grant only
+                  -- from an EXECUTIVE principal's live All scope. Re-evaluate
+                  -- the persisted grant here rather than trusting a caller
+                  -- boolean at the SECURITY DEFINER boundary.
+                  u.roles @> ARRAY['EXECUTIVE']::TEXT[]
+                  AND EXISTS (
+                      SELECT 1
+                      FROM public.user_role_assignments ura
+                      JOIN public.policy_roles pr
+                        ON pr.org_id = ura.org_id AND pr.id = ura.role_id
+                      JOIN public.policy_role_permissions prp
+                        ON prp.org_id = pr.org_id AND prp.role_id = pr.id
+                      WHERE ura.org_id = p_org_id
+                        AND ura.user_id = p_actor
+                        AND pr.status = 'ACTIVE'
+                        AND NOT pr.is_system
+                        AND prp.feature_key = 'employee_directory_manage'
+                        AND prp.permission_level = 'allow'
+                        AND NOT EXISTS (
+                            SELECT 1
+                            FROM public.policy_role_conditions prc
+                            WHERE prc.org_id = pr.org_id
+                              AND prc.role_id = pr.id
+                              AND (
+                                  prc.operator NOT IN ('equals', 'in')
+                                  -- Branch conditions narrow All and therefore
+                                  -- cannot authorize this org-wide command.
+                                  OR prc.attribute <> 'team'
+                                  OR u.team IS NULL
+                                  OR NOT EXISTS (
+                                      SELECT 1
+                                      FROM pg_catalog.unnest(prc.condition_values) value
+                                      WHERE pg_catalog.btrim(value) = u.team
+                                         OR pg_catalog.upper(pg_catalog.btrim(value)) = CASE u.team
+                                              WHEN '정비' THEN 'MAINTENANCE'
+                                              WHEN '예방' THEN 'PREVENTION'
+                                              WHEN '관리' THEN 'MANAGEMENT'
+                                              WHEN '접수' THEN 'RECEPTION'
+                                              ELSE NULL
+                                            END
+                                  )
+                              )
+                        )
+                  )
+              )
+          )
     ) THEN
         RAISE EXCEPTION USING ERRCODE = '42501', MESSAGE = 'leave_balance_import.actor_forbidden';
     END IF;
@@ -634,6 +825,7 @@ CREATE FUNCTION leave_api.create_request(
     p_partial_day_period TEXT, p_review_reasons TEXT[],
     p_evidence_home_branch_id UUID, p_date_charges JSONB, p_calendar_revision_ref JSONB,
     p_policy_revision_ref JSONB, p_supporting_source_refs JSONB,
+    p_submission_key UUID,
     p_trace_id TEXT, p_span_id TEXT
 ) RETURNS TABLE(request_id UUID, subject_employee_id UUID, branch_id UUID,
                 request_version BIGINT, charge_version BIGINT,
@@ -646,10 +838,64 @@ DECLARE
     v_snapshot JSONB;
     v_units NUMERIC(16,6);
     v_digest TEXT;
+    v_submission_digest TEXT;
     v_resolved BOOLEAN := p_date_charges IS NOT NULL;
     v_resolution_id UUID;
+    v_existing public.leave_requests%ROWTYPE;
+    v_existing_server_digest TEXT;
 BEGIN
     PERFORM leave_api.assert_context(p_org_id, p_requester, p_trace_id, p_span_id);
+    IF p_submission_key IS NULL
+       OR p_reason IS NULL OR char_length(pg_catalog.btrim(p_reason)) NOT BETWEEN 1 AND 500
+       OR p_end_date < p_start_date
+       OR p_leave_type NOT IN ('annual','half_day')
+       OR (p_leave_type = 'half_day') IS DISTINCT FROM (p_partial_day_period IS NOT NULL) THEN
+        RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'leave_create.invalid_intent';
+    END IF;
+
+    -- Idempotency is bound only to normalized client intent. Mutable routing
+    -- and evidence validation deliberately occur after this replay check so a
+    -- committed response can be recovered even if home branch, calendar, or
+    -- policy state changed before the retry arrived.
+    v_submission_digest := pg_catalog.encode(public.digest(
+        pg_catalog.convert_to(pg_catalog.jsonb_build_object(
+            'leave_type', p_leave_type,
+            'start_date', p_start_date,
+            'end_date', p_end_date,
+            'reason', pg_catalog.btrim(p_reason),
+            'partial_day_period', p_partial_day_period
+        )::TEXT, 'UTF8'), 'sha256'), 'hex');
+    PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(
+        p_org_id::TEXT || ':' || p_requester::TEXT || ':' || p_submission_key::TEXT, 166
+    ));
+    SELECT * INTO v_existing
+      FROM public.leave_requests lr
+     WHERE lr.org_id = p_org_id
+       AND lr.requester_user_id = p_requester
+       AND lr.submission_key = p_submission_key;
+    IF FOUND THEN
+        IF v_existing.submission_digest IS DISTINCT FROM v_submission_digest THEN
+            RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='leave_create.idempotency_conflict';
+        END IF;
+        SELECT r.server_digest INTO v_existing_server_digest
+          FROM public.leave_charge_resolutions r
+         WHERE r.org_id = p_org_id
+           AND r.request_id = v_existing.id
+           AND r.charge_version = 1
+           AND v_existing.submission_initial_charge_version = 1;
+        RETURN QUERY SELECT v_existing.id, v_existing.subject_employee_id,
+            v_existing.branch_id, 1::BIGINT,
+            v_existing.submission_initial_charge_version,
+            CASE WHEN v_existing.submission_initial_charge_version = 0 THEN NULL::NUMERIC
+                 ELSE (SELECT r.charge_units
+                         FROM public.leave_charge_resolutions r
+                        WHERE r.org_id = p_org_id
+                          AND r.request_id = v_existing.id
+                          AND r.charge_version = 1) END,
+            v_existing_server_digest;
+        RETURN;
+    END IF;
+
     PERFORM pg_catalog.pg_advisory_xact_lock(pg_catalog.hashtextextended(p_requester::TEXT, 166));
     SELECT e.id, e.home_branch_id INTO v_subject, v_branch
       FROM public.users u
@@ -668,12 +914,6 @@ BEGIN
         WHERE b.id = v_branch AND b.org_id = p_org_id AND b.deactivated_at IS NULL
     ) THEN
         RAISE EXCEPTION USING ERRCODE = 'P0001', MESSAGE = 'leave_create.home_branch_required';
-    END IF;
-    IF p_reason IS NULL OR char_length(pg_catalog.btrim(p_reason)) NOT BETWEEN 1 AND 500
-       OR p_end_date < p_start_date
-       OR p_leave_type NOT IN ('annual','half_day')
-       OR (p_leave_type = 'half_day') IS DISTINCT FROM (p_partial_day_period IS NOT NULL) THEN
-        RAISE EXCEPTION USING ERRCODE = '22023', MESSAGE = 'leave_create.invalid_intent';
     END IF;
     IF v_resolved IS DISTINCT FROM (p_review_reasons IS NULL OR cardinality(p_review_reasons) = 0)
        OR (v_resolved AND p_evidence_home_branch_id IS DISTINCT FROM v_branch)
@@ -704,15 +944,19 @@ BEGIN
     END IF;
 
     INSERT INTO public.leave_requests
-        (id, org_id, branch_id, requester_user_id, subject_employee_id,
+        (id, org_id, branch_id, requester_user_id, subject_employee_id, days,
          leave_type, start_date, end_date, reason, partial_day_period, status,
-         charge_state, charge_review_reasons, charge_units, charge_version)
+         charge_state, charge_review_reasons, charge_units, charge_version,
+         submission_key, submission_digest, submission_initial_charge_version)
     VALUES
         (p_request_id, p_org_id, v_branch, p_requester, v_subject,
+         CASE WHEN p_leave_type = 'half_day' THEN 0.5::NUMERIC
+              ELSE (p_end_date - p_start_date + 1)::NUMERIC END,
          p_leave_type, p_start_date, p_end_date, pg_catalog.btrim(p_reason),
          p_partial_day_period, 'pending', 'review_required',
          CASE WHEN v_resolved THEN ARRAY['missing_calendar']::TEXT[] ELSE p_review_reasons END,
-         NULL, 0);
+         NULL, 0, p_submission_key, v_submission_digest,
+         CASE WHEN v_resolved THEN 1 ELSE 0 END);
 
     IF v_resolved THEN
         v_resolution_id := public.gen_random_uuid();
@@ -752,7 +996,7 @@ BEGIN
         CASE WHEN v_resolved THEN 1::BIGINT ELSE 0::BIGINT END, v_units, v_digest;
 END;
 $$;
-ALTER FUNCTION leave_api.create_request(UUID, UUID, UUID, TEXT, DATE, DATE, TEXT, TEXT, TEXT[], UUID, JSONB, JSONB, JSONB, JSONB, TEXT, TEXT)
+ALTER FUNCTION leave_api.create_request(UUID, UUID, UUID, TEXT, DATE, DATE, TEXT, TEXT, TEXT[], UUID, JSONB, JSONB, JSONB, JSONB, UUID, TEXT, TEXT)
     OWNER TO mnt_leave_definer;
 
 CREATE FUNCTION leave_api.resolve_charge(
@@ -862,7 +1106,10 @@ BEGIN
     IF v_request.status <> 'pending' THEN
         RAISE EXCEPTION USING ERRCODE='P0001', MESSAGE='leave_decide.not_pending';
     END IF;
-    IF v_request.request_version <> p_expected_version THEN
+    -- NULL is the v1 wire contract: the row lock plus pending-state predicate
+    -- gives first-writer-wins behavior. Version-aware callers retain exact CAS.
+    IF p_expected_version IS NOT NULL
+       AND v_request.request_version <> p_expected_version THEN
         RAISE EXCEPTION USING ERRCODE='40001', MESSAGE='leave_decide.concurrent_modification';
     END IF;
     IF v_request.requester_user_id=p_decider THEN
@@ -1370,7 +1617,7 @@ ALTER FUNCTION leave_api.set_employee_home_branch(UUID, UUID, UUID, TIMESTAMPTZ,
     OWNER TO mnt_leave_definer;
 
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA leave_api FROM PUBLIC, mnt_rt;
-GRANT EXECUTE ON FUNCTION leave_api.create_request(UUID, UUID, UUID, TEXT, DATE, DATE, TEXT, TEXT, TEXT[], UUID, JSONB, JSONB, JSONB, JSONB, TEXT, TEXT) TO mnt_leave_cmd;
+GRANT EXECUTE ON FUNCTION leave_api.create_request(UUID, UUID, UUID, TEXT, DATE, DATE, TEXT, TEXT, TEXT[], UUID, JSONB, JSONB, JSONB, JSONB, UUID, TEXT, TEXT) TO mnt_leave_cmd;
 GRANT EXECUTE ON FUNCTION leave_api.resolve_charge(UUID, UUID, UUID, BIGINT, JSONB, JSONB, JSONB, JSONB, TEXT, TEXT) TO mnt_leave_cmd;
 GRANT EXECUTE ON FUNCTION leave_api.decide_request(UUID, UUID, UUID, BIGINT, TEXT, TEXT, TEXT, TEXT) TO mnt_leave_cmd;
 GRANT EXECUTE ON FUNCTION leave_api.import_employee_leave_balance(UUID, UUID, TIMESTAMPTZ, TEXT, TEXT, TEXT, TEXT, TEXT, TEXT, UUID, TEXT, TEXT) TO mnt_leave_cmd;

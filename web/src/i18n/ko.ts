@@ -1545,6 +1545,7 @@ export const ko = {
       status: {
         loading: "불러오는 중",
         loadFailed: "불러오기 실패",
+        branchRequired: "메신저를 열 지점을 먼저 선택하세요.",
         muted: "무음",
         unreadDivider: "새 메시지",
       },
@@ -3202,6 +3203,7 @@ export const ko = {
         allDays: "이번 주 전체",
         today: "오늘",
         open: "열기",
+        loadMore: "더 불러오기",
       },
       kind: { approval: "결재", dispatch: "배차", work: "정비", support: "회신" },
       error: "불러오지 못했습니다",

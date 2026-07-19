@@ -7,6 +7,7 @@ import {
   SHIPPED_SCREEN_KEYS,
   consoleScreenPath,
   defaultScreen,
+  isShippedScreenKey,
   isNavItemVisible,
   screenFromConsolePath,
   visibleConsoleNav,
@@ -112,7 +113,7 @@ describe("console nav deny-by-omission", () => {
 
     expect(SHIPPED_SCREEN_KEYS.every((key) => registered.has(key))).toBe(true);
     expect(declared.filter((key) => !shipped.has(key))).toEqual(
-      expect.arrayContaining(["hr", "recruit", "dispatch", "notif", "directory"]),
+      expect.arrayContaining(["hr", "recruit", "dispatch", "docs", "notif", "directory"]),
     );
 
     for (const role of Object.values(ROLES)) {
@@ -128,5 +129,11 @@ describe("console nav deny-by-omission", () => {
     expect(screenFromConsolePath("/console/audit%2Fnested")).toBeUndefined();
     expect(screenFromConsolePath("/console/%E0%A4%A")).toBeUndefined();
     expect(consoleScreenPath("a b")).toBe("/console/a%20b");
+  });
+
+  it("narrows only production-visible screen keys", () => {
+    expect(isShippedScreenKey("audit")).toBe(true);
+    expect(isShippedScreenKey("docs")).toBe(false);
+    expect(isShippedScreenKey("unknown")).toBe(false);
   });
 });

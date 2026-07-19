@@ -19,9 +19,15 @@ async fn role_pool(owner_pool: &PgPool, role: &'static str) -> PgPool {
         .max_connections(4)
         .after_connect(move |conn, _meta| {
             Box::pin(async move {
-                sqlx::query(&format!("SET ROLE {role}"))
-                    .execute(conn)
-                    .await?;
+                match role {
+                    "mnt_rt" => sqlx::query("SET ROLE mnt_rt").execute(conn).await?,
+                    "mnt_ontology_cmd" => {
+                        sqlx::query("SET ROLE mnt_ontology_cmd")
+                            .execute(conn)
+                            .await?
+                    }
+                    _ => unreachable!("test role must be allowlisted"),
+                };
                 Ok(())
             })
         })
@@ -113,6 +119,27 @@ async fn ontology_bootstrap_mutation_count(owner_pool: &PgPool, org: Uuid) -> i6
           + (SELECT COUNT(*) FROM ont_analytics WHERE org_id=$1)
           + (SELECT COUNT(*) FROM ont_builtin_catalog_installs WHERE org_id=$1)
           + (SELECT COUNT(*) FROM audit_events WHERE org_id=$1)
+        "#,
+    )
+    .bind(org)
+    .fetch_one(owner_pool)
+    .await
+    .unwrap()
+}
+
+async fn ontology_bootstrap_snapshot(owner_pool: &PgPool, org: Uuid) -> serde_json::Value {
+    sqlx::query_scalar(
+        r#"
+        SELECT jsonb_build_object(
+          'object_types', (SELECT COUNT(*) FROM ont_object_types WHERE org_id=$1),
+          'key_revisions', (SELECT COUNT(*) FROM ont_object_type_key_revisions WHERE org_id=$1),
+          'properties', (SELECT COUNT(*) FROM ont_property_defs WHERE org_id=$1),
+          'links', (SELECT COUNT(*) FROM ont_link_types WHERE org_id=$1),
+          'actions', (SELECT COUNT(*) FROM ont_action_types WHERE org_id=$1),
+          'analytics', (SELECT COUNT(*) FROM ont_analytics WHERE org_id=$1),
+          'markers', (SELECT COUNT(*) FROM ont_builtin_catalog_installs WHERE org_id=$1),
+          'audits', (SELECT COUNT(*) FROM audit_events WHERE org_id=$1)
+        )
         "#,
     )
     .bind(org)
@@ -599,13 +626,14 @@ async fn runtime_role_has_one_validated_audited_object_type_write_surface(owner_
     let cmd_pool = command_role_pool(&owner_pool).await;
 
     let unavailable = mnt_platform_request_context::scope_org(org, async {
-        create(
-            &PgOntologyStore::new(rt_pool.clone()),
-            actor,
-            "cas.no_command_pool",
-            "must fail closed",
-        )
-        .await
+        PgOntologyStore::new(rt_pool.clone())
+            .create_object_type(
+                actor,
+                draft("cas.no_command_pool", "must fail closed"),
+                TraceContext::generate(),
+                datetime!(2026-07-19 12:00 UTC),
+            )
+            .await
     })
     .await;
     assert!(matches!(
@@ -694,19 +722,23 @@ async fn runtime_role_has_one_validated_audited_object_type_write_surface(owner_
                 .as_database_error()
                 .and_then(|value| value.code())
                 .as_deref(),
-            Some("42501")
+            if statement.starts_with("UPDATE") {
+                Some("42501")
+            } else {
+                Some("23514")
+            },
+            "legacy-shaped privileges must still reject content edits and child appends without a same-transaction audit"
         );
     }
 
-    let registry_tables = [
-        "ont_object_types",
-        "ont_object_type_key_revisions",
-        "ont_property_defs",
-        "ont_link_types",
-        "ont_action_types",
-        "ont_analytics",
-    ];
-    for table in registry_tables {
+    for (table, retained) in [
+        ("ont_object_types", &["INSERT", "UPDATE"][..]),
+        ("ont_object_type_key_revisions", &[][..]),
+        ("ont_property_defs", &["INSERT"][..]),
+        ("ont_link_types", &["INSERT"][..]),
+        ("ont_action_types", &["INSERT"][..]),
+        ("ont_analytics", &["INSERT"][..]),
+    ] {
         for privilege in ["INSERT", "UPDATE", "DELETE", "TRUNCATE"] {
             let granted: bool = sqlx::query_scalar("SELECT has_table_privilege('mnt_rt', $1, $2)")
                 .bind(table)
@@ -714,32 +746,43 @@ async fn runtime_role_has_one_validated_audited_object_type_write_surface(owner_
                 .fetch_one(&owner_pool)
                 .await
                 .unwrap();
-            assert!(!granted, "mnt_rt unexpectedly has {privilege} on {table}");
+            assert_eq!(
+                granted,
+                retained.contains(&privilege),
+                "mnt_rt {table}/{privilege} must match the narrow blue/green compatibility ACL"
+            );
         }
     }
 
-    let mut audit_forge = rt_pool.acquire().await.unwrap();
-    sqlx::query("SELECT set_config('app.current_org', $1, false)")
-        .bind(org.as_uuid().to_string())
+    for action in [
+        "ontology.object_type.create",
+        "ontology.object_type.stage_revision",
+        "ontology.object_type.transition",
+        "ontology.object_type.builtin_install",
+    ] {
+        let mut audit_forge = rt_pool.acquire().await.unwrap();
+        sqlx::query("SELECT set_config('app.current_org', $1, false)")
+            .bind(org.as_uuid().to_string())
+            .execute(&mut *audit_forge)
+            .await
+            .unwrap();
+        let forge_error = sqlx::query(
+            "INSERT INTO audit_events (id,actor,action,target_type,target_id,trace_id,span_id,occurred_at,org_id) VALUES (gen_random_uuid(),$1,$2,'ont_object_types',$3,'0123456789abcdef0123456789abcdef','0123456789abcdef',statement_timestamp(),$4)",
+        )
+        .bind(*actor.as_uuid())
+        .bind(action)
+        .bind(created.id.as_uuid().to_string())
+        .bind(*org.as_uuid())
         .execute(&mut *audit_forge)
         .await
-        .unwrap();
-    let forge_error = sqlx::query(
-        "INSERT INTO audit_events (id,actor,action,target_type,target_id,trace_id,span_id,occurred_at,org_id) VALUES (gen_random_uuid(),$1,'ontology.object_type.transition','ont_object_types',$2,'0123456789abcdef0123456789abcdef','0123456789abcdef',statement_timestamp(),$3)",
-    )
-    .bind(*actor.as_uuid())
-    .bind(created.id.as_uuid().to_string())
-    .bind(*org.as_uuid())
-    .execute(&mut *audit_forge)
-    .await
-    .expect_err("mnt_rt must not forge protected ontology audit actions");
-    let forge_database_error = forge_error.as_database_error().unwrap();
-    assert_eq!(forge_database_error.code().as_deref(), Some("42501"));
-    assert_eq!(
-        forge_database_error.message(),
-        "ontology_audit.command_required"
-    );
-    drop(audit_forge);
+        .expect_err("mnt_rt must not forge protected ontology audit actions");
+        let forge_database_error = forge_error.as_database_error().unwrap();
+        assert_eq!(forge_database_error.code().as_deref(), Some("42501"));
+        assert_eq!(
+            forge_database_error.message(),
+            "ontology_audit.command_required"
+        );
+    }
 
     let snapshot = serde_json::to_value(draft("cas.sql_boundary", "guarded")).unwrap();
     let trace = TraceContext::generate();
@@ -892,7 +935,6 @@ async fn builtin_catalog_install_is_allowlisted_atomic_idempotent_and_race_safe(
     let nonempty_org_uuid = Uuid::from_u128(0x9999_9999_9999_9999_9999_9999_9999_9999);
     let install_org = OrgId::from_uuid(install_org_uuid);
     let drift_org = OrgId::from_uuid(drift_org_uuid);
-    let race_org = OrgId::from_uuid(race_org_uuid);
     let physical_org = OrgId::from_uuid(physical_org_uuid);
     let nonempty_org = OrgId::from_uuid(nonempty_org_uuid);
     let install_actor = seed_org_and_user(&owner_pool, install_org_uuid, "catalog-install").await;
@@ -924,6 +966,32 @@ async fn builtin_catalog_install_is_allowlisted_atomic_idempotent_and_race_safe(
             .all(|link| link.get("to_object_type_id").is_none())
     );
 
+    let mut runtime_install = rt_pool.acquire().await.unwrap();
+    sqlx::query("SELECT set_config('app.current_org', $1, false)")
+        .bind(install_org_uuid.to_string())
+        .execute(&mut *runtime_install)
+        .await
+        .unwrap();
+    let runtime_install_error =
+        sqlx::query("SELECT * FROM ontology_api.install_builtin_catalog($1,$2,$3,$4,$5,$6)")
+            .bind(install_org_uuid)
+            .bind(BUILTIN_CATALOG_VERSION)
+            .bind(&manifest)
+            .bind(*install_actor.as_uuid())
+            .bind("0123456789abcdef0123456789abcdef")
+            .bind("0123456789abcdef")
+            .execute(&mut *runtime_install)
+            .await
+            .expect_err("the general runtime credential must not execute catalog install");
+    assert_eq!(
+        runtime_install_error
+            .as_database_error()
+            .and_then(|error| error.code())
+            .as_deref(),
+        Some("42501")
+    );
+    drop(runtime_install);
+
     let installed = mnt_platform_request_context::scope_org(install_org, async {
         store
             .install_builtin_catalog(
@@ -939,6 +1007,7 @@ async fn builtin_catalog_install_is_allowlisted_atomic_idempotent_and_race_safe(
     .await;
     assert!(installed.installed);
     assert_eq!(installed.object_type_count, 27);
+    let installed_snapshot = ontology_bootstrap_snapshot(&owner_pool, install_org_uuid).await;
 
     let retry = mnt_platform_request_context::scope_org(install_org, async {
         store
@@ -955,6 +1024,11 @@ async fn builtin_catalog_install_is_allowlisted_atomic_idempotent_and_race_safe(
     .await;
     assert!(!retry.installed);
     assert_eq!(retry.object_type_count, object_types.len() as i64);
+    assert_eq!(
+        ontology_bootstrap_snapshot(&owner_pool, install_org_uuid).await,
+        installed_snapshot,
+        "an exact retry must be row- and audit-mutation-free across the full catalog footprint"
+    );
 
     let install_counts = sqlx::query(
         r#"
@@ -1090,33 +1164,56 @@ async fn builtin_catalog_install_is_allowlisted_atomic_idempotent_and_race_safe(
         .execute(&mut *create_tx)
         .await
         .unwrap();
-    let raced_store = store.clone();
+    let mut install_conn = cmd_pool.acquire().await.unwrap();
+    sqlx::query("SELECT set_config('app.current_org', $1, false)")
+        .bind(race_org_uuid.to_string())
+        .execute(&mut *install_conn)
+        .await
+        .unwrap();
+    let install_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+        .fetch_one(&mut *install_conn)
+        .await
+        .unwrap();
     let raced_manifest = manifest.clone();
-    let mut install_task = tokio::spawn(mnt_platform_request_context::scope_org(
-        race_org,
-        async move {
-            raced_store
-                .install_builtin_catalog(
-                    race_actor,
-                    BUILTIN_CATALOG_VERSION,
-                    raced_manifest,
-                    TraceContext::generate(),
-                    datetime!(2026-07-19 13:03 UTC),
-                )
-                .await
-        },
-    ));
-    assert!(
-        tokio::time::timeout(std::time::Duration::from_millis(100), &mut install_task)
+    let install_task = tokio::spawn(async move {
+        sqlx::query("SELECT * FROM ontology_api.install_builtin_catalog($1,$2,$3,$4,$5,$6)")
+            .bind(race_org_uuid)
+            .bind(BUILTIN_CATALOG_VERSION)
+            .bind(raced_manifest)
+            .bind(*race_actor.as_uuid())
+            .bind("3123456789abcdef0123456789abcdef")
+            .bind("3123456789abcdef")
+            .execute(&mut *install_conn)
             .await
-            .is_err(),
-        "installer must wait behind the ordinary create's org bootstrap lock"
+    });
+    let mut observed_advisory_wait = false;
+    for _ in 0..100 {
+        observed_advisory_wait = sqlx::query_scalar(
+            "SELECT COALESCE((SELECT wait_event_type='Lock' AND wait_event='advisory' FROM pg_stat_activity WHERE pid=$1),false)",
+        )
+        .bind(install_pid)
+        .fetch_one(&owner_pool)
+        .await
+        .unwrap();
+        if observed_advisory_wait {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    assert!(
+        observed_advisory_wait,
+        "installer must be observably blocked on the ordinary create's org advisory lock"
     );
     create_tx.commit().await.unwrap();
-    assert!(matches!(
-        install_task.await.unwrap(),
-        Err(PgOntologyError::Db(_))
-    ));
+    let install_error = install_task
+        .await
+        .unwrap()
+        .expect_err("installer must recheck and reject the now non-empty org");
+    assert!(
+        install_error
+            .as_database_error()
+            .is_some_and(|error| error.message() == "ontology_builtin.empty_org_required")
+    );
     let race_counts = sqlx::query(
         r#"
         SELECT

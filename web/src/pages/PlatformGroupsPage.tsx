@@ -268,13 +268,17 @@ export function PlatformGroupsPage() {
     setError(undefined);
     try {
       const result = await startTenantContext(token, { org_id: org.id }, refreshAuthority);
-      enterViewAs({
-        token: result.access_token,
-        mode: "MANAGE",
-        actingOrgId: result.acting_org_id,
-        actingOrgName: result.acting_org_name,
-        actingRole: result.acting_role,
-      });
+      if (
+        enterViewAs({
+          token: result.access_token,
+          mode: "MANAGE",
+          actingOrgId: result.acting_org_id,
+          actingOrgName: result.acting_org_name,
+          actingRole: result.acting_role,
+        }) !== true
+      ) {
+        throw new Error("tenant management authority was retired");
+      }
       void navigate("/settings/org");
     } catch {
       setError(ko.platform.tenantContext.failed);

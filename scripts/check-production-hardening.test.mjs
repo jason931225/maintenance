@@ -409,11 +409,7 @@ jobs:
   ci-gate:
     steps:
       - name: Wait for CI success
-        run: |
-          runs="$(gh run list --workflow ci.yml --commit "$SHA" --json status,conclusion,url)"
-          conclusion="$(jq -r '.[0].conclusion // ""' <<<"$runs")"
-          if [[ "$conclusion" == "success" ]]; then exit 0; fi
-          exit 1
+        run: bash scripts/wait-for-protected-main-ci.sh
   images:
     steps:
       - name: Trivy scan (fail on HIGH/CRITICAL)
@@ -426,6 +422,14 @@ jobs:
     steps:
       - name: Bump prod overlay digests
         run: bash scripts/bump-prod-digests.sh "$APP_DIGEST" "$WEB_DIGEST"
+`,
+  "scripts/wait-for-protected-main-ci.sh": `#!/usr/bin/env bash
+set -euo pipefail
+runs="$(gh run list --workflow ci.yml --commit "$SHA" --event push --branch main --json status,conclusion,url,event,headBranch)"
+runs="$(jq '[.[] | select(.event == "push" and .headBranch == "main")]' <<<"$runs")"
+conclusion="$(jq -r '.[0].conclusion // ""' <<<"$runs")"
+if [[ "$conclusion" == "success" ]]; then exit 0; fi
+exit 1
 `,
 };
 
@@ -477,7 +481,7 @@ jobs:
     assertHasFailure(result, "CI must run npm run check:production-hardening as an active step");
     assertHasFailure(result, "Security workflow must run npm run check:production-hardening as an active step");
     assertHasFailure(result, "security workflow must actively run trivy fs --scanners vuln,secret");
-    assertHasFailure(result, "image-release must actively wait for CI success");
+    assertHasFailure(result, "image-release must actively wait for successful protected-main push CI");
     assertHasFailure(result, "image-release must actively cosign sign");
   });
 });

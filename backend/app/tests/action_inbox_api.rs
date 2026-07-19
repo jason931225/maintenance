@@ -85,6 +85,57 @@ async fn action_inbox_returns_only_my_assigned_work_orders(pool: PgPool) {
     assert_eq!(resp.json["total"], 1);
 }
 
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn action_inbox_keyset_pages_past_the_old_two_hundred_item_cap(pool: PgPool) {
+    let keys = keys();
+    let branch = seed_branch(&pool, OrgId::knl(), "페이지 리전", "페이지 지사").await;
+    let alice = UserId::new();
+    seed_user(&pool, OrgId::knl(), alice, "MEMBER", branch).await;
+    let equipment = seed_equipment(&pool, OrgId::knl(), branch, "page").await;
+    for index in 0..205 {
+        seed_assigned_work_order(
+            &pool,
+            OrgId::knl(),
+            branch,
+            equipment,
+            alice,
+            &format!("20260702-{index:03}"),
+        )
+        .await;
+    }
+
+    let service =
+        build_router(app_state(runtime_role_pool(&pool).await, keys.public_pem.clone()).unwrap());
+    let token = bearer(&keys, OrgId::knl(), alice, "MEMBER");
+    let first = get(service.clone(), &format!("{PATH}?limit=200"), &token).await;
+    assert_eq!(first.status, StatusCode::OK, "{:?}", first.json);
+    assert_eq!(first.json["items"].as_array().map(Vec::len), Some(200));
+    assert_eq!(first.json["total"], 205);
+    assert_eq!(first.json["total_is_exact"], true);
+    let cursor = first.json["next_cursor"].as_str().expect("second page");
+    let query = url::form_urlencoded::Serializer::new(String::new())
+        .append_pair("limit", "200")
+        .append_pair("cursor", cursor)
+        .finish();
+    let second = get(service, &format!("{PATH}?{query}"), &token).await;
+    assert_eq!(second.status, StatusCode::OK, "{:?}", second.json);
+    assert_eq!(second.json["items"].as_array().map(Vec::len), Some(5));
+    assert!(second.json["next_cursor"].is_null());
+    let first_ids = first.json["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| item["id"].as_str().unwrap())
+        .collect::<std::collections::HashSet<_>>();
+    assert!(
+        second.json["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|item| !first_ids.contains(item["id"].as_str().unwrap()))
+    );
+}
+
 // ===========================================================================
 // The aggregate is org-scoped: a WO assigned to alice's user id but in ANOTHER
 // org is invisible to her KNL-scoped token (RLS confines the raw query).

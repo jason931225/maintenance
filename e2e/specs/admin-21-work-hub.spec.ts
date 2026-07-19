@@ -39,7 +39,7 @@ test("ADMIN-21 admin drives the overview action inbox end to end", async ({
   sql(`
     INSERT INTO support_tickets (
       branch_id, origin, category, priority, status,
-      title, body, requester_user_id, due_at, org_id
+      title, body, requester_user_id, assignee_user_id, due_at, org_id
     )
     VALUES (
       '${TENANT_BRANCH_ID}',
@@ -49,6 +49,7 @@ test("ADMIN-21 admin drives the overview action inbox end to end", async ({
       'OPEN',
       '${ticketTitle}',
       'Seeded by admin-21 to prove the overview primary action round-trip.',
+      '${ROLE_CONFIG.ADMIN.userId}',
       '${ROLE_CONFIG.ADMIN.userId}',
       now() + interval '1 hour',
       '${TENANT_ORG_ID}'

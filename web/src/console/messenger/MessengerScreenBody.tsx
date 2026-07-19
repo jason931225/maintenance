@@ -14,7 +14,7 @@
 // points agree; the backend re-authorizes every call.
 import { useMemo } from "react";
 
-import { useAuth } from "../../context/auth";
+import { useActiveBranchId, useAuth } from "../../context/auth";
 import { PolicyGateProvider, type PolicyGate } from "../policy";
 import { MESSENGER_ACTIONS } from "./constants";
 import { MessengerConsoleScreen } from "./MessengerConsoleScreen";
@@ -34,6 +34,7 @@ const MESSENGER_ACTION_SET = new Set<string>(Object.values(MESSENGER_ACTIONS));
 
 export function MessengerScreenBody() {
   const { session } = useAuth();
+  const activeBranchId = useActiveBranchId();
   const roles = session?.roles;
   const featureGrants = session?.feature_grants;
 
@@ -54,7 +55,7 @@ export function MessengerScreenBody() {
     <PolicyGateProvider gate={gate}>
       <MessengerConsoleScreen
         accessToken={session?.access_token}
-        branchId={session?.branches?.[0]}
+        branchId={activeBranchId}
         currentUserId={session?.user_id}
       />
     </PolicyGateProvider>

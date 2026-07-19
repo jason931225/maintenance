@@ -8916,18 +8916,42 @@ E-001,홍길동,본사,2026-07-01,abc
         .map_err(|error| error.to_string())?;
         assert_eq!(after_failure, (0, 0, 0, "DRY_RUN".to_owned()));
 
-        let report = apply_employee_import_batch(
+        let valid_rows = vec![imported_row(0, "ACTIVE"), imported_row(1, "ACTIVE")];
+        let first_apply = apply_employee_import_batch(
             &state,
             org,
             actor,
             Some(run_id),
             source_ref.clone(),
-            vec![imported_row(0, "ACTIVE"), imported_row(1, "ACTIVE")],
+            valid_rows.clone(),
             json!({"gate_outcome":"test"}),
-        )
-        .await
-        .map_err(|error| error.message)?;
-        assert_eq!((report.inserted, report.updated, report.skipped), (2, 0, 0));
+        );
+        let concurrent_apply = apply_employee_import_batch(
+            &state,
+            org,
+            actor,
+            Some(run_id),
+            source_ref.clone(),
+            valid_rows,
+            json!({"gate_outcome":"test"}),
+        );
+        let (first_result, concurrent_result) = tokio::join!(first_apply, concurrent_apply);
+        let first_report = first_result.map_err(|error| error.message)?;
+        let concurrent_report = concurrent_result.map_err(|error| error.message)?;
+        let mut outcomes = [
+            (
+                first_report.inserted,
+                first_report.updated,
+                first_report.skipped,
+            ),
+            (
+                concurrent_report.inserted,
+                concurrent_report.updated,
+                concurrent_report.skipped,
+            ),
+        ];
+        outcomes.sort_unstable();
+        assert_eq!(outcomes, [(0, 0, 2), (2, 0, 0)]);
         let timestamps_before_replay: Vec<OffsetDateTime> = sqlx::query_scalar(
             "SELECT updated_at FROM employees WHERE org_id=$1 ORDER BY source_key",
         )

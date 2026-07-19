@@ -120,7 +120,7 @@ function makeAuthContext(
     acceptTokens: () => {},
     clearPasskeySetup: () => {},
     viewAs: undefined,
-    enterViewAs: () => {},
+    enterViewAs: () => true,
     exitViewAs: () => undefined,
     api,
     ...overrides,
@@ -329,7 +329,7 @@ describe("Platform tenant list", () => {
   it("starts a writable tenant management context for an active org", async () => {
     const user = userEvent.setup();
     const started = vi.fn();
-    const enterViewAs = vi.fn();
+    const enterViewAs = vi.fn(() => true);
     server.use(
       http.get("*/api/platform/orgs", () => HttpResponse.json(orgs)),
       http.post("*/api/platform/tenant-context", async ({ request }) => {
@@ -368,6 +368,38 @@ describe("Platform tenant list", () => {
         actingRole: "SUPER_ADMIN",
       });
     });
+  });
+
+  it("keeps the platform page authoritative when tenant-context adoption is rejected", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get("*/api/platform/orgs", () => HttpResponse.json(orgs)),
+      http.post("*/api/platform/tenant-context", () =>
+        HttpResponse.json({
+          access_token: "retired-tenant-token",
+          token_type: "Bearer",
+          acting_org_id: orgs[0].id,
+          acting_org_name: orgs[0].name,
+          acting_role: "SUPER_ADMIN",
+          expires_at: "2026-06-19T00:00:00Z",
+        }),
+      ),
+    );
+    renderPlatformPage(
+      <PlatformTenantsPage />,
+      "/platform/tenants",
+      makeAuthContext(platformSession, { enterViewAs: () => false }),
+    );
+
+    const row = (await screen.findByText("Acme Corporation")).closest("tr");
+    await user.click(
+      within(row as HTMLElement).getByRole("button", { name: "조직 관리" }),
+    );
+
+    expect(
+      await screen.findByText("조직 관리 모드로 전환하지 못했습니다. 다시 시도하세요."),
+    ).toBeVisible();
+    expect(screen.getByText("Acme Corporation")).toBeVisible();
   });
 });
 
@@ -610,7 +642,7 @@ describe("Platform group management", () => {
   it("starts a writable organization-management context from a group member", async () => {
     const user = userEvent.setup();
     const started = vi.fn();
-    const enterViewAs = vi.fn();
+    const enterViewAs = vi.fn(() => true);
     server.use(
       http.get("*/api/platform/groups", () =>
         HttpResponse.json(platformGroups),
@@ -653,6 +685,40 @@ describe("Platform group management", () => {
         actingRole: "SUPER_ADMIN",
       });
     });
+  });
+
+  it("does not leave group management after a retired tenant-context response", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get("*/api/platform/groups", () => HttpResponse.json(platformGroups)),
+      http.get("*/api/platform/orgs", () => HttpResponse.json(orgs)),
+      emptyGroupAccountsHandler,
+      http.post("*/api/platform/tenant-context", () =>
+        HttpResponse.json({
+          access_token: "retired-tenant-token",
+          token_type: "Bearer",
+          acting_org_id: orgs[0].id,
+          acting_org_name: orgs[0].name,
+          acting_role: "SUPER_ADMIN",
+          expires_at: "2026-06-19T00:00:00Z",
+        }),
+      ),
+    );
+    renderPlatformPage(
+      <PlatformGroupsPage />,
+      "/platform/groups",
+      makeAuthContext(platformSession, { enterViewAs: () => false }),
+    );
+
+    const row = (await screen.findByText("Acme Corporation")).closest("tr");
+    await user.click(
+      within(row as HTMLElement).getByRole("button", { name: "조직 관리" }),
+    );
+
+    expect(
+      await screen.findByText("조직 관리 모드로 전환하지 못했습니다. 다시 시도하세요."),
+    ).toBeVisible();
+    expect(screen.getByRole("heading", { name: "그룹 관리" })).toBeVisible();
   });
 });
 
