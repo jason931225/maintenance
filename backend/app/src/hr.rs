@@ -4,7 +4,7 @@ use std::io::Cursor;
 use axum::extract::{DefaultBodyLimit, Multipart, Path, Query, State};
 use axum::http::{HeaderValue, StatusCode, header};
 use axum::response::{IntoResponse, Response};
-use axum::routing::{get, post};
+use axum::routing::{get, post, put};
 use axum::{Extension, Json, Router};
 use calamine::{Data, DataType, Reader, Xlsx};
 use mnt_governance_domain::{GateChainConfig, GateEvidence, evaluate_gate_chain};
@@ -12,6 +12,8 @@ use mnt_kernel_core::{
     AuditAction, AuditEvent, BranchId, BranchScope, ErrorKind, KernelError, OrgId, TraceContext,
     UserId,
 };
+use mnt_leave_adapter_postgres::{PgLeaveError, PgLeaveStore};
+use mnt_leave_domain::LeaveBalanceAmount;
 use mnt_payroll_domain::{
     ProfessionalReviewerKind, ProfessionalValidation, SeverancePayInput, build_severance_pay_draft,
     moel_retirement_pay_source, nhis_qualification_loss_form_source,
@@ -34,6 +36,7 @@ pub const EMPLOYEES_IMPORT_DRY_RUN_PATH_TEMPLATE: &str =
 pub const EMPLOYEES_IMPORT_APPLY_PATH_TEMPLATE: &str = "/api/v1/employees/import/{run_id}/apply";
 pub const EMPLOYEES_EXPORT_CSV_PATH: &str = "/api/v1/employees/export.csv";
 pub const EMPLOYEE_LIFECYCLE_EVENTS_PATH_TEMPLATE: &str = "/api/v1/employees/{id}/lifecycle-events";
+pub const EMPLOYEE_HOME_BRANCH_PATH_TEMPLATE: &str = "/api/v1/employees/{id}/home-branch";
 pub const HR_ORG_CHART_PATH: &str = "/api/v1/hr/org-chart";
 pub const HR_LEAVE_BALANCES_PATH: &str = "/api/v1/hr/leave-balances";
 pub const HR_ATTENDANCE_SUMMARY_PATH: &str = "/api/v1/hr/attendance-summary";
@@ -59,6 +62,7 @@ pub const HR_ROUTE_PATHS: &[&str] = &[
     EMPLOYEES_IMPORT_APPLY_PATH_TEMPLATE,
     EMPLOYEES_EXPORT_CSV_PATH,
     EMPLOYEE_LIFECYCLE_EVENTS_PATH_TEMPLATE,
+    EMPLOYEE_HOME_BRANCH_PATH_TEMPLATE,
     HR_ORG_CHART_PATH,
     HR_LEAVE_BALANCES_PATH,
     HR_ATTENDANCE_SUMMARY_PATH,
@@ -82,13 +86,24 @@ const MAX_LIMIT: i64 = 1000;
 #[derive(Debug, Clone)]
 pub struct HrState {
     pool: PgPool,
+    leave_command_store: Option<PgLeaveStore>,
     jwt_verifier: Option<JwtVerifier>,
 }
 
 impl HrState {
     #[must_use]
     pub fn new(pool: PgPool, jwt_verifier: Option<JwtVerifier>) -> Self {
-        Self { pool, jwt_verifier }
+        Self {
+            pool,
+            leave_command_store: None,
+            jwt_verifier,
+        }
+    }
+
+    #[must_use]
+    pub fn with_leave_command_store(mut self, store: PgLeaveStore) -> Self {
+        self.leave_command_store = Some(store);
+        self
     }
 }
 
@@ -156,6 +171,10 @@ pub fn router(state: HrState) -> Router {
             EMPLOYEE_LIFECYCLE_EVENTS_PATH_TEMPLATE,
             get(list_employee_lifecycle_events).post(create_employee_lifecycle_event),
         )
+        .route(
+            EMPLOYEE_HOME_BRANCH_PATH_TEMPLATE,
+            put(set_employee_home_branch),
+        )
         .with_state(state);
     mnt_platform_request_context::with_request_context(router, verifier, pool)
 }
@@ -163,6 +182,7 @@ pub fn router(state: HrState) -> Router {
 #[derive(Debug, Deserialize)]
 struct EmployeeListQuery {
     company: Option<String>,
+    home_branch_review_required: Option<bool>,
     limit: Option<i64>,
     offset: Option<i64>,
 }
@@ -204,12 +224,33 @@ struct EmployeeResponse {
     leave_used: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     leave_remaining: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    home_branch_id: Option<Uuid>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    home_branch_name: Option<String>,
+    home_branch_review_required: bool,
     identity_resolution_strategy: String,
     identity_resolution_confidence: String,
     identity_review_required: bool,
     identity_name_only_merge: bool,
     created_at: time::OffsetDateTime,
     updated_at: time::OffsetDateTime,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SetEmployeeHomeBranchRequest {
+    branch_id: Uuid,
+    /// Optimistic concurrency precondition from the employee list/read model.
+    expected_updated_at: String,
+}
+
+#[derive(Debug, Serialize)]
+struct EmployeeHomeBranchResponse {
+    employee_id: Uuid,
+    branch_id: Uuid,
+    branch_name: String,
+    updated_at: OffsetDateTime,
 }
 
 #[derive(Debug, Serialize)]
@@ -694,24 +735,38 @@ async fn list_employees(
         .company
         .map(|value| value.trim().to_owned())
         .filter(|value| !value.is_empty());
+    let home_branch_review_required = query.home_branch_review_required;
 
     let (items, total) = with_org_conn::<_, _, HrError>(&state.pool, org, move |tx| {
         Box::pin(async move {
-            let mut count = QueryBuilder::<Postgres>::new("SELECT count(*) FROM employees WHERE TRUE");
+            let mut count = QueryBuilder::<Postgres>::new(
+                "SELECT count(*) FROM employees e \
+                 LEFT JOIN branches b ON b.id = e.home_branch_id \
+                   AND b.org_id = e.org_id AND b.deactivated_at IS NULL \
+                 WHERE TRUE",
+            );
             if let Some(company) = company.as_deref() {
-                count.push(" AND company = ");
+                count.push(" AND e.company = ");
                 count.push_bind(company);
+            }
+            if let Some(required) = home_branch_review_required {
+                count.push(" AND (b.id IS NULL) = ");
+                count.push_bind(required);
             }
             let total: i64 = count.build_query_scalar().fetch_one(tx.as_mut()).await?;
 
             let mut rows = QueryBuilder::<Postgres>::new(
-                "SELECT id, company, name, employee_number, org_unit, job, position, worksite_name, worksite_address, hire_date, exit_date, employment_status, leave_accrued::TEXT AS leave_accrued, leave_used::TEXT AS leave_used, leave_remaining::TEXT AS leave_remaining, identity_resolution_strategy, identity_resolution_confidence, identity_review_required, identity_name_only_merge, created_at, updated_at FROM employees WHERE TRUE",
+                "SELECT e.id, e.company, e.name, e.employee_number, e.org_unit, e.job, e.position, e.worksite_name, e.worksite_address, e.hire_date, e.exit_date, e.employment_status, e.leave_accrued::TEXT AS leave_accrued, e.leave_used::TEXT AS leave_used, e.leave_remaining::TEXT AS leave_remaining, b.id AS home_branch_id, b.name AS home_branch_name, e.identity_resolution_strategy, e.identity_resolution_confidence, e.identity_review_required, e.identity_name_only_merge, e.created_at, e.updated_at FROM employees e LEFT JOIN branches b ON b.id = e.home_branch_id AND b.org_id = e.org_id AND b.deactivated_at IS NULL WHERE TRUE",
             );
             if let Some(company) = company.as_deref() {
-                rows.push(" AND company = ");
+                rows.push(" AND e.company = ");
                 rows.push_bind(company);
             }
-            rows.push(" ORDER BY company ASC, name ASC, source_sheet ASC, source_row ASC LIMIT ");
+            if let Some(required) = home_branch_review_required {
+                rows.push(" AND (b.id IS NULL) = ");
+                rows.push_bind(required);
+            }
+            rows.push(" ORDER BY e.company ASC, e.name ASC, e.source_sheet ASC, e.source_row ASC LIMIT ");
             rows.push_bind(limit);
             rows.push(" OFFSET ");
             rows.push_bind(offset);
@@ -734,6 +789,114 @@ async fn list_employees(
         limit,
         offset,
     }))
+}
+
+/// Assign the employee's authoritative approval-routing branch. No inference is
+/// accepted: the caller names one active branch and must have manage authority
+/// over both that branch and the employee's prior home branch (when present).
+/// The row mutation and its before/after audit snapshots commit atomically.
+async fn set_employee_home_branch(
+    State(state): State<HrState>,
+    Extension(principal): Extension<Principal>,
+    Path(employee_id): Path<Uuid>,
+    Json(body): Json<SetEmployeeHomeBranchRequest>,
+) -> Result<Json<EmployeeHomeBranchResponse>, HrError> {
+    authorize(
+        &principal,
+        Action::new(Feature::EmployeeDirectoryManage),
+        BranchId::from_uuid(body.branch_id),
+    )
+    .map_err(HrError::from_kernel)?;
+
+    let command_store = state.leave_command_store.clone().ok_or_else(|| {
+        HrError::unavailable(
+            "leave command database is not configured; home-branch assignment is unavailable",
+        )
+    })?;
+
+    let org = principal.org_id;
+    let org_uuid = *org.as_uuid();
+    let actor = principal.user_id;
+    let target_branch_id = body.branch_id;
+    let expected_updated_at = OffsetDateTime::parse(
+        body.expected_updated_at.trim(),
+        &time::format_description::well_known::Rfc3339,
+    )
+    .map_err(|_| HrError::validation("expected_updated_at must be an RFC 3339 timestamp"))?;
+    let trace = TraceContext::generate();
+
+    let (branch_name, prior_branch_id, prior_updated_at) =
+        with_org_conn::<_, _, HrError>(&state.pool, org, move |tx| {
+            Box::pin(async move {
+                let branch = sqlx::query(
+                    "SELECT id, name FROM branches \
+                 WHERE org_id = $1 AND id = $2 AND deactivated_at IS NULL",
+                )
+                .bind(org_uuid)
+                .bind(target_branch_id)
+                .fetch_optional(tx.as_mut())
+                .await?
+                .ok_or_else(|| {
+                    HrError::from_kernel(KernelError::not_found(
+                        "active home branch was not found in this organization",
+                    ))
+                })?;
+                let branch_name: String = branch.try_get("name")?;
+
+                let employee = sqlx::query(
+                "SELECT home_branch_id, updated_at FROM employees WHERE org_id = $1 AND id = $2",
+            )
+            .bind(org_uuid)
+            .bind(employee_id)
+            .fetch_optional(tx.as_mut())
+            .await?
+            .ok_or_else(|| {
+                HrError::from_kernel(KernelError::not_found(
+                    "employee was not found in this organization",
+                ))
+            })?;
+                let prior_branch_id: Option<Uuid> = employee.try_get("home_branch_id")?;
+                let prior_updated_at: OffsetDateTime = employee.try_get("updated_at")?;
+
+                Ok((branch_name, prior_branch_id, prior_updated_at))
+            })
+        })
+        .await?;
+
+    authorize_home_branch_transition(&principal, prior_branch_id, target_branch_id)?;
+    if prior_updated_at != expected_updated_at {
+        return Err(HrError::from_kernel(KernelError::conflict(
+            "employee changed since it was read; reload before assigning a home branch",
+        )));
+    }
+
+    // Sensitive employee routing columns are mechanically protected from
+    // direct `mnt_rt` UPDATE. The adapter routes this mutation through the
+    // separately credentialed command pool; the database re-checks tenant,
+    // actor, branch authority, active-branch state, and optimistic version and
+    // owns the one atomic before/after audit.
+    let updated = mnt_platform_request_context::scope_org(org, async move {
+        command_store
+            .set_employee_home_branch(
+                employee_id,
+                target_branch_id,
+                expected_updated_at,
+                actor,
+                trace,
+            )
+            .await
+    })
+    .await
+    .map_err(HrError::from_leave_store)?;
+
+    let response = EmployeeHomeBranchResponse {
+        employee_id: updated.employee_id,
+        branch_id: updated.home_branch_id,
+        branch_name,
+        updated_at: updated.updated_at,
+    };
+
+    Ok(Json(response))
 }
 
 async fn get_hr_org_chart(
@@ -2205,15 +2368,16 @@ async fn import_employees(
     multipart: Multipart,
 ) -> Result<Json<EmployeeImportReport>, HrError> {
     authorize_hr_org_wide(&principal, Feature::EmployeeDirectoryManage)?;
+    require_leave_import_command_store(&state)?;
     let upload = read_xlsx_upload(multipart).await?;
+    let source_ref = sha256_hex(&upload.bytes);
     let parsed = parse_employee_workbook(&upload.filename, &upload.bytes)?;
     let org = principal.org_id;
-    let org_uuid = *org.as_uuid();
+    let actor = principal.user_id;
 
-    let report = with_org_conn::<_, _, HrError>(&state.pool, org, move |tx| {
-        Box::pin(async move { apply_employee_rows_tx(tx, org_uuid, parsed.rows).await })
-    })
-    .await?;
+    let report =
+        apply_employee_import_batch(&state, org, actor, None, source_ref, parsed.rows, json!({}))
+            .await?;
 
     record_hr_import(report.inserted, report.updated);
     Ok(Json(report))
@@ -2395,37 +2559,25 @@ async fn apply_employee_import(
     body: Option<Json<ImportApplyRequest>>,
 ) -> Result<Json<EmployeeImportReport>, HrError> {
     authorize_hr_org_wide(&principal, Feature::EmployeeDirectoryManage)?;
+    require_leave_import_command_store(&state)?;
     let checklist_all_acknowledged = body.and_then(|Json(b)| b.checklist_all_acknowledged);
     let gate_outcome = evaluate_ingest_checklist_gate(checklist_all_acknowledged)?;
     let org = principal.org_id;
     let org_uuid = *org.as_uuid();
     let actor = principal.user_id;
 
-    let event = AuditEvent::new(
-        Some(actor),
-        AuditAction::new("data_import.apply").map_err(HrError::from_kernel)?,
-        "data_import_run",
-        run_id.to_string(),
-        TraceContext::generate(),
-        OffsetDateTime::now_utc(),
-    )
-    .with_org(org)
-    .with_snapshots(
-        None,
-        Some(json!({
-            "run_id": run_id,
-            "entity_type": "employee_hr",
-            "gate_outcome": gate_outcome
-        })),
-    );
-
-    let report = with_audit::<_, _, HrError>(&state.pool, event, |tx| {
+    // The runtime connection only reads immutable candidate rows. One command
+    // statement then owns every write and the staged-run transition.
+    let rows = with_org_conn::<_, _, HrError>(&state.pool, org, |tx| {
         Box::pin(async move {
             let run = import_run_for_update(tx, org_uuid, run_id).await?;
             if run.entity_type != "employee_hr" {
                 return Err(HrError::validation(
                     "import run entity_type is not employee_hr",
                 ));
+            }
+            if run.status == "APPLIED" {
+                return Ok(Vec::new());
             }
             if run.status != "DRY_RUN" {
                 return Err(HrError::from_kernel(KernelError::invalid_transition(
@@ -2437,24 +2589,23 @@ async fn apply_employee_import(
                 .into_iter()
                 .map(StoredEmployeeImportRow::into_parsed)
                 .collect::<Result<Vec<_>, _>>()?;
-            let report = apply_employee_rows_tx(tx, org_uuid, parsed_rows).await?;
-            sqlx::query(
-                r#"
-                UPDATE data_import_runs
-                SET status = 'APPLIED', apply_summary = $3, applied_by = $4,
-                    applied_at = now(), updated_at = now()
-                WHERE org_id = $1 AND id = $2
-                "#,
-            )
-            .bind(org_uuid)
-            .bind(run_id)
-            .bind(json!(&report))
-            .bind(*actor.as_uuid())
-            .execute(tx.as_mut())
-            .await?;
-            Ok(report)
+            Ok(parsed_rows)
         })
     })
+    .await?;
+    let report = apply_employee_import_batch(
+        &state,
+        org,
+        actor,
+        Some(run_id),
+        format!("run:{run_id}"),
+        rows,
+        json!({
+            "run_id": run_id,
+            "entity_type": "employee_hr",
+            "gate_outcome": gate_outcome
+        }),
+    )
     .await?;
 
     record_hr_import(report.inserted, report.updated);
@@ -2693,20 +2844,22 @@ async fn create_employee_lifecycle_event(
     Ok(Json(item))
 }
 
-#[derive(Debug, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct EmployeeImportReport {
     input_rows: usize,
     inserted: usize,
     updated: usize,
+    skipped: usize,
     companies: Vec<CompanyImportSummary>,
 }
 
-#[derive(Debug, Default, Serialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 struct CompanyImportSummary {
     company: String,
     input_rows: usize,
     inserted: usize,
     updated: usize,
+    skipped: usize,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -4597,107 +4750,76 @@ fn import_validation_json(row: &ParsedEmployeeImportRow) -> Value {
     }
 }
 
-async fn apply_employee_rows_tx(
-    tx: &mut sqlx::Transaction<'_, Postgres>,
-    org_uuid: Uuid,
+fn employee_import_batch_rows(rows: &[ParsedEmployeeRow]) -> Value {
+    Value::Array(
+        rows.iter()
+            .map(|row| {
+                let identity = employee_identity_resolution_from_metadata(&row.source_metadata);
+                json!({
+                    "company": &row.company,
+                    "name": &row.name,
+                    "source_filename": &row.source_filename,
+                    "source_sheet": &row.source_sheet,
+                    "source_row": row.source_row,
+                    "source_key": &row.source_key,
+                    "raw_row": &row.raw_row,
+                    "source_metadata": &row.source_metadata,
+                    "canonical": &row.canonical,
+                    "identity": {
+                        "strategy": identity.strategy,
+                        "confidence": identity.confidence,
+                        "review_required": identity.review_required
+                    }
+                })
+            })
+            .collect(),
+    )
+}
+
+async fn apply_employee_import_batch(
+    state: &HrState,
+    org: OrgId,
+    actor: UserId,
+    run_id: Option<Uuid>,
+    source_ref: String,
     rows: Vec<ParsedEmployeeRow>,
+    apply_audit: Value,
 ) -> Result<EmployeeImportReport, HrError> {
-    let mut report = EmployeeImportReport::default();
-    let mut by_company = BTreeMap::<String, CompanyImportSummary>::new();
-    for row in rows {
-        let company_entry =
-            by_company
-                .entry(row.company.clone())
-                .or_insert_with(|| CompanyImportSummary {
-                    company: row.company.clone(),
-                    ..CompanyImportSummary::default()
-                });
-        company_entry.input_rows += 1;
-        report.input_rows += 1;
-        let identity = employee_identity_resolution_from_metadata(&row.source_metadata);
-
-        let outcome: String = sqlx::query_scalar(
-            r#"
-            INSERT INTO employees (
-                org_id, company, name, source_filename, source_sheet, source_row,
-                source_key, raw_row, source_metadata, employee_number, org_unit, job,
-                position, worksite_name, worksite_address, hire_date, exit_date,
-                employment_status, leave_accrued, leave_used, leave_remaining,
-                identity_resolution_strategy, identity_resolution_confidence,
-                identity_review_required, identity_name_only_merge
-            )
-            VALUES (
-                $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-                $14, $15, $16, $17, $18, NULLIF($19::TEXT, '')::NUMERIC,
-                NULLIF($20::TEXT, '')::NUMERIC, NULLIF($21::TEXT, '')::NUMERIC,
-                $22, $23, $24, $25
-            )
-            ON CONFLICT (org_id, source_key) DO UPDATE SET
-                company = EXCLUDED.company,
-                name = EXCLUDED.name,
-                source_filename = EXCLUDED.source_filename,
-                source_sheet = EXCLUDED.source_sheet,
-                source_row = EXCLUDED.source_row,
-                raw_row = EXCLUDED.raw_row,
-                source_metadata = EXCLUDED.source_metadata,
-                employee_number = EXCLUDED.employee_number,
-                org_unit = EXCLUDED.org_unit,
-                job = EXCLUDED.job,
-                position = EXCLUDED.position,
-                worksite_name = EXCLUDED.worksite_name,
-                worksite_address = EXCLUDED.worksite_address,
-                hire_date = EXCLUDED.hire_date,
-                exit_date = EXCLUDED.exit_date,
-                employment_status = EXCLUDED.employment_status,
-                leave_accrued = EXCLUDED.leave_accrued,
-                leave_used = EXCLUDED.leave_used,
-                leave_remaining = EXCLUDED.leave_remaining,
-                identity_resolution_strategy = EXCLUDED.identity_resolution_strategy,
-                identity_resolution_confidence = EXCLUDED.identity_resolution_confidence,
-                identity_review_required = EXCLUDED.identity_review_required,
-                identity_name_only_merge = EXCLUDED.identity_name_only_merge,
-                updated_at = now()
-            RETURNING CASE WHEN xmax = 0 THEN 'inserted' ELSE 'updated' END
-            "#,
+    let command_store = state.leave_command_store.clone().ok_or_else(|| {
+        HrError::unavailable(
+            "leave command database is not configured; employee balance import is unavailable",
         )
-        .bind(org_uuid)
-        .bind(&row.company)
-        .bind(&row.name)
-        .bind(&row.source_filename)
-        .bind(&row.source_sheet)
-        .bind(row.source_row)
-        .bind(&row.source_key)
-        .bind(&row.raw_row)
-        .bind(&row.source_metadata)
-        .bind(row.canonical.employee_number.as_deref())
-        .bind(row.canonical.org_unit.as_deref())
-        .bind(row.canonical.job.as_deref())
-        .bind(row.canonical.position.as_deref())
-        .bind(row.canonical.worksite_name.as_deref())
-        .bind(row.canonical.worksite_address.as_deref())
-        .bind(row.canonical.hire_date.as_deref())
-        .bind(row.canonical.exit_date.as_deref())
-        .bind(row.canonical.employment_status.as_str())
-        .bind(row.canonical.leave_accrued.as_deref())
-        .bind(row.canonical.leave_used.as_deref())
-        .bind(row.canonical.leave_remaining.as_deref())
-        .bind(&identity.strategy)
-        .bind(&identity.confidence)
-        .bind(identity.review_required)
-        .bind(identity.name_only_merge)
-        .fetch_one(tx.as_mut())
-        .await?;
+    })?;
+    let batch_rows = employee_import_batch_rows(&rows);
+    let trace = TraceContext::generate();
+    let result = mnt_platform_request_context::scope_org(org, async {
+        command_store
+            .apply_employee_import_batch(
+                run_id,
+                &source_ref,
+                &batch_rows,
+                actor,
+                &apply_audit,
+                trace,
+            )
+            .await
+    })
+    .await
+    .map_err(HrError::from_leave_store)?;
+    serde_json::from_value(result)
+        .map_err(|error| HrError::internal(format!("invalid employee import report: {error}")))
+}
 
-        if outcome == "inserted" {
-            company_entry.inserted += 1;
-            report.inserted += 1;
-        } else {
-            company_entry.updated += 1;
-            report.updated += 1;
-        }
-    }
-    report.companies = by_company.into_values().collect();
-    Ok(report)
+fn require_leave_import_command_store(state: &HrState) -> Result<(), HrError> {
+    state
+        .leave_command_store
+        .as_ref()
+        .map(|_| ())
+        .ok_or_else(|| {
+            HrError::unavailable(
+                "leave command database is not configured; employee balance import is unavailable",
+            )
+        })
 }
 
 /// Optional body for an ingest-commit ("적재") apply call. `checklist_all_acknowledged`
@@ -7148,6 +7270,9 @@ fn employee_from_row(row: sqlx::postgres::PgRow) -> Result<EmployeeResponse, HrE
         leave_accrued: row.try_get("leave_accrued")?,
         leave_used: row.try_get("leave_used")?,
         leave_remaining: row.try_get("leave_remaining")?,
+        home_branch_id: row.try_get("home_branch_id")?,
+        home_branch_name: row.try_get("home_branch_name")?,
+        home_branch_review_required: row.try_get::<Option<Uuid>, _>("home_branch_id")?.is_none(),
         identity_resolution_strategy: row.try_get("identity_resolution_strategy")?,
         identity_resolution_confidence: row.try_get("identity_resolution_confidence")?,
         identity_review_required: row.try_get("identity_review_required")?,
@@ -7274,19 +7399,10 @@ fn raw_decimal_text_for_import_target(
 }
 
 fn normalized_decimal_text(raw: &str) -> Option<String> {
-    let cleaned = raw.replace(',', "").trim().to_owned();
-    let value = cleaned.parse::<f64>().ok()?;
-    if !value.is_finite() {
-        return None;
-    }
-    let mut formatted = format!("{value:.2}");
-    while formatted.contains('.') && formatted.ends_with('0') {
-        formatted.pop();
-    }
-    if formatted.ends_with('.') {
-        formatted.pop();
-    }
-    Some(formatted)
+    let cleaned = raw.replace(',', "");
+    LeaveBalanceAmount::parse_decimal(cleaned.trim())
+        .ok()
+        .map(LeaveBalanceAmount::canonical_decimal)
 }
 
 fn raw_text_for_import_target(
@@ -7494,6 +7610,28 @@ fn authorize_hr_scoped_write(
     authorize_hr_scoped(principal, feature)
 }
 
+fn authorize_home_branch_transition(
+    principal: &Principal,
+    prior_branch_id: Option<Uuid>,
+    target_branch_id: Uuid,
+) -> Result<(), HrError> {
+    authorize(
+        principal,
+        Action::new(Feature::EmployeeDirectoryManage),
+        BranchId::from_uuid(target_branch_id),
+    )
+    .map_err(HrError::from_kernel)?;
+    match prior_branch_id {
+        Some(prior_branch_id) => authorize(
+            principal,
+            Action::new(Feature::EmployeeDirectoryManage),
+            BranchId::from_uuid(prior_branch_id),
+        )
+        .map_err(HrError::from_kernel),
+        None => authorize_hr_org_wide(principal, Feature::EmployeeDirectoryManage),
+    }
+}
+
 fn normalize_date_text(value: &str) -> Result<String, HrError> {
     Ok(parse_yyyy_mm_dd(value)?.to_string())
 }
@@ -7588,6 +7726,31 @@ impl HrError {
             message: message.into(),
         }
     }
+
+    fn unavailable(message: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::SERVICE_UNAVAILABLE,
+            code: "service_unavailable",
+            message: message.into(),
+        }
+    }
+
+    fn from_leave_store(error: PgLeaveError) -> Self {
+        match error {
+            PgLeaveError::CommandUnavailable => Self::unavailable(
+                "leave command database is not configured; protected employee leave changes are unavailable",
+            ),
+            PgLeaveError::Domain(error) => Self::from_kernel(error),
+            PgLeaveError::ConcurrentModification => Self::from_kernel(KernelError::conflict(
+                "employee changed since it was read; reload before retrying the protected leave change",
+            )),
+            PgLeaveError::Db(error) => Self::from(error),
+            PgLeaveError::MissingHomeBranch | PgLeaveError::ChargeReviewRequired(_) => {
+                tracing::error!(error = ?error, "unexpected protected employee leave command result");
+                Self::internal("protected employee leave change failed")
+            }
+        }
+    }
 }
 
 impl From<KernelError> for HrError {
@@ -7598,7 +7761,7 @@ impl From<KernelError> for HrError {
 
 impl From<DbError> for HrError {
     fn from(value: DbError) -> Self {
-        tracing::error!(error = %value, "employee directory database operation failed");
+        tracing::error!(error = ?value, "employee directory database operation failed");
         Self::internal("employee directory request failed")
     }
 }
@@ -8261,9 +8424,9 @@ E-001,홍길동,본사,2026-07-01,abc
         assert_eq!(canonical.position.as_deref(), Some("대리"));
         assert_eq!(canonical.worksite_name.as_deref(), Some("인천센터"));
         assert_eq!(canonical.employment_status, "ACTIVE");
-        assert_eq!(canonical.leave_accrued.as_deref(), Some("15"));
-        assert_eq!(canonical.leave_used.as_deref(), Some("7.5"));
-        assert_eq!(canonical.leave_remaining.as_deref(), Some("7.5"));
+        assert_eq!(canonical.leave_accrued.as_deref(), Some("15.000000"));
+        assert_eq!(canonical.leave_used.as_deref(), Some("7.500000"));
+        assert_eq!(canonical.leave_remaining.as_deref(), Some("7.500000"));
     }
 
     #[test]
@@ -8345,7 +8508,7 @@ E-001,홍길동,본사,2026-07-01,abc
             .as_ref()
             .ok_or_else(|| "candidate row missing canonical fields".to_owned())?;
         assert_eq!(canonical.employee_number.as_deref(), Some("ALT-001"));
-        assert_eq!(canonical.leave_remaining.as_deref(), Some("7.5"));
+        assert_eq!(canonical.leave_remaining.as_deref(), Some("7.500000"));
         assert_eq!(canonical.worksite_address.as_deref(), Some("서울"));
 
         let preview = masked_preview_values(&parsed.rows[0].raw_row, &parsed.columns);
@@ -8396,6 +8559,9 @@ E-001,홍길동,본사,2026-07-01,abc
             leave_accrued: None,
             leave_used: None,
             leave_remaining: None,
+            home_branch_id: None,
+            home_branch_name: None,
+            home_branch_review_required: true,
             identity_resolution_strategy: "employee_number".to_owned(),
             identity_resolution_confidence: "high".to_owned(),
             identity_review_required: false,
@@ -8424,6 +8590,7 @@ E-001,홍길동,본사,2026-07-01,abc
         assert_eq!(body["identity_resolution_confidence"], json!("high"));
         assert_eq!(body["identity_review_required"], json!(false));
         assert_eq!(body["identity_name_only_merge"], json!(false));
+        assert_eq!(body["home_branch_review_required"], json!(true));
         Ok(())
     }
 
@@ -8537,6 +8704,505 @@ E-001,홍길동,본사,2026-07-01,abc
 
         authorize_hr_org_wide(&executive, Feature::EmployeeDirectoryRead)
             .map_err(|err| format!("org-wide executive HR read was rejected: {}", err.message))?;
+        Ok(())
+    }
+
+    #[test]
+    fn home_branch_assignment_requires_org_wide_authority_when_unassigned() -> Result<(), String> {
+        use mnt_kernel_core::{OrgId, UserId};
+        use mnt_platform_authz::Role;
+        use std::collections::BTreeSet;
+
+        let branch = BranchId::new();
+        let branch_admin = Principal::new(
+            UserId::new(),
+            OrgId::new(),
+            BTreeSet::from([Role::Admin]),
+            BranchScope::single(branch),
+        );
+        let err = authorize_home_branch_transition(&branch_admin, None, *branch.as_uuid())
+            .expect_err("branch admin must not claim an unassigned employee");
+        assert_eq!(err.status, StatusCode::FORBIDDEN);
+
+        let super_admin = Principal::new(
+            UserId::new(),
+            OrgId::new(),
+            BTreeSet::from([Role::SuperAdmin]),
+            BranchScope::All,
+        );
+        authorize_home_branch_transition(&super_admin, None, *branch.as_uuid())
+            .map_err(|err| err.message)?;
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn home_branch_assignment_fails_closed_without_command_pool() -> Result<(), String> {
+        use mnt_kernel_core::{OrgId, UserId};
+        use mnt_platform_authz::Role;
+        use sqlx::postgres::PgPoolOptions;
+        use std::collections::BTreeSet;
+
+        let branch = BranchId::new();
+        let principal = Principal::new(
+            UserId::new(),
+            OrgId::new(),
+            BTreeSet::from([Role::SuperAdmin]),
+            BranchScope::All,
+        );
+        let pool = PgPoolOptions::new()
+            .connect_lazy("postgresql://unused:unused@127.0.0.1/unused")
+            .map_err(|err| err.to_string())?;
+
+        let err = set_employee_home_branch(
+            State(HrState::new(pool, None)),
+            Extension(principal),
+            Path(Uuid::new_v4()),
+            Json(SetEmployeeHomeBranchRequest {
+                branch_id: *branch.as_uuid(),
+                expected_updated_at: "2026-07-19T12:00:00Z".to_owned(),
+            }),
+        )
+        .await
+        .expect_err("missing leave command database must fail closed");
+
+        assert_eq!(err.status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(err.code, "service_unavailable");
+        Ok(())
+    }
+
+    #[test]
+    fn home_branch_reassignment_requires_authority_over_old_and_new_branch() {
+        use mnt_kernel_core::{OrgId, UserId};
+        use mnt_platform_authz::Role;
+        use std::collections::BTreeSet;
+
+        let old_branch = BranchId::new();
+        let new_branch = BranchId::new();
+        let new_branch_only = Principal::new(
+            UserId::new(),
+            OrgId::new(),
+            BTreeSet::from([Role::Admin]),
+            BranchScope::single(new_branch),
+        );
+        assert_eq!(
+            authorize_home_branch_transition(
+                &new_branch_only,
+                Some(*old_branch.as_uuid()),
+                *new_branch.as_uuid(),
+            )
+            .expect_err("new-branch authority alone must not move an employee")
+            .status,
+            StatusCode::FORBIDDEN,
+        );
+
+        let both = Principal::new(
+            UserId::new(),
+            OrgId::new(),
+            BTreeSet::from([Role::Admin]),
+            BranchScope::Branches(BTreeSet::from([old_branch, new_branch])),
+        );
+        assert!(
+            authorize_home_branch_transition(
+                &both,
+                Some(*old_branch.as_uuid()),
+                *new_branch.as_uuid(),
+            )
+            .is_ok()
+        );
+    }
+
+    #[sqlx::test(migrations = "../crates/platform/db/migrations")]
+    async fn employee_import_batch_rolls_back_mid_batch_then_retries_atomically(
+        pool: sqlx::PgPool,
+    ) -> Result<(), String> {
+        use mnt_kernel_core::{OrgId, UserId};
+
+        let org_id = Uuid::new_v4();
+        let actor_id = Uuid::new_v4();
+        sqlx::query("INSERT INTO organizations (id,slug,name) VALUES ($1,$2,'Import audit test')")
+            .bind(org_id)
+            .bind(format!("import-audit-{}", &org_id.to_string()[..8]))
+            .execute(&pool)
+            .await
+            .map_err(|error| error.to_string())?;
+        sqlx::query(
+            "INSERT INTO users (id,display_name,roles,is_active,org_id) \
+             VALUES ($1,'HR Owner',ARRAY['SUPER_ADMIN']::text[],true,$2)",
+        )
+        .bind(actor_id)
+        .bind(org_id)
+        .execute(&pool)
+        .await
+        .map_err(|error| error.to_string())?;
+        let run_id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO data_import_runs (id,org_id,entity_type,status,source_filename,\
+             source_format,source_sha256,mapping_profile,input_rows,candidate_rows,preserved_rows) \
+             VALUES ($1,$2,'employee_hr','DRY_RUN','employees.xlsx','xlsx',$3,'{}',2,2,0)",
+        )
+        .bind(run_id)
+        .bind(org_id)
+        .bind("a".repeat(64))
+        .execute(&pool)
+        .await
+        .map_err(|error| error.to_string())?;
+        let source_keys = [
+            format!("employee-{}", Uuid::new_v4()),
+            format!("employee-{}", Uuid::new_v4()),
+        ];
+        for (index, source_key) in source_keys.iter().enumerate() {
+            sqlx::query(
+                "INSERT INTO data_import_rows (org_id,run_id,source_sheet,source_row,\
+                 source_key,row_status,raw_row,canonical_row,validation) \
+                 VALUES ($1,$2,'Sheet1',$3,$4,'CANDIDATE','{}','{}','{}')",
+            )
+            .bind(org_id)
+            .bind(run_id)
+            .bind(index as i32 + 2)
+            .bind(source_key)
+            .execute(&pool)
+            .await
+            .map_err(|error| error.to_string())?;
+        }
+        let imported_row = |index: usize, employment_status: &str| ParsedEmployeeRow {
+            company: "KNL".to_owned(),
+            name: format!("Imported Employee {index}"),
+            source_filename: "employees.xlsx".to_owned(),
+            source_sheet: "Sheet1".to_owned(),
+            source_row: index as i32 + 2,
+            source_key: source_keys[index].clone(),
+            raw_row: json!({"name":format!("Imported Employee {index}")}),
+            source_metadata: json!({}),
+            canonical: EmployeeCanonicalFields {
+                employment_status: employment_status.to_owned(),
+                leave_accrued: Some("12.000001".to_owned()),
+                leave_used: Some("1.125000".to_owned()),
+                leave_remaining: Some("10.875001".to_owned()),
+                ..EmployeeCanonicalFields::default()
+            },
+        };
+        let command_store = PgLeaveStore::new(
+            pool.clone(),
+            std::sync::Arc::new(mnt_inbox_adapter_postgres::PgInboxStore::new(pool.clone())),
+        )
+        .with_leave_command_pool(pool.clone());
+        let state = HrState::new(pool.clone(), None).with_leave_command_store(command_store);
+        let org = OrgId::from_uuid(org_id);
+        let actor = UserId::from_uuid(actor_id);
+        let source_ref = format!("run:{run_id}");
+
+        apply_employee_import_batch(
+            &state,
+            org,
+            actor,
+            Some(run_id),
+            source_ref.clone(),
+            vec![imported_row(0, "ACTIVE"), imported_row(1, "BROKEN")],
+            json!({"gate_outcome":"test"}),
+        )
+        .await
+        .expect_err("the deterministic second-row constraint failure must abort the batch");
+
+        let after_failure: (i64, i64, i64, String) = sqlx::query_as(
+            "SELECT (SELECT count(*) FROM employees WHERE org_id=$1),\
+             (SELECT count(*) FROM leave_balance_import_receipts WHERE org_id=$1),\
+             (SELECT count(*) FROM audit_events WHERE org_id=$1),\
+             (SELECT status FROM data_import_runs WHERE org_id=$1 AND id=$2)",
+        )
+        .bind(org_id)
+        .bind(run_id)
+        .fetch_one(&pool)
+        .await
+        .map_err(|error| error.to_string())?;
+        assert_eq!(after_failure, (0, 0, 0, "DRY_RUN".to_owned()));
+
+        let report = apply_employee_import_batch(
+            &state,
+            org,
+            actor,
+            Some(run_id),
+            source_ref.clone(),
+            vec![imported_row(0, "ACTIVE"), imported_row(1, "ACTIVE")],
+            json!({"gate_outcome":"test"}),
+        )
+        .await
+        .map_err(|error| error.message)?;
+        assert_eq!((report.inserted, report.updated, report.skipped), (2, 0, 0));
+        let timestamps_before_replay: Vec<OffsetDateTime> = sqlx::query_scalar(
+            "SELECT updated_at FROM employees WHERE org_id=$1 ORDER BY source_key",
+        )
+        .bind(org_id)
+        .fetch_all(&pool)
+        .await
+        .map_err(|error| error.to_string())?;
+        let replay = apply_employee_import_batch(
+            &state,
+            org,
+            actor,
+            Some(run_id),
+            source_ref,
+            Vec::new(),
+            json!({"gate_outcome":"test"}),
+        )
+        .await
+        .map_err(|error| error.message)?;
+        assert_eq!((replay.inserted, replay.updated, replay.skipped), (0, 0, 2));
+
+        let stored: Vec<(String, String, String, OffsetDateTime)> = sqlx::query_as(
+            "SELECT leave_accrued::text,leave_used::text,leave_remaining::text,updated_at \
+             FROM employees WHERE org_id=$1 ORDER BY source_key",
+        )
+        .bind(org_id)
+        .fetch_all(&pool)
+        .await
+        .map_err(|error| error.to_string())?;
+        assert_eq!(stored.len(), 2);
+        for (index, row) in stored.iter().enumerate() {
+            assert_eq!(
+                row,
+                &(
+                    "12.000001".to_owned(),
+                    "1.125000".to_owned(),
+                    "10.875001".to_owned(),
+                    timestamps_before_replay[index],
+                )
+            );
+        }
+        let evidence: (i64, i64, i64, String) = sqlx::query_as(
+            "SELECT (SELECT count(*) FROM leave_balance_import_receipts WHERE org_id=$1),\
+             (SELECT count(*) FROM audit_events WHERE org_id=$1 \
+                AND action='employee.leave_balance_import'),\
+             (SELECT count(*) FROM audit_events WHERE org_id=$1 \
+                AND action='data_import.apply' AND target_id=$2::text),\
+             (SELECT status FROM data_import_runs WHERE org_id=$1 AND id=$2)",
+        )
+        .bind(org_id)
+        .bind(run_id)
+        .fetch_one(&pool)
+        .await
+        .map_err(|error| error.to_string())?;
+        assert_eq!(evidence, (2, 2, 1, "APPLIED".to_owned()));
+        Ok(())
+    }
+
+    #[sqlx::test(migrations = "../crates/platform/db/migrations")]
+    async fn legacy_employee_import_audits_roster_only_apply_and_skips_exact_replay(
+        pool: sqlx::PgPool,
+    ) -> Result<(), String> {
+        use mnt_kernel_core::{OrgId, UserId};
+
+        let org_id = Uuid::new_v4();
+        let actor_id = Uuid::new_v4();
+        let source_key = format!("legacy-{}", Uuid::new_v4());
+        let source_ref = "b".repeat(64);
+        sqlx::query("INSERT INTO organizations (id,slug,name) VALUES ($1,$2,'Legacy import test')")
+            .bind(org_id)
+            .bind(format!("legacy-import-{}", &org_id.to_string()[..8]))
+            .execute(&pool)
+            .await
+            .map_err(|error| error.to_string())?;
+        sqlx::query(
+            "INSERT INTO users (id,display_name,roles,is_active,org_id) \
+             VALUES ($1,'Legacy importer',ARRAY['SUPER_ADMIN']::text[],true,$2)",
+        )
+        .bind(actor_id)
+        .bind(org_id)
+        .execute(&pool)
+        .await
+        .map_err(|error| error.to_string())?;
+        let row = ParsedEmployeeRow {
+            company: "KNL".to_owned(),
+            name: "Roster Only Employee".to_owned(),
+            source_filename: "legacy.xlsx".to_owned(),
+            source_sheet: "Sheet1".to_owned(),
+            source_row: 2,
+            source_key: source_key.clone(),
+            raw_row: json!({"name":"Roster Only Employee"}),
+            source_metadata: json!({}),
+            canonical: EmployeeCanonicalFields::default(),
+        };
+        let command_store = PgLeaveStore::new(
+            pool.clone(),
+            std::sync::Arc::new(mnt_inbox_adapter_postgres::PgInboxStore::new(pool.clone())),
+        )
+        .with_leave_command_pool(pool.clone());
+        let state = HrState::new(pool.clone(), None).with_leave_command_store(command_store);
+        let org = OrgId::from_uuid(org_id);
+        let actor = UserId::from_uuid(actor_id);
+
+        let first = apply_employee_import_batch(
+            &state,
+            org,
+            actor,
+            None,
+            source_ref.clone(),
+            vec![row.clone()],
+            json!({}),
+        )
+        .await
+        .map_err(|error| error.message)?;
+        assert_eq!((first.inserted, first.updated, first.skipped), (1, 0, 0));
+        let first_updated_at: OffsetDateTime = sqlx::query_scalar(
+            "SELECT updated_at FROM employees WHERE org_id=$1 AND source_key=$2",
+        )
+        .bind(org_id)
+        .bind(&source_key)
+        .fetch_one(&pool)
+        .await
+        .map_err(|error| error.to_string())?;
+
+        let replay = apply_employee_import_batch(
+            &state,
+            org,
+            actor,
+            None,
+            source_ref.clone(),
+            vec![row],
+            json!({}),
+        )
+        .await
+        .map_err(|error| error.message)?;
+        assert_eq!((replay.inserted, replay.updated, replay.skipped), (0, 0, 1));
+        let evidence: (OffsetDateTime, i64, i64) = sqlx::query_as(
+            "SELECT updated_at,\
+             (SELECT count(*) FROM leave_balance_import_receipts \
+                WHERE org_id=$1 AND source_ref=$3),\
+             (SELECT count(*) FROM audit_events WHERE org_id=$1 \
+                AND action='data_import.apply' AND target_type='employee_import_batch' \
+                AND target_id=$3) \
+             FROM employees WHERE org_id=$1 AND source_key=$2",
+        )
+        .bind(org_id)
+        .bind(&source_key)
+        .bind(&source_ref)
+        .fetch_one(&pool)
+        .await
+        .map_err(|error| error.to_string())?;
+        assert_eq!(evidence, (first_updated_at, 1, 1));
+        Ok(())
+    }
+
+    #[sqlx::test(migrations = "../crates/platform/db/migrations")]
+    async fn home_branch_assignment_is_explicit_versioned_and_audited(
+        pool: sqlx::PgPool,
+    ) -> Result<(), String> {
+        use mnt_kernel_core::{OrgId, UserId};
+        use mnt_platform_authz::Role;
+        use std::collections::BTreeSet;
+
+        let org_id = Uuid::new_v4();
+        let region_id = Uuid::new_v4();
+        let branch_id = Uuid::new_v4();
+        let inactive_branch_id = Uuid::new_v4();
+        let employee_id = Uuid::new_v4();
+        let actor_id = Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO organizations (id, slug, name) VALUES ($1, $2, 'Home Branch Test')",
+        )
+        .bind(org_id)
+        .bind(format!("home-branch-{}", &org_id.to_string()[..8]))
+        .execute(&pool)
+        .await
+        .map_err(|err| err.to_string())?;
+        sqlx::query("INSERT INTO regions (id, name, org_id) VALUES ($1, $2, $3)")
+            .bind(region_id)
+            .bind(format!("Home Branch Region {region_id}"))
+            .bind(org_id)
+            .execute(&pool)
+            .await
+            .map_err(|err| err.to_string())?;
+        sqlx::query(
+            "INSERT INTO branches (id, region_id, name, org_id, deactivated_at) VALUES ($1, $2, 'Active', $3, NULL), ($4, $2, 'Inactive', $3, now())",
+        )
+        .bind(branch_id)
+        .bind(region_id)
+        .bind(org_id)
+        .bind(inactive_branch_id)
+        .execute(&pool)
+        .await
+        .map_err(|err| err.to_string())?;
+        sqlx::query(
+            "INSERT INTO users (id, display_name, roles, is_active, org_id) VALUES ($1, 'HR Owner', ARRAY['SUPER_ADMIN']::TEXT[], true, $2)",
+        )
+        .bind(actor_id)
+        .bind(org_id)
+        .execute(&pool)
+        .await
+        .map_err(|err| err.to_string())?;
+        sqlx::query(
+            "INSERT INTO employees (id, org_id, company, name, source_filename, source_sheet, source_row, source_key, raw_row, source_metadata) VALUES ($1, $2, 'Test', 'Employee', 'test.xlsx', 'Sheet', 1, 'home-branch-employee', '{}', '{}')",
+        )
+        .bind(employee_id)
+        .bind(org_id)
+        .execute(&pool)
+        .await
+        .map_err(|err| err.to_string())?;
+        let expected_updated_at: OffsetDateTime =
+            sqlx::query_scalar("SELECT updated_at FROM employees WHERE id = $1")
+                .bind(employee_id)
+                .fetch_one(&pool)
+                .await
+                .map_err(|err| err.to_string())?;
+        let principal = Principal::new(
+            UserId::from_uuid(actor_id),
+            OrgId::from_uuid(org_id),
+            BTreeSet::from([Role::SuperAdmin]),
+            BranchScope::All,
+        );
+        let command_store = PgLeaveStore::new(
+            pool.clone(),
+            std::sync::Arc::new(mnt_inbox_adapter_postgres::PgInboxStore::new(pool.clone())),
+        )
+        .with_leave_command_pool(pool.clone());
+        let response = set_employee_home_branch(
+            State(HrState::new(pool.clone(), None).with_leave_command_store(command_store.clone())),
+            Extension(principal.clone()),
+            Path(employee_id),
+            Json(SetEmployeeHomeBranchRequest {
+                branch_id,
+                expected_updated_at: expected_updated_at
+                    .format(&time::format_description::well_known::Rfc3339)
+                    .map_err(|err| err.to_string())?,
+            }),
+        )
+        .await
+        .map_err(|err| err.message)?;
+        assert_eq!(response.0.branch_id, branch_id);
+        let stored: Option<Uuid> =
+            sqlx::query_scalar("SELECT home_branch_id FROM employees WHERE id = $1")
+                .bind(employee_id)
+                .fetch_one(&pool)
+                .await
+                .map_err(|err| err.to_string())?;
+        assert_eq!(stored, Some(branch_id));
+        let audits: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM audit_events WHERE org_id = $1 AND target_id = $2 AND action = 'employee.home_branch_set' AND actor = $3 AND before_snap->>'home_branch_id' IS NULL AND after_snap->>'home_branch_id' = $4",
+        )
+        .bind(org_id)
+        .bind(employee_id.to_string())
+        .bind(actor_id)
+        .bind(branch_id.to_string())
+        .fetch_one(&pool)
+        .await
+        .map_err(|err| err.to_string())?;
+        assert_eq!(audits, 1);
+
+        let inactive_err = set_employee_home_branch(
+            State(HrState::new(pool.clone(), None).with_leave_command_store(command_store)),
+            Extension(principal),
+            Path(employee_id),
+            Json(SetEmployeeHomeBranchRequest {
+                branch_id: inactive_branch_id,
+                expected_updated_at: response
+                    .0
+                    .updated_at
+                    .format(&time::format_description::well_known::Rfc3339)
+                    .map_err(|err| err.to_string())?,
+            }),
+        )
+        .await
+        .expect_err("deactivated branch must not become authoritative");
+        assert_eq!(inactive_err.status, StatusCode::NOT_FOUND);
         Ok(())
     }
     #[test]

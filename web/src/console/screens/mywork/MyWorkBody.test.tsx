@@ -1,11 +1,15 @@
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
 import { MyWorkBody } from "./MyWorkBody";
 import type { MyWorkApi, TodoSummary } from "./myWorkApi";
-import { myWorkStrings, type ActionInboxItem, type ActionInboxResponse } from "./myWorkModel";
+import {
+  myWorkStrings,
+  type ActionInboxItem,
+  type ActionInboxResponse,
+} from "./myWorkModel";
 
 const S = myWorkStrings();
 const NOW = new Date("2026-07-08T09:00:00Z"); // a Wednesday
@@ -20,7 +24,9 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-function item(over: Partial<ActionInboxItem> & Pick<ActionInboxItem, "kind" | "id">): ActionInboxItem {
+function item(
+  over: Partial<ActionInboxItem> & Pick<ActionInboxItem, "kind" | "id">,
+): ActionInboxItem {
   return {
     kind: over.kind,
     id: over.id,
@@ -37,12 +43,26 @@ function item(over: Partial<ActionInboxItem> & Pick<ActionInboxItem, "kind" | "i
 const inbox: ActionInboxResponse = {
   total: 2,
   items: [
-    item({ kind: "work", id: "work:1", title: "정비 점검", due: "2026-07-08T12:00:00Z", dueTone: "warn" }),
-    item({ kind: "approval", id: "approval:1", title: "예산 결재", due: "2026-07-10T12:00:00Z" }),
+    item({
+      kind: "work",
+      id: "work:1",
+      title: "정비 점검",
+      due: "2026-07-08T12:00:00Z",
+      dueTone: "warn",
+      links: [{ kind: "work_order", id: "wo-1" }],
+    }),
+    item({
+      kind: "approval",
+      id: "approval:1",
+      title: "예산 결재",
+      due: "2026-07-10T12:00:00Z",
+    }),
   ],
 };
 
-function todo(over: Partial<TodoSummary> & Pick<TodoSummary, "id" | "text">): TodoSummary {
+function todo(
+  over: Partial<TodoSummary> & Pick<TodoSummary, "id" | "text">,
+): TodoSummary {
   return {
     owner_user_id: "00000000-0000-0000-0000-000000000001",
     scopes: [],
@@ -58,7 +78,9 @@ function todo(over: Partial<TodoSummary> & Pick<TodoSummary, "id" | "text">): To
 function stubApi(over?: Partial<MyWorkApi>): MyWorkApi {
   return {
     loadInbox: vi.fn().mockResolvedValue(inbox),
-    loadTodos: vi.fn().mockResolvedValue([todo({ id: "t1", text: "보고서 초안" })]),
+    loadTodos: vi
+      .fn()
+      .mockResolvedValue([todo({ id: "t1", text: "보고서 초안" })]),
     createTodo: vi.fn().mockResolvedValue(undefined),
     setTodoDone: vi.fn().mockResolvedValue(undefined),
     deleteTodo: vi.fn().mockResolvedValue(undefined),
@@ -66,10 +88,21 @@ function stubApi(over?: Partial<MyWorkApi>): MyWorkApi {
   };
 }
 
-function renderBody(api: MyWorkApi, props?: Partial<Parameters<typeof MyWorkBody>[0]>) {
+function LocationProbe() {
+  const location = useLocation();
+  return (
+    <output data-location>{`${location.pathname}${location.search}`}</output>
+  );
+}
+
+function renderBody(
+  api: MyWorkApi,
+  props?: Partial<Parameters<typeof MyWorkBody>[0]>,
+) {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={["/console/mywork"]}>
       <MyWorkBody api={api} now={NOW} {...props} />
+      <LocationProbe />
     </MemoryRouter>,
   );
 }
@@ -84,11 +117,18 @@ describe("MyWorkBody", () => {
 
   it("creates a todo and reloads the list", async () => {
     const createTodo = vi.fn().mockResolvedValue(undefined);
-    const loadTodos = vi.fn().mockResolvedValue([todo({ id: "t1", text: "보고서 초안" })]);
+    const loadTodos = vi
+      .fn()
+      .mockResolvedValue([todo({ id: "t1", text: "보고서 초안" })]);
     renderBody(stubApi({ createTodo, loadTodos }));
     await screen.findByText("보고서 초안");
-    await userEvent.type(screen.getByLabelText(S.todos.addPlaceholder), "새 할 일");
-    await userEvent.click(screen.getByRole("button", { name: S.todos.addButton }));
+    await userEvent.type(
+      screen.getByLabelText(S.todos.addPlaceholder),
+      "새 할 일",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: S.todos.addButton }),
+    );
     await waitFor(() => {
       expect(createTodo).toHaveBeenCalledWith("새 할 일");
     });
@@ -99,7 +139,9 @@ describe("MyWorkBody", () => {
   it("toggles a todo done", async () => {
     const setTodoDone = vi.fn().mockResolvedValue(undefined);
     renderBody(stubApi({ setTodoDone }));
-    const checkbox = await screen.findByRole("checkbox", { name: S.todos.doneToggle("보고서 초안") });
+    const checkbox = await screen.findByRole("checkbox", {
+      name: S.todos.doneToggle("보고서 초안"),
+    });
     await userEvent.click(checkbox);
     await waitFor(() => {
       expect(setTodoDone).toHaveBeenCalledWith("t1", true);
@@ -110,14 +152,18 @@ describe("MyWorkBody", () => {
     const deleteTodo = vi.fn().mockResolvedValue(undefined);
     renderBody(stubApi({ deleteTodo }));
     await screen.findByText("보고서 초안");
-    await userEvent.click(screen.getByRole("button", { name: S.todos.deleteLabel("보고서 초안") }));
+    await userEvent.click(
+      screen.getByRole("button", { name: S.todos.deleteLabel("보고서 초안") }),
+    );
     await waitFor(() => {
       expect(deleteTodo).toHaveBeenCalledWith("t1");
     });
   });
 
   it("reloads todos with done included when 완료 항목 표시 is checked", async () => {
-    const loadTodos = vi.fn().mockResolvedValue([todo({ id: "t1", text: "보고서 초안" })]);
+    const loadTodos = vi
+      .fn()
+      .mockResolvedValue([todo({ id: "t1", text: "보고서 초안" })]);
     renderBody(stubApi({ loadTodos }));
     await screen.findByText("보고서 초안");
     await userEvent.click(screen.getByLabelText(S.todos.showDone));
@@ -140,11 +186,18 @@ describe("MyWorkBody", () => {
             : refreshLoad.promise
           : Promise.resolve([todo({ id: "stale", text: "완료 제외" })]),
       );
-    renderBody(stubApi({ loadTodos, createTodo: vi.fn(() => mutation.promise) }));
+    renderBody(
+      stubApi({ loadTodos, createTodo: vi.fn(() => mutation.promise) }),
+    );
 
     await screen.findByText("진행 중");
-    await userEvent.type(screen.getByLabelText(S.todos.addPlaceholder), "새 할 일");
-    await userEvent.click(screen.getByRole("button", { name: S.todos.addButton }));
+    await userEvent.type(
+      screen.getByLabelText(S.todos.addPlaceholder),
+      "새 할 일",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: S.todos.addButton }),
+    );
     await userEvent.click(screen.getByLabelText(S.todos.showDone));
     filterLoad.resolve([todo({ id: "done", text: "완료 포함", done: true })]);
     expect(await screen.findByText("완료 포함")).toBeVisible();
@@ -173,15 +226,21 @@ describe("MyWorkBody", () => {
             : refreshLoad.promise
           : Promise.resolve([todo({ id: "stale", text: "완료 제외" })]),
       );
-    renderBody(stubApi({ loadTodos, setTodoDone: vi.fn(() => mutation.promise) }));
+    renderBody(
+      stubApi({ loadTodos, setTodoDone: vi.fn(() => mutation.promise) }),
+    );
 
     await userEvent.click(
-      await screen.findByRole("checkbox", { name: S.todos.doneToggle("진행 중") }),
+      await screen.findByRole("checkbox", {
+        name: S.todos.doneToggle("진행 중"),
+      }),
     );
     await userEvent.click(screen.getByLabelText(S.todos.showDone));
     filterLoad.resolve([todo({ id: "active", text: "진행 중", done: true })]);
     await waitFor(() => {
-      expect(screen.getByRole("checkbox", { name: S.todos.doneToggle("진행 중") })).toBeChecked();
+      expect(
+        screen.getByRole("checkbox", { name: S.todos.doneToggle("진행 중") }),
+      ).toBeChecked();
     });
 
     mutation.resolve(undefined);
@@ -191,7 +250,9 @@ describe("MyWorkBody", () => {
     expect(loadTodos).toHaveBeenLastCalledWith(true);
     refreshLoad.resolve([todo({ id: "active", text: "진행 중", done: true })]);
     await waitFor(() => {
-      expect(screen.getByRole("checkbox", { name: S.todos.doneToggle("진행 중") })).toBeChecked();
+      expect(
+        screen.getByRole("checkbox", { name: S.todos.doneToggle("진행 중") }),
+      ).toBeChecked();
     });
   });
 
@@ -209,10 +270,14 @@ describe("MyWorkBody", () => {
             : refreshLoad.promise
           : Promise.resolve([todo({ id: "stale", text: "삭제 대상" })]),
       );
-    renderBody(stubApi({ loadTodos, deleteTodo: vi.fn(() => mutation.promise) }));
+    renderBody(
+      stubApi({ loadTodos, deleteTodo: vi.fn(() => mutation.promise) }),
+    );
 
     await userEvent.click(
-      await screen.findByRole("button", { name: S.todos.deleteLabel("삭제 대상") }),
+      await screen.findByRole("button", {
+        name: S.todos.deleteLabel("삭제 대상"),
+      }),
     );
     await userEvent.click(screen.getByLabelText(S.todos.showDone));
     filterLoad.resolve([todo({ id: "done", text: "완료 항목", done: true })]);
@@ -241,17 +306,23 @@ describe("MyWorkBody", () => {
           ? filterLoad.promise
           : Promise.resolve([todo({ id: "stale", text: "완료 제외" })]),
       );
-    renderBody(stubApi({ loadTodos, setTodoDone: vi.fn(() => mutation.promise) }));
+    renderBody(
+      stubApi({ loadTodos, setTodoDone: vi.fn(() => mutation.promise) }),
+    );
 
     await userEvent.click(
-      await screen.findByRole("checkbox", { name: S.todos.doneToggle("진행 중") }),
+      await screen.findByRole("checkbox", {
+        name: S.todos.doneToggle("진행 중"),
+      }),
     );
     await userEvent.click(screen.getByLabelText(S.todos.showDone));
     filterLoad.resolve([todo({ id: "done", text: "완료 포함", done: true })]);
     expect(await screen.findByText("완료 포함")).toBeVisible();
 
     mutation.reject(new Error("mutation failed"));
-    expect(await screen.findByRole("alert")).toHaveTextContent(S.todos.mutateFailed);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      S.todos.mutateFailed,
+    );
     expect(loadTodos).toHaveBeenCalledTimes(2);
     expect(screen.getByText("완료 포함")).toBeVisible();
     expect(screen.queryByText("완료 제외")).not.toBeInTheDocument();
@@ -260,7 +331,9 @@ describe("MyWorkBody", () => {
   it("ignores an older todo response after the done filter starts a newer load", async () => {
     const active = deferred<TodoSummary[]>();
     const withDone = deferred<TodoSummary[]>();
-    const loadTodos = vi.fn((includeDone: boolean) => (includeDone ? withDone.promise : active.promise));
+    const loadTodos = vi.fn((includeDone: boolean) =>
+      includeDone ? withDone.promise : active.promise,
+    );
     renderBody(stubApi({ loadTodos }));
 
     await waitFor(() => {
@@ -287,7 +360,9 @@ describe("MyWorkBody", () => {
   it("ignores an older todo error after a newer load succeeds", async () => {
     const active = deferred<TodoSummary[]>();
     const withDone = deferred<TodoSummary[]>();
-    const loadTodos = vi.fn((includeDone: boolean) => (includeDone ? withDone.promise : active.promise));
+    const loadTodos = vi.fn((includeDone: boolean) =>
+      includeDone ? withDone.promise : active.promise,
+    );
     renderBody(stubApi({ loadTodos }));
 
     await waitFor(() => {
@@ -312,11 +387,17 @@ describe("MyWorkBody", () => {
     await screen.findByText("정비 점검");
     // Wednesday 8th has the 정비 point-check due; clicking Thursday 9th (no due
     // item) empties the list.
-    const assigned = screen.getByLabelText(S.assigned.title, { selector: "section" });
-    await userEvent.click(within(assigned).getByRole("button", { name: /목 .*9/ }));
+    const assigned = screen.getByLabelText(S.assigned.title, {
+      selector: "section",
+    });
+    await userEvent.click(
+      within(assigned).getByRole("button", { name: /목 .*9/ }),
+    );
     await screen.findByText(S.assigned.empty);
     // Clicking Wednesday 8th brings the 정비 item back.
-    await userEvent.click(within(assigned).getByRole("button", { name: /수 .*8/ }));
+    await userEvent.click(
+      within(assigned).getByRole("button", { name: /수 .*8/ }),
+    );
     await screen.findByText("정비 점검");
   });
 
@@ -325,18 +406,142 @@ describe("MyWorkBody", () => {
     renderBody(stubApi(), { onOpen });
     await screen.findByText("정비 점검");
     const workRow = screen.getByText("정비 점검").closest("li");
-    await userEvent.click(within(workRow as HTMLElement).getByRole("button", { name: S.assigned.open }));
-    expect(onOpen).toHaveBeenCalledWith(expect.objectContaining({ id: "work:1" }));
+    await userEvent.click(
+      within(workRow as HTMLElement).getByRole("button", {
+        name: S.assigned.open,
+      }),
+    );
+    expect(onOpen).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "work:1" }),
+    );
+  });
+
+  it("routes through the first recognized source-object link, never the action kind guess", async () => {
+    const linked = item({
+      kind: "approval",
+      id: "approval:task-1",
+      title: "연결된 결재",
+      links: [
+        { kind: "unknown_kind", id: "run-ignored" },
+        { kind: "work_order", id: "source/work order" },
+      ],
+    });
+    renderBody(
+      stubApi({
+        loadInbox: vi.fn().mockResolvedValue({ total: 1, items: [linked] }),
+      }),
+    );
+
+    const row = (await screen.findByText("연결된 결재")).closest("li");
+    await userEvent.click(
+      within(row as HTMLElement).getByRole("button", { name: S.assigned.open }),
+    );
+    expect(document.querySelector("[data-location]")).toHaveTextContent(
+      "/work-orders/source%2Fwork%20order",
+    );
+  });
+
+  it("keeps unknown, blank, and empty source links inert instead of guessing", async () => {
+    const unlinked = [
+      item({
+        kind: "approval",
+        id: "approval:unknown",
+        title: "알 수 없는 연결",
+        links: [{ kind: "workflow_run", id: "run-1" }],
+      }),
+      item({
+        kind: "work",
+        id: "work:blank",
+        title: "빈 연결",
+        links: [{ kind: "work_order", id: "   " }],
+      }),
+      item({
+        kind: "support",
+        id: "support:none",
+        title: "연결 없음",
+        links: [],
+      }),
+    ];
+    renderBody(
+      stubApi({
+        loadInbox: vi
+          .fn()
+          .mockResolvedValue({ total: unlinked.length, items: unlinked }),
+      }),
+    );
+
+    for (const title of ["알 수 없는 연결", "빈 연결", "연결 없음"]) {
+      const row = (await screen.findByText(title)).closest("li");
+      expect(
+        within(row as HTMLElement).getByRole("button", {
+          name: S.assigned.open,
+        }),
+      ).toBeDisabled();
+    }
+    expect(document.querySelector("[data-location]")).toHaveTextContent(
+      "/console/mywork",
+    );
+  });
+
+  it("routes the canonical approval_run kind by its authoritative run id", async () => {
+    const linked = item({
+      kind: "approval",
+      id: "approval:task-2",
+      title: "결재 실행",
+      links: [{ kind: "approval_run", id: "run/value" }],
+    });
+    renderBody(
+      stubApi({
+        loadInbox: vi.fn().mockResolvedValue({ total: 1, items: [linked] }),
+      }),
+    );
+
+    const row = (await screen.findByText("결재 실행")).closest("li");
+    await userEvent.click(
+      within(row as HTMLElement).getByRole("button", { name: S.assigned.open }),
+    );
+    expect(document.querySelector("[data-location]")).toHaveTextContent(
+      "/approvals?run=run%2Fvalue",
+    );
+  });
+
+  it("routes a backend support_ticket link by its exact ticket id", async () => {
+    const linked = item({
+      kind: "support",
+      id: "support:ticket-1",
+      title: "지원 요청",
+      links: [{ kind: "support_ticket", id: "ticket/value" }],
+    });
+    renderBody(
+      stubApi({
+        loadInbox: vi.fn().mockResolvedValue({ total: 1, items: [linked] }),
+      }),
+    );
+
+    const row = (await screen.findByText("지원 요청")).closest("li");
+    await userEvent.click(
+      within(row as HTMLElement).getByRole("button", { name: S.assigned.open }),
+    );
+    expect(document.querySelector("[data-location]")).toHaveTextContent(
+      "/support?ticket=ticket%2Fvalue",
+    );
   });
 
   it("surfaces an inbox error with retry", async () => {
     const api = stubApi({
-      loadInbox: vi.fn().mockRejectedValueOnce(new Error("boom")).mockResolvedValue(inbox),
+      loadInbox: vi
+        .fn()
+        .mockRejectedValueOnce(new Error("boom"))
+        .mockResolvedValue(inbox),
     });
     renderBody(api);
     const alerts = await screen.findAllByRole("alert");
-    const inboxAlert = alerts.find((a) => within(a).queryByRole("button", { name: S.retry }));
-    await userEvent.click(within(inboxAlert as HTMLElement).getByRole("button", { name: S.retry }));
+    const inboxAlert = alerts.find((a) =>
+      within(a).queryByRole("button", { name: S.retry }),
+    );
+    await userEvent.click(
+      within(inboxAlert as HTMLElement).getByRole("button", { name: S.retry }),
+    );
     await screen.findByText("정비 점검");
   });
 
@@ -346,7 +551,9 @@ describe("MyWorkBody", () => {
         total: 1,
         items: [item({ kind: "work", id: "a-work", title: "테넌트 A 업무" })],
       }),
-      loadTodos: vi.fn().mockResolvedValue([todo({ id: "a-todo", text: "테넌트 A 할 일" })]),
+      loadTodos: vi
+        .fn()
+        .mockResolvedValue([todo({ id: "a-todo", text: "테넌트 A 할 일" })]),
     });
     const nextInbox = deferred<ActionInboxResponse>();
     const nextTodos = deferred<TodoSummary[]>();
@@ -381,7 +588,9 @@ describe("MyWorkBody", () => {
     const apiALoadTodos = vi
       .fn<() => Promise<TodoSummary[]>>()
       .mockResolvedValueOnce([todo({ id: "a", text: "테넌트 A 할 일" })])
-      .mockResolvedValueOnce([todo({ id: "a-stale", text: "테넌트 A 오래된 새로고침" })]);
+      .mockResolvedValueOnce([
+        todo({ id: "a-stale", text: "테넌트 A 오래된 새로고침" }),
+      ]);
     const apiA = stubApi({
       loadTodos: apiALoadTodos,
       createTodo: vi.fn(() => mutation.promise),
@@ -393,8 +602,13 @@ describe("MyWorkBody", () => {
     const view = renderBody(apiA);
 
     await screen.findByText("테넌트 A 할 일");
-    await userEvent.type(screen.getByLabelText(S.todos.addPlaceholder), "A에서 만든 일");
-    await userEvent.click(screen.getByRole("button", { name: S.todos.addButton }));
+    await userEvent.type(
+      screen.getByLabelText(S.todos.addPlaceholder),
+      "A에서 만든 일",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: S.todos.addButton }),
+    );
 
     view.rerender(
       <MemoryRouter>
@@ -413,7 +627,9 @@ describe("MyWorkBody", () => {
     expect(apiALoadTodos).toHaveBeenCalledTimes(1);
     expect(apiBLoadTodos).toHaveBeenCalledTimes(1);
     expect(screen.getByText("테넌트 B 할 일")).toBeVisible();
-    expect(screen.queryByText("테넌트 A 오래된 새로고침")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("테넌트 A 오래된 새로고침"),
+    ).not.toBeInTheDocument();
   });
 
   it("does not let an old-api toggle continuation refresh or replace new-api todos", async () => {
@@ -421,7 +637,9 @@ describe("MyWorkBody", () => {
     const apiALoadTodos = vi
       .fn<() => Promise<TodoSummary[]>>()
       .mockResolvedValueOnce([todo({ id: "a", text: "테넌트 A 토글 대상" })])
-      .mockResolvedValueOnce([todo({ id: "a-stale", text: "테넌트 A 오래된 토글 새로고침" })]);
+      .mockResolvedValueOnce([
+        todo({ id: "a-stale", text: "테넌트 A 오래된 토글 새로고침" }),
+      ]);
     const apiA = stubApi({
       loadTodos: apiALoadTodos,
       setTodoDone: vi.fn(() => mutation.promise),
@@ -433,7 +651,9 @@ describe("MyWorkBody", () => {
     const view = renderBody(apiA);
 
     await userEvent.click(
-      await screen.findByRole("checkbox", { name: S.todos.doneToggle("테넌트 A 토글 대상") }),
+      await screen.findByRole("checkbox", {
+        name: S.todos.doneToggle("테넌트 A 토글 대상"),
+      }),
     );
 
     view.rerender(
@@ -453,7 +673,9 @@ describe("MyWorkBody", () => {
     expect(apiALoadTodos).toHaveBeenCalledTimes(1);
     expect(apiBLoadTodos).toHaveBeenCalledTimes(1);
     expect(screen.getByText("테넌트 B 할 일")).toBeVisible();
-    expect(screen.queryByText("테넌트 A 오래된 토글 새로고침")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("테넌트 A 오래된 토글 새로고침"),
+    ).not.toBeInTheDocument();
   });
 
   it("does not let an old-api delete continuation refresh or replace new-api todos", async () => {
@@ -461,7 +683,9 @@ describe("MyWorkBody", () => {
     const apiALoadTodos = vi
       .fn<() => Promise<TodoSummary[]>>()
       .mockResolvedValueOnce([todo({ id: "a", text: "테넌트 A 삭제 대상" })])
-      .mockResolvedValueOnce([todo({ id: "a-stale", text: "테넌트 A 오래된 삭제 새로고침" })]);
+      .mockResolvedValueOnce([
+        todo({ id: "a-stale", text: "테넌트 A 오래된 삭제 새로고침" }),
+      ]);
     const apiA = stubApi({
       loadTodos: apiALoadTodos,
       deleteTodo: vi.fn(() => mutation.promise),
@@ -474,7 +698,9 @@ describe("MyWorkBody", () => {
 
     await screen.findByText("테넌트 A 삭제 대상");
     await userEvent.click(
-      screen.getByRole("button", { name: S.todos.deleteLabel("테넌트 A 삭제 대상") }),
+      screen.getByRole("button", {
+        name: S.todos.deleteLabel("테넌트 A 삭제 대상"),
+      }),
     );
 
     view.rerender(
@@ -494,6 +720,8 @@ describe("MyWorkBody", () => {
     expect(apiALoadTodos).toHaveBeenCalledTimes(1);
     expect(apiBLoadTodos).toHaveBeenCalledTimes(1);
     expect(screen.getByText("테넌트 B 할 일")).toBeVisible();
-    expect(screen.queryByText("테넌트 A 오래된 삭제 새로고침")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("테넌트 A 오래된 삭제 새로고침"),
+    ).not.toBeInTheDocument();
   });
 });

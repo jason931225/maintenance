@@ -4,6 +4,8 @@ metadata:
   name: mnt-app
   namespace: maintenance
   labels: { app: mnt-app }
+  annotations:
+    argocd.argoproj.io/sync-wave: "3"
 spec:
   replicas: 2
   revisionHistoryLimit: 3
@@ -65,6 +67,17 @@ spec:
             - name: DATABASE_URL
               valueFrom:
                 secretKeyRef: { name: mnt-db-rt, key: uri }
+            # Dedicated narrow credential for intrinsically-audited leave
+            # commands. Required only by the API role; the app fails closed
+            # when DATABASE_URL is configured without this value.
+            - name: LEAVE_COMMAND_DATABASE_URL
+              valueFrom:
+                secretKeyRef: { name: mnt-db-leave-command, key: uri }
+            # Dedicated narrow credential for ontology schema commands and
+            # canonical governed-config seeding. API-only and fail-closed.
+            - name: ONTOLOGY_COMMAND_DATABASE_URL
+              valueFrom:
+                secretKeyRef: { name: mnt-db-ontology-command, key: uri }
           startupProbe:
             httpGet: { path: /healthz, port: http }
             failureThreshold: 30

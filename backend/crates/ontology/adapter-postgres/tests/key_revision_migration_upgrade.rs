@@ -1,0 +1,780 @@
+#![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
+
+use sqlx::postgres::PgPoolOptions;
+use sqlx::{PgPool, Row};
+use uuid::Uuid;
+
+const ORG_A: Uuid = Uuid::from_u128(0xa165_a165_a165_a165_a165_a165_a165_a165);
+const ORG_B: Uuid = Uuid::from_u128(0xb165_b165_b165_b165_b165_b165_b165_b165);
+const MIGRATION_0165: &str =
+    include_str!("../../../platform/db/migrations/0165_ontology_object_type_key_revisions.sql");
+const MIGRATOR_PASSWORD: &str = "migration-owner-a165";
+const COMMAND_PASSWORD: &str = "ontology-command-a165";
+
+fn database_error_code(error: &sqlx::Error) -> Option<String> {
+    error
+        .as_database_error()?
+        .code()
+        .map(|code| code.into_owned())
+}
+
+async fn restore_pre_0165_schema(pool: &PgPool) {
+    sqlx::raw_sql(
+        r#"
+        DROP SCHEMA ontology_api CASCADE;
+        DROP TABLE ont_builtin_catalog_installs;
+        DROP TABLE ont_builtin_catalog_allowlist;
+        ALTER TABLE ont_object_types DROP CONSTRAINT fk_ont_object_types_key_revision;
+        DROP TABLE ont_object_type_key_revisions;
+
+        -- Recreate the cluster topology that provisioning must establish before
+        -- 0165. mnt_app gets only the two direct SET+INHERIT edges needed by
+        -- the ontology and leave NOLOGIN ownership boundaries.
+        ALTER ROLE mnt_app LOGIN INHERIT NOSUPERUSER BYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION
+            PASSWORD 'migration-owner-a165';
+        ALTER ROLE mnt_ontology_writer NOLOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT
+            NOCREATEDB NOCREATEROLE NOREPLICATION;
+        ALTER ROLE mnt_leave_definer NOLOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT
+            NOCREATEDB NOCREATEROLE NOREPLICATION;
+        ALTER ROLE mnt_ontology_cmd LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT
+            NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD 'ontology-command-a165';
+        REVOKE mnt_ontology_writer, mnt_leave_definer FROM mnt_rt, mnt_ontology_cmd;
+        REVOKE mnt_rt, mnt_ontology_cmd FROM mnt_app, mnt_ontology_writer, mnt_leave_definer;
+        GRANT mnt_ontology_writer TO mnt_app
+            WITH ADMIN FALSE, INHERIT TRUE, SET TRUE;
+        GRANT mnt_leave_definer TO mnt_app
+            WITH ADMIN FALSE, INHERIT TRUE, SET TRUE;
+
+        DO $db_owner$
+        BEGIN
+            EXECUTE format('ALTER DATABASE %I OWNER TO mnt_app', current_database());
+        END
+        $db_owner$;
+
+        ALTER TABLE organizations OWNER TO mnt_app;
+        ALTER TABLE users OWNER TO mnt_app;
+        ALTER TABLE audit_events OWNER TO mnt_app;
+        ALTER TABLE gov_approval_requests OWNER TO mnt_app;
+        ALTER TABLE gov_approvals OWNER TO mnt_app;
+        ALTER TABLE gov_approval_consumptions OWNER TO mnt_app;
+        ALTER TABLE ont_object_types OWNER TO mnt_app;
+        ALTER TABLE ont_property_defs OWNER TO mnt_app;
+        ALTER TABLE ont_link_types OWNER TO mnt_app;
+        ALTER TABLE ont_action_types OWNER TO mnt_app;
+        ALTER TABLE ont_analytics OWNER TO mnt_app;
+
+        -- Restore the exact broad runtime grants shipped by 0152. Without this,
+        -- post-replay revocation assertions could pass because the first 0165
+        -- application already removed the privileges.
+        REVOKE ALL ON ont_object_types, ont_property_defs, ont_link_types,
+            ont_action_types, ont_analytics FROM PUBLIC, mnt_rt,
+            mnt_ontology_cmd, mnt_ontology_writer;
+        GRANT SELECT, INSERT, UPDATE ON ont_object_types TO mnt_rt;
+        GRANT SELECT, INSERT ON ont_property_defs, ont_link_types, ont_action_types, ont_analytics TO mnt_rt;
+        "#,
+    )
+    .execute(pool)
+    .await
+    .expect("the fully migrated fixture must be reducible to the 0164 shape");
+
+    let pre_0165 = sqlx::query(
+        r#"
+        SELECT
+            has_table_privilege('mnt_rt', 'ont_object_types', 'INSERT,UPDATE') AS parent_write,
+            has_table_privilege('mnt_rt', 'ont_property_defs', 'INSERT') AS property_write,
+            has_table_privilege('mnt_rt', 'ont_link_types', 'INSERT') AS link_write,
+            has_table_privilege('mnt_rt', 'ont_action_types', 'INSERT') AS action_write,
+            has_table_privilege('mnt_rt', 'ont_analytics', 'INSERT') AS analytic_write
+        "#,
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    for column in [
+        "parent_write",
+        "property_write",
+        "link_write",
+        "action_write",
+        "analytic_write",
+    ] {
+        assert!(
+            pre_0165.get::<bool, _>(column),
+            "fixture must restore pre-0165 {column}"
+        );
+    }
+}
+
+async fn login_role_pool(owner_pool: &PgPool, role: &str, password: &str) -> PgPool {
+    let options = owner_pool
+        .connect_options()
+        .as_ref()
+        .clone()
+        .username(role)
+        .password(password);
+    PgPoolOptions::new()
+        .max_connections(1)
+        .connect_with(options)
+        .await
+        .unwrap()
+}
+
+async fn runtime_role_pool(owner_pool: &PgPool) -> PgPool {
+    let options = owner_pool.connect_options().as_ref().clone();
+    PgPoolOptions::new()
+        .max_connections(1)
+        .after_connect(|connection, _metadata| {
+            Box::pin(async move {
+                sqlx::query("SET ROLE mnt_rt").execute(connection).await?;
+                Ok(())
+            })
+        })
+        .connect_with(options)
+        .await
+        .unwrap()
+}
+
+async fn seed_organization(pool: &PgPool, id: Uuid, slug: &str) {
+    sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ($1, $2, $3)")
+        .bind(id)
+        .bind(slug)
+        .bind(format!("Migration fixture {slug}"))
+        .execute(pool)
+        .await
+        .unwrap();
+}
+
+async fn seed_legacy_object_type(
+    pool: &PgPool,
+    org_id: Uuid,
+    stable_key: &str,
+    schema_version: i64,
+    lifecycle_state: &str,
+) {
+    sqlx::query(
+        r#"
+        INSERT INTO ont_object_types (
+            org_id,
+            stable_key,
+            title,
+            backing_kind,
+            schema_version,
+            lifecycle_state
+        )
+        VALUES ($1, $2, $3, 'instance', $4, $5)
+        "#,
+    )
+    .bind(org_id)
+    .bind(stable_key)
+    .bind(format!("{stable_key} v{schema_version}"))
+    .bind(schema_version)
+    .bind(lifecycle_state)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn migration_0165_upgrades_legacy_sibling_versions_without_tenant_leakage(pool: PgPool) {
+    restore_pre_0165_schema(&pool).await;
+
+    seed_organization(&pool, ORG_A, "migration-a165").await;
+    seed_organization(&pool, ORG_B, "migration-b165").await;
+
+    // A real pre-0165 shape: several immutable versions share one logical key,
+    // while another key and another tenant require independent sidecars.
+    seed_legacy_object_type(&pool, ORG_A, "ops.work_order", 1, "superseded").await;
+    seed_legacy_object_type(&pool, ORG_A, "ops.work_order", 3, "superseded").await;
+    seed_legacy_object_type(&pool, ORG_A, "ops.work_order", 7, "retired").await;
+    seed_legacy_object_type(&pool, ORG_A, "ops.asset", 2, "retired").await;
+    seed_legacy_object_type(&pool, ORG_B, "ops.work_order", 4, "retired").await;
+
+    let migrator = login_role_pool(&pool, "mnt_app", MIGRATOR_PASSWORD).await;
+    let migration_identity = sqlx::query("SELECT current_user, session_user")
+        .fetch_one(&migrator)
+        .await
+        .unwrap();
+    assert_eq!(
+        migration_identity.get::<String, _>("current_user"),
+        "mnt_app"
+    );
+    assert_eq!(
+        migration_identity.get::<String, _>("session_user"),
+        "mnt_app",
+        "0165 must be exercised through a direct non-superuser migrator login"
+    );
+    sqlx::raw_sql(MIGRATION_0165)
+        .execute(&migrator)
+        .await
+        .expect("the exact shipped 0165 migration must run as non-superuser mnt_app");
+
+    let sidecars = sqlx::query(
+        r#"
+        SELECT org_id, stable_key, revision, validator_id
+        FROM ont_object_type_key_revisions
+        ORDER BY org_id, stable_key
+        "#,
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(sidecars.len(), 3, "one sidecar must exist per tenant/key");
+
+    let expected = [
+        ((ORG_A, "ops.asset"), 2_i64),
+        ((ORG_A, "ops.work_order"), 7_i64),
+        ((ORG_B, "ops.work_order"), 4_i64),
+    ];
+    for ((org_id, stable_key), revision) in expected {
+        let matches = sidecars
+            .iter()
+            .filter(|row| {
+                row.get::<Uuid, _>("org_id") == org_id
+                    && row.get::<String, _>("stable_key") == stable_key
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(matches.len(), 1, "{org_id}/{stable_key} has one sidecar");
+        assert_eq!(
+            matches[0].get::<i64, _>("revision"),
+            revision,
+            "the legacy baseline must be MAX(schema_version)"
+        );
+    }
+
+    let distinct_validators: i64 = sqlx::query_scalar(
+        "SELECT COUNT(DISTINCT validator_id) FROM ont_object_type_key_revisions",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        distinct_validators, 3,
+        "every logical key has a unique validator"
+    );
+    let duplicate_validator = sidecars[0].get::<Uuid, _>("validator_id");
+    let duplicate_validator_error = sqlx::query(
+        r#"
+        INSERT INTO ont_object_type_key_revisions (
+            org_id, stable_key, validator_id, revision
+        )
+        VALUES ($1, 'ops.duplicate', $2, 1)
+        "#,
+    )
+    .bind(ORG_A)
+    .bind(duplicate_validator)
+    .execute(&pool)
+    .await
+    .expect_err("validator identity must be database-enforced unique");
+    assert_eq!(
+        database_error_code(&duplicate_validator_error).as_deref(),
+        Some("23505")
+    );
+
+    let foreign_key = sqlx::query(
+        r#"
+        SELECT convalidated, confdeltype = 'r' AS delete_restricted
+        FROM pg_constraint
+        WHERE conrelid = 'ont_object_types'::regclass
+          AND conname = 'fk_ont_object_types_key_revision'
+          AND contype = 'f'
+        "#,
+    )
+    .fetch_one(&pool)
+    .await
+    .expect("the logical-key foreign key must exist");
+    assert!(foreign_key.get::<bool, _>("convalidated"));
+    assert!(foreign_key.get::<bool, _>("delete_restricted"));
+
+    let orphan_error = sqlx::query(
+        r#"
+        INSERT INTO ont_object_types (
+            org_id, stable_key, title, backing_kind, schema_version, lifecycle_state
+        )
+        VALUES ($1, 'ops.orphan', 'Orphan', 'instance', 1, 'retired')
+        "#,
+    )
+    .bind(ORG_A)
+    .execute(&pool)
+    .await
+    .expect_err("object types without a logical-key sidecar must be rejected");
+    assert_eq!(database_error_code(&orphan_error).as_deref(), Some("23503"));
+
+    let rls = sqlx::query(
+        r#"
+        SELECT relrowsecurity, relforcerowsecurity
+        FROM pg_class
+        WHERE oid = 'ont_object_type_key_revisions'::regclass
+        "#,
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(rls.get::<bool, _>("relrowsecurity"));
+    assert!(rls.get::<bool, _>("relforcerowsecurity"));
+
+    let privileges = sqlx::query(
+        r#"
+        SELECT
+            has_table_privilege('mnt_rt', 'ont_object_type_key_revisions', 'SELECT') AS can_select,
+            has_table_privilege('mnt_rt', 'ont_object_type_key_revisions', 'INSERT') AS can_insert_all,
+            has_table_privilege('mnt_rt', 'ont_object_type_key_revisions', 'UPDATE') AS can_update_all,
+            has_table_privilege('mnt_rt', 'ont_object_type_key_revisions', 'DELETE') AS can_delete,
+            has_table_privilege('mnt_rt', 'ont_object_type_key_revisions', 'TRUNCATE') AS can_truncate,
+            has_column_privilege('mnt_rt', 'ont_object_type_key_revisions', 'org_id', 'INSERT') AS can_insert_org,
+            has_column_privilege('mnt_rt', 'ont_object_type_key_revisions', 'stable_key', 'INSERT') AS can_insert_key,
+            has_column_privilege('mnt_rt', 'ont_object_type_key_revisions', 'validator_id', 'INSERT') AS can_insert_validator,
+            has_column_privilege('mnt_rt', 'ont_object_type_key_revisions', 'revision', 'UPDATE') AS can_update_revision,
+            has_column_privilege('mnt_rt', 'ont_object_type_key_revisions', 'updated_at', 'UPDATE') AS can_update_timestamp,
+            has_column_privilege('mnt_rt', 'ont_object_type_key_revisions', 'org_id', 'UPDATE') AS can_update_org,
+            has_column_privilege('mnt_rt', 'ont_object_type_key_revisions', 'validator_id', 'UPDATE') AS can_update_validator
+        "#,
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(privileges.get::<bool, _>("can_select"));
+    assert!(!privileges.get::<bool, _>("can_insert_all"));
+    assert!(!privileges.get::<bool, _>("can_update_all"));
+    assert!(!privileges.get::<bool, _>("can_delete"));
+    assert!(!privileges.get::<bool, _>("can_truncate"));
+    assert!(!privileges.get::<bool, _>("can_insert_org"));
+    assert!(!privileges.get::<bool, _>("can_insert_key"));
+    assert!(!privileges.get::<bool, _>("can_insert_validator"));
+    assert!(!privileges.get::<bool, _>("can_update_revision"));
+    assert!(!privileges.get::<bool, _>("can_update_timestamp"));
+    assert!(!privileges.get::<bool, _>("can_update_org"));
+    assert!(!privileges.get::<bool, _>("can_update_validator"));
+
+    let guarded_boundary = sqlx::query(
+        r#"
+        SELECT
+            has_table_privilege('mnt_rt', 'ont_object_types', 'INSERT,UPDATE,DELETE,TRUNCATE') AS parent_write,
+            has_table_privilege('mnt_rt', 'ont_property_defs', 'INSERT,UPDATE,DELETE,TRUNCATE') AS property_write,
+            has_table_privilege('mnt_rt', 'ont_link_types', 'INSERT,UPDATE,DELETE,TRUNCATE') AS link_write,
+            has_table_privilege('mnt_rt', 'ont_action_types', 'INSERT,UPDATE,DELETE,TRUNCATE') AS action_write,
+            has_table_privilege('mnt_rt', 'ont_analytics', 'INSERT,UPDATE,DELETE,TRUNCATE') AS analytic_write,
+            has_schema_privilege('mnt_rt', 'ontology_api', 'USAGE') AS runtime_api_usage,
+            has_schema_privilege('mnt_ontology_cmd', 'ontology_api', 'USAGE') AS command_api_usage,
+            has_schema_privilege('public', 'ontology_api', 'USAGE') AS public_api_usage,
+            has_function_privilege('mnt_rt', 'ontology_api.create_object_type(UUID, JSONB, UUID, TEXT, TEXT)', 'EXECUTE') AS runtime_can_create,
+            has_function_privilege('mnt_ontology_cmd', 'ontology_api.create_object_type(UUID, JSONB, UUID, TEXT, TEXT)', 'EXECUTE') AS command_can_create,
+            has_function_privilege('mnt_ontology_cmd', 'ontology_api.stage_object_type(UUID, TEXT, UUID, BIGINT, JSONB, UUID, TEXT, TEXT)', 'EXECUTE') AS command_can_stage,
+            has_function_privilege('mnt_ontology_cmd', 'ontology_api.transition_object_type(UUID, UUID, UUID, BIGINT, TEXT, UUID, TEXT, TEXT)', 'EXECUTE') AS command_can_transition,
+            has_function_privilege('mnt_ontology_cmd', 'ontology_api.install_builtin_catalog(UUID, TEXT, JSONB, UUID, TEXT, TEXT)', 'EXECUTE') AS command_can_install,
+            has_function_privilege('mnt_ontology_cmd', 'ontology_api.insert_children(UUID, UUID, JSONB, BOOLEAN)', 'EXECUTE') AS command_can_call_helper,
+            has_table_privilege('mnt_ontology_cmd', 'ont_object_types', 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE') AS command_parent_table_access,
+            has_table_privilege('mnt_ontology_cmd', 'audit_events', 'SELECT,INSERT,UPDATE,DELETE,TRUNCATE') AS command_audit_table_access
+        "#,
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    for column in [
+        "parent_write",
+        "property_write",
+        "link_write",
+        "action_write",
+        "analytic_write",
+    ] {
+        assert!(
+            !guarded_boundary.get::<bool, _>(column),
+            "0165 must revoke {column}"
+        );
+    }
+    assert!(!guarded_boundary.get::<bool, _>("runtime_api_usage"));
+    assert!(guarded_boundary.get::<bool, _>("command_api_usage"));
+    assert!(!guarded_boundary.get::<bool, _>("public_api_usage"));
+    assert!(!guarded_boundary.get::<bool, _>("runtime_can_create"));
+    assert!(guarded_boundary.get::<bool, _>("command_can_create"));
+    assert!(guarded_boundary.get::<bool, _>("command_can_stage"));
+    assert!(guarded_boundary.get::<bool, _>("command_can_transition"));
+    assert!(guarded_boundary.get::<bool, _>("command_can_install"));
+    assert!(!guarded_boundary.get::<bool, _>("command_can_call_helper"));
+    assert!(!guarded_boundary.get::<bool, _>("command_parent_table_access"));
+    assert!(!guarded_boundary.get::<bool, _>("command_audit_table_access"));
+
+    let owner = sqlx::query(
+        "SELECT rolcanlogin, rolsuper, rolbypassrls, rolinherit, rolcreatedb, rolcreaterole, rolreplication FROM pg_roles WHERE rolname='mnt_ontology_writer'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    for column in [
+        "rolcanlogin",
+        "rolsuper",
+        "rolbypassrls",
+        "rolinherit",
+        "rolcreatedb",
+        "rolcreaterole",
+        "rolreplication",
+    ] {
+        assert!(
+            !owner.get::<bool, _>(column),
+            "writer role must pin {column}=false"
+        );
+    }
+
+    let command = sqlx::query(
+        "SELECT rolcanlogin, rolsuper, rolbypassrls, rolinherit, rolcreatedb, rolcreaterole, rolreplication FROM pg_roles WHERE rolname='mnt_ontology_cmd'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(
+        command.get::<bool, _>("rolcanlogin"),
+        "migration must preserve out-of-band LOGIN"
+    );
+    for column in [
+        "rolsuper",
+        "rolbypassrls",
+        "rolinherit",
+        "rolcreatedb",
+        "rolcreaterole",
+        "rolreplication",
+    ] {
+        assert!(
+            !command.get::<bool, _>(column),
+            "command role must pin {column}=false"
+        );
+    }
+
+    let migrator_role = sqlx::query(
+        "SELECT rolcanlogin, rolinherit, rolsuper, rolbypassrls, rolcreatedb, rolcreaterole, rolreplication FROM pg_roles WHERE rolname='mnt_app'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(migrator_role.get::<bool, _>("rolcanlogin"));
+    assert!(migrator_role.get::<bool, _>("rolinherit"));
+    assert!(
+        migrator_role.get::<bool, _>("rolbypassrls"),
+        "the migration-only owner must cross FORCE RLS for multi-tenant upgrades"
+    );
+    for column in ["rolsuper", "rolcreatedb", "rolcreaterole", "rolreplication"] {
+        assert!(
+            !migrator_role.get::<bool, _>(column),
+            "migration owner must pin {column}=false"
+        );
+    }
+
+    let memberships = sqlx::query(
+        r#"
+        SELECT
+            COUNT(*) FILTER (
+                WHERE granted.rolname = 'mnt_ontology_writer'
+                  AND member.rolname = 'mnt_app'
+                  AND NOT am.admin_option
+                  AND am.inherit_option
+                  AND am.set_option
+            ) AS exact_ontology_edge,
+            COUNT(*) FILTER (
+                WHERE granted.rolname = 'mnt_leave_definer'
+                  AND member.rolname = 'mnt_app'
+                  AND NOT am.admin_option
+                  AND am.inherit_option
+                  AND am.set_option
+            ) AS exact_leave_edge,
+            COUNT(*) FILTER (
+                WHERE granted.rolname IN ('mnt_ontology_writer', 'mnt_leave_definer')
+                   OR member.rolname IN ('mnt_ontology_writer', 'mnt_leave_definer')
+                   OR granted.rolname IN ('mnt_rt', 'mnt_ontology_cmd')
+                   OR member.rolname IN ('mnt_rt', 'mnt_ontology_cmd')
+                   OR member.rolname = 'mnt_app'
+            ) AS topology_edges,
+            pg_has_role('mnt_app', 'mnt_ontology_writer', 'SET') AS migrator_can_set,
+            pg_has_role('mnt_app', 'mnt_ontology_writer', 'USAGE') AS migrator_inherits,
+            pg_has_role('mnt_app', 'mnt_leave_definer', 'SET') AS migrator_can_set_leave,
+            pg_has_role('mnt_app', 'mnt_leave_definer', 'USAGE') AS migrator_inherits_leave,
+            pg_has_role('mnt_rt', 'mnt_ontology_writer', 'SET') AS runtime_can_set,
+            pg_has_role('mnt_ontology_cmd', 'mnt_ontology_writer', 'SET') AS command_can_set
+        FROM pg_auth_members am
+        JOIN pg_roles granted ON granted.oid = am.roleid
+        JOIN pg_roles member ON member.oid = am.member
+        "#,
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(memberships.get::<i64, _>("exact_ontology_edge"), 1);
+    assert_eq!(memberships.get::<i64, _>("exact_leave_edge"), 1);
+    assert_eq!(
+        memberships.get::<i64, _>("topology_edges"),
+        2,
+        "the two ownership-transfer edges must be the only application memberships"
+    );
+    assert!(memberships.get::<bool, _>("migrator_can_set"));
+    assert!(memberships.get::<bool, _>("migrator_inherits"));
+    assert!(memberships.get::<bool, _>("migrator_can_set_leave"));
+    assert!(memberships.get::<bool, _>("migrator_inherits_leave"));
+    assert!(!memberships.get::<bool, _>("runtime_can_set"));
+    assert!(!memberships.get::<bool, _>("command_can_set"));
+
+    let schema_acl = sqlx::query(
+        r#"
+        SELECT owner.rolname AS owner,
+               ARRAY(
+                   SELECT CASE WHEN acl.grantee = 0 THEN 'PUBLIC' ELSE grantee.rolname END
+                          || ':' || acl.privilege_type
+                   FROM aclexplode(n.nspacl) acl
+                   LEFT JOIN pg_roles grantee ON grantee.oid = acl.grantee
+                   ORDER BY 1
+               ) AS acl
+        FROM pg_namespace n
+        JOIN pg_roles owner ON owner.oid = n.nspowner
+        WHERE n.nspname = 'ontology_api'
+        "#,
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(schema_acl.get::<String, _>("owner"), "mnt_ontology_writer");
+    assert_eq!(
+        schema_acl.get::<Vec<String>, _>("acl"),
+        vec![
+            "mnt_ontology_cmd:USAGE",
+            "mnt_ontology_writer:CREATE",
+            "mnt_ontology_writer:USAGE",
+        ]
+    );
+
+    let table_owners = sqlx::query(
+        r#"
+        SELECT c.relname, owner.rolname AS owner,
+               ARRAY(
+                   SELECT CASE WHEN acl.grantee = 0 THEN 'PUBLIC' ELSE grantee.rolname END
+                          || ':' || acl.privilege_type
+                   FROM aclexplode(c.relacl) acl
+                   LEFT JOIN pg_roles grantee ON grantee.oid = acl.grantee
+                   WHERE acl.grantee IN (
+                       0,
+                       'mnt_rt'::regrole,
+                       'mnt_ontology_cmd'::regrole,
+                       'mnt_ontology_writer'::regrole
+                   )
+                   ORDER BY 1
+               ) AS acl
+        FROM pg_class c
+        JOIN pg_roles owner ON owner.oid = c.relowner
+        WHERE c.oid IN (
+            'ont_object_types'::regclass,
+            'ont_object_type_key_revisions'::regclass,
+            'ont_property_defs'::regclass,
+            'ont_link_types'::regclass,
+            'ont_action_types'::regclass,
+            'ont_analytics'::regclass,
+            'ont_builtin_catalog_allowlist'::regclass,
+            'ont_builtin_catalog_installs'::regclass
+        )
+        ORDER BY c.relname
+        "#,
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(table_owners.len(), 8);
+    for table in table_owners {
+        let name = table.get::<String, _>("relname");
+        assert_eq!(
+            table.get::<String, _>("owner"),
+            "mnt_app",
+            "{} must remain migration-owned",
+            name
+        );
+        let expected_acl = match name.as_str() {
+            "ont_object_types" | "ont_object_type_key_revisions" => vec![
+                "mnt_ontology_writer:INSERT",
+                "mnt_ontology_writer:SELECT",
+                "mnt_ontology_writer:UPDATE",
+                "mnt_rt:SELECT",
+            ],
+            "ont_builtin_catalog_allowlist" => vec!["mnt_ontology_writer:SELECT"],
+            _ => vec![
+                "mnt_ontology_writer:INSERT",
+                "mnt_ontology_writer:SELECT",
+                "mnt_rt:SELECT",
+            ],
+        };
+        assert_eq!(
+            table.get::<Vec<String>, _>("acl"),
+            expected_acl,
+            "{name} must have the exact runtime/writer ACL"
+        );
+    }
+
+    let routines = sqlx::query(
+        r#"
+        SELECT p.proname, r.rolname AS owner, p.prosecdef, p.proconfig,
+               ARRAY(
+                   SELECT CASE WHEN acl.grantee = 0 THEN 'PUBLIC' ELSE grantee.rolname END
+                          || ':' || acl.privilege_type
+                   FROM aclexplode(p.proacl) acl
+                   LEFT JOIN pg_roles grantee ON grantee.oid = acl.grantee
+                   ORDER BY 1
+               ) AS acl
+        FROM pg_proc p
+        JOIN pg_namespace n ON n.oid=p.pronamespace
+        JOIN pg_roles r ON r.oid=p.proowner
+        WHERE n.nspname='ontology_api'
+        ORDER BY p.proname
+        "#,
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(routines.len(), 8);
+    for routine in routines {
+        assert_eq!(routine.get::<String, _>("owner"), "mnt_ontology_writer");
+        let name = routine.get::<String, _>("proname");
+        assert_eq!(
+            routine.get::<bool, _>("prosecdef"),
+            name != "protected_audit_writer_guard",
+            "only the audit trigger guard must execute as the original invoker"
+        );
+        let config = routine.get::<Vec<String>, _>("proconfig");
+        let expected = if name == "protected_audit_writer_guard" {
+            vec!["search_path=pg_catalog"]
+        } else {
+            vec!["search_path=pg_catalog", "row_security=on"]
+        };
+        assert_eq!(config, expected, "{name} must have exact safe proconfig");
+        let acl = routine.get::<Vec<String>, _>("acl");
+        let expected_acl = if matches!(
+            name.as_str(),
+            "create_object_type"
+                | "stage_object_type"
+                | "transition_object_type"
+                | "install_builtin_catalog"
+        ) {
+            vec!["mnt_ontology_cmd:EXECUTE", "mnt_ontology_writer:EXECUTE"]
+        } else {
+            vec!["mnt_ontology_writer:EXECUTE"]
+        };
+        assert_eq!(acl, expected_acl, "{name} must have the exact execute ACL");
+    }
+
+    let runtime = runtime_role_pool(&pool).await;
+    let mut transaction = runtime.begin().await.unwrap();
+    sqlx::query("SELECT set_config('app.current_org', $1, true)")
+        .bind(ORG_A.to_string())
+        .execute(&mut *transaction)
+        .await
+        .unwrap();
+    let visible = sqlx::query(
+        "SELECT org_id, stable_key FROM ont_object_type_key_revisions ORDER BY stable_key",
+    )
+    .fetch_all(&mut *transaction)
+    .await
+    .unwrap();
+    assert_eq!(visible.len(), 2, "mnt_rt sees only the armed tenant's keys");
+    assert!(
+        visible
+            .iter()
+            .all(|row| row.get::<Uuid, _>("org_id") == ORG_A)
+    );
+    assert!(
+        visible
+            .iter()
+            .all(|row| row.get::<String, _>("stable_key") != "ops.orphan")
+    );
+    transaction.rollback().await.unwrap();
+
+    let runtime_dml_error = sqlx::query(
+        "INSERT INTO ont_object_type_key_revisions (org_id, stable_key) VALUES ($1, 'ops.runtime_bypass')",
+    )
+    .bind(ORG_A)
+    .execute(&runtime)
+    .await
+    .expect_err("mnt_rt must not have a direct key-revision write path");
+    assert_eq!(
+        database_error_code(&runtime_dml_error).as_deref(),
+        Some("42501")
+    );
+
+    let command_pool = login_role_pool(&pool, "mnt_ontology_cmd", COMMAND_PASSWORD).await;
+    let command_dml_error = sqlx::query(
+        "INSERT INTO ont_object_type_key_revisions (org_id, stable_key) VALUES ($1, 'ops.command_bypass')",
+    )
+    .bind(ORG_A)
+    .execute(&command_pool)
+    .await
+    .expect_err("mnt_ontology_cmd must be limited to the audited command routines");
+    assert_eq!(
+        database_error_code(&command_dml_error).as_deref(),
+        Some("42501")
+    );
+    let command_set_error = sqlx::query("SET ROLE mnt_ontology_writer")
+        .execute(&command_pool)
+        .await
+        .expect_err("the command login must not be able to impersonate the writer");
+    assert_eq!(
+        database_error_code(&command_set_error).as_deref(),
+        Some("42501")
+    );
+
+    // A replay reaches both startup's exact application-role preflight and the
+    // migration topology assertion before any non-idempotent DDL. Create an
+    // unexpected LOGIN that can SET ROLE to mnt_app transactionally; rollback
+    // removes the cluster-global hostile role for sibling tests.
+    let mut drift = pool.begin().await.unwrap();
+    sqlx::query(
+        r#"
+        CREATE ROLE mnt_0165_hostile_login
+            LOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE NOREPLICATION
+        "#,
+    )
+    .execute(&mut *drift)
+    .await
+    .unwrap();
+    sqlx::query(
+        "GRANT mnt_app TO mnt_0165_hostile_login WITH ADMIN FALSE, INHERIT FALSE, SET TRUE",
+    )
+    .execute(&mut *drift)
+    .await
+    .unwrap();
+
+    let application_preflight_detects_drift: bool = sqlx::query_scalar(
+        r#"
+        SELECT EXISTS (
+            SELECT 1
+            FROM pg_catalog.pg_auth_members AS membership
+            JOIN pg_catalog.pg_roles AS granted ON granted.oid = membership.roleid
+            JOIN pg_catalog.pg_roles AS member ON member.oid = membership.member
+            WHERE (
+                granted.rolname IN (
+                    'mnt_app', 'mnt_rt', 'mnt_leave_definer', 'mnt_leave_cmd',
+                    'mnt_ontology_writer', 'mnt_ontology_cmd'
+                )
+                OR member.rolname IN (
+                    'mnt_app', 'mnt_rt', 'mnt_leave_definer', 'mnt_leave_cmd',
+                    'mnt_ontology_writer', 'mnt_ontology_cmd'
+                )
+            )
+            AND NOT (
+                member.rolname = 'mnt_app'
+                AND granted.rolname IN ('mnt_leave_definer', 'mnt_ontology_writer')
+                AND NOT membership.admin_option
+                AND membership.inherit_option
+                AND membership.set_option
+            )
+        )
+        "#,
+    )
+    .fetch_one(&mut *drift)
+    .await
+    .unwrap();
+    assert!(
+        application_preflight_detects_drift,
+        "the application migration preflight must reject an incoming mnt_app edge"
+    );
+
+    let drift_error = sqlx::raw_sql(MIGRATION_0165)
+        .execute(&mut *drift)
+        .await
+        .expect_err("0165 replay must reject ownership-membership drift before DDL");
+    assert_eq!(database_error_code(&drift_error).as_deref(), Some("42501"));
+    assert!(
+        drift_error
+            .as_database_error()
+            .is_some_and(|error| error.message() == "ontology_role_topology.membership_drift")
+    );
+    drift.rollback().await.unwrap();
+}

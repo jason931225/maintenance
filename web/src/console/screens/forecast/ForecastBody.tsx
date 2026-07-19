@@ -11,7 +11,7 @@ import { useNavigate } from "react-router-dom";
 
 import type { AssetLifecycleCostSummary, EquipmentListItem } from "../../../api/types";
 import { useAuth } from "../../../context/auth";
-import type { BackendProjection } from "../../charts";
+import type { ServerProjectionState } from "../../charts/ProjectionPanel";
 import {
   DEFAULT_HORIZON_MONTHS,
   ForecastScreen,
@@ -27,8 +27,8 @@ import "../../tokens.css";
  * maintenance-cost ledger (/api/v1/financial/equipment/{id}/lifecycle-cost), and
  * the deterministic backend projection (POST /api/v1/analytics/projection,
  * Monte-Carlo/EVT — HANDOFF §18). No fabricated data: the cost sample is real
- * ledger money and the projection is server-computed; while it is in-flight or
- * the sample is too short, ForecastScreen falls back to the client estimate.
+ * ledger money and the projection is server-computed. Loading, denial, failure,
+ * and empty results remain explicit and never become client-derived forecasts.
  */
 
 const bodyStyle: CSSProperties = {
@@ -46,6 +46,8 @@ interface ApiOwned<T> {
   api: object;
   value: T;
 }
+
+type LifecycleState = "loading" | "ready" | "empty" | "denied" | "error";
 
 function ownedBy<T>(api: object, value: T): ApiOwned<T> {
   return { api, value };
@@ -78,23 +80,24 @@ export function ForecastBody() {
   const [lifecycleCostOwned, setLifecycleCostOwned] = useState<
     ApiOwned<AssetLifecycleCostSummary | undefined>
   >(() => ownedBy(api, undefined));
-  const [isLoadingOwned, setIsLoadingOwned] = useState<ApiOwned<boolean>>(() =>
-    ownedBy(api, false),
+  const [lifecycleStateOwned, setLifecycleStateOwned] = useState<ApiOwned<LifecycleState>>(() =>
+    ownedBy(api, "empty"),
   );
   const [horizonMonths, setHorizonMonths] = useState<HorizonMonths>(DEFAULT_HORIZON_MONTHS);
   const [whatIfPct, setWhatIfPct] = useState(0);
-  const [projectionResultOwned, setProjectionResultOwned] = useState<
-    ApiOwned<BackendProjection | undefined>
-  >(() => ownedBy(api, undefined));
+  const [projectionStateOwned, setProjectionStateOwned] = useState<
+    ApiOwned<ServerProjectionState>
+  >(() => ownedBy(api, { status: "empty" }));
 
   const equipmentQuery = equipmentQueryOwned.api === api ? equipmentQueryOwned.value : "";
   const equipmentOptions = equipmentOptionsOwned.api === api ? equipmentOptionsOwned.value : [];
   const selectedEquipment =
     selectedEquipmentOwned.api === api ? selectedEquipmentOwned.value : undefined;
   const lifecycleCost = lifecycleCostOwned.api === api ? lifecycleCostOwned.value : undefined;
-  const isLoading = isLoadingOwned.api === api ? isLoadingOwned.value : false;
-  const projectionResult =
-    projectionResultOwned.api === api ? projectionResultOwned.value : undefined;
+  const lifecycleState =
+    lifecycleStateOwned.api === api ? lifecycleStateOwned.value : "empty";
+  const projectionState =
+    projectionStateOwned.api === api ? projectionStateOwned.value : { status: "empty" as const };
 
   // Equipment search: only while no equipment is selected and the query is non-empty.
   useEffect(() => {
@@ -142,37 +145,49 @@ export function ForecastBody() {
     [api],
   );
 
-  const selectEquipment = useCallback(
+  const loadLifecycle = useCallback(
     (item: EquipmentListItem) => {
       if (activeApiRef.current !== api) return;
       const request = lifecycleRequest.current + 1;
       lifecycleRequest.current = request;
-      setSelectedEquipmentOwned(ownedBy(api, item));
-      setEquipmentOptionsOwned(ownedBy(api, []));
       setLifecycleCostOwned(ownedBy(api, undefined));
-      setProjectionResultOwned(ownedBy(api, undefined));
-      setIsLoadingOwned(ownedBy(api, true));
+      setProjectionStateOwned(ownedBy(api, { status: "empty" }));
+      setLifecycleStateOwned(ownedBy(api, "loading"));
       void api
         .GET("/api/v1/financial/equipment/{equipmentId}/lifecycle-cost", {
           params: { path: { equipmentId: item.equipment_id } },
         })
         .then((res) => {
           if (activeApiRef.current === api && lifecycleRequest.current === request) {
-            setLifecycleCostOwned(ownedBy(api, res.data));
+            if (res.data) {
+              setLifecycleCostOwned(ownedBy(api, res.data));
+              setLifecycleStateOwned(ownedBy(api, "ready"));
+            } else if (res.response.status === 401 || res.response.status === 403) {
+              setLifecycleStateOwned(ownedBy(api, "denied"));
+            } else if (res.response.status === 204 || res.response.status === 404) {
+              setLifecycleStateOwned(ownedBy(api, "empty"));
+            } else {
+              setLifecycleStateOwned(ownedBy(api, "error"));
+            }
           }
         })
         .catch(() => {
           if (activeApiRef.current === api && lifecycleRequest.current === request) {
-            setLifecycleCostOwned(ownedBy(api, undefined));
-          }
-        })
-        .finally(() => {
-          if (activeApiRef.current === api && lifecycleRequest.current === request) {
-            setIsLoadingOwned(ownedBy(api, false));
+            setLifecycleStateOwned(ownedBy(api, "error"));
           }
         });
     },
     [api],
+  );
+
+  const selectEquipment = useCallback(
+    (item: EquipmentListItem) => {
+      if (activeApiRef.current !== api) return;
+      setSelectedEquipmentOwned(ownedBy(api, item));
+      setEquipmentOptionsOwned(ownedBy(api, []));
+      loadLifecycle(item);
+    },
+    [api, loadLifecycle],
   );
 
   const clearEquipment = useCallback(() => {
@@ -180,15 +195,19 @@ export function ForecastBody() {
     lifecycleRequest.current += 1;
     setSelectedEquipmentOwned(ownedBy(api, undefined));
     setLifecycleCostOwned(ownedBy(api, undefined));
-    setProjectionResultOwned(ownedBy(api, undefined));
-    setIsLoadingOwned(ownedBy(api, false));
+    setProjectionStateOwned(ownedBy(api, { status: "empty" }));
+    setLifecycleStateOwned(ownedBy(api, "empty"));
     setEquipmentQueryOwned(ownedBy(api, ""));
   }, [api]);
+
+  const retryLifecycle = useCallback(() => {
+    if (selectedEquipment) loadLifecycle(selectedEquipment);
+  }, [loadLifecycle, selectedEquipment]);
 
   const changeHorizon = useCallback(
     (months: HorizonMonths) => {
       if (activeApiRef.current !== api) return;
-      setProjectionResultOwned(ownedBy(api, undefined));
+      setProjectionStateOwned(ownedBy(api, { status: "loading" }));
       setHorizonMonths(months);
     },
     [api],
@@ -197,7 +216,7 @@ export function ForecastBody() {
   const changeWhatIf = useCallback(
     (pct: number) => {
       if (activeApiRef.current !== api) return;
-      setProjectionResultOwned(ownedBy(api, undefined));
+      setProjectionStateOwned(ownedBy(api, { status: "loading" }));
       setWhatIfPct(pct);
     },
     [api],
@@ -220,25 +239,38 @@ export function ForecastBody() {
       // Defer the reset (react-hooks/set-state-in-effect); DashboardBody idiom.
       void Promise.resolve().then(() => {
         if (!cancelled && activeApiRef.current === api) {
-          setProjectionResultOwned(ownedBy(api, undefined));
+          setProjectionStateOwned(ownedBy(api, { status: "empty" }));
         }
       });
       return () => {
         cancelled = true;
       };
     }
+    void Promise.resolve().then(() => {
+      if (!cancelled && activeApiRef.current === api) {
+        setProjectionStateOwned(ownedBy(api, { status: "loading" }));
+      }
+    });
     void api
       .POST("/api/v1/analytics/projection", {
         body: { series: sample, horizon: horizonMonths, kind: "money" },
       })
       .then((res) => {
         if (!cancelled && activeApiRef.current === api) {
-          setProjectionResultOwned(ownedBy(api, res.data));
+          if (res.data) {
+            setProjectionStateOwned(ownedBy(api, { status: "ready", result: res.data }));
+          } else if (res.response.status === 401 || res.response.status === 403) {
+            setProjectionStateOwned(ownedBy(api, { status: "denied" }));
+          } else if (res.response.status === 204 || res.response.status === 404) {
+            setProjectionStateOwned(ownedBy(api, { status: "empty" }));
+          } else {
+            setProjectionStateOwned(ownedBy(api, { status: "error" }));
+          }
         }
       })
       .catch(() => {
         if (!cancelled && activeApiRef.current === api) {
-          setProjectionResultOwned(ownedBy(api, undefined));
+          setProjectionStateOwned(ownedBy(api, { status: "error" }));
         }
       });
     return () => {
@@ -261,13 +293,15 @@ export function ForecastBody() {
         onSelectEquipment={selectEquipment}
         onClearEquipment={clearEquipment}
         lifecycleCost={lifecycleCost}
-        isLoading={isLoading}
+        isLoading={lifecycleState === "loading"}
+        lifecycleState={lifecycleState}
+        onRetryLifecycle={retryLifecycle}
         horizonMonths={horizonMonths}
         onHorizonChange={changeHorizon}
         whatIfPct={whatIfPct}
         onWhatIfChange={changeWhatIf}
         onDrill={onDrill}
-        projectionResult={projectionResult}
+        projectionState={projectionState}
       />
     </div>
   );

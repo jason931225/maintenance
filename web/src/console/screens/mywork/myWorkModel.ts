@@ -4,10 +4,40 @@
 // unit-testable without a DOM.
 
 import { ko } from "../../../i18n/ko";
+import { objectRegistry, type ObjectKind } from "../../../lib/objectRegistry";
 import type { ActionInboxItem } from "../overview/overviewModel";
 
-export { kindRoute } from "../overview/overviewModel";
-export type { ActionInboxItem, ActionInboxResponse, InboxKind } from "../overview/overviewModel";
+export type {
+  ActionInboxItem,
+  ActionInboxResponse,
+  InboxKind,
+} from "../overview/overviewModel";
+
+const ACTION_LINK_KINDS: Readonly<Partial<Record<string, ObjectKind>>> = {
+  approval_run: "approval",
+  work_order: "workOrder",
+  support_ticket: "support",
+  person: "person",
+  org_unit: "org",
+  payroll_period: "payroll",
+};
+
+/**
+ * Resolve the first explicitly registered source-object link. Unknown kinds and
+ * blank ids are intentionally inert; the action kind/id is not an object-ref
+ * contract and must never be guessed as a fallback destination.
+ */
+export function actionInboxLinkRoute(
+  item: ActionInboxItem,
+): string | undefined {
+  for (const link of item.links) {
+    const objectKind = ACTION_LINK_KINDS[link.kind];
+    const id = link.id.trim();
+    if (!objectKind || id.length === 0) continue;
+    return objectRegistry[objectKind].route({ id, name: link.label });
+  }
+  return undefined;
+}
 
 // ── copy (defensive-pick off ko.console.mywork with a Korean fallback; this
 // lane must not edit ko.ts — the koManifest lands the keys later) ─────────────
@@ -61,18 +91,27 @@ const FALLBACK: MyWorkStrings = {
     today: "Today",
     open: "Open",
   },
-  kind: { approval: "Approval", dispatch: "Dispatch", work: "Maintenance", support: "Reply" },
+  kind: {
+    approval: "Approval",
+    dispatch: "Dispatch",
+    work: "Maintenance",
+    support: "Reply",
+  },
   error: "Could not load",
   retry: "Retry",
   loading: "Loading",
 };
 
 export function myWorkStrings(): MyWorkStrings {
-  const wired = (ko.console as unknown as { mywork?: Partial<MyWorkStrings> }).mywork;
+  const wired = (ko.console as unknown as { mywork?: Partial<MyWorkStrings> })
+    .mywork;
   return wired ? { ...FALLBACK, ...wired } : FALLBACK;
 }
 
-export function kindLabel(kind: ActionInboxItem["kind"], S: MyWorkStrings): string {
+export function kindLabel(
+  kind: ActionInboxItem["kind"],
+  S: MyWorkStrings,
+): string {
   return S.kind[kind];
 }
 
@@ -99,7 +138,10 @@ export function weekDays(now: Date): Date[] {
 }
 
 /** Count of assigned items whose `due` falls on `day` (real dues only). */
-export function dueCountOn(items: readonly ActionInboxItem[], day: Date): number {
+export function dueCountOn(
+  items: readonly ActionInboxItem[],
+  day: Date,
+): number {
   return items.reduce(
     (n, item) => (item.due && sameDay(new Date(item.due), day) ? n + 1 : n),
     0,
@@ -113,5 +155,7 @@ export function filterAssigned(
   filter: DayFilter,
 ): ActionInboxItem[] {
   if (filter === "all") return [...items];
-  return items.filter((item) => item.due != null && sameDay(new Date(item.due), filter.day));
+  return items.filter(
+    (item) => item.due != null && sameDay(new Date(item.due), filter.day),
+  );
 }

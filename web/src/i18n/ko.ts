@@ -5940,6 +5940,8 @@ export const ko = {
     focusedDeepLink: "통합 개요에서 연결된 전자결재시스템 건을 강조했습니다.",
     focusedMissing:
       "연결된 전자결재시스템 건이 현재 전자결재시스템 대기 목록에 없습니다. 이미 처리되었거나 권한 범위 밖일 수 있습니다.",
+    focusedUnavailable:
+      "연결된 전자결재시스템 건을 지금 불러올 수 없습니다. 잠시 후 다시 시도하세요.",
     focusedItemLabel: "연결된 전자결재시스템 건",
     // Per-row report reveal. The approver must read the diagnosis / action /
     // result / evidence before deciding, so each queue item lazily fetches its
@@ -6811,6 +6813,10 @@ export const ko = {
     createTitle: "사내 티켓 등록",
     detailTitle: "티켓 상세",
     empty: "표시할 티켓이 없습니다.",
+    focusedMissing:
+      "연결된 지원 티켓이 현재 목록에 없습니다. 이미 처리되었거나 권한 범위 밖일 수 있습니다.",
+    focusedUnavailable:
+      "연결된 지원 티켓을 지금 불러올 수 없습니다. 잠시 후 다시 시도하세요.",
     selectPrompt: "왼쪽 목록에서 티켓을 선택하세요.",
     loadMore: "더 보기",
     loadingMore: "불러오는 중",

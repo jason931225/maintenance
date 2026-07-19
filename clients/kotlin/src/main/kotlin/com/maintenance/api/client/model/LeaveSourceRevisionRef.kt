@@ -31,30 +31,24 @@ import kotlinx.serialization.Contextual
 /**
  *
  *
- * @param decision
- * @param note
+ * @param kind
+ * @param reference
+ * @param revision
  */
 @Serializable
 
-data class DecideLeaveRequest (
+data class LeaveSourceRevisionRef (
 
-    @SerialName(value = "decision")
-    val decision: DecideLeaveRequest.Decision,
+    @SerialName(value = "kind")
+    val kind: kotlin.String,
 
-    @SerialName(value = "note")
-    val note: kotlin.String? = null
+    @SerialName(value = "reference")
+    val reference: kotlin.String,
+
+    @SerialName(value = "revision")
+    val revision: kotlin.String
 
 ) {
 
-    /**
-     *
-     *
-     * Values: APPROVE,REJECT
-     */
-    @Serializable
-    enum class Decision(val value: kotlin.String) {
-        @SerialName(value = "APPROVE") APPROVE("APPROVE"),
-        @SerialName(value = "REJECT") REJECT("REJECT");
-    }
 
 }

@@ -136,6 +136,24 @@ export function WorkspaceError({ onRetry }: { onRetry: () => void }) {
   );
 }
 
+/** Non-blocking supplementary-read failure; successful workspace data stays visible. */
+export function WorkspacePartialFailure({
+  message,
+  onRetry,
+}: {
+  message: string;
+  onRetry: () => void;
+}) {
+  return (
+    <div role="alert" style={bannerStyle}>
+      <StatusChip tone="danger">{message}</StatusChip>
+      <button type="button" onClick={onRetry} style={buttonStyle}>
+        {P.retry}
+      </button>
+    </div>
+  );
+}
+
 /** Successful read, empty registry — honest empty, not an error. */
 export function WorkspaceEmpty() {
   return (

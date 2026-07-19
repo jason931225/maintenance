@@ -18,7 +18,7 @@
 //! Fields the prototype `items[]` shape carries but NO backend source can honestly
 //! supply are OMITTED from the response (never fabricated): `entity`, `amount`,
 //! `detail[]`, `files[]`, `stats` (analytics/sparkline gap), `mailId`,
-//! `doneLabel`/`doneTone`, and canonical `AP-`/`CS-` ref codes (the object-code
+//! `doneLabel`/`doneTone`, and canonical object ref codes (the object-code
 //! issuance would be an N+1 objects-resolve per row). `site`/`who`/`submitted` are
 //! emitted only for the sources that carry them.
 //!
@@ -165,13 +165,13 @@ async fn list_action_inbox(
         let mut links = Vec::new();
         if let (Some(object_type), Some(object_id)) = (task.object_type.clone(), task.object_id) {
             links.push(InboxLink {
-                kind: object_type,
+                kind: canonical_action_link_kind(&object_type).to_owned(),
                 id: object_id.to_string(),
                 label: None,
             });
         } else {
             links.push(InboxLink {
-                kind: "workflow_run".to_owned(),
+                kind: "approval_run".to_owned(),
                 id: task.run_id.to_string(),
                 label: None,
             });
@@ -254,7 +254,11 @@ async fn list_action_inbox(
             due: ticket.due_at,
             due_tone,
             submitted: Some(ticket.created_at),
-            links: Vec::new(),
+            links: vec![InboxLink {
+                kind: "support_ticket".to_owned(),
+                id: ticket.id.to_string(),
+                label: None,
+            }],
             done: false,
         });
     }
@@ -314,7 +318,11 @@ async fn list_action_inbox(
             due: row.target_due_at,
             due_tone,
             submitted: Some(row.created_at),
-            links: Vec::new(),
+            links: vec![InboxLink {
+                kind: "work_order".to_owned(),
+                id: row.id.to_string(),
+                label: None,
+            }],
             done: false,
         });
     }
@@ -335,6 +343,17 @@ async fn list_action_inbox(
 
     let total = items.len();
     Ok(Json(ActionInboxResponse { items, total }))
+}
+
+/// `approval_run` is the ontology/object-registry name used by the approval
+/// surface. Older workflow rows may still carry `workflow_run`; normalize that
+/// alias at this boundary so clients never need two names for one object kind.
+fn canonical_action_link_kind(kind: &str) -> &str {
+    if kind == "workflow_run" {
+        "approval_run"
+    } else {
+        kind
+    }
 }
 
 struct WorkOrderRow {
@@ -395,5 +414,17 @@ impl IntoResponse for InboxError {
             })),
         )
             .into_response()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::canonical_action_link_kind;
+
+    #[test]
+    fn normalizes_the_legacy_workflow_run_alias() {
+        assert_eq!(canonical_action_link_kind("workflow_run"), "approval_run");
+        assert_eq!(canonical_action_link_kind("approval_run"), "approval_run");
+        assert_eq!(canonical_action_link_kind("work_order"), "work_order");
     }
 }

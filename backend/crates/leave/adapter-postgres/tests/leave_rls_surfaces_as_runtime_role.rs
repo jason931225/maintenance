@@ -19,29 +19,34 @@
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
+use std::time::Duration;
 
 use mnt_inbox_adapter_postgres::PgInboxStore;
 use mnt_kernel_core::{BranchId, BranchScope, ErrorKind, OrgId, TraceContext, UserId};
 use mnt_leave_adapter_postgres::PgLeaveStore;
 use mnt_leave_application::{
     ApSubmission, CreateLeaveRequestCommand, DecideLeaveRequestCommand, ListLeaveRequestsQuery,
-    StatutoryPushCommand,
+    ResolveLeaveChargeCommand, ResolveLeaveChargeQuery, StatutoryPushCommand, WorkCalendarPort,
 };
-use mnt_leave_domain::{LeaveDecision, LeaveStatus, LeaveType, NewLeaveRequest, PromotionKind};
-use sqlx::PgPool;
+use mnt_leave_domain::{
+    LeaveChargeAssessment, LeaveChargeEvidence, LeaveChargeState, LeaveDateCharge, LeaveDecision,
+    LeaveStatus, LeaveType, LeaveUnits, NewLeaveRequest, PromotionKind, SourceRevisionRef,
+    WorkObligation,
+};
 use sqlx::postgres::PgPoolOptions;
+use sqlx::{PgPool, Row};
 use time::{Month, OffsetDateTime};
 use uuid::Uuid;
 
 const OTHER_ORG: Uuid = Uuid::from_u128(0x5ea5_5ea5_5ea5_5ea5_5ea5_5ea5_5ea5_5ea5);
-
 async fn runtime_role_pool(owner_pool: &PgPool) -> PgPool {
     for grant in [
         "GRANT SELECT, INSERT, UPDATE ON leave_requests TO mnt_rt",
+        "GRANT SELECT, INSERT ON leave_charge_resolutions TO mnt_rt",
         "GRANT SELECT, INSERT, UPDATE ON leave_promotions TO mnt_rt",
         "GRANT SELECT, INSERT, UPDATE ON inbox_docs TO mnt_rt",
         "GRANT SELECT, INSERT ON audit_events TO mnt_rt",
-        "GRANT SELECT, UPDATE ON employees TO mnt_rt",
+        "GRANT SELECT, INSERT, UPDATE ON employees TO mnt_rt",
         "GRANT SELECT ON users TO mnt_rt",
         "GRANT SELECT ON user_branches TO mnt_rt",
         "GRANT SELECT ON branches TO mnt_rt",
@@ -55,6 +60,21 @@ async fn runtime_role_pool(owner_pool: &PgPool) -> PgPool {
         .after_connect(|conn, _meta| {
             Box::pin(async move {
                 sqlx::query("SET ROLE mnt_rt").execute(conn).await?;
+                Ok(())
+            })
+        })
+        .connect_with(options)
+        .await
+        .unwrap()
+}
+
+async fn leave_command_role_pool(owner_pool: &PgPool) -> PgPool {
+    let options = owner_pool.connect_options().as_ref().clone();
+    PgPoolOptions::new()
+        .max_connections(4)
+        .after_connect(|conn, _meta| {
+            Box::pin(async move {
+                sqlx::query("SET ROLE mnt_leave_cmd").execute(conn).await?;
                 Ok(())
             })
         })
@@ -141,6 +161,44 @@ async fn link_user_to_employee_and_branch(
     .execute(owner_pool)
     .await
     .unwrap();
+    let routing_admin = UserId::new();
+    sqlx::query(
+        "INSERT INTO users (id, display_name, roles, org_id, is_active) \
+         VALUES ($1, $2, ARRAY['SUPER_ADMIN']::text[], $3, true)",
+    )
+    .bind(routing_admin.as_uuid())
+    .bind(format!("Routing admin {}", Uuid::new_v4()))
+    .bind(org)
+    .execute(owner_pool)
+    .await
+    .unwrap();
+    let expected: OffsetDateTime =
+        sqlx::query_scalar("SELECT updated_at FROM employees WHERE id = $1 AND org_id = $2")
+            .bind(employee)
+            .bind(org)
+            .fetch_one(owner_pool)
+            .await
+            .unwrap();
+    let mut command = owner_pool.begin().await.unwrap();
+    sqlx::query("SET LOCAL ROLE mnt_leave_cmd")
+        .execute(&mut *command)
+        .await
+        .unwrap();
+    sqlx::query(
+        "SELECT * FROM leave_api.set_employee_home_branch(\
+         $1,$2,$3,$4,$5,$6,$7)",
+    )
+    .bind(org)
+    .bind(employee)
+    .bind(branch)
+    .bind(expected)
+    .bind(routing_admin.as_uuid())
+    .bind("0123456789abcdef0123456789abcdef")
+    .bind("0123456789abcdef")
+    .fetch_one(&mut *command)
+    .await
+    .unwrap();
+    command.commit().await.unwrap();
 }
 
 async fn seed_employee(
@@ -176,21 +234,20 @@ fn date(y: i32, m: u8, d: u8) -> mnt_kernel_core::Date {
 }
 
 fn create_cmd(
-    branch: Uuid,
+    _branch: Uuid,
     requester: UserId,
     subject: Uuid,
-    days: f64,
+    _days: f64,
 ) -> CreateLeaveRequestCommand {
     CreateLeaveRequestCommand {
-        branch_id: branch,
         requester_user_id: requester,
         subject_employee_id: subject,
         request: NewLeaveRequest::new(
             LeaveType::Annual,
-            days,
             date(2026, 7, 6),
             date(2026, 7, 8),
             "여름 휴가",
+            None,
         )
         .unwrap(),
         trace: TraceContext::generate(),
@@ -208,6 +265,7 @@ fn decide_cmd(
         request_id,
         decider,
         branch_scope: scope,
+        expected_version: 1,
         decision,
         comment: if decision == LeaveDecision::Approve {
             None
@@ -219,13 +277,1157 @@ fn decide_cmd(
     }
 }
 
+#[derive(Debug)]
+struct ThreeDayCalendar;
+
+impl WorkCalendarPort for ThreeDayCalendar {
+    fn resolve_charge(
+        &self,
+        query: ResolveLeaveChargeQuery,
+    ) -> mnt_leave_application::LeaveChargeFuture<'_> {
+        Box::pin(async move {
+            let mut current = query.start_date;
+            let mut date_charges = Vec::new();
+            loop {
+                date_charges.push(LeaveDateCharge {
+                    date: current,
+                    obligation: WorkObligation::Scheduled { minutes: 480 },
+                    units: LeaveUnits::ONE_DAY,
+                });
+                if current == query.end_date {
+                    break;
+                }
+                current = current.next_day().expect("bounded fixture date");
+            }
+            Ok(LeaveChargeAssessment::Resolved {
+                evidence: LeaveChargeEvidence {
+                    home_branch_id: query.branch_id,
+                    calendar_revision_ref: SourceRevisionRef::new("test", "calendar", "v1")?,
+                    policy_revision_ref: SourceRevisionRef::new("test", "policy", "v1")?,
+                    supporting_source_refs: Vec::new(),
+                    date_charges,
+                },
+            })
+        })
+    }
+}
+
+fn test_store(rt: &PgPool, command: &PgPool) -> PgLeaveStore {
+    PgLeaveStore::with_work_calendar(
+        rt.clone(),
+        Arc::new(PgInboxStore::new(rt.clone())),
+        Arc::new(ThreeDayCalendar),
+    )
+    .with_leave_command_pool(command.clone())
+}
+
+fn manual_resolution_command(
+    request_id: mnt_leave_domain::LeaveRequestId,
+    resolver: UserId,
+    branch: Uuid,
+    expected_version: i64,
+) -> ResolveLeaveChargeCommand {
+    ResolveLeaveChargeCommand {
+        request_id,
+        resolver,
+        branch_scope: scope_of(branch),
+        expected_version,
+        date_charges: vec![
+            LeaveDateCharge {
+                date: date(2026, 7, 6),
+                obligation: WorkObligation::Scheduled { minutes: 480 },
+                units: LeaveUnits::ONE_DAY,
+            },
+            LeaveDateCharge {
+                date: date(2026, 7, 7),
+                obligation: WorkObligation::Scheduled { minutes: 480 },
+                units: LeaveUnits::ONE_DAY,
+            },
+            LeaveDateCharge {
+                date: date(2026, 7, 8),
+                obligation: WorkObligation::Scheduled { minutes: 480 },
+                units: LeaveUnits::ONE_DAY,
+            },
+        ],
+        calendar_revision_ref: SourceRevisionRef::new("manual", "calendar-doc", "v7").unwrap(),
+        policy_revision_ref: SourceRevisionRef::new("manual", "policy-doc", "v3").unwrap(),
+        supporting_source_refs: vec![
+            SourceRevisionRef::new("evidence", "review-ticket", "1").unwrap(),
+        ],
+        trace: TraceContext::generate(),
+        occurred_at: OffsetDateTime::now_utc(),
+    }
+}
+
+async fn wait_for_lock_waiters(owner_pool: &PgPool, minimum: i64) {
+    for _ in 0..100 {
+        let waiting: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM pg_stat_activity \
+             WHERE datname = current_database() AND wait_event_type = 'Lock'",
+        )
+        .fetch_one(owner_pool)
+        .await
+        .unwrap();
+        if waiting >= minimum {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("timed out waiting for {minimum} database lock waiter(s)");
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn unresolved_charge_is_audited_without_mutation_then_exact_resolution_is_sod_guarded(
+    owner_pool: PgPool,
+) {
+    let rt = runtime_role_pool(&owner_pool).await;
+    let command_pool = leave_command_role_pool(&owner_pool).await;
+    let org = OrgId::knl();
+    let org_uuid = *org.as_uuid();
+    let home = seed_branch(&owner_pool, org_uuid).await;
+    let secondary = seed_branch(&owner_pool, org_uuid).await;
+    let requester = seed_user(&owner_pool, org_uuid).await;
+    let resolver = seed_user(&owner_pool, org_uuid).await;
+    let approver = seed_user(&owner_pool, org_uuid).await;
+    let employee = seed_employee(&owner_pool, org_uuid, 10.0, 0.0, 10.0).await;
+    link_user_to_employee_and_branch(&owner_pool, org_uuid, requester, employee, home).await;
+    sqlx::query("INSERT INTO user_branches (user_id, branch_id, org_id) VALUES ($1, $2, $3)")
+        .bind(requester.as_uuid())
+        .bind(secondary)
+        .bind(org_uuid)
+        .execute(&owner_pool)
+        .await
+        .unwrap();
+
+    let store = PgLeaveStore::new(rt.clone(), Arc::new(PgInboxStore::new(rt.clone())))
+        .with_leave_command_pool(command_pool.clone());
+    let request = mnt_platform_request_context::scope_org(org, async {
+        store
+            .create_request(create_cmd(home, requester, employee, 3.0))
+            .await
+    })
+    .await
+    .unwrap();
+    assert_eq!(
+        request.branch_id, home,
+        "user_branches never selects routing"
+    );
+    assert_eq!(request.charge_version, 0);
+
+    let blocked = mnt_platform_request_context::scope_org(org, async {
+        store
+            .decide(DecideLeaveRequestCommand {
+                expected_version: 1,
+                ..decide_cmd(request.id, approver, scope_of(home), LeaveDecision::Approve)
+            })
+            .await
+    })
+    .await
+    .expect_err("unresolved approval must fail closed");
+    assert!(matches!(
+        blocked,
+        mnt_leave_adapter_postgres::PgLeaveError::ChargeReviewRequired(_)
+    ));
+    let (status, request_version, charge_version): (String, i64, i64) = sqlx::query_as(
+        "SELECT status, request_version, charge_version FROM leave_requests WHERE id = $1",
+    )
+    .bind(request.id.as_uuid())
+    .fetch_one(&owner_pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        (status.as_str(), request_version, charge_version),
+        ("pending", 1, 0),
+        "blocked approval must not consume either version"
+    );
+    let (resolution_count, used_micros, remaining_micros): (i64, i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM leave_charge_resolutions WHERE request_id = $1), \
+                (leave_used * 1000000)::bigint, (leave_remaining * 1000000)::bigint \
+         FROM employees WHERE id = $2",
+    )
+    .bind(request.id.as_uuid())
+    .bind(employee)
+    .fetch_one(&owner_pool)
+    .await
+    .unwrap();
+    assert_eq!(resolution_count, 0);
+    assert_eq!((used_micros, remaining_micros), (0, 10_000_000));
+    let blocked_audits: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_events WHERE target_id = $1 AND action = 'leave_request.approval_blocked'",
+    )
+    .bind(request.id.to_string())
+    .fetch_one(&owner_pool)
+    .await
+    .unwrap();
+    assert_eq!(blocked_audits, 1);
+
+    let resolved = mnt_platform_request_context::scope_org(org, async {
+        store
+            .resolve_charge(manual_resolution_command(request.id, resolver, home, 1))
+            .await
+    })
+    .await
+    .unwrap();
+    assert_eq!(resolved.charge_units.micros(), 3_000_000);
+    assert_eq!(resolved.request_version, 2);
+    assert_eq!(resolved.charge_version, 1);
+
+    let resolver_approve = mnt_platform_request_context::scope_org(org, async {
+        store
+            .decide(DecideLeaveRequestCommand {
+                expected_version: 2,
+                ..decide_cmd(request.id, resolver, scope_of(home), LeaveDecision::Approve)
+            })
+            .await
+    })
+    .await;
+    assert_eq!(resolver_approve.unwrap_err().kind(), ErrorKind::Forbidden);
+
+    let approved = mnt_platform_request_context::scope_org(org, async {
+        store
+            .decide(DecideLeaveRequestCommand {
+                expected_version: 2,
+                ..decide_cmd(request.id, approver, scope_of(home), LeaveDecision::Approve)
+            })
+            .await
+    })
+    .await
+    .unwrap();
+    assert_eq!(approved.request_version, 3);
+    assert_eq!(approved.charge_version, 1);
+    let remaining_micros: i64 = sqlx::query_scalar(
+        "SELECT (leave_remaining * 1000000)::bigint FROM employees WHERE id = $1",
+    )
+    .bind(employee)
+    .fetch_one(&owner_pool)
+    .await
+    .unwrap();
+    assert_eq!(remaining_micros, 7_000_000);
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn concurrent_resolver_wins_before_blocked_approval_without_partial_mutation(
+    owner_pool: PgPool,
+) {
+    let rt = runtime_role_pool(&owner_pool).await;
+    let command_pool = leave_command_role_pool(&owner_pool).await;
+    let org = OrgId::knl();
+    let org_uuid = *org.as_uuid();
+    let home = seed_branch(&owner_pool, org_uuid).await;
+    let requester = seed_user(&owner_pool, org_uuid).await;
+    let resolver = seed_user(&owner_pool, org_uuid).await;
+    let approver = seed_user(&owner_pool, org_uuid).await;
+    let employee = seed_employee(&owner_pool, org_uuid, 10.0, 0.0, 10.0).await;
+    link_user_to_employee_and_branch(&owner_pool, org_uuid, requester, employee, home).await;
+
+    let store = PgLeaveStore::new(rt.clone(), Arc::new(PgInboxStore::new(rt)))
+        .with_leave_command_pool(command_pool.clone());
+    let request = mnt_platform_request_context::scope_org(org, async {
+        store
+            .create_request(create_cmd(home, requester, employee, 3.0))
+            .await
+    })
+    .await
+    .unwrap();
+
+    // Hold the request row so both commands finish their optimistic read and
+    // queue at their in-transaction SELECT FOR UPDATE. Queue the resolver
+    // first: once this lock is released it must win, and the approval must
+    // re-check the now-resolved row rather than committing a stale blocked
+    // audit or any request/ledger mutation of its own.
+    let mut blocker = owner_pool.begin().await.unwrap();
+    sqlx::query("SELECT id FROM leave_requests WHERE id = $1 FOR UPDATE")
+        .bind(request.id.as_uuid())
+        .fetch_one(&mut *blocker)
+        .await
+        .unwrap();
+
+    let resolving_store = store.clone();
+    let resolving = tokio::spawn(async move {
+        mnt_platform_request_context::scope_org(org, async move {
+            resolving_store
+                .resolve_charge(manual_resolution_command(request.id, resolver, home, 1))
+                .await
+        })
+        .await
+    });
+    wait_for_lock_waiters(&owner_pool, 1).await;
+
+    let deciding_store = store.clone();
+    let deciding = tokio::spawn(async move {
+        mnt_platform_request_context::scope_org(org, async move {
+            deciding_store
+                .decide(DecideLeaveRequestCommand {
+                    expected_version: 1,
+                    ..decide_cmd(request.id, approver, scope_of(home), LeaveDecision::Approve)
+                })
+                .await
+        })
+        .await
+    });
+    wait_for_lock_waiters(&owner_pool, 2).await;
+    blocker.commit().await.unwrap();
+
+    let resolved = resolving.await.unwrap().unwrap();
+    assert_eq!(resolved.charge_units.micros(), 3_000_000);
+    assert_eq!(resolved.request_version, 2);
+    assert_eq!(resolved.charge_version, 1);
+    assert!(matches!(
+        deciding.await.unwrap().unwrap_err(),
+        mnt_leave_adapter_postgres::PgLeaveError::ConcurrentModification
+    ));
+
+    let (status, charge_state, request_version, charge_version, resolution_count, blocked_audits, used_micros, remaining_micros):
+        (String, String, i64, i64, i64, i64, i64, i64) = sqlx::query_as(
+            "SELECT lr.status, lr.charge_state, lr.request_version, lr.charge_version, \
+                    (SELECT count(*) FROM leave_charge_resolutions lcr WHERE lcr.request_id = lr.id), \
+                    (SELECT count(*) FROM audit_events ae WHERE ae.target_id = lr.id::text \
+                        AND ae.action = 'leave_request.approval_blocked'), \
+                    (e.leave_used * 1000000)::bigint, \
+                    (e.leave_remaining * 1000000)::bigint \
+             FROM leave_requests lr JOIN employees e ON e.id = lr.subject_employee_id \
+             WHERE lr.id = $1",
+        )
+        .bind(request.id.as_uuid())
+        .fetch_one(&owner_pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        (
+            status.as_str(),
+            charge_state.as_str(),
+            request_version,
+            charge_version,
+        ),
+        ("pending", "resolved", 2, 1)
+    );
+    assert_eq!(resolution_count, 1);
+    assert_eq!(blocked_audits, 0, "stale blocked audit must roll back");
+    assert_eq!((used_micros, remaining_micros), (0, 10_000_000));
+}
+
 fn scope_of(branch: Uuid) -> BranchScope {
     BranchScope::Branches(BTreeSet::from([BranchId::from_uuid(branch)]))
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn request_cas_and_charge_evidence_versions_are_independent_and_exact(owner_pool: PgPool) {
+    let rt = runtime_role_pool(&owner_pool).await;
+    let command_pool = leave_command_role_pool(&owner_pool).await;
+    let org = OrgId::knl();
+    let org_uuid = *org.as_uuid();
+    let branch = seed_branch(&owner_pool, org_uuid).await;
+    let requester = seed_user(&owner_pool, org_uuid).await;
+    let resolver = seed_user(&owner_pool, org_uuid).await;
+    let approver = seed_user(&owner_pool, org_uuid).await;
+    let employee = seed_employee(&owner_pool, org_uuid, 10.0, 0.0, 10.0).await;
+    link_user_to_employee_and_branch(&owner_pool, org_uuid, requester, employee, branch).await;
+    for actor in [resolver, approver] {
+        sqlx::query("INSERT INTO user_branches (user_id,branch_id,org_id) VALUES ($1,$2,$3)")
+            .bind(actor.as_uuid())
+            .bind(branch)
+            .bind(org_uuid)
+            .execute(&owner_pool)
+            .await
+            .unwrap();
+    }
+    let store = test_store(&rt, &command_pool);
+    let created = mnt_platform_request_context::scope_org(org, async {
+        store
+            .create_request(create_cmd(branch, requester, employee, 3.0))
+            .await
+    })
+    .await
+    .unwrap();
+    assert_eq!((created.request_version, created.charge_version), (1, 1));
+
+    let resolved = mnt_platform_request_context::scope_org(org, async {
+        store
+            .resolve_charge(manual_resolution_command(created.id, requester, branch, 1))
+            .await
+    })
+    .await;
+    // The requester cannot resolve their own request; this failed command must
+    // not consume either request or evidence versions.
+    assert_eq!(resolved.unwrap_err().kind(), ErrorKind::Forbidden);
+    let resolved = mnt_platform_request_context::scope_org(org, async {
+        store
+            .resolve_charge(manual_resolution_command(created.id, resolver, branch, 1))
+            .await
+    })
+    .await
+    .unwrap();
+    assert_eq!((resolved.request_version, resolved.charge_version), (2, 2));
+
+    let stale = mnt_platform_request_context::scope_org(org, async {
+        store
+            .decide(DecideLeaveRequestCommand {
+                expected_version: 1,
+                ..decide_cmd(
+                    created.id,
+                    approver,
+                    scope_of(branch),
+                    LeaveDecision::Approve,
+                )
+            })
+            .await
+    })
+    .await;
+    assert!(matches!(
+        stale,
+        Err(mnt_leave_adapter_postgres::PgLeaveError::ConcurrentModification)
+    ));
+
+    let old_resolution: Uuid = sqlx::query_scalar(
+        "SELECT id FROM leave_charge_resolutions WHERE request_id=$1 AND charge_version=1",
+    )
+    .bind(created.id.as_uuid())
+    .fetch_one(&owner_pool)
+    .await
+    .unwrap();
+    let mut forged_pointer = owner_pool.begin().await.unwrap();
+    sqlx::query("SET LOCAL ROLE mnt_leave_definer")
+        .execute(&mut *forged_pointer)
+        .await
+        .unwrap();
+    sqlx::query("SELECT set_config('app.current_org',$1,true)")
+        .bind(org_uuid.to_string())
+        .execute(&mut *forged_pointer)
+        .await
+        .unwrap();
+    assert!(
+        sqlx::query("UPDATE leave_requests SET current_charge_resolution_id=$2 WHERE id=$1")
+            .bind(created.id.as_uuid())
+            .bind(old_resolution)
+            .execute(&mut *forged_pointer)
+            .await
+            .is_err(),
+        "a current pointer to older evidence must fail exact-version validation"
+    );
+    forged_pointer.rollback().await.unwrap();
+
+    let approved = mnt_platform_request_context::scope_org(org, async {
+        store
+            .decide(DecideLeaveRequestCommand {
+                expected_version: 2,
+                ..decide_cmd(
+                    created.id,
+                    approver,
+                    scope_of(branch),
+                    LeaveDecision::Approve,
+                )
+            })
+            .await
+    })
+    .await
+    .unwrap();
+    assert_eq!((approved.request_version, approved.charge_version), (3, 2));
+    let (request_charge, pointed_charge): (i64, i64) = sqlx::query_as(
+        "SELECT lr.charge_version,lcr.charge_version FROM leave_requests lr \
+         JOIN leave_charge_resolutions lcr ON lcr.id=lr.current_charge_resolution_id \
+         WHERE lr.id=$1",
+    )
+    .bind(created.id.as_uuid())
+    .fetch_one(&owner_pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        request_charge, pointed_charge,
+        "decision preserves exact evidence pointer"
+    );
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn leave_command_preprovision_and_privilege_matrix_are_fail_closed(owner_pool: PgPool) {
+    let cmd = sqlx::query(
+        "SELECT rolcanlogin,rolsuper,rolbypassrls,rolinherit,rolcreatedb,rolcreaterole,rolreplication \
+         FROM pg_roles WHERE rolname='mnt_leave_cmd'",
+    )
+    .fetch_one(&owner_pool)
+    .await
+    .unwrap();
+    assert!(
+        cmd.get::<bool, _>("rolcanlogin"),
+        "managed LOGIN is preserved"
+    );
+    for attribute in [
+        "rolsuper",
+        "rolbypassrls",
+        "rolinherit",
+        "rolcreatedb",
+        "rolcreaterole",
+        "rolreplication",
+    ] {
+        assert!(
+            !cmd.get::<bool, _>(attribute),
+            "cmd {attribute} must be false"
+        );
+    }
+    let definer = sqlx::query(
+        "SELECT rolcanlogin,rolsuper,rolbypassrls,rolinherit,rolcreatedb,rolcreaterole,rolreplication \
+         FROM pg_roles WHERE rolname='mnt_leave_definer'",
+    )
+    .fetch_one(&owner_pool)
+    .await
+    .unwrap();
+    for attribute in [
+        "rolcanlogin",
+        "rolsuper",
+        "rolbypassrls",
+        "rolinherit",
+        "rolcreatedb",
+        "rolcreaterole",
+        "rolreplication",
+    ] {
+        assert!(
+            !definer.get::<bool, _>(attribute),
+            "definer {attribute} must be false"
+        );
+    }
+    let command_can_assume_definer: bool =
+        sqlx::query_scalar("SELECT pg_has_role('mnt_leave_cmd','mnt_leave_definer','MEMBER')")
+            .fetch_one(&owner_pool)
+            .await
+            .unwrap();
+    assert!(
+        !command_can_assume_definer,
+        "command role must not inherit or assume the definer"
+    );
+    let migrator_membership: (bool, bool, bool) = sqlx::query_as(
+        "SELECT am.admin_option,am.inherit_option,am.set_option \
+         FROM pg_auth_members am \
+         WHERE am.roleid='mnt_leave_definer'::regrole AND am.member='mnt_app'::regrole",
+    )
+    .fetch_one(&owner_pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        migrator_membership,
+        (false, true, true),
+        "mnt_app receives the exact non-admin ownership edge"
+    );
+
+    let command_functions: Vec<String> = sqlx::query_scalar(
+        "SELECT p.proname FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace \
+         WHERE n.nspname='leave_api' \
+           AND has_function_privilege('mnt_leave_cmd',p.oid,'EXECUTE') ORDER BY p.proname",
+    )
+    .fetch_all(&owner_pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        command_functions,
+        vec![
+            "apply_employee_import_batch".to_owned(),
+            "create_request".to_owned(),
+            "decide_request".to_owned(),
+            "import_employee_leave_balance".to_owned(),
+            "resolve_charge".to_owned(),
+            "set_employee_home_branch".to_owned(),
+        ],
+        "command role receives exactly six public entrypoints and no helpers"
+    );
+    let runtime_execute_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace \
+         WHERE n.nspname='leave_api' AND has_function_privilege('mnt_rt',p.oid,'EXECUTE')",
+    )
+    .fetch_one(&owner_pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        runtime_execute_count, 0,
+        "mnt_rt executes no leave command or helper"
+    );
+    let public_execute_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace, \
+                LATERAL aclexplode(p.proacl) acl \
+         WHERE n.nspname='leave_api' AND acl.grantee=0 AND acl.privilege_type='EXECUTE'",
+    )
+    .fetch_one(&owner_pool)
+    .await
+    .unwrap();
+    assert_eq!(public_execute_count, 0, "PUBLIC executes no leave function");
+    let (cmd_schema, rt_schema, cmd_request_dml, rt_request_dml, cmd_resolution_dml, rt_resolution_dml):
+        (bool, bool, bool, bool, bool, bool) = sqlx::query_as(
+            "SELECT has_schema_privilege('mnt_leave_cmd','leave_api','USAGE'), \
+                    has_schema_privilege('mnt_rt','leave_api','USAGE'), \
+                    has_table_privilege('mnt_leave_cmd','leave_requests','INSERT,UPDATE,DELETE,TRUNCATE'), \
+                    has_table_privilege('mnt_rt','leave_requests','INSERT,UPDATE,DELETE,TRUNCATE'), \
+                    has_table_privilege('mnt_leave_cmd','leave_charge_resolutions','INSERT,UPDATE,DELETE,TRUNCATE'), \
+                    has_table_privilege('mnt_rt','leave_charge_resolutions','INSERT,UPDATE,DELETE,TRUNCATE')",
+        )
+        .fetch_one(&owner_pool)
+        .await
+        .unwrap();
+    assert!(cmd_schema);
+    assert!(!rt_schema);
+    assert!(!cmd_request_dml && !rt_request_dml);
+    assert!(!cmd_resolution_dml && !rt_resolution_dml);
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn runtime_cannot_forge_employee_import_terminal_state_or_apply_audit(owner_pool: PgPool) {
+    let rt = runtime_role_pool(&owner_pool).await;
+    let org_id = Uuid::new_v4();
+    let actor_id = Uuid::new_v4();
+    let run_id = Uuid::new_v4();
+    sqlx::query("INSERT INTO organizations (id,slug,name) VALUES ($1,$2,'Import guard test')")
+        .bind(org_id)
+        .bind(format!("import-guard-{}", &org_id.to_string()[..8]))
+        .execute(&owner_pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO users (id,display_name,roles,is_active,org_id) \
+         VALUES ($1,'Import guard actor',ARRAY['SUPER_ADMIN']::text[],true,$2)",
+    )
+    .bind(actor_id)
+    .bind(org_id)
+    .execute(&owner_pool)
+    .await
+    .unwrap();
+
+    let mut direct = rt.begin().await.unwrap();
+    sqlx::query("SELECT set_config('app.current_org',$1,true)")
+        .bind(org_id.to_string())
+        .execute(&mut *direct)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO data_import_runs \
+         (id,org_id,entity_type,status,source_filename,source_format,source_sha256) \
+         VALUES ($1,$2,'employee_hr','DRY_RUN','employees.xlsx','xlsx',$3)",
+    )
+    .bind(run_id)
+    .bind(org_id)
+    .bind("a".repeat(64))
+    .execute(&mut *direct)
+    .await
+    .unwrap();
+    direct.commit().await.unwrap();
+
+    // The original laundering sequence cannot even leave employee_hr. This
+    // closes employee_hr -> attendance_direct -> forged APPLIED fields ->
+    // employee_hr before any protected terminal data can be staged.
+    let mut launder_kind = rt.begin().await.unwrap();
+    sqlx::query("SELECT set_config('app.current_org',$1,true)")
+        .bind(org_id.to_string())
+        .execute(&mut *launder_kind)
+        .await
+        .unwrap();
+    assert!(
+        sqlx::query(
+            "UPDATE data_import_runs SET entity_type='attendance_direct' \
+             WHERE org_id=$1 AND id=$2",
+        )
+        .bind(org_id)
+        .bind(run_id)
+        .execute(&mut *launder_kind)
+        .await
+        .is_err(),
+        "employee_hr must not be relabeled before forging attendance apply fields"
+    );
+    launder_kind.rollback().await.unwrap();
+
+    let mut forged_run = rt.begin().await.unwrap();
+    sqlx::query("SELECT set_config('app.current_org',$1,true)")
+        .bind(org_id.to_string())
+        .execute(&mut *forged_run)
+        .await
+        .unwrap();
+    assert!(
+        sqlx::query(
+            "UPDATE data_import_runs SET status='APPLIED',apply_summary=$3,\
+             applied_by=$4,applied_at=now() WHERE org_id=$1 AND id=$2",
+        )
+        .bind(org_id)
+        .bind(run_id)
+        .bind(serde_json::json!({"inserted": 99}))
+        .bind(actor_id)
+        .execute(&mut *forged_run)
+        .await
+        .is_err(),
+        "mnt_rt must not forge an employee_hr terminal result"
+    );
+    forged_run.rollback().await.unwrap();
+
+    let mut forged_audit = rt.begin().await.unwrap();
+    sqlx::query("SELECT set_config('app.current_org',$1,true)")
+        .bind(org_id.to_string())
+        .execute(&mut *forged_audit)
+        .await
+        .unwrap();
+    assert!(
+        sqlx::query(
+            "INSERT INTO audit_events \
+             (actor,action,target_type,target_id,trace_id,span_id,occurred_at,org_id) \
+             VALUES ($1,'data_import.apply','data_import_run',$2,$3,$4,now(),$5)",
+        )
+        .bind(actor_id)
+        .bind(run_id.to_string())
+        .bind("0123456789abcdef0123456789abcdef")
+        .bind("0123456789abcdef")
+        .bind(org_id)
+        .execute(&mut *forged_audit)
+        .await
+        .is_err(),
+        "mnt_rt must not forge intrinsic employee-import apply evidence"
+    );
+    forged_audit.rollback().await.unwrap();
+
+    let state: (
+        String,
+        serde_json::Value,
+        Option<Uuid>,
+        Option<OffsetDateTime>,
+        i64,
+    ) = sqlx::query_as(
+        "SELECT status,apply_summary,applied_by,applied_at,\
+             (SELECT count(*) FROM audit_events WHERE org_id=$1 AND action='data_import.apply') \
+             FROM data_import_runs WHERE org_id=$1 AND id=$2",
+    )
+    .bind(org_id)
+    .bind(run_id)
+    .fetch_one(&owner_pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        state,
+        ("DRY_RUN".to_owned(), serde_json::json!({}), None, None, 0)
+    );
+
+    // Preserve legitimate attendance apply, then prove the inverse laundering
+    // edge is also closed after those otherwise-valid terminal fields exist.
+    let attendance_run_id = Uuid::new_v4();
+    let mut legitimate_attendance = rt.begin().await.unwrap();
+    sqlx::query("SELECT set_config('app.current_org',$1,true)")
+        .bind(org_id.to_string())
+        .execute(&mut *legitimate_attendance)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO data_import_runs \
+         (id,org_id,entity_type,status,source_filename,source_format,source_sha256) \
+         VALUES ($1,$2,'attendance_direct','DRY_RUN','attendance.xlsx','xlsx',$3)",
+    )
+    .bind(attendance_run_id)
+    .bind(org_id)
+    .bind("b".repeat(64))
+    .execute(&mut *legitimate_attendance)
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE data_import_runs SET status='APPLIED',apply_summary=$3,\
+         applied_by=$4,applied_at=now() WHERE org_id=$1 AND id=$2",
+    )
+    .bind(org_id)
+    .bind(attendance_run_id)
+    .bind(serde_json::json!({"inserted": 1}))
+    .bind(actor_id)
+    .execute(&mut *legitimate_attendance)
+    .await
+    .unwrap();
+    legitimate_attendance.commit().await.unwrap();
+
+    let mut launder_back = rt.begin().await.unwrap();
+    sqlx::query("SELECT set_config('app.current_org',$1,true)")
+        .bind(org_id.to_string())
+        .execute(&mut *launder_back)
+        .await
+        .unwrap();
+    assert!(
+        sqlx::query(
+            "UPDATE data_import_runs SET entity_type='employee_hr' \
+             WHERE org_id=$1 AND id=$2",
+        )
+        .bind(org_id)
+        .bind(attendance_run_id)
+        .execute(&mut *launder_back)
+        .await
+        .is_err(),
+        "applied attendance evidence must not be relabeled as employee_hr"
+    );
+    launder_back.rollback().await.unwrap();
+    let attendance_kind: String =
+        sqlx::query_scalar("SELECT entity_type FROM data_import_runs WHERE id=$1")
+            .bind(attendance_run_id)
+            .fetch_one(&owner_pool)
+            .await
+            .unwrap();
+    assert_eq!(attendance_kind, "attendance_direct");
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn raw_runtime_home_branch_command_is_guarded_and_intrinsically_audited(owner_pool: PgPool) {
+    let rt = runtime_role_pool(&owner_pool).await;
+    let command_pool = leave_command_role_pool(&owner_pool).await;
+    let org = OrgId::knl();
+    let org_uuid = *org.as_uuid();
+    let branch = seed_branch(&owner_pool, org_uuid).await;
+    let actor = seed_user(&owner_pool, org_uuid).await;
+    sqlx::query("INSERT INTO user_branches (user_id, branch_id, org_id) VALUES ($1,$2,$3)")
+        .bind(*actor.as_uuid())
+        .bind(branch)
+        .bind(org_uuid)
+        .execute(&owner_pool)
+        .await
+        .unwrap();
+    let super_admin = UserId::new();
+    sqlx::query(
+        "INSERT INTO users (id, display_name, roles, org_id, is_active) \
+         VALUES ($1, 'Super admin', ARRAY['SUPER_ADMIN']::text[], $2, true)",
+    )
+    .bind(super_admin.as_uuid())
+    .bind(org_uuid)
+    .execute(&owner_pool)
+    .await
+    .unwrap();
+    let employee = seed_employee(&owner_pool, org_uuid, 10.0, 0.0, 10.0).await;
+    let expected: OffsetDateTime =
+        sqlx::query_scalar("SELECT updated_at FROM employees WHERE id = $1")
+            .bind(employee)
+            .fetch_one(&owner_pool)
+            .await
+            .unwrap();
+
+    let mut direct = rt.begin().await.unwrap();
+    sqlx::query("SELECT set_config('app.current_org', $1, true)")
+        .bind(org_uuid.to_string())
+        .execute(&mut *direct)
+        .await
+        .unwrap();
+    assert!(
+        sqlx::query("UPDATE employees SET home_branch_id = $2 WHERE id = $1")
+            .bind(employee)
+            .bind(branch)
+            .execute(&mut *direct)
+            .await
+            .is_err()
+    );
+    direct.rollback().await.unwrap();
+
+    let inserted_employee = Uuid::new_v4();
+    let mut direct_insert = rt.begin().await.unwrap();
+    sqlx::query("SELECT set_config('app.current_org', $1, true)")
+        .bind(org_uuid.to_string())
+        .execute(&mut *direct_insert)
+        .await
+        .unwrap();
+    assert!(
+        sqlx::query(
+            "INSERT INTO employees \
+             (id,org_id,company,name,source_filename,source_sheet,source_row,source_key,home_branch_id) \
+             VALUES ($1,$2,'KNL','Forged routing','roster.xlsx','Sheet1',1,$3,$4)",
+        )
+        .bind(inserted_employee)
+        .bind(org_uuid)
+        .bind(format!("forged-{inserted_employee}"))
+        .bind(branch)
+        .execute(&mut *direct_insert)
+        .await
+        .is_err(),
+        "mnt_rt must not assign authoritative routing during employee insert"
+    );
+    direct_insert.rollback().await.unwrap();
+    let inserted_count: i64 = sqlx::query_scalar("SELECT count(*) FROM employees WHERE id = $1")
+        .bind(inserted_employee)
+        .fetch_one(&owner_pool)
+        .await
+        .unwrap();
+    assert_eq!(inserted_count, 0, "denied routing insert must not persist");
+    let forged_insert_audits: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_events WHERE target_id = $1 AND action = 'employee.home_branch_set'",
+    )
+    .bind(inserted_employee.to_string())
+    .fetch_one(&owner_pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        forged_insert_audits, 0,
+        "denied routing insert must not audit"
+    );
+
+    let mut execute_spoof = rt.begin().await.unwrap();
+    sqlx::query("SELECT set_config('app.current_org', $1, true)")
+        .bind(org_uuid.to_string())
+        .execute(&mut *execute_spoof)
+        .await
+        .unwrap();
+    assert!(
+        sqlx::query("SELECT * FROM leave_api.set_employee_home_branch($1,$2,$3,$4,$5,$6,$7)",)
+            .bind(org_uuid)
+            .bind(employee)
+            .bind(branch)
+            .bind(expected)
+            .bind(actor.as_uuid())
+            .bind("0123456789abcdef0123456789abcdef")
+            .bind("0123456789abcdef")
+            .fetch_one(&mut *execute_spoof)
+            .await
+            .is_err()
+    );
+    execute_spoof.rollback().await.unwrap();
+
+    let mut audit_spoof = rt.begin().await.unwrap();
+    sqlx::query("SELECT set_config('app.current_org', $1, true)")
+        .bind(org_uuid.to_string())
+        .execute(&mut *audit_spoof)
+        .await
+        .unwrap();
+    assert!(
+        sqlx::query(
+            "INSERT INTO audit_events \
+             (actor,action,target_type,target_id,branch_id,trace_id,span_id,occurred_at,org_id) \
+             VALUES ($1,'employee.home_branch_set','employee',$2,$3,$4,$5,now(),$6)",
+        )
+        .bind(*actor.as_uuid())
+        .bind(employee.to_string())
+        .bind(branch)
+        .bind("0123456789abcdef0123456789abcdef")
+        .bind("0123456789abcdef")
+        .bind(org_uuid)
+        .execute(&mut *audit_spoof)
+        .await
+        .is_err(),
+        "mnt_rt must not forge a protected leave audit after spoofing GUCs"
+    );
+    audit_spoof.rollback().await.unwrap();
+
+    let store = PgLeaveStore::new(rt, Arc::new(PgInboxStore::new(owner_pool.clone())))
+        .with_leave_command_pool(command_pool);
+    let denied = mnt_platform_request_context::scope_org(org, async {
+        store
+            .set_employee_home_branch(
+                employee,
+                branch,
+                expected,
+                actor,
+                mnt_kernel_core::TraceContext::generate(),
+            )
+            .await
+    })
+    .await;
+    assert_eq!(denied.unwrap_err().kind(), ErrorKind::Forbidden);
+    let denied_audits: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_events WHERE target_id=$1 AND action='employee.home_branch_set'",
+    )
+    .bind(employee.to_string())
+    .fetch_one(&owner_pool)
+    .await
+    .unwrap();
+    assert_eq!(denied_audits, 0, "denied first assignment must not audit");
+
+    let updated = mnt_platform_request_context::scope_org(org, async {
+        store
+            .set_employee_home_branch(
+                employee,
+                branch,
+                expected,
+                super_admin,
+                mnt_kernel_core::TraceContext::generate(),
+            )
+            .await
+    })
+    .await
+    .unwrap();
+    assert_eq!(updated.home_branch_id, branch);
+    let audit_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_events WHERE target_id=$1 AND action='employee.home_branch_set'",
+    )
+    .bind(employee.to_string())
+    .fetch_one(&owner_pool)
+    .await
+    .unwrap();
+    assert_eq!(audit_count, 1);
+
+    let stale = mnt_platform_request_context::scope_org(org, async {
+        store
+            .set_employee_home_branch(
+                employee,
+                branch,
+                expected,
+                super_admin,
+                mnt_kernel_core::TraceContext::generate(),
+            )
+            .await
+    })
+    .await;
+    assert!(matches!(
+        stale,
+        Err(mnt_leave_adapter_postgres::PgLeaveError::ConcurrentModification)
+    ));
+    let final_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_events WHERE target_id=$1 AND action='employee.home_branch_set'",
+    )
+    .bind(employee.to_string())
+    .fetch_one(&owner_pool)
+    .await
+    .unwrap();
+    assert_eq!(final_count, 1, "failed command must not append audit");
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn imported_balance_command_blocks_runtime_bypasses_and_audits_once(owner_pool: PgPool) {
+    let rt = runtime_role_pool(&owner_pool).await;
+    let command_pool = leave_command_role_pool(&owner_pool).await;
+    let org = OrgId::knl();
+    let org_uuid = *org.as_uuid();
+    let branch_admin = seed_user(&owner_pool, org_uuid).await;
+    let actor = UserId::new();
+    sqlx::query(
+        "INSERT INTO users (id,display_name,roles,org_id,is_active) \
+         VALUES ($1,'Import owner',ARRAY['SUPER_ADMIN']::text[],$2,true)",
+    )
+    .bind(actor.as_uuid())
+    .bind(org_uuid)
+    .execute(&owner_pool)
+    .await
+    .unwrap();
+    let employee = Uuid::new_v4();
+    let source_key = format!("balance-import-{employee}");
+    sqlx::query(
+        "INSERT INTO employees (id,org_id,company,name,source_filename,source_sheet,source_row,source_key) \
+         VALUES ($1,$2,'KNL','Imported employee','import.xlsx','Sheet1',1,$3)",
+    )
+    .bind(employee)
+    .bind(org_uuid)
+    .bind(&source_key)
+    .execute(&owner_pool)
+    .await
+    .unwrap();
+    let expected: OffsetDateTime =
+        sqlx::query_scalar("SELECT updated_at FROM employees WHERE id=$1")
+            .bind(employee)
+            .fetch_one(&owner_pool)
+            .await
+            .unwrap();
+
+    let forged = Uuid::new_v4();
+    let mut direct = rt.begin().await.unwrap();
+    sqlx::query("SELECT set_config('app.current_org',$1,true)")
+        .bind(org_uuid.to_string())
+        .execute(&mut *direct)
+        .await
+        .unwrap();
+    assert!(
+        sqlx::query(
+            "INSERT INTO employees (id,org_id,company,name,source_filename,source_sheet,source_row,source_key,leave_accrued,leave_used,leave_remaining) \
+             VALUES ($1,$2,'KNL','Forged','import.xlsx','Sheet1',2,$3,99,1,98)",
+        )
+        .bind(forged)
+        .bind(org_uuid)
+        .bind(format!("forged-balance-{forged}"))
+        .execute(&mut *direct)
+        .await
+        .is_err(),
+        "mnt_rt must not establish balances during INSERT"
+    );
+    direct.rollback().await.unwrap();
+
+    let mut direct = rt.begin().await.unwrap();
+    sqlx::query("SELECT set_config('app.current_org',$1,true)")
+        .bind(org_uuid.to_string())
+        .execute(&mut *direct)
+        .await
+        .unwrap();
+    assert!(
+        sqlx::query("UPDATE employees SET leave_remaining=999 WHERE id=$1")
+            .bind(employee)
+            .execute(&mut *direct)
+            .await
+            .is_err(),
+        "mnt_rt must not update protected balances"
+    );
+    direct.rollback().await.unwrap();
+
+    let key = format!("employee-import:test-run:{source_key}");
+    let call = |accrued: &str, expected: OffsetDateTime| {
+        sqlx::query(
+            "SELECT * FROM leave_api.import_employee_leave_balance(\
+             $1,$2,$3,$4,$5,$6,'employee_import',$7,$8,$9,$10,$11)",
+        )
+        .bind(org_uuid)
+        .bind(employee)
+        .bind(expected)
+        .bind(accrued.to_owned())
+        .bind("1.125000")
+        .bind("10.875000")
+        .bind("test-run")
+        .bind(key.clone())
+        .bind(*actor.as_uuid())
+        .bind("0123456789abcdef0123456789abcdef")
+        .bind("0123456789abcdef")
+    };
+    assert!(
+        sqlx::query(
+            "SELECT * FROM leave_api.import_employee_leave_balance(\
+             $1,$2,$3,$4,$5,$6,'employee_import',$7,$8,$9,$10,$11)",
+        )
+        .bind(org_uuid)
+        .bind(employee)
+        .bind(expected)
+        .bind("12.000001")
+        .bind("1.125000")
+        .bind("10.875000")
+        .bind("test-run")
+        .bind(format!("employee-import:branch-admin:{source_key}"))
+        .bind(branch_admin.as_uuid())
+        .bind("0123456789abcdef0123456789abcdef")
+        .bind("0123456789abcdef")
+        .fetch_one(&command_pool)
+        .await
+        .is_err(),
+        "branch-scoped ADMIN must not execute an org-wide balance import"
+    );
+    let first = call("12.000001", expected)
+        .fetch_one(&command_pool)
+        .await
+        .unwrap();
+    assert!(first.get::<bool, _>("changed"));
+    assert!(!first.get::<bool, _>("replayed"));
+    let replay = call("12.000001", expected)
+        .fetch_one(&command_pool)
+        .await
+        .unwrap();
+    assert!(replay.get::<bool, _>("replayed"));
+    assert!(
+        call("13.000001", expected)
+            .fetch_one(&command_pool)
+            .await
+            .is_err(),
+        "an idempotency key cannot be rebound to a different payload"
+    );
+    let stored: (String, String, String) = sqlx::query_as(
+        "SELECT leave_accrued::TEXT,leave_used::TEXT,leave_remaining::TEXT FROM employees WHERE id=$1",
+    )
+    .bind(employee)
+    .fetch_one(&owner_pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        stored,
+        ("12.000001".into(), "1.125000".into(), "10.875000".into())
+    );
+    let audits: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_events WHERE org_id=$1 AND target_id=$2 \
+         AND action='employee.leave_balance_import' AND actor=$3",
+    )
+    .bind(org_uuid)
+    .bind(employee.to_string())
+    .bind(actor.as_uuid())
+    .fetch_one(&owner_pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        audits, 1,
+        "successful change audits once; replay/failure audit zero"
+    );
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn approve_writes_ledger_and_enforces_sod_branch_and_tenant(owner_pool: PgPool) {
     let rt = runtime_role_pool(&owner_pool).await;
+    let command_pool = leave_command_role_pool(&owner_pool).await;
     let knl = OrgId::knl();
     let knl_uuid = *knl.as_uuid();
     let other = OrgId::from_uuid(OTHER_ORG);
@@ -236,8 +1438,9 @@ async fn approve_writes_ledger_and_enforces_sod_branch_and_tenant(owner_pool: Pg
     let requester = seed_user(&owner_pool, knl_uuid).await;
     let approver = seed_user(&owner_pool, knl_uuid).await;
     let employee = seed_employee(&owner_pool, knl_uuid, 15.0, 0.0, 15.0).await;
+    link_user_to_employee_and_branch(&owner_pool, knl_uuid, requester, employee, branch_a).await;
 
-    let store = PgLeaveStore::new(rt.clone(), Arc::new(PgInboxStore::new(rt.clone())));
+    let store = test_store(&rt, &command_pool);
 
     let request = mnt_platform_request_context::scope_org(knl, async {
         store
@@ -383,10 +1586,11 @@ async fn approve_writes_ledger_and_enforces_sod_branch_and_tenant(owner_pool: Pg
     );
 
     // Balances roster reflects the moved ledger.
-    let balances =
-        mnt_platform_request_context::scope_org(knl, async { store.list_balances().await })
-            .await
-            .unwrap();
+    let balances = mnt_platform_request_context::scope_org(knl, async {
+        store.list_balances(BranchScope::All).await
+    })
+    .await
+    .unwrap();
     let row = balances
         .items
         .iter()
@@ -399,6 +1603,7 @@ async fn approve_writes_ledger_and_enforces_sod_branch_and_tenant(owner_pool: Pg
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn approve_rejects_when_days_exceed_remaining_balance(owner_pool: PgPool) {
     let rt = runtime_role_pool(&owner_pool).await;
+    let command_pool = leave_command_role_pool(&owner_pool).await;
     let knl = OrgId::knl();
     let knl_uuid = *knl.as_uuid();
 
@@ -408,8 +1613,9 @@ async fn approve_rejects_when_days_exceed_remaining_balance(owner_pool: PgPool) 
     // Only 1 day remains; the request asks for 3 — an approval must not drive
     // the balance negative.
     let employee = seed_employee(&owner_pool, knl_uuid, 15.0, 14.0, 1.0).await;
+    link_user_to_employee_and_branch(&owner_pool, knl_uuid, requester, employee, branch).await;
 
-    let store = PgLeaveStore::new(rt.clone(), Arc::new(PgInboxStore::new(rt.clone())));
+    let store = test_store(&rt, &command_pool);
 
     let request = mnt_platform_request_context::scope_org(knl, async {
         store
@@ -466,6 +1672,7 @@ async fn approve_rejects_when_days_exceed_remaining_balance(owner_pool: PgPool) 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn self_service_create_resolves_subject_and_branch_from_caller(owner_pool: PgPool) {
     let rt = runtime_role_pool(&owner_pool).await;
+    let command_pool = leave_command_role_pool(&owner_pool).await;
     let knl = OrgId::knl();
     let knl_uuid = *knl.as_uuid();
 
@@ -474,7 +1681,7 @@ async fn self_service_create_resolves_subject_and_branch_from_caller(owner_pool:
     let employee = seed_employee(&owner_pool, knl_uuid, 15.0, 0.0, 15.0).await;
     link_user_to_employee_and_branch(&owner_pool, knl_uuid, filer, employee, branch).await;
 
-    let store = PgLeaveStore::new(rt.clone(), Arc::new(PgInboxStore::new(rt.clone())));
+    let store = test_store(&rt, &command_pool);
 
     // The caller's OWN filing context is resolved from their account — not input.
     let (subject, resolved_branch) = mnt_platform_request_context::scope_org(knl, async {
@@ -497,6 +1704,32 @@ async fn self_service_create_resolves_subject_and_branch_from_caller(owner_pool:
     assert_eq!(request.requester_user_id, filer);
     assert_eq!(request.subject_employee_id, employee);
     assert_eq!(request.branch_id, branch);
+    assert_eq!(request.charge_state, LeaveChargeState::Resolved);
+    assert_eq!(request.request_version, 1);
+    assert_eq!(request.charge_version, 1);
+    let (pointer_present, resolution_count, create_audits): (bool, i64, i64) = sqlx::query_as(
+        "SELECT lr.current_charge_resolution_id IS NOT NULL, \
+                (SELECT count(*) FROM leave_charge_resolutions r WHERE r.request_id=lr.id), \
+                (SELECT count(*) FROM audit_events a \
+                  WHERE a.target_id=lr.id::text AND a.action='leave_request.create') \
+         FROM leave_requests lr WHERE lr.id=$1",
+    )
+    .bind(request.id.as_uuid())
+    .fetch_one(&owner_pool)
+    .await
+    .unwrap();
+    assert!(
+        pointer_present,
+        "resolved create must finish with an evidence pointer"
+    );
+    assert_eq!(
+        resolution_count, 1,
+        "resolved create persists one immutable resolution"
+    );
+    assert_eq!(
+        create_audits, 1,
+        "resolved create appends exactly one audit event"
+    );
 
     // An account with NO linked employee cannot file (deny-by-omission → 422).
     let unlinked = seed_user(&owner_pool, knl_uuid).await;
@@ -505,7 +1738,7 @@ async fn self_service_create_resolves_subject_and_branch_from_caller(owner_pool:
     })
     .await
     .expect_err("an unlinked account cannot self-file leave");
-    assert_eq!(denied.kind(), ErrorKind::Validation);
+    assert_eq!(denied.kind(), ErrorKind::Forbidden);
 
     // An account linked to an employee but to no branch also fails closed.
     let branchless = seed_user(&owner_pool, knl_uuid).await;
@@ -522,12 +1755,13 @@ async fn self_service_create_resolves_subject_and_branch_from_caller(owner_pool:
     })
     .await
     .expect_err("an employee-linked account without a branch cannot self-file leave");
-    assert_eq!(denied.kind(), ErrorKind::Validation);
+    assert_eq!(denied.kind(), ErrorKind::Conflict);
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn statutory_push_delivers_receipt_doc_and_is_idempotent(owner_pool: PgPool) {
     let rt = runtime_role_pool(&owner_pool).await;
+    let command_pool = leave_command_role_pool(&owner_pool).await;
     let knl = OrgId::knl();
     let knl_uuid = *knl.as_uuid();
     let branch = seed_branch(&owner_pool, knl_uuid).await;
@@ -537,7 +1771,7 @@ async fn statutory_push_delivers_receipt_doc_and_is_idempotent(owner_pool: PgPoo
     let other_emp = seed_employee(&owner_pool, knl_uuid, 10.0, 1.0, 9.0).await;
     link_user_to_employee_and_branch(&owner_pool, knl_uuid, target, target_emp, branch).await;
 
-    let store = PgLeaveStore::new(rt.clone(), Arc::new(PgInboxStore::new(rt.clone())));
+    let store = test_store(&rt, &command_pool);
 
     mnt_platform_request_context::scope_org(knl, async {
         store

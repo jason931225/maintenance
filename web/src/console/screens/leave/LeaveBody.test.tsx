@@ -1,37 +1,83 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { clearAuthorizeBulkCache } from "../../../api/authorizeBulk";
 import type { LeaveRequestView, LeaveRosterEntry } from "../../../api/types";
 import { ko } from "../../../i18n/ko";
+import type * as authzModule from "../../policy/authz";
+import type { AuthzProjection } from "../../policy/authz";
 import { LeaveBody } from "./LeaveBody";
 
 const S = ko.console.leave;
-
-// useAuth is mocked so the body's self-fetch runs against a spied api client
-// (same convention as DashboardBody.test.tsx — no MSW server needed).
 const mockUseAuth = vi.fn();
+const mockFetchAuthzProjection =
+  vi.fn<typeof authzModule.fetchAuthzProjection>();
+
 vi.mock("../../../context/auth", () => ({
   useAuth: () => mockUseAuth() as unknown,
 }));
+vi.mock("../../policy/authz", async (importOriginal) => {
+  const actual = await importOriginal<typeof authzModule>();
+  return {
+    ...actual,
+    fetchAuthzProjection: (...args: unknown[]) =>
+      mockFetchAuthzProjection(...args),
+  };
+});
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
 
 const roster: LeaveRosterEntry[] = [
-  { employee_id: "emp-1", name: "김현장", team: "정비팀", grant: 20, used: 5, left: 15, tone: "ok" },
-  { employee_id: "emp-2", name: "이정비", team: "정비팀", grant: 15, used: 14, left: 1, tone: "promote" },
+  {
+    employee_id: "emp-1",
+    name: "Kim",
+    team: "Ops",
+    grant: 20,
+    used: 5,
+    left: 15,
+    tone: "ok",
+  },
+  {
+    employee_id: "emp-2",
+    name: "Lee",
+    team: "Ops",
+    grant: 15,
+    used: 14,
+    left: 1,
+    tone: "promote",
+  },
 ];
 
-function makeRequest(overrides: Partial<LeaveRequestView> = {}): LeaveRequestView {
+function request(overrides: Partial<LeaveRequestView> = {}): LeaveRequestView {
   return {
     id: "req-1",
     branch_id: "branch-1",
-    requester_user_id: "emp-2-user",
-    subject_employee_id: "emp-2",
+    requester_user_id: "self-user",
+    subject_employee_id: "emp-1",
     leave_type: "annual",
-    days: 1,
+    days: null,
+    charge_units: null,
+    charge_state: "review_required",
+    charge_review_reasons: ["missing_calendar"],
+    request_version: 0,
+    charge_version: 0,
     start_date: "2026-07-20",
     end_date: "2026-07-20",
-    reason: "개인 사유",
+    reason: "Personal",
     status: "pending",
     decided_by: null,
     decided_at: null,
@@ -40,206 +86,432 @@ function makeRequest(overrides: Partial<LeaveRequestView> = {}): LeaveRequestVie
   };
 }
 
-interface AuthOverrides {
-  balances?: unknown;
-  balancesReject?: boolean;
-  requests?: LeaveRequestView[];
-  balancesPending?: boolean;
-  onDecide?: (path: string, opts: unknown) => unknown;
-  onPromote?: (path: string, opts: unknown) => unknown;
-  onCreate?: (path: string, opts: unknown) => unknown;
+function projection(
+  read = false,
+  manageScope: "none" | "all" | string[] = "none",
+): AuthzProjection {
+  const capabilities: AuthzProjection["capabilities"] = [];
+  if (read)
+    capabilities.push({
+      feature: "employee_directory_read",
+      permission: "allow",
+      branchScope: { kind: "all" },
+    });
+  if (manageScope !== "none") {
+    capabilities.push({
+      feature: "employee_directory_manage",
+      permission: "allow",
+      branchScope:
+        manageScope === "all"
+          ? { kind: "all" }
+          : { kind: "branches", branches: manageScope },
+    });
+  }
+  return {
+    source: "authz",
+    roles: [],
+    branchScope: { kind: "all" },
+    capabilities,
+  };
 }
 
-function setupAuth(overrides: AuthOverrides = {}) {
-  const { requests = [makeRequest()], balancesReject = false } = overrides;
-  const balances = overrides.balances ?? { items: roster };
-  const GET = vi.fn(async (path: string) => {
+interface Setup {
+  self?: LeaveRequestView[];
+  managed?: LeaveRequestView[];
+  authz?: Promise<AuthzProjection | undefined> | AuthzProjection | undefined;
+  managerFailure?: boolean;
+  selfFailure?: unknown;
+  onGet?: (path: string, options: unknown) => unknown;
+  onPost?: (path: string, options: unknown) => unknown;
+  apiName?: string;
+  clientUserId?: string;
+}
+
+function setup(options: Setup = {}) {
+  const GET = vi.fn(async (path: string, requestOptions: unknown) => {
     await Promise.resolve();
+    const overridden = options.onGet?.(path, requestOptions);
+    if (overridden !== undefined) return overridden;
+    if (path === "/api/v1/me/leave") {
+      if (options.selfFailure) return { error: options.selfFailure };
+      return {
+        data: {
+          balance: {
+            employee_id: "emp-1",
+            name: options.apiName ?? "Self",
+            accrued_units: "20.000000",
+            used_units: "5.000000",
+            remaining_units: "15.000000",
+          },
+          requests: { items: options.self ?? [request()] },
+        },
+      };
+    }
     if (path === "/api/v1/leave/balances") {
-      if (overrides.balancesPending) return new Promise(() => {}) as never;
-      if (balancesReject) throw new Error("boom");
-      return { data: balances };
+      return options.managerFailure
+        ? { error: { error: { message: "managed failed" } } }
+        : { data: { items: roster } };
     }
     if (path === "/api/v1/leave/requests") {
-      return { data: { items: requests } };
+      return options.managerFailure
+        ? { error: { error: { message: "managed failed" } } }
+        : {
+            data: {
+              items: options.managed ?? [
+                request({ requester_user_id: "other-user" }),
+              ],
+            },
+          };
     }
     throw new Error(`unexpected GET ${path}`);
   });
-  const POST = vi.fn(async (path: string, opts: unknown) => {
+  const POST = vi.fn(async (path: string, postOptions: unknown) => {
     await Promise.resolve();
-    if (path === "/api/v1/policy/authorize/bulk") {
-      // Real-wired PBAC gate (BulkPolicyGateProvider) — allow everything this
-      // screen requests so tests exercise LeaveConsole's own persona lenses,
-      // not the gate resolve itself.
-      const checks = (opts as { body: { checks: { action: string }[] } }).body.checks;
-      return { data: { decisions: checks.map(() => ({ effect: "allow" })) } };
-    }
-    if (path === "/api/v1/leave/requests") {
-      return (
-        overrides.onCreate?.(path, opts) ?? {
-          data: makeRequest({
-            id: "req-new",
-            requester_user_id: "self-user",
-            subject_employee_id: "emp-1",
-            status: "pending",
-            start_date: "2026-08-03",
-            end_date: "2026-08-05",
-            created_at: "2026-07-11T00:00:00Z",
-          }),
-        }
-      );
-    }
+    const overridden = options.onPost?.(path, postOptions);
+    if (overridden !== undefined) return overridden;
+    if (path === "/api/v1/leave/requests")
+      return { data: request({ id: "created" }) };
     if (path === "/api/v1/leave/requests/{id}/decide") {
-      return overrides.onDecide?.(path, opts) ?? { data: makeRequest({ status: "approved" }) };
+      return {
+        data: request({
+          status: "approved",
+          charge_state: "resolved",
+          charge_units: "1.000000",
+          request_version: 2,
+          charge_version: 2,
+        }),
+      };
+    }
+    if (path === "/api/v1/leave/requests/{id}/charge-resolution") {
+      return {
+        data: {
+          request_id: "req-1",
+          request_version: 1,
+          charge_units: "0.400000",
+          charge_state: "resolved",
+          charge_version: 1,
+          server_digest: "digest",
+        },
+      };
     }
     if (path === "/api/v1/leave/promotions") {
-      return (
-        overrides.onPromote?.(path, opts) ?? {
-          data: {
-            id: "push-1",
-            kind: "promotion",
-            round: 1,
-            target_user_id: "emp-2-user",
-            inbox_doc_id: "doc-1",
-            ap_submission: "submitted",
-          },
-        }
-      );
+      return {
+        data: {
+          id: "push",
+          kind: "promotion",
+          round: 1,
+          target_user_id: "other-user",
+          inbox_doc_id: "doc",
+          ap_submission: "submitted",
+        },
+      };
     }
     throw new Error(`unexpected POST ${path}`);
   });
   mockUseAuth.mockReturnValue({
     api: { GET, POST },
-    session: { user_id: "self-user", org_id: "org-1", roles: ["ADMIN"] },
+    session: {
+      access_token: "token",
+      client_session_incarnation: options.apiName ?? "a",
+      user_id: "clientUserId" in options ? options.clientUserId : "self-user",
+      org_id: "org-1",
+    },
   });
+  mockFetchAuthzProjection.mockImplementationOnce(() =>
+    Promise.resolve(options.authz),
+  );
   return { GET, POST };
-}
-
-function renderBody() {
-  render(<LeaveBody />);
 }
 
 afterEach(() => {
   mockUseAuth.mockReset();
-  clearAuthorizeBulkCache();
+  mockFetchAuthzProjection.mockReset();
 });
 
-describe("LeaveBody", () => {
-  it("shows the loading state before the roster/queue resolve", () => {
-    setupAuth({ balancesPending: true });
-    renderBody();
-    expect(screen.getByText(ko.console.leave.wire.loading)).toBeVisible();
-  });
-
-  it("wires the real roster + queue and every stat drills the ledger filter (§4-11)", async () => {
-    setupAuth();
-    renderBody();
-
-    const ledgerRegion = await screen.findByRole("region", { name: S.ledger.title });
-    const table = within(ledgerRegion).getByRole("table");
-    expect(within(table).getByText("김현장")).toBeVisible();
-    expect(within(table).getByText("이정비")).toBeVisible();
-
-    await userEvent.click(
-      screen.getByRole("button", { name: S.stats.drill(S.stats.promotionTargets) }),
-    );
-    expect(within(table).queryByText("김현장")).toBeNull();
-    expect(within(table).getByText("이정비")).toBeVisible();
-  });
-
-  it("renders an error state with retry when the balances fetch fails", async () => {
-    const { GET } = setupAuth({ balancesReject: true });
-    renderBody();
-
-    const alert = await screen.findByRole("alert");
-    expect(alert).toHaveTextContent(ko.console.leave.wire.loadFailed);
-
-    GET.mockImplementation(async (path: string) => {
-      await Promise.resolve();
-      if (path === "/api/v1/leave/balances") return { data: { items: roster } };
-      if (path === "/api/v1/leave/requests") return { data: { items: [] } };
-      throw new Error(`unexpected GET ${path}`);
+describe("LeaveBody authoritative personas", () => {
+  it("Member always fetches self and never calls managed endpoints", async () => {
+    const { GET } = setup({ authz: projection(false) });
+    render(<LeaveBody />);
+    expect(
+      await screen.findByRole("region", { name: S.self.title }),
+    ).toBeVisible();
+    expect(GET).toHaveBeenCalledWith("/api/v1/me/leave", {
+      params: { query: { limit: 200 } },
     });
-    await userEvent.click(screen.getByRole("button", { name: ko.console.leave.wire.retry }));
-    const ledgerRegion = await screen.findByRole("region", { name: S.ledger.title });
+    expect(GET.mock.calls.map(([path]) => path)).toEqual(["/api/v1/me/leave"]);
+    expect(screen.queryByRole("region", { name: S.ledger.title })).toBeNull();
+  });
+
+  it("shows caller-scoped self service when the optional client user id is absent", async () => {
+    setup({
+      authz: projection(false),
+      clientUserId: undefined,
+      self: [request({ reason: "Server-scoped self request" })],
+    });
+    render(<LeaveBody />);
+
+    expect(
+      await screen.findByRole("region", { name: S.self.title }),
+    ).toBeVisible();
+    expect(screen.getByText("Server-scoped self request")).toBeVisible();
+    expect(screen.getByRole("button", { name: S.self.submit })).toBeVisible();
+  });
+
+  it("Executive gets managed reads but no decide or promotion actions", async () => {
+    const { GET } = setup({
+      authz: projection(true),
+      managed: [
+        request({
+          requester_user_id: "other-user",
+          charge_state: "resolved",
+          charge_units: "1.000000",
+        }),
+      ],
+    });
+    render(<LeaveBody />);
+    expect(
+      await screen.findByRole("region", { name: S.ledger.title }),
+    ).toBeVisible();
     await waitFor(() => {
-      expect(within(ledgerRegion).getByRole("table").textContent).toContain("김현장");
+      expect(GET).toHaveBeenCalledWith(
+        "/api/v1/leave/requests",
+        expect.anything(),
+      );
+    });
+    const queue = screen.getByRole("region", { name: S.queue.title });
+    expect(within(queue).queryByRole("button")).toBeNull();
+  });
+
+  it("authz loading and failure remain fail closed while self-service stays available", async () => {
+    const authz = deferred<AuthzProjection | undefined>();
+    setup({ authz: authz.promise });
+    render(<LeaveBody />);
+    expect(
+      await screen.findByRole("region", { name: S.self.title }),
+    ).toBeVisible();
+    expect(screen.queryByRole("region", { name: S.ledger.title })).toBeNull();
+    authz.resolve(undefined);
+    await waitFor(() => {
+      expect(screen.queryByRole("region", { name: S.ledger.title })).toBeNull();
     });
   });
 
-  it("본인 신청: submits the self-service create payload and the new pending request appears in 내 신청", async () => {
-    const { POST } = setupAuth({ requests: [] });
-    renderBody();
+  it("managed-load failure preserves the self view and exposes a retryable partial failure", async () => {
+    setup({ authz: projection(true), managerFailure: true });
+    render(<LeaveBody />);
+    expect(
+      await screen.findByRole("region", { name: S.self.title }),
+    ).toBeVisible();
+    expect(
+      await screen.findByText(
+        "Your leave data is available, but managed leave data could not be loaded.",
+      ),
+    ).toBeVisible();
+  });
 
-    const selfRegion = await screen.findByRole("region", { name: S.self.title });
-    fireEvent.change(within(selfRegion).getByLabelText(S.self.reasonLabel), {
-      target: { value: "annual" },
+  it("surfaces an honest unlinked/self failure instead of mounting managed data", async () => {
+    setup({
+      authz: projection(true, "all"),
+      clientUserId: undefined,
+      selfFailure: {
+        error: { message: "Employee link or home branch is required" },
+      },
     });
-    fireEvent.change(within(selfRegion).getByLabelText(S.self.startLabel), {
+    render(<LeaveBody />);
+    expect(
+      await screen.findByText("Employee link or home branch is required"),
+    ).toBeVisible();
+    expect(screen.queryByRole("region", { name: S.ledger.title })).toBeNull();
+  });
+
+  it("ignores a retired authority's deferred self load", async () => {
+    const stale = deferred<unknown>();
+    setup({
+      authz: projection(false),
+      onGet: (path) =>
+        path === "/api/v1/me/leave" ? stale.promise : undefined,
+      apiName: "A",
+    });
+    const view = render(<LeaveBody />);
+    setup({
+      authz: projection(false),
+      self: [request({ id: "b", reason: "B authority" })],
+      apiName: "B",
+    });
+    view.rerender(<LeaveBody />);
+    expect(await screen.findByText("B authority")).toBeVisible();
+    stale.resolve({
+      data: {
+        balance: {
+          employee_id: "emp-1",
+          name: "A",
+          accrued_units: null,
+          used_units: null,
+          remaining_units: null,
+        },
+        requests: { items: [request({ id: "a", reason: "A stale" })] },
+      },
+    });
+    await Promise.resolve();
+    expect(screen.queryByText("A stale")).toBeNull();
+  });
+
+  it("preserves AM and PM create intent and reports missing-home-branch conflict", async () => {
+    const { POST } = setup({
+      authz: projection(false),
+      self: [],
+      onPost: (path) =>
+        path === "/api/v1/leave/requests"
+          ? {
+              error: {
+                error: { message: "Authoritative home branch review required" },
+              },
+            }
+          : undefined,
+    });
+    render(<LeaveBody />);
+    const self = await screen.findByRole("region", { name: S.self.title });
+    fireEvent.change(within(self).getByLabelText(S.self.reasonLabel), {
+      target: { value: "half_pm" },
+    });
+    fireEvent.change(within(self).getByLabelText(S.self.startLabel), {
       target: { value: "2026-08-03" },
     });
-    fireEvent.change(within(selfRegion).getByLabelText(S.self.endLabel), {
-      target: { value: "2026-08-05" },
+    await userEvent.click(
+      within(self).getByRole("button", { name: S.self.submit }),
+    );
+    expect(
+      await screen.findByText("Authoritative home branch review required"),
+    ).toBeVisible();
+    expect(POST).toHaveBeenCalledWith("/api/v1/leave/requests", {
+      body: {
+        leave_type: "half_day",
+        partial_day_period: "pm",
+        start_date: "2026-08-03",
+        end_date: "2026-08-03",
+        reason: S.reasons.half_pm,
+      },
     });
-    fireEvent.click(within(selfRegion).getByRole("button", { name: S.self.submit }));
-
-    // The FE sends only leave_type + dates + reason — subject_employee_id and
-    // branch_id are resolved server-side from the caller, never sent.
-    await waitFor(() => {
-      expect(POST).toHaveBeenCalledWith("/api/v1/leave/requests", {
-        body: {
-          leave_type: "annual",
-          start_date: "2026-08-03",
-          end_date: "2026-08-05",
-          reason: S.reasons.annual,
-        },
-      });
-    });
-    // Server truth: the returned pending request lands in 내 신청 immediately.
-    const myList = await within(selfRegion).findByLabelText(S.self.myRequests);
-    expect(within(myList).getByText("2026-08-03 ~ 2026-08-05")).toBeVisible();
   });
 
-  it("결재 approve posts the real decide payload (branch-resolved by the request, not guessed)", async () => {
-    const { POST } = setupAuth();
-    renderBody();
-
-    const queue = await screen.findByRole("region", { name: S.queue.title });
-    await userEvent.click(
-      within(queue).getByRole("button", { name: S.queue.decideAria(S.queue.approve, "이정비") }),
-    );
-
-    expect(POST).toHaveBeenCalledWith(
-      "/api/v1/leave/requests/{id}/decide",
-      expect.objectContaining({
-        params: { path: { id: "req-1" } },
-        body: { decision: "approve", comment: undefined },
-      }),
-    );
-  });
-
-  it("사용촉진 발송 posts the real promotion payload with the request's branch_id", async () => {
-    const { POST } = setupAuth();
-    renderBody();
-
-    const promotionRegion = await screen.findByRole("region", { name: S.promotion.queueTitle });
-    await userEvent.click(
-      within(promotionRegion).getByRole("button", { name: S.promotion.sendAria("이정비", 1) }),
-    );
-
-    expect(POST).toHaveBeenCalledWith(
-      "/api/v1/leave/promotions",
-      expect.objectContaining({
-        body: {
+  it("Admin actions are branch-scoped and decide carries the exact request version", async () => {
+    const { POST } = setup({
+      authz: projection(true, ["branch-1"]),
+      self: [],
+      managed: [
+        request({
+          id: "in",
           branch_id: "branch-1",
-          target_user_id: "emp-2-user",
-          target_employee_id: "emp-2",
-          target_name: "이정비",
-          round: 1,
-          unused_days: 1,
-        },
+          requester_user_id: "other-user",
+          charge_state: "resolved",
+          charge_units: "0.125000",
+          request_version: 12,
+          charge_version: 8,
+        }),
+        request({
+          id: "out",
+          branch_id: "branch-2",
+          requester_user_id: "outside",
+          charge_state: "resolved",
+          charge_units: "0.500000",
+          request_version: 13,
+          charge_version: 9,
+        }),
+      ],
+    });
+    render(<LeaveBody />);
+    const queue = await screen.findByRole("region", { name: S.queue.title });
+    const approve = await within(queue).findByRole("button", {
+      name: S.queue.decideAria(S.queue.approve, "Kim"),
+    });
+    await userEvent.click(approve);
+    expect(POST).toHaveBeenCalledWith("/api/v1/leave/requests/{id}/decide", {
+      params: { path: { id: "in" } },
+      body: { expected_version: 12, decision: "approve", comment: undefined },
+    });
+  });
+
+  it("uses the advanced request version when deciding after charge resolution", async () => {
+    const { POST } = setup({
+      authz: projection(true, ["branch-1"]),
+      self: [],
+      managed: [
+        request({
+          requester_user_id: "other-user",
+          request_version: 7,
+          charge_version: 3,
+        }),
+      ],
+      onPost: (path) => {
+        if (path === "/api/v1/leave/requests/{id}/charge-resolution") {
+          return {
+            data: {
+              request_id: "req-1",
+              request_version: 8,
+              charge_units: "0.400000",
+              charge_state: "resolved",
+              charge_version: 4,
+              server_digest: "digest",
+              resolution_origin: "manual",
+              resolved_by: "manager-user",
+            },
+          };
+        }
+        return undefined;
+      },
+    });
+    render(<LeaveBody />);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Open manual review: Kim" }),
+    );
+    await userEvent.type(screen.getByLabelText("Scheduled minutes"), "480");
+    await userEvent.type(
+      screen.getByLabelText("Exact charge units"),
+      "0.400000",
+    );
+    await userEvent.type(
+      screen.getByLabelText("Calendar source kind"),
+      "work_calendar",
+    );
+    await userEvent.type(
+      screen.getByLabelText("Calendar source reference"),
+      "emp-1",
+    );
+    await userEvent.type(
+      screen.getByLabelText("Calendar source revision"),
+      "cal-v1",
+    );
+    await userEvent.type(
+      screen.getByLabelText("Policy source kind"),
+      "leave_policy",
+    );
+    await userEvent.type(
+      screen.getByLabelText("Policy source reference"),
+      "annual",
+    );
+    await userEvent.type(
+      screen.getByLabelText("Policy source revision"),
+      "pol-v1",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "Resolve charge" }),
+    );
+
+    expect(POST).toHaveBeenCalledWith(
+      "/api/v1/leave/requests/{id}/charge-resolution",
+      expect.objectContaining({
+        body: expect.objectContaining({ expected_version: 7 }),
       }),
     );
-    await screen.findByText(S.promotion.pushed);
+    await userEvent.click(
+      await screen.findByRole("button", {
+        name: S.queue.decideAria(S.queue.approve, "Kim"),
+      }),
+    );
+    expect(POST).toHaveBeenCalledWith("/api/v1/leave/requests/{id}/decide", {
+      params: { path: { id: "req-1" } },
+      body: { expected_version: 8, decision: "approve", comment: undefined },
+    });
   });
 });

@@ -31,11 +31,25 @@ export interface InboxApi {
 export function createInboxApi(client: ConsoleApiClient): InboxApi {
   return {
     loadDocs: async (filter) => {
-      const { data } = await client.GET("/api/v1/me/inbox-docs", {
-        params: { query: { filter, limit: 100 } },
-      });
-      if (!data) throw new Error("inbox list failed");
-      return data.items;
+      const items: InboxDocSummary[] = [];
+      let before: string | undefined;
+      const seenCursors = new Set<string>();
+
+      do {
+        const { data } = await client.GET("/api/v1/me/inbox-docs", {
+          params: { query: { filter, limit: 100, before } },
+        });
+        if (!data) throw new Error("inbox list failed");
+        items.push(...data.items);
+
+        before = data.next_cursor ?? undefined;
+        if (before && seenCursors.has(before)) {
+          throw new Error("inbox pagination cursor repeated");
+        }
+        if (before) seenCursors.add(before);
+      } while (before);
+
+      return items;
     },
     loadDoc: async (id) => {
       const { data } = await client.GET("/api/v1/me/inbox-docs/{id}", {

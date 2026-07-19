@@ -1669,23 +1669,64 @@ describe("useOntologyRevisionCommitQueue", () => {
     expect(ontologyRevisionTransportFenceCountForTests()).toBe(0);
   });
 
-  it("trips one constant-memory fail-closed circuit when persist ignores abort forever", async () => {
+  it("scopes an ignored-abort circuit to its exact authority and stable-key lane", async () => {
     vi.useFakeTimers();
     const unhandled = vi.fn();
     window.addEventListener("unhandledrejection", unhandled);
     const never = new Promise<OntologyRevisionPersistReceipt>(() => undefined);
-    const persist = vi.fn().mockReturnValue(never);
-    const hook = renderHook(() =>
+    const blockedPersist = vi.fn().mockReturnValue(never);
+    const blockedHost = renderHook(() =>
       useOntologyRevisionCommitQueue({
         authorityKey: "tenant-a",
-        persist,
+        persist: blockedPersist,
         reload: vi.fn().mockResolvedValue(undefined),
         transportDeadlineMs: 20,
         abortGraceMs: 5,
       }),
     );
-    const running = hook.result.current(snapshot("type-a", "running"));
-    const tail = hook.result.current(snapshot("type-a", "tail"));
+    const otherKey = deferred<OntologyRevisionPersistReceipt>();
+    let otherKeySignal: AbortSignal | undefined;
+    const otherKeyPersist = vi.fn(
+      (_value: OntObjectTypeDef, context: { signal: AbortSignal }) => {
+        otherKeySignal = context.signal;
+        return otherKey.promise;
+      },
+    );
+    const otherKeyHost = renderHook(() =>
+      useOntologyRevisionCommitQueue({
+        authorityKey: "tenant-a",
+        persist: otherKeyPersist,
+        reload: vi.fn().mockResolvedValue(undefined),
+        transportDeadlineMs: 1_000,
+        abortGraceMs: 5,
+      }),
+    );
+    const otherAuthority = deferred<OntologyRevisionPersistReceipt>();
+    let otherAuthoritySignal: AbortSignal | undefined;
+    const otherAuthorityPersist = vi.fn(
+      (_value: OntObjectTypeDef, context: { signal: AbortSignal }) => {
+        otherAuthoritySignal = context.signal;
+        return otherAuthority.promise;
+      },
+    );
+    const otherAuthorityHost = renderHook(() =>
+      useOntologyRevisionCommitQueue({
+        authorityKey: "tenant-b",
+        persist: otherAuthorityPersist,
+        reload: vi.fn().mockResolvedValue(undefined),
+        transportDeadlineMs: 1_000,
+        abortGraceMs: 5,
+      }),
+    );
+
+    const running = blockedHost.result.current(snapshot("type-a", "running"));
+    const tail = blockedHost.result.current(snapshot("type-a", "tail"));
+    const otherKeyRequest = otherKeyHost.result.current(
+      snapshot("type-b", "other-key"),
+    );
+    const otherAuthorityRequest = otherAuthorityHost.result.current(
+      snapshot("type-a", "other-authority"),
+    );
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(25);
@@ -1695,12 +1736,36 @@ describe("useOntologyRevisionCommitQueue", () => {
     );
     await expect(tail).rejects.toThrow(/transport_uncertain_reload_required/);
     await expect(
-      hook.result.current(snapshot("type-b", "future")),
+      blockedHost.result.current(snapshot("type-a", "future-same-lane")),
     ).rejects.toThrow(/transport_uncertain_reload_required/);
-    expect(persist).toHaveBeenCalledTimes(1);
+    expect(blockedPersist).toHaveBeenCalledTimes(1);
+    expect(otherKeyPersist).toHaveBeenCalledTimes(1);
+    expect(otherAuthorityPersist).toHaveBeenCalledTimes(1);
+    expect(otherKeySignal?.aborted).toBe(false);
+    expect(otherAuthoritySignal?.aborted).toBe(false);
     expect(ontologyRevisionTransportCircuitOpenForTests()).toBe(true);
+    expect(
+      ontologyRevisionTransportCircuitOpenForTests("tenant-a", "type-a"),
+    ).toBe(true);
+    expect(
+      ontologyRevisionTransportCircuitOpenForTests("tenant-a", "type-b"),
+    ).toBe(false);
+    expect(
+      ontologyRevisionTransportCircuitOpenForTests("tenant-b", "type-a"),
+    ).toBe(false);
+
+    await act(async () => {
+      otherKey.resolve({ writeVersion: writeVersion(8) });
+      otherAuthority.resolve({ writeVersion: writeVersion(8) });
+      await Promise.all([otherKey.promise, otherAuthority.promise]);
+    });
+    await expect(otherKeyRequest).resolves.toBeUndefined();
+    await expect(otherAuthorityRequest).resolves.toBeUndefined();
     expect(ontologyRevisionTransportFenceCountForTests()).toBe(0);
     expect(unhandled).not.toHaveBeenCalled();
     window.removeEventListener("unhandledrejection", unhandled);
+    blockedHost.unmount();
+    otherKeyHost.unmount();
+    otherAuthorityHost.unmount();
   });
 });

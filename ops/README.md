@@ -7,6 +7,12 @@ This directory contains the Docker Compose production stack for the MNT FSM back
 Boot the production stack:
 
 ```sh
+export MNT_POSTGRES_ADMIN_PASSWORD="$(openssl rand -hex 32)"
+export MNT_APP_POSTGRES_PASSWORD="$(openssl rand -hex 32)"
+export MNT_RT_POSTGRES_PASSWORD="$(openssl rand -hex 32)"
+export MNT_LEAVE_COMMAND_POSTGRES_PASSWORD="$(openssl rand -hex 32)"
+export MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD="$(openssl rand -hex 32)"
+docker compose -f ops/compose.yml config --quiet
 docker compose -f ops/compose.yml up -d
 ```
 
@@ -121,9 +127,45 @@ docker manifest inspect postgres:18.4
 ```sh
 export MNT_APP_HOST=api.example.com
 export MNT_POSTGRES_DB=mnt_prod
-export MNT_POSTGRES_USER=mnt_app
-export MNT_POSTGRES_PASSWORD='<stored in the production secret manager>'
+export MNT_POSTGRES_ADMIN_USER=mnt_cluster_admin
+export MNT_POSTGRES_ADMIN_PASSWORD='<cluster bootstrap administrator password>'
+export MNT_APP_POSTGRES_PASSWORD='<migration owner password>'
+export MNT_RT_POSTGRES_PASSWORD='<runtime password>'
+export MNT_LEAVE_COMMAND_POSTGRES_PASSWORD='<distinct value from the production secret manager>'
+export MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD='<another distinct value from the production secret manager>'
 ```
+
+All five passwords are mandatory and pairwise distinct. `postgres` starts with
+the cluster administrator, then the one-shot `postgres-topology` service runs
+`postgres-reconcile-topology.sh` on both fresh and existing volumes. It creates
+or pins the exact six application roles, makes `mnt_app` the database/schema
+owner, gives that migration-only identity explicit `BYPASSRLS` for populated
+tenant-wide backfills, makes it a non-admin member of both NOLOGIN definers,
+and verifies readback. The `migrate` service then connects directly as
+`mnt_app`; API and worker connect directly as `mnt_rt`. Runtime, command, and
+definer roles remain `NOBYPASSRLS`.
+
+An existing volume where `mnt_app` is a superuser fails closed. After auditing
+that volume, choose a new distinct cluster-admin credential and perform the
+one-time guarded conversion explicitly. Start only PostgreSQL first: the new
+admin does not exist in the old volume yet. The topology container then uses
+the shared local socket as the extant `mnt_app` bootstrap superuser. PostgreSQL
+18 does not permit any role to remove `SUPERUSER` from that bootstrap identity,
+so the guarded conversion creates a temporary administrator, renames the
+bootstrap identity to the requested distinct admin, recreates `mnt_app` as the
+non-superuser migration role, and transfers user-schema ownership to it. Every
+password-bearing statement runs with transaction-local logging suppression.
+
+```sh
+export MNT_ALLOW_LEGACY_MNT_APP_SUPERUSER_CONVERSION=1
+docker compose -f ops/compose.yml up -d postgres
+docker compose -f ops/compose.yml run --rm postgres-topology
+unset MNT_ALLOW_LEGACY_MNT_APP_SUPERUSER_CONVERSION
+```
+
+The conversion flag must not remain in an environment file. No password belongs
+in git, shell tracing, tickets, or logs, and no serving service receives the
+cluster-admin or owner URL.
 
 4. Copy the repository checkout to the VM, then build and boot:
 

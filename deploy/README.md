@@ -91,13 +91,18 @@ Schema migrations run **automatically** on every Argo CD sync — no manual
 (`apps/maintenance/base/migrate-job.yaml`) runs the **same signed `mnt-app`
 image** in its `migrate` run-mode (`MNT_APP_ROLE=migrate`): it connects as the
 table **OWNER** (`mnt_app`, via the `mnt-db-app` secret `uri`), applies the
-embedded migrations, then exits.
+embedded migrations with explicit `BYPASSRLS` for tenant-wide backfills, then
+exits. No serving workload receives this credential.
 
-- **Ordering:** the Job is an Argo CD **PreSync hook**
-  (`argocd.argoproj.io/hook: PreSync`), so it runs to completion **before** the
-  `mnt-app`/`mnt-worker` Deployments roll. The serving workloads only ever start
-  against an already-migrated schema. A failed migration fails the sync and
-  blocks the rollout.
+- **Ordering:** CNPG is wave 0; the wave-1 `mnt-db-topology` Sync hook blocks
+  until all six roles, database ownership, and both non-admin definer
+  memberships read back exactly; `mnt-migrate` is a wave-2 **Sync hook**; and
+  API/worker workloads are wave 3. A topology or migration failure blocks the
+  serving rollout. PreSync is deliberately not used because it runs before the
+  Cluster can be created on a fresh installation.
+- **No selective sync:** never selectively sync `mnt-migrate`, the API, or the
+  worker. Sync the maintenance Application as a whole so waves 0–3 and both
+  fail-closed gates execute in order.
 - **Idempotent:** sqlx records applied versions + per-file checksums in
   `_sqlx_migrations`; a re-sync re-runs the Job but applies nothing new ("up to
   date"). `hook-delete-policy: BeforeHookCreation` recreates a fresh Job each
@@ -110,7 +115,7 @@ embedded migrations, then exits.
 
 > Prod hand-off: prod was historically migrated via `sqlx migrate run`, so its
 > `_sqlx_migrations` ledger already exists and matches the embedded `0001..NNNN`
-> files byte-for-byte. The first automated PreSync run will therefore find every
+> files byte-for-byte. The first automated wave-2 Sync run will therefore find every
 > version already recorded and apply nothing. If any already-applied migration
 > **file** was edited after being applied to prod, sqlx will reject the run on a
 > checksum mismatch (by design) rather than silently re-run it — never edit an

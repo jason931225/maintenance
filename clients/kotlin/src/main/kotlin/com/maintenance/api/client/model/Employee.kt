@@ -34,6 +34,7 @@ import kotlinx.serialization.Contextual
  * @param id
  * @param company
  * @param name
+ * @param homeBranchReviewRequired True when no active authoritative home branch is configured.
  * @param identityResolutionStrategy Non-PII strategy used to keep same-name employees from being merged by name alone.
  * @param identityResolutionConfidence Confidence derived from the accepted identity strategy; never from user-supplied labels.
  * @param identityReviewRequired True when HR must manually verify the employee identity before account linkage or duplicate cleanup.
@@ -52,6 +53,8 @@ import kotlinx.serialization.Contextual
  * @param leaveAccrued
  * @param leaveUsed
  * @param leaveRemaining
+ * @param homeBranchId Active authoritative leave-routing branch; null requires HR review before self-service filing.
+ * @param homeBranchName
  */
 @Serializable
 
@@ -65,6 +68,10 @@ data class Employee (
 
     @SerialName(value = "name")
     val name: kotlin.String,
+
+    /* True when no active authoritative home branch is configured. */
+    @SerialName(value = "home_branch_review_required")
+    val homeBranchReviewRequired: kotlin.Boolean,
 
     /* Non-PII strategy used to keep same-name employees from being merged by name alone. */
     @SerialName(value = "identity_resolution_strategy")
@@ -122,7 +129,14 @@ data class Employee (
     val leaveUsed: kotlin.String? = null,
 
     @SerialName(value = "leave_remaining")
-    val leaveRemaining: kotlin.String? = null
+    val leaveRemaining: kotlin.String? = null,
+
+    /* Active authoritative leave-routing branch; null requires HR review before self-service filing. */
+    @Contextual @SerialName(value = "home_branch_id")
+    val homeBranchId: java.util.UUID? = null,
+
+    @SerialName(value = "home_branch_name")
+    val homeBranchName: kotlin.String? = null
 
 ) {
 

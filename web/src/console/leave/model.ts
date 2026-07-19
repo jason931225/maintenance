@@ -25,7 +25,6 @@ import { leaveManagementKo as legacy } from "../../i18n/hrWorkflows";
 import { ko } from "../../i18n/ko";
 import type { LeaveRosterEntry } from "../../api/types";
 import type { ObjectCardDescriptor } from "../objectcard";
-import type { PolicyGate } from "../policy";
 
 // ── i18n (namespace: ko.console.leave) ───────────────────────────────────────
 
@@ -40,31 +39,6 @@ export type LeaveStrings = typeof KO_CONSOLE_LEAVE;
 export function leaveStrings(): LeaveStrings {
   return KO_CONSOLE_LEAVE;
 }
-
-// ── PBAC actions (deny-by-omission via PolicyGated, §4-25-⑦ persona lens) ────
-
-export const LEAVE_ACTIONS = {
-  /** 본인: own request history (server-filtered by requester_user_id). */
-  selfView: "console.leave.self.view",
-  requestCreate: "console.leave.request.create",
-  /** 팀장: pending queue + decide. */
-  queueView: "console.leave.queue.view",
-  requestDecide: "console.leave.request.decide",
-  /** HR 전담: 촉진 발송 (근로기준법 §61). */
-  promotionView: "console.leave.promotion.view",
-  promotionManage: "console.leave.promotion.manage",
-  /** 관리자/HR: 인원별 원장. */
-  ledgerView: "console.leave.ledger.view",
-  objectRead: "console.leave.object.read",
-} as const;
-
-const ALLOWED_ACTIONS = new Set<string>(Object.values(LEAVE_ACTIONS));
-
-// wire-pending: Phase C — Cedar authorize() decisions replace this allow-list
-// stub (same pattern as AutomatePage's AUTOMATE_RUNTIME_GATE).
-export const LEAVE_RUNTIME_GATE: PolicyGate = {
-  can: (action) => ALLOWED_ACTIONS.has(action),
-};
 
 // ── Model ────────────────────────────────────────────────────────────────────
 
@@ -146,25 +120,21 @@ export function isHalfDay(reason: LeaveReason | ""): boolean {
 }
 
 export function formatDays(value: number): string {
-  return new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 1 }).format(value);
+  return new Intl.NumberFormat("ko-KR", { maximumFractionDigits: 1 }).format(
+    value,
+  );
 }
 
 export function dayLabel(value: number): string {
   return legacy.units.days(formatDays(value));
 }
 
-export function requestDays(reason: LeaveReason, startDate: string, endDate: string): number {
-  if (isHalfDay(reason)) return 0.5;
-  // ponytail: calendar-day count — 근무일 캘린더(휴일 제외)는 Phase C 근무표 연동에서.
-  const span = (Date.parse(endDate) - Date.parse(startDate)) / 86_400_000;
-  return Math.floor(span) + 1;
-}
-
 export function tenureStage(hireDate: string | undefined): string {
   if (hireDate === undefined) return legacy.tenure.missing;
   const start = Date.parse(hireDate);
   if (!Number.isFinite(start)) return legacy.tenure.missing;
-  const years = Math.max(0, Date.now() - start) / (365.2425 * 24 * 60 * 60 * 1000);
+  const years =
+    Math.max(0, Date.now() - start) / (365.2425 * 24 * 60 * 60 * 1000);
   if (years < 1) return legacy.tenure.underOneYear;
   const yearLabel = String(Math.floor(years) + 1);
   if (years < 3) return legacy.tenure.baseYear(yearLabel);
@@ -181,7 +151,8 @@ export function ledgerStatus(row: LeaveLedgerRow): {
   tone: "neutral" | "ok" | "warn";
 } {
   const S = leaveStrings();
-  if (row.hireDate === undefined) return { label: S.status.hireDateMissing, tone: "warn" };
+  if (row.hireDate === undefined)
+    return { label: S.status.hireDateMissing, tone: "warn" };
   if (!row.active) return { label: S.status.exited, tone: "neutral" };
   if (row.tone === "promote") return { label: S.status.promote, tone: "warn" };
   if (row.tone === "low") return { label: S.status.low, tone: "warn" };
@@ -200,10 +171,30 @@ export function ledgerDescriptor(row: LeaveLedgerRow): ObjectCardDescriptor {
     objectType: { key: "leave_ledger", title: S.objects.ledgerType },
     lifecycleState: state,
     properties: [
-      { key: "accrued", title: S.objects.props.accrued, type: "number", value: dayLabel(row.accrued) },
-      { key: "used", title: S.objects.props.used, type: "number", value: dayLabel(row.used) },
-      { key: "remaining", title: S.objects.props.remaining, type: "number", value: dayLabel(row.remaining) },
-      { key: "hire_date", title: S.objects.props.hireDate, type: "date", value: row.hireDate ?? "—" },
+      {
+        key: "accrued",
+        title: S.objects.props.accrued,
+        type: "number",
+        value: dayLabel(row.accrued),
+      },
+      {
+        key: "used",
+        title: S.objects.props.used,
+        type: "number",
+        value: dayLabel(row.used),
+      },
+      {
+        key: "remaining",
+        title: S.objects.props.remaining,
+        type: "number",
+        value: dayLabel(row.remaining),
+      },
+      {
+        key: "hire_date",
+        title: S.objects.props.hireDate,
+        type: "date",
+        value: row.hireDate ?? "—",
+      },
     ],
     // wire-pending: Phase C → GET /api/v1/ontology/instances/{id}/traverse
     // supplies the 연차 신청 link once requests carry a registered object
@@ -212,7 +203,11 @@ export function ledgerDescriptor(row: LeaveLedgerRow): ObjectCardDescriptor {
     relations: [],
     lifecycle: [
       { state: "draft", reached: true, current: false },
-      { state: "active", reached: state === "active", current: state === "active" },
+      {
+        state: "active",
+        reached: state === "active",
+        current: state === "active",
+      },
       ...(state === "archived"
         ? [{ state: "archived" as const, reached: true, current: true }]
         : []),

@@ -1,6 +1,7 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
 
 import { AuthTestProvider } from "../../test/AuthTestProvider";
 import type { AuthSession } from "../../context/auth";
@@ -9,7 +10,7 @@ import { ConsoleApp } from "../ConsoleApp";
 import { Sidebar } from "./Sidebar";
 import type { ThemeMode } from "./theme";
 
-const markConsoleRoute = vi.fn();
+const markConsoleRoute = vi.fn<(screen: string) => void>();
 
 vi.mock("../rum/rum", () => ({
   initConsoleRum: () => () => {},
@@ -18,12 +19,29 @@ vi.mock("../rum/rum", () => ({
   },
 }));
 
-function renderConsole(session: AuthSession) {
+function RouterProbe() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  return (
+    <>
+      <output data-router-location>{`${location.pathname}${location.search}${location.hash}`}</output>
+      <button type="button" onClick={() => void navigate(-1)}>
+        history back
+      </button>
+      <button type="button" onClick={() => void navigate(1)}>
+        history forward
+      </button>
+    </>
+  );
+}
+
+function renderConsole(session: AuthSession, initialEntries: string[] = ["/console"]) {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={initialEntries}>
       <AuthTestProvider session={session}>
         <ConsoleApp />
       </AuthTestProvider>
+      <RouterProbe />
     </MemoryRouter>,
   );
 }
@@ -117,7 +135,61 @@ describe("ConsoleShell chrome", () => {
     expect(audit).toHaveAttribute("aria-current", "true");
     expect(overview).not.toHaveAttribute("aria-current");
     expect(screen.getByLabelText("화면 본문")).toHaveAttribute("data-cshell-screen", "audit");
+    expect(document.querySelector("[data-router-location]")).toHaveTextContent("/console/audit");
     expect(markConsoleRoute).toHaveBeenCalledWith("audit");
+  });
+
+  it("restores a shipped authorized screen from its URL on refresh", () => {
+    renderConsole(ADMIN, ["/console/audit"]);
+    expect(screen.getByRole("button", { name: "감사 로그" })).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
+    expect(screen.getByLabelText("화면 본문")).toHaveAttribute("data-cshell-screen", "audit");
+    expect(markConsoleRoute).toHaveBeenCalledWith("audit");
+  });
+
+  it("tracks browser back and forward without emitting duplicate route samples", async () => {
+    renderConsole(ADMIN, ["/console/overview"]);
+    expect(screen.getByLabelText("화면 본문")).toHaveAttribute("data-cshell-screen", "overview");
+
+    await userEvent.click(screen.getByRole("button", { name: "감사 로그" }));
+    expect(screen.getByLabelText("화면 본문")).toHaveAttribute("data-cshell-screen", "audit");
+
+    await userEvent.click(screen.getByRole("button", { name: "history back" }));
+    await waitFor(() => {
+      expect(screen.getByLabelText("화면 본문")).toHaveAttribute(
+        "data-cshell-screen",
+        "overview",
+      );
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "history forward" }));
+    await waitFor(() => {
+      expect(screen.getByLabelText("화면 본문")).toHaveAttribute("data-cshell-screen", "audit");
+    });
+    expect(markConsoleRoute.mock.calls.map(([route]) => route)).toEqual([
+      "overview",
+      "audit",
+      "overview",
+      "audit",
+    ]);
+  });
+
+  it("replaces invalid, unshipped, and unauthorized URL screens with the safe default", async () => {
+    for (const destination of ["unknown", "hr", "policy"]) {
+      const view = renderConsole(ADMIN, [`/console/${destination}?keep=1#anchor`]);
+      expect(screen.getByLabelText("화면 본문")).toHaveAttribute(
+        "data-cshell-screen",
+        "overview",
+      );
+      await waitFor(() => {
+        expect(document.querySelector("[data-router-location]")).toHaveTextContent(
+          "/console/overview?keep=1#anchor",
+        );
+      });
+      view.unmount();
+    }
   });
 
   it("collapses and expands the sidebar", () => {

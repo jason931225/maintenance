@@ -2,12 +2,17 @@ import { describe, expect, it } from "vitest";
 
 import {
   FEATURES,
+  NAV_GROUPS,
   ROLES,
+  SHIPPED_SCREEN_KEYS,
+  consoleScreenPath,
   defaultScreen,
   isNavItemVisible,
+  screenFromConsolePath,
   visibleConsoleNav,
 } from "./nav";
 import type { ConsoleGrants } from "./nav";
+import { SCREEN_REGISTRY } from "../screens/registry";
 
 const grants = (roles: string[], featureGrants: string[] = []): ConsoleGrants => ({
   roles,
@@ -19,7 +24,7 @@ function screens(g: ConsoleGrants): Set<string> {
 }
 
 describe("console nav deny-by-omission", () => {
-  it("ungated items (personal + comms) are visible to any authenticated session", () => {
+  it("shows only shipped ungated personal + comms items to any authenticated session", () => {
     const s = screens(grants([ROLES.MEMBER]));
     // personal
     expect(s).toContain("overview");
@@ -28,7 +33,7 @@ describe("console nav deny-by-omission", () => {
     // comms
     expect(s).toContain("messenger");
     expect(s).toContain("mail");
-    expect(s).toContain("notif");
+    expect(s).not.toContain("notif");
   });
 
   it("hides governance/identity surfaces from a non-privileged persona", () => {
@@ -40,14 +45,14 @@ describe("console nav deny-by-omission", () => {
     expect(s.has("hr")).toBe(false);
     expect(s.has("payroll")).toBe(false);
     expect(s.has("workflow")).toBe(false);
-    // its own operational surface — visible via the work-order feature grant
-    expect(s.has("dispatch")).toBe(true);
+    // planned operational surfaces stay DARK even with an otherwise sufficient grant
+    expect(s.has("dispatch")).toBe(false);
   });
 
   it("shows management analytics + HR to ADMIN, but never RoleManage surfaces", () => {
     const s = screens(grants([ROLES.ADMIN]));
-    expect(s.has("hr")).toBe(true);
-    expect(s.has("payroll")).toBe(true);
+    expect(s.has("hr")).toBe(false);
+    expect(s.has("payroll")).toBe(false);
     expect(s.has("audit")).toBe(true);
     expect(s.has("dashboard")).toBe(true);
     // RoleManage-tier is SUPER_ADMIN-only, never unlocked for ADMIN
@@ -62,13 +67,16 @@ describe("console nav deny-by-omission", () => {
     expect(s.has("policy")).toBe(true);
     expect(s.has("workflow")).toBe(true);
     expect(s.has("scheduled")).toBe(true);
-    expect(s.has("compliance")).toBe(true);
+    expect(s.has("compliance")).toBe(false); // planned, but no mounted body yet
   });
 
-  it("a feature grant alone (no role) exposes exactly its gated item", () => {
-    const s = screens(grants([ROLES.MEMBER], [FEATURES.EMPLOYEE_DIRECTORY_READ]));
-    expect(s.has("hr")).toBe(true); // directory feature → HR admin visible
-    expect(s.has("payroll")).toBe(true);
+  it("a feature grant alone exposes a shipped gated item, but never a DARK one", () => {
+    const s = screens(
+      grants([ROLES.MEMBER], [FEATURES.KPI_READ, FEATURES.EMPLOYEE_DIRECTORY_READ]),
+    );
+    expect(s.has("dashboard")).toBe(true);
+    expect(s.has("hr")).toBe(false);
+    expect(s.has("payroll")).toBe(false);
     expect(s.has("audit")).toBe(false); // different feature — still hidden
   });
 
@@ -95,5 +103,30 @@ describe("console nav deny-by-omission", () => {
     expect(screens(grants([ROLES.MEMBER])).has(defaultScreen(grants([ROLES.MEMBER])))).toBe(
       true,
     );
+  });
+
+  it("keeps every production-visible destination mounted and every planned destination DARK", () => {
+    const registered = new Set(Object.keys(SCREEN_REGISTRY));
+    const shipped = new Set<string>(SHIPPED_SCREEN_KEYS);
+    const declared = NAV_GROUPS.flatMap((group) => group.items.map((item) => item.screen));
+
+    expect(SHIPPED_SCREEN_KEYS.every((key) => registered.has(key))).toBe(true);
+    expect(declared.filter((key) => !shipped.has(key))).toEqual(
+      expect.arrayContaining(["hr", "recruit", "dispatch", "notif", "directory"]),
+    );
+
+    for (const role of Object.values(ROLES)) {
+      const visible = screens(grants([role], Object.values(FEATURES)));
+      expect([...visible].every((key) => shipped.has(key) && registered.has(key))).toBe(true);
+    }
+  });
+
+  it("parses only direct console screen paths and emits encoded canonical paths", () => {
+    expect(screenFromConsolePath("/console/audit")).toBe("audit");
+    expect(screenFromConsolePath("/console/audit/")).toBe("audit");
+    expect(screenFromConsolePath("/console/audit/nested")).toBeUndefined();
+    expect(screenFromConsolePath("/console/audit%2Fnested")).toBeUndefined();
+    expect(screenFromConsolePath("/console/%E0%A4%A")).toBeUndefined();
+    expect(consoleScreenPath("a b")).toBe("/console/a%20b");
   });
 });

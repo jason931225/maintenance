@@ -1,16 +1,18 @@
 # Schema-migration Job. Runs the SAME signed mnt-app image in its one-shot
 # `migrate` run-mode (MNT_APP_ROLE=migrate): it connects as the table OWNER
-# (mnt_app, via the mnt-db-app secret) to run DDL, applies the embedded
-# migrations idempotently, then exits 0 — it never serves HTTP.
+# (mnt_app, via the mnt-db-app secret) to run DDL and BYPASSRLS backfills,
+# applies the embedded migrations idempotently, then exits 0 — it never serves
+# HTTP and no serving workload receives this credential.
 #
-# Argo CD runs this as a PreSync hook, so it completes BEFORE the api/worker
-# Deployments roll. That is what lets the runtime mnt_rt role stay de-owned
+# Argo CD runs this as a wave-2 Sync hook, after the CNPG Cluster and six-role
+# readback gate, and before the api/worker Deployments roll. That is what lets
+# the runtime mnt_rt role stay de-owned
 # (NOSUPERUSER, NOBYPASSRLS, owns nothing, no DDL): migrations no longer need
 # the serving workloads. hook-delete-policy BeforeHookCreation deletes the prior
 # Job at the start of each sync, so the immutable Job is recreated cleanly every
 # time (a fresh Job per sync, cleaned up before the next). HookSucceeded also
 # removes successful hook Jobs immediately so Argo does not keep reporting a
-# completed PreSync hook as a resource that requires pruning.
+# completed Sync hook as a resource that requires pruning.
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -18,7 +20,8 @@ metadata:
   namespace: maintenance
   labels: { app: mnt-migrate }
   annotations:
-    argocd.argoproj.io/hook: PreSync
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/sync-wave: "2"
     argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
 spec:
   # Bounded retries; each migration run is idempotent so a retry is safe.

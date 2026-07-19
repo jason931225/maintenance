@@ -54,13 +54,27 @@ interface RegistryEntry {
   detail: ObjectTypeDetailWire;
   instances: InstanceStateWire[];
   /** Automations + policies bound to the type (자동화 subtab). */
-  acting: ActingRuleWire[];
+  acting: ActingRuleWire[] | undefined;
 }
+
+export interface OntologyPartialReadFailure {
+  kind: "acting" | "traversal";
+  /** Object-type id for acting reads; root instance id for traversal reads. */
+  scopeId: string;
+  /** Human-readable scope retained for a specific, non-empty failure notice. */
+  scopeLabel: string;
+}
+
+type PartialRetryOutcome =
+  | { outcome: "acting"; failure: OntologyPartialReadFailure; acting: ActingRuleWire[] }
+  | { outcome: "traversal"; failure: OntologyPartialReadFailure; graph: TraversalGraphWire }
+  | { outcome: "failed"; failure: OntologyPartialReadFailure };
 
 interface LoadedWorkspaceState {
   authorityKey: string | undefined;
   entries: RegistryEntry[];
   graphs: TraversalGraphWire[];
+  partialFailures: OntologyPartialReadFailure[];
 }
 
 interface AuthorityReadState {
@@ -86,9 +100,12 @@ export interface OntologyWorkspace {
   stats: OntologyWorkspaceStats;
   /** True once a successful read returned an empty registry (honest empty, not error). */
   isEmpty: boolean;
+  /** Supplementary reads that failed while the independently loaded workspace remains usable. */
+  partialFailures: OntologyPartialReadFailure[];
   feedback: string | undefined;
   clearFeedback: () => void;
   reload: () => Promise<void>;
+  retryPartialFailures: () => Promise<void>;
   onCreateType: (title: string) => Promise<void>;
   onCommitRevision: (staged: OntObjectTypeDef) => Promise<void>;
   onGraphFocusChange: (focusId: string) => void;
@@ -99,6 +116,7 @@ export interface OntologyWorkspace {
 const EMPTY_MODEL: ObjectExplorerModel = { nodes: [], object_links: [] };
 const EMPTY_ENTRIES: RegistryEntry[] = [];
 const EMPTY_GRAPHS: TraversalGraphWire[] = [];
+const EMPTY_PARTIAL_FAILURES: OntologyPartialReadFailure[] = [];
 const MISSING_WRITE_AUTHORITY = new Error(
   "Ontology write requires explicit provider/session authority",
 );
@@ -125,6 +143,7 @@ export function useOntologyWorkspace(
     authorityKey: undefined,
     entries: EMPTY_ENTRIES,
     graphs: EMPTY_GRAPHS,
+    partialFailures: EMPTY_PARTIAL_FAILURES,
   });
   const [feedback, setFeedback] = useState<string>();
   const authorityScope = useMemo(
@@ -139,6 +158,9 @@ export function useOntologyWorkspace(
   const loadedAuthorityIsCurrent = loadedState.authorityKey === authorityKey;
   const entries = loadedAuthorityIsCurrent ? loadedState.entries : EMPTY_ENTRIES;
   const graphs = loadedAuthorityIsCurrent ? loadedState.graphs : EMPTY_GRAPHS;
+  const partialFailures = loadedAuthorityIsCurrent
+    ? loadedState.partialFailures
+    : EMPTY_PARTIAL_FAILURES;
   const visibleReadState = readState.authorityKey === authorityKey
     ? readState.value
     : "loading";
@@ -178,38 +200,149 @@ export function useOntologyWorkspace(
       const summaries = await listObjectTypes(api);
       if (!isCurrent()) return;
       const loaded = await Promise.all(
-        summaries.map(async (summary) => {
-          const [detail, instances, acting] = await Promise.all([
+        summaries.map(async (summary): Promise<{
+          entry: RegistryEntry;
+          failure: OntologyPartialReadFailure | undefined;
+        }> => {
+          const [detail, instances] = await Promise.all([
             getObjectType(api, summary.stable_key),
             listInstances(api, summary.id),
-            // Acting rules are a supplementary read: a failure degrades the
-            // 자동화 subtab to empty, never the whole workspace.
-            getObjectTypeActing(api, summary.stable_key).catch(() => []),
           ]);
-          return { detail, instances, acting } satisfies RegistryEntry;
+          try {
+            const acting = await getObjectTypeActing(api, summary.stable_key);
+            return {
+              entry: { detail, instances, acting } satisfies RegistryEntry,
+              failure: undefined,
+            };
+          } catch {
+            return {
+              entry: { detail, instances, acting: undefined } satisfies RegistryEntry,
+              failure: {
+                kind: "acting",
+                scopeId: summary.id,
+                scopeLabel: summary.title,
+              },
+            };
+          }
         }),
       );
       if (!isCurrent()) return;
 
-      // Seed the graph with a search-around from the first instance; a
-      // traversal failure degrades to the empty graph, not a page error.
-      const root = loaded.flatMap((entry) => entry.instances).at(0);
+      const entries = loaded.map(({ entry }) => entry);
+      const nextPartialFailures = loaded.flatMap(({ failure }) =>
+        failure ? [failure] : [],
+      );
+
+      // A failed governed traversal is explicitly degraded, never represented
+      // as an authoritative successful empty graph.
+      const root = entries.flatMap((entry) => entry.instances).at(0);
       let nextGraphs: TraversalGraphWire[] = [];
       if (root) {
         try {
           nextGraphs = [await traverseInstance(api, root.instance.id)];
         } catch {
-          nextGraphs = [];
+          nextPartialFailures.push({
+            kind: "traversal",
+            scopeId: root.instance.id,
+            scopeLabel: root.instance.title,
+          });
         }
       }
       if (!isCurrent()) return;
-      setLoadedState({ authorityKey, entries: loaded, graphs: nextGraphs });
+      setLoadedState({
+        authorityKey,
+        entries,
+        graphs: nextGraphs,
+        partialFailures: nextPartialFailures,
+      });
       setReadState({ authorityKey, value: "idle" });
     } catch {
       if (!isCurrent()) return;
       setReadState({ authorityKey, value: "error" });
     }
   }, [api, authorityKey, authorityScope, isAuthorityCurrent]);
+
+  const retryPartialFailures = useCallback(async () => {
+    const lifetimeEpoch = lifetimeEpochRef.current;
+    if (
+      !isAuthorityCurrent(authorityScope, lifetimeEpoch) ||
+      loadedState.authorityKey !== authorityKey ||
+      loadedState.partialFailures.length === 0
+    ) return;
+
+    const requestEpoch = readRequestRef.current + 1;
+    readRequestRef.current = requestEpoch;
+    const isCurrent = () =>
+      isAuthorityCurrent(authorityScope, lifetimeEpoch) &&
+      readRequestRef.current === requestEpoch;
+    const snapshot = loadedState;
+    const retriedFailureKeys = new Set(
+      snapshot.partialFailures.map((failure) => `${failure.kind}:${failure.scopeId}`),
+    );
+    const outcomes = await Promise.all(
+      snapshot.partialFailures.map(async (failure): Promise<PartialRetryOutcome> => {
+        try {
+          if (failure.kind === "acting") {
+            const entry = snapshot.entries.find(
+              (candidate) => candidate.detail.object_type.id === failure.scopeId,
+            );
+            if (!entry) return { outcome: "failed", failure };
+            return {
+              outcome: "acting",
+              failure,
+              acting: await getObjectTypeActing(
+                api,
+                entry.detail.object_type.stable_key,
+              ),
+            };
+          }
+          return {
+            outcome: "traversal",
+            failure,
+            graph: await traverseInstance(api, failure.scopeId),
+          };
+        } catch {
+          return { outcome: "failed", failure };
+        }
+      }),
+    );
+    if (!isCurrent()) return;
+
+    const resolvedActing = new Map<string, ActingRuleWire[]>();
+    const resolvedGraphs: TraversalGraphWire[] = [];
+    const remainingFailures: OntologyPartialReadFailure[] = [];
+    outcomes.forEach((outcome) => {
+      if (outcome.outcome === "acting") {
+        resolvedActing.set(outcome.failure.scopeId, outcome.acting);
+      } else if (outcome.outcome === "traversal") {
+        resolvedGraphs.push(outcome.graph);
+      } else {
+        remainingFailures.push(outcome.failure);
+      }
+    });
+    setLoadedState((current) => {
+      if (current.authorityKey !== authorityKey || !isCurrent()) return current;
+      const resolvedRoots = new Set(resolvedGraphs.map((graph) => graph.root));
+      return {
+        ...current,
+        entries: current.entries.map((entry) => {
+          const acting = resolvedActing.get(entry.detail.object_type.id);
+          return acting === undefined ? entry : { ...entry, acting };
+        }),
+        graphs: [
+          ...current.graphs.filter((graph) => !resolvedRoots.has(graph.root)),
+          ...resolvedGraphs,
+        ],
+        partialFailures: [
+          ...current.partialFailures.filter(
+            (failure) =>
+              !retriedFailureKeys.has(`${failure.kind}:${failure.scopeId}`),
+          ),
+          ...remainingFailures,
+        ],
+      };
+    });
+  }, [api, authorityKey, authorityScope, isAuthorityCurrent, loadedState]);
 
   useEffect(() => {
     const task = window.setTimeout(() => {
@@ -258,7 +391,7 @@ export function useOntologyWorkspace(
           entry.detail,
           entry.instances,
           typeKeyById,
-          entry.acting,
+          entry.acting ?? [],
         ),
       ),
     [entries, typeKeyById],
@@ -432,18 +565,47 @@ export function useOntologyWorkspace(
     (focusId: string) => {
       const lifetimeEpoch = lifetimeEpochRef.current;
       if (!isAuthorityCurrent(authorityScope, lifetimeEpoch)) return;
+      const focusLabel = entries
+        .flatMap((entry) => entry.instances)
+        .find((state) => state.instance.id === focusId)?.instance.title ?? focusId;
       void traverseInstance(api, focusId)
         .then((graph) => {
           if (!isAuthorityCurrent(authorityScope, lifetimeEpoch)) return;
           setLoadedState((current) =>
             current.authorityKey === authorityKey
-              ? { ...current, graphs: [...current.graphs, graph] }
+              ? {
+                  ...current,
+                  graphs: [
+                    ...current.graphs.filter((candidate) => candidate.root !== graph.root),
+                    graph,
+                  ],
+                  partialFailures: current.partialFailures.filter(
+                    (failure) =>
+                      failure.kind !== "traversal" || failure.scopeId !== focusId,
+                  ),
+                }
               : current,
           );
         })
-        .catch(() => undefined); // keep the already-loaded neighbourhood
+        .catch(() => {
+          if (!isAuthorityCurrent(authorityScope, lifetimeEpoch)) return;
+          setLoadedState((current) => {
+            if (current.authorityKey !== authorityKey) return current;
+            if (current.partialFailures.some(
+              (failure) =>
+                failure.kind === "traversal" && failure.scopeId === focusId,
+            )) return current;
+            return {
+              ...current,
+              partialFailures: [
+                ...current.partialFailures,
+                { kind: "traversal", scopeId: focusId, scopeLabel: focusLabel },
+              ],
+            };
+          });
+        }); // keep the already-loaded neighbourhood, but report degradation
     },
-    [api, authorityKey, authorityScope, isAuthorityCurrent],
+    [api, authorityKey, authorityScope, entries, isAuthorityCurrent],
   );
 
   const clearFeedback = useCallback(() => {
@@ -457,9 +619,11 @@ export function useOntologyWorkspace(
     projectedTypeIds,
     stats,
     isEmpty: visibleReadState === "idle" && entries.length === 0,
+    partialFailures,
     feedback: loadedAuthorityIsCurrent ? feedback : undefined,
     clearFeedback,
     reload,
+    retryPartialFailures,
     onCreateType,
     onCommitRevision,
     onGraphFocusChange,

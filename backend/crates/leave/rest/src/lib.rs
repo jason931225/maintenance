@@ -24,10 +24,14 @@ use mnt_kernel_core::{
 };
 use mnt_leave_adapter_postgres::{PgLeaveError, PgLeaveStore};
 use mnt_leave_application::{
-    CreateLeaveRequestCommand, DecideLeaveRequestCommand, ListLeaveRequestsQuery,
+    CreateLeaveRequestCommand, DecideLeaveRequestCommand, LeaveRequestPage, ListLeaveRequestsQuery,
+    ListSelfLeaveRequestsQuery, ResolveLeaveChargeCommand, SelfLeaveBalanceView,
     StatutoryPushCommand,
 };
-use mnt_leave_domain::{LeaveDecision, LeaveStatus, LeaveType, NewLeaveRequest, PromotionKind};
+use mnt_leave_domain::{
+    LeaveDateCharge, LeaveDecision, LeaveStatus, LeaveType, LeaveUnits, NewLeaveRequest,
+    NonWorkBasis, PartialDayPeriod, PromotionKind, SourceRevisionRef, WorkObligation,
+};
 use mnt_platform_auth::JwtVerifier;
 use mnt_platform_authz::{Action, Feature, Principal, authorize, authorize_org_wide};
 use mnt_platform_request_context::RequestContextError;
@@ -36,6 +40,9 @@ use uuid::Uuid;
 
 pub const LEAVE_REQUESTS_PATH: &str = "/api/v1/leave/requests";
 pub const LEAVE_DECIDE_PATH_TEMPLATE: &str = "/api/v1/leave/requests/{id}/decide";
+pub const LEAVE_CHARGE_RESOLUTION_PATH_TEMPLATE: &str =
+    "/api/v1/leave/requests/{id}/charge-resolution";
+pub const MY_LEAVE_PATH: &str = "/api/v1/me/leave";
 pub const LEAVE_BALANCES_PATH: &str = "/api/v1/leave/balances";
 pub const LEAVE_PROMOTIONS_PATH: &str = "/api/v1/leave/promotions";
 pub const LEAVE_REFUSAL_NOTICES_PATH: &str = "/api/v1/leave/refusal-notices";
@@ -43,6 +50,8 @@ pub const LEAVE_REFUSAL_NOTICES_PATH: &str = "/api/v1/leave/refusal-notices";
 pub const LEAVE_ROUTE_PATHS: &[&str] = &[
     LEAVE_REQUESTS_PATH,
     LEAVE_DECIDE_PATH_TEMPLATE,
+    LEAVE_CHARGE_RESOLUTION_PATH_TEMPLATE,
+    MY_LEAVE_PATH,
     LEAVE_BALANCES_PATH,
     LEAVE_PROMOTIONS_PATH,
     LEAVE_REFUSAL_NOTICES_PATH,
@@ -78,6 +87,8 @@ pub fn router(state: LeaveRestState) -> Router {
     let router = Router::new()
         .route(LEAVE_REQUESTS_PATH, get(list_requests).post(create_request))
         .route(LEAVE_DECIDE_PATH_TEMPLATE, post(decide))
+        .route(LEAVE_CHARGE_RESOLUTION_PATH_TEMPLATE, post(resolve_charge))
+        .route(MY_LEAVE_PATH, get(get_my_leave))
         .route(LEAVE_BALANCES_PATH, get(list_balances))
         .route(LEAVE_PROMOTIONS_PATH, post(push_promotion))
         .route(LEAVE_REFUSAL_NOTICES_PATH, post(push_refusal))
@@ -89,6 +100,36 @@ pub fn router(state: LeaveRestState) -> Router {
 struct ListParams {
     status: Option<String>,
     limit: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+struct MyLeaveOverview {
+    balance: SelfLeaveBalanceView,
+    requests: LeaveRequestPage,
+}
+
+async fn get_my_leave(
+    State(state): State<LeaveRestState>,
+    headers: HeaderMap,
+    Query(params): Query<ListParams>,
+) -> Result<Response, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    // Deliberately no employee-directory feature gate. Both reads bind the
+    // caller's user id to the linked employee on the server.
+    let balance = state
+        .store
+        .get_self_balance(principal.user_id)
+        .await
+        .map_err(RestError::from_store)?;
+    let requests = state
+        .store
+        .list_self_requests(ListSelfLeaveRequestsQuery {
+            requester: principal.user_id,
+            limit: params.limit.unwrap_or(100),
+        })
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(Json(MyLeaveOverview { balance, requests }).into_response())
 }
 
 async fn list_requests(
@@ -115,36 +156,17 @@ async fn list_requests(
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CreateRequestBody {
-    /// `annual` (full-day span) or `half_day` (반차, 0.5 on one date).
+    /// `annual` (full-day intent) or `half_day` (policy-resolved partial-day intent).
     leave_type: String,
-    /// `YYYY-MM-DD`. For a half day the end is forced equal server-side.
+    /// Required exactly for `half_day`; absent for `annual`.
+    #[serde(default)]
+    partial_day_period: Option<String>,
+    /// `YYYY-MM-DD`. Half-day intent must target a single date.
     start_date: String,
     end_date: String,
     reason: String,
-}
-
-/// Derive the (end_date, days) a request will carry from its type + dates.
-/// The server NEVER trusts a client-supplied day count: a 반차 is always 0.5 on
-/// its start date; a 연차 span is the inclusive calendar-day count. Domain
-/// bounds (positive, ≤ 366, end ≥ start) are re-checked by `NewLeaveRequest`.
-fn derive_span(
-    leave_type: LeaveType,
-    start_date: Date,
-    end_date: Date,
-) -> Result<(Date, f64), KernelError> {
-    match leave_type {
-        LeaveType::HalfDay => Ok((start_date, 0.5)),
-        LeaveType::Annual => {
-            if end_date < start_date {
-                return Err(KernelError::validation(
-                    "leave end date must not precede the start date",
-                ));
-            }
-            let days = (end_date - start_date).whole_days() + 1;
-            Ok((end_date, days as f64))
-        }
-    }
 }
 
 fn parse_iso_date(value: &str, field: &'static str) -> Result<Date, RestError> {
@@ -159,11 +181,11 @@ fn parse_iso_date(value: &str, field: &'static str) -> Result<Date, RestError> {
 
 /// Self-service 연차/반차 신청 (POST /api/v1/leave/requests). The caller files a
 /// request for THEMSELVES: `subject_employee_id` and the routing `branch_id` are
-/// resolved server-side from the caller's own account (users.employee_id +
-/// user_branches), never from input, so a caller can only ever file for their
+/// resolved server-side from the caller's own account (`users.employee_id` +
+/// `employees.home_branch_id`), never from input, so a caller can only ever file for their
 /// own employee record. No directory feature is required — filing your own leave
 /// is a base employee capability; the gate is the employee link itself (an
-/// unlinked account is 422, deny-by-omission). The created request is `pending`
+/// unlinked or inactive account is 403, deny-by-omission). The created request is `pending`
 /// and moves no ledger until a *separate* approver decides it (SoD).
 async fn create_request(
     State(state): State<LeaveRestState>,
@@ -171,7 +193,7 @@ async fn create_request(
     Json(body): Json<CreateRequestBody>,
 ) -> Result<Response, RestError> {
     let principal = principal_from_headers(&state, &headers).await?;
-    let (subject_employee_id, branch_id) = state
+    let (subject_employee_id, _) = state
         .store
         .resolve_self_filing_context(principal.user_id)
         .await
@@ -180,15 +202,24 @@ async fn create_request(
     let leave_type = LeaveType::parse(&body.leave_type).map_err(RestError::from_kernel)?;
     let start_date = parse_iso_date(&body.start_date, "start_date")?;
     let end_date = parse_iso_date(&body.end_date, "end_date")?;
-    let (end_date, days) =
-        derive_span(leave_type, start_date, end_date).map_err(RestError::from_kernel)?;
-    let request = NewLeaveRequest::new(leave_type, days, start_date, end_date, &body.reason)
+    let partial_day_period = body
+        .partial_day_period
+        .as_deref()
+        .map(PartialDayPeriod::parse)
+        .transpose()
         .map_err(RestError::from_kernel)?;
+    let request = NewLeaveRequest::new(
+        leave_type,
+        start_date,
+        end_date,
+        &body.reason,
+        partial_day_period,
+    )
+    .map_err(RestError::from_kernel)?;
 
     let view = state
         .store
         .create_request(CreateLeaveRequestCommand {
-            branch_id,
             requester_user_id: principal.user_id,
             subject_employee_id,
             request,
@@ -201,7 +232,11 @@ async fn create_request(
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
 struct DecideRequest {
+    /// Mutable request/workflow CAS token from `LeaveRequestView.request_version`.
+    /// This is not the immutable charge-evidence revision.
+    expected_version: i64,
     decision: String,
     #[serde(default)]
     comment: Option<String>,
@@ -220,12 +255,14 @@ async fn decide(
     let decision = LeaveDecision::parse(&body.decision).map_err(RestError::from_kernel)?;
     let comment = mnt_leave_domain::validate_decision_comment(decision, body.comment.as_deref())
         .map_err(RestError::from_kernel)?;
+    let expected_version = validate_expected_request_version(body.expected_version)?;
     let view = state
         .store
         .decide(DecideLeaveRequestCommand {
             request_id: id,
             decider: principal.user_id,
             branch_scope: principal.branch_scope.clone(),
+            expected_version,
             decision,
             comment,
             trace: TraceContext::generate(),
@@ -236,6 +273,178 @@ async fn decide(
     Ok(Json(view).into_response())
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ResolveChargeRequest {
+    /// Mutable request/workflow CAS token from `LeaveRequestView.request_version`.
+    /// A successful resolution separately creates a new `charge_version`.
+    expected_version: i64,
+    date_charges: Vec<DateChargeRequest>,
+    calendar_revision_ref: SourceRevisionRequest,
+    policy_revision_ref: SourceRevisionRequest,
+    #[serde(default)]
+    supporting_source_refs: Vec<SourceRevisionRequest>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct DateChargeRequest {
+    date: String,
+    obligation: WorkObligationRequest,
+    /// Exact fixed-scale day units. Totals and digests are never accepted.
+    charge_units: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+enum WorkObligationRequest {
+    Scheduled { minutes: u32 },
+    NotScheduled { basis: String },
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SourceRevisionRequest {
+    kind: String,
+    reference: String,
+    revision: String,
+}
+
+async fn resolve_charge(
+    State(state): State<LeaveRestState>,
+    headers: HeaderMap,
+    Path(id): Path<LeaveRequestId>,
+    Json(body): Json<ResolveChargeRequest>,
+) -> Result<Response, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    require_manage(&principal)?;
+    let expected_version = validate_expected_request_version(body.expected_version)?;
+    let date_charges = body
+        .date_charges
+        .into_iter()
+        .map(|charge| {
+            Ok(LeaveDateCharge {
+                date: parse_iso_date(&charge.date, "date_charges[].date")?,
+                obligation: match charge.obligation {
+                    WorkObligationRequest::Scheduled { minutes } => {
+                        WorkObligation::Scheduled { minutes }
+                    }
+                    WorkObligationRequest::NotScheduled { basis } => WorkObligation::NotScheduled {
+                        basis: parse_non_work_basis(&basis)?,
+                    },
+                },
+                units: parse_leave_units(&charge.charge_units)?,
+            })
+        })
+        .collect::<Result<Vec<_>, RestError>>()?;
+    let calendar_revision_ref = source_revision(body.calendar_revision_ref)?;
+    let policy_revision_ref = source_revision(body.policy_revision_ref)?;
+    let supporting_source_refs = body
+        .supporting_source_refs
+        .into_iter()
+        .map(source_revision)
+        .collect::<Result<Vec<_>, _>>()?;
+    let view = state
+        .store
+        .resolve_charge(ResolveLeaveChargeCommand {
+            request_id: id,
+            resolver: principal.user_id,
+            branch_scope: principal.branch_scope.clone(),
+            expected_version,
+            date_charges,
+            calendar_revision_ref,
+            policy_revision_ref,
+            supporting_source_refs,
+            trace: TraceContext::generate(),
+            occurred_at: time::OffsetDateTime::now_utc(),
+        })
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(Json(view).into_response())
+}
+
+fn source_revision(body: SourceRevisionRequest) -> Result<SourceRevisionRef, RestError> {
+    SourceRevisionRef::new(&body.kind, &body.reference, &body.revision)
+        .map_err(RestError::from_kernel)
+}
+
+fn validate_expected_request_version(value: i64) -> Result<i64, RestError> {
+    if value <= 0 {
+        return Err(RestError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "validation",
+            "expected_version must be a positive request_version",
+        ));
+    }
+    Ok(value)
+}
+
+fn parse_non_work_basis(value: &str) -> Result<NonWorkBasis, RestError> {
+    match value {
+        "rest_day" => Ok(NonWorkBasis::RestDay),
+        "public_holiday" => Ok(NonWorkBasis::PublicHoliday),
+        "substitute_holiday" => Ok(NonWorkBasis::SubstituteHoliday),
+        "contractual_day_off" => Ok(NonWorkBasis::ContractualDayOff),
+        "other" => Ok(NonWorkBasis::Other),
+        _ => Err(RestError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "validation",
+            "non-work basis must be rest_day|public_holiday|substitute_holiday|contractual_day_off|other",
+        )),
+    }
+}
+
+fn parse_leave_units(value: &str) -> Result<LeaveUnits, RestError> {
+    let value = value.trim();
+    if value.is_empty() || value.starts_with('-') || value.starts_with('+') {
+        return Err(RestError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "validation",
+            "charge_units must be a non-negative decimal string with at most six fractional digits",
+        ));
+    }
+    let mut parts = value.split('.');
+    let whole = parts.next().unwrap_or_default();
+    let fraction = parts.next().unwrap_or_default();
+    if parts.next().is_some()
+        || whole.is_empty()
+        || !whole.bytes().all(|byte| byte.is_ascii_digit())
+        || fraction.len() > 6
+        || !fraction.bytes().all(|byte| byte.is_ascii_digit())
+    {
+        return Err(RestError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "validation",
+            "charge_units must be a non-negative decimal string with at most six fractional digits",
+        ));
+    }
+    let whole = whole.parse::<i64>().map_err(|_| {
+        RestError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "validation",
+            "charge_units is outside the supported range",
+        )
+    })?;
+    let fraction = format!("{fraction:0<6}").parse::<i64>().map_err(|_| {
+        RestError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "validation",
+            "charge_units is invalid",
+        )
+    })?;
+    let micros = whole
+        .checked_mul(1_000_000)
+        .and_then(|whole| whole.checked_add(fraction))
+        .ok_or_else(|| {
+            RestError::new(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "validation",
+                "charge_units is outside the supported range",
+            )
+        })?;
+    LeaveUnits::from_micros(micros).map_err(RestError::from_kernel)
+}
+
 async fn list_balances(
     State(state): State<LeaveRestState>,
     headers: HeaderMap,
@@ -244,7 +453,7 @@ async fn list_balances(
     require_read(&principal)?;
     let page = state
         .store
-        .list_balances()
+        .list_balances(principal.branch_scope.clone())
         .await
         .map_err(RestError::from_store)?;
     Ok(Json(page).into_response())
@@ -383,6 +592,8 @@ struct ErrorBody {
 struct ErrorPayload {
     code: &'static str,
     message: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    reasons: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -390,6 +601,7 @@ struct RestError {
     status: StatusCode,
     code: &'static str,
     message: String,
+    reasons: Vec<String>,
 }
 
 impl RestError {
@@ -398,6 +610,7 @@ impl RestError {
             status,
             code,
             message: message.into(),
+            reasons: Vec::new(),
         }
     }
 
@@ -428,6 +641,33 @@ impl RestError {
     fn from_store(err: PgLeaveError) -> Self {
         match err {
             PgLeaveError::Domain(err) => Self::from_kernel(err),
+            PgLeaveError::MissingHomeBranch => Self::new(
+                StatusCode::CONFLICT,
+                "leave_home_branch_review_required",
+                "an active linked employee needs an explicit home branch before filing leave",
+            ),
+            PgLeaveError::ChargeReviewRequired(reasons) => {
+                let mut error = Self::new(
+                    StatusCode::CONFLICT,
+                    "leave_calendar_review_required",
+                    "leave charge evidence must be resolved before approval",
+                );
+                error.reasons = reasons
+                    .into_iter()
+                    .map(|reason| reason.as_str().to_owned())
+                    .collect();
+                error
+            }
+            PgLeaveError::ConcurrentModification => Self::new(
+                StatusCode::CONFLICT,
+                "leave_concurrent_modification",
+                "leave request_version changed since it was read; reload before retrying",
+            ),
+            PgLeaveError::CommandUnavailable => Self::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "leave_command_unavailable",
+                "leave command database is not configured or unavailable",
+            ),
             PgLeaveError::Db(_) => {
                 // Never leak sqlx/schema internals (OWASP A05). Log server-side.
                 tracing::error!(error = %err, "leave store error");
@@ -449,6 +689,7 @@ impl IntoResponse for RestError {
                 error: ErrorPayload {
                     code: self.code,
                     message: self.message,
+                    reasons: self.reasons,
                 },
             }),
         )
@@ -526,22 +767,51 @@ mod tests {
     }
 
     #[test]
-    fn derive_span_never_trusts_a_client_day_count() {
-        use time::Month;
-        let d = |y, m, day| Date::from_calendar_date(y, Month::try_from(m).unwrap(), day).unwrap();
-        // A 반차 is always 0.5 on its start date, whatever end was sent.
-        let (end, days) = derive_span(LeaveType::HalfDay, d(2026, 7, 6), d(2026, 7, 9)).unwrap();
-        assert_eq!(end, d(2026, 7, 6));
-        assert!((days - 0.5).abs() < f64::EPSILON);
-        // A 연차 span is the INCLUSIVE calendar-day count (6th..=8th = 3 days).
-        let (end, days) = derive_span(LeaveType::Annual, d(2026, 7, 6), d(2026, 7, 8)).unwrap();
-        assert_eq!(end, d(2026, 7, 8));
-        assert!((days - 3.0).abs() < f64::EPSILON);
-        // A single-day 연차 is 1.0, not 0.
-        let (_, days) = derive_span(LeaveType::Annual, d(2026, 7, 6), d(2026, 7, 6)).unwrap();
-        assert!((days - 1.0).abs() < f64::EPSILON);
-        // An inverted 연차 span is rejected before it reaches the domain.
-        assert!(derive_span(LeaveType::Annual, d(2026, 7, 8), d(2026, 7, 6)).is_err());
+    fn exact_leave_units_parser_never_uses_floating_point() {
+        assert_eq!(parse_leave_units("0").unwrap().micros(), 0);
+        assert_eq!(parse_leave_units("0.4").unwrap().micros(), 400_000);
+        assert_eq!(parse_leave_units("0.500000").unwrap().micros(), 500_000);
+        assert_eq!(parse_leave_units("1.000001").unwrap().micros(), 1_000_001);
+        assert!(parse_leave_units("0.0000001").is_err());
+        assert!(parse_leave_units("-0.5").is_err());
+        assert!(parse_leave_units("NaN").is_err());
+    }
+
+    #[test]
+    fn missing_leave_command_capability_maps_to_stable_503() {
+        let error = RestError::from_store(PgLeaveError::CommandUnavailable);
+        assert_eq!(error.status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(error.code, "leave_command_unavailable");
+    }
+
+    #[test]
+    fn expected_version_is_the_positive_request_cas_token() {
+        for invalid in [i64::MIN, -1, 0] {
+            let error = validate_expected_request_version(invalid).unwrap_err();
+            assert_eq!(error.status, StatusCode::UNPROCESSABLE_ENTITY);
+            assert_eq!(error.code, "validation");
+            assert!(error.message.contains("positive request_version"));
+        }
+        assert_eq!(validate_expected_request_version(1).unwrap(), 1);
+        assert_eq!(validate_expected_request_version(7).unwrap(), 7);
+    }
+
+    #[test]
+    fn decide_body_accepts_request_cas_and_rejects_charge_version() {
+        let body: DecideRequest = serde_json::from_value(serde_json::json!({
+            "expected_version": 7,
+            "decision": "approve"
+        }))
+        .unwrap();
+        assert_eq!(body.expected_version, 7);
+
+        let error = serde_json::from_value::<DecideRequest>(serde_json::json!({
+            "expected_version": 7,
+            "charge_version": 3,
+            "decision": "approve"
+        }))
+        .unwrap_err();
+        assert!(error.to_string().contains("unknown field `charge_version`"));
     }
 
     #[test]

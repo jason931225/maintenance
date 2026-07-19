@@ -52,6 +52,23 @@ async fn runtime_role_pool(owner_pool: &PgPool) -> PgPool {
         .unwrap()
 }
 
+async fn command_role_pool(owner_pool: &PgPool) -> PgPool {
+    let options = owner_pool.connect_options().as_ref().clone();
+    PgPoolOptions::new()
+        .max_connections(4)
+        .after_connect(|conn, _meta| {
+            Box::pin(async move {
+                sqlx::query("SET ROLE mnt_ontology_cmd")
+                    .execute(conn)
+                    .await?;
+                Ok(())
+            })
+        })
+        .connect_with(options)
+        .await
+        .unwrap()
+}
+
 async fn seed_org_and_user(owner_pool: &PgPool, org: Uuid, tag: &str) -> UserId {
     sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING")
         .bind(org)
@@ -93,7 +110,8 @@ async fn c_chain_types_seed_published_and_isolated_per_org(owner_pool: PgPool) {
     let actor_b = seed_org_and_user(&owner_pool, ORG_B, "B").await;
 
     let rt = runtime_role_pool(&owner_pool).await;
-    let store = PgOntologyStore::new(rt);
+    let cmd = command_role_pool(&owner_pool).await;
+    let store = PgOntologyStore::new(rt).with_command_pool(cmd);
 
     scope_org(org_a, async {
         seed_c_chain_object_types(&store, actor_a, AT)
@@ -182,7 +200,8 @@ async fn c_chain_instances_link_and_traverse_downstream(owner_pool: PgPool) {
     seed_org_and_user(&owner_pool, ORG_B, "B").await;
 
     let rt = runtime_role_pool(&owner_pool).await;
-    let store = PgOntologyStore::new(rt.clone());
+    let cmd = command_role_pool(&owner_pool).await;
+    let store = PgOntologyStore::new(rt.clone()).with_command_pool(cmd);
     let instances = PgInstanceStore::new(rt.clone());
 
     // Seed the chain + resolve the type ids and the forward link ids.

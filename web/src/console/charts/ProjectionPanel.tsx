@@ -14,6 +14,13 @@ export type ProjectionDrillPart = "point" | "ci95" | "cvar95" | "sample";
 /** Backend Monte-Carlo/EVT result (POST /api/v1/analytics/projection, HANDOFF §18). */
 export type BackendProjection = components["schemas"]["ProjectionResult"];
 
+export type ServerProjectionState =
+  | { status: "loading" }
+  | { status: "denied" }
+  | { status: "error" }
+  | { status: "empty" }
+  | { status: "ready"; result: BackendProjection };
+
 export interface ProjectionPanelProps {
   /** Field name the projection is over, e.g. 월 정비비. */
   title: string;
@@ -30,6 +37,8 @@ export interface ProjectionPanelProps {
    * client `project()` math over `sample` — same shape, no fabrication.
    */
   backendResult?: BackendProjection;
+  /** Server-owned state. Supplying it disables the client projection fallback. */
+  serverState?: ServerProjectionState;
   lambda?: number;
   onDrill: (part: ProjectionDrillPart) => void;
   /** §4-22 in-place add path for the underlying sample. */
@@ -130,9 +139,13 @@ const statValueStyle: CSSProperties = {
  * DESIGN change-log (68) 정량 투영: deterministic point estimate + CI95 band
  * + CVaR95 fat-tail over a money/percent field. Every number drills (§4.7-9).
  */
-export function ProjectionPanel({ title, kind, sample, backendResult, lambda = DEFAULT_LAMBDA, onDrill, onAddSample, format: formatOverride }: ProjectionPanelProps) {
+export function ProjectionPanel({ title, kind, sample, backendResult, serverState, lambda = DEFAULT_LAMBDA, onDrill, onAddSample, format: formatOverride }: ProjectionPanelProps) {
   const format = formatOverride ?? (kind === "money" ? formatWon : formatPercent);
-  const p = toView(backendResult, sample, lambda);
+  const p = serverState
+    ? serverState.status === "ready"
+      ? toView(serverState.result, sample, lambda)
+      : null
+    : toView(backendResult, sample, lambda);
   const ewmaAssumption = p
     ? p.ewmaAssumption.source === "backend"
       ? T.projection.assumptionEwmaVolatility(
@@ -227,9 +240,19 @@ export function ProjectionPanel({ title, kind, sample, backendResult, lambda = D
             }}
           />
         </>
+      ) : serverState?.status === "denied" ? (
+        <StatusChip tone="danger" role="alert">
+          {ko.page.permissionDenied}
+        </StatusChip>
+      ) : serverState?.status === "error" ? (
+        <StatusChip tone="danger" role="alert">
+          {ko.page.loadFailed}
+        </StatusChip>
+      ) : serverState?.status === "loading" ? (
+        <StatusChip role="status">{ko.page.loading}</StatusChip>
       ) : (
         <StatusChip tone="warn" role="status">
-          {T.projection.insufficient}
+          {serverState ? ko.page.empty : T.projection.insufficient}
         </StatusChip>
       )}
 

@@ -35,6 +35,7 @@ use mnt_platform_authz::{Principal, Role};
 use mnt_platform_test_support::{runtime_role_pool, seed_org_and_super_admin};
 use serde_json::{Value, json};
 use sqlx::PgPool;
+use sqlx::postgres::PgPoolOptions;
 use time::macros::datetime;
 use uuid::Uuid;
 
@@ -50,9 +51,26 @@ fn super_admin(user_id: UserId, org: OrgId) -> Principal {
     )
 }
 
-fn state(pool: &PgPool) -> OntologyRestState {
+async fn command_role_pool(owner_pool: &PgPool) -> PgPool {
+    let options = owner_pool.connect_options().as_ref().clone();
+    PgPoolOptions::new()
+        .max_connections(4)
+        .after_connect(|conn, _meta| {
+            Box::pin(async move {
+                sqlx::query("SET ROLE mnt_ontology_cmd")
+                    .execute(conn)
+                    .await?;
+                Ok(())
+            })
+        })
+        .connect_with(options)
+        .await
+        .unwrap()
+}
+
+fn state(pool: &PgPool, command_pool: &PgPool) -> OntologyRestState {
     OntologyRestState::new(
-        PgOntologyStore::new(pool.clone()),
+        PgOntologyStore::new(pool.clone()).with_command_pool(command_pool.clone()),
         PgInstanceStore::new(pool.clone()),
         PgGovernanceStore::new(pool.clone()),
         None,
@@ -71,7 +89,8 @@ async fn seed_instance_type_with_action(
     submission_criteria: Value,
 ) -> ObjectTypeId {
     mnt_platform_request_context::scope_org(org, async {
-        let store = PgOntologyStore::new(owner_pool.clone());
+        let store = PgOntologyStore::new(owner_pool.clone())
+            .with_command_pool(command_role_pool(owner_pool).await);
         let draft = CreateObjectTypeDraft {
             stable_key: key.to_owned(),
             title: "작업지시".to_owned(),
@@ -120,7 +139,8 @@ async fn seed_projected_type_with_action(
     action_key: &str,
 ) -> ObjectTypeId {
     mnt_platform_request_context::scope_org(org, async {
-        let store = PgOntologyStore::new(owner_pool.clone());
+        let store = PgOntologyStore::new(owner_pool.clone())
+            .with_command_pool(command_role_pool(owner_pool).await);
         let draft = CreateObjectTypeDraft {
             stable_key: key.to_owned(),
             title: "장비".to_owned(),
@@ -186,6 +206,7 @@ fn create_command(object_type_id: ObjectTypeId, priority: &str) -> ActionCommand
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn execute_happy_path_appends_revision_and_one_audit_atomically(owner_pool: PgPool) {
     let rt = runtime_role_pool(&owner_pool).await;
+    let cmd = command_role_pool(&owner_pool).await;
     let org = OrgId::knl();
     let actor = seed_org_and_super_admin(&owner_pool, *org.as_uuid(), "a").await;
     let type_id = seed_instance_type_with_action(
@@ -200,7 +221,7 @@ async fn execute_happy_path_appends_revision_and_one_audit_atomically(owner_pool
     .await;
 
     let outcome = mnt_platform_request_context::scope_org(org, async {
-        state(&rt)
+        state(&rt, &cmd)
             .execute_action(
                 &super_admin(actor, org),
                 "set_priority",
@@ -233,6 +254,7 @@ async fn execute_happy_path_appends_revision_and_one_audit_atomically(owner_pool
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn missing_four_eyes_denies_and_writes_zero_rows(owner_pool: PgPool) {
     let rt = runtime_role_pool(&owner_pool).await;
+    let cmd = command_role_pool(&owner_pool).await;
     let org = OrgId::knl();
     let actor = seed_org_and_super_admin(&owner_pool, *org.as_uuid(), "a").await;
     let type_id = seed_instance_type_with_action(
@@ -247,7 +269,7 @@ async fn missing_four_eyes_denies_and_writes_zero_rows(owner_pool: PgPool) {
     .await;
 
     let err = mnt_platform_request_context::scope_org(org, async {
-        state(&rt)
+        state(&rt, &cmd)
             .execute_action(
                 &super_admin(actor, org),
                 "set_priority",
@@ -290,7 +312,7 @@ async fn missing_four_eyes_denies_and_writes_zero_rows(owner_pool: PgPool) {
     let mut approved = create_command(type_id, "hi");
     approved.four_eyes_request_ref = Some(request_ref);
     let outcome = mnt_platform_request_context::scope_org(org, async {
-        state(&rt)
+        state(&rt, &cmd)
             .execute_action(&super_admin(actor, org), "set_priority", approved)
             .await
     })
@@ -303,6 +325,7 @@ async fn missing_four_eyes_denies_and_writes_zero_rows(owner_pool: PgPool) {
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn submission_criteria_failure_denies_with_zero_rows(owner_pool: PgPool) {
     let rt = runtime_role_pool(&owner_pool).await;
+    let cmd = command_role_pool(&owner_pool).await;
     let org = OrgId::knl();
     let actor = seed_org_and_super_admin(&owner_pool, *org.as_uuid(), "a").await;
     // Require count >= 10, but the command supplies count = 5.
@@ -318,7 +341,7 @@ async fn submission_criteria_failure_denies_with_zero_rows(owner_pool: PgPool) {
     .await;
 
     let err = mnt_platform_request_context::scope_org(org, async {
-        state(&rt)
+        state(&rt, &cmd)
             .execute_action(
                 &super_admin(actor, org),
                 "set_priority",
@@ -335,6 +358,7 @@ async fn submission_criteria_failure_denies_with_zero_rows(owner_pool: PgPool) {
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn projected_dispatch_is_not_wired_yet_and_writes_nothing(owner_pool: PgPool) {
     let rt = runtime_role_pool(&owner_pool).await;
+    let cmd = command_role_pool(&owner_pool).await;
     let org = OrgId::knl();
     let actor = seed_org_and_super_admin(&owner_pool, *org.as_uuid(), "a").await;
     let type_id =
@@ -342,7 +366,7 @@ async fn projected_dispatch_is_not_wired_yet_and_writes_nothing(owner_pool: PgPo
             .await;
 
     let err = mnt_platform_request_context::scope_org(org, async {
-        state(&rt)
+        state(&rt, &cmd)
             .execute_action(
                 &super_admin(actor, org),
                 "update_equipment",
@@ -377,6 +401,7 @@ async fn projected_dispatch_is_not_wired_yet_and_writes_nothing(owner_pool: PgPo
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn cross_org_action_is_invisible(owner_pool: PgPool) {
     let rt = runtime_role_pool(&owner_pool).await;
+    let cmd = command_role_pool(&owner_pool).await;
     let org_a = OrgId::knl();
     let org_b = OrgId::from_uuid(ORG_B);
     let actor_a = seed_org_and_super_admin(&owner_pool, *org_a.as_uuid(), "a").await;
@@ -394,7 +419,7 @@ async fn cross_org_action_is_invisible(owner_pool: PgPool) {
 
     // Under org-B's GUC, org-A's action type does not resolve → NotFound.
     let err = mnt_platform_request_context::scope_org(org_b, async {
-        state(&rt)
+        state(&rt, &cmd)
             .execute_action(
                 &super_admin(actor_b, org_b),
                 "set_priority",

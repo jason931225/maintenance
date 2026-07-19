@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use mnt_kernel_core::{ErrorKind, OrgId, TraceContext, UserId};
+use mnt_ontology_adapter_postgres::seed::{BUILTIN_CATALOG_VERSION, builtin_catalog_manifest};
 use mnt_ontology_adapter_postgres::{
     CreateObjectTypeDraft, ObjectTypeSummary, PgOntologyError, PgOntologyStore, PropertyDefInput,
 };
@@ -12,19 +13,29 @@ use uuid::Uuid;
 
 const ORG_B: Uuid = Uuid::from_u128(0x3333_3333_3333_3333_3333_3333_3333_3333);
 
-async fn runtime_role_pool(owner_pool: &PgPool) -> PgPool {
+async fn role_pool(owner_pool: &PgPool, role: &'static str) -> PgPool {
     let options = owner_pool.connect_options().as_ref().clone();
     PgPoolOptions::new()
         .max_connections(4)
-        .after_connect(|conn, _meta| {
+        .after_connect(move |conn, _meta| {
             Box::pin(async move {
-                sqlx::query("SET ROLE mnt_rt").execute(conn).await?;
+                sqlx::query(&format!("SET ROLE {role}"))
+                    .execute(conn)
+                    .await?;
                 Ok(())
             })
         })
         .connect_with(options)
         .await
         .unwrap()
+}
+
+async fn runtime_role_pool(owner_pool: &PgPool) -> PgPool {
+    role_pool(owner_pool, "mnt_rt").await
+}
+
+async fn command_role_pool(owner_pool: &PgPool) -> PgPool {
+    role_pool(owner_pool, "mnt_ontology_cmd").await
 }
 
 async fn seed_org_and_user(owner_pool: &PgPool, org: Uuid, tag: &str) -> UserId {
@@ -90,6 +101,26 @@ async fn create(
         .unwrap()
 }
 
+async fn ontology_bootstrap_mutation_count(owner_pool: &PgPool, org: Uuid) -> i64 {
+    sqlx::query_scalar(
+        r#"
+        SELECT
+          (SELECT COUNT(*) FROM ont_object_types WHERE org_id=$1)
+          + (SELECT COUNT(*) FROM ont_object_type_key_revisions WHERE org_id=$1)
+          + (SELECT COUNT(*) FROM ont_property_defs WHERE org_id=$1)
+          + (SELECT COUNT(*) FROM ont_link_types WHERE org_id=$1)
+          + (SELECT COUNT(*) FROM ont_action_types WHERE org_id=$1)
+          + (SELECT COUNT(*) FROM ont_analytics WHERE org_id=$1)
+          + (SELECT COUNT(*) FROM ont_builtin_catalog_installs WHERE org_id=$1)
+          + (SELECT COUNT(*) FROM audit_events WHERE org_id=$1)
+        "#,
+    )
+    .bind(org)
+    .fetch_one(owner_pool)
+    .await
+    .unwrap()
+}
+
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn key_revision_is_tenant_scoped_and_advances_once_for_stage_and_publish(owner_pool: PgPool) {
     let org_a = OrgId::knl();
@@ -97,14 +128,27 @@ async fn key_revision_is_tenant_scoped_and_advances_once_for_stage_and_publish(o
     let actor_a = seed_org_and_user(&owner_pool, *org_a.as_uuid(), "a").await;
     let actor_b = seed_org_and_user(&owner_pool, ORG_B, "b").await;
     let rt_pool = runtime_role_pool(&owner_pool).await;
+    let cmd_pool = command_role_pool(&owner_pool).await;
     let key = "cas.shared_key";
 
     let a_v1 = mnt_platform_request_context::scope_org(org_a, async {
-        create(&PgOntologyStore::new(rt_pool.clone()), actor_a, key, "A v1").await
+        create(
+            &PgOntologyStore::new(rt_pool.clone()).with_command_pool(cmd_pool.clone()),
+            actor_a,
+            key,
+            "A v1",
+        )
+        .await
     })
     .await;
     let b_v1 = mnt_platform_request_context::scope_org(org_b, async {
-        create(&PgOntologyStore::new(rt_pool.clone()), actor_b, key, "B v1").await
+        create(
+            &PgOntologyStore::new(rt_pool.clone()).with_command_pool(cmd_pool.clone()),
+            actor_b,
+            key,
+            "B v1",
+        )
+        .await
     })
     .await;
 
@@ -117,6 +161,7 @@ async fn key_revision_is_tenant_scoped_and_advances_once_for_stage_and_publish(o
 
     let stale_cross_tenant = mnt_platform_request_context::scope_org(org_a, async {
         PgOntologyStore::new(rt_pool.clone())
+            .with_command_pool(cmd_pool.clone())
             .stage_revision(
                 actor_a,
                 key,
@@ -134,14 +179,15 @@ async fn key_revision_is_tenant_scoped_and_advances_once_for_stage_and_publish(o
             if current.revision == 1 && current.etag == a_v1.key_write_etag
     ));
 
-    let a_published_v1 = mnt_platform_request_context::scope_org(org_a, async {
+    let a_review_v1 = mnt_platform_request_context::scope_org(org_a, async {
         PgOntologyStore::new(rt_pool.clone())
+            .with_command_pool(cmd_pool.clone())
             .transition_lifecycle(
                 actor_a,
                 a_v1.id,
                 a_v1.write_precondition(),
-                SchemaLifecycleState::Published,
-                false,
+                SchemaLifecycleState::ReviewPending,
+                true,
                 TraceContext::generate(),
                 datetime!(2026-07-19 12:02 UTC),
             )
@@ -149,10 +195,51 @@ async fn key_revision_is_tenant_scoped_and_advances_once_for_stage_and_publish(o
             .unwrap()
     })
     .await;
-    assert_eq!(a_published_v1.key_write_revision, 2);
+    let approver_a = seed_org_and_user(&owner_pool, *org_a.as_uuid(), "approver-a").await;
+    let approval_ref_v1 = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO gov_approval_requests (org_id, request_ref, kind, requested_by, payload_summary, target_ref) VALUES ($1, $2, 'ontology.schema.publish', $3, jsonb_build_object('key_revision', $4::bigint), $5)",
+    )
+    .bind(*org_a.as_uuid())
+    .bind(approval_ref_v1)
+    .bind(*actor_a.as_uuid())
+    .bind(a_review_v1.key_write_revision)
+    .bind(*a_v1.id.as_uuid())
+    .execute(&owner_pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO gov_approvals (org_id, request_ref, kind, requested_by, approver_id, decision, target_ref) VALUES ($1, $2, 'ontology.schema.publish', $3, $4, 'approved', $5)",
+    )
+    .bind(*org_a.as_uuid())
+    .bind(approval_ref_v1)
+    .bind(*actor_a.as_uuid())
+    .bind(*approver_a.as_uuid())
+    .bind(*a_v1.id.as_uuid())
+    .execute(&owner_pool)
+    .await
+    .unwrap();
+    let a_published_v1 = mnt_platform_request_context::scope_org(org_a, async {
+        PgOntologyStore::new(rt_pool.clone())
+            .with_command_pool(cmd_pool.clone())
+            .transition_lifecycle(
+                actor_a,
+                a_v1.id,
+                a_review_v1.write_precondition(),
+                SchemaLifecycleState::Published,
+                true,
+                TraceContext::generate(),
+                datetime!(2026-07-19 12:02:01 UTC),
+            )
+            .await
+            .unwrap()
+    })
+    .await;
+    assert_eq!(a_published_v1.key_write_revision, 3);
 
     let a_v2 = mnt_platform_request_context::scope_org(org_a, async {
         PgOntologyStore::new(rt_pool.clone())
+            .with_command_pool(cmd_pool.clone())
             .stage_revision(
                 actor_a,
                 key,
@@ -166,16 +253,17 @@ async fn key_revision_is_tenant_scoped_and_advances_once_for_stage_and_publish(o
     })
     .await;
     assert_eq!(a_v2.schema_version, 2);
-    assert_eq!(a_v2.key_write_revision, 3);
+    assert_eq!(a_v2.key_write_revision, 4);
 
-    let a_published_v2 = mnt_platform_request_context::scope_org(org_a, async {
+    let a_review_v2 = mnt_platform_request_context::scope_org(org_a, async {
         PgOntologyStore::new(rt_pool.clone())
+            .with_command_pool(cmd_pool.clone())
             .transition_lifecycle(
                 actor_a,
                 a_v2.id,
                 a_v2.write_precondition(),
-                SchemaLifecycleState::Published,
-                false,
+                SchemaLifecycleState::ReviewPending,
+                true,
                 TraceContext::generate(),
                 datetime!(2026-07-19 12:04 UTC),
             )
@@ -183,7 +271,46 @@ async fn key_revision_is_tenant_scoped_and_advances_once_for_stage_and_publish(o
             .unwrap()
     })
     .await;
-    assert_eq!(a_published_v2.key_write_revision, 4);
+    let approval_ref_v2 = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO gov_approval_requests (org_id, request_ref, kind, requested_by, payload_summary, target_ref) VALUES ($1, $2, 'ontology.schema.publish', $3, jsonb_build_object('key_revision', $4::bigint), $5)",
+    )
+    .bind(*org_a.as_uuid())
+    .bind(approval_ref_v2)
+    .bind(*actor_a.as_uuid())
+    .bind(a_review_v2.key_write_revision)
+    .bind(*a_v2.id.as_uuid())
+    .execute(&owner_pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO gov_approvals (org_id, request_ref, kind, requested_by, approver_id, decision, target_ref) VALUES ($1, $2, 'ontology.schema.publish', $3, $4, 'approved', $5)",
+    )
+    .bind(*org_a.as_uuid())
+    .bind(approval_ref_v2)
+    .bind(*actor_a.as_uuid())
+    .bind(*approver_a.as_uuid())
+    .bind(*a_v2.id.as_uuid())
+    .execute(&owner_pool)
+    .await
+    .unwrap();
+    let a_published_v2 = mnt_platform_request_context::scope_org(org_a, async {
+        PgOntologyStore::new(rt_pool.clone())
+            .with_command_pool(cmd_pool.clone())
+            .transition_lifecycle(
+                actor_a,
+                a_v2.id,
+                a_review_v2.write_precondition(),
+                SchemaLifecycleState::Published,
+                true,
+                TraceContext::generate(),
+                datetime!(2026-07-19 12:04:01 UTC),
+            )
+            .await
+            .unwrap()
+    })
+    .await;
+    assert_eq!(a_published_v2.key_write_revision, 6);
 
     let rows = sqlx::query(
         "SELECT schema_version, lifecycle_state FROM ont_object_types WHERE org_id = $1 AND stable_key = $2 ORDER BY schema_version",
@@ -211,8 +338,8 @@ async fn key_revision_is_tenant_scoped_and_advances_once_for_stage_and_publish(o
     .await
     .unwrap();
     assert_eq!(
-        revision, 4,
-        "multi-row publish increments the key exactly once"
+        revision, 6,
+        "each review and publish transition increments the key exactly once"
     );
 }
 
@@ -223,9 +350,10 @@ async fn same_base_stage_has_one_winner_and_one_zero_mutation_precondition_loser
     let org = OrgId::knl();
     let actor = seed_org_and_user(&owner_pool, *org.as_uuid(), "race").await;
     let rt_pool = runtime_role_pool(&owner_pool).await;
+    let cmd_pool = command_role_pool(&owner_pool).await;
     let created = mnt_platform_request_context::scope_org(org, async {
         create(
-            &PgOntologyStore::new(rt_pool.clone()),
+            &PgOntologyStore::new(rt_pool.clone()).with_command_pool(cmd_pool.clone()),
             actor,
             "cas.race",
             "base",
@@ -236,8 +364,10 @@ async fn same_base_stage_has_one_winner_and_one_zero_mutation_precondition_loser
     let expected = created.write_precondition();
 
     let first_pool = rt_pool.clone();
+    let first_cmd_pool = cmd_pool.clone();
     let first = tokio::spawn(mnt_platform_request_context::scope_org(org, async move {
         PgOntologyStore::new(first_pool)
+            .with_command_pool(first_cmd_pool)
             .stage_revision(
                 actor,
                 "cas.race",
@@ -249,8 +379,10 @@ async fn same_base_stage_has_one_winner_and_one_zero_mutation_precondition_loser
             .await
     }));
     let second_pool = rt_pool.clone();
+    let second_cmd_pool = cmd_pool.clone();
     let second = tokio::spawn(mnt_platform_request_context::scope_org(org, async move {
         PgOntologyStore::new(second_pool)
+            .with_command_pool(second_cmd_pool)
             .stage_revision(
                 actor,
                 "cas.race",
@@ -290,9 +422,10 @@ async fn statement_failure_after_cas_rolls_back_revision_content_and_audit(owner
     let org = OrgId::knl();
     let actor = seed_org_and_user(&owner_pool, *org.as_uuid(), "rollback").await;
     let rt_pool = runtime_role_pool(&owner_pool).await;
+    let cmd_pool = command_role_pool(&owner_pool).await;
     let created = mnt_platform_request_context::scope_org(org, async {
         create(
-            &PgOntologyStore::new(rt_pool.clone()),
+            &PgOntologyStore::new(rt_pool.clone()).with_command_pool(cmd_pool.clone()),
             actor,
             "cas.rollback",
             "before",
@@ -323,6 +456,7 @@ async fn statement_failure_after_cas_rolls_back_revision_content_and_audit(owner
 
     let failure = mnt_platform_request_context::scope_org(org, async {
         PgOntologyStore::new(rt_pool)
+            .with_command_pool(cmd_pool.clone())
             .stage_revision(
                 actor,
                 "cas.rollback",
@@ -374,9 +508,10 @@ async fn runtime_role_cannot_forge_or_delete_key_validator(owner_pool: PgPool) {
     let org = OrgId::knl();
     let actor = seed_org_and_user(&owner_pool, *org.as_uuid(), "privileges").await;
     let rt_pool = runtime_role_pool(&owner_pool).await;
+    let cmd_pool = command_role_pool(&owner_pool).await;
     let created = mnt_platform_request_context::scope_org(org, async {
         create(
-            &PgOntologyStore::new(rt_pool.clone()),
+            &PgOntologyStore::new(rt_pool.clone()).with_command_pool(cmd_pool.clone()),
             actor,
             "cas.privileges",
             "protected",
@@ -454,4 +589,549 @@ async fn runtime_role_cannot_forge_or_delete_key_validator(owner_pool: PgPool) {
         preserved.try_get::<i64, _>("version_count").unwrap(),
         before_versions
     );
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn runtime_role_has_one_validated_audited_object_type_write_surface(owner_pool: PgPool) {
+    let org = OrgId::knl();
+    let actor = seed_org_and_user(&owner_pool, *org.as_uuid(), "sql-boundary").await;
+    let rt_pool = runtime_role_pool(&owner_pool).await;
+    let cmd_pool = command_role_pool(&owner_pool).await;
+
+    let unavailable = mnt_platform_request_context::scope_org(org, async {
+        create(
+            &PgOntologyStore::new(rt_pool.clone()),
+            actor,
+            "cas.no_command_pool",
+            "must fail closed",
+        )
+        .await
+    })
+    .await;
+    assert!(matches!(
+        unavailable,
+        Err(PgOntologyError::CommandUnavailable)
+    ));
+
+    let mut incomplete = cmd_pool.acquire().await.unwrap();
+    sqlx::query("SELECT set_config('app.current_org', $1, false)")
+        .bind(org.as_uuid().to_string())
+        .execute(&mut *incomplete)
+        .await
+        .unwrap();
+    let incomplete_snapshot = serde_json::json!({
+        "stable_key": "cas.incomplete",
+        "title": "Incomplete",
+        "title_property_key": null,
+        "backing_kind": "instance",
+        "backing_table": null,
+        "primary_key_property": null,
+        "properties": [],
+        "links": [],
+        "actions": []
+    });
+    let incomplete_error =
+        sqlx::query("SELECT * FROM ontology_api.create_object_type($1,$2,$3,$4,$5)")
+            .bind(*org.as_uuid())
+            .bind(incomplete_snapshot)
+            .bind(*actor.as_uuid())
+            .bind("0123456789abcdef0123456789abcdef")
+            .bind("0123456789abcdef")
+            .execute(&mut *incomplete)
+            .await
+            .expect_err("missing required snapshot arrays must fail closed");
+    assert_eq!(
+        incomplete_error
+            .as_database_error()
+            .and_then(|error| error.code())
+            .as_deref(),
+        Some("22023")
+    );
+    drop(incomplete);
+    let incomplete_mutations: i64 = sqlx::query_scalar(
+        "SELECT (SELECT COUNT(*) FROM ont_object_types WHERE org_id=$1 AND stable_key='cas.incomplete') + (SELECT COUNT(*) FROM audit_events WHERE org_id=$1 AND action='ontology.object_type.create')",
+    )
+    .bind(*org.as_uuid())
+    .fetch_one(&owner_pool)
+    .await
+    .unwrap();
+    assert_eq!(incomplete_mutations, 0);
+
+    let created = mnt_platform_request_context::scope_org(org, async {
+        create(
+            &PgOntologyStore::new(rt_pool.clone()).with_command_pool(cmd_pool.clone()),
+            actor,
+            "cas.sql_boundary",
+            "before",
+        )
+        .await
+    })
+    .await;
+
+    let direct_statements = [
+        "UPDATE ont_object_types SET title = 'bypassed' WHERE id = $1",
+        "UPDATE ont_object_type_key_revisions SET revision = revision + 1 WHERE org_id = $2",
+        "INSERT INTO ont_property_defs (org_id, object_type_id, key, title, type) VALUES ($2, $1, 'bypass', 'Bypass', 'text')",
+        "INSERT INTO ont_link_types (org_id, object_type_id, stable_key, title, cardinality) VALUES ($2, $1, 'bypass', 'Bypass', 'one_one')",
+        "INSERT INTO ont_action_types (org_id, object_type_id, stable_key, title, dispatch) VALUES ($2, $1, 'bypass', 'Bypass', 'instance_revision')",
+        "INSERT INTO ont_analytics (org_id, object_type_id, key, title) VALUES ($2, $1, 'bypass', 'Bypass')",
+    ];
+    for statement in direct_statements {
+        let mut conn = rt_pool.acquire().await.unwrap();
+        sqlx::query("SELECT set_config('app.current_org', $1, false)")
+            .bind(org.as_uuid().to_string())
+            .execute(&mut *conn)
+            .await
+            .unwrap();
+        let error = sqlx::query(statement)
+            .bind(*created.id.as_uuid())
+            .bind(*org.as_uuid())
+            .execute(&mut *conn)
+            .await
+            .expect_err("mnt_rt direct parent, token, and child DML must be denied");
+        assert_eq!(
+            error
+                .as_database_error()
+                .and_then(|value| value.code())
+                .as_deref(),
+            Some("42501")
+        );
+    }
+
+    let registry_tables = [
+        "ont_object_types",
+        "ont_object_type_key_revisions",
+        "ont_property_defs",
+        "ont_link_types",
+        "ont_action_types",
+        "ont_analytics",
+    ];
+    for table in registry_tables {
+        for privilege in ["INSERT", "UPDATE", "DELETE", "TRUNCATE"] {
+            let granted: bool = sqlx::query_scalar("SELECT has_table_privilege('mnt_rt', $1, $2)")
+                .bind(table)
+                .bind(privilege)
+                .fetch_one(&owner_pool)
+                .await
+                .unwrap();
+            assert!(!granted, "mnt_rt unexpectedly has {privilege} on {table}");
+        }
+    }
+
+    let mut audit_forge = rt_pool.acquire().await.unwrap();
+    sqlx::query("SELECT set_config('app.current_org', $1, false)")
+        .bind(org.as_uuid().to_string())
+        .execute(&mut *audit_forge)
+        .await
+        .unwrap();
+    let forge_error = sqlx::query(
+        "INSERT INTO audit_events (id,actor,action,target_type,target_id,trace_id,span_id,occurred_at,org_id) VALUES (gen_random_uuid(),$1,'ontology.object_type.transition','ont_object_types',$2,'0123456789abcdef0123456789abcdef','0123456789abcdef',statement_timestamp(),$3)",
+    )
+    .bind(*actor.as_uuid())
+    .bind(created.id.as_uuid().to_string())
+    .bind(*org.as_uuid())
+    .execute(&mut *audit_forge)
+    .await
+    .expect_err("mnt_rt must not forge protected ontology audit actions");
+    let forge_database_error = forge_error.as_database_error().unwrap();
+    assert_eq!(forge_database_error.code().as_deref(), Some("42501"));
+    assert_eq!(
+        forge_database_error.message(),
+        "ontology_audit.command_required"
+    );
+    drop(audit_forge);
+
+    let snapshot = serde_json::to_value(draft("cas.sql_boundary", "guarded")).unwrap();
+    let trace = TraceContext::generate();
+    let mut forbidden = rt_pool.acquire().await.unwrap();
+    let runtime_execute =
+        sqlx::query("SELECT * FROM ontology_api.stage_object_type($1,$2,$3,$4,$5,$6,$7,$8)")
+            .bind(*org.as_uuid())
+            .bind("cas.sql_boundary")
+            .bind(created.write_precondition().validator_id)
+            .bind(created.key_write_revision)
+            .bind(&snapshot)
+            .bind(*actor.as_uuid())
+            .bind(trace.trace_id())
+            .bind(trace.span_id())
+            .execute(&mut *forbidden)
+            .await
+            .expect_err("general mnt_rt must not execute ontology commands");
+    assert_eq!(
+        runtime_execute
+            .as_database_error()
+            .and_then(|error| error.code())
+            .as_deref(),
+        Some("42501")
+    );
+    drop(forbidden);
+
+    let mut guarded = cmd_pool.acquire().await.unwrap();
+    sqlx::query("SELECT set_config('app.current_org', $1, false)")
+        .bind(org.as_uuid().to_string())
+        .execute(&mut *guarded)
+        .await
+        .unwrap();
+    let row = sqlx::query(
+        "SELECT object_type_id, key_write_revision FROM ontology_api.stage_object_type($1,$2,$3,$4,$5,$6,$7,$8)",
+    )
+    .bind(*org.as_uuid())
+    .bind("cas.sql_boundary")
+    .bind(created.write_precondition().validator_id)
+    .bind(created.key_write_revision)
+    .bind(&snapshot)
+    .bind(*actor.as_uuid())
+    .bind(trace.trace_id())
+    .bind(trace.span_id())
+    .fetch_one(&mut *guarded)
+    .await
+    .unwrap();
+    assert_eq!(row.get::<i64, _>("key_write_revision"), 2);
+
+    let stale = sqlx::query(
+        "SELECT object_type_id FROM ontology_api.stage_object_type($1,$2,$3,$4,$5,$6,$7,$8)",
+    )
+    .bind(*org.as_uuid())
+    .bind("cas.sql_boundary")
+    .bind(created.write_precondition().validator_id)
+    .bind(created.key_write_revision)
+    .bind(&snapshot)
+    .bind(*actor.as_uuid())
+    .bind(trace.trace_id())
+    .bind(trace.span_id())
+    .fetch_optional(&mut *guarded)
+    .await
+    .unwrap();
+    assert!(stale.is_none());
+    drop(guarded);
+
+    let state = sqlx::query(
+        "SELECT o.title, k.revision, (SELECT COUNT(*) FROM audit_events e WHERE e.org_id=o.org_id AND e.target_id=o.id::text) AS audits FROM ont_object_types o JOIN ont_object_type_key_revisions k USING(org_id,stable_key) WHERE o.id=$1",
+    )
+    .bind(*created.id.as_uuid())
+    .fetch_one(&owner_pool)
+    .await
+    .unwrap();
+    assert_eq!(state.get::<String, _>("title"), "guarded");
+    assert_eq!(state.get::<i64, _>("revision"), 2);
+    assert_eq!(
+        state.get::<i64, _>("audits"),
+        2,
+        "create plus one successful raw stage; stale call audits nothing"
+    );
+
+    let reviewed = mnt_platform_request_context::scope_org(org, async {
+        PgOntologyStore::new(rt_pool.clone())
+            .with_command_pool(cmd_pool.clone())
+            .transition_lifecycle(
+                actor,
+                created.id,
+                mnt_ontology_adapter_postgres::ObjectTypeWritePrecondition {
+                    validator_id: created.write_precondition().validator_id,
+                    revision: 2,
+                },
+                SchemaLifecycleState::ReviewPending,
+                false,
+                TraceContext::generate(),
+                datetime!(2026-07-19 12:32 UTC),
+            )
+            .await
+            .unwrap()
+    })
+    .await;
+    let publish_without_approval = mnt_platform_request_context::scope_org(org, async {
+        PgOntologyStore::new(rt_pool.clone())
+            .with_command_pool(cmd_pool.clone())
+            .transition_lifecycle(
+                actor,
+                reviewed.id,
+                reviewed.write_precondition(),
+                SchemaLifecycleState::Published,
+                false,
+                TraceContext::generate(),
+                datetime!(2026-07-19 12:33 UTC),
+            )
+            .await
+    })
+    .await;
+    assert!(matches!(
+        publish_without_approval,
+        Err(PgOntologyError::Db(_))
+    ));
+    let final_revision: i64 = sqlx::query_scalar(
+        "SELECT revision FROM ont_object_type_key_revisions WHERE org_id=$1 AND stable_key='cas.sql_boundary'",
+    )
+    .bind(*org.as_uuid())
+    .fetch_one(&owner_pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        final_revision, 3,
+        "failed protected publish mutates and audits nothing"
+    );
+
+    let signatures: Vec<String> = sqlx::query_scalar(
+        "SELECT pg_get_function_arguments(p.oid) FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='ontology_api' AND p.proname IN ('stage_object_type','transition_object_type')",
+    )
+    .fetch_all(&owner_pool)
+    .await
+    .unwrap();
+    assert!(signatures.iter().all(
+        |signature| !signature.contains("schema_version") && !signature.contains("protection")
+    ));
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn builtin_catalog_install_is_allowlisted_atomic_idempotent_and_race_safe(
+    owner_pool: PgPool,
+) {
+    let install_org_uuid = Uuid::from_u128(0x5555_5555_5555_5555_5555_5555_5555_5555);
+    let drift_org_uuid = Uuid::from_u128(0x6666_6666_6666_6666_6666_6666_6666_6666);
+    let race_org_uuid = Uuid::from_u128(0x7777_7777_7777_7777_7777_7777_7777_7777);
+    let physical_org_uuid = Uuid::from_u128(0x8888_8888_8888_8888_8888_8888_8888_8888);
+    let nonempty_org_uuid = Uuid::from_u128(0x9999_9999_9999_9999_9999_9999_9999_9999);
+    let install_org = OrgId::from_uuid(install_org_uuid);
+    let drift_org = OrgId::from_uuid(drift_org_uuid);
+    let race_org = OrgId::from_uuid(race_org_uuid);
+    let physical_org = OrgId::from_uuid(physical_org_uuid);
+    let nonempty_org = OrgId::from_uuid(nonempty_org_uuid);
+    let install_actor = seed_org_and_user(&owner_pool, install_org_uuid, "catalog-install").await;
+    let drift_actor = seed_org_and_user(&owner_pool, drift_org_uuid, "catalog-drift").await;
+    let race_actor = seed_org_and_user(&owner_pool, race_org_uuid, "catalog-race").await;
+    let physical_actor =
+        seed_org_and_user(&owner_pool, physical_org_uuid, "catalog-physical-id").await;
+    let nonempty_actor =
+        seed_org_and_user(&owner_pool, nonempty_org_uuid, "catalog-nonempty").await;
+    let rt_pool = runtime_role_pool(&owner_pool).await;
+    let cmd_pool = command_role_pool(&owner_pool).await;
+    let store = PgOntologyStore::new(rt_pool.clone()).with_command_pool(cmd_pool.clone());
+    let manifest = builtin_catalog_manifest().unwrap();
+    let object_types = manifest["object_types"].as_array().unwrap();
+    assert_eq!(object_types.len(), 27);
+    let logical_link_count = object_types
+        .iter()
+        .flat_map(|object_type| object_type["links"].as_array().unwrap())
+        .filter(|link| {
+            link.get("to_stable_key")
+                .and_then(serde_json::Value::as_str)
+                .is_some()
+        })
+        .count() as i64;
+    assert!(
+        object_types
+            .iter()
+            .flat_map(|object_type| object_type["links"].as_array().unwrap())
+            .all(|link| link.get("to_object_type_id").is_none())
+    );
+
+    let installed = mnt_platform_request_context::scope_org(install_org, async {
+        store
+            .install_builtin_catalog(
+                install_actor,
+                BUILTIN_CATALOG_VERSION,
+                manifest.clone(),
+                TraceContext::generate(),
+                datetime!(2026-07-19 13:00 UTC),
+            )
+            .await
+            .unwrap()
+    })
+    .await;
+    assert!(installed.installed);
+    assert_eq!(installed.object_type_count, 27);
+
+    let retry = mnt_platform_request_context::scope_org(install_org, async {
+        store
+            .install_builtin_catalog(
+                install_actor,
+                BUILTIN_CATALOG_VERSION,
+                manifest.clone(),
+                TraceContext::generate(),
+                datetime!(2026-07-19 13:01 UTC),
+            )
+            .await
+            .unwrap()
+    })
+    .await;
+    assert!(!retry.installed);
+    assert_eq!(retry.object_type_count, object_types.len() as i64);
+
+    let install_counts = sqlx::query(
+        r#"
+        SELECT
+          (SELECT COUNT(*) FROM ont_object_types WHERE org_id=$1) AS object_types,
+          (SELECT COUNT(*) FROM ont_object_types WHERE org_id=$1 AND lifecycle_state='published') AS published,
+          (SELECT COUNT(*) FROM audit_events WHERE org_id=$1 AND action='ontology.object_type.builtin_install') AS audits,
+          (SELECT COUNT(*) FROM ont_link_types WHERE org_id=$1 AND to_object_type_id IS NOT NULL) AS resolved_links,
+          (SELECT COUNT(*) FROM ont_link_types l JOIN ont_object_types target ON target.id=l.to_object_type_id WHERE l.org_id=$1 AND target.org_id<>$1) AS cross_tenant_links
+        "#,
+    )
+    .bind(install_org_uuid)
+    .fetch_one(&owner_pool)
+    .await
+    .unwrap();
+    assert_eq!(install_counts.get::<i64, _>("object_types"), 27);
+    assert_eq!(install_counts.get::<i64, _>("published"), 27);
+    assert_eq!(
+        install_counts.get::<i64, _>("audits"),
+        27,
+        "bootstrap emits exactly one audit per installed object type"
+    );
+    assert_eq!(
+        install_counts.get::<i64, _>("resolved_links"),
+        logical_link_count
+    );
+    assert_eq!(install_counts.get::<i64, _>("cross_tenant_links"), 0);
+
+    let mut drifted_manifest = manifest.clone();
+    drifted_manifest["object_types"][0]["title"] = serde_json::json!("altered");
+    let drift_error = mnt_platform_request_context::scope_org(drift_org, async {
+        store
+            .install_builtin_catalog(
+                drift_actor,
+                BUILTIN_CATALOG_VERSION,
+                drifted_manifest,
+                TraceContext::generate(),
+                datetime!(2026-07-19 13:02 UTC),
+            )
+            .await
+    })
+    .await;
+    assert!(matches!(drift_error, Err(PgOntologyError::Db(_))));
+    assert_eq!(
+        ontology_bootstrap_mutation_count(&owner_pool, drift_org_uuid).await,
+        0,
+        "wrong digest must leave no object, child, marker, or audit residue"
+    );
+
+    let mut physical_manifest = manifest.clone();
+    let physical_catalog_version = "test-physical-id";
+    physical_manifest["catalog_version"] = serde_json::json!(physical_catalog_version);
+    let physical_link = physical_manifest["object_types"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .flat_map(|object_type| object_type["links"].as_array_mut().unwrap())
+        .next()
+        .expect("built-in catalog must exercise at least one logical link");
+    physical_link["to_object_type_id"] = serde_json::json!("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+    sqlx::query(
+        "INSERT INTO ont_builtin_catalog_allowlist(catalog_version,manifest_digest) VALUES ($1,digest(convert_to($2::jsonb::text,'UTF8'),'sha256'))",
+    )
+    .bind(physical_catalog_version)
+    .bind(&physical_manifest)
+    .execute(&owner_pool)
+    .await
+    .unwrap();
+    let physical_error = mnt_platform_request_context::scope_org(physical_org, async {
+        store
+            .install_builtin_catalog(
+                physical_actor,
+                physical_catalog_version,
+                physical_manifest,
+                TraceContext::generate(),
+                datetime!(2026-07-19 13:02:30 UTC),
+            )
+            .await
+    })
+    .await;
+    let physical_error = physical_error.expect_err("physical link IDs must be rejected");
+    assert!(matches!(&physical_error, PgOntologyError::Db(_)));
+    assert!(
+        physical_error
+            .to_string()
+            .contains("ontology_builtin.physical_link_id_forbidden")
+    );
+    assert_eq!(
+        ontology_bootstrap_mutation_count(&owner_pool, physical_org_uuid).await,
+        0,
+        "physical link IDs must leave no object, child, marker, or audit residue"
+    );
+
+    mnt_platform_request_context::scope_org(nonempty_org, async {
+        create(&store, nonempty_actor, "cas.preexisting", "Preexisting").await
+    })
+    .await;
+    let nonempty_baseline = ontology_bootstrap_mutation_count(&owner_pool, nonempty_org_uuid).await;
+    let nonempty_error = mnt_platform_request_context::scope_org(nonempty_org, async {
+        store
+            .install_builtin_catalog(
+                nonempty_actor,
+                BUILTIN_CATALOG_VERSION,
+                manifest.clone(),
+                TraceContext::generate(),
+                datetime!(2026-07-19 13:02:45 UTC),
+            )
+            .await
+    })
+    .await;
+    assert!(matches!(nonempty_error, Err(PgOntologyError::Db(_))));
+    assert_eq!(
+        ontology_bootstrap_mutation_count(&owner_pool, nonempty_org_uuid).await,
+        nonempty_baseline,
+        "non-empty-org rejection must add no catalog object, child, marker, or audit"
+    );
+
+    // Hold the shared bootstrap advisory lock in an uncommitted ordinary create.
+    // Without the common lock, the installer would observe an empty org and
+    // commit its marker/catalog beside this invisible custom row.
+    let mut create_tx = cmd_pool.begin().await.unwrap();
+    sqlx::query("SELECT set_config('app.current_org', $1, true)")
+        .bind(race_org_uuid.to_string())
+        .execute(&mut *create_tx)
+        .await
+        .unwrap();
+    sqlx::query("SELECT * FROM ontology_api.create_object_type($1,$2,$3,$4,$5)")
+        .bind(race_org_uuid)
+        .bind(serde_json::to_value(draft("cas.raced_custom", "Raced custom")).unwrap())
+        .bind(*race_actor.as_uuid())
+        .bind("0123456789abcdef0123456789abcdef")
+        .bind("0123456789abcdef")
+        .execute(&mut *create_tx)
+        .await
+        .unwrap();
+    let raced_store = store.clone();
+    let raced_manifest = manifest.clone();
+    let mut install_task = tokio::spawn(mnt_platform_request_context::scope_org(
+        race_org,
+        async move {
+            raced_store
+                .install_builtin_catalog(
+                    race_actor,
+                    BUILTIN_CATALOG_VERSION,
+                    raced_manifest,
+                    TraceContext::generate(),
+                    datetime!(2026-07-19 13:03 UTC),
+                )
+                .await
+        },
+    ));
+    assert!(
+        tokio::time::timeout(std::time::Duration::from_millis(100), &mut install_task)
+            .await
+            .is_err(),
+        "installer must wait behind the ordinary create's org bootstrap lock"
+    );
+    create_tx.commit().await.unwrap();
+    assert!(matches!(
+        install_task.await.unwrap(),
+        Err(PgOntologyError::Db(_))
+    ));
+    let race_counts = sqlx::query(
+        r#"
+        SELECT
+          (SELECT COUNT(*) FROM ont_object_types WHERE org_id=$1) AS object_types,
+          (SELECT COUNT(*) FROM ont_builtin_catalog_installs WHERE org_id=$1) AS markers,
+          (SELECT COUNT(*) FROM audit_events WHERE org_id=$1 AND action='ontology.object_type.create') AS create_audits,
+          (SELECT COUNT(*) FROM audit_events WHERE org_id=$1 AND action='ontology.object_type.builtin_install') AS install_audits
+        "#,
+    )
+    .bind(race_org_uuid)
+    .fetch_one(&owner_pool)
+    .await
+    .unwrap();
+    assert_eq!(race_counts.get::<i64, _>("object_types"), 1);
+    assert_eq!(race_counts.get::<i64, _>("markers"), 0);
+    assert_eq!(race_counts.get::<i64, _>("create_audits"), 1);
+    assert_eq!(race_counts.get::<i64, _>("install_audits"), 0);
 }

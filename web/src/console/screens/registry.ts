@@ -1,7 +1,6 @@
-// Screen-body registry: ConsoleShell's `state.screen` key → the console-pure
-// body component mounted into its screen-body slot. Keys mirror `../shell/nav.ts`'s
-// `screen` values exactly. A key with no entry renders nothing (chrome-only,
-// same as every screen before this wire — content lands lane by lane).
+// Screen-body registry: ConsoleShell's URL screen key → the console-pure
+// body component mounted into its screen-body slot. Production-visible keys are
+// constrained by `../shell/nav.ts`'s shipped manifest; planned keys stay DARK.
 import type { ComponentType } from "react";
 
 import { ApprovalScreenBody } from "../appr/ApprovalScreenBody";

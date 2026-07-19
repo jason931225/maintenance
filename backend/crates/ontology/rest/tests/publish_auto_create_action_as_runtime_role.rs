@@ -22,6 +22,7 @@ use mnt_platform_authz::{Principal, Role};
 use mnt_platform_test_support::{runtime_role_pool, seed_org_and_super_admin};
 use serde_json::json;
 use sqlx::PgPool;
+use sqlx::postgres::PgPoolOptions;
 use std::collections::BTreeSet;
 use time::macros::datetime;
 
@@ -36,9 +37,26 @@ fn super_admin(user_id: UserId, org: OrgId) -> Principal {
     )
 }
 
-fn state(pool: &PgPool) -> OntologyRestState {
+async fn command_role_pool(owner_pool: &PgPool) -> PgPool {
+    let options = owner_pool.connect_options().as_ref().clone();
+    PgPoolOptions::new()
+        .max_connections(4)
+        .after_connect(|conn, _meta| {
+            Box::pin(async move {
+                sqlx::query("SET ROLE mnt_ontology_cmd")
+                    .execute(conn)
+                    .await?;
+                Ok(())
+            })
+        })
+        .connect_with(options)
+        .await
+        .unwrap()
+}
+
+fn state(pool: &PgPool, command_pool: &PgPool) -> OntologyRestState {
     OntologyRestState::new(
-        PgOntologyStore::new(pool.clone()),
+        PgOntologyStore::new(pool.clone()).with_command_pool(command_pool.clone()),
         PgInstanceStore::new(pool.clone()),
         mnt_governance_adapter_postgres::PgGovernanceStore::new(pool.clone()),
         None,
@@ -73,11 +91,12 @@ fn no_code_draft(stable_key: &str) -> CreateObjectTypeDraft {
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn publish_auto_attaches_create_action_and_instance_creation_works(owner_pool: PgPool) {
     let rt = runtime_role_pool(&owner_pool).await;
+    let cmd = command_role_pool(&owner_pool).await;
     let org = OrgId::knl();
     let actor = seed_org_and_super_admin(&owner_pool, *org.as_uuid(), "a").await;
 
     let (draft_actions_len, published) = mnt_platform_request_context::scope_org(org, async {
-        let store = PgOntologyStore::new(rt.clone());
+        let store = PgOntologyStore::new(rt.clone()).with_command_pool(cmd.clone());
         let created = store
             .create_object_type(
                 actor,
@@ -144,7 +163,7 @@ async fn publish_auto_attaches_create_action_and_instance_creation_works(owner_p
     // Acceptance path: creating an instance works immediately — zero
     // engineering required after publish.
     let outcome = mnt_platform_request_context::scope_org(org, async {
-        state(&rt)
+        state(&rt, &cmd)
             .execute_action(
                 &super_admin(actor, org),
                 "create",
@@ -204,7 +223,7 @@ async fn publish_does_not_duplicate_an_existing_create_capable_action(owner_pool
     }];
 
     let detail = mnt_platform_request_context::scope_org(org, async {
-        let store = PgOntologyStore::new(rt.clone());
+        let store = PgOntologyStore::new(rt.clone()).with_command_pool(cmd.clone());
         let created = store
             .create_object_type(actor, draft, TraceContext::generate(), AT)
             .await

@@ -46,16 +46,13 @@ export interface ObjectRefEntry {
   formatLabel: (ref: ObjectRef) => string;
 }
 
-const withPrefix = (prefix: string, ref: ObjectRef) =>
-  ref.code ?? `${prefix}${ref.id}`;
-
 export const objectRegistry: Record<ObjectKind, ObjectRefEntry> = {
   approval: {
     codePrefix: "AP-",
     chipTone: "accent",
     icon: "fileCheck",
     kindLabel: ko.console.objectKinds.approval,
-    route: (ref) => `/approvals?ref=${encodeURIComponent(withPrefix("AP-", ref))}`,
+    route: (ref) => `/approvals?run=${encodeURIComponent(ref.id)}`,
     formatLabel: (ref) => safeLabel(ref.name, ref.code),
   },
   workOrder: {
@@ -67,11 +64,10 @@ export const objectRegistry: Record<ObjectKind, ObjectRefEntry> = {
     formatLabel: (ref) => safeLabel(ref.name, ref.code),
   },
   support: {
-    codePrefix: "CS-",
     chipTone: "warn",
     icon: "msg",
     kindLabel: ko.console.objectKinds.support,
-    route: (ref) => `/support?ticket=${encodeURIComponent(withPrefix("CS-", ref))}`,
+    route: (ref) => `/support?ticket=${encodeURIComponent(ref.id)}`,
     formatLabel: (ref) => safeLabel(ref.name, ref.code),
   },
   attendance: {
@@ -79,7 +75,8 @@ export const objectRegistry: Record<ObjectKind, ObjectRefEntry> = {
     chipTone: "ok",
     icon: "calCheck",
     kindLabel: ko.console.objectKinds.attendance,
-    route: (ref) => `/attendance?exception=${encodeURIComponent(withPrefix("AT-", ref))}`,
+    route: (ref) =>
+      `/attendance?exception=${encodeURIComponent(ref.code ?? ref.id)}`,
     formatLabel: (ref) => safeLabel(ref.name, ref.code),
   },
   payroll: {
@@ -87,7 +84,7 @@ export const objectRegistry: Record<ObjectKind, ObjectRefEntry> = {
     chipTone: "purple",
     icon: "receipt",
     kindLabel: ko.console.objectKinds.payroll,
-    route: (ref) => `/payroll?run=${encodeURIComponent(withPrefix("PS-", ref))}`,
+    route: (ref) => `/payroll?run=${encodeURIComponent(ref.code ?? ref.id)}`,
     formatLabel: (ref) => safeLabel(ref.name, ref.code),
   },
   contract: {
@@ -95,7 +92,8 @@ export const objectRegistry: Record<ObjectKind, ObjectRefEntry> = {
     chipTone: "neutral",
     icon: "scroll",
     kindLabel: ko.console.objectKinds.contract,
-    route: (ref) => `/financial?contract=${encodeURIComponent(withPrefix("C-", ref))}`,
+    route: (ref) =>
+      `/financial?contract=${encodeURIComponent(ref.code ?? ref.id)}`,
     formatLabel: (ref) => safeLabel(ref.name, ref.code),
   },
   journal: {
@@ -103,7 +101,8 @@ export const objectRegistry: Record<ObjectKind, ObjectRefEntry> = {
     chipTone: "info",
     icon: "book",
     kindLabel: ko.console.objectKinds.journal,
-    route: (ref) => `/daily-plan?journal=${encodeURIComponent(withPrefix("JL-", ref))}`,
+    route: (ref) =>
+      `/daily-plan?journal=${encodeURIComponent(ref.code ?? ref.id)}`,
     formatLabel: (ref) => safeLabel(ref.name, ref.code),
   },
   intake: {
@@ -111,7 +110,7 @@ export const objectRegistry: Record<ObjectKind, ObjectRefEntry> = {
     chipTone: "warn",
     icon: "inbox",
     kindLabel: ko.console.objectKinds.intake,
-    route: (ref) => `/intake?ref=${encodeURIComponent(withPrefix("IN-", ref))}`,
+    route: (ref) => `/intake?ref=${encodeURIComponent(ref.code ?? ref.id)}`,
     formatLabel: (ref) => safeLabel(ref.name, ref.code),
   },
   person: {

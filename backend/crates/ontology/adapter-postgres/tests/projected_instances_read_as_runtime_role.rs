@@ -45,6 +45,23 @@ async fn runtime_role_pool(owner_pool: &PgPool) -> PgPool {
         .unwrap()
 }
 
+async fn command_role_pool(owner_pool: &PgPool) -> PgPool {
+    let options = owner_pool.connect_options().as_ref().clone();
+    PgPoolOptions::new()
+        .max_connections(4)
+        .after_connect(|conn, _meta| {
+            Box::pin(async move {
+                sqlx::query("SET ROLE mnt_ontology_cmd")
+                    .execute(conn)
+                    .await?;
+                Ok(())
+            })
+        })
+        .connect_with(options)
+        .await
+        .unwrap()
+}
+
 async fn seed_org_and_user(owner_pool: &PgPool, org: Uuid, tag: &str) -> UserId {
     let slug = format!("org-{}", &org.simple().to_string()[..12]);
     sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING")
@@ -113,7 +130,8 @@ async fn seed_projected_types(
     actor: UserId,
 ) -> (ObjectTypeId, ObjectTypeId) {
     mnt_platform_request_context::scope_org(org, async {
-        let store = PgOntologyStore::new(owner_pool.clone());
+        let store = PgOntologyStore::new(owner_pool.clone())
+            .with_command_pool(command_role_pool(owner_pool).await);
         let published =
             seed_projected_domain_object_types(&store, actor, datetime!(2026-07-10 09:00 UTC))
                 .await

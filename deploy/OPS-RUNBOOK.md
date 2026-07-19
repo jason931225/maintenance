@@ -35,8 +35,10 @@ oci secrets secret-bundle get --secret-id <id> --query 'data."secret-bundle-cont
 ```
 Vault secrets: `mnt-talos-secrets` (Talos PKI / secrets.yaml — regenerates a
 matching talosconfig), `mnt-talos-kubeconfig` (tar of talosconfig + kubeconfig),
-`mnt-app-secrets-bundle` (tar of JWT ES256 keypair, mnt_rt DB password, coldstart
-OTP, OCI S3 customer-secret-key).
+`mnt-app-secrets-bundle` (tar of JWT ES256 keypair, mnt_rt DB credential, both
+`mnt_leave_cmd` and `mnt_ontology_cmd` credentials, coldstart OTP, and OCI S3
+customer-secret-key). A recovery is not ready until all three non-owner login
+Secrets can be recreated with matching `username`, `password`, and `uri` values.
 
 ## 1. Facts (region ap-chuncheon-1, prod compartment)
 - Node: **mnt-fsm-node**, VM.Standard.A1.Flex 4 OCPU/24 GB (the ENTIRE free-tier
@@ -71,38 +73,20 @@ talosctl config endpoint 127.0.0.1 && talosctl config node 10.0.0.227 && talosct
 ```
 
 ## 4. Database (CloudNativePG, ns `maintenance`)
-- Cluster `mnt-db`, pod `mnt-db-1` (2/2). Owner role `mnt_app` (secret `mnt-db-app`,
-  auto-generated), runtime `mnt_rt` (secret `mnt-db-rt`, you create; RLS-bound).
+- Cluster `mnt-db`, pod `mnt-db-1` (2/2). CNPG keeps its `postgres` cluster
+  administrator inaccessible; the read-only topology gate authenticates as
+  `mnt_app`. The six application roles are the migration owner
+  `mnt_app` (migration-only `BYPASSRLS`), runtime `mnt_rt`, two command logins,
+  and two NOLOGIN definers. Runtime, command, and definer roles remain
+  `NOBYPASSRLS`.
 ```sh
 kubectl exec -n maintenance mnt-db-1 -c postgres -- psql -U postgres -d maintenance -c '\dt'
 ```
-- Migrations run as an Argo **PreSync hook** `mnt-migrate` (mnt-app image, MNT_APP_ROLE=migrate).
-- **KNOWN fresh-deploy DB gotchas** (apply in order on a clean cluster; each has a
-  proper fix to land so the next rebuild is hands-off):
-  1. **DB-before-migrate deadlock.** migrate (PreSync) needs `mnt-db-app`, but the
-     `mnt-db` Cluster is a regular Sync resource → created *after* the hook. Bootstrap
-     the DB first: `kubectl apply --server-side -f` the Cluster + ObjectStore from the
-     prod render. *Proper fix:* a pre-migrate sync-wave / separate bootstrap app.
-  2. **Migration role needs BYPASSRLS.** `organizations`/`users` have FORCE RLS (0030),
-     so 0034's FK validation — run as `mnt_app` (subject to RLS, no `app.current_org`) —
-     sees zero orgs and the FK looks violated. `ALTER ROLE mnt_app BYPASSRLS;` (only the
-     migration role; runtime `mnt_rt` STAYS NOBYPASSRLS = the real tenant boundary).
-     *Proper fix:* CNPG `managed.roles` set `mnt_app` bypassrls.
-  3. **0033 backfill order.** It backfills `auth_bootstrap_credentials.org_id` from its
-     user, but before the user's own org backfill → the cold-start cred stays NULL →
-     0034 NOT-NULL fails:
-     `UPDATE auth_bootstrap_credentials c SET org_id=u.org_id FROM users u WHERE u.id=c.user_id AND c.org_id IS NULL;`
-     *Proper fix:* reorder 0033 (users first) or give the cred a default-org backfill.
-  4. **mnt-db-rt password must be URL-encoded** in the `uri`. `openssl rand -base64`
-     yields `+`/`/`, which break `host:port` parsing → backend crashes
-     `Database(Configuration(InvalidPort))`. Percent-encode the password in the uri.
-     *Proper fix:* SECRETS.md uses `rand -hex` or percent-encodes.
-  5. **apalis job queue needs runtime DDL grants.** The worker's apalis queue self-creates
-     its tables at startup as `mnt_rt` (no apalis migration exists), needing
-     `GRANT CREATE ON DATABASE maintenance TO mnt_rt; GRANT CREATE,USAGE ON SCHEMA public TO mnt_rt;`
-     — else `permission denied for database/schema public`. This does NOT weaken tenant
-     isolation (mnt_rt stays NOBYPASSRLS; the job queue is infra, not org data).
-     *Proper fix:* create the apalis schema in a migration (as `mnt_app`) + grant mnt_rt DML.
+- Argo ordering is CNPG wave 0 → `mnt-db-topology` readback Sync hook wave 1 →
+  `mnt-migrate` Sync hook wave 2 → API/worker wave 3. Never manually bypass the
+  topology gate or grant admin/owner attributes to a serving identity. Never
+  selectively sync migration or serving workloads; sync the whole maintenance
+  Application so every prerequisite wave runs.
 - **Restoring from a dev/local dump:** purge dev-auth role-switch personas before pointing
   a release build at it — `DELETE FROM users WHERE phone LIKE 'dev-auth:%';`. The
   composition root refuses to boot (api/worker) if any remain (`mnt-app`'s
@@ -398,7 +382,8 @@ kubectl exec -n maintenance mnt-db-1 -c postgres -- psql -U postgres -d maintena
   https://github.com/argoproj/argo-cd/manifests/cluster-install?ref=v3.4.3` (server-side
   REQUIRED — the applicationsets CRD exceeds the 256 KB client-side annotation limit).
 - Non-git secrets to create first: see `deploy/SECRETS.md` (`mnt-secrets`,
-  `oci-objectstore-creds`, `mnt-db-rt` in `maintenance`; `cloudflare-api-token` in
+  `oci-objectstore-creds`, `mnt-db-rt`, `mnt-db-leave-command`, and
+  `mnt-db-ontology-command` in `maintenance`; `cloudflare-api-token` in
   `cert-manager`). Material is in Vault `mnt-app-secrets-bundle`.
 - App images: main build (`gh workflow run image-release.yml --ref main`),
   digests pinned in `deploy/apps/maintenance/overlays/prod/kustomization.yaml`.

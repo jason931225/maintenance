@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { AssetLifecycleCostSummary, EquipmentListItem } from "../../../api/types";
+import { ko } from "../../../i18n/ko";
 import { formatWon } from "../../charts";
 import { forecastStrings } from "../../forecast";
 import { ForecastBody } from "./ForecastBody";
@@ -154,6 +155,105 @@ describe("ForecastBody", () => {
     expect(await screen.findByText(formatWon(projection.point_estimate))).toBeVisible();
   });
 
+  it.each([403, 500] as const)("fails closed when projection returns HTTP %s", async (status) => {
+    const GET = vi.fn((path: string) => {
+      if (path === "/api/v1/equipment/list") {
+        return Promise.resolve({ data: { items: [equipment], total: 1, limit: 20, offset: 0 } });
+      }
+      if (path === "/api/v1/financial/equipment/{equipmentId}/lifecycle-cost") {
+        return Promise.resolve({ data: lifecycleCost });
+      }
+      return Promise.reject(new Error(`unexpected GET ${path}`));
+    });
+    const POST = vi.fn().mockResolvedValue({ data: undefined, error: {}, response: { status } });
+    mockUseAuth.mockReturnValue({ api: { GET, POST }, session: { roles: ["ADMIN"] } });
+    const user = userEvent.setup();
+    render(<ForecastBody />);
+    await user.type(screen.getByRole("searchbox"), equipment.equipment_no);
+    await user.click(await screen.findByRole("button", { name: /FL-0042/ }));
+    expect(await screen.findByRole("alert")).toBeVisible();
+    expect(screen.queryByText("점추정")).not.toBeInTheDocument();
+    expect(screen.queryByText("CI95")).not.toBeInTheDocument();
+    expect(screen.queryByText("CVaR95")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    [403, ko.page.permissionDenied],
+    [500, ko.page.loadFailed],
+  ] as const)("distinguishes lifecycle HTTP %s from an empty ledger", async (status, message) => {
+    const GET = vi.fn((path: string) => {
+      if (path === "/api/v1/equipment/list") {
+        return Promise.resolve({ data: { items: [equipment], total: 1, limit: 20, offset: 0 } });
+      }
+      if (path === "/api/v1/financial/equipment/{equipmentId}/lifecycle-cost") {
+        return Promise.resolve({ data: undefined, error: {}, response: { status } });
+      }
+      return Promise.reject(new Error(`unexpected GET ${path}`));
+    });
+    const POST = vi.fn();
+    mockUseAuth.mockReturnValue({ api: { GET, POST }, session: { roles: ["ADMIN"] } });
+    const user = userEvent.setup();
+    render(<ForecastBody />);
+
+    await user.type(screen.getByRole("searchbox"), equipment.equipment_no);
+    await user.click(await screen.findByRole("button", { name: /FL-0042/ }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(message);
+    expect(screen.queryByText(ko.page.empty)).not.toBeInTheDocument();
+    expect(POST).not.toHaveBeenCalled();
+  });
+
+  it("shows a true empty lifecycle response without a transport error", async () => {
+    const GET = vi.fn((path: string) => {
+      if (path === "/api/v1/equipment/list") {
+        return Promise.resolve({ data: { items: [equipment], total: 1, limit: 20, offset: 0 } });
+      }
+      if (path === "/api/v1/financial/equipment/{equipmentId}/lifecycle-cost") {
+        return Promise.resolve({ data: undefined, response: { status: 404 } });
+      }
+      return Promise.reject(new Error(`unexpected GET ${path}`));
+    });
+    const POST = vi.fn();
+    mockUseAuth.mockReturnValue({ api: { GET, POST }, session: { roles: ["ADMIN"] } });
+    const user = userEvent.setup();
+    render(<ForecastBody />);
+
+    await user.type(screen.getByRole("searchbox"), equipment.equipment_no);
+    await user.click(await screen.findByRole("button", { name: /FL-0042/ }));
+
+    expect(await screen.findByText(ko.page.empty)).toBeVisible();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(POST).not.toHaveBeenCalled();
+  });
+
+  it("retries a failed lifecycle request and projects the recovered ledger", async () => {
+    let lifecycleCalls = 0;
+    const GET = vi.fn((path: string) => {
+      if (path === "/api/v1/equipment/list") {
+        return Promise.resolve({ data: { items: [equipment], total: 1, limit: 20, offset: 0 } });
+      }
+      if (path === "/api/v1/financial/equipment/{equipmentId}/lifecycle-cost") {
+        lifecycleCalls += 1;
+        return lifecycleCalls === 1
+          ? Promise.resolve({ data: undefined, error: {}, response: { status: 500 } })
+          : Promise.resolve({ data: lifecycleCost });
+      }
+      return Promise.reject(new Error(`unexpected GET ${path}`));
+    });
+    const POST = vi.fn().mockResolvedValue({ data: projection });
+    mockUseAuth.mockReturnValue({ api: { GET, POST }, session: { roles: ["ADMIN"] } });
+    const user = userEvent.setup();
+    render(<ForecastBody />);
+
+    await user.type(screen.getByRole("searchbox"), equipment.equipment_no);
+    await user.click(await screen.findByRole("button", { name: /FL-0042/ }));
+    expect(await screen.findByText(ko.page.loadFailed)).toBeVisible();
+    await user.click(screen.getByRole("button", { name: ko.page.retry }));
+
+    expect(await screen.findByText(formatWon(projection.point_estimate))).toBeVisible();
+    expect(lifecycleCalls).toBe(2);
+  });
+
   it("drills a projection stat to the source equipment", async () => {
     setupAuth();
     const user = userEvent.setup();
@@ -190,6 +290,7 @@ describe("ForecastBody", () => {
     lifecycle.resolve({ data: lifecycleCost });
     await waitFor(() => {
       expect(screen.getByRole("searchbox")).toBeVisible();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
       expect(POST).not.toHaveBeenCalled();
     });
   });
@@ -230,6 +331,41 @@ describe("ForecastBody", () => {
     expect(await screen.findByText(formatWon(650_000))).toBeVisible();
   });
 
+  it("ignores a retired horizon projection after the current result succeeds", async () => {
+    const firstProjection = deferred<{ data: typeof projection }>();
+    const currentProjection = { ...projection, point_estimate: 680_000 };
+    let projectionCall = 0;
+    const GET = vi.fn((path: string) => {
+      if (path === "/api/v1/equipment/list") {
+        return Promise.resolve({ data: { items: [equipment], total: 1, limit: 20, offset: 0 } });
+      }
+      if (path === "/api/v1/financial/equipment/{equipmentId}/lifecycle-cost") {
+        return Promise.resolve({ data: lifecycleCost });
+      }
+      return Promise.reject(new Error(`unexpected GET ${path}`));
+    });
+    const POST = vi.fn(() => {
+      projectionCall += 1;
+      return projectionCall === 1 ? firstProjection.promise : Promise.resolve({ data: currentProjection });
+    });
+    mockUseAuth.mockReturnValue({ api: { GET, POST }, session: { roles: ["ADMIN"] } });
+    const user = userEvent.setup();
+    render(<ForecastBody />);
+    await user.type(screen.getByRole("searchbox"), equipment.equipment_no);
+    await user.click(await screen.findByRole("button", { name: /FL-0042/ }));
+    await waitFor(() => {
+      expect(POST).toHaveBeenCalledTimes(1);
+    });
+    await user.click(screen.getByRole("button", { name: S.horizonMonths(12) }));
+    expect(await screen.findByText(formatWon(currentProjection.point_estimate))).toBeVisible();
+    await act(async () => {
+      firstProjection.resolve({ data: projection });
+      await firstProjection.promise;
+    });
+    expect(screen.getByText(formatWon(currentProjection.point_estimate))).toBeVisible();
+    expect(screen.queryByText(formatWon(projection.point_estimate))).not.toBeInTheDocument();
+  });
+
   it("synchronously withholds prior-api equipment and projection state", async () => {
     setupAuth();
     const user = userEvent.setup();
@@ -251,7 +387,7 @@ describe("ForecastBody", () => {
     expect(screen.queryByRole("button", { name: S.changeEquipment })).not.toBeInTheDocument();
   });
 
-  it("rejects an old-api lifecycle response before it can reach the new projection api", async () => {
+  it("ignores an old-api lifecycle rejection without replacing current authority state", async () => {
     const lifecycle = deferred<{ data: AssetLifecycleCostSummary }>();
     const apiAPost = vi.fn().mockResolvedValue({ data: projection });
     const apiAGet = vi.fn((path: string) => {
@@ -284,10 +420,12 @@ describe("ForecastBody", () => {
     view.rerender(<ForecastBody />);
 
     await act(async () => {
-      lifecycle.resolve({ data: lifecycleCost });
-      await lifecycle.promise;
+      lifecycle.reject(new Error("retired authority failed"));
+      await lifecycle.promise.catch(() => undefined);
     });
 
+    expect(screen.getByRole("searchbox")).toBeVisible();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(apiAPost).not.toHaveBeenCalled();
     expect(apiBPost).not.toHaveBeenCalled();
   });

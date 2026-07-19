@@ -177,9 +177,32 @@ jobs:
           openssl ecparam -name prime256v1 -genkey -noout | openssl pkcs8 -topk8 -nocrypt -out /tmp/smoke-priv.pem
           openssl ec -in /tmp/smoke-priv.pem -pubout -out /tmp/smoke-pub.pem
 
+          APP_PASSWORD="$(openssl rand -hex 32)"
+          RT_PASSWORD="$(openssl rand -hex 32)"
+          LEAVE_COMMAND_PASSWORD="$(openssl rand -hex 32)"
+          ONTOLOGY_COMMAND_PASSWORD="$(openssl rand -hex 32)"
+          docker run --rm --network host \
+            -v "$GITHUB_WORKSPACE/ops/postgres-reconcile-topology.sh:/usr/local/bin/postgres-reconcile-topology:ro" \
+            -e POSTGRES_HOST=127.0.0.1 -e POSTGRES_DB=mnt_ci \
+            -e POSTGRES_ADMIN_USER=postgres -e POSTGRES_ADMIN_PASSWORD=postgres \
+            -e MNT_APP_POSTGRES_PASSWORD="$APP_PASSWORD" \
+            -e MNT_RT_POSTGRES_PASSWORD="$RT_PASSWORD" \
+            -e MNT_LEAVE_COMMAND_POSTGRES_PASSWORD="$LEAVE_COMMAND_PASSWORD" \
+            -e MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD="$ONTOLOGY_COMMAND_PASSWORD" \
+            --entrypoint bash postgres:18.4 /usr/local/bin/postgres-reconcile-topology
+
+          OWNER_DATABASE_URL="postgres://mnt_app:${APP_PASSWORD}@localhost:5432/mnt_ci"
+          RUNTIME_DATABASE_URL="postgres://mnt_rt:${RT_PASSWORD}@localhost:5432/mnt_ci"
+          LEAVE_COMMAND_DATABASE_URL="postgres://mnt_leave_cmd:${LEAVE_COMMAND_PASSWORD}@localhost:5432/mnt_ci"
+          ONTOLOGY_COMMAND_DATABASE_URL="postgres://mnt_ontology_cmd:${ONTOLOGY_COMMAND_PASSWORD}@localhost:5432/mnt_ci"
+          export DATABASE_URL="$OWNER_DATABASE_URL"
+
           MNT_APP_ROLE=migrate SQLX_OFFLINE=true cargo run -q -p mnt-app
 
           MNT_APP_ROLE=api \
+          DATABASE_URL="$RUNTIME_DATABASE_URL" \
+          LEAVE_COMMAND_DATABASE_URL="$LEAVE_COMMAND_DATABASE_URL" \
+          ONTOLOGY_COMMAND_DATABASE_URL="$ONTOLOGY_COMMAND_DATABASE_URL" \
           MNT_HTTP_ADDR=127.0.0.1:8092 \
           MNT_JWT_ISSUER=ci-boot-smoke \
           MNT_JWT_AUDIENCE=ci-boot-smoke \
@@ -290,7 +313,10 @@ jobs:
           cache: npm
 
       - name: dev-up compose contract unit test
-        run: node --test scripts/dev-up-compose.test.mjs
+        run: node --test scripts/dev-up-compose.test.mjs scripts/check-command-database-wiring.test.mjs
+
+      - name: PostgreSQL topology integration regression
+        run: ops/postgres-topology.integration.test.sh
 
       - name: dev-up bootstrap (compose deps + migrate + backend readyz)
         # macOS/Windows GH-hosted runners cannot run Linux containers reliably,

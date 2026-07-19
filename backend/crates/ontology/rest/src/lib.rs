@@ -1535,6 +1535,12 @@ impl RestError {
                 message: "stale ontology object type write validator".to_owned(),
                 current: Some(current),
             },
+            PgOntologyError::CommandUnavailable => Self {
+                status: StatusCode::SERVICE_UNAVAILABLE,
+                code: "ontology_command_unavailable",
+                message: "ontology command database is not configured or unavailable".to_owned(),
+                current: None,
+            },
         }
     }
 
@@ -1685,6 +1691,18 @@ mod tests {
         )));
         assert_eq!(error.status, StatusCode::CONFLICT);
         assert_eq!(error.code, "conflict");
+    }
+
+    #[test]
+    fn missing_ontology_command_capability_maps_to_stable_503() {
+        let error = RestError::from_ontology(PgOntologyError::CommandUnavailable);
+        assert_eq!(error.status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(error.code, "ontology_command_unavailable");
+        assert_eq!(
+            error.message,
+            "ontology command database is not configured or unavailable"
+        );
+        assert!(error.current.is_none());
     }
 
     #[test]

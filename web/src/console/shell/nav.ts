@@ -76,6 +76,39 @@ export interface ConsoleNavGroup {
   items: readonly ConsoleNavItem[];
 }
 
+/**
+ * Production exposure manifest. Navigation entries intentionally remain in
+ * `NAV_GROUPS` while their complete slice is unfinished, but only entries in
+ * this manifest may be offered to users. This keeps planned destinations DARK
+ * without losing the product information architecture.
+ */
+export const SHIPPED_SCREEN_KEYS = [
+  "overview",
+  "mywork",
+  "inbox",
+  "leave",
+  "finance",
+  "asset",
+  "appr",
+  "docs",
+  "policy",
+  "audit",
+  "support",
+  "dashboard",
+  "laborcost",
+  "objectExplorer",
+  "ontologyManager",
+  "forecast",
+  "workflow",
+  "scheduled",
+  "messenger",
+  "mail",
+] as const;
+
+export type ShippedScreenKey = (typeof SHIPPED_SCREEN_KEYS)[number];
+
+const SHIPPED_SCREENS: ReadonlySet<string> = new Set(SHIPPED_SCREEN_KEYS);
+
 const g = (roles?: readonly string[], features?: readonly string[]): NavGate => ({
   roles,
   features,
@@ -263,8 +296,26 @@ export function visibleConsoleNav(grants: ConsoleGrants): VisibleNavGroup[] {
   return NAV_GROUPS.map((group) => ({
     labelKey: group.labelKey,
     labelId: group.labelId,
-    items: group.items.filter((item) => isNavItemVisible(item.gate, grants)),
+    items: group.items.filter(
+      (item) => SHIPPED_SCREENS.has(item.screen) && isNavItemVisible(item.gate, grants),
+    ),
   })).filter((group) => group.items.length > 0);
+}
+
+/** Resolve a direct `/console/:screen` location; nested path values are invalid. */
+export function screenFromConsolePath(pathname: string): string | undefined {
+  const match = /^\/console\/([^/]+)\/?$/.exec(pathname);
+  if (!match) return undefined;
+  try {
+    const screen = decodeURIComponent(match[1]);
+    return screen.includes("/") ? undefined : screen;
+  } catch {
+    return undefined;
+  }
+}
+
+export function consoleScreenPath(screen: string): string {
+  return `/console/${encodeURIComponent(screen)}`;
 }
 
 /** The default screen a session lands on (first visible item, or a stable fallback). */

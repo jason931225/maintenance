@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 
 import { ko } from "../../i18n/ko";
 import { useAuth } from "../../context/auth";
@@ -6,7 +7,12 @@ import { useConsoleAuthz, useConsoleScopes, UNION_SCOPE_ID } from "./authz";
 import { CommsRailPanel, CommsRailFallback } from "./CommsRailPanel";
 import { ErrorBoundary } from "../../components/ErrorBoundary";
 import { Icon } from "./icons";
-import { defaultScreen, visibleConsoleNav } from "./nav";
+import {
+  consoleScreenPath,
+  defaultScreen,
+  screenFromConsolePath,
+  visibleConsoleNav,
+} from "./nav";
 import { useNavBadges } from "./navBadges";
 import { Sidebar } from "./Sidebar";
 import { useSelfProfile } from "./useSelfProfile";
@@ -45,6 +51,8 @@ export function ConsoleShell({
   onCycleTheme: () => void;
 }) {
   const { session } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
   const { grants, source: authzSource } = useConsoleAuthz();
   const groups = useMemo(() => visibleConsoleNav(grants), [grants]);
   const { options: scopeOptions } = useConsoleScopes(S.scope.all);
@@ -78,12 +86,24 @@ export function ConsoleShell({
   // across a reload (no product ask for that yet).
   const [railOpen, setRailOpen] = useState(true);
 
-  const [screen, setScreen] = useState<string | null>(null);
+  const routeScreen = screenFromConsolePath(location.pathname);
   const activeScreen =
-    screen && groups.some((g) => g.items.some((i) => i.screen === screen))
-      ? screen
+    routeScreen && groups.some((g) => g.items.some((i) => i.screen === routeScreen))
+      ? routeScreen
       : defaultScreen(grants);
   const ScreenBody = SCREEN_REGISTRY[activeScreen];
+
+  // Canonicalize bare, invalid, unshipped, and unauthorized destinations. A
+  // replacement avoids trapping Back on a location the user cannot render.
+  useEffect(() => {
+    const canonicalPath = consoleScreenPath(activeScreen);
+    if (location.pathname !== canonicalPath) {
+      void navigate(
+        { pathname: canonicalPath, search: location.search, hash: location.hash },
+        { replace: true },
+      );
+    }
+  }, [activeScreen, location.hash, location.pathname, location.search, navigate]);
 
   const routeSampleReady = useRef(false);
   const lastSampledScreen = useRef<string | undefined>(undefined);
@@ -93,14 +113,14 @@ export function ConsoleShell({
       markConsoleRoute(activeScreen);
     };
     if (!routeSampleReady.current) {
-      if (authzSource === "authz" || screen !== null) {
+      if (authzSource === "authz" || routeScreen !== undefined) {
         routeSampleReady.current = true;
         markOnce();
       }
       return;
     }
     if (lastSampledScreen.current !== activeScreen) markOnce();
-  }, [activeScreen, authzSource, screen]);
+  }, [activeScreen, authzSource, routeScreen]);
 
   const [scopeOpen, setScopeOpen] = useState(false);
   const closeScope = useCallback(() => {
@@ -174,7 +194,13 @@ export function ConsoleShell({
         activeScreen={activeScreen}
         badges={badges}
         theme={theme}
-        onSelect={setScreen}
+        onSelect={(nextScreen) => {
+          void navigate({
+            pathname: consoleScreenPath(nextScreen),
+            search: location.search,
+            hash: location.hash,
+          });
+        }}
         onToggleCollapse={() => {
           setSbUser(!collapsed);
         }}
@@ -214,9 +240,7 @@ export function ConsoleShell({
           userTeamLabel={userTeamLabel}
         />
 
-        {/* Screen body — state.screen-driven slot, keyed off SCREEN_REGISTRY.
-            A screen with no registered body still renders the themed canvas
-            (chrome-only, unchanged from before content lanes landed). */}
+        {/* URL-driven screen body, constrained to shipped + authorized nav. */}
         <section
           aria-label={S.body.label}
           data-cshell-screen={activeScreen}

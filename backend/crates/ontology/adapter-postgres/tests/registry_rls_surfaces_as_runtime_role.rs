@@ -50,6 +50,23 @@ async fn runtime_role_pool(owner_pool: &PgPool) -> PgPool {
         .unwrap()
 }
 
+async fn command_role_pool(owner_pool: &PgPool) -> PgPool {
+    let options = owner_pool.connect_options().as_ref().clone();
+    PgPoolOptions::new()
+        .max_connections(4)
+        .after_connect(|conn, _meta| {
+            Box::pin(async move {
+                sqlx::query("SET ROLE mnt_ontology_cmd")
+                    .execute(conn)
+                    .await?;
+                Ok(())
+            })
+        })
+        .connect_with(options)
+        .await
+        .unwrap()
+}
+
 async fn runtime_role_pool_with_stage_select_barrier(owner_pool: &PgPool) -> PgPool {
     let options = owner_pool.connect_options().as_ref().clone();
     PgPoolOptions::new()
@@ -215,7 +232,8 @@ fn work_order_draft(stable_key: &str) -> CreateObjectTypeDraft {
 async fn seed_object_type(owner_pool: &PgPool, org: OrgId, stable_key: &str) {
     let actor = seed_org_and_user(owner_pool, *org.as_uuid(), stable_key).await;
     mnt_platform_request_context::scope_org(org, async {
-        let store = PgOntologyStore::new(owner_pool.clone());
+        let store = PgOntologyStore::new(owner_pool.clone())
+            .with_command_pool(command_role_pool(owner_pool).await);
         store
             .create_object_type(
                 actor,
@@ -236,7 +254,8 @@ async fn own_object_type_is_visible_as_runtime_role(owner_pool: PgPool) {
     seed_object_type(&owner_pool, org_a, "wo.work_order").await;
 
     let (list, detail) = mnt_platform_request_context::scope_org(org_a, async {
-        let store = PgOntologyStore::new(rt_pool.clone());
+        let store = PgOntologyStore::new(rt_pool.clone())
+            .with_command_pool(command_role_pool(&owner_pool).await);
         let list = store.list_object_types().await.unwrap();
         let detail = store.get_object_type("wo.work_order", None).await.unwrap();
         (list, detail)
@@ -264,7 +283,8 @@ async fn cross_tenant_object_type_is_invisible_as_runtime_role(owner_pool: PgPoo
     seed_object_type(&owner_pool, org_b, "wo.b_secret").await;
 
     let (list, cross) = mnt_platform_request_context::scope_org(org_a, async {
-        let store = PgOntologyStore::new(rt_pool.clone());
+        let store = PgOntologyStore::new(rt_pool.clone())
+            .with_command_pool(command_role_pool(&owner_pool).await);
         let list = store.list_object_types().await.unwrap();
         let cross = store.get_object_type("wo.b_secret", None).await;
         (list, cross)
@@ -287,7 +307,8 @@ async fn registry_read_fails_closed_without_org_as_runtime_role(owner_pool: PgPo
     seed_object_type(&owner_pool, OrgId::knl(), "wo.work_order").await;
 
     // No scope_org wrapper: current_org() is unset, so the read must fail closed.
-    let store = PgOntologyStore::new(rt_pool.clone());
+    let store = PgOntologyStore::new(rt_pool.clone())
+        .with_command_pool(command_role_pool(&owner_pool).await);
     assert!(
         store.list_object_types().await.is_err(),
         "with no org armed the list must fail closed, never leak"
@@ -306,7 +327,8 @@ async fn lifecycle_fsm_and_revision_staging_as_runtime_role(owner_pool: PgPool) 
     let at = datetime!(2026-07-09 12:00 UTC);
 
     mnt_platform_request_context::scope_org(org_a, async {
-        let store = PgOntologyStore::new(rt_pool.clone());
+        let store = PgOntologyStore::new(rt_pool.clone())
+            .with_command_pool(command_role_pool(&owner_pool).await);
 
         // Create v1 draft.
         let v1 = store
@@ -446,7 +468,8 @@ async fn draft_child_identity_replay_is_idempotent_and_divergent_reuse_conflicts
     });
 
     mnt_platform_request_context::scope_org(org, async {
-        let store = PgOntologyStore::new(rt_pool);
+        let store =
+            PgOntologyStore::new(rt_pool).with_command_pool(command_role_pool(&owner_pool).await);
         store
             .create_object_type(actor, canonical.clone(), TraceContext::generate(), at)
             .await
@@ -620,7 +643,8 @@ async fn duplicate_child_identities_inside_fresh_and_append_requests_are_determi
     let at = datetime!(2026-07-19 10:30 UTC);
 
     mnt_platform_request_context::scope_org(org, async {
-        let store = PgOntologyStore::new(rt_pool);
+        let store =
+            PgOntologyStore::new(rt_pool).with_command_pool(command_role_pool(&owner_pool).await);
 
         for kind in DuplicateChildKind::ALL {
             let slug = kind.slug();
@@ -771,7 +795,8 @@ async fn analytic_string_formula_is_rejected_instead_of_silently_erased(owner_po
     });
 
     mnt_platform_request_context::scope_org(org, async {
-        let store = PgOntologyStore::new(rt_pool);
+        let store =
+            PgOntologyStore::new(rt_pool).with_command_pool(command_role_pool(&owner_pool).await);
         let error = store
             .create_object_type(actor, draft, TraceContext::generate(), at)
             .await
@@ -798,7 +823,8 @@ async fn concurrent_stage_stage_has_one_cas_winner_as_runtime_role(owner_pool: P
     seed_object_type(&owner_pool, OrgId::from_uuid(ORG_B), "wo.concurrent_stage").await;
 
     let v1 = mnt_platform_request_context::scope_org(org, async {
-        let store = PgOntologyStore::new(rt_pool.clone());
+        let store = PgOntologyStore::new(rt_pool.clone())
+            .with_command_pool(command_role_pool(&owner_pool).await);
         let v1 = store
             .create_object_type(
                 actor,
@@ -835,8 +861,10 @@ async fn concurrent_stage_stage_has_one_cas_winner_as_runtime_role(owner_pool: P
 
     let gate = hold_advisory_gate(&owner_pool, INSERT_GATE).await;
     let first_pool = rt_pool.clone();
+    let first_cmd_pool = command_role_pool(&owner_pool).await;
     let first = tokio::spawn(mnt_platform_request_context::scope_org(org, async move {
         PgOntologyStore::new(first_pool)
+            .with_command_pool(first_cmd_pool)
             .stage_revision(
                 actor,
                 "wo.concurrent_stage",
@@ -850,8 +878,10 @@ async fn concurrent_stage_stage_has_one_cas_winner_as_runtime_role(owner_pool: P
     wait_for_advisory_waiters(&owner_pool, 1).await;
 
     let second_pool = rt_pool.clone();
+    let second_cmd_pool = command_role_pool(&owner_pool).await;
     let second = tokio::spawn(mnt_platform_request_context::scope_org(org, async move {
         PgOntologyStore::new(second_pool)
+            .with_command_pool(second_cmd_pool)
             .stage_revision(
                 actor,
                 "wo.concurrent_stage",
@@ -965,7 +995,8 @@ async fn concurrent_stage_publish_has_one_cas_winner_as_runtime_role(owner_pool:
     .await;
 
     let v2 = mnt_platform_request_context::scope_org(org, async {
-        let store = PgOntologyStore::new(rt_pool.clone());
+        let store = PgOntologyStore::new(rt_pool.clone())
+            .with_command_pool(command_role_pool(&owner_pool).await);
         let v1 = store
             .create_object_type(
                 actor,
@@ -1021,10 +1052,12 @@ async fn concurrent_stage_publish_has_one_cas_winner_as_runtime_role(owner_pool:
     .await
     .unwrap();
     let stage_pool = runtime_role_pool_with_stage_select_barrier(&owner_pool).await;
+    let stage_cmd_pool = command_role_pool(&owner_pool).await;
     let gate = hold_advisory_gate(&owner_pool, SELECT_GATE).await;
 
     let stage = tokio::spawn(mnt_platform_request_context::scope_org(org, async move {
         PgOntologyStore::new(stage_pool)
+            .with_command_pool(stage_cmd_pool)
             .stage_revision(
                 actor,
                 "wo.concurrent_publish",
@@ -1042,8 +1075,10 @@ async fn concurrent_stage_publish_has_one_cas_winner_as_runtime_role(owner_pool:
     wait_for_advisory_waiters(&owner_pool, 1).await;
 
     let publish_pool = rt_pool.clone();
+    let publish_cmd_pool = command_role_pool(&owner_pool).await;
     let publish = tokio::spawn(mnt_platform_request_context::scope_org(org, async move {
         PgOntologyStore::new(publish_pool)
+            .with_command_pool(publish_cmd_pool)
             .transition_lifecycle(
                 actor,
                 v2.id,
@@ -1157,7 +1192,8 @@ async fn review_pending_revision_is_immutable_until_reviewer_returns_it_to_draft
     let at = datetime!(2026-07-19 11:30 UTC);
 
     let object_type = mnt_platform_request_context::scope_org(org, async {
-        let store = PgOntologyStore::new(rt_pool.clone());
+        let store = PgOntologyStore::new(rt_pool.clone())
+            .with_command_pool(command_role_pool(&owner_pool).await);
         let draft = store
             .create_object_type(
                 actor,
@@ -1241,6 +1277,7 @@ async fn review_pending_revision_is_immutable_until_reviewer_returns_it_to_draft
     });
     let result = mnt_platform_request_context::scope_org(org, async {
         PgOntologyStore::new(rt_pool)
+            .with_command_pool(command_role_pool(&owner_pool).await)
             .stage_revision(
                 actor,
                 "wo.review_integrity",
@@ -1316,20 +1353,24 @@ async fn concurrent_create_create_serializes_to_one_success_and_one_typed_confli
 
     let gate = hold_advisory_gate(&owner_pool, CREATE_GATE).await;
     let first_pool = rt_pool.clone();
+    let first_cmd_pool = command_role_pool(&owner_pool).await;
     let first = tokio::spawn(mnt_platform_request_context::scope_org(org, async move {
         let mut draft = work_order_draft("wo.concurrent_create");
         draft.title = "first hostile create".to_owned();
         PgOntologyStore::new(first_pool)
+            .with_command_pool(first_cmd_pool)
             .create_object_type(actor, draft, TraceContext::generate(), at)
             .await
     }));
     wait_for_advisory_waiters(&owner_pool, 1).await;
 
     let second_pool = rt_pool.clone();
+    let second_cmd_pool = command_role_pool(&owner_pool).await;
     let second = tokio::spawn(mnt_platform_request_context::scope_org(org, async move {
         let mut draft = work_order_draft("wo.concurrent_create");
         draft.title = "second hostile create".to_owned();
         PgOntologyStore::new(second_pool)
+            .with_command_pool(second_cmd_pool)
             .create_object_type(actor, draft, TraceContext::generate(), at)
             .await
     }));
@@ -1601,7 +1642,8 @@ async fn registry_json_null_and_wrong_shapes_are_typed_validation_without_writes
 
     let (failures, stored_rows, audits) =
         mnt_platform_request_context::scope_org(org, async {
-            let store = PgOntologyStore::new(rt_pool);
+            let store = PgOntologyStore::new(rt_pool)
+                .with_command_pool(command_role_pool(&owner_pool).await);
             let mut failures = Vec::new();
 
             for (label, expected_field, draft) in cases {
@@ -1674,6 +1716,7 @@ async fn omitted_child_defaults_cannot_be_replayed_as_null_or_wrong_shape(owner_
 
     let object_type = mnt_platform_request_context::scope_org(org, async {
         PgOntologyStore::new(rt_pool.clone())
+            .with_command_pool(command_role_pool(&owner_pool).await)
             .create_object_type(actor, canonical.clone(), TraceContext::generate(), at)
             .await
             .unwrap()
@@ -1730,6 +1773,7 @@ async fn omitted_child_defaults_cannot_be_replayed_as_null_or_wrong_shape(owner_
     explicit_null.properties[0].config = serde_json::Value::Null;
     let null_result = mnt_platform_request_context::scope_org(org, async {
         PgOntologyStore::new(rt_pool.clone())
+            .with_command_pool(command_role_pool(&owner_pool).await)
             .stage_revision(
                 actor,
                 "wo.json_replay",
@@ -1746,6 +1790,7 @@ async fn omitted_child_defaults_cannot_be_replayed_as_null_or_wrong_shape(owner_
     wrong_shape.actions[0].edits = serde_json::json!({});
     let wrong_shape_result = mnt_platform_request_context::scope_org(org, async {
         PgOntologyStore::new(rt_pool)
+            .with_command_pool(command_role_pool(&owner_pool).await)
             .stage_revision(
                 actor,
                 "wo.json_replay",
@@ -1825,6 +1870,7 @@ async fn analytic_formula_omission_defaults_but_explicit_null_rejects_without_wr
     draft.analytics.push(explicit_null);
     let result = mnt_platform_request_context::scope_org(org, async {
         PgOntologyStore::new(rt_pool)
+            .with_command_pool(command_role_pool(&owner_pool).await)
             .create_object_type(actor, draft, TraceContext::generate(), at)
             .await
     })
@@ -1869,6 +1915,7 @@ async fn noncanonical_stable_key_is_typed_validation_with_no_audit_storage_diver
 
     let result = mnt_platform_request_context::scope_org(org, async {
         PgOntologyStore::new(rt_pool)
+            .with_command_pool(command_role_pool(&owner_pool).await)
             .create_object_type(actor, draft, TraceContext::generate(), at)
             .await
     })

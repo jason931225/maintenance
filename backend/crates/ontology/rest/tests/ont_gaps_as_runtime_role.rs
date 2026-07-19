@@ -36,6 +36,7 @@ use mnt_platform_test_support::{
 };
 use serde_json::json;
 use sqlx::PgPool;
+use sqlx::postgres::PgPoolOptions;
 use time::macros::datetime;
 use uuid::Uuid;
 
@@ -51,9 +52,26 @@ fn super_admin(user_id: UserId, org: OrgId) -> Principal {
     )
 }
 
-fn state(pool: &PgPool) -> OntologyRestState {
+async fn command_role_pool(owner_pool: &PgPool) -> PgPool {
+    let options = owner_pool.connect_options().as_ref().clone();
+    PgPoolOptions::new()
+        .max_connections(4)
+        .after_connect(|conn, _meta| {
+            Box::pin(async move {
+                sqlx::query("SET ROLE mnt_ontology_cmd")
+                    .execute(conn)
+                    .await?;
+                Ok(())
+            })
+        })
+        .connect_with(options)
+        .await
+        .unwrap()
+}
+
+fn state(pool: &PgPool, command_pool: &PgPool) -> OntologyRestState {
     OntologyRestState::new(
-        PgOntologyStore::new(pool.clone()),
+        PgOntologyStore::new(pool.clone()).with_command_pool(command_pool.clone()),
         PgInstanceStore::new(pool.clone()),
         PgGovernanceStore::new(pool.clone()),
         None,
@@ -64,7 +82,8 @@ fn state(pool: &PgPool) -> OntologyRestState {
 /// (dot-free stable_key so a workflow definition can bind to it).
 async fn seed_type(owner_pool: &PgPool, org: OrgId, actor: UserId, key: &str) -> ObjectTypeId {
     scope_org(org, async {
-        let store = PgOntologyStore::new(owner_pool.clone());
+        let store = PgOntologyStore::new(owner_pool.clone())
+            .with_command_pool(command_role_pool(owner_pool).await);
         let draft = CreateObjectTypeDraft {
             stable_key: key.to_owned(),
             title: "작업지시".to_owned(),
@@ -164,6 +183,7 @@ async fn lifecycle_state(owner_pool: &PgPool, instance_id: Uuid) -> String {
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn configured_edge_commits_and_unconfigured_is_fail_closed(owner_pool: PgPool) {
     let rt = runtime_role_pool(&owner_pool).await;
+    let cmd = command_role_pool(&owner_pool).await;
     let org = OrgId::knl();
     let actor = seed_org_and_super_admin(&owner_pool, *org.as_uuid(), "a").await;
     let type_id = seed_type(&owner_pool, org, actor, "workorder").await;
@@ -182,7 +202,7 @@ async fn configured_edge_commits_and_unconfigured_is_fail_closed(owner_pool: PgP
 
     // Configured edge commits: state advances to active.
     let outcome = scope_org(org, async {
-        state(&rt)
+        state(&rt, &cmd)
             .commit_lifecycle(
                 &super_admin(actor, org),
                 instance.instance.id,
@@ -205,7 +225,7 @@ async fn configured_edge_commits_and_unconfigured_is_fail_closed(owner_pool: PgP
 
     // Unconfigured edge (active→locked) is fail-closed: GateDenied, no state change.
     let err = scope_org(org, async {
-        state(&rt)
+        state(&rt, &cmd)
             .commit_lifecycle(
                 &super_admin(actor, org),
                 instance.instance.id,
@@ -229,7 +249,7 @@ async fn configured_edge_commits_and_unconfigured_is_fail_closed(owner_pool: PgP
 
     // Illegal base-FSM edge (active→draft) is rejected before config even matters.
     let err = scope_org(org, async {
-        state(&rt)
+        state(&rt, &cmd)
             .commit_lifecycle(
                 &super_admin(actor, org),
                 instance.instance.id,
@@ -337,6 +357,7 @@ async fn acting_on_type_surfaces_workflow_and_object_policy(owner_pool: PgPool) 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn stage_revision_updates_draft_head_in_place(owner_pool: PgPool) {
     let rt = runtime_role_pool(&owner_pool).await;
+    let cmd = command_role_pool(&owner_pool).await;
     let org = OrgId::knl();
     let actor = seed_org_and_super_admin(&owner_pool, *org.as_uuid(), "a").await;
     // seed_type creates a DRAFT "workorder" carrying one property ("code").
@@ -377,7 +398,7 @@ async fn stage_revision_updates_draft_head_in_place(owner_pool: PgPool) {
     };
 
     let summary = scope_org(org, async {
-        let store = PgOntologyStore::new(rt.clone());
+        let store = PgOntologyStore::new(rt.clone()).with_command_pool(cmd.clone());
         let current = store.get_object_type("workorder", None).await?.object_type;
         store
             .stage_revision(

@@ -31,20 +31,21 @@ import kotlinx.serialization.Contextual
 /**
  * A self-service leave-request filing. The subject employee and branch are NOT accepted here — they are resolved from the authenticated caller.
  *
- * @param leaveType 연차 (full-day span) or 반차 (half day, 0.5 on one date).
- * @param startDate YYYY-MM-DD. For a half day the end is forced equal server-side.
+ * @param leaveType Full-day or partial-day intent; quantity is resolved only from evidence.
+ * @param startDate YYYY-MM-DD. A half-day request must use the same start and end date.
  * @param endDate
  * @param reason
+ * @param partialDayPeriod Required exactly when leave_type is half_day.
  */
 @Serializable
 
 data class LeaveCreateRequest (
 
-    /* 연차 (full-day span) or 반차 (half day, 0.5 on one date). */
+    /* Full-day or partial-day intent; quantity is resolved only from evidence. */
     @SerialName(value = "leave_type")
     val leaveType: LeaveCreateRequest.LeaveType,
 
-    /* YYYY-MM-DD. For a half day the end is forced equal server-side. */
+    /* YYYY-MM-DD. A half-day request must use the same start and end date. */
     @Contextual @SerialName(value = "start_date")
     val startDate: java.time.LocalDate,
 
@@ -52,12 +53,16 @@ data class LeaveCreateRequest (
     val endDate: java.time.LocalDate,
 
     @SerialName(value = "reason")
-    val reason: kotlin.String
+    val reason: kotlin.String,
+
+    /* Required exactly when leave_type is half_day. */
+    @SerialName(value = "partial_day_period")
+    val partialDayPeriod: LeaveCreateRequest.PartialDayPeriod? = null
 
 ) {
 
     /**
-     * 연차 (full-day span) or 반차 (half day, 0.5 on one date).
+     * Full-day or partial-day intent; quantity is resolved only from evidence.
      *
      * Values: ANNUAL,HALF_DAY
      */
@@ -65,6 +70,16 @@ data class LeaveCreateRequest (
     enum class LeaveType(val value: kotlin.String) {
         @SerialName(value = "annual") ANNUAL("annual"),
         @SerialName(value = "half_day") HALF_DAY("half_day");
+    }
+    /**
+     * Required exactly when leave_type is half_day.
+     *
+     * Values: AM,PM
+     */
+    @Serializable
+    enum class PartialDayPeriod(val value: kotlin.String) {
+        @SerialName(value = "am") AM("am"),
+        @SerialName(value = "pm") PM("pm");
     }
 
 }

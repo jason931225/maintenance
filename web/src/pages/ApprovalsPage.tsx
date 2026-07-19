@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import type { components } from "@maintenance/api-client-ts";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
 
 import type { ConsoleApiClient } from "../api/client";
@@ -17,9 +18,7 @@ import { SkeletonCards } from "../components/states/Skeleton";
 import type { AuthSession } from "../context/auth";
 import { useAuth } from "../context/auth";
 import { hasAnyRole, ROLES } from "../components/shell/nav";
-import {
-  ApprovalCommandCenter,
-} from "../features/approvals/ApprovalCommandCenter";
+import { ApprovalCommandCenter } from "../features/approvals/ApprovalCommandCenter";
 import { ApprovalDocumentDesk } from "../features/approvals/ApprovalDocumentDesk";
 import { ApprovalQueue } from "../features/approvals/ApprovalQueue";
 import { TargetChangeReviewQueue } from "../features/approvals/TargetChangeReviewQueue";
@@ -27,6 +26,21 @@ import { ko } from "../i18n/ko";
 
 type ReadState = "idle" | "loading" | "error";
 type WriteState = "idle" | "error";
+type WorkflowRunDetail = components["schemas"]["WorkflowRunDetailResponse"];
+type RunLinkState =
+  | { status: "absent" }
+  | { status: "loading"; id: string }
+  | { status: "ready"; id: string; detail: WorkflowRunDetail }
+  | { status: "missing"; id: string }
+  | { status: "unavailable"; id: string };
+
+type SessionAuthorityIdentity = string | AuthSession | undefined;
+
+function sessionAuthorityIdentity(
+  session: AuthSession | undefined,
+): SessionAuthorityIdentity {
+  return session?.client_session_incarnation?.trim() || session;
+}
 
 const ORG_WIDE_HR_ROLES = [ROLES.EXECUTIVE, ROLES.SUPER_ADMIN] as const;
 
@@ -42,6 +56,13 @@ type ApprovalsApi = ConsoleApiClient & {
     path: "/api/v1/hr/leave-balances",
     options?: { params?: { query?: { limit?: number; offset?: number } } },
   ): Promise<{ data?: LeaveBalancePage }>;
+  GET(
+    path: "/api/v1/workflow-runs/{run_id}",
+    options: {
+      headers?: Record<string, string>;
+      params: { path: { run_id: string } };
+    },
+  ): Promise<{ data?: WorkflowRunDetail; response: Response }>;
 };
 
 function canLoadOrgWideHrData(session: AuthSession | undefined): boolean {
@@ -59,6 +80,35 @@ export function ApprovalsPage() {
   const [leaveBalances, setLeaveBalances] = useState<LeaveBalancePage>();
   const [readState, setReadState] = useState<ReadState>("loading");
   const [writeState, setWriteState] = useState<WriteState>("idle");
+  const runFocusRef = useRef<HTMLElement>(null);
+  const runAuthorityIdentity = sessionAuthorityIdentity(session);
+  const requestedRunId = useMemo(() => {
+    const value = new URLSearchParams(location.search).get("run")?.trim();
+    return value || undefined;
+  }, [location.search]);
+  const [runLinkOwned, setRunLinkOwned] = useState<{
+    api: object;
+    authority: SessionAuthorityIdentity;
+    value: RunLinkState;
+  }>(() => ({
+    api: approvalsApi,
+    authority: runAuthorityIdentity,
+    value: requestedRunId
+      ? { status: "loading", id: requestedRunId }
+      : { status: "absent" },
+  }));
+  const activeRunLinkState = useMemo<RunLinkState>(
+    () =>
+      !requestedRunId
+        ? { status: "absent" }
+        : runLinkOwned.api === approvalsApi &&
+            runLinkOwned.authority === runAuthorityIdentity &&
+            "id" in runLinkOwned.value &&
+            runLinkOwned.value.id === requestedRunId
+          ? runLinkOwned.value
+          : { status: "loading", id: requestedRunId },
+    [approvalsApi, requestedRunId, runAuthorityIdentity, runLinkOwned],
+  );
 
   const workOrders = useMemo(
     () =>
@@ -136,13 +186,63 @@ export function ApprovalsPage() {
     void Promise.resolve().then(loadData);
   }, [loadData]);
 
-  async function approveWorkOrder(workOrderId: string, comment: string): Promise<boolean> {
+  useEffect(() => {
+    if (!requestedRunId) return;
+    let live = true;
+    approvalsApi
+      .GET("/api/v1/workflow-runs/{run_id}", {
+        headers: { "Cache-Control": "no-cache" },
+        params: { path: { run_id: requestedRunId } },
+      })
+      .then((response) => {
+        if (!live) return;
+        setRunLinkOwned({
+          api: approvalsApi,
+          authority: runAuthorityIdentity,
+          value:
+            response.data?.run.id === requestedRunId
+              ? { status: "ready", id: requestedRunId, detail: response.data }
+              : response.response.status === 404
+                ? { status: "missing", id: requestedRunId }
+                : { status: "unavailable", id: requestedRunId },
+        });
+      })
+      .catch(() => {
+        if (live) {
+          setRunLinkOwned({
+            api: approvalsApi,
+            authority: runAuthorityIdentity,
+            value: { status: "unavailable", id: requestedRunId },
+          });
+        }
+      });
+    return () => {
+      live = false;
+    };
+  }, [approvalsApi, requestedRunId, runAuthorityIdentity]);
+
+  useEffect(() => {
+    if (activeRunLinkState.status !== "ready") return;
+    runFocusRef.current?.scrollIntoView({
+      block: "center",
+      behavior: "smooth",
+    });
+    runFocusRef.current?.focus({ preventScroll: true });
+  }, [activeRunLinkState]);
+
+  async function approveWorkOrder(
+    workOrderId: string,
+    comment: string,
+  ): Promise<boolean> {
     setWriteState("idle");
     try {
-      const response = await api.POST("/api/work-orders/{workOrderId}/approve", {
-        params: { path: { workOrderId } },
-        body: { comment },
-      });
+      const response = await api.POST(
+        "/api/work-orders/{workOrderId}/approve",
+        {
+          params: { path: { workOrderId } },
+          body: { comment },
+        },
+      );
       if (!response.data) {
         setWriteState("error");
         return false;
@@ -155,13 +255,19 @@ export function ApprovalsPage() {
     }
   }
 
-  async function rejectWorkOrder(workOrderId: string, memo: string): Promise<boolean> {
+  async function rejectWorkOrder(
+    workOrderId: string,
+    memo: string,
+  ): Promise<boolean> {
     setWriteState("idle");
     try {
-      const response = await api.POST("/api/v1/work-orders/{workOrderId}/reject", {
-        params: { path: { workOrderId } },
-        body: { memo },
-      });
+      const response = await api.POST(
+        "/api/v1/work-orders/{workOrderId}/reject",
+        {
+          params: { path: { workOrderId } },
+          body: { memo },
+        },
+      );
       if (!response.data) {
         setWriteState("error");
         return false;
@@ -200,8 +306,7 @@ export function ApprovalsPage() {
     }
   }
 
-  const isInitialLoading =
-    readState === "loading" && !approvalPage;
+  const isInitialLoading = readState === "loading" && !approvalPage;
 
   return (
     <>
@@ -212,18 +317,53 @@ export function ApprovalsPage() {
           <>
             <Badge>{pendingCount}</Badge>
             <RefreshButton
-              onClick={() => { void loadData(); }}
+              onClick={() => {
+                void loadData();
+              }}
               isLoading={readState === "loading"}
             />
           </>
         }
       />
       <div className="grid gap-5">
-        {writeState === "error" ? <PageError message={ko.common.writeFailed} /> : null}
+        {activeRunLinkState.status === "ready" ? (
+          <section
+            ref={runFocusRef}
+            id={`approval-run-${activeRunLinkState.id}`}
+            tabIndex={-1}
+            aria-current="true"
+            aria-label={ko.approvals.focusedItemLabel}
+            className="grid gap-2 rounded-md border border-brand-teal bg-brand-teal/10 p-3 ring-2 ring-brand-teal/40"
+          >
+            <p role="status" className="text-sm font-medium text-brand-teal">
+              {ko.approvals.focusedDeepLink}
+            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <code>{activeRunLinkState.detail.run.id}</code>
+              <Badge>{activeRunLinkState.detail.run.status}</Badge>
+            </div>
+          </section>
+        ) : activeRunLinkState.status === "missing" ? (
+          <p
+            role="status"
+            className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm font-medium text-amber-900"
+          >
+            {ko.approvals.focusedMissing}
+          </p>
+        ) : activeRunLinkState.status === "unavailable" ? (
+          <PageError message={ko.approvals.focusedUnavailable} />
+        ) : null}
+        {writeState === "error" ? (
+          <PageError message={ko.common.writeFailed} />
+        ) : null}
         {isInitialLoading ? (
           <SkeletonCards count={3} lines={2} />
         ) : readState === "error" ? (
-          <PageError onRetry={() => { void loadData(); }} />
+          <PageError
+            onRetry={() => {
+              void loadData();
+            }}
+          />
         ) : (
           <>
             <ApprovalCommandCenter

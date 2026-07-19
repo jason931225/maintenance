@@ -34,6 +34,7 @@
     "check:api-drift:portable": "npm run gen:api:portable && git diff --exit-code -- clients/ts clients/kotlin",
     "check:api-drift:swift": "npm run gen:api:swift && git diff --exit-code -- clients/swift",
     "test:contract": "tsx scripts/contract-roundtrip.ts",
+    "test:employee-import-contract": "node --test scripts/check-employee-import-replay-contract.test.mjs",
     "test:production-hardening": "node --test scripts/check-production-hardening.test.mjs",
     "web:dev": "npm --workspace web run dev",
     "dev:doctor": "node scripts/dev-up.mjs doctor",

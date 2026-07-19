@@ -83,8 +83,11 @@ const ontologyRevisionTransportTails = new Map<
   string,
   Promise<ObjectTypeWriteVersion | undefined>
 >();
-const ontologyRevisionTransportControllers = new Set<AbortController>();
-let ontologyRevisionTransportCircuitError: Error | undefined;
+const ontologyRevisionTransportControllers = new Map<
+  string,
+  Set<AbortController>
+>();
+const ontologyRevisionTransportCircuitErrors = new Map<string, Error>();
 
 function ontologyRevisionTransportKey(
   authorityKey: string,
@@ -93,23 +96,26 @@ function ontologyRevisionTransportKey(
   return JSON.stringify([authorityKey, stableKey]);
 }
 
-function tripOntologyRevisionTransportCircuit(): Error {
-  if (!ontologyRevisionTransportCircuitError) {
-    ontologyRevisionTransportCircuitError = TRANSPORT_UNCERTAIN;
-    for (const controller of ontologyRevisionTransportControllers) {
+function tripOntologyRevisionTransportCircuit(key: string): Error {
+  let circuitError = ontologyRevisionTransportCircuitErrors.get(key);
+  if (!circuitError) {
+    circuitError = TRANSPORT_UNCERTAIN;
+    ontologyRevisionTransportCircuitErrors.set(key, circuitError);
+    for (const controller of ontologyRevisionTransportControllers.get(key) ??
+      []) {
       controller.abort(TRANSPORT_UNCERTAIN);
     }
-    ontologyRevisionTransportTails.clear();
+    ontologyRevisionTransportTails.delete(key);
   }
-  return ontologyRevisionTransportCircuitError;
+  return circuitError;
 }
 
 function normalizedTransportError(error: unknown): Error {
   return error instanceof Error ? error : new Error(String(error));
 }
 
-function throwIfOntologyRevisionTransportCircuitOpen(): void {
-  const circuitError = ontologyRevisionTransportCircuitError;
+function throwIfOntologyRevisionTransportCircuitOpen(key: string): void {
+  const circuitError = ontologyRevisionTransportCircuitErrors.get(key);
   if (circuitError) throw circuitError;
 }
 
@@ -117,15 +123,21 @@ type TransportSettlement<T> =
   { ok: true; value: T } | { ok: false; error: Error };
 
 async function runAbortableTransport<T>(
+  key: string,
   ownerControllers: Set<AbortController>,
   deadlineMs: number,
   graceMs: number,
   operation: (signal: AbortSignal) => Promise<T>,
 ): Promise<T> {
-  throwIfOntologyRevisionTransportCircuitOpen();
+  throwIfOntologyRevisionTransportCircuitOpen(key);
   const controller = new AbortController();
   ownerControllers.add(controller);
-  ontologyRevisionTransportControllers.add(controller);
+  let laneControllers = ontologyRevisionTransportControllers.get(key);
+  if (!laneControllers) {
+    laneControllers = new Set();
+    ontologyRevisionTransportControllers.set(key, laneControllers);
+  }
+  laneControllers.add(controller);
 
   let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
   let graceTimer: ReturnType<typeof setTimeout> | undefined;
@@ -159,7 +171,7 @@ async function runAbortableTransport<T>(
     });
     const first = await Promise.race([settled, aborted, deadline]);
     if (typeof first !== "string") {
-      throwIfOntologyRevisionTransportCircuitOpen();
+      throwIfOntologyRevisionTransportCircuitOpen(key);
       if (first.ok) return first.value;
       throw first.error;
     }
@@ -171,9 +183,9 @@ async function runAbortableTransport<T>(
     });
     const afterAbort = await Promise.race([settled, graceExpired]);
     if (afterAbort === "grace-expired") {
-      throw tripOntologyRevisionTransportCircuit();
+      throw tripOntologyRevisionTransportCircuit(key);
     }
-    throwIfOntologyRevisionTransportCircuitOpen();
+    throwIfOntologyRevisionTransportCircuitOpen(key);
     if (afterAbort.ok) return afterAbort.value;
     throw afterAbort.error;
   } finally {
@@ -183,7 +195,13 @@ async function runAbortableTransport<T>(
       controller.signal.removeEventListener("abort", abortListener);
     }
     ownerControllers.delete(controller);
-    ontologyRevisionTransportControllers.delete(controller);
+    laneControllers.delete(controller);
+    if (
+      laneControllers.size === 0 &&
+      ontologyRevisionTransportControllers.get(key) === laneControllers
+    ) {
+      ontologyRevisionTransportControllers.delete(key);
+    }
   }
 }
 
@@ -220,9 +238,10 @@ function runOntologyRevisionTransportFenced(
 ): Promise<ObjectTypeWriteVersion> {
   const previous = ontologyRevisionTransportTails.get(key);
   const invoke = async (prior: ObjectTypeWriteVersion | undefined) => {
-    throwIfOntologyRevisionTransportCircuitOpen();
+    throwIfOntologyRevisionTransportCircuitOpen(key);
     const expected = prior ?? base;
     const receipt = await runAbortableTransport(
+      key,
       ownerControllers,
       deadlineMs,
       graceMs,
@@ -248,17 +267,27 @@ export function ontologyRevisionTransportFenceCountForTests(): number {
   return ontologyRevisionTransportTails.size;
 }
 
-export function ontologyRevisionTransportCircuitOpenForTests(): boolean {
-  return ontologyRevisionTransportCircuitError !== undefined;
+export function ontologyRevisionTransportCircuitOpenForTests(
+  authorityKey?: string,
+  stableKey?: string,
+): boolean {
+  if (authorityKey !== undefined && stableKey !== undefined) {
+    return ontologyRevisionTransportCircuitErrors.has(
+      ontologyRevisionTransportKey(authorityKey, stableKey),
+    );
+  }
+  return ontologyRevisionTransportCircuitErrors.size > 0;
 }
 
 export function resetOntologyRevisionTransportStateForTests(): void {
-  for (const controller of ontologyRevisionTransportControllers) {
-    controller.abort(INVALIDATED);
+  for (const controllers of ontologyRevisionTransportControllers.values()) {
+    for (const controller of controllers) {
+      controller.abort(INVALIDATED);
+    }
   }
   ontologyRevisionTransportControllers.clear();
   ontologyRevisionTransportTails.clear();
-  ontologyRevisionTransportCircuitError = undefined;
+  ontologyRevisionTransportCircuitErrors.clear();
 }
 
 function rejectWaiters(

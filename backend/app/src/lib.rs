@@ -119,7 +119,7 @@ use opentelemetry_sdk::Resource;
 use opentelemetry_sdk::trace::SdkTracerProvider;
 use serde::{Deserialize, Serialize};
 use sqlx::postgres::PgPoolOptions;
-use sqlx::{PgPool, Postgres, QueryBuilder};
+use sqlx::{PgConnection, PgPool, Postgres, QueryBuilder};
 use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::TraceLayer;
 use tracing::Instrument;
@@ -353,6 +353,17 @@ pub struct AppConfig {
     pub service_name: String,
     pub http_addr: SocketAddr,
     pub database_url: Option<String>,
+    /// Dedicated least-privilege connection used only for leave commands
+    /// (`LEAVE_COMMAND_DATABASE_URL`). The API requires this whenever its
+    /// general runtime `DATABASE_URL` is configured so command execution can
+    /// never silently fall back to the broader `mnt_rt` credential. Worker and
+    /// migrate roles do not open or require this pool.
+    pub leave_command_database_url: Option<String>,
+    /// Dedicated least-privilege connection for ontology schema commands
+    /// (`ONTOLOGY_COMMAND_DATABASE_URL`). Like the leave command credential,
+    /// this is API-only and never falls back to `mnt_rt` in a configured
+    /// deployment.
+    pub ontology_command_database_url: Option<String>,
     pub otlp_endpoint: Option<String>,
     pub jwt: Option<JwtVerifierConfig>,
     pub auth_rest: Option<AuthRestConfig>,
@@ -539,6 +550,108 @@ impl AppConfig {
             .parse::<SocketAddr>()
             .map_err(|err| AppError::Config(format!("invalid MNT_HTTP_ADDR: {err}")))?;
         let database_url = non_empty(vars.get("DATABASE_URL"));
+        let leave_command_database_url = non_empty(vars.get("LEAVE_COMMAND_DATABASE_URL"));
+        if role == AppRole::Api && database_url.is_some() && leave_command_database_url.is_none() {
+            return Err(AppError::Config(
+                "LEAVE_COMMAND_DATABASE_URL is required for api role when DATABASE_URL is configured"
+                    .to_owned(),
+            ));
+        }
+        let ontology_command_database_url = non_empty(vars.get("ONTOLOGY_COMMAND_DATABASE_URL"));
+        if role == AppRole::Api && database_url.is_some() && ontology_command_database_url.is_none()
+        {
+            return Err(AppError::Config(
+                "ONTOLOGY_COMMAND_DATABASE_URL is required for api role when DATABASE_URL is configured"
+                    .to_owned(),
+            ));
+        }
+        if role == AppRole::Api {
+            if database_url.is_some() && leave_command_database_url == database_url {
+                return Err(AppError::Config(
+                    "LEAVE_COMMAND_DATABASE_URL must be distinct from DATABASE_URL".to_owned(),
+                ));
+            }
+            if database_url.is_some() && ontology_command_database_url == database_url {
+                return Err(AppError::Config(
+                    "ONTOLOGY_COMMAND_DATABASE_URL must be distinct from DATABASE_URL".to_owned(),
+                ));
+            }
+            if ontology_command_database_url == leave_command_database_url
+                && ontology_command_database_url.is_some()
+            {
+                return Err(AppError::Config(
+                    "ONTOLOGY_COMMAND_DATABASE_URL must be distinct from LEAVE_COMMAND_DATABASE_URL"
+                        .to_owned(),
+                ));
+            }
+
+            if let (Some(database_url), Some(leave_url), Some(ontology_url)) = (
+                database_url.as_deref(),
+                leave_command_database_url.as_deref(),
+                ontology_command_database_url.as_deref(),
+            ) {
+                let runtime_password =
+                    validate_database_url_identity("DATABASE_URL", database_url, "mnt_rt")?;
+                let leave_password = validate_database_url_identity(
+                    "LEAVE_COMMAND_DATABASE_URL",
+                    leave_url,
+                    "mnt_leave_cmd",
+                )?;
+                let ontology_password = validate_database_url_identity(
+                    "ONTOLOGY_COMMAND_DATABASE_URL",
+                    ontology_url,
+                    "mnt_ontology_cmd",
+                )?;
+                ensure_distinct_database_credentials([
+                    ("DATABASE_URL", Some(runtime_password.as_str())),
+                    ("LEAVE_COMMAND_DATABASE_URL", Some(leave_password.as_str())),
+                    (
+                        "ONTOLOGY_COMMAND_DATABASE_URL",
+                        Some(ontology_password.as_str()),
+                    ),
+                ])?;
+            }
+        } else {
+            let database_password = database_url
+                .as_deref()
+                .map(|database_url| {
+                    let expected_role = match role {
+                        AppRole::Worker => "mnt_rt",
+                        AppRole::Migrate => "mnt_app",
+                        AppRole::Api => unreachable!("api database URLs are validated above"),
+                    };
+                    validate_database_url_identity("DATABASE_URL", database_url, expected_role)
+                })
+                .transpose()?;
+            let leave_password = leave_command_database_url
+                .as_deref()
+                .map(|url| {
+                    validate_database_url_identity(
+                        "LEAVE_COMMAND_DATABASE_URL",
+                        url,
+                        "mnt_leave_cmd",
+                    )
+                })
+                .transpose()?;
+            let ontology_password = ontology_command_database_url
+                .as_deref()
+                .map(|url| {
+                    validate_database_url_identity(
+                        "ONTOLOGY_COMMAND_DATABASE_URL",
+                        url,
+                        "mnt_ontology_cmd",
+                    )
+                })
+                .transpose()?;
+            ensure_distinct_database_credentials([
+                ("DATABASE_URL", database_password.as_deref()),
+                ("LEAVE_COMMAND_DATABASE_URL", leave_password.as_deref()),
+                (
+                    "ONTOLOGY_COMMAND_DATABASE_URL",
+                    ontology_password.as_deref(),
+                ),
+            ])?;
+        }
         let otlp_endpoint = non_empty(vars.get("OTEL_EXPORTER_OTLP_ENDPOINT"));
         let jwt_public_key_pem = non_empty(vars.get("MNT_JWT_PUBLIC_KEY_PEM"));
         let jwt_has_partial_config = jwt_public_key_pem.is_none()
@@ -628,6 +741,8 @@ impl AppConfig {
             service_name,
             http_addr,
             database_url,
+            leave_command_database_url,
+            ontology_command_database_url,
             otlp_endpoint,
             jwt,
             auth_rest,
@@ -1022,6 +1137,12 @@ pub enum DatabaseDependency {
 pub struct AppState {
     config: AppConfig,
     database: DatabaseDependency,
+    /// Narrow command pool for leave mutations. It is intentionally separate
+    /// from the general runtime pool so PostgreSQL grants remain the final,
+    /// non-bypassable authority boundary even if an API handler is compromised.
+    leave_command_database: DatabaseDependency,
+    /// Narrow command pool for ontology schema mutations and canonical seeding.
+    ontology_command_database: DatabaseDependency,
     jwt_verifier: Option<JwtVerifier>,
     /// JWT issuer used ONLY by the PLATFORM view-as START path to mint
     /// short-lived read-only impersonation tokens. Built from the same ES256
@@ -1123,6 +1244,8 @@ impl AppState {
         Ok(Self {
             config,
             database,
+            leave_command_database: DatabaseDependency::NotConfigured,
+            ontology_command_database: DatabaseDependency::NotConfigured,
             jwt_verifier,
             view_as_issuer,
             policy_step_up,
@@ -1144,6 +1267,7 @@ impl AppState {
     pub async fn from_config(config: AppConfig) -> Result<Self, AppError> {
         let database = match config.database_url.as_deref() {
             Some(url) => {
+                let after_connect_role = "mnt_rt".to_owned();
                 let pool = PgPoolOptions::new()
                     .max_connections(8)
                     .acquire_timeout(Duration::from_secs(3))
@@ -1156,21 +1280,58 @@ impl AppState {
                     // before the pooled connection is reused, so a tenant's
                     // `app.current_org` can never bleed into the next request.
                     // (RESET ALL keeps prepared statements, unlike DISCARD ALL.)
-                    .after_release(|conn, _meta| {
+                    .after_connect(move |conn, _meta| {
+                        let expected_role = after_connect_role.clone();
                         Box::pin(async move {
-                            sqlx::query("RESET ALL").execute(conn).await?;
-                            Ok(true)
+                            validate_database_connection_identity(
+                                conn,
+                                "DATABASE_URL",
+                                &expected_role,
+                            )
+                            .await
                         })
+                    })
+                    .after_release(|conn, _meta| {
+                        Box::pin(reset_serving_database_connection(
+                            conn,
+                            "DATABASE_URL",
+                            "mnt_rt",
+                        ))
                     })
                     .connect(url)
                     .await
                     .map_err(AppError::Database)?;
+                validate_database_pool_identity(&pool, "DATABASE_URL", "mnt_rt").await?;
                 DatabaseDependency::Postgres(pool)
             }
             None => DatabaseDependency::NotConfigured,
         };
 
+        let leave_command_database = match (
+            config.role,
+            config.database_url.as_ref(),
+            config.leave_command_database_url.as_deref(),
+        ) {
+            (AppRole::Api, Some(_), Some(url)) => DatabaseDependency::Postgres(
+                connect_command_pool(url, "mnt_leave_cmd", "LEAVE_COMMAND_DATABASE_URL").await?,
+            ),
+            _ => DatabaseDependency::NotConfigured,
+        };
+        let ontology_command_database = match (
+            config.role,
+            config.database_url.as_ref(),
+            config.ontology_command_database_url.as_deref(),
+        ) {
+            (AppRole::Api, Some(_), Some(url)) => DatabaseDependency::Postgres(
+                connect_command_pool(url, "mnt_ontology_cmd", "ONTOLOGY_COMMAND_DATABASE_URL")
+                    .await?,
+            ),
+            _ => DatabaseDependency::NotConfigured,
+        };
+
         let mut state = Self::new(config.clone(), database)?;
+        state.leave_command_database = leave_command_database;
+        state.ontology_command_database = ontology_command_database;
         if let (DatabaseDependency::Postgres(pool), Some(storage_config)) =
             (&state.database, config.storage.as_ref())
         {
@@ -1312,6 +1473,601 @@ impl AppState {
             handle.shutdown();
         }
     }
+}
+
+/// Open a deliberately small command pool and prove the URL resolves to the
+/// expected PostgreSQL login. URL string inequality alone cannot establish
+/// credential separation (aliases and DSN parameters can obscure identity), so
+/// startup also checks both authenticated identities and role membership before
+/// any router receives the pool.
+async fn connect_command_pool(
+    url: &str,
+    expected_role: &str,
+    env_name: &str,
+) -> Result<PgPool, AppError> {
+    let after_connect_role = expected_role.to_owned();
+    let after_connect_env = env_name.to_owned();
+    let after_release_role = expected_role.to_owned();
+    let after_release_env = env_name.to_owned();
+    let pool = PgPoolOptions::new()
+        .max_connections(2)
+        .acquire_timeout(Duration::from_secs(3))
+        .after_connect(move |conn, _meta| {
+            let expected_role = after_connect_role.clone();
+            let env_name = after_connect_env.clone();
+            Box::pin(async move {
+                validate_database_connection_identity(conn, &env_name, &expected_role).await
+            })
+        })
+        .after_release(move |conn, _meta| {
+            let expected_role = after_release_role.clone();
+            let env_name = after_release_env.clone();
+            Box::pin(async move {
+                reset_serving_database_connection(conn, &env_name, &expected_role).await
+            })
+        })
+        .connect(url)
+        .await
+        .map_err(AppError::Database)?;
+    validate_database_pool_identity(&pool, env_name, expected_role).await?;
+    Ok(pool)
+}
+
+async fn reset_database_connection_state(conn: &mut PgConnection) -> Result<(), sqlx::Error> {
+    sqlx::query("RESET SESSION AUTHORIZATION")
+        .execute(&mut *conn)
+        .await?;
+    sqlx::query("RESET ROLE").execute(&mut *conn).await?;
+    sqlx::query("RESET ALL").execute(&mut *conn).await?;
+    Ok(())
+}
+
+async fn reset_serving_database_connection(
+    conn: &mut PgConnection,
+    env_name: &str,
+    expected_role: &str,
+) -> Result<bool, sqlx::Error> {
+    // Any error from an `after_release` hook makes SQLx hard-close the
+    // connection rather than return a partially cleaned session to the pool.
+    reset_database_connection_state(conn).await?;
+    Ok(
+        validate_database_connection_identity(conn, env_name, expected_role)
+            .await
+            .is_ok(),
+    )
+}
+
+async fn validate_database_connection_identity(
+    conn: &mut PgConnection,
+    env_name: &str,
+    expected_role: &str,
+) -> Result<(), sqlx::Error> {
+    let (
+        session_user,
+        current_user,
+        can_login,
+        is_superuser,
+        bypasses_rls,
+        inherits_privileges,
+        can_create_db,
+        can_create_role,
+        can_replicate,
+        has_unexpected_membership,
+    ): (
+        String,
+        String,
+        bool,
+        bool,
+        bool,
+        bool,
+        bool,
+        bool,
+        bool,
+        bool,
+    ) = sqlx::query_as(serving_database_identity_query())
+        .fetch_one(conn)
+        .await?;
+    ensure_expected_serving_database_identity(
+        env_name,
+        &session_user,
+        &current_user,
+        expected_role,
+        RoleAttributes {
+            can_login,
+            is_superuser,
+            bypasses_rls,
+            inherits_privileges,
+            can_create_db,
+            can_create_role,
+            can_replicate,
+        },
+        has_unexpected_membership,
+    )
+    .map_err(|error| sqlx::Error::Protocol(error.to_string()))
+}
+
+fn serving_database_identity_query() -> &'static str {
+    r#"SELECT session_user::text,
+              current_user::text,
+              authenticated.rolcanlogin,
+              authenticated.rolsuper,
+              authenticated.rolbypassrls,
+              authenticated.rolinherit,
+              authenticated.rolcreatedb,
+              authenticated.rolcreaterole,
+              authenticated.rolreplication,
+              EXISTS (
+                  SELECT 1
+                  FROM pg_catalog.pg_roles AS candidate
+                  WHERE candidate.rolname <> session_user
+                    AND pg_catalog.pg_has_role(session_user, candidate.oid, 'MEMBER')
+              )
+       FROM pg_catalog.pg_roles AS authenticated
+       WHERE authenticated.rolname = session_user"#
+}
+
+async fn validate_database_pool_identity(
+    pool: &PgPool,
+    env_name: &str,
+    expected_role: &str,
+) -> Result<(), AppError> {
+    let mut conn = pool.acquire().await.map_err(AppError::Database)?;
+
+    validate_database_connection_identity(&mut conn, env_name, expected_role)
+        .await
+        .map_err(AppError::Database)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct RoleAttributes {
+    can_login: bool,
+    is_superuser: bool,
+    bypasses_rls: bool,
+    inherits_privileges: bool,
+    can_create_db: bool,
+    can_create_role: bool,
+    can_replicate: bool,
+}
+
+impl RoleAttributes {
+    const HARDENED_LOGIN: Self = Self {
+        can_login: true,
+        is_superuser: false,
+        bypasses_rls: false,
+        inherits_privileges: false,
+        can_create_db: false,
+        can_create_role: false,
+        can_replicate: false,
+    };
+
+    const HARDENED_MIGRATION_LOGIN: Self = Self {
+        bypasses_rls: true,
+        inherits_privileges: true,
+        ..Self::HARDENED_LOGIN
+    };
+
+    const HARDENED_DEFINER: Self = Self {
+        can_login: false,
+        ..Self::HARDENED_LOGIN
+    };
+}
+
+fn ensure_expected_serving_database_identity(
+    env_name: &str,
+    session_user: &str,
+    current_user: &str,
+    expected_role: &str,
+    attributes: RoleAttributes,
+    has_unexpected_membership: bool,
+) -> Result<(), AppError> {
+    if session_user != expected_role || current_user != expected_role {
+        return Err(AppError::Config(format!(
+            "{env_name} must authenticate directly as PostgreSQL role {expected_role:?}; \
+             session_user={session_user:?}, current_user={current_user:?}"
+        )));
+    }
+    if attributes != RoleAttributes::HARDENED_LOGIN {
+        return Err(AppError::Config(format!(
+            "{env_name} PostgreSQL role {expected_role:?} must be LOGIN, NOINHERIT, NOSUPERUSER, \
+             NOBYPASSRLS, NOCREATEDB, NOCREATEROLE, and NOREPLICATION"
+        )));
+    }
+    if has_unexpected_membership {
+        return Err(AppError::Config(format!(
+            "{env_name} PostgreSQL role {expected_role:?} must not have direct or inherited role membership"
+        )));
+    }
+    Ok(())
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct RoleMembership {
+    role_name: String,
+    admin_option: bool,
+    inherit_option: bool,
+    set_option: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct SubordinateRoleContract {
+    role_name: String,
+    attributes: RoleAttributes,
+    has_unexpected_membership: bool,
+}
+
+async fn validate_migration_database_connection(
+    conn: &mut PgConnection,
+) -> Result<(), sqlx::Error> {
+    let (
+        session_user,
+        current_user,
+        database_owner,
+        can_login,
+        is_superuser,
+        bypasses_rls,
+        inherits_privileges,
+        can_create_db,
+        can_create_role,
+        can_replicate,
+    ): (
+        String,
+        String,
+        String,
+        bool,
+        bool,
+        bool,
+        bool,
+        bool,
+        bool,
+        bool,
+    ) = sqlx::query_as(
+        r#"SELECT session_user::text,
+                  current_user::text,
+                  pg_catalog.pg_get_userbyid(database.datdba),
+                  authenticated.rolcanlogin,
+                  authenticated.rolsuper,
+                  authenticated.rolbypassrls,
+                  authenticated.rolinherit,
+                  authenticated.rolcreatedb,
+                  authenticated.rolcreaterole,
+                  authenticated.rolreplication
+           FROM pg_catalog.pg_roles AS authenticated
+           JOIN pg_catalog.pg_database AS database
+             ON database.datname = current_database()
+           WHERE authenticated.rolname = session_user"#,
+    )
+    .fetch_one(&mut *conn)
+    .await?;
+
+    let memberships = sqlx::query_as::<_, (String, bool, bool, bool)>(
+        r#"SELECT granted.rolname,
+                  membership.admin_option,
+                  membership.inherit_option,
+                  membership.set_option
+           FROM pg_catalog.pg_auth_members AS membership
+           JOIN pg_catalog.pg_roles AS granted ON granted.oid = membership.roleid
+           JOIN pg_catalog.pg_roles AS member ON member.oid = membership.member
+           WHERE member.rolname = 'mnt_app'
+           ORDER BY granted.rolname"#,
+    )
+    .fetch_all(&mut *conn)
+    .await?
+    .into_iter()
+    .map(
+        |(role_name, admin_option, inherit_option, set_option)| RoleMembership {
+            role_name,
+            admin_option,
+            inherit_option,
+            set_option,
+        },
+    )
+    .collect::<Vec<_>>();
+
+    let subordinate_roles =
+        sqlx::query_as::<_, (String, bool, bool, bool, bool, bool, bool, bool, bool)>(
+            r#"SELECT subordinate.rolname,
+                  subordinate.rolcanlogin,
+                  subordinate.rolsuper,
+                  subordinate.rolbypassrls,
+                  subordinate.rolinherit,
+                  subordinate.rolcreatedb,
+                  subordinate.rolcreaterole,
+                  subordinate.rolreplication,
+                  EXISTS (
+                      SELECT 1
+                      FROM pg_catalog.pg_roles AS candidate
+                      WHERE candidate.rolname <> subordinate.rolname
+                        AND pg_catalog.pg_has_role(subordinate.oid, candidate.oid, 'MEMBER')
+                  )
+           FROM pg_catalog.pg_roles AS subordinate
+           WHERE subordinate.rolname IN ('mnt_leave_definer', 'mnt_ontology_writer')
+           ORDER BY subordinate.rolname"#,
+        )
+        .fetch_all(&mut *conn)
+        .await?
+        .into_iter()
+        .map(
+            |(
+                role_name,
+                can_login,
+                is_superuser,
+                bypasses_rls,
+                inherits_privileges,
+                can_create_db,
+                can_create_role,
+                can_replicate,
+                has_unexpected_membership,
+            )| SubordinateRoleContract {
+                role_name,
+                attributes: RoleAttributes {
+                    can_login,
+                    is_superuser,
+                    bypasses_rls,
+                    inherits_privileges,
+                    can_create_db,
+                    can_create_role,
+                    can_replicate,
+                },
+                has_unexpected_membership,
+            },
+        )
+        .collect::<Vec<_>>();
+
+    let has_unexpected_application_membership_edge: bool = sqlx::query_scalar(
+        r#"SELECT EXISTS (
+               SELECT 1
+               FROM pg_catalog.pg_auth_members AS membership
+               JOIN pg_catalog.pg_roles AS granted ON granted.oid = membership.roleid
+               JOIN pg_catalog.pg_roles AS member ON member.oid = membership.member
+               WHERE (
+                   granted.rolname IN (
+                       'mnt_app', 'mnt_rt', 'mnt_leave_definer', 'mnt_leave_cmd',
+                       'mnt_ontology_writer', 'mnt_ontology_cmd'
+                   )
+                   OR member.rolname IN (
+                       'mnt_app', 'mnt_rt', 'mnt_leave_definer', 'mnt_leave_cmd',
+                       'mnt_ontology_writer', 'mnt_ontology_cmd'
+                   )
+               )
+               AND NOT (
+                   member.rolname = 'mnt_app'
+                   AND granted.rolname IN ('mnt_leave_definer', 'mnt_ontology_writer')
+                   AND NOT membership.admin_option
+                   AND membership.inherit_option
+                   AND membership.set_option
+               )
+           )"#,
+    )
+    .fetch_one(&mut *conn)
+    .await?;
+
+    ensure_expected_migration_database_identity(
+        &session_user,
+        &current_user,
+        &database_owner,
+        RoleAttributes {
+            can_login,
+            is_superuser,
+            bypasses_rls,
+            inherits_privileges,
+            can_create_db,
+            can_create_role,
+            can_replicate,
+        },
+        &memberships,
+        &subordinate_roles,
+        has_unexpected_application_membership_edge,
+    )
+    .map_err(|error| sqlx::Error::Protocol(error.to_string()))
+}
+
+async fn validate_migration_database_pool(pool: &PgPool) -> Result<(), AppError> {
+    let mut conn = pool.acquire().await.map_err(AppError::Database)?;
+    validate_migration_database_connection(&mut conn)
+        .await
+        .map_err(AppError::Database)
+}
+
+async fn reset_migration_database_connection(conn: &mut PgConnection) -> Result<bool, sqlx::Error> {
+    reset_database_connection_state(conn).await?;
+    Ok(validate_migration_database_connection(conn).await.is_ok())
+}
+
+fn ensure_expected_migration_database_identity(
+    session_user: &str,
+    current_user: &str,
+    database_owner: &str,
+    attributes: RoleAttributes,
+    memberships: &[RoleMembership],
+    subordinate_roles: &[SubordinateRoleContract],
+    has_unexpected_application_membership_edge: bool,
+) -> Result<(), AppError> {
+    if session_user != "mnt_app" || current_user != "mnt_app" {
+        return Err(AppError::Config(format!(
+            "DATABASE_URL migration connection must authenticate directly as PostgreSQL role \
+             \"mnt_app\"; session_user={session_user:?}, current_user={current_user:?}"
+        )));
+    }
+    if database_owner != "mnt_app" {
+        return Err(AppError::Config(
+            "DATABASE_URL migration database must be owned by PostgreSQL role \"mnt_app\""
+                .to_owned(),
+        ));
+    }
+    if attributes != RoleAttributes::HARDENED_MIGRATION_LOGIN {
+        return Err(AppError::Config(
+            "DATABASE_URL migration role \"mnt_app\" must be LOGIN, INHERIT, NOSUPERUSER, \
+             BYPASSRLS, NOCREATEDB, NOCREATEROLE, and NOREPLICATION"
+                .to_owned(),
+        ));
+    }
+
+    const EXPECTED_DEFINERS: [&str; 2] = ["mnt_leave_definer", "mnt_ontology_writer"];
+    if memberships.len() != EXPECTED_DEFINERS.len()
+        || EXPECTED_DEFINERS.iter().any(|expected| {
+            !memberships.iter().any(|membership| {
+                membership.role_name == *expected
+                    && !membership.admin_option
+                    && membership.inherit_option
+                    && membership.set_option
+            })
+        })
+    {
+        return Err(AppError::Config(
+            "DATABASE_URL migration role \"mnt_app\" must have exactly the mnt_leave_definer and \
+             mnt_ontology_writer memberships with ADMIN false, INHERIT true, and SET true"
+                .to_owned(),
+        ));
+    }
+    if has_unexpected_application_membership_edge {
+        return Err(AppError::Config(
+            "migration application roles have a forbidden membership edge; only mnt_app membership in the two definer roles is permitted"
+                .to_owned(),
+        ));
+    }
+    if subordinate_roles.len() != EXPECTED_DEFINERS.len()
+        || EXPECTED_DEFINERS.iter().any(|expected| {
+            !subordinate_roles.iter().any(|subordinate| {
+                subordinate.role_name == *expected
+                    && subordinate.attributes == RoleAttributes::HARDENED_DEFINER
+                    && !subordinate.has_unexpected_membership
+            })
+        })
+    {
+        return Err(AppError::Config(
+            "migration definer roles must both be NOLOGIN, NOINHERIT, NOSUPERUSER, NOBYPASSRLS, \
+             NOCREATEDB, NOCREATEROLE, NOREPLICATION, and have no role memberships"
+                .to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_database_url_identity(
+    env_name: &str,
+    raw_url: &str,
+    expected_role: &str,
+) -> Result<String, AppError> {
+    let parsed = Url::parse(raw_url)
+        .map_err(|_| AppError::Config(format!("{env_name} must be a valid PostgreSQL URL")))?;
+    if !matches!(parsed.scheme(), "postgres" | "postgresql") {
+        return Err(AppError::Config(format!(
+            "{env_name} must use the postgres or postgresql URL scheme"
+        )));
+    }
+
+    let username = decode_database_url_component(env_name, "username", parsed.username())?;
+    let mut password = parsed
+        .password()
+        .map(|value| decode_database_url_component(env_name, "password", value))
+        .transpose()?;
+
+    for (key, value) in parsed.query_pairs() {
+        if key == "user" {
+            return Err(AppError::Config(format!(
+                "{env_name} must not set PostgreSQL role through DSN options; name the login in the URL authority"
+            )));
+        } else if key == "password" {
+            password = Some(value.into_owned());
+        } else if (key == "options" && postgres_options_set_role(&value))
+            || key
+                .strip_prefix("options[")
+                .and_then(|key| key.strip_suffix(']'))
+                .is_some_and(|key| key.eq_ignore_ascii_case("role"))
+        {
+            return Err(AppError::Config(format!(
+                "{env_name} must not set PostgreSQL role through DSN options"
+            )));
+        }
+    }
+
+    if username != expected_role {
+        return Err(AppError::Config(format!(
+            "{env_name} must name PostgreSQL login role {expected_role:?} directly"
+        )));
+    }
+    password
+        .filter(|password| !password.is_empty())
+        .ok_or_else(|| {
+            AppError::Config(format!(
+                "{env_name} must contain a nonempty password credential"
+            ))
+        })
+}
+
+fn decode_database_url_component(
+    env_name: &str,
+    component_name: &str,
+    value: &str,
+) -> Result<String, AppError> {
+    let bytes = value.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' {
+            let Some(high) = bytes.get(index + 1).and_then(|value| hex_digit(*value)) else {
+                return Err(AppError::Config(format!(
+                    "{env_name} contains an invalid percent-encoded {component_name}"
+                )));
+            };
+            let Some(low) = bytes.get(index + 2).and_then(|value| hex_digit(*value)) else {
+                return Err(AppError::Config(format!(
+                    "{env_name} contains an invalid percent-encoded {component_name}"
+                )));
+            };
+            decoded.push((high << 4) | low);
+            index += 3;
+            continue;
+        }
+        decoded.push(bytes[index]);
+        index += 1;
+    }
+
+    String::from_utf8(decoded).map_err(|_| {
+        AppError::Config(format!(
+            "{env_name} contains a non-UTF-8 percent-encoded {component_name}"
+        ))
+    })
+}
+
+fn hex_digit(value: u8) -> Option<u8> {
+    match value {
+        b'0'..=b'9' => Some(value - b'0'),
+        b'a'..=b'f' => Some(value - b'a' + 10),
+        b'A'..=b'F' => Some(value - b'A' + 10),
+        _ => None,
+    }
+}
+
+fn postgres_options_set_role(options: &str) -> bool {
+    options.split_ascii_whitespace().any(|token| {
+        let token = token.trim_start_matches(['-', '\\']);
+        let assignment = token
+            .strip_prefix('c')
+            .filter(|assignment| assignment.contains('='))
+            .unwrap_or(token);
+        assignment
+            .split_once('=')
+            .is_some_and(|(name, _)| name.eq_ignore_ascii_case("role"))
+    })
+}
+
+fn ensure_distinct_database_credentials<const N: usize>(
+    credentials: [(&str, Option<&str>); N],
+) -> Result<(), AppError> {
+    for (index, (left_name, left_password)) in credentials.iter().enumerate() {
+        let Some(left_password) = left_password else {
+            continue;
+        };
+        for (right_name, right_password) in &credentials[index + 1..] {
+            if right_password.is_some_and(|right_password| right_password == *left_password) {
+                return Err(AppError::Config(format!(
+                    "{left_name} and {right_name} must use distinct password credentials"
+                )));
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Build the inbound-attachment object store the webmail read API uses for
@@ -1682,15 +2438,14 @@ fn http_trace_layer() -> TraceLayer<
 
 /// Build the engine-backed governed-config catalog seeder injected into the
 /// platform router. Runs once per newly onboarded tenant: it opens a
-/// `PgOntologyStore` on the app pool and drives the standard config object types
+/// configured `PgOntologyStore` and drives the standard config object types
 /// (SLO settings, console views) through the engine, scoped to the new org so the
 /// registry writes pass FORCE-RLS. Lives here (App tier) because the platform tier
 /// must not depend on the ontology adapter (layer boundary).
-fn tenant_config_seeder(pool: PgPool) -> mnt_platform_rest::TenantConfigSeeder {
+fn tenant_config_seeder(store: PgOntologyStore) -> mnt_platform_rest::TenantConfigSeeder {
     Arc::new(move |org, actor, at| {
-        let pool = pool.clone();
+        let store = store.clone();
         Box::pin(async move {
-            let store = PgOntologyStore::new(pool);
             mnt_platform_request_context::scope_org(
                 org,
                 mnt_ontology_adapter_postgres::seed::seed_governed_config_object_types(
@@ -1750,12 +2505,29 @@ pub fn build_router(state: AppState) -> Router {
             let org_store = PgOrgStore::new(pool.clone());
             // Ontology / governance / policy-studio engine stores (each rest
             // router self-arms `app.current_org`, like every domain router).
-            let ontology_registry_store = PgOntologyStore::new(pool.clone());
+            let ontology_registry_store = match &state.ontology_command_database {
+                DatabaseDependency::Postgres(command_pool) => {
+                    PgOntologyStore::new(pool.clone()).with_command_pool(command_pool.clone())
+                }
+                DatabaseDependency::NotConfigured => PgOntologyStore::new(pool.clone()),
+            };
             let ontology_instance_store = PgInstanceStore::new(pool.clone());
             let governance_store = PgGovernanceStore::new(pool.clone());
             let cedar_policy_store = PgCedarPolicyStore::new(pool.clone());
             let work_order_store = PgWorkOrderStore::new(pool.clone())
                 .with_created_listener(Arc::new(messenger_store.clone()));
+            let leave_store = {
+                let store = mnt_leave_adapter_postgres::PgLeaveStore::new(
+                    pool.clone(),
+                    Arc::new(PgInboxStore::new(pool.clone())),
+                );
+                match &state.leave_command_database {
+                    DatabaseDependency::Postgres(command_pool) => {
+                        store.with_leave_command_pool(command_pool.clone())
+                    }
+                    DatabaseDependency::NotConfigured => store,
+                }
+            };
             // Authenticated domain routers (tenant-scoped data). Each domain
             // `router()` self-applies the per-request org middleware (so the
             // behavior is testable per crate), arming `app.current_org` for every
@@ -1822,10 +2594,10 @@ pub fn build_router(state: AppState) -> Router {
                     RegistryRestState::new(registry_store, state.jwt_verifier.clone())
                         .with_passkey_step_up(state.policy_step_up.clone()),
                 ))
-                .merge(hr::router(hr::HrState::new(
-                    pool.clone(),
-                    state.jwt_verifier.clone(),
-                )))
+                .merge(hr::router({
+                    let hr_state = hr::HrState::new(pool.clone(), state.jwt_verifier.clone());
+                    hr_state.with_leave_command_store(leave_store.clone())
+                }))
                 .merge(workflow_studio::router(
                     workflow_studio::WorkflowStudioState::new(
                         pool.clone(),
@@ -1945,10 +2717,7 @@ pub fn build_router(state: AppState) -> Router {
                 // receipt-gated notice through the SAME inbox vault (a fresh
                 // `PgInboxStore` over the shared pool as the `InboxDocSink`).
                 .merge(mnt_leave_rest::router(mnt_leave_rest::LeaveRestState::new(
-                    mnt_leave_adapter_postgres::PgLeaveStore::new(
-                        pool.clone(),
-                        std::sync::Arc::new(PgInboxStore::new(pool.clone())),
-                    ),
+                    leave_store,
                     state.jwt_verifier.clone(),
                 )))
                 .merge(mnt_todos_rest::router(TodoRestState::new(
@@ -1981,7 +2750,7 @@ pub fn build_router(state: AppState) -> Router {
                 // action-execute path is the single mutation surface (§16).
                 .merge(mnt_ontology_rest::router(
                     OntologyRestState::new(
-                        ontology_registry_store,
+                        ontology_registry_store.clone(),
                         ontology_instance_store,
                         governance_store.clone(),
                         state.jwt_verifier.clone(),
@@ -2054,7 +2823,9 @@ pub fn build_router(state: AppState) -> Router {
                     PlatformProvisioner::new(state.config.coldstart_otp_ttl),
                 )
                 .with_view_as_issuer(state.view_as_issuer.clone())
-                .with_tenant_config_seeder(Some(tenant_config_seeder(pool.clone()))),
+                .with_tenant_config_seeder(Some(tenant_config_seeder(
+                    ontology_registry_store.clone(),
+                ))),
             );
             // Everything EXCEPT the realtime WS upgrade: base health/openapi
             // routes, the tenant domain routers, the platform tier, and the
@@ -2776,10 +3547,20 @@ pub async fn run_migrations(config: &AppConfig) -> Result<(), AppError> {
     let pool = PgPoolOptions::new()
         .max_connections(1)
         .acquire_timeout(Duration::from_secs(10))
+        .after_connect(|conn, _meta| {
+            Box::pin(async move { validate_migration_database_connection(conn).await })
+        })
+        .after_release(|conn, _meta| {
+            Box::pin(async move { reset_migration_database_connection(conn).await })
+        })
         .connect(database_url)
         .await
         .map_err(AppError::Database)?;
 
+    // The migrate role intentionally owns the database and inherits exactly two
+    // hardened definer capabilities. Re-run the specialized contract immediately
+    // before migration execution rather than applying serving-role assumptions.
+    validate_migration_database_pool(&pool).await?;
     let applied_before = applied_migration_count(&pool).await?;
     let embedded = MIGRATOR.iter().count();
 
@@ -3497,6 +4278,588 @@ mod worker_identity_tests {
         assert_eq!(
             name,
             format!("{DEFAULT_SERVICE_NAME}-pod-1-dispatch-worker")
+        );
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod command_database_config_tests {
+    use super::{
+        AppConfig, AppRole, RoleAttributes, RoleMembership, SubordinateRoleContract,
+        ensure_expected_migration_database_identity, ensure_expected_serving_database_identity,
+        postgres_options_set_role, serving_database_identity_query, validate_database_url_identity,
+    };
+
+    const RUNTIME_URL: &str = "postgresql://mnt_rt:runtime-secret@db/maintenance";
+    const LEAVE_COMMAND_URL: &str = "postgresql://mnt_leave_cmd:leave-secret@db/maintenance";
+    const ONTOLOGY_COMMAND_URL: &str =
+        "postgresql://mnt_ontology_cmd:ontology-secret@db/maintenance";
+
+    fn migration_memberships() -> Vec<RoleMembership> {
+        ["mnt_leave_definer", "mnt_ontology_writer"]
+            .into_iter()
+            .map(|role_name| RoleMembership {
+                role_name: role_name.to_owned(),
+                admin_option: false,
+                inherit_option: true,
+                set_option: true,
+            })
+            .collect()
+    }
+
+    fn migration_subordinate_roles() -> Vec<SubordinateRoleContract> {
+        ["mnt_leave_definer", "mnt_ontology_writer"]
+            .into_iter()
+            .map(|role_name| SubordinateRoleContract {
+                role_name: role_name.to_owned(),
+                attributes: RoleAttributes::HARDENED_DEFINER,
+                has_unexpected_membership: false,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn api_with_database_requires_distinct_leave_command_database_url() {
+        let error = AppConfig::from_pairs([("MNT_APP_ROLE", "api"), ("DATABASE_URL", RUNTIME_URL)])
+            .unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("LEAVE_COMMAND_DATABASE_URL is required for api role"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn blank_leave_command_database_url_fails_closed_for_database_backed_api() {
+        assert!(
+            AppConfig::from_pairs([
+                ("MNT_APP_ROLE", "api"),
+                ("DATABASE_URL", RUNTIME_URL),
+                ("LEAVE_COMMAND_DATABASE_URL", "   "),
+            ])
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn api_accepts_distinct_leave_command_database_url() {
+        let config = AppConfig::from_pairs([
+            ("MNT_APP_ROLE", "api"),
+            ("DATABASE_URL", RUNTIME_URL),
+            ("LEAVE_COMMAND_DATABASE_URL", LEAVE_COMMAND_URL),
+            ("ONTOLOGY_COMMAND_DATABASE_URL", ONTOLOGY_COMMAND_URL),
+        ])
+        .unwrap();
+
+        assert_eq!(config.role, AppRole::Api);
+        assert_eq!(
+            config.leave_command_database_url.as_deref(),
+            Some(LEAVE_COMMAND_URL)
+        );
+        assert_eq!(
+            config.ontology_command_database_url.as_deref(),
+            Some(ONTOLOGY_COMMAND_URL)
+        );
+    }
+
+    #[test]
+    fn api_with_database_requires_distinct_ontology_command_database_url() {
+        let error = AppConfig::from_pairs([
+            ("MNT_APP_ROLE", "api"),
+            ("DATABASE_URL", RUNTIME_URL),
+            ("LEAVE_COMMAND_DATABASE_URL", LEAVE_COMMAND_URL),
+        ])
+        .unwrap_err();
+
+        assert!(
+            error
+                .to_string()
+                .contains("ONTOLOGY_COMMAND_DATABASE_URL is required for api role"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn api_rejects_command_urls_equal_to_runtime_or_each_other() {
+        let leave_equals_runtime = AppConfig::from_pairs([
+            ("MNT_APP_ROLE", "api"),
+            ("DATABASE_URL", RUNTIME_URL),
+            ("LEAVE_COMMAND_DATABASE_URL", RUNTIME_URL),
+            ("ONTOLOGY_COMMAND_DATABASE_URL", ONTOLOGY_COMMAND_URL),
+        ])
+        .unwrap_err();
+        assert!(
+            leave_equals_runtime
+                .to_string()
+                .contains("LEAVE_COMMAND_DATABASE_URL must be distinct from DATABASE_URL")
+        );
+
+        let ontology_equals_runtime = AppConfig::from_pairs([
+            ("MNT_APP_ROLE", "api"),
+            ("DATABASE_URL", RUNTIME_URL),
+            ("LEAVE_COMMAND_DATABASE_URL", LEAVE_COMMAND_URL),
+            ("ONTOLOGY_COMMAND_DATABASE_URL", RUNTIME_URL),
+        ])
+        .unwrap_err();
+        assert!(
+            ontology_equals_runtime
+                .to_string()
+                .contains("ONTOLOGY_COMMAND_DATABASE_URL must be distinct from DATABASE_URL")
+        );
+
+        let shared_command_url = AppConfig::from_pairs([
+            ("MNT_APP_ROLE", "api"),
+            ("DATABASE_URL", RUNTIME_URL),
+            ("LEAVE_COMMAND_DATABASE_URL", LEAVE_COMMAND_URL),
+            ("ONTOLOGY_COMMAND_DATABASE_URL", LEAVE_COMMAND_URL),
+        ])
+        .unwrap_err();
+        assert!(shared_command_url.to_string().contains(
+            "ONTOLOGY_COMMAND_DATABASE_URL must be distinct from LEAVE_COMMAND_DATABASE_URL"
+        ));
+    }
+
+    #[test]
+    fn connected_role_guards_require_exact_direct_identity_without_membership() {
+        assert!(
+            ensure_expected_serving_database_identity(
+                "LEAVE_COMMAND_DATABASE_URL",
+                "mnt_leave_cmd",
+                "mnt_leave_cmd",
+                "mnt_leave_cmd",
+                RoleAttributes::HARDENED_LOGIN,
+                false,
+            )
+            .is_ok()
+        );
+        assert!(
+            ensure_expected_serving_database_identity(
+                "DATABASE_URL",
+                "mnt_rt",
+                "mnt_leave_cmd",
+                "mnt_rt",
+                RoleAttributes::HARDENED_LOGIN,
+                false,
+            )
+            .is_err()
+        );
+        assert!(
+            ensure_expected_serving_database_identity(
+                "DATABASE_URL",
+                "local_dev",
+                "mnt_rt",
+                "mnt_rt",
+                RoleAttributes::HARDENED_LOGIN,
+                false,
+            )
+            .is_err()
+        );
+        assert!(
+            ensure_expected_serving_database_identity(
+                "DATABASE_URL",
+                "mnt_rt",
+                "mnt_rt",
+                "mnt_rt",
+                RoleAttributes::HARDENED_LOGIN,
+                true,
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn serving_role_guards_reject_each_escalating_attribute() {
+        let hostile_attributes = [
+            RoleAttributes {
+                can_login: false,
+                ..RoleAttributes::HARDENED_LOGIN
+            },
+            RoleAttributes {
+                is_superuser: true,
+                ..RoleAttributes::HARDENED_LOGIN
+            },
+            RoleAttributes {
+                bypasses_rls: true,
+                ..RoleAttributes::HARDENED_LOGIN
+            },
+            RoleAttributes {
+                inherits_privileges: true,
+                ..RoleAttributes::HARDENED_LOGIN
+            },
+            RoleAttributes {
+                can_create_db: true,
+                ..RoleAttributes::HARDENED_LOGIN
+            },
+            RoleAttributes {
+                can_create_role: true,
+                ..RoleAttributes::HARDENED_LOGIN
+            },
+            RoleAttributes {
+                can_replicate: true,
+                ..RoleAttributes::HARDENED_LOGIN
+            },
+        ];
+
+        for attributes in hostile_attributes {
+            assert!(
+                ensure_expected_serving_database_identity(
+                    "DATABASE_URL",
+                    "mnt_rt",
+                    "mnt_rt",
+                    "mnt_rt",
+                    attributes,
+                    false,
+                )
+                .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn database_urls_reject_login_role_aliases_and_role_options() {
+        assert!(
+            validate_database_url_identity(
+                "DATABASE_URL",
+                "postgresql://local_dev:secret@db/maintenance",
+                "mnt_rt",
+            )
+            .is_err()
+        );
+
+        for options in [
+            "-c role=mnt_rt",
+            "-crole=mnt_rt",
+            "--ROLE=mnt_rt",
+            "role=mnt_rt",
+        ] {
+            assert!(postgres_options_set_role(options), "options: {options}");
+        }
+        assert!(!postgres_options_set_role("-c search_path=public"));
+
+        for url in [
+            "postgresql://mnt_rt:secret@db/maintenance?options=-c%20role%3Dmnt_rt",
+            "postgresql://mnt_rt:secret@db/maintenance?options=-crole%3Dmnt_rt",
+            "postgresql://mnt_rt:secret@db/maintenance?options%5Brole%5D=mnt_rt",
+            "postgresql://local_dev:secret@db/maintenance?user=mnt_rt",
+        ] {
+            let error = validate_database_url_identity("DATABASE_URL", url, "mnt_rt").unwrap_err();
+            assert!(
+                error.to_string().contains("must not set PostgreSQL role"),
+                "unexpected error: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn database_urls_require_nonempty_decoded_passwords() {
+        for url in [
+            "postgresql://mnt_rt@db/maintenance",
+            "postgresql://mnt_rt:@db/maintenance",
+            "postgresql://mnt_rt:secret@db/maintenance?password=",
+        ] {
+            let error = validate_database_url_identity("DATABASE_URL", url, "mnt_rt").unwrap_err();
+            let message = error.to_string();
+            assert!(
+                message.contains("nonempty password"),
+                "unexpected error: {message}"
+            );
+            assert!(!message.contains("secret"));
+        }
+    }
+
+    #[test]
+    fn serving_identity_query_checks_all_memberships_and_role_attributes() {
+        let query = serving_database_identity_query();
+        assert!(query.contains("pg_has_role"));
+        assert!(query.contains("'MEMBER'"));
+        for attribute in [
+            "rolcanlogin",
+            "rolsuper",
+            "rolbypassrls",
+            "rolinherit",
+            "rolcreatedb",
+            "rolcreaterole",
+            "rolreplication",
+        ] {
+            assert!(query.contains(attribute));
+        }
+    }
+
+    #[test]
+    fn migration_identity_accepts_only_the_exact_owner_topology() {
+        assert!(
+            ensure_expected_migration_database_identity(
+                "mnt_app",
+                "mnt_app",
+                "mnt_app",
+                RoleAttributes::HARDENED_MIGRATION_LOGIN,
+                &migration_memberships(),
+                &migration_subordinate_roles(),
+                false,
+            )
+            .is_ok()
+        );
+
+        for (session_user, current_user, owner) in [
+            ("bootstrap", "mnt_app", "mnt_app"),
+            ("mnt_app", "mnt_leave_definer", "mnt_app"),
+            ("mnt_app", "mnt_app", "bootstrap"),
+        ] {
+            assert!(
+                ensure_expected_migration_database_identity(
+                    session_user,
+                    current_user,
+                    owner,
+                    RoleAttributes::HARDENED_MIGRATION_LOGIN,
+                    &migration_memberships(),
+                    &migration_subordinate_roles(),
+                    false,
+                )
+                .is_err()
+            );
+        }
+
+        let hostile_attributes = [
+            RoleAttributes {
+                can_login: false,
+                ..RoleAttributes::HARDENED_MIGRATION_LOGIN
+            },
+            RoleAttributes {
+                is_superuser: true,
+                ..RoleAttributes::HARDENED_MIGRATION_LOGIN
+            },
+            RoleAttributes {
+                bypasses_rls: false,
+                ..RoleAttributes::HARDENED_MIGRATION_LOGIN
+            },
+            RoleAttributes {
+                inherits_privileges: false,
+                ..RoleAttributes::HARDENED_MIGRATION_LOGIN
+            },
+            RoleAttributes {
+                can_create_db: true,
+                ..RoleAttributes::HARDENED_MIGRATION_LOGIN
+            },
+            RoleAttributes {
+                can_create_role: true,
+                ..RoleAttributes::HARDENED_MIGRATION_LOGIN
+            },
+            RoleAttributes {
+                can_replicate: true,
+                ..RoleAttributes::HARDENED_MIGRATION_LOGIN
+            },
+        ];
+        for attributes in hostile_attributes {
+            assert!(
+                ensure_expected_migration_database_identity(
+                    "mnt_app",
+                    "mnt_app",
+                    "mnt_app",
+                    attributes,
+                    &migration_memberships(),
+                    &migration_subordinate_roles(),
+                    false,
+                )
+                .is_err()
+            );
+        }
+    }
+
+    #[test]
+    fn migration_identity_rejects_membership_and_definer_drift() {
+        let mut missing_membership = migration_memberships();
+        missing_membership.pop();
+        let mut admin_membership = migration_memberships();
+        admin_membership[0].admin_option = true;
+        let mut non_inheritable_membership = migration_memberships();
+        non_inheritable_membership[0].inherit_option = false;
+        let mut non_settable_membership = migration_memberships();
+        non_settable_membership[1].set_option = false;
+        let mut extra_membership = migration_memberships();
+        extra_membership.push(RoleMembership {
+            role_name: "pg_read_all_data".to_owned(),
+            admin_option: false,
+            inherit_option: true,
+            set_option: true,
+        });
+        for memberships in [
+            missing_membership,
+            admin_membership,
+            non_inheritable_membership,
+            non_settable_membership,
+            extra_membership,
+        ] {
+            assert!(
+                ensure_expected_migration_database_identity(
+                    "mnt_app",
+                    "mnt_app",
+                    "mnt_app",
+                    RoleAttributes::HARDENED_MIGRATION_LOGIN,
+                    &memberships,
+                    &migration_subordinate_roles(),
+                    false,
+                )
+                .is_err()
+            );
+        }
+
+        let mut login_definer = migration_subordinate_roles();
+        login_definer[0].attributes.can_login = true;
+        let mut inheriting_definer = migration_subordinate_roles();
+        inheriting_definer[0].attributes.inherits_privileges = true;
+        let mut privileged_definer = migration_subordinate_roles();
+        privileged_definer[1].attributes.bypasses_rls = true;
+        let mut member_definer = migration_subordinate_roles();
+        member_definer[1].has_unexpected_membership = true;
+        for subordinate_roles in [
+            login_definer,
+            inheriting_definer,
+            privileged_definer,
+            member_definer,
+        ] {
+            assert!(
+                ensure_expected_migration_database_identity(
+                    "mnt_app",
+                    "mnt_app",
+                    "mnt_app",
+                    RoleAttributes::HARDENED_MIGRATION_LOGIN,
+                    &migration_memberships(),
+                    &subordinate_roles,
+                    false,
+                )
+                .is_err()
+            );
+        }
+
+        assert!(
+            ensure_expected_migration_database_identity(
+                "mnt_app",
+                "mnt_app",
+                "mnt_app",
+                RoleAttributes::HARDENED_MIGRATION_LOGIN,
+                &migration_memberships(),
+                &migration_subordinate_roles(),
+                true,
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn migration_identity_rejects_incoming_mnt_app_membership_edge() {
+        let error = ensure_expected_migration_database_identity(
+            "mnt_app",
+            "mnt_app",
+            "mnt_app",
+            RoleAttributes::HARDENED_MIGRATION_LOGIN,
+            &migration_memberships(),
+            &migration_subordinate_roles(),
+            true,
+        )
+        .unwrap_err();
+
+        assert!(
+            error.to_string().contains("forbidden membership edge"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn api_rejects_pairwise_equal_decoded_database_passwords() {
+        let cases = [
+            (
+                "postgresql://mnt_rt:shared%2Dsecret@db/maintenance",
+                "postgresql://mnt_leave_cmd:shared-secret@db/leave",
+                ONTOLOGY_COMMAND_URL,
+                "DATABASE_URL and LEAVE_COMMAND_DATABASE_URL",
+            ),
+            (
+                RUNTIME_URL,
+                "postgresql://mnt_leave_cmd:shared%2Dsecret@db/leave",
+                "postgresql://mnt_ontology_cmd:shared-secret@db/ontology",
+                "LEAVE_COMMAND_DATABASE_URL and ONTOLOGY_COMMAND_DATABASE_URL",
+            ),
+            (
+                "postgresql://mnt_rt:query-secret@db/runtime",
+                LEAVE_COMMAND_URL,
+                "postgresql://mnt_ontology_cmd:different@db/ontology?password=query-secret",
+                "DATABASE_URL and ONTOLOGY_COMMAND_DATABASE_URL",
+            ),
+        ];
+
+        for (runtime, leave, ontology, expected_pair) in cases {
+            let error = AppConfig::from_pairs([
+                ("MNT_APP_ROLE", "api"),
+                ("DATABASE_URL", runtime),
+                ("LEAVE_COMMAND_DATABASE_URL", leave),
+                ("ONTOLOGY_COMMAND_DATABASE_URL", ontology),
+            ])
+            .unwrap_err();
+            let message = error.to_string();
+            assert!(
+                message.contains(expected_pair),
+                "unexpected error: {message}"
+            );
+            assert!(!message.contains("shared-secret"));
+            assert!(!message.contains("query-secret"));
+        }
+    }
+
+    #[test]
+    fn database_free_api_does_not_require_leave_command_database_url() {
+        let config = AppConfig::from_pairs([("MNT_APP_ROLE", "api")]).unwrap();
+
+        assert!(config.database_url.is_none());
+        assert!(config.leave_command_database_url.is_none());
+        assert!(config.ontology_command_database_url.is_none());
+    }
+
+    #[test]
+    fn worker_and_migrate_do_not_require_leave_command_database_url() {
+        for (role, database_url) in [
+            ("worker", RUNTIME_URL),
+            (
+                "migrate",
+                "postgresql://mnt_app:migration-secret@db/maintenance",
+            ),
+        ] {
+            let config =
+                AppConfig::from_pairs([("MNT_APP_ROLE", role), ("DATABASE_URL", database_url)])
+                    .unwrap();
+
+            assert!(config.leave_command_database_url.is_none());
+            assert!(config.ontology_command_database_url.is_none());
+        }
+    }
+
+    #[test]
+    fn worker_requires_exact_runtime_login_but_migrate_keeps_owner_url() {
+        assert!(
+            AppConfig::from_pairs([
+                ("MNT_APP_ROLE", "worker"),
+                (
+                    "DATABASE_URL",
+                    "postgresql://local_dev:secret@db/maintenance",
+                ),
+            ])
+            .is_err()
+        );
+        assert!(
+            AppConfig::from_pairs([
+                ("MNT_APP_ROLE", "migrate"),
+                ("DATABASE_URL", "postgresql://mnt_app:secret@db/maintenance",),
+            ])
+            .is_ok()
+        );
+        assert!(
+            AppConfig::from_pairs([
+                ("MNT_APP_ROLE", "migrate"),
+                ("DATABASE_URL", "postgresql://mnt_rt:secret@db/maintenance",),
+            ])
+            .is_err()
         );
     }
 }

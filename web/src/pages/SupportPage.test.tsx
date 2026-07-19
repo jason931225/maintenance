@@ -2,9 +2,11 @@ import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
+import { MemoryRouter, useNavigate } from "react-router-dom";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { createConsoleApiClient } from "../api/client";
+import type { ConsoleApiClient } from "../api/client";
 import { WindowManagerProvider } from "../console/window";
 import { AuthContext } from "../context/auth";
 import type { AuthContextValue, AuthSession } from "../context/auth";
@@ -51,6 +53,58 @@ const onTimeTicket = {
   created_at: new Date().toISOString(),
 };
 
+const staleTicketId = "dddddddd-4444-4444-8444-dddddddddddd";
+
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<undefined>((next) => {
+    resolve = () => {
+      next(undefined);
+    };
+  });
+  return { promise, resolve };
+}
+
+function SupportHistoryControls() {
+  const navigate = useNavigate();
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => {
+          void navigate("/support");
+        }}
+      >
+        base support
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          void navigate(`/support?ticket=${onTimeTicket.id}`);
+        }}
+      >
+        known support ticket
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          void navigate(-1);
+        }}
+      >
+        support back
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          void navigate(1);
+        }}
+      >
+        support forward
+      </button>
+    </>
+  );
+}
+
 interface CommentRow {
   id: string;
   ticket_id: string;
@@ -75,31 +129,42 @@ const server = setupServer(
       total: 2,
     });
   }),
-  http.get("*/api/v1/support/tickets/:id", ({ params }) =>
-    HttpResponse.json({
-      ticket: params.id === breachedTicket.id ? breachedTicket : onTimeTicket,
-      comments: postedComments.filter(
-        (comment) => comment.ticket_id === params.id,
-      ),
-    }),
-  ),
-  http.post("*/api/v1/support/tickets/:id/comments", async ({ params, request }) => {
-    const body = (await request.json()) as {
-      body: string;
-      is_internal_note: boolean;
-    };
-    const comment: CommentRow = {
-      id: `c-${String(postedComments.length + 1)}`,
-      ticket_id: String(params.id),
-      author_user_id: adminSession.user_id,
-      author_name: adminSession.display_name,
-      body: body.body,
-      is_internal_note: body.is_internal_note,
-      created_at: new Date().toISOString(),
-    };
-    postedComments.push(comment);
-    return HttpResponse.json(comment);
+  http.get("*/api/v1/support/tickets/:id", ({ params }) => {
+    const ticket =
+      params.id === breachedTicket.id
+        ? breachedTicket
+        : params.id === onTimeTicket.id
+          ? onTimeTicket
+          : undefined;
+    return ticket
+      ? HttpResponse.json({
+          ticket,
+          comments: postedComments.filter(
+            (comment) => comment.ticket_id === params.id,
+          ),
+        })
+      : HttpResponse.json({ error: "not found" }, { status: 404 });
   }),
+  http.post(
+    "*/api/v1/support/tickets/:id/comments",
+    async ({ params, request }) => {
+      const body = (await request.json()) as {
+        body: string;
+        is_internal_note: boolean;
+      };
+      const comment: CommentRow = {
+        id: `c-${String(postedComments.length + 1)}`,
+        ticket_id: String(params.id),
+        author_user_id: adminSession.user_id,
+        author_name: adminSession.display_name,
+        body: body.body,
+        is_internal_note: body.is_internal_note,
+        created_at: new Date().toISOString(),
+      };
+      postedComments.push(comment);
+      return HttpResponse.json(comment);
+    },
+  ),
   // SloSettingsCard → real support_slo_setting engine instances (be2-config-objects).
   http.get("*/api/v1/ontology/object-types/:key", ({ params }) =>
     HttpResponse.json({
@@ -142,8 +207,11 @@ const adminSession: AuthSession = {
   branches: [NOW_ISH_BRANCH],
 };
 
-function renderSupportPage(session: AuthSession = adminSession) {
-  const ctx: AuthContextValue = {
+function makeSupportAuthContext(
+  session: AuthSession,
+  api: ConsoleApiClient,
+): AuthContextValue {
+  return {
     session,
     restoring: false,
     login: async () => {},
@@ -154,18 +222,164 @@ function renderSupportPage(session: AuthSession = adminSession) {
     viewAs: undefined,
     enterViewAs: () => {},
     exitViewAs: () => undefined,
-    api: createConsoleApiClient(session.access_token),
+    api,
   };
+}
+
+function renderSupportPage(
+  session: AuthSession = adminSession,
+  initialEntry = "/support",
+  api: ConsoleApiClient = createConsoleApiClient(session.access_token),
+) {
+  const ctx = makeSupportAuthContext(session, api);
   return render(
     <AuthContext.Provider value={ctx}>
-      <WindowManagerProvider>
-        <SupportPage />
-      </WindowManagerProvider>
+      <MemoryRouter initialEntries={[initialEntry]}>
+        <WindowManagerProvider>
+          <SupportPage />
+          <SupportHistoryControls />
+        </WindowManagerProvider>
+      </MemoryRouter>
     </AuthContext.Provider>,
   );
 }
 
 describe("SupportPage SLO surface", () => {
+  it("opens the exact ticket from a direct URL after reload", async () => {
+    const first = renderSupportPage(
+      adminSession,
+      `/support?ticket=${onTimeTicket.id}`,
+    );
+    expect(
+      await screen.findByRole("region", { name: onTimeTicket.title }),
+    ).toBeVisible();
+    first.unmount();
+
+    renderSupportPage(adminSession, `/support?ticket=${onTimeTicket.id}`);
+    expect(
+      await screen.findByRole("region", { name: onTimeTicket.title }),
+    ).toBeVisible();
+  });
+
+  it("distinguishes a stale ticket link from a transport failure", async () => {
+    const stale = renderSupportPage(
+      adminSession,
+      `/support?ticket=${staleTicketId}`,
+    );
+    expect(await screen.findByText(ko.support.focusedMissing)).toBeVisible();
+    stale.unmount();
+
+    server.use(
+      http.get("*/api/v1/support/tickets/:id", () =>
+        HttpResponse.json({ error: "offline" }, { status: 503 }),
+      ),
+    );
+    renderSupportPage(adminSession, `/support?ticket=${staleTicketId}`);
+    expect(
+      await screen.findByText(ko.support.focusedUnavailable),
+    ).toBeVisible();
+    expect(
+      screen.queryByText(ko.support.focusedMissing),
+    ).not.toBeInTheDocument();
+  });
+
+  it("never flashes an old ticket-link result across removal and browser history", async () => {
+    const user = userEvent.setup();
+    renderSupportPage(adminSession, `/support?ticket=${onTimeTicket.id}`);
+    expect(
+      await screen.findByRole("region", { name: onTimeTicket.title }),
+    ).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "base support" }));
+    expect(
+      screen.queryByRole("region", { name: onTimeTicket.title }),
+    ).not.toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: "known support ticket" }),
+    );
+    expect(
+      await screen.findByRole("region", { name: onTimeTicket.title }),
+    ).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "support back" }));
+    expect(
+      screen.queryByRole("region", { name: onTimeTicket.title }),
+    ).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "support forward" }));
+    expect(
+      await screen.findByRole("region", { name: onTimeTicket.title }),
+    ).toBeVisible();
+  });
+
+  it("replaces a same-id ticket only with the current session authority result", async () => {
+    const oldRequest = deferred();
+    const replacement = { ...onTimeTicket, title: "새 권한의 기타 문의" };
+    let detailReads = 0;
+    server.use(
+      http.get("*/api/v1/support/tickets/:id", async () => {
+        detailReads += 1;
+        if (detailReads === 1) {
+          await oldRequest.promise;
+          return HttpResponse.json(
+            { error: "old authority offline" },
+            { status: 503 },
+          );
+        }
+        return HttpResponse.json({ ticket: replacement, comments: [] });
+      }),
+    );
+    const api = createConsoleApiClient("shared-api-token");
+    const authorityA = {
+      ...adminSession,
+      client_session_incarnation: "support-authority-a",
+    };
+    const authorityB = {
+      ...adminSession,
+      client_session_incarnation: "support-authority-b",
+    };
+    const initialEntry = `/support?ticket=${onTimeTicket.id}`;
+    const tree = (session: AuthSession) => {
+      const ctx: AuthContextValue = {
+        ...makeSupportAuthContext(session, api),
+      };
+      return (
+        <AuthContext.Provider value={ctx}>
+          <MemoryRouter initialEntries={[initialEntry]}>
+            <WindowManagerProvider>
+              <SupportPage />
+            </WindowManagerProvider>
+          </MemoryRouter>
+        </AuthContext.Provider>
+      );
+    };
+    const view = render(tree(authorityA));
+    await waitFor(() => {
+      expect(detailReads).toBe(1);
+    });
+
+    view.rerender(tree(authorityB));
+    expect(
+      screen.queryByRole("region", { name: onTimeTicket.title }),
+    ).not.toBeInTheDocument();
+    oldRequest.resolve();
+    await waitFor(() => {
+      expect(detailReads).toBeGreaterThanOrEqual(2);
+    });
+    expect(
+      await screen.findByRole("region", { name: replacement.title }),
+    ).toBeVisible();
+
+    await waitFor(() => {
+      expect(
+        screen.queryByText(ko.support.focusedUnavailable),
+      ).not.toBeInTheDocument();
+    });
+    expect(
+      screen.getByRole("region", { name: replacement.title }),
+    ).toBeVisible();
+  });
+
   it("derives breach alerts and chips from the ACTIVE SLO setting", async () => {
     renderSupportPage();
 

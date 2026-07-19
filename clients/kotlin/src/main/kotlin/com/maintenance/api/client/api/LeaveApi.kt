@@ -28,6 +28,8 @@ import okhttp3.Call
 import okhttp3.HttpUrl
 
 import com.maintenance.api.client.model.ErrorBody
+import com.maintenance.api.client.model.LeaveChargeResolutionRequest
+import com.maintenance.api.client.model.LeaveChargeResolutionView
 import com.maintenance.api.client.model.LeaveCreateRequest
 import com.maintenance.api.client.model.LeaveDecideRequest
 import com.maintenance.api.client.model.LeavePromotionRequest
@@ -36,6 +38,7 @@ import com.maintenance.api.client.model.LeaveRequestPage
 import com.maintenance.api.client.model.LeaveRequestView
 import com.maintenance.api.client.model.LeaveRosterPage
 import com.maintenance.api.client.model.LeaveStatutoryPushView
+import com.maintenance.api.client.model.MyLeaveOverview
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -68,7 +71,7 @@ open class LeaveApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
     /**
      * POST /api/v1/leave/requests
      * File a self-service 연차/반차 request (본인 연차 신청)
-     * The caller files a leave request for THEMSELVES. &#x60;subject_employee_id&#x60; and the routing &#x60;branch_id&#x60; are resolved server-side from the caller&#39;s own account (users.employee_id + user_branches) — never from input — so a caller can only file for their own employee record. No directory feature is required (filing one&#39;s own leave is a base employee capability); the gate is the employee link itself, so an account with no linked employee / branch is 422 (deny-by-omission). &#x60;days&#x60; is derived server-side (반차 &#x3D; 0.5 on one date; 연차 &#x3D; inclusive calendar-day span) and never trusted from the client. The created request is &#x60;pending&#x60; and moves no ledger until a separate approver decides it (SoD).
+     * The caller files a leave request for THEMSELVES. &#x60;subject_employee_id&#x60; and the routing &#x60;branch_id&#x60; are resolved server-side from the caller&#39;s own account and employee.home_branch_id — never from input — so a caller can only file for their own employee record. No directory feature is required (filing one&#39;s own leave is a base employee capability); the gate is an active account linked to an active employee; an unlinked or inactive subject is denied with 403. Missing home-branch authority returns the stable 409 &#x60;leave_home_branch_review_required&#x60;. The request preserves date and AM/PM intent in &#x60;review_required&#x60;; no calendar-day or fixed-half quantity is invented. A separate resolver pins authoritative evidence before any approval can move the ledger.
      * @param leaveCreateRequest
      * @return LeaveRequestView
      * @throws IllegalStateException If the request is not correctly configured
@@ -100,7 +103,7 @@ open class LeaveApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
     /**
      * POST /api/v1/leave/requests
      * File a self-service 연차/반차 request (본인 연차 신청)
-     * The caller files a leave request for THEMSELVES. &#x60;subject_employee_id&#x60; and the routing &#x60;branch_id&#x60; are resolved server-side from the caller&#39;s own account (users.employee_id + user_branches) — never from input — so a caller can only file for their own employee record. No directory feature is required (filing one&#39;s own leave is a base employee capability); the gate is the employee link itself, so an account with no linked employee / branch is 422 (deny-by-omission). &#x60;days&#x60; is derived server-side (반차 &#x3D; 0.5 on one date; 연차 &#x3D; inclusive calendar-day span) and never trusted from the client. The created request is &#x60;pending&#x60; and moves no ledger until a separate approver decides it (SoD).
+     * The caller files a leave request for THEMSELVES. &#x60;subject_employee_id&#x60; and the routing &#x60;branch_id&#x60; are resolved server-side from the caller&#39;s own account and employee.home_branch_id — never from input — so a caller can only file for their own employee record. No directory feature is required (filing one&#39;s own leave is a base employee capability); the gate is an active account linked to an active employee; an unlinked or inactive subject is denied with 403. Missing home-branch authority returns the stable 409 &#x60;leave_home_branch_review_required&#x60;. The request preserves date and AM/PM intent in &#x60;review_required&#x60;; no calendar-day or fixed-half quantity is invented. A separate resolver pins authoritative evidence before any approval can move the ledger.
      * @param leaveCreateRequest
      * @return ApiResponse<LeaveRequestView?>
      * @throws IllegalStateException If the request is not correctly configured
@@ -142,7 +145,7 @@ open class LeaveApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
     /**
      * POST /api/v1/leave/requests/{id}/decide
      * Approve, return, or reject a pending leave request
-     * Requires &#x60;employee_directory_manage&#x60; in the request&#39;s branch. An APPROVE writes the leave ledger (used +&#x3D; days, remaining -&#x3D; days) in the same audited transaction. Separation of duties — a request cannot be decided by its own requester (403). &#x60;return&#x60;/&#x60;reject&#x60; require a comment. A non-pending request is 409; an out-of-branch / unknown request is 404.
+     * Requires &#x60;employee_directory_manage&#x60; in the request&#39;s branch. An APPROVE writes the leave ledger (used +&#x3D; exact resolved charge units, remaining -&#x3D; exact resolved charge units) in the same audited transaction. Separation of duties — a request cannot be decided by its own requester (403). &#x60;return&#x60;/&#x60;reject&#x60; require a comment. Approval additionally requires a resolved exact charge and a distinct resolver. The body must carry the current request_version as &#x60;expected_version&#x60;; charge_version identifies immutable evidence and is never a request mutation precondition. A successful decision increments request_version only; charge_version remains unchanged. An unresolved approval returns 409 &#x60;leave_calendar_review_required&#x60; plus review reasons, audits the blocked attempt, and changes neither request nor ledger.
      * @param id
      * @param leaveDecideRequest
      * @return LeaveRequestView
@@ -175,7 +178,7 @@ open class LeaveApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
     /**
      * POST /api/v1/leave/requests/{id}/decide
      * Approve, return, or reject a pending leave request
-     * Requires &#x60;employee_directory_manage&#x60; in the request&#39;s branch. An APPROVE writes the leave ledger (used +&#x3D; days, remaining -&#x3D; days) in the same audited transaction. Separation of duties — a request cannot be decided by its own requester (403). &#x60;return&#x60;/&#x60;reject&#x60; require a comment. A non-pending request is 409; an out-of-branch / unknown request is 404.
+     * Requires &#x60;employee_directory_manage&#x60; in the request&#39;s branch. An APPROVE writes the leave ledger (used +&#x3D; exact resolved charge units, remaining -&#x3D; exact resolved charge units) in the same audited transaction. Separation of duties — a request cannot be decided by its own requester (403). &#x60;return&#x60;/&#x60;reject&#x60; require a comment. Approval additionally requires a resolved exact charge and a distinct resolver. The body must carry the current request_version as &#x60;expected_version&#x60;; charge_version identifies immutable evidence and is never a request mutation precondition. A successful decision increments request_version only; charge_version remains unchanged. An unresolved approval returns 409 &#x60;leave_calendar_review_required&#x60; plus review reasons, audits the blocked attempt, and changes neither request nor ledger.
      * @param id
      * @param leaveDecideRequest
      * @return ApiResponse<LeaveRequestView?>
@@ -209,6 +212,84 @@ open class LeaveApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/v1/leave/requests/{id}/decide".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/me/leave
+     * Read the authenticated employee&#39;s own leave balance and history
+     * Base employee self-service. The server binds both user and linked employee identity; no employee-directory feature is required and no employee or branch identifier is accepted from the client. The balance includes a closed filing state so a missing or inactive home branch is visible before submission rather than discovered only after a 409.
+     * @param limit  (optional, default to 100L)
+     * @return MyLeaveOverview
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun getMyLeave(limit: kotlin.Long? = 100L) : MyLeaveOverview = withContext(Dispatchers.IO) {
+        val localVarResponse = getMyLeaveWithHttpInfo(limit = limit)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as MyLeaveOverview
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/me/leave
+     * Read the authenticated employee&#39;s own leave balance and history
+     * Base employee self-service. The server binds both user and linked employee identity; no employee-directory feature is required and no employee or branch identifier is accepted from the client. The balance includes a closed filing state so a missing or inactive home branch is visible before submission rather than discovered only after a 409.
+     * @param limit  (optional, default to 100L)
+     * @return ApiResponse<MyLeaveOverview?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun getMyLeaveWithHttpInfo(limit: kotlin.Long?) : ApiResponse<MyLeaveOverview?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getMyLeaveRequestConfig(limit = limit)
+
+        return@withContext request<Unit, MyLeaveOverview>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getMyLeave
+     *
+     * @param limit  (optional, default to 100L)
+     * @return RequestConfig
+     */
+    fun getMyLeaveRequestConfig(limit: kotlin.Long?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/me/leave",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -530,6 +611,83 @@ open class LeaveApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/v1/leave/refusal-notices",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/leave/requests/{id}/charge-resolution
+     * Record an audited exact leave-charge resolution
+     * Requires EmployeeDirectoryManage in the request branch. The body carries reviewed per-date obligations and source revision references, never a client total or digest. The server validates complete date coverage, canonicalizes, totals, hashes, and records an immutable resolution. &#x60;expected_version&#x60; is the current mutable request_version; the charge_version is assigned independently to the evidence snapshot.
+     * @param id
+     * @param leaveChargeResolutionRequest
+     * @return LeaveChargeResolutionView
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun resolveLeaveCharge(id: java.util.UUID, leaveChargeResolutionRequest: LeaveChargeResolutionRequest) : LeaveChargeResolutionView = withContext(Dispatchers.IO) {
+        val localVarResponse = resolveLeaveChargeWithHttpInfo(id = id, leaveChargeResolutionRequest = leaveChargeResolutionRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as LeaveChargeResolutionView
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/leave/requests/{id}/charge-resolution
+     * Record an audited exact leave-charge resolution
+     * Requires EmployeeDirectoryManage in the request branch. The body carries reviewed per-date obligations and source revision references, never a client total or digest. The server validates complete date coverage, canonicalizes, totals, hashes, and records an immutable resolution. &#x60;expected_version&#x60; is the current mutable request_version; the charge_version is assigned independently to the evidence snapshot.
+     * @param id
+     * @param leaveChargeResolutionRequest
+     * @return ApiResponse<LeaveChargeResolutionView?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun resolveLeaveChargeWithHttpInfo(id: java.util.UUID, leaveChargeResolutionRequest: LeaveChargeResolutionRequest) : ApiResponse<LeaveChargeResolutionView?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = resolveLeaveChargeRequestConfig(id = id, leaveChargeResolutionRequest = leaveChargeResolutionRequest)
+
+        return@withContext request<LeaveChargeResolutionRequest, LeaveChargeResolutionView>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation resolveLeaveCharge
+     *
+     * @param id
+     * @param leaveChargeResolutionRequest
+     * @return RequestConfig
+     */
+    fun resolveLeaveChargeRequestConfig(id: java.util.UUID, leaveChargeResolutionRequest: LeaveChargeResolutionRequest) : RequestConfig<LeaveChargeResolutionRequest> {
+        val localVariableBody = leaveChargeResolutionRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/leave/requests/{id}/charge-resolution".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

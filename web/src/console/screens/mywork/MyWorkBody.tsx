@@ -15,10 +15,10 @@ import "../../tokens.css";
 import { screenHeaderStyle, screenTitleStyle } from "../screenHeader";
 import type { MyWorkApi, TodoSummary } from "./myWorkApi";
 import {
+  actionInboxLinkRoute,
   dueCountOn,
   filterAssigned,
   kindLabel,
-  kindRoute,
   myWorkStrings,
   weekDays,
   type ActionInboxItem,
@@ -41,7 +41,7 @@ function ownedBy<T>(api: object, value: T): ApiOwned<T> {
 export interface MyWorkBodyProps {
   api: MyWorkApi;
   now?: Date;
-  /** Assigned-item drill; defaults to routing to the item's source screen. */
+  /** Assigned-item drill; invoked only when a canonical source-object link resolves. */
   onOpen?: (item: ActionInboxItem) => void;
 }
 
@@ -148,11 +148,13 @@ export function MyWorkBody({ api, now, onOpen }: MyWorkBodyProps) {
 
   const openItem = useCallback(
     (item: ActionInboxItem) => {
+      const destination = actionInboxLinkRoute(item);
+      if (!destination) return;
       if (onOpen) {
         onOpen(item);
         return;
       }
-      void navigate(kindRoute(item.kind));
+      void navigate(destination);
     },
     [onOpen, navigate],
   );
@@ -405,6 +407,7 @@ export function MyWorkBody({ api, now, onOpen }: MyWorkBodyProps) {
           ) : (
             <ul style={listStyle}>
               {rows.map((item) => {
+                const destination = actionInboxLinkRoute(item);
                 const resolved = resolveRowTitle(
                   item.title,
                   item.ref,
@@ -429,6 +432,7 @@ export function MyWorkBody({ api, now, onOpen }: MyWorkBodyProps) {
                       type="button"
                       data-window-control="true"
                       style={ghostButtonStyle}
+                      disabled={!destination}
                       onClick={() => {
                         openItem(item);
                       }}

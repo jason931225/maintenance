@@ -31,28 +31,29 @@ import kotlinx.serialization.Contextual
 /**
  *
  *
- * @param employeeId
- * @param leaveAccrued
- * @param leaveUsed
- * @param leaveRemaining
+ * @param kind
+ * @param minutes
  */
 @Serializable
 
-data class MyLeaveBalance (
+data class LeaveDateChargeObligationOneOf (
 
-    @Contextual @SerialName(value = "employee_id")
-    val employeeId: java.util.UUID,
+    @SerialName(value = "kind")
+    val kind: LeaveDateChargeObligationOneOf.Kind,
 
-    @SerialName(value = "leave_accrued")
-    val leaveAccrued: kotlin.String? = null,
-
-    @SerialName(value = "leave_used")
-    val leaveUsed: kotlin.String? = null,
-
-    @SerialName(value = "leave_remaining")
-    val leaveRemaining: kotlin.String? = null
+    @SerialName(value = "minutes")
+    val minutes: kotlin.Int
 
 ) {
 
+    /**
+     *
+     *
+     * Values: SCHEDULED
+     */
+    @Serializable
+    enum class Kind(val value: kotlin.String) {
+        @SerialName(value = "scheduled") SCHEDULED("scheduled");
+    }
 
 }

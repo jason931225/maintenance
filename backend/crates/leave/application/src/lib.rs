@@ -15,11 +15,17 @@
 //! this crate only defines the command shapes and views.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
+use std::{future::Future, pin::Pin};
+
 use mnt_kernel_core::{
     AuditAction, AuditEvent, BranchScope, Date, KernelError, LeavePromotionId, LeaveRequestId,
-    Timestamp, TraceContext, UserId,
+    OrgId, Timestamp, TraceContext, UserId,
 };
-use mnt_leave_domain::{LeaveDecision, LeaveStatus, LeaveType, NewLeaveRequest, PromotionKind};
+use mnt_leave_domain::{
+    LeaveBalanceAmount, LeaveChargeAssessment, LeaveChargeResolutionOrigin,
+    LeaveChargeReviewReason, LeaveChargeState, LeaveDateCharge, LeaveDecision, LeaveStatus,
+    LeaveType, LeaveUnits, NewLeaveRequest, PartialDayPeriod, PromotionKind, SourceRevisionRef,
+};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -29,17 +35,72 @@ use uuid::Uuid;
 
 /// Create a pending leave request. Not a public REST endpoint: requests are
 /// produced by the 기안/engine compose flow (submittable-templates, gap #1) or a
-/// roster import, which call this port with the mapping they own. `branch_id`
-/// and `requester_user_id` come from the producer's trusted context; the
-/// `subject_employee_id` is the employee whose balance an approval will move.
+/// roster import, which call this port with the mapping they own. Routing is
+/// resolved from the active employee's explicit home branch; the
+/// `subject_employee_id` is still checked against the caller's linked employee.
 #[derive(Debug, Clone)]
 pub struct CreateLeaveRequestCommand {
-    pub branch_id: Uuid,
     pub requester_user_id: UserId,
     pub subject_employee_id: Uuid,
     pub request: NewLeaveRequest,
     pub trace: TraceContext,
     pub occurred_at: Timestamp,
+}
+
+/// Apply an exact imported/initial balance snapshot through the isolated leave
+/// command capability. `expected_updated_at` is the employee-row CAS token;
+/// `idempotency_key` is source-scoped and payload-bound by the database.
+#[derive(Debug, Clone)]
+pub struct ImportEmployeeLeaveBalanceCommand {
+    pub employee_id: Uuid,
+    pub expected_updated_at: Timestamp,
+    pub accrued: Option<LeaveBalanceAmount>,
+    pub used: Option<LeaveBalanceAmount>,
+    pub remaining: Option<LeaveBalanceAmount>,
+    pub source_kind: String,
+    pub source_ref: String,
+    pub idempotency_key: String,
+    pub actor: UserId,
+    pub trace: TraceContext,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImportEmployeeLeaveBalanceResult {
+    pub employee_id: Uuid,
+    pub updated_at: Timestamp,
+    pub changed: bool,
+    pub replayed: bool,
+}
+
+/// Self-service history. `requester` is always bound from the authenticated
+/// principal; the adapter also requires the same linked employee identity.
+#[derive(Debug, Clone)]
+pub struct ListSelfLeaveRequestsQuery {
+    pub requester: UserId,
+    pub limit: i64,
+}
+
+/// Trusted input to the work-calendar/policy seam. The organization, branch,
+/// and employee are resolved server-side and never accepted from request JSON.
+#[derive(Debug, Clone)]
+pub struct ResolveLeaveChargeQuery {
+    pub org_id: OrgId,
+    pub branch_id: Uuid,
+    pub subject_employee_id: Uuid,
+    pub leave_type: LeaveType,
+    pub start_date: Date,
+    pub end_date: Date,
+    pub partial_day_period: Option<PartialDayPeriod>,
+    pub as_of: Timestamp,
+}
+
+pub type LeaveChargeFuture<'a> =
+    Pin<Box<dyn Future<Output = Result<LeaveChargeAssessment, KernelError>> + Send + 'a>>;
+
+/// Portable calendar/policy port. Self-hosted and cloud-specific adapters must
+/// return evidence or an explicit review reason; guessing is not permitted.
+pub trait WorkCalendarPort: Send + Sync {
+    fn resolve_charge(&self, query: ResolveLeaveChargeQuery) -> LeaveChargeFuture<'_>;
 }
 
 // ---------------------------------------------------------------------------
@@ -64,15 +125,39 @@ pub struct ListLeaveRequestsQuery {
 /// Decide a pending leave request. The `decider` is bound from the principal;
 /// the adapter enforces SoD (the decider must not be the request's requester)
 /// and that only a `pending` request can be decided. On `approve`, the leave
-/// ledger write-back (used += days, remaining -= days on the subject employee)
+/// ledger write-back (used += exact units, remaining -= exact units)
 /// happens in the SAME audited transaction as the status change.
 #[derive(Debug, Clone)]
 pub struct DecideLeaveRequestCommand {
     pub request_id: LeaveRequestId,
     pub decider: UserId,
     pub branch_scope: BranchScope,
+    /// Optimistic precondition for the mutable request workflow row. This is
+    /// compared with `LeaveRequestView::request_version`, never with the
+    /// immutable charge-evidence revision.
+    pub expected_version: i64,
     pub decision: LeaveDecision,
     pub comment: Option<String>,
+    pub trace: TraceContext,
+    pub occurred_at: Timestamp,
+}
+
+/// Record a server-validated manual/reference resolution. The caller supplies
+/// per-date evidence and source identity, never a total or digest; the adapter
+/// canonicalizes, totals, hashes, and persists the immutable snapshot.
+#[derive(Debug, Clone)]
+pub struct ResolveLeaveChargeCommand {
+    pub request_id: LeaveRequestId,
+    pub resolver: UserId,
+    pub branch_scope: BranchScope,
+    /// Optimistic precondition for the mutable request workflow row. Resolving
+    /// evidence advances `request_version` and creates a new, independently
+    /// monotonic `charge_version` snapshot.
+    pub expected_version: i64,
+    pub date_charges: Vec<LeaveDateCharge>,
+    pub calendar_revision_ref: SourceRevisionRef,
+    pub policy_revision_ref: SourceRevisionRef,
+    pub supporting_source_refs: Vec<SourceRevisionRef>,
     pub trace: TraceContext,
     pub occurred_at: Timestamp,
 }
@@ -113,7 +198,26 @@ pub struct LeaveRequestView {
     pub requester_user_id: UserId,
     pub subject_employee_id: Uuid,
     pub leave_type: LeaveType,
-    pub days: f64,
+    /// Compatibility projection only. Authoritative writes use `charge_units`.
+    pub days: Option<f64>,
+    pub charge_units: Option<LeaveUnits>,
+    pub charge_state: LeaveChargeState,
+    pub charge_review_reasons: Vec<LeaveChargeReviewReason>,
+    /// Mutable request/workflow CAS token. Clients submit this value as
+    /// `expected_version` on resolve and decide commands.
+    pub request_version: i64,
+    /// Monotonic immutable charge-evidence revision counter. It advances only
+    /// when a new evidence snapshot is recorded, remains unchanged by request
+    /// decisions, and is never accepted as a request mutation precondition.
+    pub charge_version: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub charge_digest: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub charge_resolved_by: Option<UserId>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub charge_resolution_origin: Option<LeaveChargeResolutionOrigin>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub partial_day_period: Option<PartialDayPeriod>,
     #[serde(with = "date_fmt")]
     pub start_date: Date,
     #[serde(with = "date_fmt")]
@@ -130,6 +234,20 @@ pub struct LeaveRequestView {
     pub ap_run_id: Option<Uuid>,
     #[serde(with = "time::serde::rfc3339")]
     pub created_at: Timestamp,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LeaveChargeResolutionView {
+    pub request_id: LeaveRequestId,
+    /// New mutable request/workflow CAS token after recording this resolution.
+    pub request_version: i64,
+    pub charge_units: LeaveUnits,
+    pub charge_state: LeaveChargeState,
+    /// Immutable revision assigned to this charge-evidence snapshot.
+    pub charge_version: i64,
+    pub server_digest: String,
+    pub resolution_origin: LeaveChargeResolutionOrigin,
+    pub resolved_by: Option<UserId>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -167,6 +285,28 @@ pub struct LeaveBalanceView {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LeaveBalancePage {
     pub items: Vec<LeaveBalanceView>,
+}
+
+/// Exact self-service balance projection. `None` means the source roster has
+/// not established that figure; zero is an explicit, materially different value.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SelfLeaveFilingState {
+    Ready,
+    HomeBranchRequired,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct SelfLeaveBalanceView {
+    pub employee_id: Uuid,
+    pub name: String,
+    pub accrued_units: Option<LeaveBalanceAmount>,
+    pub used_units: Option<LeaveBalanceAmount>,
+    pub remaining_units: Option<LeaveBalanceAmount>,
+    /// Filing is ready only when the trusted employee identity has an active
+    /// home branch. History and balances remain readable in either state.
+    pub filing_state: SelfLeaveFilingState,
+    pub home_branch_id: Option<Uuid>,
 }
 
 /// Closed set for the engine-submission state attached to a statutory push.

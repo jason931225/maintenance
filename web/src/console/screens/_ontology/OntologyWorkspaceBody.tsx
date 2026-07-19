@@ -13,6 +13,7 @@ import {
   WorkspaceEmpty,
   WorkspaceError,
   WorkspaceLoading,
+  WorkspacePartialFailure,
   type WorkspaceStat,
 } from "./WorkspaceChrome";
 import {
@@ -141,6 +142,15 @@ export function OntologyWorkspaceBody({
   }
 
   const showManagerTab = allowManager && tab === "manager";
+  const partialFailureMessage = ws.partialFailures.length > 0
+    ? `${ko.page.loadFailed} (${ws.partialFailures
+        .map((failure) =>
+          failure.kind === "acting"
+            ? `${failure.scopeLabel} · ${ON.subtabs.automations}`
+            : `${failure.scopeLabel} · ${TABS.graph}`,
+        )
+        .join(", ")})`
+    : undefined;
 
   return (
     <section className="console" aria-label={title} style={rootStyle}>
@@ -169,6 +179,14 @@ export function OntologyWorkspaceBody({
 
       {ws.feedback ? (
         <FeedbackBanner message={ws.feedback} onDismiss={ws.clearFeedback} />
+      ) : null}
+      {partialFailureMessage ? (
+        <WorkspacePartialFailure
+          message={partialFailureMessage}
+          onRetry={() => {
+            void ws.retryPartialFailures();
+          }}
+        />
       ) : null}
 
       {ws.readState === "loading" ? (

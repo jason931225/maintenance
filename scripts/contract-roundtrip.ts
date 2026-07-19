@@ -1,4 +1,9 @@
-import { createSign, generateKeyPairSync, randomUUID } from "node:crypto";
+import {
+  createSign,
+  generateKeyPairSync,
+  randomBytes,
+  randomUUID,
+} from "node:crypto";
 import { readFileSync, readdirSync } from "node:fs";
 import { createServer } from "node:net";
 import { resolve } from "node:path";
@@ -46,13 +51,22 @@ await db.connect();
 
 try {
   await resetLocalContractDatabase(db, databaseUrl);
-  await applyMigrations(db);
+  const topology = await provisionDatabaseTopology(db, databaseUrl);
+  const migrationDb = new PgClient({ connectionString: topology.ownerDatabaseUrl });
+  await migrationDb.connect();
+  try {
+    await applyMigrations(migrationDb);
+  } finally {
+    await migrationDb.end();
+  }
   await seedContractData(db, userId, branchId);
 
   const token = issueAccessToken(userId, branchId);
   const appEnv = {
     ...process.env,
-    DATABASE_URL: databaseUrl,
+    DATABASE_URL: topology.runtimeDatabaseUrl,
+    LEAVE_COMMAND_DATABASE_URL: topology.leaveCommandDatabaseUrl,
+    ONTOLOGY_COMMAND_DATABASE_URL: topology.ontologyCommandDatabaseUrl,
     MNT_APP_ROLE: "api",
     MNT_HTTP_ADDR: `127.0.0.1:${port}`,
     MNT_JWT_ISSUER: issuer,
@@ -116,6 +130,141 @@ try {
   }
 } finally {
   await db.end();
+}
+
+async function provisionDatabaseTopology(
+  client: pg.Client,
+  connectionString: string,
+) {
+  const currentUser = await client.query<{ current_user: string }>("SELECT current_user");
+  if (currentUser.rows[0].current_user === "mnt_app") {
+    throw new Error("CONTRACT_DATABASE_URL must use a cluster administrator distinct from mnt_app");
+  }
+
+  const rolePasswords = {
+    mnt_app: randomBytes(32).toString("hex"),
+    mnt_rt: randomBytes(32).toString("hex"),
+    mnt_leave_cmd: randomBytes(32).toString("hex"),
+    mnt_ontology_cmd: randomBytes(32).toString("hex"),
+  } as const;
+
+  // ALTER ROLE has no parameterized password protocol. Suppress statement and
+  // error-statement logging in the privileged transaction before sending any
+  // generated password DDL, so even a failed statement cannot reach DB logs.
+  await client.query("BEGIN");
+  try {
+    await client.query("SET LOCAL log_statement = 'none'");
+    await client.query("SET LOCAL log_min_error_statement = 'panic'");
+    await client.query(`
+    DO $block$
+    BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='mnt_leave_definer') THEN
+        CREATE ROLE mnt_leave_definer NOLOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE NOREPLICATION;
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname='mnt_ontology_writer') THEN
+        CREATE ROLE mnt_ontology_writer NOLOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE NOREPLICATION;
+      END IF;
+    END
+    $block$;
+    ALTER ROLE mnt_leave_definer NOLOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE NOREPLICATION;
+    ALTER ROLE mnt_ontology_writer NOLOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE NOREPLICATION;
+  `);
+
+    for (const [role, password] of Object.entries(rolePasswords)) {
+      const inherit = role === "mnt_app" ? "INHERIT" : "NOINHERIT";
+      const bypassRls = role === "mnt_app" ? "BYPASSRLS" : "NOBYPASSRLS";
+      const ddl = await client.query<{ create_ddl: string; alter_ddl: string }>(
+        `SELECT
+         format('CREATE ROLE %I LOGIN NOSUPERUSER ${bypassRls} ${inherit} NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD %L', $1, $2) AS create_ddl,
+         format('ALTER ROLE %I LOGIN NOSUPERUSER ${bypassRls} ${inherit} NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD %L', $1, $2) AS alter_ddl`,
+        [role, password],
+      );
+      const exists = await client.query<{ exists: boolean }>(
+        "SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname=$1)",
+        [role],
+      );
+      await client.query(exists.rows[0].exists ? ddl.rows[0].alter_ddl : ddl.rows[0].create_ddl);
+    }
+
+    await client.query(`
+    DO $block$
+    DECLARE edge RECORD;
+    BEGIN
+      FOR edge IN
+        SELECT member.rolname AS member_name, granted.rolname AS granted_name
+        FROM pg_auth_members membership
+        JOIN pg_roles member ON member.oid=membership.member
+        JOIN pg_roles granted ON granted.oid=membership.roleid
+        WHERE member.rolname IN (
+                'mnt_app','mnt_rt','mnt_leave_cmd','mnt_ontology_cmd',
+                'mnt_leave_definer','mnt_ontology_writer'
+              )
+           OR granted.rolname IN (
+                'mnt_app','mnt_rt','mnt_leave_cmd','mnt_ontology_cmd',
+                'mnt_leave_definer','mnt_ontology_writer'
+              )
+      LOOP
+        EXECUTE format('REVOKE %I FROM %I', edge.granted_name, edge.member_name);
+      END LOOP;
+    END
+    $block$;
+    GRANT mnt_leave_definer, mnt_ontology_writer TO mnt_app
+      WITH ADMIN FALSE, INHERIT TRUE, SET TRUE;
+    ALTER SCHEMA public OWNER TO mnt_app;
+  `);
+
+    const topology = await client.query<{ roles: string; memberships: string }>(`
+    SELECT
+      (SELECT string_agg(
+         rolname || ':' || rolcanlogin || ':' || rolsuper || ':' || rolbypassrls || ':' || rolinherit,
+         ',' ORDER BY rolname)
+       FROM pg_roles
+       WHERE rolname IN (
+         'mnt_app','mnt_rt','mnt_leave_cmd','mnt_ontology_cmd',
+         'mnt_leave_definer','mnt_ontology_writer'
+       )) AS roles,
+      (SELECT string_agg(
+         member.rolname || '>' || granted.rolname || ':' ||
+         membership.admin_option || ':' || membership.inherit_option || ':' || membership.set_option,
+         ',' ORDER BY granted.rolname)
+       FROM pg_auth_members membership
+       JOIN pg_roles member ON member.oid=membership.member
+       JOIN pg_roles granted ON granted.oid=membership.roleid
+       WHERE member.rolname IN (
+               'mnt_app','mnt_rt','mnt_leave_cmd','mnt_ontology_cmd',
+               'mnt_leave_definer','mnt_ontology_writer'
+             )
+          OR granted.rolname IN (
+               'mnt_app','mnt_rt','mnt_leave_cmd','mnt_ontology_cmd',
+               'mnt_leave_definer','mnt_ontology_writer'
+             )) AS memberships
+  `);
+    if (
+      topology.rows[0].roles !==
+        "mnt_app:true:false:true:true,mnt_leave_cmd:true:false:false:false,mnt_leave_definer:false:false:false:false,mnt_ontology_cmd:true:false:false:false,mnt_ontology_writer:false:false:false:false,mnt_rt:true:false:false:false" ||
+      topology.rows[0].memberships !==
+        "mnt_app>mnt_leave_definer:false:true:true,mnt_app>mnt_ontology_writer:false:true:true"
+    ) {
+      throw new Error(`contract database topology readback failed: ${JSON.stringify(topology.rows[0])}`);
+    }
+    await client.query("COMMIT");
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  }
+
+  const roleUrl = (role: keyof typeof rolePasswords) => {
+    const url = new URL(connectionString);
+    url.username = role;
+    url.password = rolePasswords[role];
+    return url.toString();
+  };
+  return {
+    ownerDatabaseUrl: roleUrl("mnt_app"),
+    runtimeDatabaseUrl: roleUrl("mnt_rt"),
+    leaveCommandDatabaseUrl: roleUrl("mnt_leave_cmd"),
+    ontologyCommandDatabaseUrl: roleUrl("mnt_ontology_cmd"),
+  };
 }
 
 async function applyMigrations(client: pg.Client) {

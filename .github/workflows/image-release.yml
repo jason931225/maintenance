@@ -383,18 +383,43 @@ jobs:
             echo "PROBE_PEM_EOF"
           } >> "$GITHUB_ENV"
 
-      - name: Run migrations against the probe database
+      - name: Provision and verify the probe database topology
+        run: |
+          APP_PASSWORD="$(openssl rand -hex 32)"
+          RT_PASSWORD="$(openssl rand -hex 32)"
+          LEAVE_COMMAND_PASSWORD="$(openssl rand -hex 32)"
+          ONTOLOGY_COMMAND_PASSWORD="$(openssl rand -hex 32)"
+          docker run --rm --network host \
+            -v "$GITHUB_WORKSPACE/ops/postgres-reconcile-topology.sh:/usr/local/bin/postgres-reconcile-topology:ro" \
+            -e POSTGRES_HOST=127.0.0.1 -e POSTGRES_DB=mnt_release_probe \
+            -e POSTGRES_ADMIN_USER=postgres -e POSTGRES_ADMIN_PASSWORD=postgres \
+            -e MNT_APP_POSTGRES_PASSWORD="$APP_PASSWORD" \
+            -e MNT_RT_POSTGRES_PASSWORD="$RT_PASSWORD" \
+            -e MNT_LEAVE_COMMAND_POSTGRES_PASSWORD="$LEAVE_COMMAND_PASSWORD" \
+            -e MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD="$ONTOLOGY_COMMAND_PASSWORD" \
+            --entrypoint bash postgres:18.4@sha256:4aabea78cf39b90e834caf3af7d602a18565f6fe2508705c8d01aa63245c2e20 \
+            /usr/local/bin/postgres-reconcile-topology
+          {
+            echo "PROBE_OWNER_DATABASE_URL=postgres://mnt_app:${APP_PASSWORD}@127.0.0.1:5432/mnt_release_probe"
+            echo "PROBE_RUNTIME_DATABASE_URL=postgres://mnt_rt:${RT_PASSWORD}@127.0.0.1:5432/mnt_release_probe"
+            echo "PROBE_LEAVE_COMMAND_DATABASE_URL=postgres://mnt_leave_cmd:${LEAVE_COMMAND_PASSWORD}@127.0.0.1:5432/mnt_release_probe"
+            echo "PROBE_ONTOLOGY_COMMAND_DATABASE_URL=postgres://mnt_ontology_cmd:${ONTOLOGY_COMMAND_PASSWORD}@127.0.0.1:5432/mnt_release_probe"
+          } >> "$GITHUB_ENV"
+
+      - name: Run migrations against the probe database as mnt_app
         run: |
           docker run --rm --network host \
             -e MNT_APP_ROLE=migrate \
-            -e DATABASE_URL="postgres://postgres:postgres@127.0.0.1:5432/mnt_release_probe" \
+            -e DATABASE_URL="$PROBE_OWNER_DATABASE_URL" \
             "$IMAGE"
 
       - name: Boot the release image (the real published image — no dev-auth flag exists to pass)
         run: |
           docker run -d --network host --name mnt-app-probe \
             -e MNT_APP_ROLE=api \
-            -e DATABASE_URL="postgres://postgres:postgres@127.0.0.1:5432/mnt_release_probe" \
+            -e DATABASE_URL="$PROBE_RUNTIME_DATABASE_URL" \
+            -e LEAVE_COMMAND_DATABASE_URL="$PROBE_LEAVE_COMMAND_DATABASE_URL" \
+            -e ONTOLOGY_COMMAND_DATABASE_URL="$PROBE_ONTOLOGY_COMMAND_DATABASE_URL" \
             -e MNT_HTTP_ADDR=127.0.0.1:8091 \
             -e MNT_JWT_ISSUER=release-probe \
             -e MNT_JWT_AUDIENCE=release-probe \

@@ -58,11 +58,11 @@ spec:
     - from:
         - podSelector:
             matchExpressions:
-              - { key: app, operator: In, values: [mnt-app, mnt-worker] }
+              - { key: app, operator: In, values: [mnt-app, mnt-worker, mnt-migrate, mnt-db-topology] }
       ports:
         - { protocol: TCP, port: 5432 }
 ---
-# Default-deny EGRESS for the app tier (api/web/worker). CNPG pods are excluded.
+# Default-deny EGRESS for the app tier and ordered DB jobs. CNPG pods are excluded.
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -71,7 +71,7 @@ metadata:
 spec:
   podSelector:
     matchExpressions:
-      - { key: app, operator: In, values: [mnt-app, mnt-web, mnt-worker] }
+      - { key: app, operator: In, values: [mnt-app, mnt-web, mnt-worker, mnt-migrate, mnt-db-topology] }
   policyTypes: [Egress]
 ---
 # DNS resolution (kube-dns in kube-system) for the app tier.
@@ -83,7 +83,7 @@ metadata:
 spec:
   podSelector:
     matchExpressions:
-      - { key: app, operator: In, values: [mnt-app, mnt-web, mnt-worker] }
+      - { key: app, operator: In, values: [mnt-app, mnt-web, mnt-worker, mnt-migrate, mnt-db-topology] }
   policyTypes: [Egress]
   egress:
     - to:
@@ -93,7 +93,7 @@ spec:
         - { protocol: UDP, port: 53 }
         - { protocol: TCP, port: 53 }
 ---
-# api/worker → Postgres (intra-namespace).
+# api/worker and ordered DB jobs → Postgres (intra-namespace).
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
@@ -102,7 +102,7 @@ metadata:
 spec:
   podSelector:
     matchExpressions:
-      - { key: app, operator: In, values: [mnt-app, mnt-worker] }
+      - { key: app, operator: In, values: [mnt-app, mnt-worker, mnt-migrate, mnt-db-topology] }
   policyTypes: [Egress]
   egress:
     - to:

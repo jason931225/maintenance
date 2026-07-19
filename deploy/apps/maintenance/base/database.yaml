@@ -3,6 +3,8 @@ kind: Cluster
 metadata:
   name: mnt-db
   namespace: maintenance
+  annotations:
+    argocd.argoproj.io/sync-wave: "0"
 spec:
   # Deployment context: live oci-guest base. This cluster is intentionally one
   # CNPG instance on one Always Free A1 node; it has restore/PITR artifacts but no
@@ -11,6 +13,9 @@ spec:
   instances: 1
   imageName: ghcr.io/cloudnative-pg/postgresql:18.4
   primaryUpdateStrategy: unsupervised
+  # CNPG's postgres login is never exposed. The ordered read-only topology gate
+  # uses the migration owner's mnt-db-app credential to inspect public catalogs.
+  enableSuperuserAccess: false
   storage:
     size: 5Gi
   resources:
@@ -41,9 +46,9 @@ spec:
   bootstrap:
     initdb:
       database: maintenance
-      # mnt_app OWNS every table and is used ONLY to run schema migrations
-      # (out of band, via the mnt-db-app secret). The running application does
-      # NOT connect as it — see managed.roles.mnt_rt below.
+      # mnt_app OWNS every table, has BYPASSRLS for migration backfills, and is
+      # used ONLY to run schema migrations (out of band, via mnt-db-app). The
+      # running application does NOT receive it — see managed.roles.mnt_rt.
       owner: mnt_app
   # mnt_rt is the least-privilege RUNTIME role the app/worker connect as. It
   # owns nothing, is NOSUPERUSER + NOBYPASSRLS (so Postgres RLS applies to it),
@@ -52,6 +57,22 @@ spec:
   # they hold regardless of creation order.
   managed:
     roles:
+      # CNPG's bootstrap owner is also reconciled here so it cannot retain
+      # cluster-admin attributes. Membership permits migrations to transfer
+      # SECURITY DEFINER functions to the two NOLOGIN owners; ADMIN OPTION is
+      # not granted by CNPG's inRoles membership reconciliation.
+      - name: mnt_app
+        ensure: present
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        bypassrls: true
+        inherit: true
+        replication: false
+        inRoles: [mnt_leave_definer, mnt_ontology_writer]
+        passwordSecret:
+          name: mnt-db-app
       - name: mnt_rt
         ensure: present
         login: true
@@ -59,9 +80,58 @@ spec:
         createdb: false
         createrole: false
         bypassrls: false
-        inherit: true
+        inherit: false
+        replication: false
         passwordSecret:
           name: mnt-db-rt
+      # Narrow command credential for leave mutations. It owns nothing and is
+      # granted only EXECUTE on the intrinsically-audited leave command
+      # routines by the schema migration. The API uses a separate small pool;
+      # worker and migrate workloads never receive this Secret.
+      - name: mnt_leave_cmd
+        ensure: present
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        bypassrls: false
+        inherit: false
+        replication: false
+        passwordSecret:
+          name: mnt-db-leave-command
+      # Narrow command credential for ontology schema mutation and governed
+      # canonical seeding. Direct table DML remains unavailable.
+      - name: mnt_ontology_cmd
+        ensure: present
+        login: true
+        superuser: false
+        createdb: false
+        createrole: false
+        bypassrls: false
+        inherit: false
+        replication: false
+        passwordSecret:
+          name: mnt-db-ontology-command
+      - name: mnt_leave_definer
+        ensure: present
+        login: false
+        superuser: false
+        createdb: false
+        createrole: false
+        bypassrls: false
+        inherit: false
+        replication: false
+        disablePassword: true
+      - name: mnt_ontology_writer
+        ensure: present
+        login: false
+        superuser: false
+        createdb: false
+        createrole: false
+        bypassrls: false
+        inherit: false
+        replication: false
+        disablePassword: true
   # Continuous WAL archiving + base backups via the Barman Cloud Plugin.
   plugins:
     - name: barman-cloud.cloudnative-pg.io

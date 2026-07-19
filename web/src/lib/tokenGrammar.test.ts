@@ -128,7 +128,6 @@ describe("parseTokenGrammar", () => {
   it.each([
     ["approval", "AP-3121"],
     ["workOrder", workOrderCode("20260612-001")],
-    ["support", "CS-991"],
     ["attendance", "AT-12"],
     ["payroll", "PS-202607"],
     ["contract", "C-55"],

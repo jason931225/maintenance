@@ -194,6 +194,38 @@ describe("InboxBody", () => {
     });
   });
 
+  it("ignores a retired pagination result after the filter changes", async () => {
+    const retiredPage = deferred<InboxDocSummary[]>();
+    const activeDoc = summary({
+      id: "33333333-3333-3333-3333-333333333333",
+      kind: "payslip",
+      title: "현재 필터 문서",
+    });
+    const loadDocs = vi.fn((filter: string) =>
+      filter === "all" ? retiredPage.promise : Promise.resolve([activeDoc]),
+    );
+    renderBody(stubApi({ loadDocs }));
+
+    await userEvent.click(screen.getByRole("tab", { name: S.filters.pay }));
+    expect(await screen.findByText("현재 필터 문서")).toBeVisible();
+
+    await act(async () => {
+      retiredPage.resolve([
+        summary({
+          id: "44444444-4444-4444-4444-444444444444",
+          kind: "legal_notice",
+          title: "폐기된 이전 페이지",
+        }),
+      ]);
+      await retiredPage.promise;
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("현재 필터 문서")).toBeVisible();
+      expect(screen.queryByText("폐기된 이전 페이지")).not.toBeInTheDocument();
+    });
+  });
+
   it("clears a selected detail when the server-side filter changes", async () => {
     renderBody(stubApi());
     await userEvent.click(await screen.findByText("2026년 6월 급여명세"));

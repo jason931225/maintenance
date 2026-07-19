@@ -31,12 +31,17 @@ import kotlinx.serialization.Contextual
 /**
  *
  *
+ * @param expectedVersion Expected mutable request_version, not charge_version.
  * @param decision
  * @param comment Mandatory for return/reject; optional for approve.
  */
 @Serializable
 
 data class LeaveDecideRequest (
+
+    /* Expected mutable request_version, not charge_version. */
+    @SerialName(value = "expected_version")
+    val expectedVersion: kotlin.Long,
 
     @SerialName(value = "decision")
     val decision: LeaveDecideRequest.Decision,
