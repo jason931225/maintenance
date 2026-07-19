@@ -31,76 +31,91 @@ Rigor: every vendor cell is `[V]` verified (source URL) or `[I]` inferred (reaso
 Legend per cell: `[V]`=verified w/ source · `[I]`=inferred · `N/A`=vendor doesn't play here (reason given).
 
 ### 1. Builder / information architecture
+
 | Ours | Foundry | n8n | Asana | Slack | Teams (PA) | SAP SBPA | Rippling |
 |---|---|---|---|---|---|---|---|
 | Block canvas: trigger·condition·branch·action; effect=ontology Action; ontology-first grammar. | Condition+Effect rule model on top of Ontology; not a free node graph — pick condition, pick effect. `[V]` [overview](https://www.palantir.com/docs/foundry/automate/overview) | Free-form node/edge DAG; any node can be any step; broad canvas flexibility in the cited surface. `[I]` [anatomy](https://medium.com/@Quaxel/the-anatomy-of-an-n8n-workflow-3ade4a335266) | Card stack: When / Check if / Do this — linear, task-object scoped. `[V]` [create-rule](https://help.asana.com/s/article/how-to-create-a-rule) | No-code step builder in-channel; steps + branches + forms. `[V]` [WB docs](https://docs.slack.dev/workflows/workflow-builder/) | Cloud-flow designer: trigger + sequential actions + controls; low-code. `[V]` [PA docs](https://learn.microsoft.com/en-us/power-automate/) | BPMN-style low-code flow: forms, decisions, branches, subflows. `[V]` [SBPA](https://blog.fink-its.de/en/sap-btp/automate-sap-workflow-with-sap-build-process-automation/) | Trigger + actions + conditional logic builder, HR-object scoped. `[V]` [workflows](https://www.rippling.com/platform/workflows) |
 
 ### 2. Triggers (event / schedule / data-change)
+
 | Ours | Foundry | n8n | Asana | Slack | Teams (PA) | SAP SBPA | Rippling |
 |---|---|---|---|---|---|---|---|
 | trigger-bindings (enable/disable) + cron schedules; ontology object-change + time. `[code]` | Time-based, object-data (added/removed/modified/threshold), or combined. `[V]` [conditions](https://www.palantir.com/docs/foundry/automate/condition-objects) | Webhook, Cron, Email-receive, app-event, sub-workflow trigger. `[V]` [trigger docs](https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.workflowtrigger/) | ~task events (added, field change, due, moved) + scheduled. `[V]` [rule-triggers](https://help.asana.com/s/article/rule-triggers) | Emoji/message/form/schedule/webhook + time-based is-before/after/within. `[V]` [branching blog](https://slack.com/blog/news/conditional-branching-workflow-builder) | Channel msg, @mention, keyword, membership change, adaptive-card response, schedule, HTTP. `[V]` [PA for Teams](https://citizendevelopmentacademy.com/power-automate-for-teams/) | Business Event from S/4HANA, form-start, API, schedule. `[I]` [event triggers](https://community.sap.com/t5/technology-blog-posts-by-sap/business-event-triggers-in-sap-build-process-automation-for-sap-s-4hana/ba-p/13573138) | Any employee-data change (hire, dept, promo, term) + connected-app events + schedule. `[V]` [workflows](https://www.rippling.com/platform/workflows) |
 
 ### 3. Conditions & branching
+
 | Ours | Foundry | n8n | Asana | Slack | Teams (PA) | SAP SBPA | Rippling |
 |---|---|---|---|---|---|---|---|
 | condition + branch blocks (≥2 outputs); simulate reports branch taken. `[code]` | Object-set + threshold conditions; function-returns-true. `[V]` [conditions](https://www.palantir.com/docs/foundry/automate/condition-objects) | If / Switch / Filter nodes on any field. `[V]` [lowcode](https://www.lowcode.agency/blog/n8n-workflows) | Check-if cards, AND/OR, nested branching. `[V]` [branching](https://help.asana.com/s/article/conditions-and-branching-in-rules) | Up to 15 conditions, nested branches, ≤10 rules/branch + fallback. `[V]` [dev blog](https://slack.dev/introducing-conditional-branching-in-workflow-builder/) | Condition/Switch controls + expressions. `[V]` [PA docs](https://learn.microsoft.com/en-us/power-automate/) | Decision tables + condition branches; auto-approve threshold rules. `[V]` [SBPA](https://blog.fink-its.de/en/sap-btp/automate-sap-workflow-with-sap-build-process-automation/) | Multi-step conditional logic on any attribute. `[V]` [Jan-25](https://www.rippling.com/blog/january-2025-product-updates) |
 
 ### 4. Actions / effects
+
 | Ours | Foundry | n8n | Asana | Slack | Teams (PA) | SAP SBPA | Rippling |
 |---|---|---|---|---|---|---|---|
 | Effect = governed ontology Action (same verb as humans) → writeback + audit; internal connectors. `[code]` | Action-effect runs Action-types; batch strategies (once-for-all / per-batch). `[V]` [effect-actions](https://www.palantir.com/docs/foundry/automate/effect-actions) | 400+ integration nodes; any API call, transform, code node. `[V]` [nodes](https://docs.n8n.io/integrations/builtin/core-nodes/n8n-nodes-base.workflowtrigger/) | Multiple actions per rule (assign, set field, comment, create task, cross-app). `[V]` [features](https://asana.com/features/workflow-automation/rules) | Post msg, form, create list item, canvas, 70+ connector steps. `[V]` [WB](https://docs.slack.dev/workflows/workflow-builder/) | 1000s of connector actions; approvals, adaptive cards, HTTP. `[V]` [PA docs](https://learn.microsoft.com/en-us/power-automate/) | Actions, mail, decisions, RPA bots, S/4 API calls, subflows. `[V]` [SBPA](https://blog.fink-its.de/en/sap-btp/automate-sap-workflow-with-sap-build-process-automation/) | Cross-module: email, assign training, change app perms, update payroll, webhook. `[V]` [workflows](https://www.rippling.com/platform/workflows) |
 
 ### 5. Connectors / extensibility (external integrations)
+
 | Ours | Foundry | n8n | Asana | Slack | Teams (PA) | SAP SBPA | Rippling |
 |---|---|---|---|---|---|---|---|
 | **Internal-only** (approvals/notif/mail/audit/jobs); no 3rd-party connector surface — deliberate closed governance. `[code]` | Foundry-internal (Actions/Functions/webhooks); external via Function/webhook effect. `[I]` from effect model | **The reference**: 400+ nodes + custom/community nodes + HTTP + code. `[V]` [nodes](https://cyberincomeinnovators.com/mastering-n8n-nodes-triggers-your-definitive-guide-to-powerful-workflow-automation-2025) | ~100s app integrations + developer app-components-on-rules. `[V]` [app-components](https://developers.asana.com/docs/app-components-on-rules) | 70+ connectors incl. Salesforce. `[V]` [branching](https://slack.com/blog/news/conditional-branching-workflow-builder) | 1000+ connectors + custom connectors. `[V]` [approvals-custom-connector](https://learn.microsoft.com/en-us/power-automate/teams/approvals-custom-connector) | Rich S/4 + BTP destination connectors; custom-business-object integration. `[I]` [integrate](https://community.sap.com/t5/technology-blog-posts-by-sap/integrate-sap-build-process-automation-with-custom-business-object-from-s/ba-p/13918965) | Connected 3rd-party apps as trigger/action source (SSO-governed). `[V]` [workflows](https://www.rippling.com/platform/workflows) |
 
 ### 6. Runs / execution history / observability
+
 | Ours | Foundry | n8n | Asana | Slack | Teams (PA) | SAP SBPA | Rippling |
 |---|---|---|---|---|---|---|---|
 | Run log timeline (status, actor, generatedObjects, error) + schedule `/runs`; audit-chained. `[code]` | Activity log: triggered/recovered events; retained 6 months then purged. `[V]` [activity](https://www.palantir.com/docs/foundry/automate/concept-activity) | Executions log: time, status, mode, running-time, per-node data. `[V]` [error-handling](https://docs.n8n.io/flow-logic/error-handling/) | Rule activity log at project/portfolio + task activity feed. `[V]` [features](https://asana.com/features/workflow-automation/rules) | Workflow activity/analytics per workflow (built-in execution data). `[I]` from WB event model | Flow run history w/ per-action inputs/outputs; auditable. `[V]` [approvals](https://alphavima.com/blog/power-automate-teams-adaptive-card-approval/) | Process visibility / monitoring dashboards + workflow instance history. `[V]` [SBPA](https://blog.fink-its.de/en/sap-btp/automate-sap-workflow-with-sap-build-process-automation/) | Workflow run tracking in Workflow Studio. `[I]` from studio model |
 
 ### 7. Error handling & retries
+
 | Ours | Foundry | n8n | Asana | Slack | Teams (PA) | SAP SBPA | Rippling |
 |---|---|---|---|---|---|---|---|
 | retryable/retryCount on run events; publish-validation fail-closed on bad graph. `[code]` | Threshold recover events; execution settings. `[V]` [execution-settings](https://www.palantir.com/docs/foundry/automate/execution-settings) | Retry-on-fail, continue-on-error, dedicated Error Trigger workflow. `[V]` [error-handling](https://docs.n8n.io/flow-logic/error-handling/) | No retry engine; rules just don't fire / log failure. `[I]` — rule model has no retry primitive | Fallback branch if no rule matches; limited failure semantics. `[V]` [dev blog](https://slack.dev/introducing-conditional-branching-in-workflow-builder/) | Configurable retry policy per action + run-error surfacing. `[I]` PA action retry settings | BPMN error boundary events + escalation/deadline handlers. `[I]` from BPMN engine | Re-routing on approver-unavailable; limited technical-retry docs. `[V]` [permissions](https://www.rippling.com/platform/permissions) |
 
 ### 8. Approvals / human-in-the-loop
+
 | Ours | Foundry | n8n | Asana | Slack | Teams (PA) | SAP SBPA | Rippling |
 |---|---|---|---|---|---|---|---|
 | First-class approval-line (전자결재) templates + `internal.approvals` connector; SoD decider≠requester. `[code]` | Actions can require review, but no native multi-stage approval app. `[I]` | Human-in-loop via wait/webhook/form nodes; no native approval object. `[I]` | Approval task type + rule can request approval. `[V]` [features](https://asana.com/features/workflow-automation/rules) | Approve/Reject/Escalate buttons → branches; no formal approval ledger. `[V]` [branching blog](https://slack.com/blog/news/conditional-branching-workflow-builder) | Native Approvals app in Teams (adaptive cards, multi-approver, audit). `[V]` [native-approvals](https://learn.microsoft.com/en-us/power-automate/teams/native-approvals-in-teams) | Decisions determine approvers + approval forms; auto-approve thresholds. `[I]` [q&a](https://community.sap.com/t5/technology-q-a/sap-build-process-automation-process-triggers-a-step-by-step-demo-on/qaq-p/14171790) | Approvals app + multi-approver + vacation re-routing; some logic in Studio. `[V]` [permissions](https://www.rippling.com/platform/permissions) |
 
 ### 9. Publish governance (versioning / four-eyes / staging)
+
 | Ours | Foundry | n8n | Asana | Slack | Teams (PA) | SAP SBPA | Rippling |
 |---|---|---|---|---|---|---|---|
 | **Source-backed**: revision staging + four-eyes approve/withdraw; active version serves until approved; staged_by barred. `[code]` | Ontology/pipeline versioning; automations edit-in-place (no doc'd four-eyes on the rule). `[I]` | Git-based version control is an external best-practice, not built-in. `[I]` [tips](https://medium.com/@dejanmarkovic_53716/game-changing-n8n-workflows-tips-and-tricks-for-2025-02ebf08a607c) | Rules are live-edited; no version/approval on the rule itself. `[I]` | Workflows publish live; no staged-approval of the workflow. `[I]` | Flow version history + rollback/restore; no native co-approval gate. `[V]` [version-history](https://alphavima.com/blog/power-automate-flow-version-history/) | Project versions + release/deploy lifecycle across dev→test→prod. `[I]` [subflows](https://blogs.sap.com/2023/04/05/introducing-subprocesses-as-referenced-subflows-in-sap-build-process-automation) | Live-edit; change tracked in audit, no doc'd four-eyes on the workflow def. `[I]` |
 
 ### 10. Permissions / PBAC on the automation
+
 | Ours | Foundry | n8n | Asana | Slack | Teams (PA) | SAP SBPA | Rippling |
 |---|---|---|---|---|---|---|---|
 | Current legacy server authorization and evidenced RLS/governance checks protect workflow routes; Cedar deny-by-omission per `console.workflows.*` action and an effect-specific run-as policy are target requirements pending enrollment, shadow proof, and promotion. `[code+ADR-0021]` | Actions/automations run under object+property security; security-aware params. `[V]` [overview](https://www.palantir.com/docs/foundry/automate/overview) | Owner/RBAC on workflow; credentials scoped; no per-object policy. `[I]` | Project/team roles gate who can edit rules. `[I]` | Workspace/plan-gated (Business+/Enterprise+ for branching); admin controls. `[V]` [branching blog](https://slack.com/blog/news/conditional-branching-workflow-builder) | DLP + environment security roles; connector data-loss policies. `[I]` from Power Platform model | BTP role collections + S/4 authorizations on triggered actions. `[I]` | Role-based permissions is a core Rippling primitive. `[V]` [permissions](https://www.rippling.com/platform/permissions) |
 
 ### 11. Simulation / testing
+
 | Ours | Foundry | n8n | Asana | Slack | Teams (PA) | SAP SBPA | Rippling |
 |---|---|---|---|---|---|---|---|
 | **Standout**: simulate run vs sample context; reports the branch actually taken (no side effects). `[code]` | Preview object-set condition matches before enabling. `[I]` | Manual "Execute workflow" test run w/ per-node data inspection. `[V]` [error-handling](https://docs.n8n.io/flow-logic/error-handling/) | No dry-run; test by triggering a real task. `[I]` | Test-run a workflow before publish. `[I]` | Flow test/checker + run-and-inspect. `[I]` from PA designer | Test/debug run in Build; process test tooling. `[I]` | No documented dry-run simulator. `[I]` |
 
 ### 12. Scheduling (cron)
+
 | Ours | Foundry | n8n | Asana | Slack | Teams (PA) | SAP SBPA | Rippling |
 |---|---|---|---|---|---|---|---|
 | Cron schedules + `/preview-next-runs` (shows upcoming fire times) + per-schedule runs. `[code]` | Time-based conditions "every Monday 9AM". `[V]` [conditions](https://www.palantir.com/docs/foundry/automate/condition-objects) | Cron node w/ full expression. `[I]` [anatomy](https://medium.com/@Quaxel/the-anatomy-of-an-n8n-workflow-3ade4a335266) | Scheduled rule triggers. `[V]` [rule-triggers](https://help.asana.com/s/article/rule-triggers) | Scheduled + time-window triggers. `[V]` [branching blog](https://slack.com/blog/news/conditional-branching-workflow-builder) | Recurrence trigger (cron-like). `[V]` [PA docs](https://learn.microsoft.com/en-us/power-automate/) | Timer/deadline events + scheduled start. `[I]` BPMN timers | Precise scheduling for reminders/reports. `[V]` [Jan-25](https://www.rippling.com/blog/january-2025-product-updates) |
 
 ### 13. Mobile
+
 | Ours | Foundry | n8n | Asana | Slack | Teams (PA) | SAP SBPA | Rippling |
 |---|---|---|---|---|---|---|---|
 | Approvals/notifications reach the Android field app (native push); authoring is console/desktop. `[I]` from app model | Foundry mobile consumes objects; automation authoring is web. `[I]` | Web-only authoring; no first-party mobile builder. `[I]` | Full mobile app runs rules; author on mobile limited. `[I]` | Slack mobile runs workflows + form/button steps. `[V]` [WB](https://docs.slack.dev/workflows/workflow-builder/) | Power Automate + Teams mobile approvals. `[V]` [native-approvals](https://learn.microsoft.com/en-us/power-automate/teams/native-approvals-in-teams) | SAP Mobile Start / approvals on mobile. `[I]` | Rippling mobile app for approvals/tasks. `[I]` |
 
 ### 14. Audit / compliance
+
 | Ours | Foundry | n8n | Asana | Slack | Teams (PA) | SAP SBPA | Rippling |
 |---|---|---|---|---|---|---|---|
 | **Evidenced source seams**: partial/DARK seal/verify code, in-transaction SoD, and append-oriented writeback primitives; production trusted anchoring and universal run/effect coverage are not claimed. `[code]` | Full activity log (6-mo retention) + object-edit lineage. `[V]` [activity](https://www.palantir.com/docs/foundry/automate/concept-activity) | Execution log; audit is DIY / enterprise add-on. `[I]` | Activity feed + rule log; SOC2 platform. `[I]` | Adaptive-card responses auditable in run history. `[V]` [approvals](https://alphavima.com/blog/power-automate-teams-adaptive-card-approval/) | Flow run history + Purview integration. `[I]` | Process visibility + enterprise audit (SAP-grade). `[I]` | HR-grade audit on approvals/changes. `[I]` |
 
 ### 15. Korean B2B fit (전자결재 · 근로기준법 · group-company scoping)
+
 | Ours | Foundry | n8n | Asana | Slack | Teams (PA) | SAP SBPA | Rippling |
 |---|---|---|---|---|---|---|---|
 | **Built for it**: approval-line templates = 전자결재; SoD; group→법인→branch scoped RBAC; leave/OT/expense approval workflows native. `[code]` + ledger | Generic engine; no 전자결재/근로기준법 semantics — you build them. `[I]` | Generic; no Korean approval/labor primitives. `[I]` | Generic PM rules; no 전자결재 line. `[I]` | Generic chat workflows; no 전자결재. `[I]` | Approvals app ≈ sequential 결재 but no 근로기준법 model. `[I]` | Strong multi-step approval + decisions; localizable but Korea-labor logic is custom. `[I]` | US-payroll-centric; no 근로기준법/4대보험 approval-line out of the box. `[I]` |

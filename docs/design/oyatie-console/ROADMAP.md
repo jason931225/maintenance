@@ -5,6 +5,7 @@
 > **권한 연대기:** 이 문서의 Cedar/PBAC 항목과 완료 로그는 목업·작성·시뮬레이션·목표 계약을 기록한다. 별도 공존 맵 승격 증거가 없는 한 현재 라이브 집행은 레거시 서버 권한/미들웨어와 입증된 PostgreSQL RLS이며, Cedar는 target/shadow다.
 
 ## 0. 품질 기준 (Definition of Done — 모든 모듈 공통)
+
 1. **완결성**: 빈 화면·placeholder·"준비 중" 금지. 모든 목록·카드·액션이 실제 시드 데이터로 동작.
 2. **온톨로지**: 화면의 모든 명사가 개체 — 클릭(핀 패널)/드래그(참조 토큰)/코드 링크로 상·하류 이동 가능.
 3. **상관(correlation)**: 최소 2개 상류·2개 하류 개체와 실제 링크. 상태 전이 시 연결 개체에 역참조+감사 이벤트.
@@ -16,9 +17,11 @@
 9. **생애주기(§3.9)**: 해당 업무 개체는 draft→archive 단계를 명시 — 초안·상신/승인(maker-checker·SoD)·발효일(effective-dating)·개정(버전)·정산 게이트·보관(숨김·이력 보존). 파괴적 작업(폐지)은 의존 개체+법정 정산 완료 후. 하드삭제 금지.
 
 ## 1. 제품 논지 (refined)
+
 **대기업 아웃소싱 운영 OS** — 하나의 개체 그래프 위에서 계약→인력편성→채용→근태→급여→분석→계약 수익성의 전 수명주기를 운영. **결정적(no-AI)** 거버넌스(Cedar PBAC·감사·워크플로·데이터 통합). Palantir Foundry의 온톨로지/파이프라인/계보 사고를, AI 없이 규칙·템플릿·통계로 구현. 전 직원(현장직 포함)+모바일. 다중 관할 규제 대비.
 
 ## 2. 온톨로지 (마스터 개체 그래프 — 상관의 근간)
+
 > 개체 = (의미: 타입·속성·관계) × (동작: 이벤트·상태전이) × (역학: 정책·파생지표). 코드 발급 개체는 `!코드`로 어디서나 링크.
 
 **조직/사람**: Group▸Entity(법인)▸Site(사업장)▸Team ; Person(직원·지원자·비정규 WorkforcePool) ; Position(사업장×직무×직책×TO) ; PolicyPreset(근무·휴게·연차·수당·여비 — 상속)
@@ -32,6 +35,7 @@
 **표준 관계 체인**: `C- → Position → PolicyPreset → Posting → Applicant → Employee → Timetable ⇄ Attendance ⇄ Substitution/OT(AP-) → PayrollRun → Payslip → LaborCost → ContractProfitability → (환류) C-`. 어느 노드에서든 1클릭 상·하류.
 
 ## 3. 교차 시스템 (모든 모듈이 계승 — 재구현 금지)
+
 > **북극성 벤치마크 (전반)**: **Palantir Foundry**(온톨로지·Actions·Functions·Workshop·Pipeline·계보 — 개체·구성·분석의 근간) · **Slack/Teams**(커뮤니케이션·프레젠스·스레드·협업·링크 unfurl·회의) · 모듈별 source-cited(Workday·Greenhouse·ServiceNow·Retool/Appsmith/ToolJet 등 §4 매트릭스·HANDOFF §19). 새 표면은 이 셋 + 해당 모듈 source-cited에 대조해 심화.
 - **PBAC(Cedar)**: `permit(principal,action,resource)`; principal=직책·직급·직무·대상관계·clearance; resource=개체×카테고리; action=view/edit/export. 스코프="인가 법인 합집합". covert=deny-by-omission. `tokenVisible`·`viewerClasses` 재사용.
 - **감사 백본**: `logEvent(partial)` — 상태 전이·열람 전부. seq+해시체인·deviceCtx·분류. `screen:"audit"` 피드.
@@ -43,6 +47,7 @@
 - **디자인 토큰**: `tokens/*.css` + `.console` 테마(라이트/다크). 인라인 스타일. Pretendard. 아이콘=인라인 스트로크 SVG.
 
 ## 4. 모듈 매트릭스 (레이어 정규화 · 39개 단일 행)
+
 > 판정은 `origin/main@86a97771a76b7e770dfcf8c6c7d83fd9d70a98bf` 소스 기준이며, 표의 `소스 판정`은 **revision-bound source integration classification** 축이다. 이 축에서 `PARITY`는 새 콘솔 body와 실제 백엔드 계약이 소스에서 연결됐음을 뜻하고, named material source or integration-depth gap이 있으면 `PARTIAL`이다. This source axis is independent of ADR-0025's complete-slice/readiness evidence axis: source `PARITY` never authorizes a shipped or readiness claim, and missing runtime/deployment evidence does not by itself downgrade the source classification. 별도로 ADR-0025 complete-slice 증거가 없는 행은 배포·DB·브라우저·운영·엔터프라이즈 준비 완료로 주장할 수 없다. 합계: **5 PARITY / 25 PARTIAL / 7 MISSING / 2 N/A = 39**.
 
 | 모듈 / screen | 레거시 서피스 | 백엔드 substrate | 새 콘솔 body | 소스 판정 | 남은 게이트 |
@@ -88,6 +93,7 @@
 | 오피스 편집기 / editor | prototype shell | office governance shell | 실 editor 없음 | N/A (P3) | iframe/JWT/callback 저장 유예 |
 
 ## 5. 시그니처 데이터-상관 데모 (온톨로지 증명 — 반드시 재현)
+
 1. **계약 수익성 환류**: ContractProfitability(C-207) → LaborCost → PayrollRun → Attendance/Substitution → WorkforcePool. 한 화면에서 상·하류 drill.
 2. **인제스트→온톨로지**: 은행 거래내역(API DX-) → Voucher(전표) → Ledger; 나라장터 공고(DX-) → Bid → Contract 후보. 계약서 스캔(DX-) → Contract C- 필드 자동 매핑.
 3. **결원→대근→급여→계약**: 무단결근(AT-) → 대근(AP-·WorkforcePool) → 급여 일당 반영 → 계약 인건비.
@@ -96,6 +102,7 @@
 6. **증거 체인 목표**: 현장 사진/영상(EvidenceRecord; durable WORM/object-lock·신뢰 앵커는 미입증) → 정비오더(WO-) → 계약 이행 증빙 → 감사.
 
 ## 6. 실행 순서 (phased — 가치·의존성 우선)
+
 - **P1 (데이터 중추)**: 데이터 인제스트 화면 → 객체 탐색(그래프) → 자동화 외부 API/no-code 캔버스. (온톨로지·상관·워크플로를 가장 강하게 실증)
 - **P2 (분석·규제·계약 상류)**: 대시보드 → 인건비 분석/수익성 → 컴플라이언스(다중 관할·DSR·동의) → 국가지원·조달·계약(C- 수명주기).
 - **P3 (ERP·현장운영·문서 심화)**: 재무·구매·재고·자산 → 정비(WO-)·배차·고객현장 → 문서 증거 아카이빙(미디어/ZIP) → 오피스 편집기 거버넌스 셸.
@@ -103,6 +110,7 @@
 - **상시**: 각 신규 모듈은 §5 상관 중 관련 데모를 반드시 연결. 각 완료 후 TODO/AGENTS 갱신 + 검증.
 
 ## 7. 진행 로그
+
 - 2026-07-04: 블루프린트 수립.
 - 2026-07-04: **메일 풀뷰(커뮤니케이션 > 메일) 완료·검증** — mox 백엔드 모델(자체 프런트) · 3-pane(폴더 7·리스트·리딩) · 13메일 · 발신자 인증(SPF/DKIM/DMARC)·저장암호화 보안 패널 · 분류·PBAC·보존·litigation hold 거버넌스 · 첨부→인제스트/증거 · 연결 개체 · 컴포저(분류·DLP 외부발송 경고).
 - 2026-07-04: **P1 객체 탐색(관계 그래프) 완료·검증** — 20노드 온톨로지 그래프(계약→편성→공고→지원자 · 현장→팀→직원→근태→대근→인력풀 · 근태→급여→회차→수익성 환류 · 인제스트→계약 · 감사→직원), 방사형+SVG 엣지, 노드 클릭 재중심·상/하류 패널·트레일·범례. 검증 c207→att_cho→pay_cho.
@@ -116,6 +124,7 @@
 - 2026-07-09: **잔여 갭 소진 + 지원자 페르소나** — as-of 재구성(버전 「시점 보기」 읽기 전용·감사) · 타입 속성 스키마 no-code 편집(활성=개정 스테이징→v+1 발효) · 내 업무 할 일 행+완료 토글 · 인력풀 서피스(workforce·대근 연동) · 메일 본문 실링크 · 시리즈 자동 탐지 · **지원자 view-as v6**(「내 지원」 서피스·오퍼=수신함 passkey 수령·수신함 owner 스코프·rail 미렌더). 벤치마크 갭 레지스터 소진.
 
 ## 8. 페르소나 워크플로 매트릭스 (2026-07-08 directive · 역할별 e2e 기준)
+
 > 각 역할의 실제 하루 동선이 설계 기준. 신규 화면은 해당 역할 동선에서 3클릭 내 핵심 업무 도달을 검증한다.
 - **HR 담당(김성아)**: 채용 파이프라인→입사확정→근로계약(수신함 passkey)→온보딩 체크→인사카드 · 예외: 무단결근 소명·촉진 발송. **✓ audit 2026-07-09** — v2 nav 26종·recruit 카드 양방향·leave 촉진 도달 3클릭 내.
 - **배차 담당**: WO- 큐(SLA 칩)→가용 기사 매칭→배정 승인→추적→정산 연동. **✓ audit** — dispatch 화면(v1·v3)·처리 패널·지도 왕복; 전담 페르소나는 미분리(v1 수행).

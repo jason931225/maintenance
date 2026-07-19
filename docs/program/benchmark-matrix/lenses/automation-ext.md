@@ -47,8 +47,8 @@ Read from `web/src/console/workflows/*`, `console/canvas/*`, `console/policycanv
 - **§16 checklist / four-eyes / SoD API-layer enforcement for automation** still a backend residual
   (ledger L116, "85 판정").
 
-Bottom line: we are a **governed, internal, model-extensible** automation engine. Every commodity
-automation vendor is an **open, connector-rich, externally-extensible** one. The gap and the design distinction are the
+Bottom line: we are a **governed, internal, model-extensible** automation engine. The sampled automation-vendor
+surfaces are **open, connector-rich, and externally extensible**. The gap and the design distinction are the
 same fact.
 
 ---

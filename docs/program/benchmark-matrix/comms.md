@@ -73,6 +73,7 @@ adapter-postgres / credential-cipher):
 Legend: **Ours** = built unless marked (gap). Cells: how the vendor does it, [V]/[I].
 
 ### R1 — Information architecture (channels / DM / mail / notices in one place)
+
 - **Ours**: messenger (channels+DM) + webmail + comms-rail promotion into any screen; notices **absent**. Object chips thread all three back to the ontology. [evidence: `console/messenger`, `console/mail`, ledger comms-rail]
 - **Foundry**: comms live *on the object* (Object View comment threads), not a separate inbox. [V] https://www.palantir.com/docs/foundry/object-views/comment-on-objects
 - **Slack**: channels (public/private) + DM + threads + Slack Connect + Canvas as the unifying IA. [V] https://slack.com/help/articles/360035692513-Guide-to-Slack-Workflow-Builder
@@ -83,6 +84,7 @@ Legend: **Ours** = built unless marked (gap). Cells: how the vendor does it, [V]
 - **SAP**: My Inbox (F0862) + My Outbox + Task Center unified inbox across cloud apps. [I] https://community.sap.com/t5/enterprise-resource-planning-blog-posts-by-sap/sap-fiori-for-sap-s-4hana-which-notification-to-use-when-workflow-situation/ba-p/14108545
 
 ### R2 — Core messaging (reply-in-thread, quote, edit/delete, reactions)
+
 - **Ours**: reply + quote (quoted body/sender), head-on grouping, unread divider; **no edit/delete/reactions/emoji** (ack replaces the reaction). Deliberate — audit-first, immutable messages. [evidence: `messengerModel.ts`]
 - **Foundry**: object comment threads with mentions + file/image attach; not a general chat. [I] comment-on-objects (above)
 - **Slack**: threads, edit/delete, reactions, rich text; edits/deletes still captured by Discovery. [V] https://slack.com/help/articles/360002079527-A-guide-to-Slacks-Discovery-APIs
@@ -93,6 +95,7 @@ Legend: **Ours** = built unless marked (gap). Cells: how the vendor does it, [V]
 - **SAP**: comments live on the workflow task / business object, not free chat. [I]
 
 ### R3 — Object references / chips (link a business object into a message) — **signature row**
+
 - **Ours**: **strong domain-specific interaction** — 24-prefix code regex → policy-projected chip that unfurls to the
   real object card, is drag-source + drop-target, and can degrade to plain text in the client. The server
   reauthorizes under current legacy controls; reader-aware Cedar omission remains a target. One
@@ -108,6 +111,7 @@ Legend: **Ours** = built unless marked (gap). Cells: how the vendor does it, [V]
 - **SAP**: workflow task deep-links to the business object in Fiori; not an inline chip in free text. [I]
 
 ### R4 — Mail / email
+
 - **Ours**: full custom IMAP/SMTP webmail with threading, folders, classification, egress DLP, sender-auth
   chips, plus source-wired fixity/WORM-status and hold seams available for integration. Production object lock, trusted anchoring, and operational WORM proof remain open; this is **built in-house, not a Gmail wrapper**. [evidence: `crates/comms`]
 - **Foundry**: N/A as a mailbox; Automate sends outbound email + PDF digests only. [V] https://www.palantir.com/docs/foundry/automate/example-weekly-report
@@ -119,6 +123,7 @@ Legend: **Ours** = built unless marked (gap). Cells: how the vendor does it, [V]
 - **SAP**: Fiori launchpad + email notifications from workflow; not a mailbox. [I] https://community.sap.com/t5/enterprise-resource-planning-blog-posts-by-sap/sap-s-4hana-email-and-fiori-launchpad-notifications-in-purchase-order/ba-p/13807255
 
 ### R5 — Notices / 공지 (broadcast with mandatory-read acknowledgment)
+
 - **Ours**: **GAP** — no board; messenger `ack` gives a read-acknowledgment primitive but no
   broadcast/target/must-read-tracking surface. [evidence: ledger:116 "board" deferred]
 - **Foundry**: Automate **notification effects** (static or object-property-driven recipient lists) = broadcast, no read-receipt board. [V] https://www.palantir.com/docs/foundry/automate/effect-notification
@@ -130,6 +135,7 @@ Legend: **Ours** = built unless marked (gap). Cells: how the vendor does it, [V]
 - **SAP**: SuccessFactors/Work Zone home announcements + Task Center; formal, HR-broadcast oriented. [V] https://www.slideshare.net/slideshow/sap-build-work-zone-overview-l2l3pptx/267319527
 
 ### R6 — Presence & read state
+
 - **Ours**: presence (online/away/offline) + per-message read receipts + unread divider + ack counts. [evidence: `listPresence`, `markRead`, `toggleAck`]
 - **Foundry**: N/A (no presence). [I]
 - **Slack**: active/away presence; read state per channel; no per-message read receipts. [I]
@@ -140,6 +146,7 @@ Legend: **Ours** = built unless marked (gap). Cells: how the vendor does it, [V]
 - **SAP**: task status (open/in-progress/completed) stands in for read state. [I]
 
 ### R7 — Permissions / access control
+
 - **Ours**: client policy projections cover evidenced actions, object chips, and mentions, while the API/server remains authoritative under current legacy authorization and applicable RLS. UI omission and API enforcement are not identical proof surfaces. Cedar deny-by-omission and group→법인→branch→worksite scoping require per-action enrollment, shadow evidence, and explicit promotion under ADR-0021. [evidence: `MESSENGER_ACTIONS`, `PolicyGated`, `usePolicyGate`; ADR-0021]
 - **Foundry**: object + property (cell-level) policies, mandatory markings; comments inherit object security. [V] https://www.palantir.com/docs/foundry/object-permissioning/object-and-property-policies
 - **Slack**: workspace/channel membership + admin roles; DLP/Discovery are Enterprise-Grid-gated. [V] https://slack.com/help/articles/360002079527-A-guide-to-Slacks-Discovery-APIs
@@ -150,6 +157,7 @@ Legend: **Ours** = built unless marked (gap). Cells: how the vendor does it, [V]
 - **SAP**: PFCG roles + workflow agent determination; approvals gated by org structure. [I]
 
 ### R8 — Automation hooks (message → action, action → message)
+
 - **Ours**: create-todo-from-message (object-linked); object chips are drop targets; **no rules engine in
   comms yet** — Automate lane is separate. [evidence: `createTodo`; ledger Automate is its own surface]
 - **Foundry**: **Automate Condition→Effect**, notification effects, Action side-effects (webhooks/notify). [V] https://www.palantir.com/docs/foundry/automate/overview
@@ -161,6 +169,7 @@ Legend: **Ours** = built unless marked (gap). Cells: how the vendor does it, [V]
 - **SAP**: Flexible Workflow + Situation Handling drive notifications into My Inbox. [I] which-notification (above)
 
 ### R9 — Audit / retention / legal hold / eDiscovery
+
 - **Ours**: evidenced message/mail mutation-audit seams, FORCE-RLS tables exercised under `mnt_rt`, and
   credential-redacting audit builders; universal route coverage is not established. **Retention/legal-hold surface = partial** (mail litigation-hold
   reason exists; no org-wide hold/eDiscovery export yet). [evidence: `crates/comms` audit builders, ledger]
@@ -177,6 +186,7 @@ Legend: **Ours** = built unless marked (gap). Cells: how the vendor does it, [V]
 - **SAP**: **workflow log = end-to-end audit trail** (who approved what, when) per task. [I] which-notification-to-use (above)
 
 ### R10 — DLP / egress control (outbound sensitive-data blocking)
+
 - **Ours**: **built into the composer** — classification + external-recipient + attachment rules block send
   and route to approval/compliance inline (전자결재-adjacent). [evidence: `blockedEgress`, `MailGovernance`]
 - **Foundry**: mandatory markings prevent cross-classification leakage at the data layer. [I] object-and-property-policies (above)
@@ -188,6 +198,7 @@ Legend: **Ours** = built unless marked (gap). Cells: how the vendor does it, [V]
 - **SAP**: approval gates enforce policy, not content DLP. [I]
 
 ### R11 — Mobile
+
 - **Ours**: native field app (Android `com.maintenance.field`) covers work-order flow + messaging-adjacent; console mail/messenger are web-responsive. [evidence: memory native-app-identifiers; android/ tree]
 - **Foundry**: mobile app for object views + notifications. [I]
 - **Slack**: first-class iOS/Android. [I]
@@ -198,6 +209,7 @@ Legend: **Ours** = built unless marked (gap). Cells: how the vendor does it, [V]
 - **SAP**: **SAP Mobile Start** surfaces Task Center on mobile. [I] which-notification (above)
 
 ### R12 — Extensibility / external federation
+
 - **Ours**: object-chip grammar is extensible by prefix (24 today); no third-party app platform; no
   external-org federation. Deliberately closed (auditable, no E2EE, no外부 bots). [evidence: `OBJECT_CODE_RE`]
 - **Foundry**: custom widgets (iframe bridge) + Functions; closed to org. [I] brief §1d
@@ -209,6 +221,7 @@ Legend: **Ours** = built unless marked (gap). Cells: how the vendor does it, [V]
 - **SAP**: Work Zone integration content + BTP extensibility. [I] work-zone (above)
 
 ### R13 — Korean B2B fit (전자결재 culture, 근로기준법, group-company scoping)
+
 - **Ours**: **native direction** — Korean-first i18n (`ko.console.*`), current server-authorized organization scoping with applicable RLS (Cedar group→법인→branch→worksite scoping is target/shadow),
   ack = 확인 culture, mail egress→approval routing = 전자결재 adjacency, in-house stack avoids data-residency
   concerns. [evidence: `i18n/ko.ts`, current server authorization/RLS seams; ADR-0021 target]
@@ -274,8 +287,9 @@ it's an approvals inbox, not a chat, and customization is heavy/slow/expensive.
 
 2. **Legal hold + eDiscovery export** → *cited reference: Slack (Legal Holds Admin + Discovery API stream of **[I]**
    edits/deletes).* Build from the evidenced audit/fixity seams while first closing route-coverage gaps; expose an org-scoped hold flag + a
-   compliance-scoped export endpoint over existing message/mail rows. This would create litigation-grade
-   evidence. Ontology fit: hold = a governed policy object; export = a Cedar-gated read. **Cost: M.** **[I]**
+   compliance-scoped export endpoint over existing message/mail rows. This would create a compliance-scoped export only; litigation-grade
+   characterization remains blocked until custody, hold, retention, route coverage, and trusted anchoring are demonstrated. Ontology fit:
+   hold = a governed policy object; export = a Cedar-gated read. **Cost: M.** **[I]**
 
 3. **Rules engine on comms events (message→action)** → *cited reference: Asana Rules + n8n triggers.* Extend the **[I]**
    existing create-todo hook into declarative "when a message contains WO-* and @role → create task /

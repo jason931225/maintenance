@@ -9,14 +9,18 @@
 
 Method: for each module I name its ONE money task, count the interaction steps in
 OUR console (evidence: `web/src/console/**` read directly + `docs/program/console-program-ledger.md`),
-then compare vendor step-count. Every vendor claim is [I] (source URL) or [I] (inferred
-from known product pattern). Korean 전자결재 / 근로기준법 / group-scope fit called out where global vendors miss it.
+then compare vendor step-count under the Rigor-label contract below. Direct URL or same-document source-backed
+product observations may carry the verified label; derived step counts and comparisons, known-product-pattern
+extrapolations, and all recommendations carry the inference label. A URL alone does not convert an inference into
+a verified observation. Korean 전자결재 / 근로기준법 / group-scope fit is called out where the sampled global-vendor
+surfaces miss it.
 
-Rigor labels: [V]=verified w/ URL, [I]=inferred, N/A=vendor doesn't play here.
+Rigor labels: [V]=bounded direct observation with a URL or same-document source entry; [I]=derived comparison, step count, extrapolation, or recommendation; N/A=vendor doesn't play here.
 
 ---
 
 ## 1. overview
+
 **Money task:** triage my inbox — see what needs me, act on it.
 **OURS (evidence):** overview calls the action-inbox endpoint in source, derives source-observed stats/counts, feeds nav badges, and gives each row a source-route action. The missing step-collapse is inline/ObjectCard completion: a row routes to its source instead of approving/rejecting/acknowledging in place, so completion remains **2–3 steps**.
 **Vendors:**
@@ -27,6 +31,7 @@ Rigor labels: [V]=verified w/ URL, [I]=inferred, N/A=vendor doesn't play here.
 **What we'd steal:** actionable inbox rows (approve/reject/ack rendered on the row, PolicyGated) → collapses overview money task from 3 → 1. Vendor: Slack/Teams. Fit: our PolicyGated + GovernedObjectCard action layer already exists; render its top action inline on the row. Cost: **M**. **[I]**
 
 ## 2. dashboard
+
 **Money task:** spot an anomaly → drill to the offending object.
 **OURS:** scope×period presentation, real-API stat strip, honest charts, and authored **drill targets** are Source-present.
 The absolute React Router targets are registered by `AppRouter` as legacy `ConsoleShell`/`AppShell` routes. They exit the carbon-console shell and bypass its `state.screen`/ObjectCard flow; universal working drill-to-ObjectCard is not established, browser behavior remains unverified, and the exits are not browser-proven.
@@ -34,6 +39,7 @@ The absolute React Router targets are registered by `AppRouter` as legacy `Conso
 **What we would steal:** route targets through the console screen/object-explorer model, browser-prove each path, and retain honest-scale/stat-strip strengths. Cost **S–M**. **[I]**
 
 ## 3. finance
+
 **Money task:** approve a voucher / vendor bill.
 **OURS (source at `origin/main@86a97771…`):** `FinanceModuleScreen` has a source-wired adapter to the mounted finance-GL list/create/get/submit/approve/post/reverse/account-entry contract. The database/domain enforce nonempty positive balanced vouchers, posted immutability, append-only lines, reversals, and FORCE RLS. This proves a source-wired slice, not deployed operation or complete accounting breadth; list → row → detail action is the intended **2–3-step** path.
 **Vendors:**
@@ -43,6 +49,7 @@ The absolute React Router targets are registered by `AppRouter` as legacy `Conso
 **What we'd steal:** (a) prove the mounted voucher flow in runtime/database/browser tests and surface close/period state; (b) 1-click approve-with-image glance card (Concur); (c) bulk/batch approve. Vendor: Concur (glance+1-click) + NetSuite (bulk). The finance slice already has direct mounted REST; projected ontology action breadth is a separate integration choice. Cost: **M/L**. **[I]**
 
 ## 4. people (HR / 인사)
+
 **Money task:** open an employee, take an HR action (change position, start offboarding).
 **OURS:** employee is one of the 15 seeded projected read types; Position and Posting exist in the three-type C-chain. Domain crates remain the writers, employee action dispatch is not registered, and employee↔position/effective-date depth remains incomplete. Open-and-view is available in principle; uniform act-from-object is not.
 **Vendors:**
@@ -53,6 +60,7 @@ The absolute React Router targets are registered by `AppRouter` as legacy `Conso
 **What we'd steal:** Workday Related-Actions uniformity → keep employee's domain crate as sole writer, register explicit employee action targets, and present them consistently in ObjectCard. Vendor: Workday. Cost: **M/L**. **[I]**
 
 ## 5. leave (연차)
+
 **Money task:** submit a leave request / decide a team member's request.
 **OURS (implemented UI shape, `leave/LeaveConsole.tsx`):** ONE screen holds all four personas. LeaveConsole calls the request/balance and decision/promotion endpoints in source; team decide remains an inline **1-click** control, and 촉진 uses the same source-wired surface. Self-submit is not wired—the validated form ends in a non-submitting approval-template link—and the full path lacks closed-loop E2E proof.
 **Vendors:**
@@ -63,6 +71,7 @@ The absolute React Router targets are registered by `AppRouter` as legacy `Conso
 **What we'd steal:** preserve the co-located-personas pattern, but wire request creation, implement deadline and round-sequence enforcement, and prove submission, decision, promotion, receipt, audit, failure, and retry E2E. Only then propagate it. Cost: **M**. **[I]**
 
 ## 6. support (SUP-)
+
 **Money task:** resolve a ticket.
 **OURS (evidence):** §4-11 stat strip + chip filters + right-pin detail (ledger support-slo, fe-fix-wave1). Resolve = filter chip → row → detail pin → action. SLO (not SLA) modeled as configurable setting object. Resolve = **~3 steps, one ticket at a time, no canned reply/macro**.
 **Vendors:**
@@ -72,6 +81,7 @@ The absolute React Router targets are registered by `AppRouter` as legacy `Conso
 **What we'd steal:** saved macros (bundled field-set + reply as a reusable ontology action) + `/`-inline apply. Vendor: Zendesk. Fit: our ontology Action types ARE bundled writebacks — expose "saved action bundle" as a macro. Cost: **M**. **[I]**
 
 ## 7. evidence (EV-)
+
 **Money task:** produce audit evidence for a record (verify fixity, apply/release hold).
 **OURS (evidence, `evidence/EvidenceCard.tsx` + `crates/docs/rest`):** EvidenceCard with WORM/fixity/custody/legal-hold status; verify = **1 click** on the source-wired path; hold = four-eyes (distinct approver). Per-record, on-demand. Object-lock deployment and trusted audit anchoring are unproved. Verify one record = **1 click**; assemble an audit package = **N clicks (one per record)**.
 **Vendors:**
@@ -80,6 +90,7 @@ The absolute React Router targets are registered by `AppRouter` as legacy `Conso
 **What we'd steal:** scheduled/continuous auto-verify + auto-attestation so an audit package assembles itself. Vendor: ServiceNow GRC. Fit: L20 seal worker already runs; extend to scheduled re-verify + package rollup. Cost: **M**. **[I]**
 
 ## 8. object-platform (ontology / 온톨로지)
+
 **Money task:** create a new object type (no-code) that wires itself end-to-end.
 **OURS (evidence, ontology-coverage-matrix + `console/ontology`):** OntologyManagerScreen (type list + 6-subtab editor + revision staging). BUT add-a-type is **NOT no-code end-to-end — 6 manual steps** documented: generic create-action not auto-attached (user types can't create instances at all), code-prefix regex triplicated/hardcoded (silent drag/parse fail), MOD_SCREENS hardcoded 2-entry map, ko.ts labels, FE ONT_TYPES mirror, free-text policy/automation candidates.
 **Vendors:**
@@ -88,6 +99,7 @@ The absolute React Router targets are registered by `AppRouter` as legacy `Conso
 **What we'd steal:** auto-propagation on publish (create-action auto-attach + registry-derived code prefixes replacing the triplicated regex + data-driven MOD_SCREENS + ONT_TYPES from GET /object-types). Vendor: Palantir. Fit: this is literally Phase C wave 2's stated acceptance test. Cost: **L**. **[I]**
 
 ## 9. policy (Cedar PBAC)
+
 **Money task:** author a policy that denies/permits an action, verify it before ship.
 **OURS (evidence, `console/policycanvas` + Cedar authoring REST):** P→R→A→Effect block canvas + typed predicates + server simulation + review flow. Author = drop blocks → set predicates → simulate → submit → review, about **5+ interactions** for a simple rule. This measures the authoring surface only; ADR-0021 explicitly does not switch live authorization, which remains on the current engine/RLS unless an action is enrolled, shadowed, and promoted.
 **Vendors:**
@@ -98,6 +110,7 @@ The absolute React Router targets are registered by `AppRouter` as legacy `Conso
 **What we'd steal:** a "quick rule" linear path (single P→R→A→Effect row) alongside the canvas for simple policies; keep canvas for branching. Vendor: Cedar text ergonomics. Fit: the block model already serializes; render a 1-row form variant. Cost: **S–M**. **[I]**
 
 ## 10. automate (자동화 / Automate)
+
 **Money task:** build a trigger→action automation.
 **OURS (evidence, `console/workflows` + Automate hub):** BlockCanvas typed nodes + 2px connectors + branch ≥2 outputs + source-present sim + runLog; effect = ontology action; monitors-as-definitions. Build = drag nodes → connect → configure → publish (four-eyes). Simple 1-trigger-1-action = **canvas-heavy, ~5+ steps**.
 **Vendors:**
@@ -108,6 +121,7 @@ The absolute React Router targets are registered by `AppRouter` as legacy `Conso
 **What we'd steal:** Zapier-style linear quick-automation for the trigger→action 80%; our effect=ontology-action already matches Palantir (keep). Vendor: Zapier (simple path). Cost: **M**. **[I]**
 
 ## 11. comms (messenger)
+
 **Money task:** turn a conversation into a decision/action on an object.
 **OURS (evidence, `console/messenger`):** 3-tier rail, reply-in-thread, presence, object-card unfurl, objDrag reference-token drop into composer (PBAC-gated). You can DRAG an object into chat and unfurl its card — but the DECISION still happens on the module surface, not in the rail. Chat-to-action = **drag/unfurl in rail, then leave to act = 2+ context switches**.
 **Vendors:**
@@ -116,6 +130,7 @@ The absolute React Router targets are registered by `AppRouter` as legacy `Conso
 **What we'd steal:** in-rail action buttons on the unfurled object card (approve/ack/decide without leaving the rail) — we already unfurl + PolicyGate; add the terminal action. Vendor: Slack/Teams. Fit: CommsRail↔main promotion + GovernedObjectCard action layer exist; wire the action into the unfurl. Cost: **M**. **[I]**
 
 ## 12. appr (전자결재)
+
 **Money task (draft side):** compose an approval; **(decide side):** approve/reject.
 **OURS (evidence, `appr/ApprovalCompose.tsx`):**
 - Compose: select template (1 click) → fill title/reason(enum)/body → **type-and-submit object search form** → click each result to link target → review 결재선 preview → SoD check → submit. = **~6–8 interactions**, the object-linking is a manual typed search even when you already hold the object.
@@ -128,6 +143,7 @@ The absolute React Router targets are registered by `AppRouter` as legacy `Conso
 **What we'd steal:** (1) decide inline from inbox/push (Concur/Slack) — biggest collapse; (2) auto-bind 결재선 by template so the drafter skips approver picking (Korean groupware); (3) launch-approval-FROM-object-card with target pre-linked (kills the manual object search); (4) richer template catalog. Vendors: Concur/Slack (1-click decide) + Hiworks/Douzone (결재선 + templates). Cost: **M** (decide-inline) / **M** (pre-link from card). **[I]**
 
 ## 13. field (현장 / work order)
+
 **Money task:** dispatch a work order to a technician (dispatcher) / complete it on-site (tech).
 **OURS (evidence):** the new ontology console has no dedicated field body. Work order is a seeded projected read type, but no work-order action target is registered; legacy field-service pages and a native Android field app exist outside the new shell. The new-shell dispatch path therefore lacks a proved closed loop.
 **Vendors:**
@@ -137,6 +153,7 @@ The absolute React Router targets are registered by `AppRouter` as legacy `Conso
 **What we'd steal:** (a) auto-dispatch matching (skill/location) as an ontology automation; (b) reconcile the existing Android field app with the new-shell work-order contract; (c) a single all-in-one WO card. Vendor: ServiceNow FSM. Fit: add an explicit domain-owned work-order action dispatch and prove the closed loop. Cost: **L**. **[I]**
 
 ## 14. compliance (규제 CP-/RG-/FW-)
+
 **Money task:** run a compliance check / simulate a policy against the regulation.
 **OURS (evidence):** compliance UI surface = Phase C wave 2 (ledger); typed policy REAL evaluation for compliance is a listed BACKEND residual ("typed policy real evaluation for compliance"). Today compliance leans on the policy simulator + evidence surface. Run-a-check = **partially wired, simulate via policy canvas (~3 steps), real typed-policy eval pending**.
 **Vendors:**

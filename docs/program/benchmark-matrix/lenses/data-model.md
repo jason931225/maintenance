@@ -280,8 +280,9 @@ we approximate with staging.
 | **Ours** | ✅ **effect = ontology action** (typed dispatch: projected_usecase / instance_revision) | ✅ acts on typed ont objects | ✅ workflow def publish FSM + four-eyes, run/node FSM audited | ◐ | coverage-matrix workflow row; Automate = ontology action |
 
 **Stronger than n8n/Zapier — clearest data-model win in automation.** n8n's data is **[I]**
-**untyped JSON items with per-run inferred schema** — no object identity, no links, no
-governance. Our automation **effect IS a typed ontology action** dispatched through the
+**untyped JSON items with per-run inferred schema**. n8n does provide workflow-owner/RBAC controls and
+credential scoping for workflows and resources, but it lacks native ontology identity, typed object links,
+and equivalent object-level governance. Our automation **effect IS a typed ontology action** dispatched through the
 same writeback shape humans use (projected_usecase/instance_revision). Where routed, automation
 and human edits can share audit/fixity seams; current execution remains under legacy server guards,
 and the same Cedar gate is target/shadow pending promotion. n8n can't reference "the WO object" as a typed linked entity; it passes a

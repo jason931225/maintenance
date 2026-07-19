@@ -7,15 +7,15 @@ Last upstream sync: **2026-07-11 (delta pass)** via DesignSync read API. Local t
 
 | file | etag | this pass |
 |---|---|---|
-| `AGENTS.md` | `1783710623650166` | historical upstream etag; locally amended/not byte-identical; final size **101957**, SHA-256 `1c22710aaed2df30e502f7039218f87c2c92c02b399217a408e4468dac71c6aa` |
+| `AGENTS.md` | `1783710623650166` | historical upstream etag; locally amended/not byte-identical; final size **102309**, SHA-256 `bb075d3780f50c5b7cc38c0cbf62780f8714220cdd764b0a45165e698f53daec` |
 | `TODO.md` | `1783710505767805` | historical upstream etag; locally amended/not byte-identical; final size **89636**, SHA-256 `06edb341bf4f50aee72721b7530841dae4489f417dd13c91715d9f37245393cd` |
-| `ROADMAP.md` | `1783710735311137` | historical upstream etag; locally amended/not byte-identical; final size **32219**, SHA-256 `dabe2b756e75e9950a75bc0e270cc2aec6f9b97dad260beaf269de4821796228` |
+| `ROADMAP.md` | `1783710735311137` | historical upstream etag; locally amended/not byte-identical; final size **32228**, SHA-256 `cba516c086df5451f07b90fc75815feff3d0bae4cf6378200e8dc7925688e25d` |
 | `DESIGN.md` | `1783659938373543` | unchanged (size 53176) |
 | `HANDOFF.md` | `1783661269027052` | unchanged (size 36418) |
 | `README.md` | `1783658590972921` | unchanged (size 6900) |
 | `CLAUDE.md` | `1783552476465483` | unchanged (size 7384) |
 | `tokens/colors.css` | `1783156611028624` | unchanged upstream (divergence held — see below) |
-| `Oyatie Console.dc.html` | `1783710429913585` | not fetched (1.8MB > 256KiB cap — change log = spec) |
+| `Oyatie Console.dc.html` | `1783710429913585` | upstream-reported 1.8 MB artifact not fetched (>256 KiB cap); retained local snapshot is 698,646 bytes (682.3 KiB), SHA-256 `6dbf9326669dc17e2e9b913bb3715646700ecfbaa3bf91720e9ef2de2fe81f84` |
 
 ## Historical delta snapshot, followed by local amendments
 
@@ -34,7 +34,7 @@ Last upstream sync: **2026-07-11 (delta pass)** via DesignSync read API. Local t
 
 ## Kept from prior mirror (not re-fetched)
 
-- **`Oyatie Console.dc.html` (~698 KB)** — EXCEEDS the DesignSync 256 KiB per-file read cap. Kept intact. **Every change since Jul 4 is documented** in AGENTS.md §5 change log + ROADMAP 진행 로그 + TODO checkmarks — established pattern: the change-log = spec for post-Jul-4 screens. To get a bit-exact current copy: open the project in the browser and save/export manually.
+- **`Oyatie Console.dc.html` (retained local snapshot: 698,646 bytes / 682.3 KiB; SHA-256 `6dbf9326669dc17e2e9b913bb3715646700ecfbaa3bf91720e9ef2de2fe81f84`)** — EXCEEDS the DesignSync 256 KiB per-file read cap. Kept intact. The upstream sync metadata separately reported a 1.8 MB artifact that was not fetched; that report is not the retained local file size. **Every change since Jul 4 is documented** in AGENTS.md §5 change log + ROADMAP 진행 로그 + TODO checkmarks — established pattern: the change-log = spec for post-Jul-4 screens. To get a bit-exact current copy: open the project in the browser and save/export manually.
 - `Oyatie Mobile.dc.html`, `ios-frame.jsx` — mobile deliverable (iOS frame + 390px console iframe) + iOS 26 liquid-glass frame components.
 - The 2026-07-11 sync process reported byte equality for its then-current snapshot. Subsequent local amendments intentionally invalidate that identity; the current sizes and SHA-256 values are recorded in the table above.
 - Local-only working docs retained: `AUTOMATION-POLICY-FIDELITY-SPEC.md`, `LEGACY-PARITY-BACKLOG.md`.
