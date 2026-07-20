@@ -314,6 +314,8 @@ pub const CONFIGURED_ROUTE_SURFACES: &[ConfiguredRouteSurface] = &[
 /// are idempotent and a mutated already-applied file is rejected rather than
 /// silently re-run. The path is relative to this crate's manifest (`backend/app`).
 static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("../crates/platform/db/migrations");
+const MIGRATION_LOCK_TIMEOUT: &str = "5s";
+const MIGRATION_STATEMENT_TIMEOUT: &str = "60s";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -1888,6 +1890,53 @@ async fn validate_migration_database_connection(
     .map_err(|error| sqlx::Error::Protocol(error.to_string()))
 }
 
+fn ensure_expected_migration_database_budgets(
+    lock_timeout: &str,
+    statement_timeout: &str,
+    lock_timeout_matches: bool,
+    statement_timeout_matches: bool,
+) -> Result<(), sqlx::Error> {
+    if lock_timeout_matches && statement_timeout_matches {
+        return Ok(());
+    }
+
+    Err(sqlx::Error::Protocol(format!(
+        "migration connection budget readback failed: lock_timeout={lock_timeout:?}, \
+         statement_timeout={statement_timeout:?}; required lock_timeout={MIGRATION_LOCK_TIMEOUT} \
+         and statement_timeout={MIGRATION_STATEMENT_TIMEOUT}"
+    )))
+}
+
+async fn enforce_migration_database_budgets(conn: &mut PgConnection) -> Result<(), sqlx::Error> {
+    sqlx::query("SET SESSION lock_timeout = '5s'")
+        .execute(&mut *conn)
+        .await?;
+    sqlx::query("SET SESSION statement_timeout = '60s'")
+        .execute(&mut *conn)
+        .await?;
+
+    let (lock_timeout, statement_timeout, lock_timeout_matches, statement_timeout_matches): (
+        String,
+        String,
+        bool,
+        bool,
+    ) = sqlx::query_as(
+        r#"SELECT current_setting('lock_timeout'),
+                  current_setting('statement_timeout'),
+                  current_setting('lock_timeout')::interval = interval '5 seconds',
+                  current_setting('statement_timeout')::interval = interval '60 seconds'"#,
+    )
+    .fetch_one(&mut *conn)
+    .await?;
+
+    ensure_expected_migration_database_budgets(
+        &lock_timeout,
+        &statement_timeout,
+        lock_timeout_matches,
+        statement_timeout_matches,
+    )
+}
+
 async fn validate_migration_database_pool(pool: &PgPool) -> Result<(), AppError> {
     let mut conn = pool.acquire().await.map_err(AppError::Database)?;
     validate_migration_database_connection(&mut conn)
@@ -1897,7 +1946,19 @@ async fn validate_migration_database_pool(pool: &PgPool) -> Result<(), AppError>
 
 async fn reset_migration_database_connection(conn: &mut PgConnection) -> Result<bool, sqlx::Error> {
     reset_database_connection_state(conn).await?;
-    Ok(validate_migration_database_connection(conn).await.is_ok())
+    Ok(enforce_migration_database_budgets(conn).await.is_ok())
+}
+
+fn migration_database_pool_options() -> PgPoolOptions {
+    PgPoolOptions::new()
+        .max_connections(1)
+        .acquire_timeout(Duration::from_secs(10))
+        .after_connect(|conn, _meta| {
+            Box::pin(async move { enforce_migration_database_budgets(conn).await })
+        })
+        .after_release(|conn, _meta| {
+            Box::pin(async move { reset_migration_database_connection(conn).await })
+        })
 }
 
 fn ensure_expected_migration_database_identity(
@@ -3603,15 +3664,7 @@ pub async fn run_migrations(config: &AppConfig) -> Result<(), AppError> {
         .as_deref()
         .ok_or_else(|| AppError::Config("migrate role requires DATABASE_URL".to_owned()))?;
 
-    let pool = PgPoolOptions::new()
-        .max_connections(1)
-        .acquire_timeout(Duration::from_secs(10))
-        .after_connect(|conn, _meta| {
-            Box::pin(async move { validate_migration_database_connection(conn).await })
-        })
-        .after_release(|conn, _meta| {
-            Box::pin(async move { reset_migration_database_connection(conn).await })
-        })
+    let pool = migration_database_pool_options()
         .connect(database_url)
         .await
         .map_err(AppError::Database)?;
@@ -4383,6 +4436,151 @@ mod worker_identity_tests {
             name,
             format!("{DEFAULT_SERVICE_NAME}-pod-1-dispatch-worker")
         );
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod migration_database_budget_tests {
+    use sqlx::PgPool;
+
+    use super::{ensure_expected_migration_database_budgets, migration_database_pool_options};
+
+    async fn cluster_identity_snapshot(pool: &PgPool) -> String {
+        sqlx::query_scalar(
+            r#"SELECT jsonb_build_object(
+                    'database_owner', pg_catalog.pg_get_userbyid(database.datdba),
+                    'roles', COALESCE((
+                        SELECT jsonb_agg(to_jsonb(role_state) ORDER BY role_state.rolname)
+                        FROM (
+                            SELECT role.rolname,
+                                   role.rolpassword,
+                                   role.rolcanlogin,
+                                   role.rolsuper,
+                                   role.rolinherit,
+                                   role.rolcreaterole,
+                                   role.rolcreatedb,
+                                   role.rolreplication,
+                                   role.rolbypassrls
+                            FROM pg_catalog.pg_authid AS role
+                            WHERE role.rolname IN (
+                                'mnt_app', 'mnt_leave_definer', 'mnt_ontology_writer'
+                            )
+                        ) AS role_state
+                    ), '[]'::jsonb),
+                    'memberships', COALESCE((
+                        SELECT jsonb_agg(to_jsonb(membership_state)
+                                         ORDER BY membership_state.member,
+                                                  membership_state.granted_role)
+                        FROM (
+                            SELECT member.rolname AS member,
+                                   granted.rolname AS granted_role,
+                                   membership.admin_option,
+                                   membership.inherit_option,
+                                   membership.set_option
+                            FROM pg_catalog.pg_auth_members AS membership
+                            JOIN pg_catalog.pg_roles AS member
+                              ON member.oid = membership.member
+                            JOIN pg_catalog.pg_roles AS granted
+                              ON granted.oid = membership.roleid
+                            WHERE member.rolname IN (
+                                'mnt_app', 'mnt_leave_definer', 'mnt_ontology_writer'
+                            ) OR granted.rolname IN (
+                                'mnt_app', 'mnt_leave_definer', 'mnt_ontology_writer'
+                            )
+                        ) AS membership_state
+                    ), '[]'::jsonb)
+                )::text
+                FROM pg_catalog.pg_database AS database
+                WHERE database.datname = current_database()"#,
+        )
+        .fetch_one(pool)
+        .await
+        .expect("cluster identity snapshot reads")
+    }
+
+    async fn assert_migration_session(pool: &PgPool, expected_user: &str) {
+        let (session_user, current_user, lock_timeout, statement_timeout): (
+            String,
+            String,
+            String,
+            String,
+        ) = sqlx::query_as(
+            r#"SELECT session_user::text,
+                      current_user::text,
+                      current_setting('lock_timeout'),
+                      current_setting('statement_timeout')"#,
+        )
+        .fetch_one(pool)
+        .await
+        .expect("migration session settings read back");
+
+        assert_eq!(session_user, expected_user);
+        assert_eq!(current_user, expected_user);
+        assert_eq!(lock_timeout, "5s");
+        assert_eq!(statement_timeout, "1min");
+    }
+
+    #[test]
+    fn migration_database_budgets_accept_exact_readback() {
+        assert!(ensure_expected_migration_database_budgets("5s", "1min", true, true).is_ok());
+    }
+
+    #[test]
+    fn migration_database_budgets_reject_any_readback_mismatch() {
+        for (lock_timeout_matches, statement_timeout_matches) in
+            [(false, true), (true, false), (false, false)]
+        {
+            let error = ensure_expected_migration_database_budgets(
+                "7s",
+                "90s",
+                lock_timeout_matches,
+                statement_timeout_matches,
+            )
+            .unwrap_err();
+            let message = error.to_string();
+
+            assert!(message.contains("lock_timeout=\"7s\""));
+            assert!(message.contains("statement_timeout=\"90s\""));
+            assert!(message.contains("required lock_timeout=5s and statement_timeout=60s"));
+        }
+    }
+
+    #[sqlx::test(migrations = "../crates/platform/db/migrations")]
+    async fn migration_pool_applies_and_restores_session_budgets(pool: PgPool) {
+        let identity_before = cluster_identity_snapshot(&pool).await;
+        let expected_user: String = sqlx::query_scalar("SELECT session_user::text")
+            .fetch_one(&pool)
+            .await
+            .expect("isolated test database owner reads");
+        let connect_options = pool.connect_options().as_ref().clone();
+        let migration_pool = migration_database_pool_options()
+            .connect_with(connect_options)
+            .await
+            .expect("migration budget pool connects as isolated test database owner");
+
+        assert_migration_session(&migration_pool, &expected_user).await;
+
+        {
+            let mut connection = migration_pool
+                .acquire()
+                .await
+                .expect("migration connection acquires for poisoning");
+            sqlx::raw_sql(
+                r#"
+                SET SESSION lock_timeout = '13s';
+                SET SESSION statement_timeout = '17s';
+                SET ROLE pg_database_owner;
+                "#,
+            )
+            .execute(&mut *connection)
+            .await
+            .expect("migration session can be deliberately poisoned");
+        }
+
+        assert_migration_session(&migration_pool, &expected_user).await;
+        migration_pool.close().await;
+        assert_eq!(cluster_identity_snapshot(&pool).await, identity_before);
     }
 }
 
