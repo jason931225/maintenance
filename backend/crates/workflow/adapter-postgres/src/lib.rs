@@ -1218,7 +1218,7 @@ impl PgWorkflowRuntimeStore {
         me: mnt_kernel_core::UserId,
         filter: WaitingTaskListFilter,
         as_of: time::OffsetDateTime,
-        after: Option<(Option<time::OffsetDateTime>, String)>,
+        after: Option<(time::OffsetDateTime, String)>,
         limit: i64,
     ) -> Result<(Vec<WaitingTaskListItem>, bool), KernelError> {
         let limit = limit.clamp(1, 200);
@@ -1227,7 +1227,9 @@ impl PgWorkflowRuntimeStore {
             .iter()
             .map(|status| status.as_db_str().to_owned())
             .collect::<Vec<_>>();
-        let (after_due, after_id) = after.map_or((None, None), |(due, id)| (due, Some(id)));
+        let (after_created_at, after_id) = after.map_or((None, None), |(created_at, id)| {
+            (Some(created_at), Some(id))
+        });
         with_org_conn::<_, (Vec<WaitingTaskListItem>, bool), PgWorkflowRuntimeError>(
             &self.pool,
             org,
@@ -1248,14 +1250,9 @@ impl PgWorkflowRuntimeStore {
                                      OR (t.assignee_role_key = 'initiator' \
                                          AND r.initiated_by = $4)))) \
                        AND t.created_at <= $6 \
-                       AND ($8::text IS NULL \
-                            OR ($7::timestamptz IS NULL AND t.due_at IS NULL \
-                                AND ('approval:' || t.id::text) > $8) \
-                            OR ($7::timestamptz IS NOT NULL \
-                                AND (t.due_at > $7 OR t.due_at IS NULL \
-                                     OR (t.due_at = $7 \
-                                         AND ('approval:' || t.id::text) > $8)))) \
-                     ORDER BY t.due_at ASC NULLS LAST, ('approval:' || t.id::text) ASC \
+                       AND ($8::text IS NULL OR t.created_at > $7 \
+                            OR (t.created_at = $7 AND ('approval:' || t.id::text) > $8)) \
+                     ORDER BY t.created_at ASC, ('approval:' || t.id::text) ASC \
                      LIMIT $9",
                     )
                     .bind(&statuses)
@@ -1264,7 +1261,7 @@ impl PgWorkflowRuntimeStore {
                     .bind(*me.as_uuid())
                     .bind(&filter.authority_role_keys)
                     .bind(as_of)
-                    .bind(after_due)
+                    .bind(after_created_at)
                     .bind(after_id.as_deref())
                     .bind(limit + 1)
                     .fetch_all(tx.as_mut())

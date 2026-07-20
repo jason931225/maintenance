@@ -575,11 +575,13 @@ impl PgSupportStore {
         branch_scope: BranchScope,
         assignee: UserId,
         as_of: OffsetDateTime,
-        after: Option<(Option<OffsetDateTime>, String)>,
+        after: Option<(OffsetDateTime, String)>,
         limit: i64,
     ) -> Result<(Vec<TicketSummary>, i64, bool), PgSupportError> {
         let limit = limit.clamp(1, 200);
-        let (after_due, after_id) = after.map_or((None, None), |(due, id)| (due, Some(id)));
+        let (after_created_at, after_id) = after.map_or((None, None), |(created_at, id)| {
+            (Some(created_at), Some(id))
+        });
         let push_filters = move |builder: &mut QueryBuilder<Postgres>| {
             builder.push("(");
             push_branch_scope(builder, &branch_scope, false);
@@ -600,24 +602,16 @@ impl PgSupportStore {
              FROM support_tickets WHERE ",
         );
         push_filters(&mut builder);
-        if let Some(after_id) = after_id {
-            match after_due {
-                Some(after_due) => {
-                    builder.push(" AND (due_at > ");
-                    builder.push_bind(after_due);
-                    builder.push(" OR due_at IS NULL OR (due_at = ");
-                    builder.push_bind(after_due);
-                    builder.push(" AND ('support:' || id::text) > ");
-                    builder.push_bind(after_id);
-                    builder.push("))");
-                }
-                None => {
-                    builder.push(" AND due_at IS NULL AND ('support:' || id::text) > ");
-                    builder.push_bind(after_id);
-                }
-            }
+        if let (Some(after_created_at), Some(after_id)) = (after_created_at, after_id) {
+            builder.push(" AND (created_at > ");
+            builder.push_bind(after_created_at);
+            builder.push(" OR (created_at = ");
+            builder.push_bind(after_created_at);
+            builder.push(" AND ('support:' || id::text) > ");
+            builder.push_bind(after_id);
+            builder.push("))");
         }
-        builder.push(" ORDER BY due_at ASC NULLS LAST, ('support:' || id::text) ASC LIMIT ");
+        builder.push(" ORDER BY created_at ASC, ('support:' || id::text) ASC LIMIT ");
         builder.push_bind(limit.clamp(1, 200) + 1);
         let org = current_org().map_err(KernelError::from)?;
         let (total, rows) = with_org_conn::<_, _, PgSupportError>(&self.pool, org, move |tx| {

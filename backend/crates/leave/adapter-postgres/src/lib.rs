@@ -794,8 +794,10 @@ impl PgLeaveStore {
             )
             .into());
         }
-        if command.expected_version > 0 && existing.request_version != command.expected_version {
-            return Err(PgLeaveError::ConcurrentModification);
+        if let Some(expected_version) = command.expected_version {
+            if existing.request_version != expected_version {
+                return Err(PgLeaveError::ConcurrentModification);
+            }
         }
 
         let decision = command.decision;

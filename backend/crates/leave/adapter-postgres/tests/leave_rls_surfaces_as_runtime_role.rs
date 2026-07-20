@@ -22,6 +22,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
+use mnt_governance_domain::{GateChainConfig, GateEvidence, evaluate_gate_chain};
 use mnt_inbox_adapter_postgres::PgInboxStore;
 use mnt_kernel_core::{BranchId, BranchScope, ErrorKind, OrgId, TraceContext, UserId};
 use mnt_leave_adapter_postgres::PgLeaveStore;
@@ -41,6 +42,39 @@ use time::{Month, OffsetDateTime};
 use uuid::Uuid;
 
 const OTHER_ORG: Uuid = Uuid::from_u128(0x5ea5_5ea5_5ea5_5ea5_5ea5_5ea5_5ea5_5ea5);
+
+fn f6ff_apply_after_snap(run_id: Uuid) -> serde_json::Value {
+    let gate_outcome = serde_json::to_value(evaluate_gate_chain(
+        GateChainConfig {
+            self_checklist: true,
+            ..GateChainConfig::default()
+        },
+        &GateEvidence {
+            checklist_all_acknowledged: Some(true),
+            ..GateEvidence::default()
+        },
+    ))
+    .unwrap();
+    assert_eq!(
+        gate_outcome,
+        serde_json::json!({
+            "gates": [
+                {"gate": "authority", "status": {"status": "not_required"}},
+                {"gate": "self_checklist", "status": {"status": "satisfied"}},
+                {"gate": "four_eyes", "status": {"status": "not_required"}},
+                {"gate": "egress_dlp", "status": {"status": "not_required"}}
+            ],
+            "allow": true
+        }),
+        "the legacy audit envelope must track the actual GateOutcome serde shape"
+    );
+    serde_json::json!({
+        "run_id": run_id,
+        "entity_type": "employee_hr",
+        "gate_outcome": gate_outcome
+    })
+}
+
 async fn runtime_role_pool(owner_pool: &PgPool) -> PgPool {
     for grant in [
         "GRANT SELECT, INSERT, UPDATE ON leave_requests TO mnt_rt",
@@ -283,7 +317,7 @@ fn decide_cmd(
         request_id,
         decider,
         branch_scope: scope,
-        expected_version: 1,
+        expected_version: Some(1),
         decision,
         comment: if decision == LeaveDecision::Approve {
             None
@@ -457,7 +491,7 @@ async fn unresolved_charge_is_audited_without_mutation_then_exact_resolution_is_
     let blocked = mnt_platform_request_context::scope_org(org, async {
         store
             .decide(DecideLeaveRequestCommand {
-                expected_version: 1,
+                expected_version: Some(1),
                 ..decide_cmd(request.id, approver, scope_of(home), LeaveDecision::Approve)
             })
             .await
@@ -515,7 +549,7 @@ async fn unresolved_charge_is_audited_without_mutation_then_exact_resolution_is_
     let resolver_approve = mnt_platform_request_context::scope_org(org, async {
         store
             .decide(DecideLeaveRequestCommand {
-                expected_version: 2,
+                expected_version: Some(2),
                 ..decide_cmd(request.id, resolver, scope_of(home), LeaveDecision::Approve)
             })
             .await
@@ -526,7 +560,7 @@ async fn unresolved_charge_is_audited_without_mutation_then_exact_resolution_is_
     let approved = mnt_platform_request_context::scope_org(org, async {
         store
             .decide(DecideLeaveRequestCommand {
-                expected_version: 2,
+                expected_version: Some(2),
                 ..decide_cmd(request.id, approver, scope_of(home), LeaveDecision::Approve)
             })
             .await
@@ -600,7 +634,7 @@ async fn concurrent_resolver_wins_before_blocked_approval_without_partial_mutati
         mnt_platform_request_context::scope_org(org, async move {
             deciding_store
                 .decide(DecideLeaveRequestCommand {
-                    expected_version: 1,
+                    expected_version: Some(1),
                     ..decide_cmd(request.id, approver, scope_of(home), LeaveDecision::Approve)
                 })
                 .await
@@ -704,7 +738,7 @@ async fn request_cas_and_charge_evidence_versions_are_independent_and_exact(owne
     let stale = mnt_platform_request_context::scope_org(org, async {
         store
             .decide(DecideLeaveRequestCommand {
-                expected_version: 1,
+                expected_version: Some(1),
                 ..decide_cmd(
                     created.id,
                     approver,
@@ -751,7 +785,7 @@ async fn request_cas_and_charge_evidence_versions_are_independent_and_exact(owne
     let approved = mnt_platform_request_context::scope_org(org, async {
         store
             .decide(DecideLeaveRequestCommand {
-                expected_version: 2,
+                expected_version: Some(2),
                 ..decide_cmd(
                     created.id,
                     approver,
@@ -932,7 +966,9 @@ async fn leave_command_preprovision_and_privilege_matrix_are_fail_closed(owner_p
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
-async fn runtime_cannot_forge_employee_import_terminal_state_or_apply_audit(owner_pool: PgPool) {
+async fn runtime_expand_bridge_allows_exact_f6ff_apply_but_denies_laundering_and_replay(
+    owner_pool: PgPool,
+) {
     let rt = runtime_role_pool(&owner_pool).await;
     let org_id = Uuid::new_v4();
     let actor_id = Uuid::new_v4();
@@ -995,51 +1031,43 @@ async fn runtime_cannot_forge_employee_import_terminal_state_or_apply_audit(owne
     );
     launder_kind.rollback().await.unwrap();
 
-    let mut forged_run = rt.begin().await.unwrap();
+    // Expand compatibility preserves the exact f6ff ordering: a staged
+    // employee_hr DRY_RUN becomes APPLIED, then with_audit appends the run-level
+    // data_import.apply event in the same transaction. The new binary does not
+    // use this raw-table path; a later numbered contract migration removes it
+    // after f6ff is outside the rollback set.
+    let mut legacy_apply = rt.begin().await.unwrap();
     sqlx::query("SELECT set_config('app.current_org',$1,true)")
         .bind(org_id.to_string())
-        .execute(&mut *forged_run)
+        .execute(&mut *legacy_apply)
         .await
         .unwrap();
-    assert!(
-        sqlx::query(
-            "UPDATE data_import_runs SET status='APPLIED',apply_summary=$3,\
-             applied_by=$4,applied_at=now() WHERE org_id=$1 AND id=$2",
-        )
-        .bind(org_id)
-        .bind(run_id)
-        .bind(serde_json::json!({"inserted": 99}))
-        .bind(actor_id)
-        .execute(&mut *forged_run)
-        .await
-        .is_err(),
-        "mnt_rt must not forge an employee_hr terminal result"
-    );
-    forged_run.rollback().await.unwrap();
-
-    let mut forged_audit = rt.begin().await.unwrap();
-    sqlx::query("SELECT set_config('app.current_org',$1,true)")
-        .bind(org_id.to_string())
-        .execute(&mut *forged_audit)
-        .await
-        .unwrap();
-    assert!(
-        sqlx::query(
-            "INSERT INTO audit_events \
-             (actor,action,target_type,target_id,trace_id,span_id,occurred_at,org_id) \
-             VALUES ($1,'data_import.apply','data_import_run',$2,$3,$4,now(),$5)",
-        )
-        .bind(actor_id)
-        .bind(run_id.to_string())
-        .bind("0123456789abcdef0123456789abcdef")
-        .bind("0123456789abcdef")
-        .bind(org_id)
-        .execute(&mut *forged_audit)
-        .await
-        .is_err(),
-        "mnt_rt must not forge intrinsic employee-import apply evidence"
-    );
-    forged_audit.rollback().await.unwrap();
+    sqlx::query(
+        "UPDATE data_import_runs SET status='APPLIED',apply_summary=$3,\
+         applied_by=$4,applied_at=now(),updated_at=now() WHERE org_id=$1 AND id=$2",
+    )
+    .bind(org_id)
+    .bind(run_id)
+    .bind(serde_json::json!({"inserted": 1}))
+    .bind(actor_id)
+    .execute(&mut *legacy_apply)
+    .await
+    .expect("the exact f6ff DRY_RUN to APPLIED transition must survive the expand release");
+    sqlx::query(
+        "INSERT INTO audit_events \
+         (actor,action,target_type,target_id,before_snap,after_snap,trace_id,span_id,occurred_at,org_id) \
+         VALUES ($1,'data_import.apply','data_import_run',$2,NULL,$3,$4,$5,now(),$6)",
+    )
+    .bind(actor_id)
+    .bind(run_id.to_string())
+    .bind(f6ff_apply_after_snap(run_id))
+    .bind("0123456789abcdef0123456789abcdef")
+    .bind("0123456789abcdef")
+    .bind(org_id)
+    .execute(&mut *legacy_apply)
+    .await
+    .expect("the exact same-transaction f6ff apply audit must survive the expand release");
+    legacy_apply.commit().await.unwrap();
 
     let state: (
         String,
@@ -1057,9 +1085,89 @@ async fn runtime_cannot_forge_employee_import_terminal_state_or_apply_audit(owne
     .fetch_one(&owner_pool)
     .await
     .unwrap();
-    assert_eq!(
-        state,
-        ("DRY_RUN".to_owned(), serde_json::json!({}), None, None, 0)
+    assert_eq!(state.0, "APPLIED");
+    assert_eq!(state.1, serde_json::json!({"inserted": 1}));
+    assert_eq!(state.2, Some(actor_id));
+    assert!(state.3.is_some());
+    assert_eq!(state.4, 1);
+
+    // The bridge is one exact transition, not continuing terminal authority.
+    // A later mnt_rt statement cannot rewrite the committed result.
+    let mut terminal_rewrite = rt.begin().await.unwrap();
+    sqlx::query("SELECT set_config('app.current_org',$1,true)")
+        .bind(org_id.to_string())
+        .execute(&mut *terminal_rewrite)
+        .await
+        .unwrap();
+    assert!(
+        sqlx::query(
+            "UPDATE data_import_runs SET apply_summary='{}'::jsonb,updated_at=now() \
+             WHERE org_id=$1 AND id=$2",
+        )
+        .bind(org_id)
+        .bind(run_id)
+        .execute(&mut *terminal_rewrite)
+        .await
+        .is_err(),
+        "the expand bridge must not permit terminal result rewrites"
+    );
+    terminal_rewrite.rollback().await.unwrap();
+
+    // The audit bridge is anchored to an APPLIED row changed by the current
+    // transaction, so delayed/replayed evidence is denied.
+    sqlx::query("SELECT set_config('app.current_org',$1,false)")
+        .bind(org_id.to_string())
+        .execute(&rt)
+        .await
+        .unwrap();
+    assert!(
+        sqlx::query(
+            "INSERT INTO audit_events \
+             (actor,action,target_type,target_id,before_snap,after_snap,trace_id,span_id,occurred_at,org_id) \
+             VALUES ($1,'data_import.apply','data_import_run',$2,NULL,$3,$4,$5,now(),$6)",
+        )
+        .bind(actor_id)
+        .bind(run_id.to_string())
+        .bind(f6ff_apply_after_snap(run_id))
+        .bind("1123456789abcdef0123456789abcdef")
+        .bind("1123456789abcdef")
+        .bind(org_id)
+        .execute(&rt)
+        .await
+        .is_err(),
+        "a delayed or replayed legacy apply audit must remain denied"
+    );
+    assert!(
+        sqlx::query(
+            "INSERT INTO audit_events \
+             (actor,action,target_type,target_id,trace_id,span_id,occurred_at,org_id) \
+             VALUES ($1,'employee.leave_balance_import','employee',$2,$3,$4,now(),$5)",
+        )
+        .bind(actor_id)
+        .bind(Uuid::new_v4().to_string())
+        .bind("2123456789abcdef0123456789abcdef")
+        .bind("2123456789abcdef")
+        .bind(org_id)
+        .execute(&rt)
+        .await
+        .is_err(),
+        "command-owned employee balance audit actions remain denied to mnt_rt"
+    );
+    assert!(
+        sqlx::query(
+            "INSERT INTO leave_balance_import_receipts \
+             (org_id,employee_id,source_kind,source_ref,idempotency_key,payload_digest, \
+              result_updated_at,changed,actor,trace_id,span_id) \
+             VALUES ($1,$2,'employee_import','forged','0123456789abcdef',repeat('a',64), \
+                     now(),true,$3,'3123456789abcdef0123456789abcdef','3123456789abcdef')",
+        )
+        .bind(org_id)
+        .bind(Uuid::new_v4())
+        .bind(actor_id)
+        .execute(&rt)
+        .await
+        .is_err(),
+        "receipt-table evidence remains command-only"
     );
 
     // Preserve legitimate attendance apply, then prove the inverse laundering
@@ -1333,7 +1441,7 @@ async fn raw_runtime_home_branch_command_is_guarded_and_intrinsically_audited(ow
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
-async fn imported_balance_command_blocks_runtime_bypasses_and_audits_once(owner_pool: PgPool) {
+async fn imported_balance_command_preserves_expand_window_and_audits_once(owner_pool: PgPool) {
     let rt = runtime_role_pool(&owner_pool).await;
     let command_pool = leave_command_role_pool(&owner_pool).await;
     let org = OrgId::knl();
@@ -1368,6 +1476,10 @@ async fn imported_balance_command_blocks_runtime_bypasses_and_audits_once(owner_
             .await
             .unwrap();
 
+    // The expand release intentionally retains f6ff's raw balance upsert until
+    // it becomes the rollback floor. Do not encode the later command-only
+    // contract early; instead prove the legacy path cannot acquire additive
+    // home-branch authority.
     let forged = Uuid::new_v4();
     let mut direct = rt.begin().await.unwrap();
     sqlx::query("SELECT set_config('app.current_org',$1,true)")
@@ -1377,16 +1489,17 @@ async fn imported_balance_command_blocks_runtime_bypasses_and_audits_once(owner_
         .unwrap();
     assert!(
         sqlx::query(
-            "INSERT INTO employees (id,org_id,company,name,source_filename,source_sheet,source_row,source_key,leave_accrued,leave_used,leave_remaining) \
-             VALUES ($1,$2,'KNL','Forged','import.xlsx','Sheet1',2,$3,99,1,98)",
+            "INSERT INTO employees (id,org_id,company,name,source_filename,source_sheet,source_row,source_key,leave_accrued,leave_used,leave_remaining,home_branch_id) \
+             VALUES ($1,$2,'KNL','Forged','import.xlsx','Sheet1',2,$3,99,1,98,$4)",
         )
         .bind(forged)
         .bind(org_uuid)
         .bind(format!("forged-balance-{forged}"))
+        .bind(Uuid::new_v4())
         .execute(&mut *direct)
         .await
         .is_err(),
-        "mnt_rt must not establish balances during INSERT"
+        "legacy balance INSERT compatibility must not establish home-branch authority"
     );
     direct.rollback().await.unwrap();
 
@@ -1397,12 +1510,13 @@ async fn imported_balance_command_blocks_runtime_bypasses_and_audits_once(owner_
         .await
         .unwrap();
     assert!(
-        sqlx::query("UPDATE employees SET leave_remaining=999 WHERE id=$1")
+        sqlx::query("UPDATE employees SET home_branch_id=$2 WHERE id=$1")
             .bind(employee)
+            .bind(Uuid::new_v4())
             .execute(&mut *direct)
             .await
             .is_err(),
-        "mnt_rt must not update protected balances"
+        "legacy balance UPDATE compatibility must not establish home-branch authority"
     );
     direct.rollback().await.unwrap();
 

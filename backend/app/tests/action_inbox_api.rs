@@ -3,7 +3,7 @@
 //!
 //! Drives the REAL router on a genuine non-owner `mnt_rt` pool (RLS actually
 //! enforced, never a BYPASSRLS superuser). Locks the two visibility invariants
-//! for the hand-written work-order source of the aggregate:
+//! for the typed work-order source of the aggregate:
 //!   * an item surfaces ONLY when it is assigned to the caller — a work order
 //!     assigned to another user in the SAME org never appears (no widening);
 //!   * the aggregate is org-scoped — a work order assigned to the caller's user
@@ -13,7 +13,7 @@
 use axum::body::{Body, to_bytes};
 use http::{Request, StatusCode, header};
 use mnt_app::{AppConfig, AppRole, AppState, DatabaseDependency, build_router};
-use mnt_kernel_core::{BranchId, OrgId, UserId, WorkOrderId};
+use mnt_kernel_core::{BranchId, OrgId, SupportTicketId, UserId, WorkOrderId};
 use mnt_platform_auth::{AccessTokenInput, JwtIssuer, JwtSettings};
 use p256::ecdsa::SigningKey;
 use p256::elliptic_curve::rand_core::OsRng;
@@ -24,9 +24,12 @@ use sqlx::postgres::PgPoolOptions;
 use time::{Duration, OffsetDateTime};
 use tower::ServiceExt;
 
+use std::sync::atomic::{AtomicU16, Ordering};
+
 const TEST_ISSUER: &str = "mnt-platform-auth";
 const TEST_AUDIENCE: &str = "mnt-api";
 const PATH: &str = "/api/v1/me/action-inbox";
+static EQUIPMENT_SEQUENCE: AtomicU16 = AtomicU16::new(1);
 
 struct Keys {
     private_pem: String,
@@ -69,7 +72,12 @@ async fn action_inbox_returns_only_my_assigned_work_orders(pool: PgPool) {
     let service =
         build_router(app_state(runtime_role_pool(&pool).await, keys.public_pem.clone()).unwrap());
 
-    let resp = get(service, PATH, &bearer(&keys, OrgId::knl(), alice, "MEMBER")).await;
+    let resp = get(
+        service,
+        PATH,
+        &bearer(&keys, OrgId::knl(), alice, "MEMBER", branch),
+    )
+    .await;
     assert_eq!(resp.status, StatusCode::OK, "{:?}", resp.json);
     let items = resp.json["items"].as_array().unwrap();
     assert_eq!(
@@ -83,6 +91,58 @@ async fn action_inbox_returns_only_my_assigned_work_orders(pool: PgPool) {
     assert_eq!(items[0]["ref"], "20260701-101");
     assert_eq!(items[0]["done"], false);
     assert_eq!(resp.json["total"], 1);
+}
+
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn action_inbox_work_orders_are_fail_closed_to_the_token_branch_scope(pool: PgPool) {
+    let keys = keys();
+    let allowed_branch = seed_branch(&pool, OrgId::knl(), "허용 리전", "허용 지사").await;
+    let other_branch = seed_branch(&pool, OrgId::knl(), "제외 리전", "제외 지사").await;
+    let alice = UserId::new();
+    seed_user(&pool, OrgId::knl(), alice, "MEMBER", allowed_branch).await;
+    let allowed_equipment =
+        seed_equipment(&pool, OrgId::knl(), allowed_branch, "branch-allowed").await;
+    let other_equipment = seed_equipment(&pool, OrgId::knl(), other_branch, "branch-other").await;
+    let allowed_work = seed_assigned_work_order(
+        &pool,
+        OrgId::knl(),
+        allowed_branch,
+        allowed_equipment,
+        alice,
+        "20260703-101",
+    )
+    .await;
+    let _other_work = seed_assigned_work_order(
+        &pool,
+        OrgId::knl(),
+        other_branch,
+        other_equipment,
+        alice,
+        "20260703-102",
+    )
+    .await;
+
+    let service =
+        build_router(app_state(runtime_role_pool(&pool).await, keys.public_pem.clone()).unwrap());
+    let response = get(
+        service,
+        PATH,
+        &bearer(&keys, OrgId::knl(), alice, "MEMBER", allowed_branch),
+    )
+    .await;
+
+    assert_eq!(response.status, StatusCode::OK, "{:?}", response.json);
+    assert_eq!(response.json["total"], 1, "{:?}", response.json);
+    assert_eq!(
+        response.json["items"].as_array().map(Vec::len),
+        Some(1),
+        "{:?}",
+        response.json
+    );
+    assert_eq!(
+        response.json["items"][0]["id"],
+        format!("work:{allowed_work}")
+    );
 }
 
 #[sqlx::test(migrations = "../crates/platform/db/migrations")]
@@ -106,7 +166,7 @@ async fn action_inbox_keyset_pages_past_the_old_two_hundred_item_cap(pool: PgPoo
 
     let service =
         build_router(app_state(runtime_role_pool(&pool).await, keys.public_pem.clone()).unwrap());
-    let token = bearer(&keys, OrgId::knl(), alice, "MEMBER");
+    let token = bearer(&keys, OrgId::knl(), alice, "MEMBER", branch);
     let first = get(service.clone(), &format!("{PATH}?limit=200"), &token).await;
     assert_eq!(first.status, StatusCode::OK, "{:?}", first.json);
     assert_eq!(first.json["items"].as_array().map(Vec::len), Some(200));
@@ -168,7 +228,12 @@ async fn action_inbox_is_org_scoped(pool: PgPool) {
         build_router(app_state(runtime_role_pool(&pool).await, keys.public_pem.clone()).unwrap());
 
     // Alice authenticates against KNL, where she has no assigned work.
-    let resp = get(service, PATH, &bearer(&keys, OrgId::knl(), alice, "MEMBER")).await;
+    let resp = get(
+        service,
+        PATH,
+        &bearer(&keys, OrgId::knl(), alice, "MEMBER", knl_branch),
+    )
+    .await;
     assert_eq!(resp.status, StatusCode::OK, "{:?}", resp.json);
     assert_eq!(
         resp.json["items"].as_array().map(Vec::len),
@@ -177,6 +242,254 @@ async fn action_inbox_is_org_scoped(pool: PgPool) {
         resp.json
     );
     assert_eq!(resp.json["total"], 0);
+}
+
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn immutable_keyset_traverses_mixed_sources_despite_due_mutation(pool: PgPool) {
+    let keys = keys();
+    let branch = seed_branch(&pool, OrgId::knl(), "혼합 리전", "혼합 지사").await;
+    let alice = UserId::new();
+    seed_user(&pool, OrgId::knl(), alice, "MEMBER", branch).await;
+    let bob = UserId::new();
+    seed_user(&pool, OrgId::knl(), bob, "MEMBER", branch).await;
+    let equipment = seed_equipment(&pool, OrgId::knl(), branch, "mixed").await;
+    let base = OffsetDateTime::now_utc() - Duration::hours(1);
+
+    let work = seed_assigned_work_order(
+        &pool,
+        OrgId::knl(),
+        branch,
+        equipment,
+        alice,
+        "20260704-101",
+    )
+    .await;
+    set_work_times(&pool, work, base, base + Duration::hours(4)).await;
+    let support = seed_assigned_support_ticket(&pool, OrgId::knl(), branch, alice, base).await;
+    let hidden_workflow = seed_assigned_workflow_task(
+        &pool,
+        OrgId::knl(),
+        alice,
+        base - Duration::seconds(1),
+        Some("unknown_policy"),
+    )
+    .await;
+    let workflow = seed_assigned_workflow_task(&pool, OrgId::knl(), alice, base, None).await;
+    let dispatch_work =
+        seed_assigned_work_order(&pool, OrgId::knl(), branch, equipment, bob, "20260704-102").await;
+    let dispatch =
+        seed_dispatch_offer(&pool, OrgId::knl(), branch, dispatch_work, bob, alice, base).await;
+
+    let service =
+        build_router(app_state(runtime_role_pool(&pool).await, keys.public_pem.clone()).unwrap());
+    let token = bearer(&keys, OrgId::knl(), alice, "MEMBER", branch);
+    let first = get(service.clone(), &format!("{PATH}?limit=2"), &token).await;
+    assert_eq!(first.status, StatusCode::OK, "{:?}", first.json);
+    assert_eq!(first.json["items"].as_array().map(Vec::len), Some(2));
+    assert_eq!(first.json["total"], 4);
+    assert_eq!(first.json["total_is_exact"], true);
+    let cursor = first.json["next_cursor"].as_str().expect("second page");
+
+    sqlx::query(
+        "UPDATE work_orders SET target_due_at = target_due_at + interval '30 days' WHERE id = $1",
+    )
+    .bind(*work.as_uuid())
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query("UPDATE support_tickets SET due_at = now() - interval '30 days' WHERE id = $1")
+        .bind(*support.as_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE workflow_waiting_tasks SET due_at = now() + interval '45 days' WHERE id = $1",
+    )
+    .bind(workflow)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "UPDATE p1_dispatches SET accept_window_ends_at = now() + interval '45 days' WHERE id = $1",
+    )
+    .bind(dispatch)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let post_snapshot = seed_assigned_work_order(
+        &pool,
+        OrgId::knl(),
+        branch,
+        equipment,
+        alice,
+        "20260704-103",
+    )
+    .await;
+    let after_as_of = OffsetDateTime::now_utc() + Duration::days(1);
+    set_work_times(&pool, post_snapshot, after_as_of, after_as_of).await;
+
+    let query = url::form_urlencoded::Serializer::new(String::new())
+        .append_pair("limit", "2")
+        .append_pair("cursor", cursor)
+        .finish();
+    let second = get(service, &format!("{PATH}?{query}"), &token).await;
+    assert_eq!(second.status, StatusCode::OK, "{:?}", second.json);
+    assert_eq!(second.json["items"].as_array().map(Vec::len), Some(2));
+    assert_eq!(second.json["total"], 4);
+    assert_eq!(second.json["total_is_exact"], true);
+    assert!(second.json["next_cursor"].is_null());
+    let ids = first.json["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .chain(second.json["items"].as_array().unwrap())
+        .map(|item| item["id"].as_str().unwrap().to_owned())
+        .collect::<Vec<_>>();
+    let unique = ids.iter().collect::<std::collections::HashSet<_>>();
+    assert_eq!(
+        ids.len(),
+        4,
+        "all pre-as_of mixed rows must traverse: {ids:?}"
+    );
+    assert_eq!(unique.len(), 4, "immutable keyset must not duplicate rows");
+    assert!(
+        !ids.contains(&format!("approval:{hidden_workflow}")),
+        "authorization-filtered workflow rows must not inflate totals or consume the page"
+    );
+    assert_eq!(
+        ids,
+        vec![
+            format!("approval:{workflow}"),
+            format!("dispatch:{dispatch}"),
+            format!("support:{support}"),
+            format!("work:{work}"),
+        ],
+        "equal-created-at rows must use the global namespaced-id tie break"
+    );
+    assert!(!ids.contains(&format!("work:{post_snapshot}")));
+}
+
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn live_dispatch_expiry_can_disappear_between_pages(pool: PgPool) {
+    let keys = keys();
+    let branch = seed_branch(&pool, OrgId::knl(), "라이브 리전", "라이브 지사").await;
+    let alice = UserId::new();
+    seed_user(&pool, OrgId::knl(), alice, "MEMBER", branch).await;
+    let bob = UserId::new();
+    seed_user(&pool, OrgId::knl(), bob, "MEMBER", branch).await;
+    let equipment = seed_equipment(&pool, OrgId::knl(), branch, "live").await;
+    let first_work = seed_assigned_work_order(
+        &pool,
+        OrgId::knl(),
+        branch,
+        equipment,
+        alice,
+        "20260705-101",
+    )
+    .await;
+    let dispatch_work =
+        seed_assigned_work_order(&pool, OrgId::knl(), branch, equipment, bob, "20260705-102").await;
+    let first_created_at = OffsetDateTime::now_utc() - Duration::minutes(2);
+    set_work_times(
+        &pool,
+        first_work,
+        first_created_at,
+        OffsetDateTime::now_utc(),
+    )
+    .await;
+    let dispatch = seed_dispatch_offer(
+        &pool,
+        OrgId::knl(),
+        branch,
+        dispatch_work,
+        bob,
+        alice,
+        OffsetDateTime::now_utc() - Duration::minutes(1),
+    )
+    .await;
+    let service =
+        build_router(app_state(runtime_role_pool(&pool).await, keys.public_pem.clone()).unwrap());
+    let token = bearer(&keys, OrgId::knl(), alice, "MEMBER", branch);
+    let first = get(service.clone(), &format!("{PATH}?limit=1"), &token).await;
+    assert_eq!(first.status, StatusCode::OK, "{:?}", first.json);
+    assert_eq!(first.json["items"][0]["id"], format!("work:{first_work}"));
+    let cursor = first.json["next_cursor"].as_str().expect("second page");
+    sqlx::query("UPDATE p1_dispatches SET accept_window_ends_at = now() - interval '1 second' WHERE id = $1")
+        .bind(dispatch)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let query = url::form_urlencoded::Serializer::new(String::new())
+        .append_pair("limit", "1")
+        .append_pair("cursor", cursor)
+        .finish();
+    let second = get(service, &format!("{PATH}?{query}"), &token).await;
+    assert_eq!(second.status, StatusCode::OK, "{:?}", second.json);
+    assert_eq!(second.json["items"].as_array().map(Vec::len), Some(0));
+    assert_eq!(
+        second.json["total"], 1,
+        "total is live-at-as_of, not frozen"
+    );
+}
+
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn later_source_failure_returns_no_partial_queue(pool: PgPool) {
+    let keys = keys();
+    let branch = seed_branch(&pool, OrgId::knl(), "실패 리전", "실패 지사").await;
+    let alice = UserId::new();
+    seed_user(&pool, OrgId::knl(), alice, "MEMBER", branch).await;
+    sqlx::query("DROP TABLE support_tickets CASCADE")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let service =
+        build_router(app_state(runtime_role_pool(&pool).await, keys.public_pem.clone()).unwrap());
+    let resp = get(
+        service,
+        PATH,
+        &bearer(&keys, OrgId::knl(), alice, "MEMBER", branch),
+    )
+    .await;
+    assert_eq!(
+        resp.status,
+        StatusCode::INTERNAL_SERVER_ERROR,
+        "{:?}",
+        resp.json
+    );
+    assert!(
+        resp.json.get("items").is_none(),
+        "partial items must not escape"
+    );
+}
+
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn rejects_forged_and_future_cursors(pool: PgPool) {
+    let keys = keys();
+    let branch = seed_branch(&pool, OrgId::knl(), "커서 리전", "커서 지사").await;
+    let alice = UserId::new();
+    seed_user(&pool, OrgId::knl(), alice, "MEMBER", branch).await;
+    let service =
+        build_router(app_state(runtime_role_pool(&pool).await, keys.public_pem.clone()).unwrap());
+    let token = bearer(&keys, OrgId::knl(), alice, "MEMBER", branch);
+    let forged = get(
+        service.clone(),
+        &format!("{PATH}?cursor=not-a-cursor"),
+        &token,
+    )
+    .await;
+    assert_eq!(forged.status, StatusCode::UNPROCESSABLE_ENTITY);
+    let future = OffsetDateTime::now_utc() + Duration::days(1);
+    let raw = format!(
+        "{}~{}~work:{}",
+        future.unix_timestamp_nanos(),
+        future.unix_timestamp_nanos(),
+        uuid::Uuid::new_v4()
+    );
+    let query = url::form_urlencoded::Serializer::new(String::new())
+        .append_pair("cursor", &raw)
+        .finish();
+    let future_resp = get(service, &format!("{PATH}?{query}"), &token).await;
+    assert_eq!(future_resp.status, StatusCode::UNPROCESSABLE_ENTITY);
 }
 
 // ===========================================================================
@@ -234,6 +547,8 @@ async fn seed_user(pool: &PgPool, org: OrgId, user_id: UserId, role: &str, branc
 }
 
 async fn seed_equipment(pool: &PgPool, org: OrgId, branch: BranchId, tag: &str) -> uuid::Uuid {
+    let sequence = EQUIPMENT_SEQUENCE.fetch_add(1, Ordering::Relaxed);
+    assert!(sequence <= 9_999, "equipment fixture sequence exhausted");
     let customer_id: uuid::Uuid = sqlx::query_scalar(
         "INSERT INTO registry_customers (branch_id, name, org_id) VALUES ($1, $2, $3) RETURNING id",
     )
@@ -268,8 +583,8 @@ async fn seed_equipment(pool: &PgPool, org: OrgId, branch: BranchId, tag: &str) 
     .bind(*branch.as_uuid())
     .bind(customer_id)
     .bind(site_id)
-    .bind(format!("ABC12-{tag}"))
-    .bind(format!("MG-{tag}"))
+    .bind(format!("ABC12-{sequence:04}"))
+    .bind(format!("MG-{sequence:04}"))
     .bind(*org.as_uuid())
     .fetch_one(pool)
     .await
@@ -321,6 +636,159 @@ async fn seed_assigned_work_order(
     work_order_id
 }
 
+async fn set_work_times(
+    pool: &PgPool,
+    work_order: WorkOrderId,
+    created_at: OffsetDateTime,
+    due_at: OffsetDateTime,
+) {
+    sqlx::query("UPDATE work_orders SET created_at = $2, target_due_at = $3 WHERE id = $1")
+        .bind(*work_order.as_uuid())
+        .bind(created_at)
+        .bind(due_at)
+        .execute(pool)
+        .await
+        .unwrap();
+}
+
+async fn seed_assigned_support_ticket(
+    pool: &PgPool,
+    org: OrgId,
+    branch: BranchId,
+    assignee: UserId,
+    created_at: OffsetDateTime,
+) -> SupportTicketId {
+    let id = SupportTicketId::new();
+    sqlx::query(
+        "INSERT INTO support_tickets (id, branch_id, origin, category, priority, status, \
+         title, body, requester_user_id, assignee_user_id, due_at, created_at, updated_at, org_id) \
+         VALUES ($1, $2, 'INTERNAL', 'OPERATIONAL', 'MEDIUM', 'OPEN', $3, 'details', \
+                 $4, $4, $5, $6, $6, $7)",
+    )
+    .bind(*id.as_uuid())
+    .bind(*branch.as_uuid())
+    .bind(format!("ticket-{id}"))
+    .bind(*assignee.as_uuid())
+    .bind(created_at + Duration::hours(2))
+    .bind(created_at)
+    .bind(*org.as_uuid())
+    .execute(pool)
+    .await
+    .unwrap();
+    id
+}
+
+async fn seed_assigned_workflow_task(
+    pool: &PgPool,
+    org: OrgId,
+    assignee: UserId,
+    created_at: OffsetDateTime,
+    required_policy: Option<&str>,
+) -> uuid::Uuid {
+    let definition_id: uuid::Uuid = sqlx::query_scalar(
+        "INSERT INTO workflow_definitions \
+         (org_id, workflow_key, display_name, object_type, status, latest_version, active_version) \
+         VALUES ($1, $2, 'Inbox fixture', 'work_order', 'ACTIVE', 1, 1) RETURNING id",
+    )
+    .bind(*org.as_uuid())
+    .bind(format!("inbox.fixture_{}", uuid::Uuid::new_v4().simple()))
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO workflow_definition_versions \
+         (org_id, definition_id, version, status, definition) \
+         VALUES ($1, $2, 1, 'PUBLISHED', $3)",
+    )
+    .bind(*org.as_uuid())
+    .bind(definition_id)
+    .bind(json!({
+        "schema_version": "wf.exec.v1",
+        "workflow_key": "inbox.fixture",
+        "nodes": [{"node_key": "review", "node_type": "human_task", "title": "Review"}],
+        "edges": []
+    }))
+    .execute(pool)
+    .await
+    .unwrap();
+    let run_id = uuid::Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO workflow_runs \
+         (id, org_id, definition_id, definition_version, status, trigger_type, \
+          idempotency_key, correlation_id, initiated_by) \
+         VALUES ($1, $2, $3, 1, 'WAITING', 'MANUAL', $4, $5, $6)",
+    )
+    .bind(run_id)
+    .bind(*org.as_uuid())
+    .bind(definition_id)
+    .bind(format!("inbox-idempotency-{run_id}"))
+    .bind(format!("inbox-correlation-{run_id}"))
+    .bind(*assignee.as_uuid())
+    .execute(pool)
+    .await
+    .unwrap();
+    let task_id = uuid::Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO workflow_waiting_tasks \
+         (id, org_id, run_id, waiting_key, title, status, assignee_role_key, claimed_by, \
+          claimed_at, required_policy, due_at, created_at, updated_at) \
+         VALUES ($1, $2, $3, 'review', 'Inbox approval', 'CLAIMED', 'branch_manager', $4, \
+                 $7, $5, $6, $7, $7)",
+    )
+    .bind(task_id)
+    .bind(*org.as_uuid())
+    .bind(run_id)
+    .bind(*assignee.as_uuid())
+    .bind(required_policy)
+    .bind(created_at + Duration::hours(3))
+    .bind(created_at)
+    .execute(pool)
+    .await
+    .unwrap();
+    task_id
+}
+
+async fn seed_dispatch_offer(
+    pool: &PgPool,
+    org: OrgId,
+    branch: BranchId,
+    work_order: WorkOrderId,
+    creator: UserId,
+    target: UserId,
+    created_at: OffsetDateTime,
+) -> uuid::Uuid {
+    let dispatch_id = uuid::Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO p1_dispatches \
+         (id, work_order_id, branch_id, status, include_region, accept_window_started_at, \
+          accept_window_ends_at, created_by, created_at, updated_at, org_id) \
+         VALUES ($1, $2, $3, 'BROADCASTING', FALSE, $4, $5, $6, $4, $4, $7)",
+    )
+    .bind(dispatch_id)
+    .bind(*work_order.as_uuid())
+    .bind(*branch.as_uuid())
+    .bind(created_at)
+    .bind(OffsetDateTime::now_utc() + Duration::days(2))
+    .bind(*creator.as_uuid())
+    .bind(*org.as_uuid())
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO p1_dispatch_targets \
+         (dispatch_id, user_id, target_role, push_token_count, fanout_created_at, org_id) \
+         VALUES ($1, $2, 'TECHNICIAN', 0, $3, $4)",
+    )
+    .bind(dispatch_id)
+    .bind(*target.as_uuid())
+    .bind(created_at)
+    .bind(*org.as_uuid())
+    .execute(pool)
+    .await
+    .unwrap();
+    dispatch_id
+}
+
 async fn get(service: axum::Router, uri: &str, token: &str) -> JsonResponse {
     let request = Request::builder()
         .uri(uri)
@@ -349,7 +817,7 @@ fn keys() -> Keys {
     }
 }
 
-fn bearer(keys: &Keys, org: OrgId, user_id: UserId, role: &str) -> String {
+fn bearer(keys: &Keys, org: OrgId, user_id: UserId, role: &str, branch: BranchId) -> String {
     let issuer = JwtIssuer::from_es256_pem(
         JwtSettings {
             issuer: TEST_ISSUER.to_owned(),
@@ -365,7 +833,7 @@ fn bearer(keys: &Keys, org: OrgId, user_id: UserId, role: &str) -> String {
             subject: user_id,
             org_id: org,
             roles: vec![role.to_owned()],
-            branches: Vec::new(),
+            branches: vec![branch],
             platform: false,
             view_as: false,
             read_only: false,

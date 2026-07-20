@@ -21,6 +21,7 @@ use p256::elliptic_curve::rand_core::OsRng;
 use p256::pkcs8::{EncodePrivateKey, EncodePublicKey, LineEnding};
 use serde_json::{Value, json};
 use sqlx::PgPool;
+use sqlx::postgres::PgPoolOptions;
 use time::{Duration, OffsetDateTime};
 use tower::ServiceExt;
 use uuid::Uuid;
@@ -106,10 +107,16 @@ async fn member_self_service_is_server_bound_and_missing_home_branch_is_explicit
     .await;
     assert_eq!(forged.status, StatusCode::UNPROCESSABLE_ENTITY);
 
+    let definer_pool = leave_definer_role_pool(&owner_pool).await;
+    sqlx::query("SELECT set_config('app.current_org', $1, false)")
+        .bind(org.as_uuid().to_string())
+        .execute(&definer_pool)
+        .await
+        .unwrap();
     sqlx::query("UPDATE employees SET home_branch_id = NULL WHERE org_id = $1 AND id = $2")
         .bind(*org.as_uuid())
         .bind(employee)
-        .execute(&owner_pool)
+        .execute(&definer_pool)
         .await
         .unwrap();
 
@@ -149,12 +156,131 @@ async fn member_self_service_is_server_bound_and_missing_home_branch_is_explicit
     );
 }
 
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn decide_preserves_versionless_v1_and_modern_exact_cas(owner_pool: PgPool) {
+    let org = OrgId::new();
+    let branch = BranchId::new();
+    let requester = UserId::new();
+    let decider = UserId::new();
+    let employee = Uuid::new_v4();
+    seed_subject(&owner_pool, org, branch, requester, employee).await;
+    seed_branch_admin(&owner_pool, org, branch, decider).await;
+    grant_mnt_rt(
+        &owner_pool,
+        &[
+            "GRANT SELECT ON leave_requests TO mnt_rt",
+            "GRANT SELECT ON users TO mnt_rt",
+            "GRANT SELECT ON user_branches TO mnt_rt",
+            "GRANT SELECT ON branches TO mnt_rt",
+            "GRANT SELECT ON organizations TO mnt_rt",
+        ],
+    )
+    .await;
+
+    let v1_request = Uuid::new_v4();
+    let modern_request = Uuid::new_v4();
+    let definer_pool = leave_definer_role_pool(&owner_pool).await;
+    sqlx::query("SELECT set_config('app.current_org', $1, false)")
+        .bind(org.as_uuid().to_string())
+        .execute(&definer_pool)
+        .await
+        .unwrap();
+    for (id, reason) in [
+        (v1_request, "v1 versionless decision"),
+        (modern_request, "modern stale decision"),
+    ] {
+        sqlx::query(
+            "INSERT INTO leave_requests \
+             (id, org_id, branch_id, requester_user_id, subject_employee_id, leave_type, days, \
+              start_date, end_date, reason, status) \
+             VALUES ($1, $2, $3, $4, $5, 'annual', 1, DATE '2026-10-01', \
+                     DATE '2026-10-01', $6, 'pending')",
+        )
+        .bind(id)
+        .bind(*org.as_uuid())
+        .bind(*branch.as_uuid())
+        .bind(*requester.as_uuid())
+        .bind(employee)
+        .bind(reason)
+        .execute(&definer_pool)
+        .await
+        .unwrap();
+    }
+
+    let auth = test_auth_with_roles(decider, org, vec![branch], vec!["ADMIN"]);
+    let runtime_pool = runtime_role_pool(&owner_pool).await;
+    let command_pool = leave_command_role_pool(&owner_pool).await;
+    let service = router(LeaveRestState::new(
+        PgLeaveStore::new(
+            runtime_pool.clone(),
+            Arc::new(PgInboxStore::new(runtime_pool)),
+        )
+        .with_leave_command_pool(command_pool),
+        Some(auth.verifier),
+    ));
+
+    let versionless = request_json(
+        service.clone(),
+        "POST",
+        &format!("/api/v1/leave/requests/{v1_request}/decide"),
+        &auth.token,
+        Some(json!({"decision": "reject", "comment": "v1 reject"})),
+    )
+    .await;
+    assert_eq!(versionless.status, StatusCode::OK, "{:?}", versionless.body);
+    assert_eq!(versionless.body["status"], "rejected");
+    assert_eq!(versionless.body["request_version"], 2);
+
+    let repeated = request_json(
+        service.clone(),
+        "POST",
+        &format!("/api/v1/leave/requests/{v1_request}/decide"),
+        &auth.token,
+        Some(json!({"decision": "reject", "comment": "repeated"})),
+    )
+    .await;
+    assert_eq!(repeated.status, StatusCode::CONFLICT, "{:?}", repeated.body);
+    assert_eq!(repeated.body["error"]["code"], "conflict");
+
+    let stale_modern = request_json(
+        service,
+        "POST",
+        &format!("/api/v1/leave/requests/{modern_request}/decide"),
+        &auth.token,
+        Some(json!({
+            "expected_version": 99,
+            "decision": "reject",
+            "comment": "stale"
+        })),
+    )
+    .await;
+    assert_eq!(
+        stale_modern.status,
+        StatusCode::CONFLICT,
+        "{:?}",
+        stale_modern.body
+    );
+    assert_eq!(
+        stale_modern.body["error"]["code"],
+        "leave_concurrent_modification"
+    );
+}
+
 struct TestAuth {
     token: String,
     verifier: JwtVerifier,
 }
 
 fn test_auth(user_id: UserId, org: OrgId, branches: Vec<BranchId>) -> TestAuth {
+    test_auth_with_roles(user_id, org, branches, vec!["MEMBER"])
+}
+
+fn test_auth_with_roles(
+    user_id: UserId,
+    org: OrgId,
+    branches: Vec<BranchId>,
+    roles: Vec<&str>,
+) -> TestAuth {
     let signing_key = SigningKey::random(&mut OsRng);
     let private_pem = signing_key.to_pkcs8_pem(LineEnding::LF).unwrap();
     let public_pem = signing_key
@@ -174,7 +300,7 @@ fn test_auth(user_id: UserId, org: OrgId, branches: Vec<BranchId>) -> TestAuth {
         .issue_access_token(AccessTokenInput {
             subject: user_id,
             org_id: org,
-            roles: vec!["MEMBER".to_owned()],
+            roles: roles.into_iter().map(str::to_owned).collect(),
             branches,
             platform: false,
             view_as: false,
@@ -190,11 +316,67 @@ fn test_auth(user_id: UserId, org: OrgId, branches: Vec<BranchId>) -> TestAuth {
     TestAuth { token, verifier }
 }
 
+async fn leave_command_role_pool(owner_pool: &PgPool) -> PgPool {
+    let options = owner_pool.connect_options().as_ref().clone();
+    PgPoolOptions::new()
+        .max_connections(1)
+        .after_connect(|connection, _metadata| {
+            Box::pin(async move {
+                sqlx::query("SET ROLE mnt_leave_cmd")
+                    .execute(connection)
+                    .await?;
+                Ok(())
+            })
+        })
+        .connect_with(options)
+        .await
+        .unwrap()
+}
+
+async fn leave_definer_role_pool(owner_pool: &PgPool) -> PgPool {
+    let options = owner_pool.connect_options().as_ref().clone();
+    PgPoolOptions::new()
+        .max_connections(1)
+        .after_connect(|connection, _metadata| {
+            Box::pin(async move {
+                sqlx::query("SET ROLE mnt_leave_definer")
+                    .execute(connection)
+                    .await?;
+                Ok(())
+            })
+        })
+        .connect_with(options)
+        .await
+        .unwrap()
+}
+
+async fn seed_branch_admin(pool: &PgPool, org: OrgId, branch: BranchId, user: UserId) {
+    sqlx::query(
+        "INSERT INTO users (id, display_name, roles, org_id) \
+         VALUES ($1, 'Leave branch admin', ARRAY['ADMIN'], $2)",
+    )
+    .bind(*user.as_uuid())
+    .bind(*org.as_uuid())
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO user_branches (user_id, branch_id, org_id) VALUES ($1, $2, $3)")
+        .bind(*user.as_uuid())
+        .bind(*branch.as_uuid())
+        .bind(*org.as_uuid())
+        .execute(pool)
+        .await
+        .unwrap();
+}
+
 async fn seed_subject(pool: &PgPool, org: OrgId, branch: BranchId, user: UserId, employee: Uuid) {
     let region = Uuid::new_v4();
     sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ($1, $2, $3)")
         .bind(*org.as_uuid())
-        .bind(format!("leave-http-{}", org.as_uuid()))
+        .bind(format!(
+            "leave-http-{}",
+            &org.as_uuid().simple().to_string()[..12]
+        ))
         .bind("Leave HTTP proof")
         .execute(pool)
         .await
@@ -214,6 +396,12 @@ async fn seed_subject(pool: &PgPool, org: OrgId, branch: BranchId, user: UserId,
         .execute(pool)
         .await
         .unwrap();
+    let definer_pool = leave_definer_role_pool(pool).await;
+    sqlx::query("SELECT set_config('app.current_org', $1, false)")
+        .bind(org.as_uuid().to_string())
+        .execute(&definer_pool)
+        .await
+        .unwrap();
     sqlx::query(
         "INSERT INTO employees (id, org_id, company, name, source_filename, source_sheet, \
          source_row, source_key, leave_accrued, leave_used, leave_remaining, home_branch_id) \
@@ -223,7 +411,7 @@ async fn seed_subject(pool: &PgPool, org: OrgId, branch: BranchId, user: UserId,
     .bind(*org.as_uuid())
     .bind(format!("leave-http-{employee}"))
     .bind(*branch.as_uuid())
-    .execute(pool)
+    .execute(&definer_pool)
     .await
     .unwrap();
     sqlx::query(

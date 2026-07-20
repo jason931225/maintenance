@@ -2,9 +2,10 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 use mnt_dispatch_application::{
-    ExpireP1DispatchCommand, ForceAssignP1DispatchCommand, IncidentLocationInput, MyDispatchOffer,
-    P1DispatchResponseSummary, P1DispatchSummary, RespondP1DispatchCommand, StartP1DispatchCommand,
-    dispatch_audit_event, resolution_after_snapshot, response_after_snapshot, start_after_snapshot,
+    ActionInboxDispatchOffer, ExpireP1DispatchCommand, ForceAssignP1DispatchCommand,
+    IncidentLocationInput, MyDispatchOffer, P1DispatchResponseSummary, P1DispatchSummary,
+    RespondP1DispatchCommand, StartP1DispatchCommand, dispatch_audit_event,
+    resolution_after_snapshot, response_after_snapshot, start_after_snapshot,
 };
 use mnt_dispatch_domain::{
     CandidateScore, DispatchCandidate, DispatchResponseKind, DispatchStatus, DispatchTimerConfig,
@@ -528,19 +529,22 @@ impl PgDispatchStore {
 
     /// Bounded global-order page for the unified action inbox. The predicate is
     /// the same person-scoped pending-offer predicate as
-    /// [`Self::list_my_pending_offers`], with snapshot/keyset constraints added.
+    /// [`Self::list_my_pending_offers`], with immutable keyset and `as_of`
+    /// admission constraints added.
     pub async fn list_my_pending_offers_action_page(
         &self,
         user: UserId,
         now: OffsetDateTime,
         as_of: OffsetDateTime,
-        after: Option<(Option<OffsetDateTime>, String)>,
+        after: Option<(OffsetDateTime, String)>,
         limit: i64,
-    ) -> Result<(Vec<MyDispatchOffer>, i64, bool), PgDispatchError> {
+    ) -> Result<(Vec<ActionInboxDispatchOffer>, i64, bool), PgDispatchError> {
         let limit = limit.clamp(1, 200);
         let org = current_org().map_err(KernelError::from)?;
         let user_uuid = *user.as_uuid();
-        let (after_due, after_id) = after.map_or((None, None), |(due, id)| (due, Some(id)));
+        let (after_created_at, after_id) = after.map_or((None, None), |(created_at, id)| {
+            (Some(created_at), Some(id))
+        });
         with_org_conn::<_, _, PgDispatchError>(&self.pool, org, move |tx| {
             Box::pin(async move {
                 let total: i64 = sqlx::query_scalar(
@@ -548,7 +552,7 @@ impl PgDispatchStore {
                      JOIN p1_dispatch_targets t ON t.dispatch_id = d.id \
                        AND t.user_id = $1 AND t.target_role = 'TECHNICIAN' \
                      WHERE d.status = 'BROADCASTING' AND d.accept_window_ends_at > $2 \
-                       AND d.accept_window_started_at <= $3 \
+                       AND d.created_at <= $3 \
                        AND NOT EXISTS (SELECT 1 FROM p1_dispatch_responses r \
                          WHERE r.dispatch_id = d.id AND r.user_id = $1)",
                 )
@@ -558,27 +562,25 @@ impl PgDispatchStore {
                 .fetch_one(tx.as_mut())
                 .await?;
                 let rows = sqlx::query(
-                    "SELECT d.id AS dispatch_id, d.work_order_id, d.branch_id, \
-                            w.request_no, d.accept_window_started_at, d.accept_window_ends_at \
+                    "SELECT d.id AS dispatch_id, d.work_order_id, \
+                            w.request_no, d.created_at, d.accept_window_started_at, d.accept_window_ends_at \
                      FROM p1_dispatches d \
                      JOIN p1_dispatch_targets t ON t.dispatch_id = d.id \
                        AND t.user_id = $1 AND t.target_role = 'TECHNICIAN' \
                      JOIN work_orders w ON w.id = d.work_order_id \
                      WHERE d.status = 'BROADCASTING' AND d.accept_window_ends_at > $2 \
-                       AND d.accept_window_started_at <= $3 \
+                       AND d.created_at <= $3 \
                        AND NOT EXISTS (SELECT 1 FROM p1_dispatch_responses r \
                          WHERE r.dispatch_id = d.id AND r.user_id = $1) \
-                       AND ($5::text IS NULL OR ($4::timestamptz IS NOT NULL \
-                         AND (d.accept_window_ends_at > $4 \
-                           OR (d.accept_window_ends_at = $4 \
-                             AND ('dispatch:' || d.id::text) > $5)))) \
-                     ORDER BY d.accept_window_ends_at ASC, ('dispatch:' || d.id::text) ASC \
+                       AND ($5::text IS NULL OR d.created_at > $4 \
+                         OR (d.created_at = $4 AND ('dispatch:' || d.id::text) > $5)) \
+                     ORDER BY d.created_at ASC, ('dispatch:' || d.id::text) ASC \
                      LIMIT $6",
                 )
                 .bind(user_uuid)
                 .bind(now)
                 .bind(as_of)
-                .bind(after_due)
+                .bind(after_created_at)
                 .bind(after_id.as_deref())
                 .bind(limit.clamp(1, 200) + 1)
                 .fetch_all(tx.as_mut())
@@ -588,11 +590,11 @@ impl PgDispatchStore {
                     .iter()
                     .take(usize::try_from(limit).unwrap_or(rows.len()))
                     .map(|row| {
-                        Ok(MyDispatchOffer {
+                        Ok(ActionInboxDispatchOffer {
                             dispatch_id: P1DispatchId::from_uuid(row.try_get("dispatch_id")?),
                             work_order_id: WorkOrderId::from_uuid(row.try_get("work_order_id")?),
-                            branch_id: BranchId::from_uuid(row.try_get("branch_id")?),
                             request_no: row.try_get("request_no")?,
+                            created_at: row.try_get("created_at")?,
                             accept_window_started_at: row.try_get("accept_window_started_at")?,
                             accept_window_ends_at: row.try_get("accept_window_ends_at")?,
                         })

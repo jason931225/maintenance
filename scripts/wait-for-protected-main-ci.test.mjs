@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
-import { chmodSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -13,18 +13,21 @@ function runWith(runs) {
   const bin = join(dir, "bin");
   mkdirSync(bin);
   const gh = join(bin, "gh");
+  const argvLog = join(dir, "gh-argv");
   writeFileSync(
     gh,
     `#!/usr/bin/env bash
 set -euo pipefail
+printf '%s\n' "$@" > "$GH_ARGV_LOG"
 printf '%s' '${JSON.stringify(runs).replaceAll("'", "'\\''")}'
 `,
   );
   chmodSync(gh, 0o755);
-  return spawnSync("bash", [script.pathname], {
+  const result = spawnSync("bash", [script.pathname], {
     env: {
       ...process.env,
       PATH: `${bin}:${process.env.PATH}`,
+      GH_ARGV_LOG: argvLog,
       REPO: "example/repo",
       SHA: "a".repeat(40),
       CI_GATE_TIMEOUT_SECONDS: "30",
@@ -33,6 +36,10 @@ printf '%s' '${JSON.stringify(runs).replaceAll("'", "'\\''")}'
     },
     encoding: "utf8",
   });
+  return {
+    ...result,
+    ghArgs: readFileSync(argvLog, "utf8").split("\n").filter(Boolean),
+  };
 }
 
 function run(overrides) {
@@ -55,6 +62,24 @@ test("accepts only a successful push CI run on main for the exact SHA", () => {
   ]);
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
   assert.match(result.stdout, /Protected-main push CI/);
+  assert.deepEqual(result.ghArgs, [
+    "run",
+    "list",
+    "--repo",
+    "example/repo",
+    "--workflow",
+    "ci.yml",
+    "--commit",
+    "a".repeat(40),
+    "--event",
+    "push",
+    "--branch",
+    "main",
+    "--limit",
+    "20",
+    "--json",
+    "status,conclusion,url,event,headBranch,createdAt,databaseId",
+  ]);
 });
 
 test("does not let a successful PR run mask an in-progress protected-main run", () => {

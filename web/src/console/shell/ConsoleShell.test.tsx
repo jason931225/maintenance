@@ -1,6 +1,8 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { http, HttpResponse } from "msw";
+import { setupServer } from "msw/node";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
 
 import { AuthTestProvider } from "../../test/AuthTestProvider";
@@ -11,6 +13,20 @@ import { Sidebar } from "./Sidebar";
 import type { ThemeMode } from "./theme";
 
 const markConsoleRoute = vi.fn<(screen: string) => void>();
+const server = setupServer(
+  http.get("*/api/v1/ontology/object-types", () => HttpResponse.json([])),
+  http.get("*/api/v1/workflow-studio/definitions", () => HttpResponse.json({ items: [] })),
+);
+
+beforeAll(() => {
+  server.listen({ onUnhandledRequest: "bypass" });
+});
+afterEach(() => {
+  server.resetHandlers();
+});
+afterAll(() => {
+  server.close();
+});
 
 vi.mock("../rum/rum", () => ({
   initConsoleRum: () => () => {},
@@ -51,6 +67,11 @@ const ADMIN: AuthSession = {
   display_name: "전성진",
   roles: ["ADMIN"],
   org_id: "org-1",
+};
+
+const SUPER_ADMIN: AuthSession = {
+  ...ADMIN,
+  roles: ["SUPER_ADMIN"],
 };
 
 describe("ConsoleShell chrome", () => {
@@ -174,6 +195,40 @@ describe("ConsoleShell chrome", () => {
       "overview",
       "audit",
     ]);
+  });
+
+  it("resets the workflow tab after monitor → Scheduled side menu → Workflow side menu", async () => {
+    renderConsole(SUPER_ADMIN, ["/console/workflow?keep=1#anchor"]);
+
+    expect(
+      await screen.findByRole("tab", { name: "워크플로", selected: true }),
+    ).toBeVisible();
+    await userEvent.click(screen.getByRole("tab", { name: "분석·감시" }));
+    expect(document.querySelector("[data-router-location]")?.textContent).toBe(
+      "/console/workflow?keep=1&tab=monitors#anchor",
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "예약 작업" }));
+    await waitFor(() => {
+      expect(document.querySelector("[data-router-location]")?.textContent).toBe(
+        "/console/scheduled?keep=1#anchor",
+      );
+      expect(screen.getByRole("tab", { name: "예약" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "워크플로 스튜디오" }));
+    await waitFor(() => {
+      expect(document.querySelector("[data-router-location]")?.textContent).toBe(
+        "/console/workflow?keep=1#anchor",
+      );
+      expect(screen.getByRole("tab", { name: "워크플로" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
+    });
   });
 
   it("replaces invalid, unshipped, and unauthorized URL screens with the safe default", async () => {

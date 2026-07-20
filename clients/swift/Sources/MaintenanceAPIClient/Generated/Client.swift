@@ -28461,7 +28461,7 @@ public struct Client: APIProtocol {
     }
     /// Unified action inbox for the authenticated principal
     ///
-    /// One server-side fan-in of the caller's actionable items across every source that owns a person-scoped list: workflow/approval tasks awaiting the caller (the ?assignee=me path), pending P1 dispatch offers, support tickets assigned to the caller, and work orders assigned to the caller. Each source is queried through the exact predicate its own list endpoint uses, so the aggregate never widens visibility (deny-by-omission). Items are bucketed by urgency (now/today/wait) with a derived due tone. Fields the overview prototype carries but no backend source can supply are omitted (entity, amount, detail, files, stats, mailId); site/who/submitted are present only for the sources that carry them. Attendance exceptions are not aggregated (no exception object exists yet). Results use a stable server snapshot and bounded per-source fan-in. `total_is_exact` is false when an authorization-filtered source reaches its bounded counting budget; source failures fail the whole request rather than returning a deceptively partial queue.
+    /// One server-side fan-in of the caller's actionable items across every source that owns a person-scoped list: workflow/approval tasks awaiting the caller (the ?assignee=me path), pending P1 dispatch offers, support tickets assigned to the caller, and work orders assigned to the caller. Each source is queried through the exact predicate its own list endpoint uses, so the aggregate never widens visibility (deny-by-omission). Items are bucketed by urgency (now/today/wait) with a derived due tone. Fields the overview prototype carries but no backend source can supply are omitted (entity, amount, detail, files, stats, mailId); site/who/submitted are present only for the sources that carry them. Attendance exceptions are not aggregated (no exception object exists yet). Results use an immutable `(created_at, kind:id)` traversal key plus an `as_of` admission boundary, so rows created after the first page are excluded. Membership is deliberately live rather than a repeatable full-state snapshot: resolved, reassigned, or expired rows can disappear between page requests. Totals are recalculated from live membership admitted by `as_of`; `total_is_exact` is false when an authorization-filtered source reaches its bounded counting budget. Source failures fail the whole request rather than returning a deceptively partial queue.
     ///
     /// - Remark: HTTP `GET /api/v1/me/action-inbox`.
     /// - Remark: Generated from `#/paths//api/v1/me/action-inbox/get(listMyActionInbox)`.
@@ -28567,6 +28567,28 @@ public struct Client: APIProtocol {
                         preconditionFailure("bestContentType chose an invalid content type.")
                     }
                     return .unprocessableContent(.init(body: body))
+                case 500:
+                    let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
+                    let body: Operations.ListMyActionInbox.Output.InternalServerError.Body
+                    let chosenContentType = try converter.bestContentType(
+                        received: contentType,
+                        options: [
+                            "application/json"
+                        ]
+                    )
+                    switch chosenContentType {
+                    case "application/json":
+                        body = try await converter.getResponseBodyAsJSON(
+                            Components.Schemas.ErrorBody.self,
+                            from: responseBody,
+                            transforming: { value in
+                                .json(value)
+                            }
+                        )
+                    default:
+                        preconditionFailure("bestContentType chose an invalid content type.")
+                    }
+                    return .internalServerError(.init(body: body))
                 case 503:
                     let contentType = converter.extractContentTypeIfPresent(in: response.headerFields)
                     let body: Operations.ListMyActionInbox.Output.ServiceUnavailable.Body

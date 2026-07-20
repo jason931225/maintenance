@@ -2,6 +2,14 @@
 --
 -- Existing approved rows remain truthful legacy evidence; they are never
 -- silently promoted to a calendar-verified charge. Pending rows require review.
+--
+-- This is the expand half of a two-release employee-import cutover. The f6ff236
+-- runtime can be active while 0166 migrates, and can be restored during the
+-- rollback window, so mnt_rt must temporarily retain its exact legacy employee
+-- import writes. The new binary never falls back to those writes: it uses the
+-- additive leave_api command functions and intrinsic receipts/audit below. A
+-- later numbered contract migration may close the legacy mnt_rt import surface
+-- only after this release is the proven rollback floor.
 
 ALTER TABLE employees
     ADD COLUMN home_branch_id UUID NULL;
@@ -330,7 +338,7 @@ GRANT SELECT ON public.organizations, public.users, public.user_branches,
     public.leave_charge_resolutions, public.leave_balance_import_receipts,
     public.data_import_runs, public.data_import_rows, public.policy_roles,
     public.policy_role_permissions, public.policy_role_conditions,
-    public.user_role_assignments TO mnt_leave_definer;
+    public.user_role_assignments, public.audit_events TO mnt_leave_definer;
 GRANT INSERT, UPDATE ON public.employees, public.leave_requests TO mnt_leave_definer;
 GRANT UPDATE ON public.data_import_runs TO mnt_leave_definer;
 GRANT INSERT ON public.leave_charge_resolutions, public.leave_balance_import_receipts,
@@ -440,7 +448,24 @@ CREATE FUNCTION leave_api.employee_leave_writer_guard()
 RETURNS TRIGGER LANGUAGE plpgsql SET search_path = pg_catalog AS $$
 BEGIN
     IF current_user <> 'mnt_leave_definer' THEN
-        IF TG_OP = 'INSERT' AND (
+        IF current_user = 'mnt_rt' THEN
+            -- Expand compatibility is intentionally limited to the surface the
+            -- f6ff236 binary already owned. Its immediate and staged employee
+            -- imports INSERT/UPSERT the protected balance columns directly, and
+            -- its legacy leave approval updates used/remaining in-transaction.
+            -- It never writes the additive home-branch authority introduced by
+            -- 0166, which remains command-only throughout the mixed-version
+            -- window. There is no trustworthy marker in the old SQL that can
+            -- distinguish an import balance write from another mnt_rt balance
+            -- write; pretending otherwise would break rollback or create a
+            -- bypassable guard. The later contract migration removes this
+            -- compatibility branch after f6ff236 is outside the rollback set.
+            IF (TG_OP = 'INSERT' AND NEW.home_branch_id IS NOT NULL)
+               OR (TG_OP = 'UPDATE'
+                   AND NEW.home_branch_id IS DISTINCT FROM OLD.home_branch_id) THEN
+                RAISE EXCEPTION USING ERRCODE = '42501', MESSAGE = 'leave_write.command_required';
+            END IF;
+        ELSIF TG_OP = 'INSERT' AND (
             NEW.home_branch_id IS NOT NULL
             OR NEW.leave_accrued IS NOT NULL
             OR NEW.leave_used IS NOT NULL
@@ -453,34 +478,7 @@ BEGIN
             OR NEW.leave_used IS DISTINCT FROM OLD.leave_used
             OR NEW.leave_remaining IS DISTINCT FROM OLD.leave_remaining
         ) THEN
-            -- The rollback binary approves a request and moves its employee
-            -- ledger in the same transaction. Preserve exactly that one write:
-            -- the request row must have been transitioned by this transaction,
-            -- the delta must equal its immutable legacy days, and this employee
-            -- row must not already have been changed in the transaction.
-            IF current_user <> 'mnt_rt'
-               OR NEW.home_branch_id IS DISTINCT FROM OLD.home_branch_id
-               OR NEW.leave_accrued IS DISTINCT FROM OLD.leave_accrued
-               OR (OLD.xmin::TEXT)::BIGINT = pg_catalog.txid_current()
-               OR (pg_catalog.to_jsonb(NEW) - ARRAY[
-                    'leave_used','leave_remaining','updated_at'
-                  ]::TEXT[]) IS DISTINCT FROM
-                  (pg_catalog.to_jsonb(OLD) - ARRAY[
-                    'leave_used','leave_remaining','updated_at'
-                  ]::TEXT[])
-               OR NOT EXISTS (
-                    SELECT 1 FROM public.leave_requests lr
-                    WHERE lr.org_id = NEW.org_id
-                      AND lr.subject_employee_id = NEW.id
-                      AND lr.status = 'approved'
-                      AND lr.charge_state = 'legacy_unverified'
-                      AND (lr.xmin::TEXT)::BIGINT = pg_catalog.txid_current()
-                      AND COALESCE(OLD.leave_remaining,0) >= lr.days
-                      AND NEW.leave_used = COALESCE(OLD.leave_used,0) + lr.days
-                      AND NEW.leave_remaining = COALESCE(OLD.leave_remaining,0) - lr.days
-               ) THEN
-                RAISE EXCEPTION USING ERRCODE = '42501', MESSAGE = 'leave_write.command_required';
-            END IF;
+            RAISE EXCEPTION USING ERRCODE = '42501', MESSAGE = 'leave_write.command_required';
         END IF;
     END IF;
     RETURN NEW;
@@ -491,10 +489,13 @@ CREATE TRIGGER trg_employees_leave_command_only
     BEFORE INSERT OR UPDATE ON public.employees
     FOR EACH ROW EXECUTE FUNCTION leave_api.employee_leave_writer_guard();
 
--- mnt_rt still owns the preview/dry-run workflow created in migration 0070,
--- but only the pinned employee-import command may publish its protected apply
--- result. Other import entity types and non-terminal employee_hr transitions
--- retain their existing runtime behavior.
+-- mnt_rt still owns the preview/dry-run workflow created in migration 0070.
+-- During this expand release, the exact f6ff236 DRY_RUN -> APPLIED statement is
+-- also retained so old replicas and rollback can finish staged employee imports.
+-- The new binary uses leave_api.apply_employee_import_batch instead. A later
+-- numbered contract migration removes this compatibility transition only after
+-- this release is the rollback floor. Other employee_hr terminal mutations stay
+-- fail-closed.
 CREATE FUNCTION leave_api.employee_import_run_writer_guard()
 RETURNS TRIGGER LANGUAGE plpgsql SET search_path = pg_catalog AS $$
 BEGIN
@@ -518,7 +519,21 @@ BEGIN
                 OR NEW.applied_by IS DISTINCT FROM OLD.applied_by
                 OR NEW.applied_at IS DISTINCT FROM OLD.applied_at
            ) THEN
-            RAISE EXCEPTION USING ERRCODE = '42501', MESSAGE = 'employee_import_run.command_required';
+            IF current_user <> 'mnt_rt'
+               OR OLD.entity_type <> 'employee_hr'
+               OR NEW.entity_type <> 'employee_hr'
+               OR OLD.status <> 'DRY_RUN'
+               OR NEW.status <> 'APPLIED'
+               OR NEW.applied_by IS NULL
+               OR NEW.applied_at IS NULL
+               OR (pg_catalog.to_jsonb(NEW) - ARRAY[
+                    'status','apply_summary','applied_by','applied_at','updated_at'
+                  ]::TEXT[]) IS DISTINCT FROM
+                  (pg_catalog.to_jsonb(OLD) - ARRAY[
+                    'status','apply_summary','applied_by','applied_at','updated_at'
+                  ]::TEXT[]) THEN
+                RAISE EXCEPTION USING ERRCODE = '42501', MESSAGE = 'employee_import_run.command_required';
+            END IF;
         END IF;
     END IF;
     RETURN NEW;
@@ -528,6 +543,51 @@ ALTER FUNCTION leave_api.employee_import_run_writer_guard() OWNER TO mnt_leave_d
 CREATE TRIGGER trg_data_import_runs_employee_hr_command_only
     BEFORE INSERT OR UPDATE ON public.data_import_runs
     FOR EACH ROW EXECUTE FUNCTION leave_api.employee_import_run_writer_guard();
+
+-- The old staged-import adapter updated the run before appending its audit.
+-- A deferred check preserves that ordering without accepting a committed
+-- APPLIED run unless exactly one correlated audit exists in the same database
+-- transaction. The active same-tenant actor join also closes the historical
+-- applied_by foreign-key shape, which references users(id) but not org_id.
+CREATE FUNCTION leave_api.employee_import_apply_audit_required()
+RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog SET row_security = on AS $$
+DECLARE
+    v_matching_audits BIGINT;
+BEGIN
+    IF OLD.entity_type = 'employee_hr'
+       AND NEW.entity_type = 'employee_hr'
+       AND OLD.status = 'DRY_RUN'
+       AND NEW.status = 'APPLIED' THEN
+        PERFORM pg_catalog.set_config('app.current_org', NEW.org_id::TEXT, true);
+        SELECT pg_catalog.count(*)
+          INTO v_matching_audits
+          FROM public.audit_events a
+          JOIN public.users u
+            ON u.id = a.actor
+           AND u.org_id = a.org_id
+           AND u.is_active
+         WHERE a.org_id = NEW.org_id
+           AND a.action = 'data_import.apply'
+           AND a.target_type = 'data_import_run'
+           AND a.target_id = NEW.id::TEXT
+           AND a.actor = NEW.applied_by
+           AND a.xmin = pg_catalog.pg_current_xact_id()::xid;
+        IF v_matching_audits <> 1 THEN
+            RAISE EXCEPTION USING
+                ERRCODE = '23514',
+                MESSAGE = 'employee_import_run.current_transaction_audit_required';
+        END IF;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+ALTER FUNCTION leave_api.employee_import_apply_audit_required() OWNER TO mnt_leave_definer;
+CREATE CONSTRAINT TRIGGER trg_data_import_runs_employee_hr_audit_required
+    AFTER UPDATE ON public.data_import_runs
+    DEFERRABLE INITIALLY DEFERRED
+    FOR EACH ROW EXECUTE FUNCTION leave_api.employee_import_apply_audit_required();
 
 -- Protected leave audit actions are appendable only by the same pinned
 -- command definer. This closes the tempting alternate path where mnt_rt forges
@@ -557,6 +617,61 @@ BEGIN
              AND lr.decided_by = NEW.actor
              AND lr.status IN ('approved', 'returned', 'rejected')
        ) THEN
+        RETURN NEW;
+    ELSIF current_user = 'mnt_rt' AND NEW.action = 'data_import.apply'
+       AND NEW.target_type = 'data_import_run'
+       AND NEW.target_id ~ '^[0-9a-fA-F-]{36}$'
+       AND NEW.branch_id IS NULL
+       AND NEW.before_snap IS NULL
+       AND NEW.ip IS NULL
+       AND NEW.user_agent IS NULL
+       AND NEW.auth_method IS NULL
+       AND NEW.device IS NULL
+       AND NEW.classification_badges IS NULL
+       AND NEW.anomaly IS NULL
+       AND NEW.reason IS NULL
+       AND NEW.after_snap IS NOT DISTINCT FROM pg_catalog.jsonb_build_object(
+            'run_id', NEW.target_id::UUID,
+            'entity_type', 'employee_hr',
+            'gate_outcome', pg_catalog.jsonb_build_object(
+                'gates', pg_catalog.jsonb_build_array(
+                    pg_catalog.jsonb_build_object(
+                        'gate', 'authority',
+                        'status', pg_catalog.jsonb_build_object('status', 'not_required')
+                    ),
+                    pg_catalog.jsonb_build_object(
+                        'gate', 'self_checklist',
+                        'status', pg_catalog.jsonb_build_object('status', 'satisfied')
+                    ),
+                    pg_catalog.jsonb_build_object(
+                        'gate', 'four_eyes',
+                        'status', pg_catalog.jsonb_build_object('status', 'not_required')
+                    ),
+                    pg_catalog.jsonb_build_object(
+                        'gate', 'egress_dlp',
+                        'status', pg_catalog.jsonb_build_object('status', 'not_required')
+                    )
+                ),
+                'allow', true
+            )
+       )
+       AND EXISTS (
+           SELECT 1 FROM public.data_import_runs r
+           JOIN public.users u
+             ON u.id = NEW.actor
+            AND u.org_id = NEW.org_id
+            AND u.is_active
+           WHERE r.org_id = NEW.org_id
+             AND r.id = NEW.target_id::UUID
+             AND r.entity_type = 'employee_hr'
+             AND r.status = 'APPLIED'
+             AND r.applied_by = NEW.actor
+             AND r.xmin = pg_catalog.pg_current_xact_id()::xid
+       ) THEN
+        -- Exact f6ff236 with_audit ordering: the legacy run transition is
+        -- visible in this transaction before its run-level audit is appended.
+        -- This does not authorize command-owned balance receipts or any other
+        -- protected leave action.
         RETURN NEW;
     END IF;
     IF NEW.action = ANY (ARRAY[

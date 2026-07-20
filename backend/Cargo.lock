@@ -2846,6 +2846,7 @@ dependencies = [
  "mnt-workflow-runtime",
  "mnt-workflow-runtime-adapter-postgres",
  "mnt-workorder-adapter-postgres",
+ "mnt-workorder-application",
  "mnt-workorder-rest",
  "opentelemetry",
  "opentelemetry-otlp",
@@ -3759,6 +3760,7 @@ name = "mnt-leave-adapter-postgres"
 version = "0.1.0"
 dependencies = [
  "hex",
+ "mnt-governance-domain",
  "mnt-inbox-adapter-postgres",
  "mnt-inbox-application",
  "mnt-inbox-domain",

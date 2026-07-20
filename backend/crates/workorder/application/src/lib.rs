@@ -147,6 +147,49 @@ pub trait WorkOrderCreatedListener: Send + Sync {
     fn work_order_created(&self, event: WorkOrderCreatedEvent) -> WorkOrderCreatedFuture<'_>;
 }
 
+/// Immutable keyset position shared by action-inbox source adapters.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActionInboxPosition {
+    pub created_at: Timestamp,
+    pub id: String,
+}
+
+/// Person-scoped work-order projection consumed by the action-inbox fan-in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AssignedActionInboxWorkOrder {
+    pub id: WorkOrderId,
+    pub request_no: String,
+    pub target_due_at: Option<Timestamp>,
+    pub created_at: Timestamp,
+    pub site_name: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AssignedActionInboxWorkOrderPage {
+    pub items: Vec<AssignedActionInboxWorkOrder>,
+    pub total: i64,
+    pub has_more: bool,
+}
+
+pub type ActionInboxWorkOrderFuture<'a> = Pin<
+    Box<dyn Future<Output = Result<AssignedActionInboxWorkOrderPage, KernelError>> + Send + 'a>,
+>;
+
+/// Typed application boundary for the work-order slice of the unified inbox.
+/// Implementations must preserve person scope and immutable `(created_at, id)`
+/// ordering; the composition root never reaches into work-order persistence.
+pub trait ActionInboxWorkOrderPort: Send + Sync {
+    fn list_assigned_action_inbox_page(
+        &self,
+        org: OrgId,
+        branch_scope: BranchScope,
+        mechanic: UserId,
+        as_of: Timestamp,
+        after: Option<ActionInboxPosition>,
+        limit: i64,
+    ) -> ActionInboxWorkOrderFuture<'_>;
+}
+
 /// Result type returned by the future oyatie cloud intelligence seam.
 pub type AiAssistantResult<T> = Result<T, AiAssistantPortError>;
 

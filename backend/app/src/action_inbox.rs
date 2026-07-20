@@ -13,8 +13,8 @@
 //!     (person-scoped by construction);
 //!   * support tickets -> `PgSupportStore::list_tickets` with
 //!     `assignee_user_id = me` under the caller's `branch_scope`;
-//!   * work orders -> a bounded query gated on an assignment to the caller
-//!     (the same assignment that authorises the mobile detail read).
+//!   * work orders -> `ActionInboxWorkOrderPort`, whose adapter owns the
+//!     assignment-gated person scope (the same boundary as mobile detail).
 //!
 //! Fields the prototype `items[]` shape carries but NO backend source can honestly
 //! supply are OMITTED from the response (never fabricated): `entity`, `amount`,
@@ -35,11 +35,12 @@ use mnt_dispatch_adapter_postgres::PgDispatchStore;
 use mnt_kernel_core::{ErrorKind, KernelError};
 use mnt_platform_auth::JwtVerifier;
 use mnt_platform_authz::Principal;
-use mnt_platform_db::{DbError, with_org_conn};
 use mnt_support_adapter_postgres::PgSupportStore;
 use mnt_support_domain::TicketStatus;
+use mnt_workorder_adapter_postgres::PgWorkOrderStore;
+use mnt_workorder_application::{ActionInboxPosition, ActionInboxWorkOrderPort};
 use serde::{Deserialize, Serialize};
-use sqlx::{PgPool, Row};
+use sqlx::PgPool;
 use time::{Duration, OffsetDateTime};
 
 use crate::workflow_studio;
@@ -132,7 +133,7 @@ struct ActionInboxQuery {
 #[derive(Debug, Clone)]
 struct GlobalCursor {
     as_of: OffsetDateTime,
-    due: Option<OffsetDateTime>,
+    created_at: OffsetDateTime,
     id: String,
 }
 
@@ -156,7 +157,11 @@ async fn list_action_inbox(
     Query(query): Query<ActionInboxQuery>,
 ) -> Result<Json<ActionInboxResponse>, InboxError> {
     let now = OffsetDateTime::now_utc();
-    let cursor = query.cursor.as_deref().map(parse_cursor).transpose()?;
+    let cursor = query
+        .cursor
+        .as_deref()
+        .map(|raw| parse_cursor(raw, now))
+        .transpose()?;
     let as_of = cursor.as_ref().map_or(now, |cursor| cursor.as_of);
     let limit = query
         .limit
@@ -165,7 +170,7 @@ async fn list_action_inbox(
     let mut items: Vec<InboxItem> = Vec::new();
     let after = cursor
         .as_ref()
-        .map(|cursor| (cursor.due, cursor.id.clone()));
+        .map(|cursor| (cursor.created_at, cursor.id.clone()));
     let source_limit = i64::try_from(limit).unwrap_or(MAX_PAGE_LIMIT as i64);
     let mut total = 0usize;
     let mut total_is_exact = true;
@@ -180,12 +185,21 @@ async fn list_action_inbox(
         limit,
     )
     .await
-    .map_err(|_| InboxError::internal("failed to load workflow tasks"))?;
+    .map_err(|error| {
+        tracing::error!(source = "workflow", error = %error, "action-inbox source read failed");
+        InboxError::internal("failed to load action inbox")
+    })?;
     source_has_more |= workflow_has_more;
-    let (workflow_total, workflow_total_exact) =
-        workflow_studio::my_action_inbox_task_count(&state.pool, &principal, as_of)
-            .await
-            .map_err(|_| InboxError::internal("failed to count workflow tasks"))?;
+    let (workflow_total, workflow_total_exact) = workflow_studio::my_action_inbox_task_count(
+        &state.pool,
+        &principal,
+        as_of,
+    )
+    .await
+    .map_err(|error| {
+        tracing::error!(source = "workflow", error = %error, "action-inbox source read failed");
+        InboxError::internal("failed to load action inbox")
+    })?;
     total += workflow_total;
     total_is_exact &= workflow_total_exact;
     for task in tasks {
@@ -231,13 +245,16 @@ async fn list_action_inbox(
     let (offers, dispatch_total, dispatch_has_more) = PgDispatchStore::new(state.pool.clone())
         .list_my_pending_offers_action_page(
             principal.user_id,
-            as_of,
+            now,
             as_of,
             after.clone(),
             source_limit,
         )
         .await
-        .map_err(|_| InboxError::internal("failed to load dispatch offers"))?;
+        .map_err(|error| {
+            tracing::error!(source = "dispatch", error = %error, "action-inbox source read failed");
+            InboxError::internal("failed to load action inbox")
+        })?;
     total += usize::try_from(dispatch_total).unwrap_or(0);
     source_has_more |= dispatch_has_more;
     for offer in offers {
@@ -260,7 +277,7 @@ async fn list_action_inbox(
                 label: None,
             }],
             done: false,
-            created_at: offer.accept_window_started_at,
+            created_at: offer.created_at,
         });
     }
 
@@ -274,7 +291,10 @@ async fn list_action_inbox(
             source_limit,
         )
         .await
-        .map_err(|_| InboxError::internal("failed to load support tickets"))?;
+        .map_err(|error| {
+            tracing::error!(source = "support", error = %error, "action-inbox source read failed");
+            InboxError::internal("failed to load action inbox")
+        })?;
     total += usize::try_from(support_total).unwrap_or(0);
     source_has_more |= support_has_more;
     for ticket in support_items {
@@ -306,86 +326,26 @@ async fn list_action_inbox(
     }
 
     // --- work orders assigned to me -------------------------------------------
-    // Bounded, org-scoped (RLS via with_org_conn) query gated on an assignment to
-    // the caller — the assignment IS the access boundary (same predicate the
-    // mobile detail read authorises on), strictly narrower than a branch scope, so
-    // it cannot widen visibility. Terminal statuses drop out.
-    let org = principal.org_id;
-    let user_uuid = *principal.user_id.as_uuid();
-    let work_after = after.clone();
-    let work_rows =
-        with_org_conn::<_, (Vec<WorkOrderRow>, i64, bool), DbError>(&state.pool, org, move |tx| {
-            Box::pin(async move {
-                let total: i64 = sqlx::query_scalar(
-                    r#"
-                SELECT COUNT(*)
-                FROM work_orders w
-                WHERE w.status NOT IN ('FINAL_COMPLETED', 'REJECTED', 'CANCELLED')
-                  AND w.created_at <= $2
-                  AND EXISTS (
-                      SELECT 1 FROM work_order_assignments a
-                      WHERE a.work_order_id = w.id AND a.mechanic_id = $1
-                  )
-                "#,
-                )
-                .bind(user_uuid)
-                .bind(as_of)
-                .fetch_one(tx.as_mut())
-                .await?;
-                let (after_due, after_id) =
-                    work_after.map_or((None, None), |(due, id)| (due, Some(id)));
-                let rows = sqlx::query(
-                    r#"
-                SELECT w.id, w.request_no, w.target_due_at, w.created_at,
-                       s.name AS site_name
-                FROM work_orders w
-                JOIN registry_sites s ON s.id = w.site_id
-                WHERE w.status NOT IN ('FINAL_COMPLETED', 'REJECTED', 'CANCELLED')
-                  AND w.created_at <= $2
-                  AND EXISTS (
-                      SELECT 1 FROM work_order_assignments a
-                      WHERE a.work_order_id = w.id AND a.mechanic_id = $1
-                  )
-                  AND ($4::text IS NULL
-                       OR ($3::timestamptz IS NULL AND w.target_due_at IS NULL
-                           AND ('work:' || w.id::text) > $4)
-                       OR ($3::timestamptz IS NOT NULL
-                           AND (w.target_due_at > $3 OR w.target_due_at IS NULL
-                                OR (w.target_due_at = $3
-                                    AND ('work:' || w.id::text) > $4))))
-                ORDER BY w.target_due_at ASC NULLS LAST, ('work:' || w.id::text) ASC
-                LIMIT $5
-                "#,
-                )
-                .bind(user_uuid)
-                .bind(as_of)
-                .bind(after_due)
-                .bind(after_id.as_deref())
-                .bind(source_limit + 1)
-                .fetch_all(tx.as_mut())
-                .await?;
-                let has_more = i64::try_from(rows.len()).unwrap_or(0) > source_limit;
-                let items = rows
-                    .iter()
-                    .take(usize::try_from(source_limit).unwrap_or(rows.len()))
-                    .map(|row| {
-                        Ok(WorkOrderRow {
-                            id: row.try_get("id")?,
-                            request_no: row.try_get("request_no")?,
-                            target_due_at: row.try_get("target_due_at")?,
-                            created_at: row.try_get("created_at")?,
-                            site_name: row.try_get("site_name")?,
-                        })
-                    })
-                    .collect::<Result<Vec<_>, DbError>>()?;
-                Ok((items, total, has_more))
-            })
-        })
-        .await;
-    let (work_rows, work_total, work_has_more) = work_rows?;
-    total += usize::try_from(work_total).unwrap_or(0);
-    source_has_more |= work_has_more;
-    for row in work_rows {
+    // The application port owns the person scope and persistence predicate.
+    let work_page = PgWorkOrderStore::new(state.pool.clone())
+        .list_assigned_action_inbox_page(
+            principal.org_id,
+            principal.branch_scope.clone(),
+            principal.user_id,
+            as_of,
+            after
+                .clone()
+                .map(|(created_at, id)| ActionInboxPosition { created_at, id }),
+            source_limit,
+        )
+        .await
+        .map_err(|error| {
+            tracing::error!(source = "workorder", error = %error, "action-inbox source read failed");
+            InboxError::internal("failed to load action inbox")
+        })?;
+    total += usize::try_from(work_page.total).unwrap_or(0);
+    source_has_more |= work_page.has_more;
+    for row in work_page.items {
         let (urg, due_tone) = urgency(row.target_due_at, now);
         items.push(InboxItem {
             id: format!("work:{}", row.id),
@@ -408,8 +368,8 @@ async fn list_action_inbox(
         });
     }
 
-    // Freeze membership at the first page's timestamp so inserts between page
-    // requests never duplicate or displace rows in the caller's traversal.
+    // `as_of` freezes only admission of newly-created rows. Membership remains
+    // live: resolved, reassigned, or expired items may disappear between pages.
     let (items, _, mut next_cursor) = paginate_items(items, as_of, cursor.as_ref(), limit);
     if next_cursor.is_none() && source_has_more {
         next_cursor = items.last().map(|item| encode_cursor(as_of, item));
@@ -447,58 +407,58 @@ fn paginate_items(
 }
 
 fn compare_items(a: &InboxItem, b: &InboxItem) -> std::cmp::Ordering {
-    match (a.due, b.due) {
-        (Some(x), Some(y)) => x.cmp(&y),
-        (Some(_), None) => std::cmp::Ordering::Less,
-        (None, Some(_)) => std::cmp::Ordering::Greater,
-        (None, None) => std::cmp::Ordering::Equal,
-    }
-    .then_with(|| a.id.cmp(&b.id))
+    a.created_at
+        .cmp(&b.created_at)
+        .then_with(|| a.id.cmp(&b.id))
 }
 
 fn item_after_cursor(item: &InboxItem, cursor: &GlobalCursor) -> bool {
-    match (item.due, cursor.due) {
-        (Some(x), Some(y)) => x.cmp(&y),
-        (Some(_), None) => std::cmp::Ordering::Less,
-        (None, Some(_)) => std::cmp::Ordering::Greater,
-        (None, None) => std::cmp::Ordering::Equal,
-    }
-    .then_with(|| item.id.cmp(&cursor.id))
-    .is_gt()
+    item.created_at
+        .cmp(&cursor.created_at)
+        .then_with(|| item.id.cmp(&cursor.id))
+        .is_gt()
 }
 
 fn encode_cursor(as_of: OffsetDateTime, item: &InboxItem) -> String {
-    let due = item.due.map_or_else(
-        || "n".to_owned(),
-        |due| due.unix_timestamp_nanos().to_string(),
-    );
-    format!("{}~{due}~{}", as_of.unix_timestamp_nanos(), item.id)
+    format!(
+        "{}~{}~{}",
+        as_of.unix_timestamp_nanos(),
+        item.created_at.unix_timestamp_nanos(),
+        item.id
+    )
 }
 
-fn parse_cursor(raw: &str) -> Result<GlobalCursor, InboxError> {
+fn parse_cursor(raw: &str, now: OffsetDateTime) -> Result<GlobalCursor, InboxError> {
     let mut parts = raw.splitn(3, '~');
     let as_of = parts
         .next()
         .and_then(|value| value.parse::<i128>().ok())
         .and_then(|value| OffsetDateTime::from_unix_timestamp_nanos(value).ok());
-    let due = match parts.next() {
-        Some("n") => Some(None),
-        Some(value) => value
-            .parse::<i128>()
-            .ok()
-            .and_then(|value| OffsetDateTime::from_unix_timestamp_nanos(value).ok())
-            .map(Some),
-        None => None,
-    };
+    let created_at = parts
+        .next()
+        .and_then(|value| value.parse::<i128>().ok())
+        .and_then(|value| OffsetDateTime::from_unix_timestamp_nanos(value).ok());
     let id = parts.next().filter(|value| !value.is_empty());
-    match (as_of, due, id) {
-        (Some(as_of), Some(due), Some(id)) => Ok(GlobalCursor {
-            as_of,
-            due,
-            id: id.to_owned(),
-        }),
+    match (as_of, created_at, id) {
+        (Some(as_of), Some(created_at), Some(id))
+            if as_of <= now && created_at <= as_of && valid_namespaced_id(id) =>
+        {
+            Ok(GlobalCursor {
+                as_of,
+                created_at,
+                id: id.to_owned(),
+            })
+        }
         _ => Err(InboxError::validation("invalid action-inbox cursor")),
     }
+}
+
+fn valid_namespaced_id(value: &str) -> bool {
+    let Some((kind, id)) = value.split_once(':') else {
+        return false;
+    };
+    matches!(kind, "approval" | "dispatch" | "support" | "work")
+        && uuid::Uuid::parse_str(id).is_ok()
 }
 
 /// `approval_run` is the ontology/object-registry name used by the approval
@@ -510,14 +470,6 @@ fn canonical_action_link_kind(kind: &str) -> &str {
     } else {
         kind
     }
-}
-
-struct WorkOrderRow {
-    id: uuid::Uuid,
-    request_no: String,
-    target_due_at: Option<OffsetDateTime>,
-    created_at: OffsetDateTime,
-    site_name: String,
 }
 
 #[derive(Debug)]
@@ -562,13 +514,6 @@ impl From<KernelError> for InboxError {
     }
 }
 
-impl From<DbError> for InboxError {
-    fn from(error: DbError) -> Self {
-        tracing::error!(error = %error, "action-inbox database error");
-        Self::internal("internal server error")
-    }
-}
-
 impl IntoResponse for InboxError {
     fn into_response(self) -> Response {
         (
@@ -606,7 +551,7 @@ mod tests {
         assert_eq!(first.len(), 200);
         let first_ids = first.iter().map(|item| item.id.clone()).collect::<Vec<_>>();
 
-        let cursor = parse_cursor(next.as_deref().unwrap()).unwrap();
+        let cursor = parse_cursor(next.as_deref().unwrap(), as_of + Duration::seconds(1)).unwrap();
         let items = (0..451)
             .map(|index| item(index, as_of - Duration::seconds(i64::from(index))))
             .collect();
@@ -615,7 +560,7 @@ mod tests {
         assert_eq!(second.len(), 200);
         assert!(second.iter().all(|item| !first_ids.contains(&item.id)));
 
-        let cursor = parse_cursor(next.as_deref().unwrap()).unwrap();
+        let cursor = parse_cursor(next.as_deref().unwrap(), as_of + Duration::seconds(1)).unwrap();
         let items = (0..451)
             .map(|index| item(index, as_of - Duration::seconds(i64::from(index))))
             .collect();
@@ -626,14 +571,14 @@ mod tests {
     }
 
     #[test]
-    fn cursor_snapshot_excludes_concurrent_inserts_but_keeps_total_stable() {
+    fn cursor_admission_boundary_excludes_concurrent_inserts() {
         let as_of = OffsetDateTime::from_unix_timestamp(1_800_000_000).unwrap();
         let initial = vec![item(1, as_of - Duration::seconds(2)), item(2, as_of)];
         let (first, total, next) = paginate_items(initial, as_of, None, 1);
         assert_eq!(total, 2);
         assert_eq!(first.len(), 1);
 
-        let cursor = parse_cursor(next.as_deref().unwrap()).unwrap();
+        let cursor = parse_cursor(next.as_deref().unwrap(), as_of + Duration::seconds(1)).unwrap();
         let after_insert = vec![
             item(1, as_of - Duration::seconds(2)),
             item(2, as_of),
@@ -642,13 +587,13 @@ mod tests {
         let (second, total, next) = paginate_items(after_insert, as_of, Some(&cursor), 1);
         assert_eq!(total, 2);
         assert_eq!(second.len(), 1);
-        assert_eq!(second[0].id, "work:0002");
+        assert_eq!(second[0].id, format!("work:{}", uuid::Uuid::from_u128(2)));
         assert!(next.is_none());
     }
 
     fn item(index: u16, created_at: OffsetDateTime) -> InboxItem {
         InboxItem {
-            id: format!("work:{index:04}"),
+            id: format!("work:{}", uuid::Uuid::from_u128(u128::from(index))),
             kind: "work",
             urg: "wait",
             ref_code: format!("WO-{index:04}"),

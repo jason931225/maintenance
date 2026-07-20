@@ -410,6 +410,17 @@ jobs:
     steps:
       - name: Wait for CI success
         run: bash scripts/wait-for-protected-main-ci.sh
+  release-probe:
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@${"a".repeat(40)}
+        with:
+          persist-credentials: false
+      - name: Provision topology
+        run: cat ops/postgres-reconcile-topology.sh
   images:
     steps:
       - name: Trivy scan (fail on HIGH/CRITICAL)
@@ -441,6 +452,61 @@ function evaluateWorkflows(overrides = {}) {
 describe("production hardening workflow gates", () => {
   it("accepts active CI, security, and image-release workflow gates", () => {
     assert.deepEqual(evaluateWorkflows().failures, []);
+  });
+
+  it("rejects release-probe checkout without explicit job-level contents read", () => {
+    const releaseWorkflow = validWorkflowFiles[".github/workflows/image-release.yml"];
+    const result = evaluateWorkflows({
+      ".github/workflows/image-release.yml": releaseWorkflow.replace("      contents: read\n", ""),
+    });
+
+    assertHasFailure(
+      result,
+      "release-probe permissions must explicitly grant contents: read for its checkout",
+    );
+  });
+
+  it("rejects a mutable release-probe checkout reference", () => {
+    const releaseWorkflow = validWorkflowFiles[".github/workflows/image-release.yml"];
+    const result = evaluateWorkflows({
+      ".github/workflows/image-release.yml": releaseWorkflow.replace(
+        `actions/checkout@${"a".repeat(40)}`,
+        "actions/checkout@v7",
+      ),
+    });
+
+    assertHasFailure(result, "release-probe must perform a SHA-pinned actions/checkout");
+  });
+
+  it("rejects release-probe topology use before checkout", () => {
+    const releaseWorkflow = validWorkflowFiles[".github/workflows/image-release.yml"];
+    const checkout = `      - name: Checkout
+        uses: actions/checkout@${"a".repeat(40)}
+        with:
+          persist-credentials: false
+`;
+    const topology = `      - name: Provision topology
+        run: cat ops/postgres-reconcile-topology.sh
+`;
+    const result = evaluateWorkflows({
+      ".github/workflows/image-release.yml": releaseWorkflow
+        .replace(checkout, "")
+        .replace(topology, `${topology}${checkout}`),
+    });
+
+    assertHasFailure(result, "before using ops/postgres-reconcile-topology.sh");
+  });
+
+  it("rejects persisted release-probe checkout credentials", () => {
+    const releaseWorkflow = validWorkflowFiles[".github/workflows/image-release.yml"];
+    const result = evaluateWorkflows({
+      ".github/workflows/image-release.yml": releaseWorkflow.replace(
+        "          persist-credentials: false\n",
+        "          persist-credentials: true\n",
+      ),
+    });
+
+    assertHasFailure(result, "persist-credentials: false");
   });
 
   it("rejects workflow gates that only appear in comments or unused literals", () => {

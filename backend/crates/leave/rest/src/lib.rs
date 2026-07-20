@@ -268,8 +268,7 @@ async fn decide(
     let expected_version = body
         .expected_version
         .map(validate_expected_request_version)
-        .transpose()?
-        .unwrap_or(0);
+        .transpose()?;
     let view = state
         .store
         .decide(DecideLeaveRequestCommand {

@@ -10,9 +10,11 @@ use mnt_kernel_core::{
 use mnt_platform_db::{DbError, with_audit, with_org_conn};
 use mnt_platform_request_context::current_org;
 use mnt_workorder_application::{
-    CreateDailyPlanCommand, CreateOutsourceWorkCommand, CreateWorkOrderCommand,
-    DailyPlanItemSummary, DailyPlanListPage, DailyPlanListQuery, DailyPlanStatus, DailyPlanSummary,
-    OutsourceWorkStatus, OutsourceWorkSummary, RejectWorkOrderCommand, ReviewDailyPlanCommand,
+    ActionInboxPosition, ActionInboxWorkOrderFuture, ActionInboxWorkOrderPort,
+    AssignedActionInboxWorkOrder, AssignedActionInboxWorkOrderPage, CreateDailyPlanCommand,
+    CreateOutsourceWorkCommand, CreateWorkOrderCommand, DailyPlanItemSummary, DailyPlanListPage,
+    DailyPlanListQuery, DailyPlanStatus, DailyPlanSummary, OutsourceWorkStatus,
+    OutsourceWorkSummary, RejectWorkOrderCommand, ReviewDailyPlanCommand,
     ReviewTargetChangeCommand, SendDailyPlanForReviewCommand, SubmitReportCommand,
     TargetChangeDecision, TargetChangeRequestCommand, TargetChangeRequestSummary,
     TargetChangeStatus, UpdatePriorityCommand, UpdateWorkOrderIntakeCommand,
@@ -1491,6 +1493,122 @@ impl PgWorkOrderStore {
         .await?
         .ok_or_else(|| KernelError::not_found("daily plan was not found"))?;
         Ok(plan)
+    }
+}
+
+fn push_action_inbox_branch_scope(
+    query: &mut QueryBuilder<Postgres>,
+    branch_ids: Option<&[uuid::Uuid]>,
+) {
+    match branch_ids {
+        None => {}
+        Some([]) => {
+            query.push(" AND FALSE");
+        }
+        Some(ids) => {
+            query.push(" AND w.branch_id = ANY(");
+            query.push_bind(ids.to_vec());
+            query.push(")");
+        }
+    }
+}
+
+impl ActionInboxWorkOrderPort for PgWorkOrderStore {
+    fn list_assigned_action_inbox_page(
+        &self,
+        org: mnt_kernel_core::OrgId,
+        branch_scope: BranchScope,
+        mechanic: UserId,
+        as_of: time::OffsetDateTime,
+        after: Option<ActionInboxPosition>,
+        limit: i64,
+    ) -> ActionInboxWorkOrderFuture<'_> {
+        let pool = self.pool.clone();
+        Box::pin(async move {
+            let limit = limit.clamp(1, 200);
+            let mechanic_id = *mechanic.as_uuid();
+            let (after_created_at, after_id) = after.map_or((None, None), |position| {
+                (Some(position.created_at), Some(position.id))
+            });
+            with_org_conn::<_, _, PgWorkOrderError>(&pool, org, move |tx| {
+                Box::pin(async move {
+                    let branch_ids = match branch_scope {
+                        BranchScope::All => None,
+                        BranchScope::Branches(branches) => Some(
+                            branches
+                                .into_iter()
+                                .map(|branch| *branch.as_uuid())
+                                .collect::<Vec<_>>(),
+                        ),
+                    };
+                    let mut count = QueryBuilder::<Postgres>::new(
+                        "SELECT COUNT(*) FROM work_orders w \
+                         WHERE w.status NOT IN ('FINAL_COMPLETED', 'REJECTED', 'CANCELLED') \
+                           AND w.created_at <= ",
+                    );
+                    count.push_bind(as_of);
+                    count.push(
+                        " AND EXISTS (SELECT 1 FROM work_order_assignments a \
+                         WHERE a.work_order_id = w.id AND a.mechanic_id = ",
+                    );
+                    count.push_bind(mechanic_id);
+                    count.push(")");
+                    push_action_inbox_branch_scope(&mut count, branch_ids.as_deref());
+                    let total: i64 = count.build_query_scalar().fetch_one(tx.as_mut()).await?;
+
+                    let mut query = QueryBuilder::<Postgres>::new(
+                        "SELECT w.id, w.request_no, w.target_due_at, w.created_at, \
+                                s.name AS site_name \
+                         FROM work_orders w \
+                         JOIN registry_sites s ON s.id = w.site_id \
+                         WHERE w.status NOT IN ('FINAL_COMPLETED', 'REJECTED', 'CANCELLED') \
+                           AND w.created_at <= ",
+                    );
+                    query.push_bind(as_of);
+                    query.push(
+                        " AND EXISTS (SELECT 1 FROM work_order_assignments a \
+                         WHERE a.work_order_id = w.id AND a.mechanic_id = ",
+                    );
+                    query.push_bind(mechanic_id);
+                    query.push(")");
+                    push_action_inbox_branch_scope(&mut query, branch_ids.as_deref());
+                    query.push(" AND (");
+                    query.push_bind(after_id.as_deref());
+                    query.push("::text IS NULL OR w.created_at > ");
+                    query.push_bind(after_created_at);
+                    query.push(" OR (w.created_at = ");
+                    query.push_bind(after_created_at);
+                    query.push(" AND ('work:' || w.id::text) > ");
+                    query.push_bind(after_id.as_deref());
+                    query.push(")) ORDER BY w.created_at ASC, ('work:' || w.id::text) ASC LIMIT ");
+                    query.push_bind(limit + 1);
+                    let rows = query.build().fetch_all(tx.as_mut()).await?;
+                    let has_more = i64::try_from(rows.len()).unwrap_or(0) > limit;
+                    let items = rows
+                        .iter()
+                        .take(usize::try_from(limit).unwrap_or(rows.len()))
+                        .map(|row| {
+                            Ok(AssignedActionInboxWorkOrder {
+                                id: WorkOrderId::from_uuid(row.try_get("id")?),
+                                request_no: row.try_get("request_no")?,
+                                target_due_at: row.try_get("target_due_at")?,
+                                created_at: row.try_get("created_at")?,
+                                site_name: row.try_get("site_name")?,
+                            })
+                        })
+                        .collect::<Result<Vec<_>, PgWorkOrderError>>()?;
+                    Ok(AssignedActionInboxWorkOrderPage {
+                        items,
+                        total,
+                        has_more,
+                    })
+                })
+            })
+            .await
+            .map_err(|error| {
+                KernelError::internal(format!("work-order inbox read failed: {error}"))
+            })
+        })
     }
 }
 

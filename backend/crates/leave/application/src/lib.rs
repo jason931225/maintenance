@@ -144,8 +144,9 @@ pub struct DecideLeaveRequestCommand {
     pub branch_scope: BranchScope,
     /// Optimistic precondition for the mutable request workflow row. This is
     /// compared with `LeaveRequestView::request_version`, never with the
-    /// immutable charge-evidence revision.
-    pub expected_version: i64,
+    /// immutable charge-evidence revision. `None` preserves the deployed v1
+    /// first-writer-wins contract; version-aware callers must send `Some`.
+    pub expected_version: Option<i64>,
     pub decision: LeaveDecision,
     pub comment: Option<String>,
     pub trace: TraceContext,

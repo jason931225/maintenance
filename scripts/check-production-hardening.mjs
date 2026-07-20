@@ -461,6 +461,35 @@ export function evaluateWorkflowHardeningChecks(readText) {
     "image-release portable gate: active CI success wait",
     "image-release must actively wait for successful protected-main push CI for the same SHA and fail non-success conclusions",
   );
+
+  const activeImageRelease = stripHashComments(imageReleaseWorkflow);
+  const releaseProbeStart = activeImageRelease.indexOf("\n  release-probe:");
+  const releaseProbeEnd = activeImageRelease.indexOf("\n  bump-digests:", releaseProbeStart + 1);
+  const releaseProbe = releaseProbeStart >= 0
+    ? activeImageRelease.slice(releaseProbeStart, releaseProbeEnd >= 0 ? releaseProbeEnd : undefined)
+    : "";
+  const releaseProbeCheckout = releaseProbe.search(
+    /^\s*uses:\s*actions\/checkout@[0-9a-f]{40}\s*$/m,
+  );
+  const releaseProbeTopologyUse = releaseProbe.indexOf("ops/postgres-reconcile-topology.sh");
+  const releaseProbeSteps = releaseProbe.indexOf("\n    steps:");
+  const releaseProbeJobHeader = releaseProbeSteps >= 0
+    ? releaseProbe.slice(0, releaseProbeSteps)
+    : releaseProbe;
+  requirement(
+    result,
+    /^\s{6}contents:\s*read\s*$/m.test(releaseProbeJobHeader),
+    "image-release release-probe: job-level contents read permission",
+    "image-release release-probe permissions must explicitly grant contents: read for its checkout",
+  );
+  requirement(
+    result,
+    releaseProbeCheckout >= 0
+      && releaseProbeTopologyUse > releaseProbeCheckout
+      && /persist-credentials:\s*false/.test(releaseProbe.slice(releaseProbeCheckout, releaseProbeTopologyUse)),
+    "image-release release-probe: pinned credential-free checkout precedes local topology script use",
+    "image-release release-probe must perform a SHA-pinned actions/checkout with persist-credentials: false before using ops/postgres-reconcile-topology.sh",
+  );
   requirement(
     result,
     workflowHasRun(imageReleaseWorkflow, [/\btrivy\s+image\b/, /--exit-code\s+1\b/, /--severity\s+HIGH,CRITICAL\b/]),

@@ -83,7 +83,9 @@ jobs:
   backend:
     name: Backend — fmt / clippy / test / gates
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Serial integration execution avoids cluster-global role mutation races;
+    # retain enough headroom for the full workspace on a cold hosted runner.
+    timeout-minutes: 45
     services:
       postgres:
         image: postgres:18.4
@@ -152,6 +154,28 @@ jobs:
         if: ${{ !cancelled() }}
         run: SQLX_OFFLINE=true cargo clippy --all-targets -- -D warnings
 
+      # Migration 0165 fails closed unless the portable six-role topology
+      # already exists. Reconcile it before any database test applies the
+      # migration, using the distinct service administrator only for this
+      # cluster-scoped bootstrap.
+      - name: Reconcile portable PostgreSQL role topology
+        if: ${{ !cancelled() }}
+        run: |
+          APP_PASSWORD="$(openssl rand -hex 32)"
+          RT_PASSWORD="$(openssl rand -hex 32)"
+          LEAVE_COMMAND_PASSWORD="$(openssl rand -hex 32)"
+          ONTOLOGY_COMMAND_PASSWORD="$(openssl rand -hex 32)"
+          docker run --rm --network host \
+            -v "$GITHUB_WORKSPACE/ops/postgres-reconcile-topology.sh:/usr/local/bin/postgres-reconcile-topology:ro" \
+            -e POSTGRES_HOST=127.0.0.1 -e POSTGRES_DB=mnt_ci \
+            -e POSTGRES_ADMIN_USER=postgres -e POSTGRES_ADMIN_PASSWORD=postgres \
+            -e MNT_APP_POSTGRES_PASSWORD="$APP_PASSWORD" \
+            -e MNT_RT_POSTGRES_PASSWORD="$RT_PASSWORD" \
+            -e MNT_LEAVE_COMMAND_POSTGRES_PASSWORD="$LEAVE_COMMAND_PASSWORD" \
+            -e MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD="$ONTOLOGY_COMMAND_PASSWORD" \
+            --entrypoint bash postgres:18.4@sha256:4aabea78cf39b90e834caf3af7d602a18565f6fe2508705c8d01aa63245c2e20 \
+            /usr/local/bin/postgres-reconcile-topology
+
       - name: cargo test
         if: ${{ !cancelled() }}
         # SQLX_OFFLINE=true so the query! macros compile against the committed
@@ -161,8 +185,9 @@ jobs:
         # Without this, a Cargo.lock change busts the build cache and the macros
         # re-check online against a schema-less DB ("audit_events does not exist").
         # --no-fail-fast runs every test binary so one failing suite does not hide
-        # the rest — the whole run reports all failures.
-        run: SQLX_OFFLINE=true cargo test --no-fail-fast
+        # the rest — the whole run reports all failures. Run each binary serially
+        # because topology upgrade tests intentionally mutate cluster-global roles.
+        run: SQLX_OFFLINE=true cargo test --no-fail-fast -- --test-threads=1
 
       # Boot smoke: the real mnt-app binary, migrate then serve mode, against
       # this job's fresh service DB — catches route-panic-at-boot regressions
@@ -274,9 +299,9 @@ jobs:
         # one run reports every failing suite (no exit-code masking).
         run: |
           rc=0
-          SQLX_OFFLINE=true cargo test -p mnt-platform-auth-rest --features dev-auth --no-fail-fast || rc=1
-          SQLX_OFFLINE=true cargo test -p mnt-app --features dev-auth --test dev_auth_persona_guard_feature --no-fail-fast || rc=1
-          SQLX_OFFLINE=true cargo test -p mnt-platform-provisioning --test dev_principal_upsert_race --no-fail-fast || rc=1
+          SQLX_OFFLINE=true cargo test -p mnt-platform-auth-rest --features dev-auth --no-fail-fast -- --test-threads=1 || rc=1
+          SQLX_OFFLINE=true cargo test -p mnt-app --features dev-auth --test dev_auth_persona_guard_feature --no-fail-fast -- --test-threads=1 || rc=1
+          SQLX_OFFLINE=true cargo test -p mnt-platform-provisioning --test dev_principal_upsert_race --no-fail-fast -- --test-threads=1 || rc=1
           exit $rc
 
   dev-up-smoke:
@@ -631,6 +656,10 @@ jobs:
       - name: Production hardening contract
         if: ${{ !cancelled() }}
         run: npm run check:production-hardening
+
+      - name: Production hardening regression tests
+        if: ${{ !cancelled() }}
+        run: npm run test:production-hardening
 
   swift-client:
     name: API client — Swift generation and build

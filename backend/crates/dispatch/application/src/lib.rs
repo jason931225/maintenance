@@ -89,6 +89,17 @@ pub struct MyDispatchOffer {
     pub accept_window_ends_at: Timestamp,
 }
 
+/// Internal person-scoped projection for immutable action-inbox traversal.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActionInboxDispatchOffer {
+    pub dispatch_id: P1DispatchId,
+    pub work_order_id: WorkOrderId,
+    pub request_no: String,
+    pub created_at: Timestamp,
+    pub accept_window_started_at: Timestamp,
+    pub accept_window_ends_at: Timestamp,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MyDispatchOfferPage {
     pub items: Vec<MyDispatchOffer>,

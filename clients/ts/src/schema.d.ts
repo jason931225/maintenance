@@ -3820,7 +3820,7 @@ export interface paths {
         };
         /**
          * Unified action inbox for the authenticated principal
-         * @description One server-side fan-in of the caller's actionable items across every source that owns a person-scoped list: workflow/approval tasks awaiting the caller (the ?assignee=me path), pending P1 dispatch offers, support tickets assigned to the caller, and work orders assigned to the caller. Each source is queried through the exact predicate its own list endpoint uses, so the aggregate never widens visibility (deny-by-omission). Items are bucketed by urgency (now/today/wait) with a derived due tone. Fields the overview prototype carries but no backend source can supply are omitted (entity, amount, detail, files, stats, mailId); site/who/submitted are present only for the sources that carry them. Attendance exceptions are not aggregated (no exception object exists yet). Results use a stable server snapshot and bounded per-source fan-in. `total_is_exact` is false when an authorization-filtered source reaches its bounded counting budget; source failures fail the whole request rather than returning a deceptively partial queue.
+         * @description One server-side fan-in of the caller's actionable items across every source that owns a person-scoped list: workflow/approval tasks awaiting the caller (the ?assignee=me path), pending P1 dispatch offers, support tickets assigned to the caller, and work orders assigned to the caller. Each source is queried through the exact predicate its own list endpoint uses, so the aggregate never widens visibility (deny-by-omission). Items are bucketed by urgency (now/today/wait) with a derived due tone. Fields the overview prototype carries but no backend source can supply are omitted (entity, amount, detail, files, stats, mailId); site/who/submitted are present only for the sources that carry them. Attendance exceptions are not aggregated (no exception object exists yet). Results use an immutable `(created_at, kind:id)` traversal key plus an `as_of` admission boundary, so rows created after the first page are excluded. Membership is deliberately live rather than a repeatable full-state snapshot: resolved, reassigned, or expired rows can disappear between page requests. Totals are recalculated from live membership admitted by `as_of`; `total_is_exact` is false when an authorization-filtered source reaches its bounded counting budget. Source failures fail the whole request rather than returning a deceptively partial queue.
          */
         get: operations["listMyActionInbox"];
         put?: never;
@@ -10118,11 +10118,11 @@ export interface components {
         };
         ActionInboxResponse: {
             items: components["schemas"]["ActionInboxItem"][];
-            /** @description Visible item count across sources; inspect total_is_exact before treating it as authoritative. */
+            /** @description Live visible item count across sources admitted by as_of; inspect total_is_exact before treating it as authoritative. */
             total: number;
             /** @description False only when a bounded authorization-filtered count reached its scan budget. */
             total_is_exact: boolean;
-            /** @description Opaque cursor for the next stable-snapshot page, or null when exhausted. */
+            /** @description Opaque cursor for the next immutable-keyset page, or null when exhausted. */
             next_cursor: string | null;
         };
         /** @enum {string} */
@@ -18437,7 +18437,7 @@ export interface operations {
             query?: {
                 /** @description Page size, clamped server-side to 1..=200. */
                 limit?: number;
-                /** @description Opaque snapshot cursor returned as `next_cursor` by the previous page. */
+                /** @description Opaque immutable-traversal cursor returned as `next_cursor` by the previous page. */
                 cursor?: string;
             };
             header?: never;
@@ -18446,7 +18446,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description The caller's actionable items, most urgent first. */
+            /** @description The caller's actionable items in immutable creation order. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -18458,6 +18458,15 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             /** @description The action-inbox cursor is malformed. */
             422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description A source failed; no partial action-inbox response is returned. */
+            500: {
                 headers: {
                     [name: string]: unknown;
                 };

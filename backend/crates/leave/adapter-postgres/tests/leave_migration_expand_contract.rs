@@ -12,6 +12,8 @@ use sqlx::postgres::PgPoolOptions;
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
 
+use mnt_governance_domain::{GateChainConfig, GateEvidence, evaluate_gate_chain};
+
 const MIGRATION_0166: &str =
     include_str!("../../../platform/db/migrations/0166_leave_exact_charge_and_home_branch.sql");
 const MIGRATOR_PASSWORD: &str = "leave-migration-owner-a166";
@@ -24,6 +26,58 @@ const DECIDER: Uuid = Uuid::from_u128(0xc266_c266_c266_c266_c266_c266_c266_c266)
 const EMPLOYEE: Uuid = Uuid::from_u128(0xd166_d166_d166_d166_d166_d166_d166_d166);
 const PREEXISTING_REQUEST: Uuid = Uuid::from_u128(0xe166_e166_e166_e166_e166_e166_e166_e166);
 const ROLLBACK_REQUEST: Uuid = Uuid::from_u128(0xf166_f166_f166_f166_f166_f166_f166_f166);
+const STAGED_IMPORT_RUN: Uuid = Uuid::from_u128(0xa266_a266_a266_a266_a266_a266_a266_a266);
+const F6FF_APPLY_AUDIT_SQL: &str = r#"
+    INSERT INTO audit_events
+        (actor,action,target_type,target_id,before_snap,after_snap,
+         trace_id,span_id,occurred_at,org_id)
+    VALUES ($1,'data_import.apply','data_import_run',$2,NULL,$3,
+            'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','bbbbbbbbbbbbbbbb',now(),$4)
+"#;
+const F6FF_EMPLOYEE_UPSERT_SQL: &str = r#"
+    INSERT INTO employees (
+        org_id, company, name, source_filename, source_sheet, source_row,
+        source_key, raw_row, source_metadata, employee_number, org_unit, job,
+        position, worksite_name, worksite_address, hire_date, exit_date,
+        employment_status, leave_accrued, leave_used, leave_remaining,
+        identity_resolution_strategy, identity_resolution_confidence,
+        identity_review_required, identity_name_only_merge
+    )
+    VALUES (
+        $1, 'A166', $3, 'immediate.xlsx', 'Sheet1', 2,
+        $2, '{}'::jsonb, '{}'::jsonb, 'E-166', NULL, NULL,
+        NULL, NULL, NULL, DATE '2024-01-01', NULL,
+        'ACTIVE', NULLIF($4::TEXT, '')::NUMERIC,
+        NULLIF($5::TEXT, '')::NUMERIC, NULLIF($6::TEXT, '')::NUMERIC,
+        'source_row_fingerprint', 'high', false, false
+    )
+    ON CONFLICT (org_id, source_key) DO UPDATE SET
+        company = EXCLUDED.company,
+        name = EXCLUDED.name,
+        source_filename = EXCLUDED.source_filename,
+        source_sheet = EXCLUDED.source_sheet,
+        source_row = EXCLUDED.source_row,
+        raw_row = EXCLUDED.raw_row,
+        source_metadata = EXCLUDED.source_metadata,
+        employee_number = EXCLUDED.employee_number,
+        org_unit = EXCLUDED.org_unit,
+        job = EXCLUDED.job,
+        position = EXCLUDED.position,
+        worksite_name = EXCLUDED.worksite_name,
+        worksite_address = EXCLUDED.worksite_address,
+        hire_date = EXCLUDED.hire_date,
+        exit_date = EXCLUDED.exit_date,
+        employment_status = EXCLUDED.employment_status,
+        leave_accrued = EXCLUDED.leave_accrued,
+        leave_used = EXCLUDED.leave_used,
+        leave_remaining = EXCLUDED.leave_remaining,
+        identity_resolution_strategy = EXCLUDED.identity_resolution_strategy,
+        identity_resolution_confidence = EXCLUDED.identity_resolution_confidence,
+        identity_review_required = EXCLUDED.identity_review_required,
+        identity_name_only_merge = EXCLUDED.identity_name_only_merge,
+        updated_at = now()
+    RETURNING CASE WHEN xmax = 0 THEN 'inserted' ELSE 'updated' END
+"#;
 
 async fn restore_pre_0166_schema(pool: &PgPool) {
     sqlx::raw_sql(
@@ -254,6 +308,17 @@ async fn seed_pre_0166_data(pool: &PgPool) {
     .unwrap();
 }
 
+async fn migrate_populated_pre_0166(owner_pool: &PgPool) {
+    restore_pre_0166_schema(owner_pool).await;
+    seed_pre_0166_data(owner_pool).await;
+
+    let migrator = login_role_pool(owner_pool, "mnt_app", MIGRATOR_PASSWORD).await;
+    sqlx::raw_sql(MIGRATION_0166)
+        .execute(&migrator)
+        .await
+        .expect("the exact shipped 0166 migration must upgrade populated pre-0166 data");
+}
+
 fn database_error_code(error: &sqlx::Error) -> Option<String> {
     error
         .as_database_error()?
@@ -261,16 +326,127 @@ fn database_error_code(error: &sqlx::Error) -> Option<String> {
         .map(|code| code.into_owned())
 }
 
-#[sqlx::test(migrations = "../../platform/db/migrations")]
-async fn populated_upgrade_preserves_pre_0166_read_and_insert_contract(owner_pool: PgPool) {
-    restore_pre_0166_schema(&owner_pool).await;
-    seed_pre_0166_data(&owner_pool).await;
+fn f6ff_apply_after_snap(run_id: Uuid) -> serde_json::Value {
+    let gate_outcome = serde_json::to_value(evaluate_gate_chain(
+        GateChainConfig {
+            self_checklist: true,
+            ..GateChainConfig::default()
+        },
+        &GateEvidence {
+            checklist_all_acknowledged: Some(true),
+            ..GateEvidence::default()
+        },
+    ))
+    .unwrap();
+    assert_eq!(
+        gate_outcome,
+        serde_json::json!({
+            "gates": [
+                {"gate": "authority", "status": {"status": "not_required"}},
+                {"gate": "self_checklist", "status": {"status": "satisfied"}},
+                {"gate": "four_eyes", "status": {"status": "not_required"}},
+                {"gate": "egress_dlp", "status": {"status": "not_required"}}
+            ],
+            "allow": true
+        }),
+        "the legacy audit envelope must track the actual GateOutcome serde shape"
+    );
+    serde_json::json!({
+        "run_id": run_id,
+        "entity_type": "employee_hr",
+        "gate_outcome": gate_outcome
+    })
+}
 
-    let migrator = login_role_pool(&owner_pool, "mnt_app", MIGRATOR_PASSWORD).await;
+async fn migrate_staged_f6ff_employee_import(owner_pool: &PgPool) {
+    restore_pre_0166_schema(owner_pool).await;
+    seed_pre_0166_data(owner_pool).await;
+    sqlx::query(
+        "INSERT INTO data_import_runs \
+         (id,org_id,entity_type,status,source_filename,source_format,source_sha256, \
+          input_rows,candidate_rows,preserved_rows,created_by,dry_run_summary) \
+         VALUES ($1,$2,'employee_hr','DRY_RUN','staged.xlsx','xlsx',repeat('a',64), \
+                 1,1,0,$3,'{\"ready_rows\":1}'::jsonb)",
+    )
+    .bind(STAGED_IMPORT_RUN)
+    .bind(ORG)
+    .bind(USER)
+    .execute(owner_pool)
+    .await
+    .unwrap();
+
+    let migrator = login_role_pool(owner_pool, "mnt_app", MIGRATOR_PASSWORD).await;
     sqlx::raw_sql(MIGRATION_0166)
         .execute(&migrator)
         .await
-        .expect("the exact shipped 0166 migration must upgrade populated pre-0166 data");
+        .expect("0166 must migrate while an f6ff employee import is staged for apply");
+}
+
+async fn assert_staged_import_rolled_back(owner_pool: &PgPool) {
+    let state: (
+        String,
+        String,
+        String,
+        String,
+        serde_json::Value,
+        Option<Uuid>,
+        bool,
+        i64,
+    ) = sqlx::query_as(
+        "SELECT e.leave_accrued::text,e.leave_used::text,e.leave_remaining::text, \
+                    r.status,r.apply_summary,r.applied_by,r.applied_at IS NULL, \
+                    (SELECT count(*) FROM audit_events a WHERE a.org_id=$1 \
+                      AND a.action='data_import.apply' AND a.target_id=$3::text) \
+             FROM employees e JOIN data_import_runs r ON r.org_id=e.org_id \
+             WHERE e.org_id=$1 AND e.id=$2 AND r.id=$3",
+    )
+    .bind(ORG)
+    .bind(EMPLOYEE)
+    .bind(STAGED_IMPORT_RUN)
+    .fetch_one(owner_pool)
+    .await
+    .unwrap();
+    assert_eq!(state.0, "15.000000");
+    assert_eq!(state.1, "2.000000");
+    assert_eq!(state.2, "13.000000");
+    assert_eq!(state.3, "DRY_RUN");
+    assert_eq!(state.4, serde_json::json!({}));
+    assert_eq!(state.5, None);
+    assert!(state.6);
+    assert_eq!(state.7, 0);
+}
+
+async fn stage_f6ff_employee_import_apply(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    actor: Uuid,
+) {
+    sqlx::query_scalar::<_, String>(F6FF_EMPLOYEE_UPSERT_SQL)
+        .bind(ORG)
+        .bind("a166-employee")
+        .bind("Employee A166 staged")
+        .bind("25")
+        .bind("4")
+        .bind("21")
+        .fetch_one(&mut **tx)
+        .await
+        .expect("the legacy employee balance mutation must be staged");
+    sqlx::query(
+        "UPDATE data_import_runs \
+         SET status='APPLIED',apply_summary=$3,applied_by=$4,applied_at=now(),updated_at=now() \
+         WHERE org_id=$1 AND id=$2",
+    )
+    .bind(ORG)
+    .bind(STAGED_IMPORT_RUN)
+    .bind(serde_json::json!({"input_rows": 1, "inserted": 0, "updated": 1}))
+    .bind(actor)
+    .execute(&mut **tx)
+    .await
+    .expect("the legacy APPLIED metadata mutation must be staged");
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn populated_upgrade_preserves_pre_0166_read_and_insert_contract(owner_pool: PgPool) {
+    migrate_populated_pre_0166(&owner_pool).await;
 
     let preexisting = sqlx::query(
         "SELECT days::text AS days, legacy_days::text AS legacy_days, charge_state \
@@ -294,19 +470,20 @@ async fn populated_upgrade_preserves_pre_0166_read_and_insert_contract(owner_poo
         .await
         .unwrap();
 
-    let protected_employee_insert = sqlx::query(
+    let protected_home_branch_insert = sqlx::query(
         "INSERT INTO employees \
          (org_id, company, name, source_filename, source_sheet, source_row, source_key, \
-          hire_date, employment_status, leave_accrued, leave_used, leave_remaining) \
+          hire_date, employment_status, leave_accrued, leave_used, leave_remaining,home_branch_id) \
          VALUES ($1, 'forged', 'forged', 'forged.xlsx', 'Sheet1', 9, 'forged-a166', \
-                 DATE '2024-01-01', 'ACTIVE', 15, 0, 15)",
+                 DATE '2024-01-01', 'ACTIVE', 15, 0, 15,$2)",
     )
     .bind(ORG)
+    .bind(BRANCH)
     .execute(&runtime)
     .await
-    .expect_err("runtime employee INSERT must not seed protected leave balances");
+    .expect_err("the additive home-branch authority must remain command-only");
     assert_eq!(
-        database_error_code(&protected_employee_insert).as_deref(),
+        database_error_code(&protected_home_branch_insert).as_deref(),
         Some("42501")
     );
 
@@ -464,16 +641,14 @@ async fn populated_upgrade_preserves_pre_0166_read_and_insert_contract(owner_poo
         ("3.000000".to_owned(), "12.000000".to_owned())
     );
 
-    let forged_ledger = sqlx::query(
-        "UPDATE employees SET leave_used=leave_used+1,leave_remaining=leave_remaining-1 \
-         WHERE id=$1",
-    )
-    .bind(EMPLOYEE)
-    .execute(&runtime)
-    .await
-    .expect_err("runtime cannot mutate the protected ledger without a same-transaction approval");
+    let forged_home_branch = sqlx::query("UPDATE employees SET home_branch_id=$2 WHERE id=$1")
+        .bind(EMPLOYEE)
+        .bind(BRANCH)
+        .execute(&runtime)
+        .await
+        .expect_err("legacy import compatibility must not expose home-branch authority");
     assert_eq!(
-        database_error_code(&forged_ledger).as_deref(),
+        database_error_code(&forged_home_branch).as_deref(),
         Some("42501")
     );
 
@@ -864,4 +1039,327 @@ async fn populated_upgrade_preserves_pre_0166_read_and_insert_contract(owner_poo
         .await
         .expect_err("a DRAFT custom role must not grant import authority");
     assert_eq!(database_error_code(&draft_role).as_deref(), Some("42501"));
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn immediate_f6ff_employee_import_remains_usable_after_0166(owner_pool: PgPool) {
+    migrate_populated_pre_0166(&owner_pool).await;
+
+    let runtime = runtime_role_pool(&owner_pool).await;
+    sqlx::query("SELECT set_config('app.current_org', $1, false)")
+        .bind(ORG.to_string())
+        .execute(&runtime)
+        .await
+        .unwrap();
+
+    // Exact SQL shape from f6ff236 backend/app/src/hr.rs::apply_employee_rows_tx.
+    // The immediate endpoint has no data_import_run or audit envelope, so the
+    // expand migration must preserve the protected balance write itself.
+    let inserted: String = sqlx::query_scalar(F6FF_EMPLOYEE_UPSERT_SQL)
+        .bind(ORG)
+        .bind("a166-immediate")
+        .bind("Immediate import")
+        .bind("20")
+        .bind("3")
+        .bind("17")
+        .fetch_one(&runtime)
+        .await
+        .expect("the f6ff immediate employee import must survive the expand migration");
+    assert_eq!(inserted, "inserted");
+
+    let updated: String = sqlx::query_scalar(F6FF_EMPLOYEE_UPSERT_SQL)
+        .bind(ORG)
+        .bind("a166-immediate")
+        .bind("Immediate import updated")
+        .bind("21")
+        .bind("5")
+        .bind("16")
+        .fetch_one(&runtime)
+        .await
+        .expect("the f6ff immediate employee upsert update must survive the expand migration");
+    assert_eq!(updated, "updated");
+
+    let balances: (String, String, String) = sqlx::query_as(
+        "SELECT leave_accrued::text, leave_used::text, leave_remaining::text \
+         FROM employees WHERE org_id=$1 AND source_key='a166-immediate'",
+    )
+    .bind(ORG)
+    .fetch_one(&runtime)
+    .await
+    .unwrap();
+    assert_eq!(
+        balances,
+        (
+            "21.000000".to_owned(),
+            "5.000000".to_owned(),
+            "16.000000".to_owned()
+        )
+    );
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn staged_f6ff_employee_import_apply_remains_atomic_after_0166(owner_pool: PgPool) {
+    migrate_staged_f6ff_employee_import(&owner_pool).await;
+
+    let runtime = runtime_role_pool(&owner_pool).await;
+    sqlx::query("SELECT set_config('app.current_org', $1, false)")
+        .bind(ORG.to_string())
+        .execute(&runtime)
+        .await
+        .unwrap();
+
+    // Exact f6ff apply ordering: protected employee upserts, APPLIED metadata,
+    // then the with_audit data_import.apply event, all in one transaction.
+    let mut apply = runtime.begin().await.unwrap();
+    let staged_outcome: String = sqlx::query_scalar(F6FF_EMPLOYEE_UPSERT_SQL)
+        .bind(ORG)
+        .bind("a166-employee")
+        .bind("Employee A166 staged")
+        .bind("25")
+        .bind("4")
+        .bind("21")
+        .fetch_one(&mut *apply)
+        .await
+        .expect("the f6ff staged apply must retain its protected employee update");
+    assert_eq!(staged_outcome, "updated");
+    sqlx::query(
+        "UPDATE data_import_runs \
+         SET status='APPLIED',apply_summary=$3,applied_by=$4,applied_at=now(),updated_at=now() \
+         WHERE org_id=$1 AND id=$2",
+    )
+    .bind(ORG)
+    .bind(STAGED_IMPORT_RUN)
+    .bind(serde_json::json!({"input_rows": 1, "inserted": 0, "updated": 1}))
+    .bind(USER)
+    .execute(&mut *apply)
+    .await
+    .expect("the f6ff staged apply must retain its APPLIED metadata transition");
+    sqlx::query(F6FF_APPLY_AUDIT_SQL)
+        .bind(USER)
+        .bind(STAGED_IMPORT_RUN.to_string())
+        .bind(f6ff_apply_after_snap(STAGED_IMPORT_RUN))
+        .bind(ORG)
+        .execute(&mut *apply)
+        .await
+        .expect("the f6ff with_audit data_import.apply event must survive the expand migration");
+    apply.commit().await.unwrap();
+
+    let evidence: (String, String, String, String, i64) = sqlx::query_as(
+        "SELECT e.leave_accrued::text,e.leave_used::text,e.leave_remaining::text,r.status, \
+                (SELECT count(*) FROM audit_events a WHERE a.org_id=$1 \
+                  AND a.action='data_import.apply' AND a.target_id=$3::text) \
+         FROM employees e JOIN data_import_runs r ON r.org_id=e.org_id \
+         WHERE e.org_id=$1 AND e.id=$2 AND r.id=$3",
+    )
+    .bind(ORG)
+    .bind(EMPLOYEE)
+    .bind(STAGED_IMPORT_RUN)
+    .fetch_one(&owner_pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        evidence,
+        (
+            "25.000000".to_owned(),
+            "4.000000".to_owned(),
+            "21.000000".to_owned(),
+            "APPLIED".to_owned(),
+            1
+        )
+    );
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn staged_f6ff_apply_rejects_missing_duplicate_or_forged_current_tx_audit(
+    owner_pool: PgPool,
+) {
+    migrate_staged_f6ff_employee_import(&owner_pool).await;
+
+    let runtime = runtime_role_pool(&owner_pool).await;
+    sqlx::query("SELECT set_config('app.current_org', $1, false)")
+        .bind(ORG.to_string())
+        .execute(&runtime)
+        .await
+        .unwrap();
+
+    // A run transition without its same-transaction audit cannot commit, and
+    // the deferred failure rolls the employee and run mutations back together.
+    let mut missing = runtime.begin().await.unwrap();
+    stage_f6ff_employee_import_apply(&mut missing, USER).await;
+    let missing_error = missing
+        .commit()
+        .await
+        .expect_err("an APPLIED run without an audit must fail at commit");
+    assert_eq!(
+        database_error_code(&missing_error).as_deref(),
+        Some("23514")
+    );
+    assert_eq!(
+        missing_error.as_database_error().unwrap().message(),
+        "employee_import_run.current_transaction_audit_required"
+    );
+    assert_staged_import_rolled_back(&owner_pool).await;
+
+    // Both audit inserts satisfy the immediate legacy envelope guard, but the
+    // deferred exact-one invariant rejects duplicate current-transaction proof.
+    let mut duplicate = runtime.begin().await.unwrap();
+    stage_f6ff_employee_import_apply(&mut duplicate, USER).await;
+    for _ in 0..2 {
+        sqlx::query(F6FF_APPLY_AUDIT_SQL)
+            .bind(USER)
+            .bind(STAGED_IMPORT_RUN.to_string())
+            .bind(f6ff_apply_after_snap(STAGED_IMPORT_RUN))
+            .bind(ORG)
+            .execute(&mut *duplicate)
+            .await
+            .expect("an exact legacy audit envelope reaches the deferred count check");
+    }
+    let duplicate_error = duplicate
+        .commit()
+        .await
+        .expect_err("two matching audits must fail the exact-one invariant");
+    assert_eq!(
+        database_error_code(&duplicate_error).as_deref(),
+        Some("23514")
+    );
+    assert_eq!(
+        duplicate_error.as_database_error().unwrap().message(),
+        "employee_import_run.current_transaction_audit_required"
+    );
+    assert_staged_import_rolled_back(&owner_pool).await;
+
+    let mut extra = f6ff_apply_after_snap(STAGED_IMPORT_RUN);
+    extra["unexpected"] = serde_json::json!(true);
+    let mut forged = f6ff_apply_after_snap(STAGED_IMPORT_RUN);
+    forged["gate_outcome"]["allow"] = serde_json::json!(false);
+    let mut missing_gate = f6ff_apply_after_snap(STAGED_IMPORT_RUN);
+    missing_gate["gate_outcome"]["gates"]
+        .as_array_mut()
+        .unwrap()
+        .remove(1);
+    let invalid_snapshots = [
+        ("missing", None),
+        ("extra", Some(extra)),
+        ("forged", Some(forged)),
+        ("missing gate", Some(missing_gate)),
+    ];
+    for (label, after_snap) in invalid_snapshots {
+        let mut invalid = runtime.begin().await.unwrap();
+        stage_f6ff_employee_import_apply(&mut invalid, USER).await;
+        let error = sqlx::query(F6FF_APPLY_AUDIT_SQL)
+            .bind(USER)
+            .bind(STAGED_IMPORT_RUN.to_string())
+            .bind(after_snap)
+            .bind(ORG)
+            .execute(&mut *invalid)
+            .await
+            .expect_err(&format!("a {label} f6ff snapshot must be rejected"));
+        assert_eq!(database_error_code(&error).as_deref(), Some("42501"));
+        invalid.rollback().await.unwrap();
+        assert_staged_import_rolled_back(&owner_pool).await;
+    }
+
+    let mut classified = runtime.begin().await.unwrap();
+    stage_f6ff_employee_import_apply(&mut classified, USER).await;
+    let classified_error = sqlx::query(
+        "INSERT INTO audit_events \
+         (actor,action,target_type,target_id,before_snap,after_snap,classification_badges, \
+          trace_id,span_id,occurred_at,org_id) \
+         VALUES ($1,'data_import.apply','data_import_run',$2,NULL,$3,ARRAY['forged'], \
+                 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','bbbbbbbbbbbbbbbb',now(),$4)",
+    )
+    .bind(USER)
+    .bind(STAGED_IMPORT_RUN.to_string())
+    .bind(f6ff_apply_after_snap(STAGED_IMPORT_RUN))
+    .bind(ORG)
+    .execute(&mut *classified)
+    .await
+    .expect_err("legacy apply cannot add classification context absent from f6ff");
+    assert_eq!(
+        database_error_code(&classified_error).as_deref(),
+        Some("42501")
+    );
+    classified.rollback().await.unwrap();
+    assert_staged_import_rolled_back(&owner_pool).await;
+
+    let inactive_actor = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO users (id,display_name,roles,is_active,org_id) \
+         VALUES ($1,'Inactive actor',ARRAY['ADMIN']::text[],false,$2)",
+    )
+    .bind(inactive_actor)
+    .bind(ORG)
+    .execute(&owner_pool)
+    .await
+    .unwrap();
+    let mut inactive = runtime.begin().await.unwrap();
+    stage_f6ff_employee_import_apply(&mut inactive, inactive_actor).await;
+    let inactive_error = sqlx::query(F6FF_APPLY_AUDIT_SQL)
+        .bind(inactive_actor)
+        .bind(STAGED_IMPORT_RUN.to_string())
+        .bind(f6ff_apply_after_snap(STAGED_IMPORT_RUN))
+        .bind(ORG)
+        .execute(&mut *inactive)
+        .await
+        .expect_err("an inactive same-org actor cannot use the legacy audit exception");
+    assert_eq!(
+        database_error_code(&inactive_error).as_deref(),
+        Some("42501")
+    );
+    inactive.rollback().await.unwrap();
+    assert_staged_import_rolled_back(&owner_pool).await;
+
+    // data_import_runs.applied_by historically references users(id), not the
+    // composite tenant key. Even a definer-authored, exact same-transaction
+    // audit cannot satisfy the deferred invariant for a cross-org actor.
+    let foreign_org = Uuid::new_v4();
+    let foreign_actor = Uuid::new_v4();
+    sqlx::query("INSERT INTO organizations (id,slug,name) VALUES ($1,$2,'Foreign org')")
+        .bind(foreign_org)
+        .bind(format!("foreign-{}", &foreign_org.to_string()[..8]))
+        .execute(&owner_pool)
+        .await
+        .unwrap();
+    sqlx::query(
+        "INSERT INTO users (id,display_name,roles,is_active,org_id) \
+         VALUES ($1,'Foreign actor',ARRAY['ADMIN']::text[],true,$2)",
+    )
+    .bind(foreign_actor)
+    .bind(foreign_org)
+    .execute(&owner_pool)
+    .await
+    .unwrap();
+
+    let mut cross_org = owner_pool.begin().await.unwrap();
+    sqlx::query("SET LOCAL ROLE mnt_leave_definer")
+        .execute(&mut *cross_org)
+        .await
+        .unwrap();
+    sqlx::query("SELECT set_config('app.current_org',$1,true)")
+        .bind(ORG.to_string())
+        .execute(&mut *cross_org)
+        .await
+        .unwrap();
+    stage_f6ff_employee_import_apply(&mut cross_org, foreign_actor).await;
+    sqlx::query(F6FF_APPLY_AUDIT_SQL)
+        .bind(foreign_actor)
+        .bind(STAGED_IMPORT_RUN.to_string())
+        .bind(f6ff_apply_after_snap(STAGED_IMPORT_RUN))
+        .bind(ORG)
+        .execute(&mut *cross_org)
+        .await
+        .expect("the definer path must reach the deferred tenant-correlation check");
+    let cross_org_error = cross_org
+        .commit()
+        .await
+        .expect_err("a cross-org applied_by must not satisfy the deferred audit invariant");
+    assert_eq!(
+        database_error_code(&cross_org_error).as_deref(),
+        Some("23514")
+    );
+    assert_eq!(
+        cross_org_error.as_database_error().unwrap().message(),
+        "employee_import_run.current_transaction_audit_required"
+    );
+    assert_staged_import_rolled_back(&owner_pool).await;
 }
