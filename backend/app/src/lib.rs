@@ -4448,7 +4448,7 @@ mod worker_identity_tests {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod migration_database_budget_tests {
     use std::time::Duration;
 
