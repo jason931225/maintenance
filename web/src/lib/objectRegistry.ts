@@ -130,6 +130,43 @@ export const objectRegistry: Record<ObjectKind, ObjectRefEntry> = {
 };
 
 /**
+ * Server-owned action-inbox object reference. The browser deliberately accepts
+ * the wire kind as a string so newer server kinds remain forward compatible:
+ * unknown kinds are inert until they are explicitly registered here.
+ */
+export interface ActionInboxObjectLink {
+  kind: string;
+  id: string;
+  label?: string;
+}
+
+const ACTION_INBOX_OBJECT_KINDS: Readonly<Partial<Record<string, ObjectKind>>> =
+  {
+    approval_run: "approval",
+    work_order: "workOrder",
+    support_ticket: "support",
+  };
+
+/**
+ * Resolve the first canonical action-inbox source reference in server order.
+ *
+ * This is intentionally a closed, browser-owned allowlist: blank ids and
+ * unknown kinds are skipped, server-provided URLs are never consumed, and no
+ * route is inferred from an action item's kind, id, label, or code prefix.
+ */
+export function resolveActionInboxLinkRoute(
+  links: readonly ActionInboxObjectLink[],
+): string | undefined {
+  for (const link of links) {
+    const objectKind = ACTION_INBOX_OBJECT_KINDS[link.kind];
+    const id = link.id.trim();
+    if (!objectKind || id.length === 0) continue;
+    return objectRegistry[objectKind].route({ id });
+  }
+  return undefined;
+}
+
+/**
  * Resolve which registered kind a code belongs to from its prefix
  * (e.g. "AP-3121" -> "approval"). Returns `undefined` for codes that don't
  * match any registered prefix — callers must treat that as "unknown/not

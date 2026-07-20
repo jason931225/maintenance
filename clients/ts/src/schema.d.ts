@@ -10168,10 +10168,11 @@ export interface components {
         MyDispatchOfferPage: {
             items: components["schemas"]["MyDispatchOffer"][];
         };
-        /** @description A bounded cross-object reference for an action-inbox item. */
+        /** @description One server-ordered canonical source-object reference for an action-inbox item. Clients resolve only explicitly registered kind/id pairs; current browser-linkable kinds are approval_run, work_order, and support_ticket. Unknown kinds remain valid for forward compatibility and MUST stay inert until a client registry adds support. Clients MUST NOT accept a server URL or infer a destination from the enclosing item kind, item id, label, or a code prefix. */
         ActionInboxLink: {
-            /** @description Object type label (e.g. work_order, workflow_run). */
+            /** @description Canonical source-object kind. Current browser-linkable values are approval_run, work_order, and support_ticket; other strings are forward-compatible but inert. */
             kind: string;
+            /** @description Canonical source-object identifier. Clients trim surrounding whitespace and reject a blank result before route construction. */
             id: string;
             label?: string;
         };

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   kindFromCode,
   objectRegistry,
+  resolveActionInboxLinkRoute,
   workOrderCode,
   type ObjectKind,
 } from "./objectRegistry";
@@ -92,5 +93,57 @@ describe("objectRegistry", () => {
     expect(objectRegistry.workOrder.route({ id: "abc/def ?x=1" })).toBe(
       "/work-orders/abc%2Fdef%20%3Fx%3D1",
     );
+  });
+
+  it.each([
+    ["approval_run", "run/value", "/approvals?run=run%2Fvalue"],
+    ["work_order", "work order/value", "/work-orders/work%20order%2Fvalue"],
+    ["support_ticket", "ticket/value", "/support?ticket=ticket%2Fvalue"],
+  ] as const)(
+    "resolves canonical action-inbox kind %s through the registry",
+    (kind, id, route) => {
+      expect(resolveActionInboxLinkRoute([{ kind, id }])).toBe(route);
+    },
+  );
+
+  it("preserves server link order while skipping unknown kinds and blank ids", () => {
+    expect(
+      resolveActionInboxLinkRoute([
+        { kind: "future_kind", id: "future-1" },
+        { kind: "work_order", id: "   " },
+        { kind: "support_ticket", id: " ticket-1 " },
+        { kind: "approval_run", id: "run-ignored" },
+      ]),
+    ).toBe("/support?ticket=ticket-1");
+  });
+
+  it.each(["workflow_run", "person", "org_unit", "payroll_period"])(
+    "keeps unsupported wire kind %s inert",
+    (kind) => {
+      expect(
+        resolveActionInboxLinkRoute([{ kind, id: "source-1" }]),
+      ).toBeUndefined();
+    },
+  );
+
+  it("never trusts a server URL or treats an id code prefix as a kind", () => {
+    expect(
+      resolveActionInboxLinkRoute([
+        {
+          kind: "work_order",
+          id: "wo-1",
+          url: "https://attacker.invalid/phish",
+        },
+      ]),
+    ).toBe("/work-orders/wo-1");
+    expect(
+      resolveActionInboxLinkRoute([
+        {
+          kind: "future_kind",
+          id: "AP-3121",
+          url: "https://attacker.invalid/phish",
+        },
+      ]),
+    ).toBeUndefined();
   });
 });

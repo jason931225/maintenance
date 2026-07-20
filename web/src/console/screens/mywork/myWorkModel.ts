@@ -4,7 +4,7 @@
 // unit-testable without a DOM.
 
 import { ko } from "../../../i18n/ko";
-import { objectRegistry, type ObjectKind } from "../../../lib/objectRegistry";
+import { resolveActionInboxLinkRoute } from "../../../lib/objectRegistry";
 import type { ActionInboxItem } from "../overview/overviewModel";
 
 export type {
@@ -13,30 +13,11 @@ export type {
   InboxKind,
 } from "../overview/overviewModel";
 
-const ACTION_LINK_KINDS: Readonly<Partial<Record<string, ObjectKind>>> = {
-  approval_run: "approval",
-  work_order: "workOrder",
-  support_ticket: "support",
-  person: "person",
-  org_unit: "org",
-  payroll_period: "payroll",
-};
-
-/**
- * Resolve the first explicitly registered source-object link. Unknown kinds and
- * blank ids are intentionally inert; the action kind/id is not an object-ref
- * contract and must never be guessed as a fallback destination.
- */
+/** Adapt the My Work item shape to the shell-neutral registry resolver. */
 export function actionInboxLinkRoute(
   item: ActionInboxItem,
 ): string | undefined {
-  for (const link of item.links) {
-    const objectKind = ACTION_LINK_KINDS[link.kind];
-    const id = link.id.trim();
-    if (!objectKind || id.length === 0) continue;
-    return objectRegistry[objectKind].route({ id, name: link.label });
-  }
-  return undefined;
+  return resolveActionInboxLinkRoute(item.links);
 }
 
 // ── copy (defensive-pick off ko.console.mywork with a Korean fallback; this
