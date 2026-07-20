@@ -298,7 +298,6 @@ impl PgOntologyStore {
         &self.pool
     }
 
-    #[must_use]
     fn command_pool(&self) -> Result<&PgPool, PgOntologyError> {
         self.command_pool
             .as_ref()

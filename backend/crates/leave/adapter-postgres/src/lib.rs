@@ -794,10 +794,10 @@ impl PgLeaveStore {
             )
             .into());
         }
-        if let Some(expected_version) = command.expected_version {
-            if existing.request_version != expected_version {
-                return Err(PgLeaveError::ConcurrentModification);
-            }
+        if let Some(expected_version) = command.expected_version
+            && existing.request_version != expected_version
+        {
+            return Err(PgLeaveError::ConcurrentModification);
         }
 
         let decision = command.decision;
@@ -1248,6 +1248,7 @@ fn push_employee_branch_scope(builder: &mut QueryBuilder<Postgres>, scope: &Bran
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn canonical_snapshot(
     home_branch_id: uuid::Uuid,
     leave_type: LeaveType,
