@@ -600,22 +600,28 @@ BEGIN
     -- the same transaction; exact-charge and employee-import actions remain
     -- exclusive to the command definer.
     IF current_user = 'mnt_rt' AND NEW.action = 'leave_request.create'
+       AND NEW.target_type = 'leave_request'
        AND EXISTS (
            SELECT 1 FROM public.leave_requests lr
            WHERE lr.org_id = NEW.org_id
              AND lr.id::TEXT = NEW.target_id
              AND lr.requester_user_id = NEW.actor
+             AND lr.branch_id IS NOT DISTINCT FROM NEW.branch_id
              AND lr.status = 'pending'
              AND lr.days IS NOT NULL
+             AND lr.xmin = pg_catalog.pg_current_xact_id()::xid
        ) THEN
         RETURN NEW;
     ELSIF current_user = 'mnt_rt' AND NEW.action = 'leave_request.decide'
+       AND NEW.target_type = 'leave_request'
        AND EXISTS (
            SELECT 1 FROM public.leave_requests lr
            WHERE lr.org_id = NEW.org_id
              AND lr.id::TEXT = NEW.target_id
              AND lr.decided_by = NEW.actor
+             AND lr.branch_id IS NOT DISTINCT FROM NEW.branch_id
              AND lr.status IN ('approved', 'returned', 'rejected')
+             AND lr.xmin = pg_catalog.pg_current_xact_id()::xid
        ) THEN
         RETURN NEW;
     ELSIF current_user = 'mnt_rt' AND NEW.action = 'data_import.apply'
@@ -692,6 +698,60 @@ ALTER FUNCTION leave_api.protected_audit_writer_guard() OWNER TO mnt_leave_defin
 CREATE TRIGGER trg_audit_events_leave_command_only
     BEFORE INSERT ON public.audit_events
     FOR EACH ROW EXECUTE FUNCTION leave_api.protected_audit_writer_guard();
+
+-- Queue the obligation while the invoker is still the legacy runtime role.
+-- PostgreSQL evaluates a constraint trigger's WHEN clause at the row change,
+-- before deferring the trigger body, so command-definer writes are not confused
+-- with the temporary N-1 compatibility bridge. At commit, require exactly one
+-- audit row written by the same transaction. The immediate audit guard above
+-- independently rejects delayed or mismatched receipts by binding to row xmin.
+CREATE FUNCTION leave_api.legacy_leave_audit_required()
+RETURNS TRIGGER
+LANGUAGE plpgsql SECURITY DEFINER
+SET search_path = pg_catalog SET row_security = on AS $$
+DECLARE
+    v_action TEXT;
+    v_actor UUID;
+    v_matching_audits BIGINT;
+BEGIN
+    IF TG_OP = 'INSERT' THEN
+        v_action := 'leave_request.create';
+        v_actor := NEW.requester_user_id;
+    ELSIF TG_OP = 'UPDATE'
+       AND OLD.status = 'pending'
+       AND NEW.status IN ('approved', 'returned', 'rejected') THEN
+        v_action := 'leave_request.decide';
+        v_actor := NEW.decided_by;
+    ELSE
+        RETURN NEW;
+    END IF;
+
+    PERFORM pg_catalog.set_config('app.current_org', NEW.org_id::TEXT, true);
+    SELECT pg_catalog.count(*)
+      INTO v_matching_audits
+      FROM public.audit_events a
+     WHERE a.org_id = NEW.org_id
+       AND a.action = v_action
+       AND a.target_type = 'leave_request'
+       AND a.target_id = NEW.id::TEXT
+       AND a.actor = v_actor
+       AND a.branch_id IS NOT DISTINCT FROM NEW.branch_id
+       AND a.xmin = pg_catalog.pg_current_xact_id()::xid;
+    IF v_matching_audits <> 1 THEN
+        RAISE EXCEPTION USING
+            ERRCODE = '23514',
+            MESSAGE = 'leave_request.current_transaction_audit_required';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+ALTER FUNCTION leave_api.legacy_leave_audit_required() OWNER TO mnt_leave_definer;
+CREATE CONSTRAINT TRIGGER trg_leave_requests_legacy_audit_required
+    AFTER INSERT OR UPDATE ON public.leave_requests
+    DEFERRABLE INITIALLY DEFERRED
+    FOR EACH ROW
+    WHEN (current_user = 'mnt_rt')
+    EXECUTE FUNCTION leave_api.legacy_leave_audit_required();
 
 CREATE FUNCTION leave_api.assert_context(
     p_org_id UUID, p_actor UUID, p_trace_id TEXT, p_span_id TEXT
@@ -1510,6 +1570,46 @@ BEGIN
                      WHERE ir.org_id=p_org_id AND ir.run_id=p_run_id
                        AND ir.row_status='CANDIDATE'
                        AND ir.source_key=item->>'source_key'
+                 )
+           )
+           OR EXISTS (
+                SELECT 1
+                  FROM jsonb_array_elements(p_rows) item
+                  JOIN public.data_import_rows ir
+                    ON ir.org_id=p_org_id
+                   AND ir.run_id=p_run_id
+                   AND ir.row_status='CANDIDATE'
+                   AND ir.source_key=item->>'source_key'
+                 CROSS JOIN LATERAL (
+                    SELECT CASE
+                        WHEN ir.canonical_row#>>'{source_metadata,identity_resolution,strategy}'
+                             IN ('employee_number','legal_identifier_hash',
+                                 'birth_hire_fingerprint','source_row_fingerprint')
+                        THEN ir.canonical_row#>>'{source_metadata,identity_resolution,strategy}'
+                        ELSE 'source_row_fingerprint'
+                    END AS strategy
+                 ) identity
+                 WHERE item IS DISTINCT FROM (
+                    ir.canonical_row || pg_catalog.jsonb_build_object(
+                        'raw_row',ir.raw_row,
+                        'identity',pg_catalog.jsonb_build_object(
+                            'strategy',identity.strategy,
+                            'confidence',CASE identity.strategy
+                                WHEN 'employee_number' THEN 'high'
+                                WHEN 'legal_identifier_hash' THEN 'high'
+                                WHEN 'birth_hire_fingerprint' THEN 'medium'
+                                ELSE 'low'
+                            END,
+                            'review_required',NOT (
+                                coalesce((ir.canonical_row#>>
+                                    '{source_metadata,identity_resolution,manual_review_required}')
+                                    ::BOOLEAN,true) = false
+                                AND identity.strategy IN (
+                                    'employee_number','legal_identifier_hash'
+                                )
+                            )
+                        )
+                    )
                  )
            ) THEN
             RAISE EXCEPTION USING ERRCODE='22023', MESSAGE='employee_import_batch.run_payload_mismatch';

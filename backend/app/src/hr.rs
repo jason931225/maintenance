@@ -8850,21 +8850,7 @@ E-001,홍길동,본사,2026-07-01,abc
             format!("employee-{}", Uuid::new_v4()),
             format!("employee-{}", Uuid::new_v4()),
         ];
-        for (index, source_key) in source_keys.iter().enumerate() {
-            sqlx::query(
-                "INSERT INTO data_import_rows (org_id,run_id,source_sheet,source_row,\
-                 source_key,row_status,raw_row,canonical_row,validation) \
-                 VALUES ($1,$2,'Sheet1',$3,$4,'CANDIDATE','{}','{}','{}')",
-            )
-            .bind(org_id)
-            .bind(run_id)
-            .bind(index as i32 + 2)
-            .bind(source_key)
-            .execute(&pool)
-            .await
-            .map_err(|error| error.to_string())?;
-        }
-        let imported_row = |index: usize, employment_status: &str| ParsedEmployeeRow {
+        let imported_row = |index: usize| ParsedEmployeeRow {
             company: "KNL".to_owned(),
             name: format!("Imported Employee {index}"),
             source_filename: "employees.xlsx".to_owned(),
@@ -8874,13 +8860,61 @@ E-001,홍길동,본사,2026-07-01,abc
             raw_row: json!({"name":format!("Imported Employee {index}")}),
             source_metadata: json!({}),
             canonical: EmployeeCanonicalFields {
-                employment_status: employment_status.to_owned(),
+                employment_status: "ACTIVE".to_owned(),
                 leave_accrued: Some("12.000001".to_owned()),
                 leave_used: Some("1.125000".to_owned()),
                 leave_remaining: Some("10.875001".to_owned()),
                 ..EmployeeCanonicalFields::default()
             },
         };
+        let valid_rows = vec![imported_row(0), imported_row(1)];
+        for row in &valid_rows {
+            let canonical_row = json!({
+                "company": &row.company,
+                "name": &row.name,
+                "source_filename": &row.source_filename,
+                "source_sheet": &row.source_sheet,
+                "source_row": row.source_row,
+                "source_key": &row.source_key,
+                "source_metadata": &row.source_metadata,
+                "canonical": &row.canonical
+            });
+            sqlx::query(
+                "INSERT INTO data_import_rows (org_id,run_id,source_sheet,source_row,\
+                 source_key,row_status,raw_row,canonical_row,validation) \
+                 VALUES ($1,$2,$3,$4,$5,'CANDIDATE',$6,$7,'{}')",
+            )
+            .bind(org_id)
+            .bind(run_id)
+            .bind(&row.source_sheet)
+            .bind(row.source_row)
+            .bind(&row.source_key)
+            .bind(&row.raw_row)
+            .bind(canonical_row)
+            .execute(&pool)
+            .await
+            .map_err(|error| error.to_string())?;
+        }
+        sqlx::raw_sql(
+            r#"
+            CREATE FUNCTION reject_second_employee_import_for_atomicity_test()
+            RETURNS TRIGGER LANGUAGE plpgsql AS $$
+            BEGIN
+                IF NEW.name = 'Imported Employee 1' THEN
+                    RAISE EXCEPTION USING ERRCODE='23514',
+                        MESSAGE='employee_import_batch.test_second_row_failure';
+                END IF;
+                RETURN NEW;
+            END
+            $$;
+            CREATE TRIGGER trg_reject_second_employee_import_for_atomicity_test
+                BEFORE INSERT OR UPDATE ON employees
+                FOR EACH ROW EXECUTE FUNCTION reject_second_employee_import_for_atomicity_test();
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .map_err(|error| error.to_string())?;
         let command_store = PgLeaveStore::new(
             pool.clone(),
             std::sync::Arc::new(mnt_inbox_adapter_postgres::PgInboxStore::new(pool.clone())),
@@ -8897,7 +8931,7 @@ E-001,홍길동,본사,2026-07-01,abc
             actor,
             Some(run_id),
             source_ref.clone(),
-            vec![imported_row(0, "ACTIVE"), imported_row(1, "BROKEN")],
+            valid_rows.clone(),
             json!({"gate_outcome":"test"}),
         )
         .await
@@ -8916,7 +8950,15 @@ E-001,홍길동,본사,2026-07-01,abc
         .map_err(|error| error.to_string())?;
         assert_eq!(after_failure, (0, 0, 0, "DRY_RUN".to_owned()));
 
-        let valid_rows = vec![imported_row(0, "ACTIVE"), imported_row(1, "ACTIVE")];
+        sqlx::raw_sql(
+            r#"
+            DROP TRIGGER trg_reject_second_employee_import_for_atomicity_test ON employees;
+            DROP FUNCTION reject_second_employee_import_for_atomicity_test();
+            "#,
+        )
+        .execute(&pool)
+        .await
+        .map_err(|error| error.to_string())?;
         let first_apply = apply_employee_import_batch(
             &state,
             org,
@@ -9043,7 +9085,10 @@ E-001,홍길동,본사,2026-07-01,abc
             source_key: source_key.clone(),
             raw_row: json!({"name":"Roster Only Employee"}),
             source_metadata: json!({}),
-            canonical: EmployeeCanonicalFields::default(),
+            canonical: EmployeeCanonicalFields {
+                employment_status: "ACTIVE".to_owned(),
+                ..EmployeeCanonicalFields::default()
+            },
         };
         let command_store = PgLeaveStore::new(
             pool.clone(),

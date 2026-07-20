@@ -79,6 +79,39 @@ const F6FF_EMPLOYEE_UPSERT_SQL: &str = r#"
     RETURNING CASE WHEN xmax = 0 THEN 'inserted' ELSE 'updated' END
 "#;
 
+const F6FF_LEAVE_CREATE_SQL: &str = r#"
+    INSERT INTO leave_requests
+        (id, org_id, branch_id, requester_user_id, subject_employee_id, leave_type, days,
+         start_date, end_date, reason, status)
+    VALUES ($1, $2, $3, $4, $5, 'annual', 1, DATE '2026-12-01', DATE '2026-12-01',
+            'legacy audit contract', 'pending')
+"#;
+
+const F6FF_LEAVE_CREATE_AUDIT_SQL: &str = r#"
+    INSERT INTO audit_events
+        (actor, action, target_type, target_id, branch_id, before_snap, after_snap,
+         trace_id, span_id, occurred_at, org_id)
+    VALUES ($1, 'leave_request.create', 'leave_request', $2, $3, NULL,
+            '{"status":"pending"}'::jsonb,
+            'abababababababababababababababab', 'cdcdcdcdcdcdcdcd', now(), $4)
+"#;
+
+const F6FF_LEAVE_DECIDE_SQL: &str = r#"
+    UPDATE leave_requests
+       SET status = 'returned', decided_by = $2, decided_at = now(),
+           decision_comment = 'legacy audit contract'
+     WHERE id = $1 AND status = 'pending'
+"#;
+
+const F6FF_LEAVE_DECIDE_AUDIT_SQL: &str = r#"
+    INSERT INTO audit_events
+        (actor, action, target_type, target_id, branch_id, before_snap, after_snap,
+         trace_id, span_id, occurred_at, org_id)
+    VALUES ($1, 'leave_request.decide', 'leave_request', $2, $3,
+            '{"status":"pending"}'::jsonb, '{"status":"returned"}'::jsonb,
+            'efefefefefefefefefefefefefefefef', '1212121212121212', now(), $4)
+"#;
+
 async fn restore_pre_0166_schema(pool: &PgPool) {
     sqlx::raw_sql(
         r#"
@@ -489,6 +522,7 @@ async fn populated_upgrade_preserves_pre_0166_read_and_insert_contract(owner_poo
 
     // This is the SQL shape issued by the pre-0166 binary after an application
     // rollback: it knows only `days`, not any exact-charge columns.
+    let mut legacy_create = runtime.begin().await.unwrap();
     sqlx::query(
         "INSERT INTO leave_requests \
          (id, org_id, branch_id, requester_user_id, subject_employee_id, leave_type, days, \
@@ -501,9 +535,18 @@ async fn populated_upgrade_preserves_pre_0166_read_and_insert_contract(owner_poo
     .bind(BRANCH)
     .bind(USER)
     .bind(EMPLOYEE)
-    .execute(&runtime)
+    .execute(&mut *legacy_create)
     .await
     .expect("the pre-0166 INSERT contract must remain usable after 0166");
+    sqlx::query(F6FF_LEAVE_CREATE_AUDIT_SQL)
+        .bind(USER)
+        .bind(ROLLBACK_REQUEST.to_string())
+        .bind(BRANCH)
+        .bind(ORG)
+        .execute(&mut *legacy_create)
+        .await
+        .expect("the base adapter's atomic create audit must survive the expand migration");
+    legacy_create.commit().await.unwrap();
 
     let rollback_row = sqlx::query(
         "SELECT days::text AS days, legacy_days::text AS legacy_days, charge_state, \
@@ -580,6 +623,7 @@ async fn populated_upgrade_preserves_pre_0166_read_and_insert_contract(owner_poo
     );
 
     let legacy_approval_request = Uuid::new_v4();
+    let mut legacy_approval_create = runtime.begin().await.unwrap();
     sqlx::query(
         "INSERT INTO leave_requests \
          (id,org_id,branch_id,requester_user_id,subject_employee_id,leave_type,days, \
@@ -592,9 +636,18 @@ async fn populated_upgrade_preserves_pre_0166_read_and_insert_contract(owner_poo
     .bind(BRANCH)
     .bind(USER)
     .bind(EMPLOYEE)
-    .execute(&runtime)
+    .execute(&mut *legacy_approval_create)
     .await
     .unwrap();
+    sqlx::query(F6FF_LEAVE_CREATE_AUDIT_SQL)
+        .bind(USER)
+        .bind(legacy_approval_request.to_string())
+        .bind(BRANCH)
+        .bind(ORG)
+        .execute(&mut *legacy_approval_create)
+        .await
+        .unwrap();
+    legacy_approval_create.commit().await.unwrap();
     let mut legacy_approval = runtime.begin().await.unwrap();
     sqlx::query(
         "UPDATE leave_requests SET status='approved',decided_by=$2,decided_at=now() \
@@ -675,6 +728,7 @@ async fn populated_upgrade_preserves_pre_0166_read_and_insert_contract(owner_poo
     // modern callers still receive an exact stale-version conflict.
     let v1_request = Uuid::new_v4();
     let modern_request = Uuid::new_v4();
+    let mut legacy_command_fixtures = runtime.begin().await.unwrap();
     for (id, reason) in [
         (v1_request, "v1 versionless decision"),
         (modern_request, "modern stale decision"),
@@ -692,10 +746,19 @@ async fn populated_upgrade_preserves_pre_0166_read_and_insert_contract(owner_poo
         .bind(USER)
         .bind(EMPLOYEE)
         .bind(reason)
-        .execute(&runtime)
+        .execute(&mut *legacy_command_fixtures)
         .await
         .unwrap();
+        sqlx::query(F6FF_LEAVE_CREATE_AUDIT_SQL)
+            .bind(USER)
+            .bind(id.to_string())
+            .bind(BRANCH)
+            .bind(ORG)
+            .execute(&mut *legacy_command_fixtures)
+            .await
+            .unwrap();
     }
+    legacy_command_fixtures.commit().await.unwrap();
 
     let command = command_role_pool(&owner_pool).await;
     sqlx::query("SELECT set_config('app.current_org', $1, false)")
@@ -1362,4 +1425,296 @@ async fn staged_f6ff_apply_rejects_missing_duplicate_or_forged_current_tx_audit(
         "employee_import_run.current_transaction_audit_required"
     );
     assert_staged_import_rolled_back(&owner_pool).await;
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn legacy_leave_mutations_require_exactly_one_same_transaction_audit(owner_pool: PgPool) {
+    migrate_populated_pre_0166(&owner_pool).await;
+
+    let runtime = runtime_role_pool(&owner_pool).await;
+    sqlx::query("SELECT set_config('app.current_org', $1, false)")
+        .bind(ORG.to_string())
+        .execute(&runtime)
+        .await
+        .unwrap();
+
+    let missing_create_request = Uuid::new_v4();
+    let mut missing_create = runtime.begin().await.unwrap();
+    sqlx::query(F6FF_LEAVE_CREATE_SQL)
+        .bind(missing_create_request)
+        .bind(ORG)
+        .bind(BRANCH)
+        .bind(USER)
+        .bind(EMPLOYEE)
+        .execute(&mut *missing_create)
+        .await
+        .expect("the guarded legacy create reaches the deferred audit invariant");
+    let missing_create_error = missing_create
+        .commit()
+        .await
+        .expect_err("a legacy create without an audit must fail at commit");
+    assert_eq!(
+        database_error_code(&missing_create_error).as_deref(),
+        Some("23514")
+    );
+    assert_eq!(
+        missing_create_error.as_database_error().unwrap().message(),
+        "leave_request.current_transaction_audit_required"
+    );
+    let missing_create_count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM leave_requests WHERE id=$1")
+            .bind(missing_create_request)
+            .fetch_one(&owner_pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        missing_create_count, 0,
+        "the unaudited create must roll back"
+    );
+
+    let valid_request = Uuid::new_v4();
+    let mut valid_create = runtime.begin().await.unwrap();
+    sqlx::query(F6FF_LEAVE_CREATE_SQL)
+        .bind(valid_request)
+        .bind(ORG)
+        .bind(BRANCH)
+        .bind(USER)
+        .bind(EMPLOYEE)
+        .execute(&mut *valid_create)
+        .await
+        .unwrap();
+    sqlx::query(F6FF_LEAVE_CREATE_AUDIT_SQL)
+        .bind(USER)
+        .bind(valid_request.to_string())
+        .bind(BRANCH)
+        .bind(ORG)
+        .execute(&mut *valid_create)
+        .await
+        .expect("the exact f6ff create plus audit must remain compatible");
+    valid_create.commit().await.unwrap();
+
+    let delayed_audit = sqlx::query(F6FF_LEAVE_CREATE_AUDIT_SQL)
+        .bind(USER)
+        .bind(valid_request.to_string())
+        .bind(BRANCH)
+        .bind(ORG)
+        .execute(&runtime)
+        .await
+        .expect_err("an audit added after the leave mutation committed must be rejected");
+    assert_eq!(
+        database_error_code(&delayed_audit).as_deref(),
+        Some("42501")
+    );
+
+    let duplicate_request = Uuid::new_v4();
+    let mut duplicate_create = runtime.begin().await.unwrap();
+    sqlx::query(F6FF_LEAVE_CREATE_SQL)
+        .bind(duplicate_request)
+        .bind(ORG)
+        .bind(BRANCH)
+        .bind(USER)
+        .bind(EMPLOYEE)
+        .execute(&mut *duplicate_create)
+        .await
+        .unwrap();
+    for _ in 0..2 {
+        sqlx::query(F6FF_LEAVE_CREATE_AUDIT_SQL)
+            .bind(USER)
+            .bind(duplicate_request.to_string())
+            .bind(BRANCH)
+            .bind(ORG)
+            .execute(&mut *duplicate_create)
+            .await
+            .expect("both matching audits reach the deferred exact-one invariant");
+    }
+    let duplicate_error = duplicate_create
+        .commit()
+        .await
+        .expect_err("duplicate same-transaction audits must roll back the create");
+    assert_eq!(
+        database_error_code(&duplicate_error).as_deref(),
+        Some("23514")
+    );
+    let duplicate_count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM leave_requests WHERE id=$1")
+            .bind(duplicate_request)
+            .fetch_one(&owner_pool)
+            .await
+            .unwrap();
+    assert_eq!(duplicate_count, 0);
+
+    let mut missing_decide = runtime.begin().await.unwrap();
+    sqlx::query(F6FF_LEAVE_DECIDE_SQL)
+        .bind(valid_request)
+        .bind(DECIDER)
+        .execute(&mut *missing_decide)
+        .await
+        .expect("the guarded legacy decision reaches the deferred audit invariant");
+    let missing_decide_error = missing_decide
+        .commit()
+        .await
+        .expect_err("a legacy decision without an audit must fail at commit");
+    assert_eq!(
+        database_error_code(&missing_decide_error).as_deref(),
+        Some("23514")
+    );
+    let status_after_missing_decide: String =
+        sqlx::query_scalar("SELECT status FROM leave_requests WHERE id=$1")
+            .bind(valid_request)
+            .fetch_one(&owner_pool)
+            .await
+            .unwrap();
+    assert_eq!(status_after_missing_decide, "pending");
+
+    let mut valid_decide = runtime.begin().await.unwrap();
+    sqlx::query(F6FF_LEAVE_DECIDE_SQL)
+        .bind(valid_request)
+        .bind(DECIDER)
+        .execute(&mut *valid_decide)
+        .await
+        .unwrap();
+    sqlx::query(F6FF_LEAVE_DECIDE_AUDIT_SQL)
+        .bind(DECIDER)
+        .bind(valid_request.to_string())
+        .bind(BRANCH)
+        .bind(ORG)
+        .execute(&mut *valid_decide)
+        .await
+        .expect("the exact f6ff decision plus audit must remain compatible");
+    valid_decide.commit().await.unwrap();
+
+    let final_evidence: (String, i64, i64) = sqlx::query_as(
+        "SELECT status,\
+         (SELECT count(*) FROM audit_events WHERE org_id=$2 AND action='leave_request.create'\
+          AND target_id=$1::text),\
+         (SELECT count(*) FROM audit_events WHERE org_id=$2 AND action='leave_request.decide'\
+          AND target_id=$1::text)\
+         FROM leave_requests WHERE id=$1",
+    )
+    .bind(valid_request)
+    .bind(ORG)
+    .fetch_one(&owner_pool)
+    .await
+    .unwrap();
+    assert_eq!(final_evidence, ("returned".to_owned(), 1, 1));
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn staged_employee_import_rejects_payload_not_equal_to_immutable_ledger(owner_pool: PgPool) {
+    migrate_populated_pre_0166(&owner_pool).await;
+    sqlx::query("UPDATE users SET roles=ARRAY['SUPER_ADMIN']::text[] WHERE org_id=$1 AND id=$2")
+        .bind(ORG)
+        .bind(USER)
+        .execute(&owner_pool)
+        .await
+        .unwrap();
+
+    let run_id = Uuid::new_v4();
+    let source_key = format!("bound-row-{run_id}");
+    let raw_row = serde_json::json!({"company":"A166","name":"Ledger Employee"});
+    let canonical_row = serde_json::json!({
+        "company": "A166",
+        "name": "Ledger Employee",
+        "source_filename": "bound.xlsx",
+        "source_sheet": "Sheet1",
+        "source_row": 2,
+        "source_key": source_key,
+        "source_metadata": {
+            "identity_resolution": {
+                "strategy": "employee_number",
+                "manual_review_required": false
+            }
+        },
+        "canonical": {
+            "employee_number": "BOUND-166",
+            "employment_status": "ACTIVE",
+            "leave_accrued": "15.000000",
+            "leave_used": "2.000000",
+            "leave_remaining": "13.000000"
+        }
+    });
+    sqlx::query(
+        "INSERT INTO data_import_runs \
+         (id,org_id,entity_type,status,source_filename,source_format,source_sha256, \
+          input_rows,candidate_rows,preserved_rows,created_by,dry_run_summary) \
+         VALUES ($1,$2,'employee_hr','DRY_RUN','bound.xlsx','xlsx',repeat('b',64), \
+                 1,1,0,$3,'{\"ready_rows\":1}'::jsonb)",
+    )
+    .bind(run_id)
+    .bind(ORG)
+    .bind(USER)
+    .execute(&owner_pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO data_import_rows \
+         (org_id,run_id,source_sheet,source_row,source_key,row_status,raw_row,canonical_row,validation) \
+         VALUES ($1,$2,'Sheet1',2,$3,'CANDIDATE',$4,$5,'{\"status\":\"ok\"}'::jsonb)",
+    )
+    .bind(ORG)
+    .bind(run_id)
+    .bind(&source_key)
+    .bind(&raw_row)
+    .bind(&canonical_row)
+    .execute(&owner_pool)
+    .await
+    .unwrap();
+
+    let mut forged_row = canonical_row.clone();
+    forged_row["raw_row"] = serde_json::json!({"company":"FORGED","name":"Forged Employee"});
+    forged_row["name"] = serde_json::json!("Forged Employee");
+    forged_row["canonical"]["leave_remaining"] = serde_json::json!("999.000000");
+    forged_row["identity"] = serde_json::json!({
+        "strategy": "source_row_fingerprint",
+        "confidence": "low",
+        "review_required": true
+    });
+    let forged_rows = serde_json::json!([forged_row]);
+
+    let command = command_role_pool(&owner_pool).await;
+    sqlx::query("SELECT set_config('app.current_org', $1, false)")
+        .bind(ORG.to_string())
+        .execute(&command)
+        .await
+        .unwrap();
+    let error = sqlx::query(
+        "SELECT * FROM leave_api.apply_employee_import_batch(\
+             $1,$2,$3,$4,$5,'{}'::jsonb,\
+             '34343434343434343434343434343434','5656565656565656')",
+    )
+    .bind(ORG)
+    .bind(run_id)
+    .bind(format!("run:{run_id}"))
+    .bind(forged_rows)
+    .bind(USER)
+    .fetch_one(&command)
+    .await
+    .expect_err("staged apply must reject same-key rows whose payload differs from the ledger");
+    assert_eq!(database_error_code(&error).as_deref(), Some("22023"));
+    assert_eq!(
+        error.as_database_error().unwrap().message(),
+        "employee_import_batch.run_payload_mismatch"
+    );
+
+    let state: (String, i64, i64, i64) = sqlx::query_as(
+        r#"
+        SELECT r.status,
+          (SELECT count(*) FROM employees e
+            WHERE e.org_id=$1 AND e.source_key=$3),
+          (SELECT count(*) FROM leave_balance_import_receipts x
+            WHERE x.org_id=$1 AND x.source_ref=$4),
+          (SELECT count(*) FROM audit_events a
+            WHERE a.org_id=$1 AND a.action='data_import.apply' AND a.target_id=$2::text)
+        FROM data_import_runs r
+        WHERE r.org_id=$1 AND r.id=$2
+        "#,
+    )
+    .bind(ORG)
+    .bind(run_id)
+    .bind(&source_key)
+    .bind(format!("run:{run_id}"))
+    .fetch_one(&owner_pool)
+    .await
+    .unwrap();
+    assert_eq!(state, ("DRY_RUN".to_owned(), 0, 0, 0));
 }
