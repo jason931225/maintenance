@@ -13,13 +13,13 @@ Rigor legend: **[V]** = verified against a cited source, **[I]** = inferred from
 
 Read from `web/src/console/leave/{LeaveConsole.tsx,model.ts}`, `backend/app/src/hr.rs`, `docs/program/console-program-ledger.md`.
 
-- **Implemented UI surface is deep, but not end-to-end shipped**: a drillable stat bar; 내 연차 self-service; 팀 결재함; 사용촉진 회차 states; and 인원별 연차 원장 are co-located. Source-wired request and balance lists are present, and decision/촉진 controls call the real leave endpoints in source. Request creation is the remaining unwired action: the form CTA only links to an approval template and does not submit a leave request. Closed-loop E2E proof is absent.
-- **Backend and UI, source-wired**: `GET /api/v1/leave/{requests,balances}`, `POST /api/v1/leave/requests/{id}/decide`, and `POST /api/v1/leave/promotions` are mounted in source and called by `LeaveBody.tsx`.
+- **Implemented UI surface is deep, but not end-to-end shipped**: a drillable stat bar; 내 연차 self-service; 팀 결재함; 사용촉진 회차 states; and 인원별 연차 원장 are co-located. Source-wired self and managed request reads, request creation, exact-charge resolution, decisions, balances, and 촉진 controls call real leave endpoints in source. Closed-loop real-backend persona E2E and production proof are absent.
+- **Backend and UI, source-wired**: `GET /api/v2/me/leave`, `GET|POST /api/v2/leave/requests`, `POST /api/v2/leave/requests/{id}/decide`, `POST /api/v2/leave/requests/{id}/charge-resolution`, `GET /api/v1/leave/balances`, and `POST /api/v1/leave/promotions` are mounted in source and called by `LeaveBody.tsx`. The deployed v1 request-list/decision response shape is a frozen compatibility contract; the additive exact-charge and version-fenced shape is isolated under v2.
 - **Round-labelled notice/receipt substrate**: the domain validates promotion round labels `1|2` and normalizes refusal to round `2`; the Postgres adapter records idempotent, receipt-gated notices. It does not enforce statutory deadlines or round sequencing, and a refusal does not prove a persisted round-2 notice preceded it.
 - **PBAC**: `LEAVE_ACTIONS` + `LEAVE_RUNTIME_GATE` (allow-list stub today; Cedar `authorize()` wire-pending, same pattern as AutomatePage).
-- **Honest gaps**: request creation is not wired, and the closed loop lacks E2E proof across creation, decision, promotion, audit, retry, and failure behavior. Statutory timing and round-sequence enforcement are absent. No automatic accrual engine (balances are imported/summed, not earned by rule). No 근무일/holiday calendar (calendar-day count only). No calendar/timeline view. No mobile leave surface yet. L20 audit `hashVerified` is client-local `false` until history wiring.
+- **Honest gaps**: the closed loop lacks real-backend persona E2E proof across creation, charge review/resolution, decision, promotion, audit, retry, and failure behavior. Statutory timing and round-sequence enforcement are absent. No automatic accrual engine (balances are imported/summed, not earned by rule). No 근무일/holiday calendar (calendar-day count only). No calendar/timeline view. No mobile leave surface yet. Leave ObjectCard audit history is unwired (`history: []`).
 
-Net: **rich domain UI with source-observed reads and material source-observed mutations, but still PARTIAL.** Request creation, closed-loop E2E, accrual/payroll coupling, and statutory timing/sequence enforcement remain gaps.
+Net: **rich domain UI with source-observed reads and material source-observed mutations, but still PARTIAL.** Closed-loop real-backend E2E, production evidence, accrual/payroll coupling, and statutory timing/sequence enforcement remain gaps.
 
 ---
 
@@ -29,7 +29,7 @@ Net: **rich domain UI with source-observed reads and material source-observed mu
 
 | Vendor | How |
 |---|---|
-| **Our console** | Ontology objects: 연차 신청(AP-), 연차 원장(JL-), 사용촉진 회차(R-); each opens a 3-layer ObjectCard with typed props + link-types + lifecycle FSM + audit history. Object-first, drag-anywhere. [V] code |
+| **Our console** | The source defines request, ledger, and promotion concepts, but only ledger rows currently open an ObjectCard. Request/promotion drill-through and server-backed audit history remain unwired. [V] code |
 | **Foundry** | No leave module. Generic ontology/object-graph platform; you'd *model* a LeaveRequest object type yourself over integrated HR source data. [I] |
 | **Slack** | No object model — a PTO request is a Workflow Builder form + a message in a channel. [V] slack.com PTO template |
 | **Teams** | Approvals app = a structured "approval" record; Shifts = a time-off request tied to a schedule. Two disjoint object types, no unified ledger. [V] learn.microsoft.com |
@@ -55,7 +55,7 @@ Net: **rich domain UI with source-observed reads and material source-observed mu
 
 | Vendor | How |
 |---|---|
-| **Our console** | 내 연차 panel validates reason, half-day, and date range, but its CTA is a link to an approval template; it does not submit or create a leave request. [V] LeaveConsole.tsx |
+| **Our console** | 내 연차 validates the request, submits through `POST /api/v2/leave/requests` with an idempotency key, preserves half-day intent, and updates the UI from the authoritative POST response. Real-backend persona E2E and production proof remain absent. [V] LeaveConsole.tsx / LeaveBody.tsx / leave REST |
 | **Foundry** | N/A (no requester UX). [I] |
 | **Slack** | Slash-command/form PTO request from within Slack; low-friction, no balance check. [V] slack.com template |
 | **Teams** | Employee submits via Shifts "Time off" request or an Approvals card with dates+reason. [V] support.microsoft.com |
@@ -146,7 +146,7 @@ Net: **rich domain UI with source-observed reads and material source-observed mu
 
 | Vendor | How |
 |---|---|
-| **Our console** | Decision and promotion POSTs traverse audited backend paths, but no closed-loop E2E proves creation through receipt, failure, and retry; `hashVerified` is also wire-pending. [V] leave adapter, model.ts |
+| **Our console** | Decision and promotion POSTs traverse audited backend paths, but no closed-loop E2E proves creation through receipt, failure, and retry; Leave ObjectCard audit history is currently unwired (`history: []`). [V] leave adapter, model.ts |
 | **Foundry** | Full lineage/audit on object edits. [I] |
 | **Slack** | Message history only; weak audit. [V] |
 | **Teams** | Approvals app touts "auditing, compliance, accountability" — approval record retained. [V] approval-admin |
@@ -185,7 +185,7 @@ Net: **rich domain UI with source-observed reads and material source-observed mu
 
 | Vendor | How |
 |---|---|
-| **Our console** | Targeted for it: Korean-first UI, 전자결재-style queue, group→법인→branch→worksite scoping, and round-labelled notice/receipt primitives. Request creation, statutory timing/sequence enforcement, closed-loop E2E, and Cedar promotion remain gaps. [V/I] |
+| **Our console** | Targeted for it: Korean-first UI, 전자결재-style queue, organization→branch scoping, and round-labelled notice/receipt primitives. Request creation is source-wired; statutory timing/sequence enforcement, closed-loop E2E, and Cedar promotion remain gaps. [V/I] |
 | **Foundry** | Neutral platform; no Korean HR/legal content. [I] |
 | **Slack/Teams/Asana/n8n** | Global-generic; **미스매치** — no 전자결재 승인선/전결규정, no 근로기준법, no 법인 scoping; Korean HR teams bolt on 시프티/플렉스 instead. [I] |
 | **Rippling** | US-centric; Korea via EOR/partners, weak 전자결재 + §61. [I] |
@@ -214,7 +214,7 @@ Net: **rich domain UI with source-observed reads and material source-observed mu
 ## What we'd steal — ranked (capability → source-cited → fit with our ontology-first grammar → cost)
 
 1. **Rule-based accrual engine** (accrual schedules, upfront grant, tenure tiers, carryover) → **Rippling / SAP SF** → fits as a `dynamic`-layer derivation on the 연차 원장 object + a nightly accrual series; replaces today's imported-balance stub. This is the single biggest runtime gap. **Cost: L**
-2. **Wire request creation and close the loop** (the request CTA must create through the leave REST path; then prove request→decision→promotion→receipt, audit, failure, retry, and idempotency E2E) → **Rippling** (their approve→balance→payroll flow is the reference). Decision and promotion call sites are present in source. **Cost: M**
+2. **Close the already source-wired request loop** (prove request→charge review/resolution→decision→promotion→receipt, audit, failure, retry, and idempotency with real-backend persona E2E and production evidence) → **Rippling** (their approve→balance→payroll flow is the reference). The create, exact-charge, decision, and promotion call sites are present in source. **Cost: M**
 3. **Work-schedule / holiday-aware day counting** (skip 휴일·비근무일 in the span) → **SAP SF** → a 근무표/holiday-calendar object feeding `requestDays()`; removes the `ponytail:` calendar-day approximation. **Cost: M**
 4. **Schedule-coupling on approve** (approved leave → unavailable in dispatch/대근 planning) → **Rippling** (fully coupled — approve clears the roster slot; Teams only marks unavailable, auto-remove needs Power Automate) → an automation on the APPROVED transition writing to the workforce/cover-planner surface; leverages the 대근 cron already in backlog. **Cost: M**
 5. **Externalized approval-routing table** (승인선/전결규정 as data, org-chart-aware, survives reorgs) → **n8n / Rippling** → model 전결규정 as an ontology instance type the `appr` engine reads; no hard-coded approver. **Cost: M**
@@ -222,7 +222,7 @@ Net: **rich domain UI with source-observed reads and material source-observed mu
 7. **PTO liability / burn analytics + team absence calendar** → **Rippling / SAP SF** → extends the existing drillable stat bar with a liability rollup + a timeline view (the missing calendar surface). **Cost: M**
 8. **Mobile self-service leave** (request/approve/balance on the native field app) → **Rippling / Teams** → add a leave tab to the pending mobile app against the same REST. **Cost: M**
 
-**What is differentiated and worth defending:** the repository's round-labelled notice/receipt substrate, backend SoD invariant, object/audit target shape, and Group→법인→branch scoping. This is not yet a shipped differentiator: request creation, statutory timing/sequence enforcement, Cedar promotion, and closed-loop E2E remain required.
+**What is differentiated and worth defending:** the repository's round-labelled notice/receipt substrate, backend SoD invariant, exact-charge command path, object/audit target shape, and organization→branch scoping. This is not yet a shipped differentiator: statutory timing/sequence enforcement, Cedar promotion, closed-loop real-backend E2E, and production evidence remain required.
 
 ---
 
@@ -232,7 +232,7 @@ Sources: [Rippling leave management](https://www.rippling.com/blog/leave-managem
 
 ## Cross-cutting lens findings (5 independent review lenses)
 
-- **Task-flow:** one `LeaveConsole.tsx` co-locates request inputs, source-wired inline team-decision calls, and source-wired 촉진 calls, and ledger views. Request creation remains a non-submitting link, and the closed loop lacks E2E proof; wire creation and prove audit, failure, retry, and idempotency before using this as the propagation reference. Cost **M**.
+- **Task-flow:** the leave console co-locates source-wired request creation, team-decision calls, 촉진 calls, and ledger views. The closed loop still lacks real-backend E2E proof; prove audit, failure, retry, and idempotency before using this as the propagation reference. Cost **M**.
 - **IA / layout:** `LeaveConsole` is real; Korean statutory annual-paid-leave accrual and use rules are distinct from half-day or quarter-day slicing. 반차/반반차 is a workplace-agreement or policy design choice, not a standalone statutory mandate. Routing leave through 전자결재 is likewise a product/workplace-control choice. **Steal:** team calendar-grid leave board [M], statutory accrual-aware balance [M], and optional request→결재선 handoff [S].
 - **Data-model:** the backend enforces the request-decision FSM and `decider≠requester`; the separate 촉진 substrate labels rounds and records receipt-gated notices without enforcing timing or sequence. **Weaker:** Workday ships effective-dated accrual balances; ours lacks that object and closed-loop E2E proof. **Steal:** Workday effective-dated accrual/balance object [M]; carryover/expiry slices [S].
 - **Governance:** the round-labelled notice/receipt substrate is differentiated groundwork, not statutory timing/sequence enforcement or a proven production lead. **Steal:** make 수령확인 a reusable governed acknowledgment object type, retain the existing inbox/leave flow, and add deadline plus round-sequence enforcement after the base path is E2E-proven [M].
