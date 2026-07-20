@@ -131,15 +131,15 @@ jobs:
         id: build
         uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf # v7.2.0
         with:
-          context: .                       # repo root: backend embeds docs/, web is a workspace
+          context: . # repo root: backend embeds docs/, web is a workspace
           file: ${{ matrix.image.dockerfile }}
           platforms: ${{ matrix.platform.target }}
           labels: ${{ steps.meta.outputs.labels }}
           # push-by-digest: publish the single-arch image under its content
           # digest with no tag; the merge job assembles the tagged manifest list.
           outputs: type=image,name=${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
-          provenance: mode=max             # SLSA provenance attestation, per arch
-          sbom: true                       # in-toto SPDX SBOM attestation, per arch
+          provenance: mode=max # SLSA provenance attestation, per arch
+          sbom: true # in-toto SPDX SBOM attestation, per arch
           # Per-(image,arch) cache scope so the two arches never clobber each
           # other's gha cache under a shared default key.
           cache-from: type=gha,scope=${{ matrix.image.name }}-${{ matrix.platform.arch }}
@@ -464,6 +464,35 @@ jobs:
         if: always()
         run: docker rm -f mnt-app-probe || true
 
+  # Unprotected and read-only: reject an absent/stale/invalid one-shot
+  # authorization before GitHub asks a production-environment reviewer to act.
+  production-promotion-preflight:
+    name: Verify immutable production authorization
+    runs-on: ubuntu-latest
+    needs: [merge, release-probe]
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      github.run_attempt == 1 &&
+      inputs.promote_production == true
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout exact authorized commit without credentials
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify immutable main and production authorization
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+          EXPECTED_REF: ${{ github.ref }}
+        run: >-
+          python3 scripts/check-production-promotion-authority.py initial
+          --expected-sha "$EXPECTED_SHA"
+          --expected-ref "$EXPECTED_REF"
+
   # Explicit production promotion. A merge/main push may build, scan, sign, and
   # attest images, but it cannot mutate the Argo-tracked production overlay.
   # Promotion requires a manual dispatch on main, an explicit true input, the
@@ -472,34 +501,77 @@ jobs:
   bump-digests:
     name: Promote signed digests to production overlay
     runs-on: ubuntu-latest
-    needs: [merge, release-probe]
+    needs: [merge, release-probe, production-promotion-preflight]
     environment: production
     if: >-
       github.event_name == 'workflow_dispatch' &&
       github.ref == 'refs/heads/main' &&
+      github.run_attempt == 1 &&
       inputs.promote_production == true
     permissions:
       contents: write # job-level: only this job may push the bump commit
+      actions: read # read the protected environment configuration fail-closed
       deployments: read
 
     steps:
-      - name: Verify production environment requires reviewers
+      - name: Checkout exact authorized commit
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+
+      - name: Re-verify immutable main and production authority inside protected job
+        env:
+          EXPECTED_SHA: ${{ github.sha }}
+          EXPECTED_REF: ${{ github.ref }}
+        run: >-
+          python3 scripts/check-production-promotion-authority.py initial
+          --expected-sha "$EXPECTED_SHA"
+          --expected-ref "$EXPECTED_REF"
+
+      - name: Verify exact independent production reviewer team
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
+          EXPECTED_SHA: ${{ github.sha }}
+          DISPATCHER: ${{ github.actor }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
         run: |
           set -euo pipefail
-          environment="$(gh api "repos/${REPO}/environments/production")"
-          if ! jq -e 'any(.protection_rules[]?; .type == "required_reviewers")' <<<"${environment}" >/dev/null; then
-            echo "::error::production environment must have a required-reviewers protection rule"
+          if [[ "${RUN_ATTEMPT}" != "1" ]]; then
+            echo "::error::production promotion rejects workflow reruns"
             exit 1
           fi
-
-      - name: Checkout (full history for rebase before push)
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-        with:
-          ref: main
-          fetch-depth: 0
+          if [[ "${DISPATCHER,,}" != "${TRIGGERING_ACTOR,,}" ]]; then
+            echo "::error::production dispatcher and triggering actor must match on the first attempt"
+            exit 1
+          fi
+          reviewer_context="$(python3 scripts/check-production-promotion-authority.py reviewer-context \
+            --expected-sha "$EXPECTED_SHA")"
+          reviewer_team_id="$(jq -er '.team_id | select(type == "number" and . > 0)' \
+            <<<"${reviewer_context}")"
+          evidence_author_login="$(jq -er '.evidence_author_login | select(type == "string" and length > 0)' \
+            <<<"${reviewer_context}")"
+          independent_reviewer_login="$(jq -er '.independent_reviewer_login | select(type == "string" and length > 0)' \
+            <<<"${reviewer_context}")"
+          if [[ "${DISPATCHER,,}" == "${evidence_author_login,,}" || \
+                "${DISPATCHER,,}" == "${independent_reviewer_login,,}" ]]; then
+            echo "::error::production dispatcher must be distinct from the evidence author and independent evidence reviewer"
+            exit 1
+          fi
+          environment="$(gh api "repos/${REPO}/environments/production")"
+          if ! jq -e --argjson team_id "${reviewer_team_id}" '
+            [.protection_rules[]? | select(.type == "required_reviewers")] as $rules
+            | ($rules | length) == 1
+              and $rules[0].prevent_self_review == true
+              and ($rules[0].reviewers | length) == 1
+              and $rules[0].reviewers[0].type == "Team"
+              and $rules[0].reviewers[0].reviewer.id == $team_id
+          ' <<<"${environment}" >/dev/null; then
+            echo "::error::production must require prevent_self_review=true and exactly the immutable evidence Team reviewer ID"
+            exit 1
+          fi
 
       - name: Download mnt-app digest
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -517,26 +589,18 @@ jobs:
           APP_DIGEST="$(cat digests/digest-mnt-app.txt)"
           WEB_DIGEST="$(cat digests/digest-mnt-web.txt)"
           bash scripts/bump-prod-digests.sh "${APP_DIGEST}" "${WEB_DIGEST}"
+          python3 scripts/check-production-promotion-authority.py reset \
+            --expected-sha "${GITHUB_SHA}"
 
-      - name: Commit + push the bump (rebase-and-retry on a racing push)
+      - name: Commit authorization consumption and optional digest bump once
         env:
           OVERLAY: deploy/apps/maintenance/overlays/prod/kustomization.yaml
+          AUTHORIZED_SHA: ${{ github.sha }}
         run: |
-          if git diff --quiet -- "$OVERLAY"; then
-            echo "Digests already current; nothing to commit."
-            exit 0
-          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add "$OVERLAY"
+          git add "$OVERLAY" docs/release/PR-473-PRODUCTION-PROMOTION.authorization.json
           git commit -m "deploy(prod): promote mnt-app/mnt-web @${GITHUB_SHA:0:7}"
-          for attempt in 1 2 3 4 5; do
-            if git push origin "HEAD:main"; then
-              echo "Pushed on attempt ${attempt}."
-              exit 0
-            fi
-            echo "Push rejected (attempt ${attempt}); rebasing on the latest remote head."
-            git pull --rebase --autostash origin main
-          done
-          echo "Failed to push the digest bump after 5 attempts." >&2
-          exit 1
+          python3 scripts/check-production-promotion-authority.py pre-push \
+            --expected-sha "$AUTHORIZED_SHA"
+          git push origin "HEAD:main"

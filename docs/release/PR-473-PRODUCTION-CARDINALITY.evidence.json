@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "target": "production",
+  "release_phase": "expand",
+  "candidate_source_sha": "0000000000000000000000000000000000000000",
+  "observed_running_revision": "0000000000000000000000000000000000000000",
+  "observed_database_topology": {
+    "cluster_name": "TEMPLATE_NOT_EVIDENCE",
+    "namespace": "TEMPLATE_NOT_EVIDENCE",
+    "writer_endpoint": "TEMPLATE_NOT_EVIDENCE",
+    "reader_endpoint": "TEMPLATE_NOT_EVIDENCE",
+    "instances": []
+  },
+  "capacity_headroom": {
+    "window_started_at": "TEMPLATE_NOT_EVIDENCE",
+    "window_ended_at": "TEMPLATE_NOT_EVIDENCE",
+    "cpu_peak_percent": 0,
+    "memory_peak_percent": 0,
+    "storage_used_percent": 0,
+    "connection_peak": 0,
+    "connection_limit": 0,
+    "minimum_headroom_percent": 0
+  },
+  "backup_restore_proof": {
+    "backup_id": "TEMPLATE_NOT_EVIDENCE",
+    "backup_completed_at": "TEMPLATE_NOT_EVIDENCE",
+    "isolated_restore_id": "TEMPLATE_NOT_EVIDENCE",
+    "isolated_restore_completed_at": "TEMPLATE_NOT_EVIDENCE",
+    "restored_revision": "0000000000000000000000000000000000000000",
+    "validation_checks": []
+  },
+  "evidence_author": {
+    "github_login": "TEMPLATE_NOT_EVIDENCE",
+    "identity_provider_subject": "TEMPLATE_NOT_EVIDENCE"
+  },
+  "independent_reviewer": {
+    "github_login": "TEMPLATE_NOT_EVIDENCE",
+    "identity_provider_subject": "TEMPLATE_NOT_EVIDENCE",
+    "team_id": 0
+  },
+  "charter": {
+    "charter_id": "TEMPLATE_NOT_EVIDENCE",
+    "trust_domain_id": "TEMPLATE_NOT_EVIDENCE"
+  },
+  "observed_at": "TEMPLATE_NOT_EVIDENCE",
+  "prepared_at": "TEMPLATE_NOT_EVIDENCE",
+  "reviewed_at": "TEMPLATE_NOT_EVIDENCE"
+}

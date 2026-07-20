@@ -1,0 +1,19 @@
+{
+  "schema_version": 2,
+  "pull_request": 473,
+  "target": "production",
+  "release_phase": "expand",
+  "rollback_floor": "f6ff236b9770c79301a3d07da6afb56be1e27bbf",
+  "desired_state_authority_cutover": false,
+  "deployment_authorized": false,
+  "command_only": false,
+  "production_cardinality_evidence": {
+    "path": "docs/release/PR-473-PRODUCTION-CARDINALITY.evidence.json",
+    "sha256": "800fbb142d31978f427abf7653f1f3a4647e2751be04af538680e7a1eaf97744",
+    "verified": false
+  },
+  "contract_authorities": {
+    "old_runtime_drain": false,
+    "rollback_floor_raise": false
+  }
+}
