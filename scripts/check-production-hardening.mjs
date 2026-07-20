@@ -434,6 +434,158 @@ export function evaluateProdOverlayImageChecks(readText) {
   return result;
 }
 
+export function evaluateExpandContractReleaseChecks(readText) {
+  const result = createResult();
+  const rollbackFloor = "f6ff236b9770c79301a3d07da6afb56be1e27bbf";
+  const records = [
+    {
+      id: "ontology",
+      path: "docs/release/PR-473-ONTOLOGY-EXPAND-CONTRACT.md",
+    },
+    {
+      id: "employee-import",
+      path: "docs/release/PR-473-EMPLOYEE-IMPORT-EXPAND-CONTRACT.md",
+    },
+  ];
+
+  for (const record of records) {
+    const text = requirePresentText(
+      result,
+      readText,
+      record.path,
+      `${record.id} expand-contract record`,
+    );
+    requirement(
+      result,
+      text.includes(rollbackFloor),
+      `${record.id} expand-contract rollback floor: ${rollbackFloor}`,
+      `${record.id} expand-contract rollback floor must name ${rollbackFloor}`,
+    );
+    requirement(
+      result,
+      /later,\s+separately numbered migration/i.test(text),
+      `${record.id} expand-contract later numbered contract migration: required`,
+      `${record.id} expand-contract later numbered contract migration must be explicit`,
+    );
+    requirement(
+      result,
+      /merging it does not authorize a\s+deployment/i.test(text),
+      `${record.id} expand-contract merge/deploy separation: explicit`,
+      `${record.id} expand-contract must state that merging does not authorize deployment`,
+    );
+    requirement(
+      result,
+      /no\s+artifact or release note may claim[\s\S]*command-only/i.test(text),
+      `${record.id} expand-contract command-only nonclaim: explicit`,
+      `${record.id} expand-contract must prohibit command-only claims until the contract migration lands`,
+    );
+  }
+
+  const ontologyMigrationPath =
+    "backend/crates/platform/db/migrations/0165_ontology_object_type_key_revisions.sql";
+  const ontologyMigration = requirePresentText(
+    result,
+    readText,
+    ontologyMigrationPath,
+    "ontology expand migration",
+  );
+  requireIncludesInText(
+    result,
+    ontologyMigrationPath,
+    ontologyMigration,
+    "GRANT INSERT, UPDATE ON ont_object_types TO mnt_rt;",
+    "ontology expand migration retains the declared legacy parent bridge",
+  );
+  requirement(
+    result,
+    /SELECT\s+COUNT\(\*\)\s*=\s*1[\s\S]*FROM\s+public\.audit_events/i.test(ontologyMigration)
+      && ontologyMigration.includes(
+        "ontology_write.exactly_one_current_transaction_audit_required",
+      ),
+    "ontology expand migration exactly-one audit invariant: enforced",
+    "ontology expand migration exactly-one audit invariant must count one current-transaction audit and fail otherwise",
+  );
+
+  const ontologyTestPath =
+    "backend/crates/ontology/adapter-postgres/tests/key_revision_migration_upgrade.rs";
+  const ontologyTests = requirePresentText(
+    result,
+    readText,
+    ontologyTestPath,
+    "ontology expand-contract PostgreSQL regressions",
+  );
+  for (const [needle, label] of [
+    [
+      "migration_0165_upgrades_legacy_sibling_versions_without_tenant_leakage",
+      "ontology populated-upgrade regression",
+    ],
+    [
+      "migration_0165_keeps_exact_old_binary_writes_audited_and_cas_consistent",
+      "ontology mixed-version compatibility regression",
+    ],
+    [
+      "duplicate compatibility audits must fail closed at commit",
+      "ontology duplicate-audit rollback regression",
+    ],
+  ]) {
+    requireIncludesInText(result, ontologyTestPath, ontologyTests, needle, label);
+  }
+
+  const leaveMigrationPath =
+    "backend/crates/platform/db/migrations/0166_leave_exact_charge_and_home_branch.sql";
+  const leaveMigration = requirePresentText(
+    result,
+    readText,
+    leaveMigrationPath,
+    "employee-import expand migration",
+  );
+  for (const [needle, label] of [
+    ["later numbered contract migration", "employee-import later contract migration marker"],
+    ["proven rollback floor", "employee-import rollback-floor marker"],
+    ["leave_api.employee_import_run_writer_guard", "employee-import legacy-run guard"],
+    ["leave_api.employee_import_apply_audit_required", "employee-import exactly-one audit guard"],
+    ["leave_api.legacy_leave_audit_required", "legacy leave exactly-one audit guard"],
+    ["employee_import_batch.run_payload_mismatch", "employee-import immutable payload binding"],
+  ]) {
+    requireIncludesInText(result, leaveMigrationPath, leaveMigration, needle, label);
+  }
+
+  const leaveTestPath =
+    "backend/crates/leave/adapter-postgres/tests/leave_migration_expand_contract.rs";
+  const leaveTests = requirePresentText(
+    result,
+    readText,
+    leaveTestPath,
+    "employee-import expand-contract PostgreSQL regressions",
+  );
+  for (const [needle, label] of [
+    [
+      "immediate_f6ff_employee_import_remains_usable_after_0166",
+      "employee-import immediate mixed-version regression",
+    ],
+    [
+      "staged_f6ff_employee_import_apply_remains_atomic_after_0166",
+      "employee-import staged mixed-version regression",
+    ],
+    [
+      "staged_f6ff_apply_rejects_missing_duplicate_or_forged_current_tx_audit",
+      "employee-import forged-audit rollback regression",
+    ],
+    [
+      "legacy_leave_mutations_require_exactly_one_same_transaction_audit",
+      "legacy leave exactly-one audit regression",
+    ],
+    [
+      "staged_employee_import_rejects_payload_not_equal_to_immutable_ledger",
+      "employee-import immutable-ledger binding regression",
+    ],
+  ]) {
+    requireIncludesInText(result, leaveTestPath, leaveTests, needle, label);
+  }
+
+  return result;
+}
+
 export function evaluateWorkflowHardeningChecks(readText) {
   const result = createResult();
   const ciPath = ".github/workflows/ci.yml";
@@ -942,6 +1094,7 @@ export function evaluateGlobalHardeningChecks(readText) {
   requirePackageScript(result, readText, "check:production-hardening");
   requirePackageScript(result, readText, "check:k8s");
   requirePackageScript(result, readText, "check:k8s:networkpolicy");
+  appendResult(result, evaluateExpandContractReleaseChecks(readText));
   appendResult(result, evaluateWorkflowHardeningChecks(readText));
   appendResult(result, evaluateAndroidE2eTokenHandoffChecks(readText));
   appendResult(result, evaluateAndroidE2eFailClosedChecks(readText));

@@ -89,8 +89,11 @@ contains populated upgrade regressions for both supported f6ff236 modes:
 
 - `immediate_f6ff_employee_import_remains_usable_after_0166`
 - `staged_f6ff_employee_import_apply_remains_atomic_after_0166`
+- `staged_f6ff_apply_rejects_missing_duplicate_or_forged_current_tx_audit`
+- `legacy_leave_mutations_require_exactly_one_same_transaction_audit`
+- `staged_employee_import_rejects_payload_not_equal_to_immutable_ledger`
 
 The tests run against PostgreSQL with the real `mnt_rt` role and the exact 0166
-migration text. They prove compatibility and the bounded same-transaction
-correlation above; they prove neither legacy endpoint authorization nor that
-the later contract phase has occurred.
+migration text. They prove compatibility, exactly-one same-transaction audit
+correlation, and immutable-ledger payload binding; they prove neither legacy
+endpoint authorization nor that the later contract phase has occurred.

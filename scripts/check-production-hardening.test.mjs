@@ -10,6 +10,7 @@ import {
   evaluateAndroidE2eTokenHandoffChecks,
   evaluateCnpgContextChecks,
   evaluateDeployAutomationChecks,
+  evaluateExpandContractReleaseChecks,
   evaluateOnPremHaContextChecks,
   evaluateProdOverlayImageChecks,
   evaluateSmtpDeploymentChecks,
@@ -366,6 +367,92 @@ describe("production hardening global image checks", () => {
       result.failures.filter((failure) => failure.includes("must not use mutable newTag values")),
       [],
     );
+  });
+});
+
+const rollbackFloor = "f6ff236b9770c79301a3d07da6afb56be1e27bbf";
+const validExpandContractFiles = {
+  "docs/release/PR-473-ONTOLOGY-EXPAND-CONTRACT.md": `
+PR 473 is the expand release. Merging it does not authorize a deployment.
+Rollback floor: ${rollbackFloor}.
+A later, separately numbered migration must remove the legacy bridge.
+No artifact or release note may claim ontology writes are command-only.
+`,
+  "docs/release/PR-473-EMPLOYEE-IMPORT-EXPAND-CONTRACT.md": `
+PR 473 is the expand release. Merging it does not authorize a deployment.
+Rollback floor: ${rollbackFloor}.
+A later, separately numbered migration must remove the legacy bridge.
+No artifact or release note may claim employee leave-balance writes are command-only.
+`,
+  "backend/crates/platform/db/migrations/0165_ontology_object_type_key_revisions.sql": `
+GRANT INSERT, UPDATE ON ont_object_types TO mnt_rt;
+SELECT COUNT(*) = 1 FROM public.audit_events;
+MESSAGE = 'ontology_write.exactly_one_current_transaction_audit_required';
+`,
+  "backend/crates/platform/db/migrations/0166_leave_exact_charge_and_home_branch.sql": `
+This is the expand half. A later numbered contract migration may close the legacy surface only after this release is the proven rollback floor.
+CREATE FUNCTION leave_api.employee_import_run_writer_guard()
+CREATE FUNCTION leave_api.employee_import_apply_audit_required()
+CREATE FUNCTION leave_api.legacy_leave_audit_required()
+MESSAGE='employee_import_batch.run_payload_mismatch';
+`,
+  "backend/crates/ontology/adapter-postgres/tests/key_revision_migration_upgrade.rs": `
+migration_0165_upgrades_legacy_sibling_versions_without_tenant_leakage
+migration_0165_keeps_exact_old_binary_writes_audited_and_cas_consistent
+duplicate compatibility audits must fail closed at commit
+`,
+  "backend/crates/leave/adapter-postgres/tests/leave_migration_expand_contract.rs": `
+immediate_f6ff_employee_import_remains_usable_after_0166
+staged_f6ff_employee_import_apply_remains_atomic_after_0166
+staged_f6ff_apply_rejects_missing_duplicate_or_forged_current_tx_audit
+legacy_leave_mutations_require_exactly_one_same_transaction_audit
+staged_employee_import_rejects_payload_not_equal_to_immutable_ledger
+`,
+};
+
+function evaluateExpandContracts(overrides = {}) {
+  const files = { ...validExpandContractFiles, ...overrides };
+  return evaluateExpandContractReleaseChecks((path) => files[path] ?? "");
+}
+
+describe("production hardening expand-contract release gates", () => {
+  it("accepts documented 0165/0166 expand windows with behavioral evidence", () => {
+    assert.deepEqual(evaluateExpandContracts().failures, []);
+  });
+
+  it("rejects a missing ontology expand-contract record", () => {
+    const result = evaluateExpandContracts({
+      "docs/release/PR-473-ONTOLOGY-EXPAND-CONTRACT.md": "",
+    });
+    assertHasFailure(result, "ontology expand-contract record: missing or empty");
+  });
+
+  it("rejects a contract record without the exact rollback floor and later numbered migration", () => {
+    const result = evaluateExpandContracts({
+      "docs/release/PR-473-EMPLOYEE-IMPORT-EXPAND-CONTRACT.md": "PR 473 is an expand release.",
+    });
+    assertHasFailure(result, "employee-import expand-contract rollback floor");
+    assertHasFailure(result, "employee-import expand-contract later numbered contract migration");
+  });
+
+  it("rejects ontology compatibility without an exactly-one audit invariant and regression", () => {
+    const result = evaluateExpandContracts({
+      "backend/crates/platform/db/migrations/0165_ontology_object_type_key_revisions.sql":
+        "GRANT INSERT, UPDATE ON ont_object_types TO mnt_rt;",
+      "backend/crates/ontology/adapter-postgres/tests/key_revision_migration_upgrade.rs":
+        "migration_0165_keeps_exact_old_binary_writes_audited_and_cas_consistent",
+    });
+    assertHasFailure(result, "ontology expand migration exactly-one audit invariant");
+    assertHasFailure(result, "ontology duplicate-audit rollback regression");
+  });
+
+  it("rejects employee-import compatibility without its audit and immutable-ledger regressions", () => {
+    const result = evaluateExpandContracts({
+      "backend/crates/leave/adapter-postgres/tests/leave_migration_expand_contract.rs":
+        "immediate_f6ff_employee_import_remains_usable_after_0166",
+    });
+    assertHasFailure(result, "employee-import forged-audit rollback regression");
+    assertHasFailure(result, "employee-import immutable-ledger binding regression");
   });
 });
 

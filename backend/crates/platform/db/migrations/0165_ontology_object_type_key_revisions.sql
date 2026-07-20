@@ -362,10 +362,11 @@ CREATE TRIGGER trg_audit_events_ontology_command_only
     BEFORE INSERT ON public.audit_events
     FOR EACH ROW EXECUTE FUNCTION ontology_api.protected_audit_writer_guard();
 
--- Every parent/child mutation must be accompanied by a protected audit row
--- inserted by the same database transaction. This is deferred so the retained
--- binary may keep its historical mutation-then-audit ordering. xmin is used
--- only as transaction-local evidence, never as a durable business identifier.
+-- Every parent/child mutation must be accompanied by exactly one protected
+-- audit row inserted by the same database transaction. This is deferred so the
+-- retained binary may keep its historical mutation-then-audit ordering. xmin
+-- is used only as transaction-local evidence, never as a durable business
+-- identifier.
 CREATE FUNCTION ontology_api.require_current_transaction_audit()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -397,8 +398,8 @@ BEGIN
     IF COALESCE(v_parent_is_current, FALSE) AND TG_TABLE_NAME <> 'ont_object_types' THEN
         RETURN NEW;
     END IF;
-    IF EXISTS (
-        SELECT 1
+    IF (
+        SELECT COUNT(*) = 1
         FROM public.audit_events e
         LEFT JOIN public.ont_object_types target
           ON target.org_id = e.org_id AND target.id::TEXT = e.target_id
@@ -419,7 +420,7 @@ BEGIN
     END IF;
     RAISE EXCEPTION USING
         ERRCODE = '23514',
-        MESSAGE = 'ontology_write.current_transaction_audit_required';
+        MESSAGE = 'ontology_write.exactly_one_current_transaction_audit_required';
 END;
 $$;
 ALTER FUNCTION ontology_api.require_current_transaction_audit() OWNER TO mnt_ontology_writer;

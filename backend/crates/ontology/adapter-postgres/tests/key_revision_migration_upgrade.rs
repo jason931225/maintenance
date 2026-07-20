@@ -1078,4 +1078,75 @@ async fn migration_0165_keeps_exact_old_binary_writes_audited_and_cas_consistent
         final_row.get::<String, _>("lifecycle_state"),
         "review_pending"
     );
+
+    // One legacy mutation must correlate to exactly one audit fact. Two
+    // matching rows in the same transaction would otherwise advance the
+    // key-revision sidecar twice and make the compatibility path diverge from
+    // the new command CAS contract.
+    let revision_before_duplicate: i64 = sqlx::query_scalar(
+        "SELECT revision FROM ont_object_type_key_revisions WHERE org_id=$1 AND stable_key='legacy.compat'",
+    )
+    .bind(LEGACY_ORG)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let duplicate_at = time::macros::datetime!(2026-07-19 14:03 UTC);
+    let mut duplicate_tx = runtime.begin().await.unwrap();
+    sqlx::query("SELECT set_config('app.current_org', $1, true)")
+        .bind(LEGACY_ORG.to_string())
+        .execute(&mut *duplicate_tx)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE ont_object_types SET lifecycle_state='draft', updated_at=$2 WHERE id=$1")
+        .bind(second_id)
+        .bind(duplicate_at)
+        .execute(&mut *duplicate_tx)
+        .await
+        .unwrap();
+    for suffix in ['5', '6'] {
+        let trace_id = format!("{suffix}123456789abcdef0123456789abcdef");
+        let span_id = format!("{suffix}123456789abcdef");
+        sqlx::query(
+            r#"INSERT INTO audit_events
+               (id,actor,action,target_type,target_id,trace_id,span_id,occurred_at,org_id)
+               VALUES (gen_random_uuid(),$1,'ontology.object_type.transition','ont_object_types',$2,$3,$4,$5,$6)"#,
+        )
+        .bind(LEGACY_ACTOR)
+        .bind(second_id.to_string())
+        .bind(trace_id)
+        .bind(span_id)
+        .bind(duplicate_at)
+        .bind(LEGACY_ORG)
+        .execute(&mut *duplicate_tx)
+        .await
+        .unwrap();
+    }
+    let duplicate_error = duplicate_tx
+        .commit()
+        .await
+        .expect_err("duplicate compatibility audits must fail closed at commit");
+    assert_eq!(
+        database_error_code(&duplicate_error).as_deref(),
+        Some("23514")
+    );
+
+    let state_after_duplicate = sqlx::query(
+        r#"SELECT o.lifecycle_state, k.revision
+           FROM ont_object_types o
+           JOIN ont_object_type_key_revisions k
+             ON k.org_id=o.org_id AND k.stable_key=o.stable_key
+           WHERE o.id=$1"#,
+    )
+    .bind(second_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        state_after_duplicate.get::<String, _>("lifecycle_state"),
+        "review_pending"
+    );
+    assert_eq!(
+        state_after_duplicate.get::<i64, _>("revision"),
+        revision_before_duplicate
+    );
 }
