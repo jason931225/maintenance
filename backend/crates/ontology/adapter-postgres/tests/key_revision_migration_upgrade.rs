@@ -12,6 +12,8 @@ const MIGRATION_0165: &str =
     include_str!("../../../platform/db/migrations/0165_ontology_object_type_key_revisions.sql");
 const MIGRATOR_PASSWORD: &str = "migration-owner-a165";
 const COMMAND_PASSWORD: &str = "ontology-command-a165";
+const MIGRATION_LOCK_TIMEOUT: &str = "5s";
+const MIGRATION_STATEMENT_TIMEOUT: &str = "1min";
 
 fn database_error_code(error: &sqlx::Error) -> Option<String> {
     error
@@ -175,12 +177,29 @@ async fn seed_legacy_object_type(
     .unwrap();
 }
 
-async fn apply_0165_as_migrator(pool: &PgPool) {
+async fn apply_0165_as_migrator(pool: &PgPool) -> (String, String) {
     let migrator = login_role_pool(pool, "mnt_app", MIGRATOR_PASSWORD).await;
-    sqlx::raw_sql(MIGRATION_0165)
-        .execute(&migrator)
+    let mut migration = migrator.begin().await.unwrap();
+    sqlx::query("SET LOCAL lock_timeout = '5s'")
+        .execute(&mut *migration)
         .await
-        .expect("the exact shipped 0165 migration must run as non-superuser mnt_app");
+        .unwrap();
+    sqlx::query("SET LOCAL statement_timeout = '60s'")
+        .execute(&mut *migration)
+        .await
+        .unwrap();
+    let budgets: (String, String) = sqlx::query_as(
+        "SELECT current_setting('lock_timeout'), current_setting('statement_timeout')",
+    )
+    .fetch_one(&mut *migration)
+    .await
+    .unwrap();
+    sqlx::raw_sql(MIGRATION_0165)
+        .execute(&mut *migration)
+        .await
+        .expect("the exact shipped 0165 migration must run within the rehearsal budgets");
+    migration.commit().await.unwrap();
+    budgets
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
@@ -1149,4 +1168,33 @@ async fn migration_0165_keeps_exact_old_binary_writes_audited_and_cas_consistent
         state_after_duplicate.get::<i64, _>("revision"),
         revision_before_duplicate
     );
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn migration_0165_rehearses_populated_expand_with_bounded_lock_and_statement_timeouts(
+    pool: PgPool,
+) {
+    restore_pre_0165_schema(&pool).await;
+    seed_organization(&pool, ORG_A, "migration-rehearsal-a165").await;
+    seed_legacy_object_type(&pool, ORG_A, "ops.work_order", 2, "superseded").await;
+    seed_legacy_object_type(&pool, ORG_A, "ops.work_order", 9, "retired").await;
+
+    let budgets = apply_0165_as_migrator(&pool).await;
+    assert_eq!(
+        budgets,
+        (
+            MIGRATION_LOCK_TIMEOUT.into(),
+            MIGRATION_STATEMENT_TIMEOUT.into()
+        )
+    );
+
+    let sidecar: (i64, i64) = sqlx::query_as(
+        "SELECT count(*), max(revision) FROM ont_object_type_key_revisions \
+         WHERE org_id=$1 AND stable_key='ops.work_order'",
+    )
+    .bind(ORG_A)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(sidecar, (1, 9));
 }

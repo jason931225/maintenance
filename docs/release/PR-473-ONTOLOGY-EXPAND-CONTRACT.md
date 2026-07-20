@@ -1,5 +1,10 @@
 # PR 473 Ontology Expand Contract
 
+<!-- PR473-MIGRATION-GATE: release_phase=expand -->
+<!-- PR473-MIGRATION-GATE: deployment_authorized=false -->
+<!-- PR473-MIGRATION-GATE: command_only_claim_authorized=false -->
+<!-- PR473-MIGRATION-GATE: production_authority=production_cardinality,old_runtime_drain,rollback_floor_raise -->
+
 ## Status
 
 PR 473 is the **expand** release of a two-release ontology-write cutover. It is
@@ -73,16 +78,32 @@ artifact or release note may claim ontology writes are command-only.
 
 ## Regression evidence and limits
 
+### Pre-merge synthetic rehearsal boundary
+
+The pre-merge synthetic rehearsal executes the exact 0165 migration against
+populated pre-0165 PostgreSQL fixtures as the non-superuser migration role. It
+sets and reads back bounded `lock_timeout = 5s` and `statement_timeout = 60s`
+budgets in the migration transaction, then proves the expected tenant/key
+sidecar cardinality. This is deterministic pre-merge evidence; it is not
+production cardinality, deployment, rollout, or rollback evidence.
+
+The following are **production-authority-only** gates: production cardinality
+measurement, old-replica and job drain, and rollback-floor declaration and
+verification. They require an authorized rollout window and live production
+evidence. PR merge and the synthetic rehearsal satisfy none of them and do not
+authorize deployment.
+
 `backend/crates/ontology/adapter-postgres/tests/key_revision_migration_upgrade.rs`
 contains the populated upgrade and compatibility regressions:
 
 - `migration_0165_upgrades_legacy_sibling_versions_without_tenant_leakage`
 - `migration_0165_keeps_exact_old_binary_writes_audited_and_cas_consistent`
+- `migration_0165_rehearses_populated_expand_with_bounded_lock_and_statement_timeouts`
 
 The tests run the exact 0165 migration against PostgreSQL with the real
 `mnt_rt`, `mnt_ontology_cmd`, migration-owner, and capability-owner role
 topology. They execute the retained binary's SQL shapes and prove that missing
 or duplicate same-transaction audit evidence rolls the write and CAS sidecar
-back atomically. They do not launch the f6ff236 executable, prove that every old
-replica has drained, raise the rollback floor, or constitute deployment
-evidence.
+back atomically, and exercise the populated migration under explicit timeout
+budgets. They do not launch the f6ff236 executable, prove that every old replica
+has drained, raise the rollback floor, or constitute deployment evidence.

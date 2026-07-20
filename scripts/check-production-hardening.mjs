@@ -251,6 +251,28 @@ function findWorkflowRunBlock(text, predicates) {
   return blocks.find((block) => predicates.every((predicate) => predicate.test(block))) ?? "";
 }
 
+function extractNamedWorkflowStep(text, name) {
+  const lines = stripHashComments(text).split(/\r?\n/);
+  const matcher = new RegExp(`^(\\s*)-\\s+name:\\s*${escapeRegExp(name)}\\s*$`);
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = lines[index].match(matcher);
+    if (!match) continue;
+    const indent = match[1].length;
+    const block = [lines[index]];
+    for (let blockIndex = index + 1; blockIndex < lines.length; blockIndex += 1) {
+      const line = lines[blockIndex];
+      if (line.trim() === "") {
+        block.push(line);
+        continue;
+      }
+      if (countLeadingSpaces(line) <= indent) break;
+      block.push(line);
+    }
+    return block.join("\n");
+  }
+  return "";
+}
+
 function patternsAppearInOrder(text, patterns) {
   let cursor = 0;
   for (const pattern of patterns) {
@@ -434,155 +456,235 @@ export function evaluateProdOverlayImageChecks(readText) {
   return result;
 }
 
+const PR473_ROLLBACK_FLOOR = "f6ff236b9770c79301a3d07da6afb56be1e27bbf";
+const PR473_MANIFEST_PATH = "docs/release/PR-473-EXPAND-CONTRACT.gate.json";
+const PR473_WRAPPER_ALIAS = "python3 scripts/check-pr473-migration-operational.py";
+const PR473_TEST_ALIAS = "python3 scripts/check-pr473-migration-operational.test.py";
+const PR473_WRAPPER_COMMAND = "npm run check:pr473-migration-operational";
+const PR473_TOPOLOGY_COMMAND = [
+  'APP_PASSWORD="$(openssl rand -hex 32)"',
+  'RT_PASSWORD="$(openssl rand -hex 32)"',
+  'LEAVE_COMMAND_PASSWORD="$(openssl rand -hex 32)"',
+  'ONTOLOGY_COMMAND_PASSWORD="$(openssl rand -hex 32)"',
+  "docker run --rm --network host",
+  '-v "$GITHUB_WORKSPACE/ops/postgres-reconcile-topology.sh:/usr/local/bin/postgres-reconcile-topology:ro"',
+  "-e POSTGRES_HOST=127.0.0.1 -e POSTGRES_DB=mnt_ci",
+  "-e POSTGRES_ADMIN_USER=postgres -e POSTGRES_ADMIN_PASSWORD=postgres",
+  '-e MNT_APP_POSTGRES_PASSWORD="$APP_PASSWORD"',
+  '-e MNT_RT_POSTGRES_PASSWORD="$RT_PASSWORD"',
+  '-e MNT_LEAVE_COMMAND_POSTGRES_PASSWORD="$LEAVE_COMMAND_PASSWORD"',
+  '-e MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD="$ONTOLOGY_COMMAND_PASSWORD"',
+  "--entrypoint bash postgres:18.4@sha256:4aabea78cf39b90e834caf3af7d602a18565f6fe2508705c8d01aa63245c2e20",
+  "/usr/local/bin/postgres-reconcile-topology",
+].join(" ");
+const PR473_DOCUMENTS = [
+  {
+    path: "docs/release/PR-473-ONTOLOGY-EXPAND-CONTRACT.md",
+    title: "# PR 473 Ontology Expand Contract",
+  },
+  {
+    path: "docs/release/PR-473-EMPLOYEE-IMPORT-EXPAND-CONTRACT.md",
+    title: "# PR 473 Employee-Import Expand Contract",
+  },
+];
+const PR473_DIRECTIVES = [
+  "<!-- PR473-MIGRATION-GATE: release_phase=expand -->",
+  "<!-- PR473-MIGRATION-GATE: deployment_authorized=false -->",
+  "<!-- PR473-MIGRATION-GATE: command_only_claim_authorized=false -->",
+  "<!-- PR473-MIGRATION-GATE: production_authority=production_cardinality,old_runtime_drain,rollback_floor_raise -->",
+];
+const PR473_TESTS = [
+  ["ontology", "mnt-ontology-adapter-postgres", "key_revision_migration_upgrade", "backend/crates/ontology/adapter-postgres/tests/key_revision_migration_upgrade.rs", "migration_0165_upgrades_legacy_sibling_versions_without_tenant_leakage"],
+  ["ontology", "mnt-ontology-adapter-postgres", "key_revision_migration_upgrade", "backend/crates/ontology/adapter-postgres/tests/key_revision_migration_upgrade.rs", "migration_0165_keeps_exact_old_binary_writes_audited_and_cas_consistent"],
+  ["ontology", "mnt-ontology-adapter-postgres", "key_revision_migration_upgrade", "backend/crates/ontology/adapter-postgres/tests/key_revision_migration_upgrade.rs", "migration_0165_rehearses_populated_expand_with_bounded_lock_and_statement_timeouts"],
+  ["leave", "mnt-leave-adapter-postgres", "leave_migration_expand_contract", "backend/crates/leave/adapter-postgres/tests/leave_migration_expand_contract.rs", "migration_0166_rehearses_populated_expand_with_bounded_lock_and_statement_timeouts"],
+  ["leave", "mnt-leave-adapter-postgres", "leave_migration_expand_contract", "backend/crates/leave/adapter-postgres/tests/leave_migration_expand_contract.rs", "exact_charge_create_accepts_resolved_and_review_required_shapes"],
+  ["leave", "mnt-leave-adapter-postgres", "leave_migration_expand_contract", "backend/crates/leave/adapter-postgres/tests/leave_migration_expand_contract.rs", "exact_charge_create_atomically_rejects_mismatched_reason_and_evidence_shapes"],
+  ["leave", "mnt-leave-adapter-postgres", "leave_migration_expand_contract", "backend/crates/leave/adapter-postgres/tests/leave_migration_expand_contract.rs", "immediate_f6ff_employee_import_remains_usable_after_0166"],
+  ["leave", "mnt-leave-adapter-postgres", "leave_migration_expand_contract", "backend/crates/leave/adapter-postgres/tests/leave_migration_expand_contract.rs", "staged_f6ff_employee_import_apply_remains_atomic_after_0166"],
+  ["leave", "mnt-leave-adapter-postgres", "leave_migration_expand_contract", "backend/crates/leave/adapter-postgres/tests/leave_migration_expand_contract.rs", "staged_f6ff_apply_rejects_missing_duplicate_or_forged_current_tx_audit"],
+  ["leave", "mnt-leave-adapter-postgres", "leave_migration_expand_contract", "backend/crates/leave/adapter-postgres/tests/leave_migration_expand_contract.rs", "legacy_leave_mutations_require_exactly_one_same_transaction_audit"],
+  ["leave", "mnt-leave-adapter-postgres", "leave_migration_expand_contract", "backend/crates/leave/adapter-postgres/tests/leave_migration_expand_contract.rs", "staged_employee_import_rejects_payload_not_equal_to_immutable_ledger"],
+];
+
 export function evaluateExpandContractReleaseChecks(readText) {
   const result = createResult();
-  const rollbackFloor = "f6ff236b9770c79301a3d07da6afb56be1e27bbf";
-  const records = [
-    {
-      id: "ontology",
-      path: "docs/release/PR-473-ONTOLOGY-EXPAND-CONTRACT.md",
-    },
-    {
-      id: "employee-import",
-      path: "docs/release/PR-473-EMPLOYEE-IMPORT-EXPAND-CONTRACT.md",
-    },
-  ];
-
-  for (const record of records) {
-    const text = requirePresentText(
-      result,
-      readText,
-      record.path,
-      `${record.id} expand-contract record`,
-    );
-    requirement(
-      result,
-      text.includes(rollbackFloor),
-      `${record.id} expand-contract rollback floor: ${rollbackFloor}`,
-      `${record.id} expand-contract rollback floor must name ${rollbackFloor}`,
-    );
-    requirement(
-      result,
-      /later,\s+separately numbered migration/i.test(text),
-      `${record.id} expand-contract later numbered contract migration: required`,
-      `${record.id} expand-contract later numbered contract migration must be explicit`,
-    );
-    requirement(
-      result,
-      /merging it does not authorize a\s+deployment/i.test(text),
-      `${record.id} expand-contract merge/deploy separation: explicit`,
-      `${record.id} expand-contract must state that merging does not authorize deployment`,
-    );
-    requirement(
-      result,
-      /no\s+artifact or release note may claim[\s\S]*command-only/i.test(text),
-      `${record.id} expand-contract command-only nonclaim: explicit`,
-      `${record.id} expand-contract must prohibit command-only claims until the contract migration lands`,
-    );
-  }
-
-  const ontologyMigrationPath =
-    "backend/crates/platform/db/migrations/0165_ontology_object_type_key_revisions.sql";
-  const ontologyMigration = requirePresentText(
+  const manifestText = requirePresentText(
     result,
     readText,
-    ontologyMigrationPath,
-    "ontology expand migration",
+    PR473_MANIFEST_PATH,
+    "PR 473 typed migration gate manifest",
   );
-  requireIncludesInText(
+  let manifest;
+  try {
+    manifest = JSON.parse(manifestText);
+  } catch (error) {
+    result.failures.push(`PR 473 typed migration gate manifest must be valid JSON (${error.message})`);
+    return result;
+  }
+
+  requirement(
     result,
-    ontologyMigrationPath,
-    ontologyMigration,
-    "GRANT INSERT, UPDATE ON ont_object_types TO mnt_rt;",
-    "ontology expand migration retains the declared legacy parent bridge",
+    manifestText === `${JSON.stringify(manifest, null, 2)}\n`,
+    "PR 473 typed migration gate manifest: canonical JSON",
+    "PR 473 typed migration gate manifest must use canonical two-space JSON with one trailing newline",
+  );
+  const expectedKeys = [
+    "schema_version",
+    "pull_request",
+    "rollback_floor",
+    "release_phase",
+    "deployment_authorized",
+    "command_only_claim_authorized",
+    "production_authority",
+    "guarded_tests",
+  ];
+  requirement(
+    result,
+    manifest && typeof manifest === "object" && !Array.isArray(manifest)
+      && JSON.stringify(Object.keys(manifest)) === JSON.stringify(expectedKeys),
+    "PR 473 typed migration gate manifest: exact schema keys",
+    "PR 473 typed migration gate manifest must have only the canonical ordered schema keys",
+  );
+  for (const [label, actual, expected] of [
+    ["schema version", manifest?.schema_version, 1],
+    ["pull request", manifest?.pull_request, 473],
+    ["rollback floor", manifest?.rollback_floor, PR473_ROLLBACK_FLOOR],
+    ["expand phase", manifest?.release_phase, "expand"],
+    ["nondeploy", manifest?.deployment_authorized, false],
+    ["nonclaim", manifest?.command_only_claim_authorized, false],
+  ]) {
+    requirement(
+      result,
+      actual === expected && typeof actual === typeof expected,
+      `PR 473 typed migration gate ${label}: ${JSON.stringify(expected)}`,
+      `PR 473 typed migration gate ${label} must be exactly ${JSON.stringify(expected)}`,
+    );
+  }
+  const expectedProductionAuthority = {
+    production_cardinality: false,
+    old_runtime_drain: false,
+    rollback_floor_raise: false,
+  };
+  requirement(
+    result,
+    JSON.stringify(manifest?.production_authority) === JSON.stringify(expectedProductionAuthority),
+    "PR 473 production-authority fields: all false",
+    "PR 473 production-authority fields must be exactly production_cardinality, old_runtime_drain, and rollback_floor_raise set to false",
+  );
+
+  const tests = Array.isArray(manifest?.guarded_tests) ? manifest.guarded_tests : [];
+  const tuples = tests.map((test) => [
+    test?.domain,
+    test?.package,
+    test?.target,
+    test?.source,
+    test?.name,
+  ]);
+  const uniqueTuples = new Set(tuples.map((tuple) => JSON.stringify(tuple)));
+  const uniqueNames = new Set(tuples.map((tuple) => tuple[4]));
+  requirement(
+    result,
+    tests.length === 11 && uniqueTuples.size === 11 && uniqueNames.size === 11,
+    "PR 473 guarded tests: 11 unique tuples and names",
+    "PR 473 guarded tests must contain 11 unique tuples with 11 unique names",
   );
   requirement(
     result,
-    /SELECT\s+COUNT\(\*\)\s*=\s*1[\s\S]*FROM\s+public\.audit_events/i.test(ontologyMigration)
-      && ontologyMigration.includes(
-        "ontology_write.exactly_one_current_transaction_audit_required",
-      ),
-    "ontology expand migration exactly-one audit invariant: enforced",
-    "ontology expand migration exactly-one audit invariant must count one current-transaction audit and fail otherwise",
+    JSON.stringify(tuples) === JSON.stringify(PR473_TESTS),
+    "PR 473 guarded tests: exact expected 3 ontology and 8 leave tuples",
+    "PR 473 guarded tests must equal the exact expected 3 ontology and 8 leave tuples in canonical order",
   );
 
-  const ontologyTestPath =
-    "backend/crates/ontology/adapter-postgres/tests/key_revision_migration_upgrade.rs";
-  const ontologyTests = requirePresentText(
-    result,
-    readText,
-    ontologyTestPath,
-    "ontology expand-contract PostgreSQL regressions",
-  );
-  for (const [needle, label] of [
-    [
-      "migration_0165_upgrades_legacy_sibling_versions_without_tenant_leakage",
-      "ontology populated-upgrade regression",
-    ],
-    [
-      "migration_0165_keeps_exact_old_binary_writes_audited_and_cas_consistent",
-      "ontology mixed-version compatibility regression",
-    ],
-    [
-      "duplicate compatibility audits must fail closed at commit",
-      "ontology duplicate-audit rollback regression",
-    ],
-  ]) {
-    requireIncludesInText(result, ontologyTestPath, ontologyTests, needle, label);
+  for (const document of PR473_DOCUMENTS) {
+    const text = requirePresentText(
+      result,
+      readText,
+      document.path,
+      `PR 473 gate document ${document.path}`,
+    );
+    const canonicalPrefix = `${document.title}\n\n${PR473_DIRECTIVES.join("\n")}\n\n`;
+    requirement(
+      result,
+      text.startsWith(canonicalPrefix),
+      `PR 473 document directives form canonical block: ${document.path}`,
+      `PR 473 document directives must form the canonical block immediately after the title in ${document.path}`,
+    );
+    for (const directive of PR473_DIRECTIVES) {
+      const count = text.split(directive).length - 1;
+      requirement(
+        result,
+        count === 1,
+        `PR 473 document directive occurs once: ${document.path} ${directive}`,
+        `PR 473 document directive must occur exactly once in ${document.path}: ${directive} (found ${count})`,
+      );
+    }
   }
 
-  const leaveMigrationPath =
-    "backend/crates/platform/db/migrations/0166_leave_exact_charge_and_home_branch.sql";
-  const leaveMigration = requirePresentText(
-    result,
-    readText,
-    leaveMigrationPath,
-    "employee-import expand migration",
-  );
-  for (const [needle, label] of [
-    ["later numbered contract migration", "employee-import later contract migration marker"],
-    ["proven rollback floor", "employee-import rollback-floor marker"],
-    ["leave_api.employee_import_run_writer_guard", "employee-import legacy-run guard"],
-    ["leave_api.employee_import_apply_audit_required", "employee-import exactly-one audit guard"],
-    ["leave_api.legacy_leave_audit_required", "legacy leave exactly-one audit guard"],
-    ["employee_import_batch.run_payload_mismatch", "employee-import immutable payload binding"],
-  ]) {
-    requireIncludesInText(result, leaveMigrationPath, leaveMigration, needle, label);
+  let packageJson;
+  try {
+    packageJson = JSON.parse(readText("package.json"));
+  } catch (error) {
+    result.failures.push(`PR 473 package alias requires valid package.json (${error.message})`);
   }
-
-  const leaveTestPath =
-    "backend/crates/leave/adapter-postgres/tests/leave_migration_expand_contract.rs";
-  const leaveTests = requirePresentText(
+  requirement(
     result,
-    readText,
-    leaveTestPath,
-    "employee-import expand-contract PostgreSQL regressions",
+    packageJson?.scripts?.["check:pr473-migration-operational"] === PR473_WRAPPER_ALIAS,
+    "PR 473 package alias: exact wrapper command",
+    `PR 473 package alias must be exactly ${JSON.stringify(PR473_WRAPPER_ALIAS)}`,
   );
-  for (const [needle, label] of [
-    [
-      "immediate_f6ff_employee_import_remains_usable_after_0166",
-      "employee-import immediate mixed-version regression",
-    ],
-    [
-      "staged_f6ff_employee_import_apply_remains_atomic_after_0166",
-      "employee-import staged mixed-version regression",
-    ],
-    [
-      "staged_f6ff_apply_rejects_missing_duplicate_or_forged_current_tx_audit",
-      "employee-import forged-audit rollback regression",
-    ],
-    [
-      "legacy_leave_mutations_require_exactly_one_same_transaction_audit",
-      "legacy leave exactly-one audit regression",
-    ],
-    [
-      "staged_employee_import_rejects_payload_not_equal_to_immutable_ledger",
-      "employee-import immutable-ledger binding regression",
-    ],
-  ]) {
-    requireIncludesInText(result, leaveTestPath, leaveTests, needle, label);
-  }
+  requirement(
+    result,
+    packageJson?.scripts?.["test:pr473-migration-operational"] === PR473_TEST_ALIAS,
+    "PR 473 unit-test package alias: exact test command",
+    `PR 473 unit-test package alias must be exactly ${JSON.stringify(PR473_TEST_ALIAS)}`,
+  );
 
+  const ciText = readText(".github/workflows/ci.yml");
+  const activeCi = stripHashComments(ciText);
+  const backendJob = extractYamlMappingBlock(activeCi, "backend", 2);
+  const topologyStep = extractNamedWorkflowStep(
+    backendJob,
+    "Reconcile portable PostgreSQL role topology",
+  );
+  const wrapperStep = extractNamedWorkflowStep(backendJob, "PR 473 migration operational gate");
+  const topologyIndex = backendJob.indexOf(topologyStep);
+  const wrapperIndex = backendJob.indexOf(wrapperStep);
+  const invocationCount = extractGithubWorkflowRunBlocks(activeCi)
+    .filter((block) => block === PR473_WRAPPER_COMMAND).length;
+  const topologyRuns = extractGithubWorkflowRunBlocks(topologyStep);
+  const topologyCommand = topologyRuns[0] ?? "";
+  requirement(
+    result,
+    invocationCount === 1,
+    "PR 473 CI wrapper invocation: exactly one active command",
+    `PR 473 CI must contain exactly one active ${PR473_WRAPPER_COMMAND} invocation (found ${invocationCount})`,
+  );
+  requirement(
+    result,
+    topologyStep !== "" && wrapperStep !== "" && topologyIndex >= 0 && wrapperIndex > topologyIndex,
+    "PR 473 CI wrapper runs after PostgreSQL role topology",
+    "PR 473 backend job must contain the topology and wrapper steps in that order",
+  );
+  requirement(
+    result,
+    topologyRuns.length === 1 && topologyCommand === PR473_TOPOLOGY_COMMAND,
+    "PR 473 backend topology step invokes the exact pinned reconcile command",
+    "PR 473 backend topology step must invoke the exact reconcile command and credential setup through the pinned PostgreSQL image",
+  );
+  requirement(
+    result,
+    JSON.stringify(extractGithubWorkflowRunBlocks(wrapperStep))
+      === JSON.stringify([PR473_WRAPPER_COMMAND]),
+    "PR 473 named CI wrapper step runs the exact command",
+    `PR 473 named CI wrapper step must run exactly ${PR473_WRAPPER_COMMAND}`,
+  );
+  requirement(
+    result,
+    /^\s*working-directory:\s*\.\s*$/m.test(wrapperStep),
+    "PR 473 CI wrapper runs from repository root",
+    "PR 473 CI wrapper step must set working-directory to the repository root",
+  );
   return result;
 }
 

@@ -17,6 +17,8 @@ use mnt_governance_domain::{GateChainConfig, GateEvidence, evaluate_gate_chain};
 const MIGRATION_0166: &str =
     include_str!("../../../platform/db/migrations/0166_leave_exact_charge_and_home_branch.sql");
 const MIGRATOR_PASSWORD: &str = "leave-migration-owner-a166";
+const MIGRATION_LOCK_TIMEOUT: &str = "5s";
+const MIGRATION_STATEMENT_TIMEOUT: &str = "1min";
 
 const ORG: Uuid = Uuid::from_u128(0xa166_a166_a166_a166_a166_a166_a166_a166);
 const REGION: Uuid = Uuid::from_u128(0x1166_1166_1166_1166_1166_1166_1166_1166);
@@ -345,11 +347,32 @@ async fn migrate_populated_pre_0166(owner_pool: &PgPool) {
     restore_pre_0166_schema(owner_pool).await;
     seed_pre_0166_data(owner_pool).await;
 
+    apply_0166_with_rehearsal_budgets(owner_pool).await;
+}
+
+async fn apply_0166_with_rehearsal_budgets(owner_pool: &PgPool) -> (String, String) {
     let migrator = login_role_pool(owner_pool, "mnt_app", MIGRATOR_PASSWORD).await;
-    sqlx::raw_sql(MIGRATION_0166)
-        .execute(&migrator)
+    let mut migration = migrator.begin().await.unwrap();
+    sqlx::query("SET LOCAL lock_timeout = '5s'")
+        .execute(&mut *migration)
         .await
-        .expect("the exact shipped 0166 migration must upgrade populated pre-0166 data");
+        .unwrap();
+    sqlx::query("SET LOCAL statement_timeout = '60s'")
+        .execute(&mut *migration)
+        .await
+        .unwrap();
+    let budgets: (String, String) = sqlx::query_as(
+        "SELECT current_setting('lock_timeout'), current_setting('statement_timeout')",
+    )
+    .fetch_one(&mut *migration)
+    .await
+    .unwrap();
+    sqlx::raw_sql(MIGRATION_0166)
+        .execute(&mut *migration)
+        .await
+        .expect("the exact shipped 0166 migration must run within the rehearsal budgets");
+    migration.commit().await.unwrap();
+    budgets
 }
 
 fn database_error_code(error: &sqlx::Error) -> Option<String> {
@@ -1102,6 +1125,209 @@ async fn populated_upgrade_preserves_pre_0166_read_and_insert_contract(owner_poo
         .await
         .expect_err("a DRAFT custom role must not grant import authority");
     assert_eq!(database_error_code(&draft_role).as_deref(), Some("42501"));
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn migration_0166_rehearses_populated_expand_with_bounded_lock_and_statement_timeouts(
+    owner_pool: PgPool,
+) {
+    restore_pre_0166_schema(&owner_pool).await;
+    seed_pre_0166_data(&owner_pool).await;
+
+    let budgets = apply_0166_with_rehearsal_budgets(&owner_pool).await;
+    assert_eq!(
+        budgets,
+        (
+            MIGRATION_LOCK_TIMEOUT.into(),
+            MIGRATION_STATEMENT_TIMEOUT.into()
+        )
+    );
+
+    let migrated: (i64, String, String) = sqlx::query_as(
+        "SELECT count(*), min(charge_state), min(legacy_days::text) \
+         FROM leave_requests WHERE org_id=$1",
+    )
+    .bind(ORG)
+    .fetch_one(&owner_pool)
+    .await
+    .unwrap();
+    assert_eq!(migrated, (1, "review_required".into(), "2.500000".into()));
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn exact_charge_create_accepts_resolved_and_review_required_shapes(owner_pool: PgPool) {
+    migrate_populated_pre_0166(&owner_pool).await;
+    let definer = definer_role_pool(&owner_pool).await;
+    sqlx::query("SELECT set_config('app.current_org', $1, false)")
+        .bind(ORG.to_string())
+        .execute(&definer)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE employees SET home_branch_id=$2 WHERE org_id=$1 AND id=$3")
+        .bind(ORG)
+        .bind(BRANCH)
+        .bind(EMPLOYEE)
+        .execute(&definer)
+        .await
+        .unwrap();
+    let command = command_role_pool(&owner_pool).await;
+    sqlx::query("SELECT set_config('app.current_org', $1, false)")
+        .bind(ORG.to_string())
+        .execute(&command)
+        .await
+        .unwrap();
+
+    let resolved_id = Uuid::new_v4();
+    let resolved: (i64, i64, String) = sqlx::query_as(
+        r#"SELECT request_version, charge_version, charge_units::text
+           FROM leave_api.create_request(
+             $1,$2,$3,'annual',DATE '2026-12-10',DATE '2026-12-10','resolved shape',
+             NULL,ARRAY[]::text[],$4,
+             '[{"date":"2026-12-10","obligation":{"kind":"scheduled","minutes":480},"units":"1"}]'::jsonb,
+             '{"kind":"calendar","reference":"calendar-a166","revision":"1"}'::jsonb,
+             '{"kind":"policy","reference":"policy-a166","revision":"1"}'::jsonb,
+             '[]'::jsonb,$5,'10101010101010101010101010101010','1010101010101010')"#,
+    )
+    .bind(ORG)
+    .bind(resolved_id)
+    .bind(USER)
+    .bind(BRANCH)
+    .bind(Uuid::new_v4())
+    .fetch_one(&command)
+    .await
+    .expect("complete evidence with no review reasons must create a resolved request");
+    assert_eq!(resolved, (1, 1, "1.000000".into()));
+
+    let review_id = Uuid::new_v4();
+    let review: (i64, i64, Option<String>) = sqlx::query_as(
+        r#"SELECT request_version, charge_version, charge_units::text
+           FROM leave_api.create_request(
+             $1,$2,$3,'annual',DATE '2026-12-11',DATE '2026-12-11','review shape',
+             NULL,ARRAY['missing_calendar']::text[],NULL,NULL,NULL,NULL,NULL,
+             $4,'20202020202020202020202020202020','2020202020202020')"#,
+    )
+    .bind(ORG)
+    .bind(review_id)
+    .bind(USER)
+    .bind(Uuid::new_v4())
+    .fetch_one(&command)
+    .await
+    .expect("review reasons with no evidence must create a review-required request");
+    assert_eq!(review, (1, 0, None));
+
+    let persisted: Vec<(Uuid, String, Vec<String>, i64)> = sqlx::query_as(
+        "SELECT id,charge_state,charge_review_reasons,charge_version FROM leave_requests \
+         WHERE id IN ($1,$2) ORDER BY id",
+    )
+    .bind(resolved_id)
+    .bind(review_id)
+    .fetch_all(&owner_pool)
+    .await
+    .unwrap();
+    assert!(
+        persisted
+            .iter()
+            .any(|row| row == &(resolved_id, "resolved".into(), vec![], 1))
+    );
+    assert!(persisted.iter().any(|row| {
+        row == &(
+            review_id,
+            "review_required".into(),
+            vec!["missing_calendar".into()],
+            0,
+        )
+    }));
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn exact_charge_create_atomically_rejects_mismatched_reason_and_evidence_shapes(
+    owner_pool: PgPool,
+) {
+    migrate_populated_pre_0166(&owner_pool).await;
+    let definer = definer_role_pool(&owner_pool).await;
+    sqlx::query("SELECT set_config('app.current_org', $1, false)")
+        .bind(ORG.to_string())
+        .execute(&definer)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE employees SET home_branch_id=$2 WHERE org_id=$1 AND id=$3")
+        .bind(ORG)
+        .bind(BRANCH)
+        .bind(EMPLOYEE)
+        .execute(&definer)
+        .await
+        .unwrap();
+    let command = command_role_pool(&owner_pool).await;
+    sqlx::query("SELECT set_config('app.current_org', $1, false)")
+        .bind(ORG.to_string())
+        .execute(&command)
+        .await
+        .unwrap();
+
+    let resolved_with_review_reason = Uuid::new_v4();
+    let error = sqlx::query(
+        r#"SELECT * FROM leave_api.create_request(
+             $1,$2,$3,'annual',DATE '2026-12-12',DATE '2026-12-12','mismatched resolved shape',
+             NULL,ARRAY['missing_calendar']::text[],$4,
+             '[{"date":"2026-12-12","obligation":{"kind":"scheduled","minutes":480},"units":"1"}]'::jsonb,
+             '{"kind":"calendar","reference":"calendar-a166","revision":"1"}'::jsonb,
+             '{"kind":"policy","reference":"policy-a166","revision":"1"}'::jsonb,
+             '[]'::jsonb,$5,'30303030303030303030303030303030','3030303030303030')"#,
+    )
+    .bind(ORG)
+    .bind(resolved_with_review_reason)
+    .bind(USER)
+    .bind(BRANCH)
+    .bind(Uuid::new_v4())
+    .fetch_one(&command)
+    .await
+    .expect_err("resolved evidence must reject non-empty review reasons");
+    assert_eq!(database_error_code(&error).as_deref(), Some("22023"));
+    assert!(
+        error
+            .as_database_error()
+            .is_some_and(|db| db.message() == "leave_create.invalid_charge_choice")
+    );
+
+    let review_with_evidence = Uuid::new_v4();
+    let error = sqlx::query(
+        r#"SELECT * FROM leave_api.create_request(
+             $1,$2,$3,'annual',DATE '2026-12-13',DATE '2026-12-13','mismatched review shape',
+             NULL,ARRAY['missing_calendar']::text[],$4,NULL,NULL,NULL,NULL,
+             $5,'40404040404040404040404040404040','4040404040404040')"#,
+    )
+    .bind(ORG)
+    .bind(review_with_evidence)
+    .bind(USER)
+    .bind(BRANCH)
+    .bind(Uuid::new_v4())
+    .fetch_one(&command)
+    .await
+    .expect_err("review-required requests must reject a partial evidence envelope");
+    assert_eq!(database_error_code(&error).as_deref(), Some("22023"));
+    assert!(
+        error
+            .as_database_error()
+            .is_some_and(|db| db.message() == "leave_create.invalid_charge_choice")
+    );
+
+    let residue: (i64, i64, i64) = sqlx::query_as(
+        "SELECT (SELECT count(*) FROM leave_requests WHERE id IN ($1,$2)), \
+                (SELECT count(*) FROM leave_charge_resolutions WHERE request_id IN ($1,$2)), \
+                (SELECT count(*) FROM audit_events WHERE target_id IN ($3,$4))",
+    )
+    .bind(resolved_with_review_reason)
+    .bind(review_with_evidence)
+    .bind(resolved_with_review_reason.to_string())
+    .bind(review_with_evidence.to_string())
+    .fetch_one(&owner_pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        residue,
+        (0, 0, 0),
+        "rejected create statements must leave no row, charge evidence, or audit residue"
+    );
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]

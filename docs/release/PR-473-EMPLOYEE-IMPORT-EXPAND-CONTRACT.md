@@ -1,5 +1,10 @@
 # PR 473 Employee-Import Expand Contract
 
+<!-- PR473-MIGRATION-GATE: release_phase=expand -->
+<!-- PR473-MIGRATION-GATE: deployment_authorized=false -->
+<!-- PR473-MIGRATION-GATE: command_only_claim_authorized=false -->
+<!-- PR473-MIGRATION-GATE: production_authority=production_cardinality,old_runtime_drain,rollback_floor_raise -->
+
 ## Status
 
 PR 473 is the **expand** release of a two-release employee-import cutover. It is
@@ -84,6 +89,21 @@ command-only.
 
 ## Regression evidence
 
+### Pre-merge synthetic rehearsal boundary
+
+The pre-merge synthetic rehearsal executes the exact 0166 migration against
+populated pre-0166 PostgreSQL fixtures as the non-superuser migration role. It
+sets and reads back bounded `lock_timeout = 5s` and `statement_timeout = 60s`
+budgets in the migration transaction, then proves the populated legacy rows and
+new command surfaces remain coherent. This is deterministic pre-merge evidence;
+it is not production cardinality, deployment, rollout, or rollback evidence.
+
+The following are **production-authority-only** gates: production cardinality
+measurement, old-replica and staged-work drain, and rollback-floor declaration
+and verification. They require an authorized rollout window and live production
+evidence. PR merge and the synthetic rehearsal satisfy none of them and do not
+authorize deployment.
+
 `backend/crates/leave/adapter-postgres/tests/leave_migration_expand_contract.rs`
 contains populated upgrade regressions for both supported f6ff236 modes:
 
@@ -92,8 +112,13 @@ contains populated upgrade regressions for both supported f6ff236 modes:
 - `staged_f6ff_apply_rejects_missing_duplicate_or_forged_current_tx_audit`
 - `legacy_leave_mutations_require_exactly_one_same_transaction_audit`
 - `staged_employee_import_rejects_payload_not_equal_to_immutable_ledger`
+- `migration_0166_rehearses_populated_expand_with_bounded_lock_and_statement_timeouts`
+- `exact_charge_create_accepts_resolved_and_review_required_shapes`
+- `exact_charge_create_atomically_rejects_mismatched_reason_and_evidence_shapes`
 
 The tests run against PostgreSQL with the real `mnt_rt` role and the exact 0166
 migration text. They prove compatibility, exactly-one same-transaction audit
-correlation, and immutable-ledger payload binding; they prove neither legacy
-endpoint authorization nor that the later contract phase has occurred.
+correlation, immutable-ledger payload binding, the two valid exact-charge create
+shapes, atomic rejection of mixed reason/evidence shapes, and bounded synthetic
+migration execution. They prove neither legacy endpoint authorization nor that
+the later contract phase has occurred.

@@ -370,89 +370,207 @@ describe("production hardening global image checks", () => {
   });
 });
 
-const rollbackFloor = "f6ff236b9770c79301a3d07da6afb56be1e27bbf";
-const validExpandContractFiles = {
-  "docs/release/PR-473-ONTOLOGY-EXPAND-CONTRACT.md": `
-PR 473 is the expand release. Merging it does not authorize a deployment.
-Rollback floor: ${rollbackFloor}.
-A later, separately numbered migration must remove the legacy bridge.
-No artifact or release note may claim ontology writes are command-only.
-`,
-  "docs/release/PR-473-EMPLOYEE-IMPORT-EXPAND-CONTRACT.md": `
-PR 473 is the expand release. Merging it does not authorize a deployment.
-Rollback floor: ${rollbackFloor}.
-A later, separately numbered migration must remove the legacy bridge.
-No artifact or release note may claim employee leave-balance writes are command-only.
-`,
-  "backend/crates/platform/db/migrations/0165_ontology_object_type_key_revisions.sql": `
-GRANT INSERT, UPDATE ON ont_object_types TO mnt_rt;
-SELECT COUNT(*) = 1 FROM public.audit_events;
-MESSAGE = 'ontology_write.exactly_one_current_transaction_audit_required';
-`,
-  "backend/crates/platform/db/migrations/0166_leave_exact_charge_and_home_branch.sql": `
-This is the expand half. A later numbered contract migration may close the legacy surface only after this release is the proven rollback floor.
-CREATE FUNCTION leave_api.employee_import_run_writer_guard()
-CREATE FUNCTION leave_api.employee_import_apply_audit_required()
-CREATE FUNCTION leave_api.legacy_leave_audit_required()
-MESSAGE='employee_import_batch.run_payload_mismatch';
-`,
-  "backend/crates/ontology/adapter-postgres/tests/key_revision_migration_upgrade.rs": `
-migration_0165_upgrades_legacy_sibling_versions_without_tenant_leakage
-migration_0165_keeps_exact_old_binary_writes_audited_and_cas_consistent
-duplicate compatibility audits must fail closed at commit
-`,
-  "backend/crates/leave/adapter-postgres/tests/leave_migration_expand_contract.rs": `
-immediate_f6ff_employee_import_remains_usable_after_0166
-staged_f6ff_employee_import_apply_remains_atomic_after_0166
-staged_f6ff_apply_rejects_missing_duplicate_or_forged_current_tx_audit
-legacy_leave_mutations_require_exactly_one_same_transaction_audit
-staged_employee_import_rejects_payload_not_equal_to_immutable_ledger
+const pr473ManifestText = readFileSync(
+  new URL("../docs/release/PR-473-EXPAND-CONTRACT.gate.json", import.meta.url),
+  "utf8",
+);
+const pr473Directives = `<!-- PR473-MIGRATION-GATE: release_phase=expand -->
+<!-- PR473-MIGRATION-GATE: deployment_authorized=false -->
+<!-- PR473-MIGRATION-GATE: command_only_claim_authorized=false -->
+<!-- PR473-MIGRATION-GATE: production_authority=production_cardinality,old_runtime_drain,rollback_floor_raise -->`;
+const validPr473Files = {
+  "docs/release/PR-473-EXPAND-CONTRACT.gate.json": pr473ManifestText,
+  "docs/release/PR-473-ONTOLOGY-EXPAND-CONTRACT.md": `# PR 473 Ontology Expand Contract\n\n${pr473Directives}\n\n`,
+  "docs/release/PR-473-EMPLOYEE-IMPORT-EXPAND-CONTRACT.md": `# PR 473 Employee-Import Expand Contract\n\n${pr473Directives}\n\n`,
+  "package.json": JSON.stringify({
+    scripts: {
+      "check:pr473-migration-operational": "python3 scripts/check-pr473-migration-operational.py",
+      "test:pr473-migration-operational": "python3 scripts/check-pr473-migration-operational.test.py",
+    },
+  }),
+  ".github/workflows/ci.yml": `jobs:
+  backend:
+    steps:
+      - name: Reconcile portable PostgreSQL role topology
+        run: |
+          APP_PASSWORD="$(openssl rand -hex 32)"
+          RT_PASSWORD="$(openssl rand -hex 32)"
+          LEAVE_COMMAND_PASSWORD="$(openssl rand -hex 32)"
+          ONTOLOGY_COMMAND_PASSWORD="$(openssl rand -hex 32)"
+          docker run --rm --network host \
+            -v "$GITHUB_WORKSPACE/ops/postgres-reconcile-topology.sh:/usr/local/bin/postgres-reconcile-topology:ro" \
+            -e POSTGRES_HOST=127.0.0.1 -e POSTGRES_DB=mnt_ci \
+            -e POSTGRES_ADMIN_USER=postgres -e POSTGRES_ADMIN_PASSWORD=postgres \
+            -e MNT_APP_POSTGRES_PASSWORD="$APP_PASSWORD" \
+            -e MNT_RT_POSTGRES_PASSWORD="$RT_PASSWORD" \
+            -e MNT_LEAVE_COMMAND_POSTGRES_PASSWORD="$LEAVE_COMMAND_PASSWORD" \
+            -e MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD="$ONTOLOGY_COMMAND_PASSWORD" \
+            --entrypoint bash postgres:18.4@sha256:4aabea78cf39b90e834caf3af7d602a18565f6fe2508705c8d01aa63245c2e20 \
+            /usr/local/bin/postgres-reconcile-topology
+      - name: PR 473 migration operational gate
+        working-directory: .
+        run: npm run check:pr473-migration-operational
 `,
 };
 
-function evaluateExpandContracts(overrides = {}) {
-  const files = { ...validExpandContractFiles, ...overrides };
+function evaluatePr473(overrides = {}) {
+  const files = { ...validPr473Files, ...overrides };
   return evaluateExpandContractReleaseChecks((path) => files[path] ?? "");
 }
 
-describe("production hardening expand-contract release gates", () => {
-  it("accepts documented 0165/0166 expand windows with behavioral evidence", () => {
-    assert.deepEqual(evaluateExpandContracts().failures, []);
+describe("production hardening PR 473 typed operational gate", () => {
+  it("accepts the canonical typed manifest, directives, alias, and ordered CI wrapper", () => {
+    assert.deepEqual(evaluatePr473().failures, []);
   });
 
-  it("rejects a missing ontology expand-contract record", () => {
-    const result = evaluateExpandContracts({
-      "docs/release/PR-473-ONTOLOGY-EXPAND-CONTRACT.md": "",
+  it("rejects malformed and nondeploy-mutated manifests", () => {
+    const malformed = evaluatePr473({
+      "docs/release/PR-473-EXPAND-CONTRACT.gate.json": "{",
     });
-    assertHasFailure(result, "ontology expand-contract record: missing or empty");
+    assertHasFailure(malformed, "must be valid JSON");
+
+    const manifest = JSON.parse(pr473ManifestText);
+    manifest.deployment_authorized = true;
+    const mutated = evaluatePr473({
+      "docs/release/PR-473-EXPAND-CONTRACT.gate.json": `${JSON.stringify(manifest, null, 2)}\n`,
+    });
+    assertHasFailure(mutated, "nondeploy must be exactly false");
   });
 
-  it("rejects a contract record without the exact rollback floor and later numbered migration", () => {
-    const result = evaluateExpandContracts({
-      "docs/release/PR-473-EMPLOYEE-IMPORT-EXPAND-CONTRACT.md": "PR 473 is an expand release.",
+  it("rejects duplicate and substituted guarded test tuples", () => {
+    const duplicate = JSON.parse(pr473ManifestText);
+    duplicate.guarded_tests[10] = { ...duplicate.guarded_tests[0] };
+    const duplicateResult = evaluatePr473({
+      "docs/release/PR-473-EXPAND-CONTRACT.gate.json": `${JSON.stringify(duplicate, null, 2)}\n`,
     });
-    assertHasFailure(result, "employee-import expand-contract rollback floor");
-    assertHasFailure(result, "employee-import expand-contract later numbered contract migration");
+    assertHasFailure(duplicateResult, "11 unique tuples");
+    assertHasFailure(duplicateResult, "exact expected 3 ontology and 8 leave tuples");
+
+    const substituted = JSON.parse(pr473ManifestText);
+    substituted.guarded_tests[0].name = "invented_unique_test";
+    const substitutedResult = evaluatePr473({
+      "docs/release/PR-473-EXPAND-CONTRACT.gate.json": `${JSON.stringify(substituted, null, 2)}\n`,
+    });
+    assertHasFailure(substitutedResult, "exact expected 3 ontology and 8 leave tuples");
   });
 
-  it("rejects ontology compatibility without an exactly-one audit invariant and regression", () => {
-    const result = evaluateExpandContracts({
-      "backend/crates/platform/db/migrations/0165_ontology_object_type_key_revisions.sql":
-        "GRANT INSERT, UPDATE ON ont_object_types TO mnt_rt;",
-      "backend/crates/ontology/adapter-postgres/tests/key_revision_migration_upgrade.rs":
-        "migration_0165_keeps_exact_old_binary_writes_audited_and_cas_consistent",
+  it("rejects missing and duplicated canonical document directives", () => {
+    const missing = evaluatePr473({
+      "docs/release/PR-473-ONTOLOGY-EXPAND-CONTRACT.md": pr473Directives.replace(
+        "<!-- PR473-MIGRATION-GATE: deployment_authorized=false -->",
+        "",
+      ),
     });
-    assertHasFailure(result, "ontology expand migration exactly-one audit invariant");
-    assertHasFailure(result, "ontology duplicate-audit rollback regression");
+    assertHasFailure(missing, "deployment_authorized=false");
+
+    const duplicated = evaluatePr473({
+      "docs/release/PR-473-EMPLOYEE-IMPORT-EXPAND-CONTRACT.md": `${pr473Directives}\n${pr473Directives}`,
+    });
+    assertHasFailure(duplicated, "found 2");
+
+    const nested = evaluatePr473({
+      "docs/release/PR-473-ONTOLOGY-EXPAND-CONTRACT.md": `# PR 473 Ontology Expand Contract\n\n> ${pr473Directives.replaceAll("\n", "\n> ")}\n`,
+    });
+    assertHasFailure(nested, "canonical block immediately after");
   });
 
-  it("rejects employee-import compatibility without its audit and immutable-ledger regressions", () => {
-    const result = evaluateExpandContracts({
-      "backend/crates/leave/adapter-postgres/tests/leave_migration_expand_contract.rs":
-        "immediate_f6ff_employee_import_remains_usable_after_0166",
+  it("rejects a commented-out or duplicated workflow invocation", () => {
+    const commented = evaluatePr473({
+      ".github/workflows/ci.yml": validPr473Files[".github/workflows/ci.yml"].replace(
+        "        run: npm run check:pr473-migration-operational",
+        "        # run: npm run check:pr473-migration-operational",
+      ),
     });
-    assertHasFailure(result, "employee-import forged-audit rollback regression");
-    assertHasFailure(result, "employee-import immutable-ledger binding regression");
+    assertHasFailure(commented, "exactly one active");
+
+    const duplicated = evaluatePr473({
+      ".github/workflows/ci.yml": `${validPr473Files[".github/workflows/ci.yml"]}
+      - name: duplicate
+        run: npm run check:pr473-migration-operational
+`,
+    });
+    assertHasFailure(duplicated, "found 2");
+
+    for (const command of [
+      "echo npm run check:pr473-migration-operational",
+      "npm run check:pr473-migration-operational-evil",
+    ]) {
+      const spoofed = evaluatePr473({
+        ".github/workflows/ci.yml": validPr473Files[".github/workflows/ci.yml"].replace(
+          "npm run check:pr473-migration-operational",
+          command,
+        ),
+      });
+      assertHasFailure(spoofed, "exactly one active");
+    }
+
+    const relocated = evaluatePr473({
+      ".github/workflows/ci.yml": `${validPr473Files[".github/workflows/ci.yml"].replace(
+        "npm run check:pr473-migration-operational",
+        "echo disabled",
+      )}
+      - name: unrelated exact command
+        run: npm run check:pr473-migration-operational
+`,
+    });
+    assertHasFailure(relocated, "named CI wrapper step must run exactly");
+  });
+
+  it("rejects a wrapper step before topology and an inexact package alias", () => {
+    const beforeTopology = evaluatePr473({
+      ".github/workflows/ci.yml": `steps:
+  - name: PR 473 migration operational gate
+    working-directory: .
+    run: npm run check:pr473-migration-operational
+  - name: Reconcile portable PostgreSQL role topology
+    run: ./ops/postgres-reconcile-topology.sh
+`,
+    });
+    assertHasFailure(beforeTopology, "backend job must contain");
+
+    const alias = evaluatePr473({
+      "package.json": JSON.stringify({
+        scripts: { "check:pr473-migration-operational": "python scripts/check-pr473-migration-operational.py" },
+      }),
+    });
+    assertHasFailure(alias, "package alias must be exactly");
+  });
+
+  it("binds the exact topology command and wrapper ordering to the backend job", () => {
+    const crossJob = evaluatePr473({
+      ".github/workflows/ci.yml": validPr473Files[".github/workflows/ci.yml"].replace(
+        "  backend:\n    steps:\n      - name: Reconcile portable PostgreSQL role topology",
+        "  topology-only:\n    steps:\n      - name: Reconcile portable PostgreSQL role topology",
+      ).replace(
+        "      - name: PR 473 migration operational gate",
+        "  backend:\n    steps:\n      - name: PR 473 migration operational gate",
+      ),
+    });
+    assertHasFailure(crossJob, "backend job must contain");
+
+    const fakeTopology = evaluatePr473({
+      ".github/workflows/ci.yml": validPr473Files[".github/workflows/ci.yml"].replace(
+        "          /usr/local/bin/postgres-reconcile-topology",
+        "          echo topology-disabled",
+      ),
+    });
+    assertHasFailure(fakeTopology, "must invoke the exact reconcile command");
+  });
+
+  it("rejects shell-control topology command bypasses", () => {
+    const command = '          APP_PASSWORD="$(openssl rand -hex 32)"';
+    for (const replacement of [
+      `          true || ${command.trim()}`,
+      `${command} && true`,
+    ]) {
+      const result = evaluatePr473({
+        ".github/workflows/ci.yml": validPr473Files[".github/workflows/ci.yml"].replace(
+          command,
+          replacement,
+        ),
+      });
+      assertHasFailure(result, "must invoke the exact reconcile command");
+    }
   });
 });
 

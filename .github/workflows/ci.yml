@@ -176,18 +176,20 @@ jobs:
             --entrypoint bash postgres:18.4@sha256:4aabea78cf39b90e834caf3af7d602a18565f6fe2508705c8d01aa63245c2e20 \
             /usr/local/bin/postgres-reconcile-topology
 
-      - name: cargo test
+      - name: PR 473 migration operational gate
         if: ${{ !cancelled() }}
+        working-directory: .
         # SQLX_OFFLINE=true so the query! macros compile against the committed
         # .sqlx cache (the documented contract — see crates/platform/db/src/lib.rs)
         # rather than the unmigrated CI service DB. The #[sqlx::test] runtime
         # tests still use DATABASE_URL to create their own per-test databases.
         # Without this, a Cargo.lock change busts the build cache and the macros
         # re-check online against a schema-less DB ("audit_events does not exist").
-        # --no-fail-fast runs every test binary so one failing suite does not hide
-        # the rest — the whole run reports all failures. Run each binary serially
-        # because topology upgrade tests intentionally mutate cluster-global roles.
-        run: SQLX_OFFLINE=true cargo test --no-fail-fast -- --test-threads=1
+        # The wrapper preserves the full workspace run while isolating the 11
+        # migration regressions for exact one-test runtime-result validation.
+        # Every test binary remains serial because topology upgrade tests
+        # intentionally mutate cluster-global roles.
+        run: npm run check:pr473-migration-operational
 
       # Boot smoke: the real mnt-app binary, migrate then serve mode, against
       # this job's fresh service DB — catches route-panic-at-boot regressions
