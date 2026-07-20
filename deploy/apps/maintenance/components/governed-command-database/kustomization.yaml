@@ -1,0 +1,138 @@
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+# DARK, opt-in database topology for the PR-473 expand rehearsal. This
+# component is intentionally not referenced by base, prod, or any Argo CD
+# Application. Activate it only from a separately reviewed overlay.
+resources:
+  - database-topology-job.yaml
+
+patches:
+  - target: { group: postgresql.cnpg.io, version: v1, kind: Cluster, name: mnt-db }
+    patch: |-
+      - op: add
+        path: /metadata/annotations
+        value:
+          argocd.argoproj.io/sync-wave: "0"
+      - op: add
+        path: /spec/enableSuperuserAccess
+        value: false
+      - op: replace
+        path: /spec/managed/roles
+        value:
+          - name: mnt_app
+            ensure: present
+            login: true
+            superuser: false
+            createdb: false
+            createrole: false
+            bypassrls: true
+            inherit: true
+            replication: false
+            inRoles: [mnt_leave_definer, mnt_ontology_writer]
+            passwordSecret:
+              name: mnt-db-app
+          - name: mnt_rt
+            ensure: present
+            login: true
+            superuser: false
+            createdb: false
+            createrole: false
+            bypassrls: false
+            inherit: false
+            replication: false
+            passwordSecret:
+              name: mnt-db-rt
+          - name: mnt_leave_cmd
+            ensure: present
+            login: true
+            superuser: false
+            createdb: false
+            createrole: false
+            bypassrls: false
+            inherit: false
+            replication: false
+            passwordSecret:
+              name: mnt-db-leave-command
+          - name: mnt_ontology_cmd
+            ensure: present
+            login: true
+            superuser: false
+            createdb: false
+            createrole: false
+            bypassrls: false
+            inherit: false
+            replication: false
+            passwordSecret:
+              name: mnt-db-ontology-command
+          - name: mnt_leave_definer
+            ensure: present
+            login: false
+            superuser: false
+            createdb: false
+            createrole: false
+            bypassrls: false
+            inherit: false
+            replication: false
+            disablePassword: true
+          - name: mnt_ontology_writer
+            ensure: present
+            login: false
+            superuser: false
+            createdb: false
+            createrole: false
+            bypassrls: false
+            inherit: false
+            replication: false
+            disablePassword: true
+  - target: { group: argoproj.io, version: v1alpha1, kind: Rollout, name: mnt-app }
+    patch: |-
+      - op: add
+        path: /metadata/annotations
+        value:
+          argocd.argoproj.io/sync-wave: "3"
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: LEAVE_COMMAND_DATABASE_URL
+          valueFrom:
+            secretKeyRef: { name: mnt-db-leave-command, key: uri }
+      - op: add
+        path: /spec/template/spec/containers/0/env/-
+        value:
+          name: ONTOLOGY_COMMAND_DATABASE_URL
+          valueFrom:
+            secretKeyRef: { name: mnt-db-ontology-command, key: uri }
+  - target: { group: apps, version: v1, kind: Deployment, name: mnt-worker }
+    patch: |-
+      - op: add
+        path: /metadata/annotations
+        value:
+          argocd.argoproj.io/sync-wave: "3"
+  - target: { group: batch, version: v1, kind: Job, name: mnt-migrate }
+    patch: |-
+      - op: replace
+        path: /metadata/annotations/argocd.argoproj.io~1hook
+        value: Sync
+      - op: add
+        path: /metadata/annotations/argocd.argoproj.io~1sync-wave
+        value: "2"
+  - target: { group: networking.k8s.io, version: v1, kind: NetworkPolicy, name: allow-postgres-from-app }
+    patch: |-
+      - op: replace
+        path: /spec/ingress/0/from/0/podSelector/matchExpressions/0/values
+        value: [mnt-app, mnt-worker, mnt-migrate, mnt-db-topology]
+  - target: { group: networking.k8s.io, version: v1, kind: NetworkPolicy, name: default-deny-egress-app-tier }
+    patch: |-
+      - op: replace
+        path: /spec/podSelector/matchExpressions/0/values
+        value: [mnt-app, mnt-web, mnt-worker, mnt-migrate, mnt-db-topology]
+  - target: { group: networking.k8s.io, version: v1, kind: NetworkPolicy, name: allow-app-egress-dns }
+    patch: |-
+      - op: replace
+        path: /spec/podSelector/matchExpressions/0/values
+        value: [mnt-app, mnt-web, mnt-worker, mnt-migrate, mnt-db-topology]
+  - target: { group: networking.k8s.io, version: v1, kind: NetworkPolicy, name: allow-app-egress-postgres }
+    patch: |-
+      - op: replace
+        path: /spec/podSelector/matchExpressions/0/values
+        value: [mnt-app, mnt-worker, mnt-migrate, mnt-db-topology]

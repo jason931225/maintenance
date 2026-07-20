@@ -9,7 +9,7 @@ that DARK context is activated. Do not combine the two procedures.
 
 | Context | Acceptable secret store and projection path |
 |---|---|
-| `oci-guest` (live) | **OCI Vault** is the authoritative recovery store for Talos, kubeconfig, app, database, and OCI Object Storage credentials. Operators project the needed values into Kubernetes `Secret` objects (`mnt-secrets`, `oci-objectstore-creds`, `mnt-db-rt`, `mnt-db-leave-command`, `mnt-db-ontology-command`, and namespace-specific integration secrets) with one-time `kubectl create secret` commands. This is honest for the current single-node guest; it is not an automatic GitOps secret controller. |
+| `oci-guest` (live) | **OCI Vault** is the authoritative recovery store for Talos, kubeconfig, app, database, and OCI Object Storage credentials. Operators project the needed values into Kubernetes `Secret` objects (`mnt-secrets`, `oci-objectstore-creds`, `mnt-db-rt`, and namespace-specific integration secrets) with one-time `kubectl create secret` commands. This is honest for the current single-node guest; it is not an automatic GitOps secret controller. |
 | `on-prem-ha` (ADR-0024 / DARK until activation) | **OpenBao HA Raft + External Secrets Operator** is the expected production secret root and Kubernetes projection path. OpenBao must be initialized, unsealed, audited, backed up, and operated by named custodians before production data moves. CNPG Barman, evidence S3, app, mail, and integration credentials should be projected from OpenBao/ESO into context-local Kubernetes secrets; OCI Vault is allowed only as the previous `oci-guest` rollback source, not as a requirement for on-prem HA. |
 
 Never commit, log, paste, or checkpoint secret values, OpenBao unseal shares, root
@@ -214,47 +214,35 @@ independence before production data is admitted.
 
 ## Database connections — owner vs. runtime split
 
-The application topology has **six** roles and four login secrets, deliberately
-separated from CNPG's `postgres` cluster-administrator bootstrap identity:
+The cluster has **two** roles, with two secrets, deliberately separated:
 
 | Role | Secret | Used by | Privileges |
 |---|---|---|---|
-| `mnt_app` (owner) | `mnt-db-app` | **migrations only**, via the wave-2 `mnt-migrate` Sync Job | owns every table; explicit `BYPASSRLS` for tenant-wide backfills; runs DDL; member of both definers without ADMIN OPTION |
+| `mnt_app` (owner) | `mnt-db-app` | **migrations only**, via the `mnt-migrate` PreSync Job | owns every table; runs DDL |
 | `mnt_rt` (runtime) | `mnt-db-rt` | `mnt-app` / `mnt-worker` `DATABASE_URL` | least-privilege DML, **subject to RLS** |
-| `mnt_leave_cmd` (leave command) | `mnt-db-leave-command` | `mnt-app` API `LEAVE_COMMAND_DATABASE_URL` only | no table DML; EXECUTE only on intrinsically-audited leave command routines |
-| `mnt_ontology_cmd` (ontology command) | `mnt-db-ontology-command` | `mnt-app` API `ONTOLOGY_COMMAND_DATABASE_URL` only | no direct table DML; EXECUTE only on intrinsically-audited ontology command routines |
-| `mnt_leave_definer` | none (`NOLOGIN`) | owns leave command functions | pinned non-admin function owner; cannot authenticate |
-| `mnt_ontology_writer` | none (`NOLOGIN`) | owns ontology command functions | pinned non-admin function owner; cannot authenticate |
 
 The running application **never** connects as the owner. Connecting as the owner
 would let a compromised app `DROP POLICY` / `DISABLE ROW LEVEL SECURITY` and turn
 the entire tenant-isolation boundary off, and (without `FORCE RLS`) bypass RLS
-outright. `mnt_rt` is `NOSUPERUSER NOBYPASSRLS NOINHERIT NOCREATEDB NOCREATEROLE`, owns
+outright. `mnt_rt` is `NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE`, owns
 nothing, and only receives the GRANTs from migration `0031`.
 
 ### `mnt-db-app` — owner / migration connection (auto-generated)
 
 Created by CloudNativePG for the `mnt-db` cluster's `mnt_app` owner user. **Do
 not create this manually.** It is consumed **only** by the `mnt-migrate` Job,
-which runs schema migrations automatically as an Argo CD wave-2 **Sync hook** (the
+which runs schema migrations automatically as an Argo CD **PreSync hook** (the
 `mnt-app` image in `MNT_APP_ROLE=migrate` mode reads its `uri` key) — never by a
-serving workload. `mnt_app` is deliberately `BYPASSRLS` because populated
-tenant-wide migration backfills must not depend on table-owner `FORCE RLS`
-state. Wave 0 reconciles CNPG, wave 1 verifies all role attributes,
-database ownership, and the two non-admin memberships, and only then may the
-migration run. The gate compares the decoded `password` keys across all four
-login Secrets and fails on any reuse; it also proves each credential opens a
-direct `session_user = current_user` connection with the expected role and no
-serving-role membership edges. Wave-3 API/worker workloads therefore never need DDL. See the
+serving workload. The PreSync Job completes before the `mnt-app`/`mnt-worker`
+Deployments roll, so the runtime `mnt_rt` role never needs DDL. See the
 "Database migrations" section in [`README.md`](README.md). Migrations are
 idempotent (sqlx `_sqlx_migrations` ledger), so the Job is safe to re-run on
 every sync.
 
-> Cutover ordering: create both **`mnt-db-rt`** and
-> **`mnt-db-leave-command`** and **`mnt-db-ontology-command`** (below) **before**
-> the first sync. CNPG must bind all managed logins, and a database-backed API
-> deliberately refuses to start without both command URIs. Worker and migrate
-> roles do not use or require either command credential.
+> Cutover ordering: create the **`mnt-db-rt`** runtime secret (below) **before**
+> the first sync. The de-owned `mnt_rt` role (NOSUPERUSER, NOBYPASSRLS, owns
+> nothing — migration 0031) is what makes the owner/runtime split meaningful;
+> without that secret CNPG cannot bind the role and the app cannot start.
 
 ### `mnt-db-rt` — runtime connection (you create this)
 
@@ -287,74 +275,23 @@ trap - EXIT
 unset RT_PASSWORD RT_URI
 ```
 
-### `mnt-db-leave-command` — narrow leave-command connection (you create this)
+Hex keeps the password URI-safe. If an operator uses another character set,
+percent-encode the password component before constructing `uri`; never place a
+raw `+`, `/`, `@`, `:`, or `%` in that component. The
+`kubernetes.io/basic-auth` type makes the username/password contract explicit,
+and `cnpg.io/reload=true` tells CloudNativePG to reconcile the managed login
+after a password change.
 
-The password for the managed `mnt_leave_cmd` role. CNPG reads it from this
-Secret and the API reads only its `uri` key as `LEAVE_COMMAND_DATABASE_URL`.
-The role owns no tables and receives no direct table DML; migrations grant it
-only `EXECUTE` on the leave command routines whose validation, mutation, and
-audit write are one database transaction. Do not mount this Secret into
-`mnt-worker` or `mnt-migrate`.
+Updating a Kubernetes Secret does **not** update environment variables in
+already-running containers. After CNPG has reconciled a rotated `mnt_rt`
+password, deliberately restart both `mnt-app` and `mnt-worker`, then prove their
+readiness and prove the retired password is rejected. Do not claim zero-downtime
+credential rotation without observed workload and request-level evidence.
 
-```sh
-set -euo pipefail
-set +x
-LEAVE_COMMAND_PASSWORD="$(openssl rand -hex 32)"
-LEAVE_COMMAND_URI="postgresql://mnt_leave_cmd:${LEAVE_COMMAND_PASSWORD}@mnt-db-rw.maintenance.svc:5432/maintenance"
-LEAVE_COMMAND_SECRET_TMP="$(mktemp -d "${TMPDIR:-/tmp}/mnt-db-leave-command.XXXXXX")"
-trap 'rm -rf "$LEAVE_COMMAND_SECRET_TMP"' EXIT
-printf '%s' "$LEAVE_COMMAND_PASSWORD" > "$LEAVE_COMMAND_SECRET_TMP/password"
-printf '%s' "$LEAVE_COMMAND_URI" > "$LEAVE_COMMAND_SECRET_TMP/uri"
-chmod 600 "$LEAVE_COMMAND_SECRET_TMP"/*
-
-kubectl create secret generic mnt-db-leave-command -n maintenance \
-  --type=kubernetes.io/basic-auth \
-  --from-literal=username=mnt_leave_cmd \
-  --from-file=password="$LEAVE_COMMAND_SECRET_TMP/password" \
-  --from-file=uri="$LEAVE_COMMAND_SECRET_TMP/uri"
-kubectl label secret mnt-db-leave-command -n maintenance cnpg.io/reload=true
-rm -rf "$LEAVE_COMMAND_SECRET_TMP"
-trap - EXIT
-unset LEAVE_COMMAND_PASSWORD LEAVE_COMMAND_URI
-```
-
-For the DARK OpenBao/ESO path, store the same three fields under
-`secret/maintenance/db/leave-command`; the staged ExternalSecret projects them
-into the same Kubernetes Secret name without coupling the application to a
-specific cloud secret manager.
-
-### `mnt-db-ontology-command` — narrow ontology-command connection (you create this)
-
-This follows the same non-owner, no-direct-DML contract as the leave command
-credential, but its grants are limited to the intrinsically-audited ontology
-schema command routines. Only the API receives the URI; neither worker nor
-migrate does.
-
-```sh
-set -euo pipefail
-set +x
-ONTOLOGY_COMMAND_PASSWORD="$(openssl rand -hex 32)"
-ONTOLOGY_COMMAND_URI="postgresql://mnt_ontology_cmd:${ONTOLOGY_COMMAND_PASSWORD}@mnt-db-rw.maintenance.svc:5432/maintenance"
-ONTOLOGY_COMMAND_SECRET_TMP="$(mktemp -d "${TMPDIR:-/tmp}/mnt-db-ontology-command.XXXXXX")"
-trap 'rm -rf "$ONTOLOGY_COMMAND_SECRET_TMP"' EXIT
-printf '%s' "$ONTOLOGY_COMMAND_PASSWORD" > "$ONTOLOGY_COMMAND_SECRET_TMP/password"
-printf '%s' "$ONTOLOGY_COMMAND_URI" > "$ONTOLOGY_COMMAND_SECRET_TMP/uri"
-chmod 600 "$ONTOLOGY_COMMAND_SECRET_TMP"/*
-
-kubectl create secret generic mnt-db-ontology-command -n maintenance \
-  --type=kubernetes.io/basic-auth \
-  --from-literal=username=mnt_ontology_cmd \
-  --from-file=password="$ONTOLOGY_COMMAND_SECRET_TMP/password" \
-  --from-file=uri="$ONTOLOGY_COMMAND_SECRET_TMP/uri"
-kubectl label secret mnt-db-ontology-command -n maintenance cnpg.io/reload=true
-rm -rf "$ONTOLOGY_COMMAND_SECRET_TMP"
-trap - EXIT
-unset ONTOLOGY_COMMAND_PASSWORD ONTOLOGY_COMMAND_URI
-```
-
-For the DARK OpenBao/ESO path, store `username`, `password`, and `uri` under
-`secret/maintenance/db/ontology-command`; the staged ExternalSecret projects
-the provider-neutral PostgreSQL URI into `mnt-db-ontology-command`.
+The six-role, two-command-credential topology proposed by PR 473 is intentionally
+DARK and is not part of this live two-role procedure. Its complete secret
+contract and activation evidence are documented in
+[`apps/secrets-management/components/governed-command-database/README.md`](apps/secrets-management/components/governed-command-database/README.md).
 
 ## Platform-admin cold start + tenant onboarding
 

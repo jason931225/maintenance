@@ -1,10 +1,28 @@
 #!/usr/bin/env node
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import test from "node:test";
 
-const read = (path) =>
-  readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
+const root = new URL("../", import.meta.url);
+const read = (path) => readFileSync(new URL(path, root), "utf8");
+
+const run = (command, args) =>
+  spawnSync(command, args, {
+    cwd: root,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+
+const render = (overlay) => {
+  const result = run("kubectl", ["kustomize", overlay]);
+  assert.equal(
+    result.status,
+    0,
+    `kubectl kustomize ${overlay} failed:\n${result.stderr}`,
+  );
+  return result.stdout;
+};
 
 test("database-backed CI and release probes reconcile, migrate, and serve with separate identities", () => {
   for (const path of [
@@ -49,18 +67,86 @@ test("contract and browser harnesses never alias command URLs to DATABASE_URL", 
   );
 });
 
-test("CNPG reconciliation precedes Sync-wave migration and serving workloads", () => {
+test("live Argo, base, prod, and secret wiring remain DARK-topology-free", () => {
+  const argo = read("deploy/argocd/apps/maintenance.yaml");
+  const prod = read("deploy/apps/maintenance/overlays/prod/kustomization.yaml");
+  const base = read("deploy/apps/maintenance/base/kustomization.yaml");
   const database = read("deploy/apps/maintenance/base/database.yaml");
-  const topology = read(
-    "deploy/apps/maintenance/base/database-topology-job.yaml",
-  );
-  const migrate = read("deploy/apps/maintenance/base/migrate-job.yaml");
   const backend = read("deploy/apps/maintenance/base/backend.yaml");
-  const worker = read("deploy/apps/maintenance/base/worker.yaml");
+  const secrets = read(
+    "deploy/apps/secrets-management/wiring/kustomization.yaml",
+  );
+
+  assert.match(argo, /path: deploy\/apps\/maintenance\/overlays\/prod/);
+  assert.match(argo, /targetRevision: main/);
+  assert.match(prod, /resources:\s*\n\s+- \.\.\/\.\.\/base/);
+  assert.doesNotMatch(prod, /components:|pr-473|governed-command-database/);
+  assert.doesNotMatch(base, /database-topology-job|governed-command-database/);
+
+  for (const source of [argo, prod, base, database, backend, secrets]) {
+    assert.doesNotMatch(source, /pr-473-expand|governed-command-database/);
+    assert.doesNotMatch(source, /mnt-db-(?:leave|ontology)-command/);
+    assert.doesNotMatch(
+      source,
+      /(?:LEAVE|ONTOLOGY)_COMMAND_DATABASE_URL|mnt_(?:leave|ontology)_(?:cmd|definer|writer)/,
+    );
+  }
+
+  const mainRef = run("git", ["rev-parse", "--verify", "origin/main^{commit}"]);
+  assert.equal(
+    mainRef.status,
+    0,
+    `origin/main is mandatory for the live GitOps identity gate:\n${mainRef.stderr}`,
+  );
+  const diff = run("git", [
+    "diff",
+    "--exit-code",
+    "origin/main",
+    "--",
+    "deploy/argocd/apps/maintenance.yaml",
+    "deploy/apps/maintenance/base",
+    "deploy/apps/maintenance/overlays/prod",
+    "deploy/apps/secrets-management/wiring",
+  ]);
+  assert.equal(
+    diff.status,
+    0,
+    `live GitOps inputs differ from origin/main:\n${diff.stdout}${diff.stderr}`,
+  );
+});
+
+test("DARK overlays opt into the portable governed command-database component", () => {
+  const cases = [
+    ["pr-473-expand-oci-guest", "../prod"],
+    ["pr-473-expand-on-prem", "../on-prem"],
+  ];
+
+  for (const [overlay, base] of cases) {
+    const source = read(
+      `deploy/apps/maintenance/overlays/${overlay}/kustomization.yaml`,
+    );
+    assert.match(
+      source,
+      new RegExp(`resources:\\s*\\n\\s+- ${base.replaceAll(".", "\\.")}`),
+    );
+    assert.match(
+      source,
+      /components:\s*\n\s+- \.\.\/\.\.\/components\/governed-command-database/,
+    );
+  }
+});
+
+test("governed command-database component declares six roles, topology readback, ordering, and bounded Job networking", () => {
+  const component = read(
+    "deploy/apps/maintenance/components/governed-command-database/kustomization.yaml",
+  );
+  const topology = read(
+    "deploy/apps/maintenance/components/governed-command-database/database-topology-job.yaml",
+  );
 
   const managedNames = [
-    ...database.matchAll(/^\s+- name: (mnt_[a-z_]+)$/gm),
-  ].map((m) => m[1]);
+    ...component.matchAll(/^\s+- name: (mnt_[a-z_]+)$/gm),
+  ].map((match) => match[1]);
   assert.deepEqual(managedNames, [
     "mnt_app",
     "mnt_rt",
@@ -70,23 +156,55 @@ test("CNPG reconciliation precedes Sync-wave migration and serving workloads", (
     "mnt_ontology_writer",
   ]);
   assert.match(
-    database,
+    component,
     /name: mnt_app[\s\S]*?inRoles: \[mnt_leave_definer, mnt_ontology_writer\]/,
   );
-  assert.match(database, /name: mnt_app[\s\S]*?bypassrls: true/);
-  assert.match(database, /enableSuperuserAccess: false/);
-  for (const role of [
-    "mnt_rt",
-    "mnt_leave_cmd",
-    "mnt_ontology_cmd",
-    "mnt_leave_definer",
-    "mnt_ontology_writer",
-  ]) {
+  assert.match(component, /name: mnt_app[\s\S]*?bypassrls: true/);
+  for (const role of managedNames.slice(1)) {
     assert.match(
-      database,
+      component,
       new RegExp(`name: ${role}[\\s\\S]*?bypassrls: false`),
     );
   }
+
+  assert.match(component, /database-topology-job\.yaml/);
+  assert.match(
+    component,
+    /path: \/spec\/enableSuperuserAccess[\s\S]*?value: false/,
+  );
+  assert.match(
+    component,
+    /name: mnt_app[\s\S]*?passwordSecret:\s*\n\s+name: mnt-db-app/,
+  );
+  assert.match(component, /name: LEAVE_COMMAND_DATABASE_URL/);
+  assert.match(component, /name: ONTOLOGY_COMMAND_DATABASE_URL/);
+  assert.match(component, /name: mnt-migrate[\s\S]*?value: Sync/);
+  assert.match(
+    component,
+    /name: mnt-migrate[\s\S]*?sync-wave[\s\S]*?value: "2"/,
+  );
+  assert.match(
+    component,
+    /kind: Rollout, name: mnt-app[\s\S]*?argocd\.argoproj\.io\/sync-wave: "3"/,
+  );
+  assert.match(
+    component,
+    /kind: Deployment, name: mnt-worker[\s\S]*?argocd\.argoproj\.io\/sync-wave: "3"/,
+  );
+  for (const policy of [
+    "allow-postgres-from-app",
+    "default-deny-egress-app-tier",
+    "allow-app-egress-dns",
+    "allow-app-egress-postgres",
+  ]) {
+    assert.match(
+      component,
+      new RegExp(
+        `kind: NetworkPolicy, name: ${policy}[\\s\\S]*?mnt-db-topology`,
+      ),
+    );
+  }
+
   assert.match(topology, /expected_roles='mnt_app\|t\|f\|t\|t\|f\|f\|f/);
   assert.match(topology, /argocd\.argoproj\.io\/hook: Sync/);
   assert.match(topology, /argocd\.argoproj\.io\/sync-wave: "1"/);
@@ -94,108 +212,172 @@ test("CNPG reconciliation precedes Sync-wave migration and serving workloads", (
   assert.match(topology, /membership\.inherit_option/);
   assert.match(topology, /membership\.set_option/);
   assert.match(topology, /OR granted\.rolname IN/);
+  assert.match(topology, /test "\$\{PGUSER\}" = mnt_app/);
   assert.match(topology, /secretKeyRef: \{ name: mnt-db-app, key: username \}/);
+  assert.match(
+    topology,
+    /passwords=\([\s\S]*?\$\{PGPASSWORD\}[\s\S]*?\$\{MNT_RT_PASSWORD\}[\s\S]*?\$\{MNT_LEAVE_COMMAND_PASSWORD\}[\s\S]*?\$\{MNT_ONTOLOGY_COMMAND_PASSWORD\}[\s\S]*?\)/,
+  );
+  assert.match(
+    topology,
+    /for \(\(i = 0; i < \$\{#passwords\[@\]\}; i\+\+\)\); do[\s\S]*?test -n "\$\{passwords\[i\]\}"[\s\S]*?for \(\(j = i \+ 1; j < \$\{#passwords\[@\]\}; j\+\+\)\); do[\s\S]*?test "\$\{passwords\[i\]\}" != "\$\{passwords\[j\]\}"/,
+  );
+  assert.match(
+    topology,
+    /SELECT session_user::text \|\| '\|' \|\| current_user::text"\)" = 'mnt_app\|mnt_app'/,
+  );
+  assert.match(
+    topology,
+    /expected_memberships='mnt_app\|mnt_leave_definer\|f\|t\|t\s+mnt_app\|mnt_ontology_writer\|f\|t\|t'/,
+  );
+  assert.match(
+    topology,
+    /test "\$\{actual_memberships\}" = "\$\{expected_memberships\}"/,
+  );
+  assert.match(
+    topology,
+    /membership\.member = authenticated\.oid\s+OR membership\.roleid = authenticated\.oid/,
+  );
+  assert.match(
+    topology,
+    /test "\$\{actual\}" = "\$\{role\}\|\$\{role\}\|t\|f\|f\|f\|f\|f\|f\|f"/,
+  );
   for (const [secret, role] of [
     ["mnt-db-rt", "mnt_rt"],
     ["mnt-db-leave-command", "mnt_leave_cmd"],
     ["mnt-db-ontology-command", "mnt_ontology_cmd"],
   ]) {
-    assert.match(
-      topology,
-      new RegExp(`secretKeyRef: \\{ name: ${secret}, key: username \\}`),
-    );
+    assert.match(topology, new RegExp(`name: ${secret}, key: username`));
     assert.match(topology, new RegExp(`assert_direct_serving_login ${role}`));
   }
-  assert.match(
-    topology,
-    /SELECT session_user::text \|\| '\\|' \|\| current_user::text/,
-  );
-  assert.match(
-    topology,
-    /test "\$\{passwords\[i\]\}" != "\$\{passwords\[j\]\}"/,
-  );
-  assert.match(
-    topology,
-    /membership\.member = authenticated\.oid[\s\S]*membership\.roleid = authenticated\.oid/,
-  );
   assert.doesNotMatch(topology, /mnt-db-superuser/);
-  assert.match(migrate, /argocd\.argoproj\.io\/hook: Sync/);
-  assert.match(migrate, /argocd\.argoproj\.io\/sync-wave: "2"/);
-  assert.doesNotMatch(migrate, /argocd\.argoproj\.io\/hook: PreSync/);
-  assert.match(backend, /argocd\.argoproj\.io\/sync-wave: "3"/);
-  assert.match(worker, /argocd\.argoproj\.io\/sync-wave: "3"/);
 });
 
-test("authoritative operations docs forbid selective sync and recover both command credentials", () => {
-  const deployReadme = read("deploy/README.md");
-  const runbook = read("deploy/OPS-RUNBOOK.md");
-  const cutover = read("ops/launch/multi-tenant-cutover-runbook.md");
-  const vault = read("deploy/apps/secrets-management/README.md");
+test("DARK OCI and self-host renders include the governed topology without changing live prod", () => {
+  const kubectl = run("kubectl", ["version", "--client=true"]);
+  assert.equal(
+    kubectl.status,
+    0,
+    `kubectl with the pinned kustomize renderer is mandatory:\n${kubectl.stderr}`,
+  );
+  const prod = render("deploy/apps/maintenance/overlays/prod");
+  assert.doesNotMatch(prod, /name: mnt-db-topology/);
+  assert.doesNotMatch(
+    prod,
+    /LEAVE_COMMAND_DATABASE_URL|ONTOLOGY_COMMAND_DATABASE_URL/,
+  );
 
-  for (const source of [deployReadme, runbook, cutover]) {
+  for (const overlay of ["pr-473-expand-oci-guest", "pr-473-expand-on-prem"]) {
+    const rendered = render(`deploy/apps/maintenance/overlays/${overlay}`);
+    for (const role of [
+      "mnt_app",
+      "mnt_rt",
+      "mnt_leave_cmd",
+      "mnt_ontology_cmd",
+      "mnt_leave_definer",
+      "mnt_ontology_writer",
+    ]) {
+      assert.match(rendered, new RegExp(`name: ${role}`));
+    }
     assert.match(
-      source,
-      /(?:No selective sync|Never\s+selectively sync|Do not selectively sync)/i,
+      rendered,
+      /kind: Job\s+metadata:[\s\S]*?name: mnt-db-topology/,
+    );
+    assert.match(rendered, /name: LEAVE_COMMAND_DATABASE_URL/);
+    assert.match(rendered, /name: ONTOLOGY_COMMAND_DATABASE_URL/);
+    assert.match(rendered, /argocd\.argoproj\.io\/sync-wave: "?1"?/);
+    assert.match(rendered, /argocd\.argoproj\.io\/sync-wave: "?2"?/);
+    assert.match(rendered, /argocd\.argoproj\.io\/sync-wave: "?3"?/);
+    assert.match(
+      rendered,
+      /kind: NetworkPolicy[\s\S]*?name: allow-postgres-from-app[\s\S]*?mnt-db-topology/,
+    );
+    assert.match(
+      rendered,
+      /kind: NetworkPolicy[\s\S]*?name: allow-app-egress-postgres[\s\S]*?mnt-db-topology/,
     );
   }
-  for (const source of [cutover, vault]) {
-    assert.match(source, /mnt(?:[_-]db)?[_-]leave[_-](?:cmd|command)/);
-    assert.match(source, /mnt(?:[_-]db)?[_-]ontology[_-](?:cmd|command)/);
-  }
-
-  const rebuildPrerequisites = runbook.match(
-    /## 5\. The GitOps server[\s\S]*?(?=\n## 6\.)/,
-  )?.[0];
-  assert.ok(
-    rebuildPrerequisites,
-    "OPS runbook must retain a scoped GitOps rebuild section",
-  );
-  for (const secret of [
-    "mnt-db-rt",
-    "mnt-db-leave-command",
-    "mnt-db-ontology-command",
-  ]) {
-    assert.match(rebuildPrerequisites, new RegExp(secret));
-  }
 });
 
-test("CNPG password projections use basic-auth Secrets with immediate reload metadata", () => {
-  for (const path of [
-    "deploy/apps/secrets-management/wiring/externalsecret-mnt-db-rt.yaml",
-    "deploy/apps/secrets-management/wiring/externalsecret-mnt-db-leave-command.yaml",
-    "deploy/apps/secrets-management/wiring/externalsecret-mnt-db-ontology-command.yaml",
-  ]) {
-    const source = read(path);
+test("DARK operating contract locks whole-Application activation, credentials, rotation, and capacity", () => {
+  const databaseDocs = read(
+    "deploy/apps/maintenance/components/governed-command-database/README.md",
+  );
+  const secretDocs = read(
+    "deploy/apps/secrets-management/components/governed-command-database/README.md",
+  );
+  const ociDocs = read(
+    "deploy/apps/maintenance/overlays/pr-473-expand-oci-guest/README.md",
+  );
+  const onPremDocs = read(
+    "deploy/apps/maintenance/overlays/pr-473-expand-on-prem/README.md",
+  );
+  const docs = [databaseDocs, secretDocs, ociDocs, onPremDocs].join("\n");
+
+  assert.match(
+    databaseDocs,
+    /Never selectively sync[\s\S]*?Sync the\s+whole maintenance Application/,
+  );
+  assert.match(
+    secretDocs,
+    /sync the complete maintenance Application[\s\S]*?Do not selectively sync/,
+  );
+  assert.match(docs, /32-byte hexadecimal/);
+  assert.match(docs, /percent-encode/);
+  assert.match(docs, /kubernetes\.io\/basic-auth/);
+  assert.match(docs, /cnpg\.io\/reload=true/);
+  assert.match(docs, /restart every consumer deliberately/i);
+  assert.match(docs, /Wait for rollout\/deployment readiness/);
+  assert.match(docs, /retired password is rejected/);
+  assert.match(docs, /Do not claim zero-downtime rotation/);
+  assert.match(
+    databaseDocs,
+    /pool at 6 connections and each API command pool at 2/,
+  );
+  assert.match(databaseDocs, /4 x \(6 \+ 2 \+ 2\) = 40/);
+  assert.match(databaseDocs, /2 x 6 = 12/);
+  assert.match(
+    databaseDocs,
+    /total serving demand is 52, leaving 8 connections/,
+  );
+  assert.match(databaseDocs, /PostgreSQL is configured for 60 connections/);
+  assert.match(docs, /pairwise distinct/);
+  assert.match(docs, /session_user = current_user/);
+  assert.match(docs, /expected role and membership rows/);
+});
+
+test("DARK secrets component contains exactly two typed ExternalSecrets and live wiring does not reference it", () => {
+  const componentPath =
+    "deploy/apps/secrets-management/components/governed-command-database";
+  const kustomization = read(`${componentPath}/kustomization.yaml`);
+  const expectedFiles = [
+    "externalsecret-mnt-db-leave-command.yaml",
+    "externalsecret-mnt-db-ontology-command.yaml",
+  ];
+
+  const resources = [
+    ...kustomization.matchAll(/^\s+- (externalsecret-[^\s]+\.yaml)$/gm),
+  ].map((match) => match[1]);
+  assert.deepEqual(resources, expectedFiles);
+
+  for (const file of expectedFiles) {
+    assert.ok(existsSync(new URL(`${componentPath}/${file}`, root)));
+    const source = read(`${componentPath}/${file}`);
+    assert.match(source, /apiVersion: external-secrets\.io\/v1/);
+    assert.match(source, /kind: ExternalSecret/);
     assert.match(source, /type: kubernetes\.io\/basic-auth/);
     assert.match(source, /cnpg\.io\/reload: "true"/);
+    for (const key of ["username", "password", "uri"]) {
+      assert.match(source, new RegExp(`secretKey: ${key}`));
+    }
   }
-});
 
-test("database credential rotation requires explicit workload rollout and fail-closed readiness", () => {
-  const vault = read("deploy/apps/secrets-management/README.md");
-  assert.doesNotMatch(vault, /with \*\*no workload redeploy\*\*/i);
-  assert.match(vault, /kubectl argo rollouts restart mnt-app -n maintenance/);
-  assert.match(vault, /rollout restart deployment\/mnt-worker/);
-  assert.match(
-    vault,
-    /runtime, leave-command, and[\s\S]*ontology-command pools/i,
+  const liveWiring = read(
+    "deploy/apps/secrets-management/wiring/kustomization.yaml",
   );
-  assert.match(vault, /does not claim a live zero-downtime rotation/i);
-});
-
-test("blue-green and worker surge retain a PostgreSQL connection reserve", () => {
-  const app = read("backend/app/src/lib.rs");
-  const database = read("deploy/apps/maintenance/base/database.yaml");
-  const deployReadme = read("deploy/README.md");
-  assert.match(app, /RUNTIME_DATABASE_POOL_MAX_CONNECTIONS: u32 = 6/);
-  assert.match(
-    app,
-    /\.max_connections\(RUNTIME_DATABASE_POOL_MAX_CONNECTIONS\)/,
-  );
-  assert.match(app, /\.max_connections\(2\)/);
-  assert.match(database, /max_connections: "60"/);
-  assert.match(
-    deployReadme,
-    /worst-case blue\/green plus worker surge[\s\S]*52 connections[\s\S]*eight/i,
+  assert.doesNotMatch(liveWiring, /governed-command-database/);
+  assert.doesNotMatch(
+    liveWiring,
+    /externalsecret-mnt-db-(?:leave|ontology)-command/,
   );
 });

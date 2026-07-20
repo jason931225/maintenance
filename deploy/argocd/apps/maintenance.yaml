@@ -50,6 +50,7 @@ spec:
         - .spec.bootstrap.initdb.localeCType
         - .spec.bootstrap.initdb.localeCollate
         - .spec.enablePDB
+        - .spec.enableSuperuserAccess
         - .spec.failoverDelay
         - .spec.logLevel
         - .spec.managed.roles[]?.connectionLimit

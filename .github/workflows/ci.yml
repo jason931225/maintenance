@@ -340,7 +340,7 @@ jobs:
           cache: npm
 
       - name: dev-up compose contract unit test
-        run: node --test scripts/dev-up-compose.test.mjs scripts/check-command-database-wiring.test.mjs
+        run: node --test scripts/dev-up-compose.test.mjs
 
       - name: PostgreSQL topology integration regression
         run: ops/postgres-topology.integration.test.sh
@@ -635,6 +635,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          fetch-depth: 0
 
       - name: Install kubectl (for kustomize renderer)
         env:
@@ -645,6 +647,9 @@ jobs:
           echo "$(cat kubectl.sha256)  kubectl" | sha256sum --check
           sudo install -m 0755 kubectl /usr/local/bin/kubectl
           kubectl version --client=true
+
+      - name: Governed command-database DARK wiring regression
+        run: node --test scripts/check-command-database-wiring.test.mjs
 
       - name: Render manifests and NetworkPolicy enforcement preflight
         if: ${{ !cancelled() }}

@@ -10,6 +10,4 @@ resources:
   - clusterrolebinding-external-secrets-auth-delegator.yaml
   - externalsecret-mnt-secrets.yaml
   - externalsecret-mnt-db-rt.yaml
-  - externalsecret-mnt-db-leave-command.yaml
-  - externalsecret-mnt-db-ontology-command.yaml
   - externalsecret-oci-objectstore-creds.yaml
