@@ -1937,16 +1937,15 @@ async fn enforce_migration_database_budgets(conn: &mut PgConnection) -> Result<(
     )
 }
 
-async fn validate_migration_database_pool(pool: &PgPool) -> Result<(), AppError> {
-    let mut conn = pool.acquire().await.map_err(AppError::Database)?;
-    validate_migration_database_connection(&mut conn)
-        .await
-        .map_err(AppError::Database)
+async fn prepare_migration_database_connection(conn: &mut PgConnection) -> Result<(), sqlx::Error> {
+    enforce_migration_database_budgets(conn).await?;
+    validate_migration_database_connection(conn).await
 }
 
 async fn reset_migration_database_connection(conn: &mut PgConnection) -> Result<bool, sqlx::Error> {
     reset_database_connection_state(conn).await?;
-    Ok(enforce_migration_database_budgets(conn).await.is_ok())
+    enforce_migration_database_budgets(conn).await?;
+    Ok(true)
 }
 
 fn migration_database_pool_options() -> PgPoolOptions {
@@ -1954,7 +1953,7 @@ fn migration_database_pool_options() -> PgPoolOptions {
         .max_connections(1)
         .acquire_timeout(Duration::from_secs(10))
         .after_connect(|conn, _meta| {
-            Box::pin(async move { enforce_migration_database_budgets(conn).await })
+            Box::pin(async move { prepare_migration_database_connection(conn).await })
         })
         .after_release(|conn, _meta| {
             Box::pin(async move { reset_migration_database_connection(conn).await })
@@ -3669,11 +3668,12 @@ pub async fn run_migrations(config: &AppConfig) -> Result<(), AppError> {
         .await
         .map_err(AppError::Database)?;
 
-    // The migrate role intentionally owns the database and inherits exactly two
-    // hardened definer capabilities. Re-run the specialized contract immediately
-    // before migration execution rather than applying serving-role assumptions.
-    validate_migration_database_pool(&pool).await?;
-    let applied_before = applied_migration_count(&pool).await?;
+    // `after_connect` has already enforced the migration budgets and exact
+    // migration identity on this physical connection. Keep the same checkout
+    // through the preflight count, migration run, and final count so no
+    // unvalidated connection can enter the migration execution path.
+    let mut connection = pool.acquire().await.map_err(AppError::Database)?;
+    let applied_before = applied_migration_count(&mut connection).await?;
     let embedded = MIGRATOR.iter().count();
 
     tracing::info!(
@@ -3682,12 +3682,19 @@ pub async fn run_migrations(config: &AppConfig) -> Result<(), AppError> {
         "applying schema migrations (migrate mode)"
     );
 
+    // Close the time-of-check gap as far as the database protocol permits:
+    // revalidate the same physical connection immediately before handing it
+    // to SQLx's migrator.
+    prepare_migration_database_connection(&mut connection)
+        .await
+        .map_err(AppError::Database)?;
+
     MIGRATOR
-        .run(&pool)
+        .run(&mut *connection)
         .await
         .map_err(|err| AppError::Internal(format!("migration run failed: {err}")))?;
 
-    let applied_after = applied_migration_count(&pool).await?;
+    let applied_after = applied_migration_count(&mut connection).await?;
     let newly_applied = applied_after.saturating_sub(applied_before);
 
     if newly_applied == 0 {
@@ -3703,6 +3710,7 @@ pub async fn run_migrations(config: &AppConfig) -> Result<(), AppError> {
         );
     }
 
+    drop(connection);
     pool.close().await;
     Ok(())
 }
@@ -3710,9 +3718,9 @@ pub async fn run_migrations(config: &AppConfig) -> Result<(), AppError> {
 /// Count rows in sqlx's `_sqlx_migrations` ledger, returning 0 before the table
 /// exists (a fresh database, before the first `MIGRATOR.run`). Used only to log
 /// how many migrations a `migrate` run newly applied.
-async fn applied_migration_count(pool: &PgPool) -> Result<usize, AppError> {
+async fn applied_migration_count(connection: &mut PgConnection) -> Result<usize, AppError> {
     let count: i64 = sqlx::query_scalar("SELECT count(*) FROM _sqlx_migrations WHERE success")
-        .fetch_one(pool)
+        .fetch_one(connection)
         .await
         .unwrap_or(0);
     Ok(usize::try_from(count).unwrap_or(0))
@@ -4442,9 +4450,26 @@ mod worker_identity_tests {
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod migration_database_budget_tests {
-    use sqlx::PgPool;
+    use std::time::Duration;
 
-    use super::{ensure_expected_migration_database_budgets, migration_database_pool_options};
+    use sqlx::{PgPool, postgres::PgPoolOptions};
+
+    use super::{
+        enforce_migration_database_budgets, ensure_expected_migration_database_budgets,
+        reset_migration_database_connection,
+    };
+
+    fn isolated_owner_budget_pool_options() -> PgPoolOptions {
+        PgPoolOptions::new()
+            .max_connections(1)
+            .acquire_timeout(Duration::from_secs(10))
+            .after_connect(|conn, _meta| {
+                Box::pin(async move { enforce_migration_database_budgets(conn).await })
+            })
+            .after_release(|conn, _meta| {
+                Box::pin(async move { reset_migration_database_connection(conn).await })
+            })
+    }
 
     async fn cluster_identity_snapshot(pool: &PgPool) -> String {
         sqlx::query_scalar(
@@ -4546,15 +4571,18 @@ mod migration_database_budget_tests {
         }
     }
 
-    #[sqlx::test(migrations = "../crates/platform/db/migrations")]
+    #[sqlx::test(migrations = false)]
     async fn migration_pool_applies_and_restores_session_budgets(pool: PgPool) {
+        // Snapshot before the test body performs any session mutation. This
+        // regression deliberately runs with no migrations so it cannot alter
+        // cluster-global role defaults or memberships.
         let identity_before = cluster_identity_snapshot(&pool).await;
         let expected_user: String = sqlx::query_scalar("SELECT session_user::text")
             .fetch_one(&pool)
             .await
             .expect("isolated test database owner reads");
         let connect_options = pool.connect_options().as_ref().clone();
-        let migration_pool = migration_database_pool_options()
+        let migration_pool = isolated_owner_budget_pool_options()
             .connect_with(connect_options)
             .await
             .expect("migration budget pool connects as isolated test database owner");
@@ -4570,12 +4598,14 @@ mod migration_database_budget_tests {
                 r#"
                 SET SESSION lock_timeout = '13s';
                 SET SESSION statement_timeout = '17s';
-                SET ROLE pg_database_owner;
+                SET SESSION AUTHORIZATION pg_database_owner;
                 "#,
             )
             .execute(&mut *connection)
             .await
-            .expect("migration session can be deliberately poisoned");
+            .expect(
+                "isolated database owner can safely poison only its session authorization and budgets",
+            );
         }
 
         assert_migration_session(&migration_pool, &expected_user).await;
