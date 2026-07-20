@@ -2730,6 +2730,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "mnt-action-inbox-application"
+version = "0.1.0"
+dependencies = [
+ "mnt-kernel-core",
+ "serde",
+ "serde_json",
+ "time",
+ "uuid",
+]
+
+[[package]]
 name = "mnt-analytics-quant-rest"
 version = "0.1.0"
 dependencies = [
@@ -2766,6 +2777,7 @@ dependencies = [
  "jsonwebtoken",
  "metrics",
  "metrics-exporter-prometheus",
+ "mnt-action-inbox-application",
  "mnt-analytics-quant-rest",
  "mnt-comms-adapter-imap",
  "mnt-comms-adapter-postgres",
