@@ -33,18 +33,13 @@ import kotlinx.serialization.Contextual
  *
  *
  * @param items
- * @param nextCursor Last request id for the next stable keyset page, or null when exhausted.
  */
 @Serializable
 
 data class LeaveRequestPage (
 
     @SerialName(value = "items")
-    val items: kotlin.collections.List<LeaveRequestView>,
-
-    /* Last request id for the next stable keyset page, or null when exhausted. */
-    @Contextual @SerialName(value = "next_cursor")
-    val nextCursor: java.util.UUID?
+    val items: kotlin.collections.List<LeaveRequestView>
 
 ) {
 

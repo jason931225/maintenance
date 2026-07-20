@@ -121,24 +121,24 @@ function patchKnownGeneratorGaps(stagingDir) {
   }
 
   // swift-openapi-generator 1.12 also drops a required oneOf[$ref, null]
-  // property entirely. LeaveRequestView.charge_units is required on the wire
+  // property entirely. LeaveRequestV2View.charge_units is required on the wire
   // even though its value can be null, so preserve both halves of that contract:
   // a missing key must fail decoding and nil must encode as an explicit null.
   const chargePropertyAnchor = `            @available(*, deprecated)
             public var days: Swift.Double
-            /// - Remark: Generated from \`#/components/schemas/LeaveRequestView/charge_state\`.`;
+            /// - Remark: Generated from \`#/components/schemas/LeaveRequestV2View/charge_state\`.`;
   const patchedChargeProperty = `            @available(*, deprecated)
             public var days: Swift.Double
             /// Exact resolved charge; null while review is required or no charge applies.
             ///
-            /// - Remark: Generated from \`#/components/schemas/LeaveRequestView/charge_units\`.
+            /// - Remark: Generated from \`#/components/schemas/LeaveRequestV2View/charge_units\`.
             @RequiredNullable public var chargeUnits: Components.Schemas.LeaveUnits?
-            /// - Remark: Generated from \`#/components/schemas/LeaveRequestView/charge_state\`.`;
+            /// - Remark: Generated from \`#/components/schemas/LeaveRequestV2View/charge_state\`.`;
   const chargeInitAnchor = `                days: Swift.Double,
-                chargeState: Components.Schemas.LeaveRequestView.ChargeStatePayload,`;
+                chargeState: Components.Schemas.LeaveRequestV2View.ChargeStatePayload,`;
   const patchedChargeInit = `                days: Swift.Double,
                 chargeUnits: Components.Schemas.LeaveUnits?,
-                chargeState: Components.Schemas.LeaveRequestView.ChargeStatePayload,`;
+                chargeState: Components.Schemas.LeaveRequestV2View.ChargeStatePayload,`;
   const chargeAssignmentAnchor = `                self.days = days
                 self.chargeState = chargeState`;
   const patchedChargeAssignment = `                self.days = days
@@ -161,7 +161,7 @@ function patchKnownGeneratorGaps(stagingDir) {
       text = text.replace(generated, patched);
     } else if (!text.includes(patched)) {
       throw new Error(
-        "patchKnownGeneratorGaps: expected generated LeaveRequestView charge_units anchor not found; " +
+        "patchKnownGeneratorGaps: expected generated LeaveRequestV2View charge_units anchor not found; " +
           "swift-openapi-generator output may have changed, update the patch.",
       );
     }
@@ -169,15 +169,15 @@ function patchKnownGeneratorGaps(stagingDir) {
 
   const requiredNullablePagePatchPairs = [
     [
-      `            /// - Remark: Generated from \`#/components/schemas/LeaveRequestPage/next_cursor\`.
+      `            /// - Remark: Generated from \`#/components/schemas/LeaveRequestV2Page/next_cursor\`.
             public var nextCursor: Swift.String?`,
-      `            /// - Remark: Generated from \`#/components/schemas/LeaveRequestPage/next_cursor\`.
+      `            /// - Remark: Generated from \`#/components/schemas/LeaveRequestV2Page/next_cursor\`.
             @RequiredNullable public var nextCursor: Swift.String?`,
     ],
     [
-      `                items: [Components.Schemas.LeaveRequestView],
+      `                items: [Components.Schemas.LeaveRequestV2View],
                 nextCursor: Swift.String? = nil`,
-      `                items: [Components.Schemas.LeaveRequestView],
+      `                items: [Components.Schemas.LeaveRequestV2View],
                 nextCursor: Swift.String?`,
     ],
     [

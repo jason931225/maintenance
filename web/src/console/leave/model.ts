@@ -5,7 +5,7 @@
 //
 // BE contract (verified against backend/crates/leave/rest/src/lib.rs +
 // openapi.yaml, both read directly — no REST is speculated):
-//   • POST /api/v1/leave/requests (operationId createLeaveRequest) now exists —
+//   • POST /api/v2/leave/requests (operationId createLeaveRequestV2) now exists —
 //     built + mnt_rt-tested in this lane (see rest::create_request +
 //     resolve_self_filing_context; fragment wave-mc-fragments/people.yaml). The
 //     본인 신청 form is REAL-submitting and fail-closed (§4-19): subject_employee_id

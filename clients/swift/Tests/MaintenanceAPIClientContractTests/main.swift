@@ -1,14 +1,16 @@
 import Foundation
 import MaintenanceAPIClient
 
-private typealias LeaveRequestView = Components.Schemas.LeaveRequestView
-private typealias LeaveRequestPage = Components.Schemas.LeaveRequestPage
+private typealias LegacyLeaveRequestView = Components.Schemas.LeaveRequestView
+private typealias LeaveRequestV2View = Components.Schemas.LeaveRequestV2View
+private typealias LeaveRequestV2Page = Components.Schemas.LeaveRequestV2Page
 private typealias ActionInboxResponse = Components.Schemas.ActionInboxResponse
 
 @main
 private enum GeneratedClientContractTests {
     static func main() throws {
         let tests: [(String, () -> Bool)] = [
+            ("decodes the frozen v1 leave response", decodesFrozenV1LeaveResponse),
             ("decodes required null charge_units", decodesRequiredNullChargeUnits),
             ("re-encodes null charge_units as an explicit field", reencodesNullChargeUnitsAsExplicitField),
             ("rejects a payload without charge_units", rejectsPayloadWithoutChargeUnits),
@@ -34,8 +36,15 @@ private enum GeneratedClientContractTests {
         }
     }
 
+    private static func decodesFrozenV1LeaveResponse() -> Bool {
+        guard let decoded = try? decoder.decode(LegacyLeaveRequestView.self, from: validV1Payload) else {
+            return false
+        }
+        return decoded.days == 1.0
+    }
+
     private static func decodesRequiredNullChargeUnits() -> Bool {
-        guard let decoded = try? decoder.decode(LeaveRequestView.self, from: validPayload) else {
+        guard let decoded = try? decoder.decode(LeaveRequestV2View.self, from: validPayload) else {
             return false
         }
         return decoded.chargeUnits == nil
@@ -43,7 +52,7 @@ private enum GeneratedClientContractTests {
 
     private static func reencodesNullChargeUnitsAsExplicitField() -> Bool {
         guard
-            let decoded = try? decoder.decode(LeaveRequestView.self, from: validPayload),
+            let decoded = try? decoder.decode(LeaveRequestV2View.self, from: validPayload),
             let data = try? encoder.encode(decoded),
             let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
         else {
@@ -53,7 +62,7 @@ private enum GeneratedClientContractTests {
     }
 
     private static func decodesRequiredNonNullDays() -> Bool {
-        guard let decoded = try? decoder.decode(LeaveRequestView.self, from: validPayload) else {
+        guard let decoded = try? decoder.decode(LeaveRequestV2View.self, from: validPayload) else {
             return false
         }
         return decoded.days == 1.0
@@ -68,22 +77,22 @@ private enum GeneratedClientContractTests {
     }
 
     private static func rejectsPayloadWithoutRequiredKey(_ key: String) -> Bool {
-        rejectsPayloadWithoutRequiredKey(key, payload: validPayload, as: LeaveRequestView.self)
+        rejectsPayloadWithoutRequiredKey(key, payload: validPayload, as: LeaveRequestV2View.self)
     }
 
     private static func decodesRequiredNullLeaveNextCursor() -> Bool {
-        guard let decoded = try? decoder.decode(LeaveRequestPage.self, from: validLeavePage) else {
+        guard let decoded = try? decoder.decode(LeaveRequestV2Page.self, from: validLeavePage) else {
             return false
         }
         return decoded.nextCursor == nil
     }
 
     private static func reencodesNullLeaveNextCursorAsExplicitField() -> Bool {
-        explicitNullRoundTrips(validLeavePage, as: LeaveRequestPage.self, key: "next_cursor")
+        explicitNullRoundTrips(validLeavePage, as: LeaveRequestV2Page.self, key: "next_cursor")
     }
 
     private static func rejectsLeavePageWithoutNextCursor() -> Bool {
-        rejectsPayloadWithoutRequiredKey("next_cursor", payload: validLeavePage, as: LeaveRequestPage.self)
+        rejectsPayloadWithoutRequiredKey("next_cursor", payload: validLeavePage, as: LeaveRequestV2Page.self)
     }
 
     private static func decodesRequiredNullActionNextCursor() -> Bool {
@@ -152,6 +161,12 @@ private enum GeneratedClientContractTests {
     private static var validPayload: Data {
         Data(
             #"{"id":"00000000-0000-0000-0000-000000000001","branch_id":"00000000-0000-0000-0000-000000000002","requester_user_id":"00000000-0000-0000-0000-000000000003","subject_employee_id":"00000000-0000-0000-0000-000000000004","leave_type":"annual","days":1.0,"charge_units":null,"charge_state":"review_required","charge_review_reasons":["missing_calendar"],"request_version":1,"charge_version":0,"start_date":"2026-07-20","end_date":"2026-07-20","reason":"Annual leave","status":"pending","created_at":"2026-07-19T12:00:00Z"}"#.utf8
+        )
+    }
+
+    private static var validV1Payload: Data {
+        Data(
+            #"{"id":"00000000-0000-0000-0000-000000000001","branch_id":"00000000-0000-0000-0000-000000000002","requester_user_id":"00000000-0000-0000-0000-000000000003","subject_employee_id":"00000000-0000-0000-0000-000000000004","leave_type":"annual","days":1.0,"start_date":"2026-07-20","end_date":"2026-07-20","reason":"Annual leave","status":"pending","decided_by":null,"decided_at":null,"created_at":"2026-07-19T12:00:00Z"}"#.utf8
         )
     }
 

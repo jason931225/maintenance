@@ -1,6 +1,6 @@
 // 레인1 leave — module-specific api client for the self-service 연차 신청 create.
 //
-// POST /api/v1/leave/requests (operationId createLeaveRequest). The caller files
+// POST /api/v2/leave/requests (operationId createLeaveRequestV2). The caller files
 // a request for THEMSELVES: the backend resolves subject_employee_id + branch_id
 // from the authenticated caller's account (users.employee_id + user_branches),
 // never from this body — so the FE cannot (and must not) send them. `days` is
@@ -15,7 +15,10 @@ import type { components } from "@maintenance/api-client-ts";
 import type { ConsoleApiClient } from "../../api/client";
 import type { LeaveRequestView } from "../../api/types";
 
-export type CreateLeaveRequestInput = components["schemas"]["LeaveCreateRequest"];
+export type CreateLeaveRequestInput = Omit<
+  components["schemas"]["LeaveCreateRequest"],
+  "idempotency_key"
+>;
 
 export interface CreateLeaveRequestResult {
   ok: boolean;
@@ -29,7 +32,7 @@ export async function createLeaveRequest(
   idempotencyKey: string,
 ): Promise<CreateLeaveRequestResult> {
   const body = { ...input, idempotency_key: idempotencyKey };
-  const { data, error } = await api.POST("/api/v1/leave/requests", { body });
+  const { data, error } = await api.POST("/api/v2/leave/requests", { body });
   if (!data) return { ok: false, error };
   return { ok: true, data };
 }

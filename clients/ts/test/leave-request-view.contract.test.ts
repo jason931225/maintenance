@@ -3,8 +3,9 @@ import test from "node:test";
 
 import type { components, operations } from "../src/schema.js";
 
-type LeaveRequestView = components["schemas"]["LeaveRequestView"];
-type LeaveRequestPage = components["schemas"]["LeaveRequestPage"];
+type LegacyLeaveRequestView = components["schemas"]["LeaveRequestView"];
+type LeaveRequestView = components["schemas"]["LeaveRequestV2View"];
+type LeaveRequestPage = components["schemas"]["LeaveRequestV2Page"];
 type ActionInboxResponse = components["schemas"]["ActionInboxResponse"];
 
 const leaveRequest = {
@@ -28,6 +29,22 @@ const leaveRequest = {
   created_at: "2026-07-19T12:00:00Z",
 } satisfies LeaveRequestView;
 
+const legacyLeaveRequest = {
+  id: leaveRequest.id,
+  branch_id: leaveRequest.branch_id,
+  requester_user_id: leaveRequest.requester_user_id,
+  subject_employee_id: leaveRequest.subject_employee_id,
+  leave_type: leaveRequest.leave_type,
+  days: leaveRequest.days,
+  start_date: leaveRequest.start_date,
+  end_date: leaveRequest.end_date,
+  reason: leaveRequest.reason,
+  status: leaveRequest.status,
+  decided_by: leaveRequest.decided_by,
+  decided_at: leaveRequest.decided_at,
+  created_at: leaveRequest.created_at,
+} satisfies LegacyLeaveRequestView;
+
 const leavePage = {
   items: [leaveRequest],
   next_cursor: null,
@@ -43,13 +60,18 @@ const actionPage = {
 const getMyLeaveQuery = {
   limit: 100,
   cursor: "00000000-0000-0000-0000-000000000001",
-} satisfies NonNullable<operations["getMyLeave"]["parameters"]["query"]>;
+} satisfies NonNullable<operations["getMyLeaveV2"]["parameters"]["query"]>;
 
 const listLeaveRequestsQuery = {
   status: "pending",
   limit: 100,
   cursor: "00000000-0000-0000-0000-000000000002",
-} satisfies NonNullable<operations["listLeaveRequests"]["parameters"]["query"]>;
+} satisfies NonNullable<operations["listLeaveRequestsV2"]["parameters"]["query"]>;
+
+test("generated v1 model preserves the deployed field set", () => {
+  assert.equal(legacyLeaveRequest.days, 1);
+  assert.equal(Object.hasOwn(legacyLeaveRequest, "request_version"), false);
+});
 
 test("JSON round trip preserves a required null charge_units field", () => {
   const decoded = JSON.parse(JSON.stringify(leaveRequest)) as LeaveRequestView;

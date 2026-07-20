@@ -6115,11 +6115,106 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
-  /api/v1/me/leave:
+  /api/v1/leave/requests:
     get:
       tags:
         - leave
-      operationId: getMyLeave
+      operationId: listLeaveRequests
+      summary: List the branch-scoped leave-request approval queue (연차 결재함)
+      description: >-
+        Pending-first, then newest. Requires `employee_directory_read`. The
+        queue is confined to the caller's branches (resolved from the JWT); an
+        out-of-scope request is invisible (deny-by-omission).
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: status
+        in: query
+        required: false
+        description: Filter to one status; omitted returns all four.
+        schema:
+          type: string
+          enum: [pending, approved, returned, rejected]
+      - name: limit
+        in: query
+        required: false
+        description: Page size (clamped server-side to 1..=200; default 100).
+        schema:
+          type: integer
+          format: int64
+      responses:
+        '200':
+          description: A branch-scoped page of leave requests.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaveRequestPage'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /api/v1/leave/requests/{id}/decide:
+    post:
+      tags:
+        - leave
+      operationId: decideLeaveRequest
+      summary: Approve, return, or reject a pending leave request
+      description: >-
+        Requires `employee_directory_manage` in the request's branch. An
+        APPROVE writes the leave ledger (used += days, remaining -= days) in the
+        same audited transaction. Separation of duties — a request cannot be
+        decided by its own requester (403). `return`/`reject` require a comment.
+        A non-pending request is 409; an out-of-branch / unknown request is 404.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LeaveDecideRequest'
+      responses:
+        '200':
+          description: The decided leave request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaveRequestView'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: The request is not pending and cannot be decided again.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '422':
+          description: Missing mandatory comment or unknown decision.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /api/v2/me/leave:
+    get:
+      tags:
+        - leave
+      operationId: getMyLeaveV2
       summary: Read the authenticated employee's own leave balance and history
       description: >-
         Base employee self-service. The server binds both user and linked
@@ -6152,18 +6247,18 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/MyLeaveOverview'
+                $ref: '#/components/schemas/MyLeaveV2Overview'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
-  /api/v1/leave/requests:
+  /api/v2/leave/requests:
     get:
       tags:
         - leave
-      operationId: listLeaveRequests
+      operationId: listLeaveRequestsV2
       summary: List the branch-scoped leave-request approval queue (연차 결재함)
       description: >-
         Pending-first, then newest. Requires `employee_directory_read`. The
@@ -6202,7 +6297,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/LeaveRequestPage'
+                $ref: '#/components/schemas/LeaveRequestV2Page'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -6216,7 +6311,7 @@ paths:
     post:
       tags:
         - leave
-      operationId: createLeaveRequest
+      operationId: createLeaveRequestV2
       summary: File a self-service 연차/반차 request (본인 연차 신청)
       description: >-
         The caller files a leave request for THEMSELVES. `subject_employee_id`
@@ -6247,7 +6342,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/LeaveRequestView'
+                $ref: '#/components/schemas/LeaveRequestV2View'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -6271,11 +6366,11 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
-  /api/v1/leave/requests/{id}/charge-resolution:
+  /api/v2/leave/requests/{id}/charge-resolution:
     post:
       tags:
         - leave
-      operationId: resolveLeaveCharge
+      operationId: resolveLeaveChargeV2
       summary: Record an audited exact leave-charge resolution
       description: >-
         Requires EmployeeDirectoryManage in the request branch. The body carries
@@ -6325,11 +6420,11 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
-  /api/v1/leave/requests/{id}/decide:
+  /api/v2/leave/requests/{id}/decide:
     post:
       tags:
         - leave
-      operationId: decideLeaveRequest
+      operationId: decideLeaveRequestV2
       summary: Approve, return, or reject a pending leave request
       description: >-
         Requires `employee_directory_manage` in the request's branch. An
@@ -6338,10 +6433,9 @@ paths:
         Separation of duties — a request cannot be
         decided by its own requester (403). `return`/`reject` require a comment.
         Approval additionally requires a resolved exact charge and a distinct
-        resolver. New clients carry the current request_version as
-        `expected_version`; omission remains accepted only for backward
-        compatibility with deployed v1 clients and retains first-writer-wins
-        pending-state semantics. charge_version identifies immutable evidence
+        resolver. Clients must carry the current request_version as
+        `expected_version`; omission is rejected so every v2 decision is an
+        explicit compare-and-swap. charge_version identifies immutable evidence
         and is never a request mutation precondition. A successful decision
         increments request_version only; charge_version remains unchanged. An
         unresolved approval returns 409 `leave_calendar_review_required` plus
@@ -6360,14 +6454,14 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/LeaveDecideRequest'
+              $ref: '#/components/schemas/LeaveDecideV2Request'
       responses:
         '200':
           description: The decided leave request.
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/LeaveRequestView'
+                $ref: '#/components/schemas/LeaveRequestV2View'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -13321,6 +13415,7 @@ components:
         NOT accepted here — they are resolved from the authenticated caller.
       additionalProperties: false
       required:
+        - idempotency_key
         - leave_type
         - start_date
         - end_date
@@ -13329,7 +13424,7 @@ components:
         idempotency_key:
           type: string
           format: uuid
-          description: Stable client submission id. Reuse it only to retry the same canonical client intent after an unknown or lost response. Optional only for deployed v1 compatibility; modern clients should always send it.
+          description: Stable client submission id. Reuse it only to retry the same canonical client intent after an unknown or lost response.
         leave_type:
           type: string
           enum: [annual, half_day]
@@ -20626,6 +20721,88 @@ components:
       - subject_employee_id
       - leave_type
       - days
+      - start_date
+      - end_date
+      - reason
+      - status
+      - decided_by
+      - decided_at
+      - created_at
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        branch_id:
+          $ref: '#/components/schemas/Uuid'
+        requester_user_id:
+          $ref: '#/components/schemas/Uuid'
+        subject_employee_id:
+          $ref: '#/components/schemas/Uuid'
+        leave_type:
+          type: string
+          enum: [annual, half_day]
+        days:
+          type: number
+          format: double
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        reason:
+          type: string
+        status:
+          type: string
+          enum: [pending, approved, returned, rejected]
+        decided_by:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        decided_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        decision_comment:
+          type: string
+          description: Mandatory on return/reject; present only when set.
+        ap_run_id:
+          type: string
+          format: uuid
+          description: The engine AP- run, when the submittable definition exists.
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+    LeaveRequestPage:
+      type: object
+      required:
+      - items
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/LeaveRequestView'
+    LeaveDecideRequest:
+      type: object
+      required:
+      - decision
+      properties:
+        decision:
+          type: string
+          enum: [approve, return, reject]
+        comment:
+          type: string
+          description: Mandatory for return/reject; optional for approve.
+    LeaveRequestV2View:
+      type: object
+      description: One leave request in the approval queue (결재함 leave variant).
+      required:
+      - id
+      - branch_id
+      - requester_user_id
+      - subject_employee_id
+      - leave_type
+      - days
       - charge_units
       - charge_state
       - charge_review_reasons
@@ -20720,7 +20897,7 @@ components:
           description: The engine AP- run, when the submittable definition exists.
         created_at:
           $ref: '#/components/schemas/Timestamp'
-    LeaveRequestPage:
+    LeaveRequestV2Page:
       type: object
       required:
       - items
@@ -20729,24 +20906,25 @@ components:
         items:
           type: array
           items:
-            $ref: '#/components/schemas/LeaveRequestView'
+            $ref: '#/components/schemas/LeaveRequestV2View'
         next_cursor:
           type:
           - string
           - 'null'
           format: uuid
           description: Last request id for the next stable keyset page, or null when exhausted.
-    LeaveDecideRequest:
+    LeaveDecideV2Request:
       type: object
       additionalProperties: false
       required:
+      - expected_version
       - decision
       properties:
         expected_version:
           type: integer
           format: int64
           minimum: 1
-          description: Expected mutable request_version, not charge_version. Strongly recommended for new clients; omission is accepted only for deployed v1 compatibility.
+          description: Required mutable request_version compare-and-swap token; never use charge_version.
         decision:
           type: string
           enum: [approve, return, reject]
@@ -20806,14 +20984,14 @@ components:
           - 'null'
           format: uuid
           description: Active authoritative routing branch; null exactly when filing_state is home_branch_required.
-    MyLeaveOverview:
+    MyLeaveV2Overview:
       type: object
       required: [balance, requests]
       properties:
         balance:
           $ref: '#/components/schemas/SelfLeaveBalance'
         requests:
-          $ref: '#/components/schemas/LeaveRequestPage'
+          $ref: '#/components/schemas/LeaveRequestV2Page'
     LeaveSourceRevisionRef:
       type: object
       additionalProperties: false
@@ -25675,6 +25853,54 @@ components:
             reason: { type: string }
             four_eyes_request_ref: { type: string, format: uuid }
       discriminator: { propertyName: op }
+    CreateLeaveRequest:
+      type: object
+      required: [leave_type, reason, start_date, end_date]
+      properties:
+        leave_type: { type: string, enum: [ANNUAL, HALF_DAY_AM, HALF_DAY_PM, SICK, FAMILY_EVENT, PUBLIC_DUTY, UNPAID, OTHER] }
+        reason: { type: string, enum: [PERSONAL, FAMILY_EVENT, MEDICAL, BEREAVEMENT, CHILDCARE, CIVIC_DUTY, OTHER] }
+        start_date: { type: string, format: date }
+        end_date: { type: string, format: date }
+        note: { type: string, nullable: true }
+    DecideLeaveRequest:
+      type: object
+      required: [decision]
+      properties:
+        decision: { type: string, enum: [APPROVE, REJECT] }
+        note: { type: string, nullable: true }
+    LeaveRequest:
+      type: object
+      required: [id, employee_id, leave_type, reason, start_date, end_date, status, requested_by, requested_at]
+      properties:
+        id: { type: string, format: uuid }
+        employee_id: { type: string, format: uuid }
+        employee_name: { type: string, nullable: true }
+        branch_id: { type: string, format: uuid, nullable: true }
+        leave_type: { type: string }
+        reason: { type: string }
+        start_date: { type: string, format: date }
+        end_date: { type: string, format: date }
+        note: { type: string, nullable: true }
+        status: { type: string, enum: [DRAFT, SUBMITTED, APPROVED, REJECTED] }
+        requested_by: { type: string, format: uuid }
+        requested_at: { type: string, format: date-time }
+        decided_by: { type: string, format: uuid, nullable: true }
+        decided_at: { type: string, format: date-time, nullable: true }
+        decision_note: { type: string, nullable: true }
+    MyLeaveBalance:
+      type: object
+      required: [employee_id]
+      properties:
+        employee_id: { type: string, format: uuid }
+        leave_accrued: { type: string, nullable: true }
+        leave_used: { type: string, nullable: true }
+        leave_remaining: { type: string, nullable: true }
+    MyLeaveOverview:
+      type: object
+      required: [balance, requests]
+      properties:
+        balance: { $ref: '#/components/schemas/MyLeaveBalance' }
+        requests: { type: array, items: { $ref: '#/components/schemas/LeaveRequest' } }
     CreateLeavePromotion:
       type: object
       required: [round_no, reference_year]

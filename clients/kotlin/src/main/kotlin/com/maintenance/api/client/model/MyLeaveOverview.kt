@@ -23,8 +23,8 @@
 
 package com.maintenance.api.client.model
 
-import com.maintenance.api.client.model.LeaveRequestPage
-import com.maintenance.api.client.model.SelfLeaveBalance
+import com.maintenance.api.client.model.LeaveRequest
+import com.maintenance.api.client.model.MyLeaveBalance
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerialName
@@ -41,10 +41,10 @@ import kotlinx.serialization.Contextual
 data class MyLeaveOverview (
 
     @SerialName(value = "balance")
-    val balance: SelfLeaveBalance,
+    val balance: MyLeaveBalance,
 
     @SerialName(value = "requests")
-    val requests: LeaveRequestPage
+    val requests: kotlin.collections.List<LeaveRequest>
 
 ) {
 

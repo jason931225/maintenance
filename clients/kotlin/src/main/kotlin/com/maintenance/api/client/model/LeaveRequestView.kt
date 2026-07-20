@@ -23,7 +23,6 @@
 
 package com.maintenance.api.client.model
 
-import com.maintenance.api.client.model.LeaveChargeReviewReason
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerialName
@@ -37,12 +36,7 @@ import kotlinx.serialization.Contextual
  * @param requesterUserId
  * @param subjectEmployeeId
  * @param leaveType
- * @param days Non-null legacy compatibility projection; never authoritative for new approvals.
- * @param chargeUnits Exact resolved charge; null while review is required or no charge applies.
- * @param chargeState
- * @param chargeReviewReasons
- * @param requestVersion Mutable request/workflow CAS token; submit as expected_version for resolve or decide.
- * @param chargeVersion Monotonic immutable charge-evidence revision counter; decisions do not advance it and it is never a request mutation precondition.
+ * @param days
  * @param startDate
  * @param endDate
  * @param reason
@@ -50,10 +44,6 @@ import kotlinx.serialization.Contextual
  * @param decidedBy
  * @param decidedAt
  * @param createdAt
- * @param chargeDigest Server digest of the immutable resolution snapshot, when resolved.
- * @param chargeResolvedBy
- * @param chargeResolutionOrigin Provenance of the current immutable charge snapshot, when one exists.
- * @param partialDayPeriod
  * @param decisionComment Mandatory on return/reject; present only when set.
  * @param apRunId The engine AP- run, when the submittable definition exists.
  */
@@ -76,28 +66,8 @@ data class LeaveRequestView (
     @SerialName(value = "leave_type")
     val leaveType: LeaveRequestView.LeaveType,
 
-    /* Non-null legacy compatibility projection; never authoritative for new approvals. */
     @SerialName(value = "days")
-    @Deprecated(message = "This property is deprecated.")
     val days: kotlin.Double,
-
-    /* Exact resolved charge; null while review is required or no charge applies. */
-    @SerialName(value = "charge_units")
-    val chargeUnits: kotlin.String?,
-
-    @SerialName(value = "charge_state")
-    val chargeState: LeaveRequestView.ChargeState,
-
-    @SerialName(value = "charge_review_reasons")
-    val chargeReviewReasons: kotlin.collections.List<@Contextual LeaveChargeReviewReason>,
-
-    /* Mutable request/workflow CAS token; submit as expected_version for resolve or decide. */
-    @SerialName(value = "request_version")
-    val requestVersion: kotlin.Long,
-
-    /* Monotonic immutable charge-evidence revision counter; decisions do not advance it and it is never a request mutation precondition. */
-    @SerialName(value = "charge_version")
-    val chargeVersion: kotlin.Long,
 
     @Contextual @SerialName(value = "start_date")
     val startDate: java.time.LocalDate,
@@ -119,20 +89,6 @@ data class LeaveRequestView (
 
     @Contextual @SerialName(value = "created_at")
     val createdAt: java.time.OffsetDateTime,
-
-    /* Server digest of the immutable resolution snapshot, when resolved. */
-    @SerialName(value = "charge_digest")
-    val chargeDigest: kotlin.String? = null,
-
-    @Contextual @SerialName(value = "charge_resolved_by")
-    val chargeResolvedBy: java.util.UUID? = null,
-
-    /* Provenance of the current immutable charge snapshot, when one exists. */
-    @SerialName(value = "charge_resolution_origin")
-    val chargeResolutionOrigin: LeaveRequestView.ChargeResolutionOrigin? = null,
-
-    @SerialName(value = "partial_day_period")
-    val partialDayPeriod: LeaveRequestView.PartialDayPeriod? = null,
 
     /* Mandatory on return/reject; present only when set. */
     @SerialName(value = "decision_comment")
@@ -157,18 +113,6 @@ data class LeaveRequestView (
     /**
      *
      *
-     * Values: REVIEW_REQUIRED,RESOLVED,NOT_REQUIRED,LEGACY_UNVERIFIED
-     */
-    @Serializable
-    enum class ChargeState(val value: kotlin.String) {
-        @SerialName(value = "review_required") REVIEW_REQUIRED("review_required"),
-        @SerialName(value = "resolved") RESOLVED("resolved"),
-        @SerialName(value = "not_required") NOT_REQUIRED("not_required"),
-        @SerialName(value = "legacy_unverified") LEGACY_UNVERIFIED("legacy_unverified");
-    }
-    /**
-     *
-     *
      * Values: PENDING,APPROVED,RETURNED,REJECTED
      */
     @Serializable
@@ -177,26 +121,6 @@ data class LeaveRequestView (
         @SerialName(value = "approved") APPROVED("approved"),
         @SerialName(value = "returned") RETURNED("returned"),
         @SerialName(value = "rejected") REJECTED("rejected");
-    }
-    /**
-     * Provenance of the current immutable charge snapshot, when one exists.
-     *
-     * Values: AUTOMATED,MANUAL
-     */
-    @Serializable
-    enum class ChargeResolutionOrigin(val value: kotlin.String) {
-        @SerialName(value = "automated") AUTOMATED("automated"),
-        @SerialName(value = "manual") MANUAL("manual");
-    }
-    /**
-     *
-     *
-     * Values: AM,PM
-     */
-    @Serializable
-    enum class PartialDayPeriod(val value: kotlin.String) {
-        @SerialName(value = "am") AM("am"),
-        @SerialName(value = "pm") PM("pm");
     }
 
 }

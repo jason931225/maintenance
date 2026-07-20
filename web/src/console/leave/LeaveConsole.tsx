@@ -523,13 +523,16 @@ export interface LeaveResolveOutcome {
 
 /** What the 본인 form sends: the subject employee + branch are resolved
  *  server-side from the caller, never sent from here. */
-export type LeaveCreateInput = components["schemas"]["LeaveCreateRequest"];
+export type LeaveCreateInput = Omit<
+  components["schemas"]["LeaveCreateRequest"],
+  "idempotency_key"
+>;
 
 export interface LeaveConsoleProps {
   ledger: LeaveLedgerRow[];
   /** Branch-scoped managed requests; never synthesized from the self endpoint. */
   requests: LeaveRequestView[];
-  /** Server-filtered self-only requests from GET /api/v1/me/leave. */
+  /** Server-filtered self-only requests from GET /api/v2/me/leave. */
   selfRequests: LeaveRequestView[];
   /** JWT `sub` — used only for the SoD hint + "내 신청" filter, never for authz. */
   selfUserId?: string;
@@ -547,7 +550,7 @@ export interface LeaveConsoleProps {
     requestId: string,
     input: LeaveChargeResolutionInput,
   ) => Promise<LeaveResolveOutcome>;
-  /** File a self-service 연차/반차 request (POST /api/v1/leave/requests). */
+  /** File a self-service 연차/반차 request (POST /api/v2/leave/requests). */
   createRequest: (input: LeaveCreateInput) => Promise<LeaveCreateOutcome>;
   pushPromotion: (payload: {
     branchId: string;
@@ -895,7 +898,7 @@ export function LeaveConsole({
     })
     .slice(0, 80);
 
-  // `/api/v1/me/leave` is already caller-scoped by the authenticated server
+  // `/api/v2/me/leave` is already caller-scoped by the authenticated server
   // principal. The optional client session user id is not authority for
   // showing or filtering self-service data; it remains relevant only to the
   // fail-closed separation-of-duties controls below.
@@ -1198,7 +1201,7 @@ export function LeaveConsole({
         </section>
       ) : null}
 
-      {/* 본인 persona — `/api/v1/me/leave` is server-scoped to the caller. */}
+      {/* 본인 persona — `/api/v2/me/leave` is server-scoped to the caller. */}
       <section aria-labelledby="leave-self-title" style={cardStyle}>
         <div style={sectionHeadStyle}>
           <h2 id="leave-self-title" style={sectionTitleStyle}>

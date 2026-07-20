@@ -190,7 +190,7 @@ function LeaveAuthorityBody({
     for (;;) {
       const query = cursor ? { limit: 200, cursor } : { limit: 200 };
       const result = await authority.api
-        .GET("/api/v1/me/leave", { params: { query } })
+        .GET("/api/v2/me/leave", { params: { query } })
         .catch(() => undefined);
       if (requestWasAborted(authority.controller)) return;
       if (!result?.data) {
@@ -251,7 +251,7 @@ function LeaveAuthorityBody({
     for (;;) {
       const query = cursor ? { limit: 200, cursor } : { limit: 200 };
       const result = await authority.api
-        .GET("/api/v1/leave/requests", { params: { query } })
+        .GET("/api/v2/leave/requests", { params: { query } })
         .catch(() => undefined);
       if (requestWasAborted(authority.controller)) return;
       if (!result?.data) {
@@ -290,7 +290,7 @@ function LeaveAuthorityBody({
       comment?: string,
     ): Promise<LeaveDecideOutcome> => {
       const result = await authority.api.POST(
-        "/api/v1/leave/requests/{id}/decide",
+        "/api/v2/leave/requests/{id}/decide",
         {
           params: { path: { id: requestId } },
           body: { expected_version: expectedVersion, decision, comment },
@@ -320,7 +320,7 @@ function LeaveAuthorityBody({
       input: LeaveChargeResolutionInput,
     ): Promise<LeaveResolveOutcome> => {
       const result = await authority.api.POST(
-        "/api/v1/leave/requests/{id}/charge-resolution",
+        "/api/v2/leave/requests/{id}/charge-resolution",
         {
           params: { path: { id: requestId } },
           body: input,

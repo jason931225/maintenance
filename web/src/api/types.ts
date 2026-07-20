@@ -514,9 +514,9 @@ export type EmployeeImportDryRun =
   components["schemas"]["EmployeeImportDryRunSummary"];
 export type HrOrgChartResponse = components["schemas"]["HrOrgChartResponse"];
 export type LeaveBalancePage = components["schemas"]["LeaveBalancePage"];
-// ── console/leave (real leave engine — /api/v1/leave/*) ──────────────────────
-export type LeaveRequestView = components["schemas"]["LeaveRequestView"];
-export type LeaveRequestPage = components["schemas"]["LeaveRequestPage"];
+// ── console/leave (exact-charge engine — /api/v2/leave/*) ────────────────────
+export type LeaveRequestView = components["schemas"]["LeaveRequestV2View"];
+export type LeaveRequestPage = components["schemas"]["LeaveRequestV2Page"];
 export type LeaveDecideRequest = components["schemas"]["LeaveDecideRequest"];
 export type LeaveRosterEntry = components["schemas"]["LeaveRosterEntry"];
 export type LeaveRosterPage = components["schemas"]["LeaveRosterPage"];

@@ -66,7 +66,7 @@ async fn member_self_service_is_server_bound_and_missing_home_branch_is_explicit
     let own = request_json(
         service.clone(),
         "GET",
-        "/api/v1/me/leave",
+        "/api/v2/me/leave",
         &auth.token,
         None,
     )
@@ -83,7 +83,7 @@ async fn member_self_service_is_server_bound_and_missing_home_branch_is_explicit
     let managed = request_json(
         service.clone(),
         "GET",
-        "/api/v1/leave/requests",
+        "/api/v2/leave/requests",
         &auth.token,
         None,
     )
@@ -93,10 +93,11 @@ async fn member_self_service_is_server_bound_and_missing_home_branch_is_explicit
     let forged = request_json(
         service.clone(),
         "POST",
-        "/api/v1/leave/requests",
+        "/api/v2/leave/requests",
         &auth.token,
         Some(json!({
             "leave_type": "annual",
+            "idempotency_key": Uuid::new_v4(),
             "start_date": "2026-07-21",
             "end_date": "2026-07-21",
             "reason": "self service",
@@ -123,7 +124,7 @@ async fn member_self_service_is_server_bound_and_missing_home_branch_is_explicit
     let readable_while_blocked = request_json(
         service.clone(),
         "GET",
-        "/api/v1/me/leave",
+        "/api/v2/me/leave",
         &auth.token,
         None,
     )
@@ -136,12 +137,13 @@ async fn member_self_service_is_server_bound_and_missing_home_branch_is_explicit
     assert!(readable_while_blocked.body["balance"]["home_branch_id"].is_null());
 
     let blocked = request_json(
-        service,
+        service.clone(),
         "POST",
-        "/api/v1/leave/requests",
+        "/api/v2/leave/requests",
         &auth.token,
         Some(json!({
             "leave_type": "half_day",
+            "idempotency_key": Uuid::new_v4(),
             "partial_day_period": "pm",
             "start_date": "2026-07-21",
             "end_date": "2026-07-21",
@@ -157,7 +159,7 @@ async fn member_self_service_is_server_bound_and_missing_home_branch_is_explicit
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
-async fn decide_preserves_versionless_v1_and_modern_exact_cas(owner_pool: PgPool) {
+async fn v1_wire_shape_is_frozen_and_v2_requires_modern_exact_cas(owner_pool: PgPool) {
     let org = OrgId::new();
     let branch = BranchId::new();
     let requester = UserId::new();
@@ -229,7 +231,33 @@ async fn decide_preserves_versionless_v1_and_modern_exact_cas(owner_pool: PgPool
     .await;
     assert_eq!(versionless.status, StatusCode::OK, "{:?}", versionless.body);
     assert_eq!(versionless.body["status"], "rejected");
-    assert_eq!(versionless.body["request_version"], 2);
+    let legacy_keys = versionless
+        .body
+        .as_object()
+        .expect("v1 decision response must be an object")
+        .keys()
+        .map(String::as_str)
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(
+        legacy_keys,
+        std::collections::BTreeSet::from([
+            "branch_id",
+            "created_at",
+            "days",
+            "decided_at",
+            "decided_by",
+            "decision_comment",
+            "end_date",
+            "id",
+            "leave_type",
+            "reason",
+            "requester_user_id",
+            "start_date",
+            "status",
+            "subject_employee_id",
+        ]),
+        "v1 must remain byte-shape compatible with the deployed strict client"
+    );
 
     let repeated = request_json(
         service.clone(),
@@ -243,9 +271,9 @@ async fn decide_preserves_versionless_v1_and_modern_exact_cas(owner_pool: PgPool
     assert_eq!(repeated.body["error"]["code"], "conflict");
 
     let stale_modern = request_json(
-        service,
+        service.clone(),
         "POST",
-        &format!("/api/v1/leave/requests/{modern_request}/decide"),
+        &format!("/api/v2/leave/requests/{modern_request}/decide"),
         &auth.token,
         Some(json!({
             "expected_version": 99,
@@ -264,6 +292,27 @@ async fn decide_preserves_versionless_v1_and_modern_exact_cas(owner_pool: PgPool
         stale_modern.body["error"]["code"],
         "leave_concurrent_modification"
     );
+
+    let legacy_page = request_json(
+        service.clone(),
+        "GET",
+        "/api/v1/leave/requests",
+        &auth.token,
+        None,
+    )
+    .await;
+    assert_eq!(legacy_page.status, StatusCode::OK, "{:?}", legacy_page.body);
+    assert!(legacy_page.body.get("next_cursor").is_none());
+    assert!(
+        legacy_page.body["items"][0]
+            .get("request_version")
+            .is_none()
+    );
+
+    let v2_page = request_json(service, "GET", "/api/v2/leave/requests", &auth.token, None).await;
+    assert_eq!(v2_page.status, StatusCode::OK, "{:?}", v2_page.body);
+    assert!(v2_page.body.get("next_cursor").is_some());
+    assert!(v2_page.body["items"][0].get("request_version").is_some());
 }
 
 struct TestAuth {

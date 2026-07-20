@@ -187,6 +187,7 @@ src/main/kotlin/com/maintenance/api/client/model/CreateGovernanceApprovalRequest
 src/main/kotlin/com/maintenance/api/client/model/CreateInspectionScheduleRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateInternalTicketRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateLeavePromotion.kt
+src/main/kotlin/com/maintenance/api/client/model/CreateLeaveRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateListingRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateListingResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateMessengerThreadRequest.kt
@@ -228,6 +229,7 @@ src/main/kotlin/com/maintenance/api/client/model/DailyPlanListPage.kt
 src/main/kotlin/com/maintenance/api/client/model/DailyPlanStatus.kt
 src/main/kotlin/com/maintenance/api/client/model/DailyPlanSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/DebitCredit.kt
+src/main/kotlin/com/maintenance/api/client/model/DecideLeaveRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/DecideOwnershipTransferRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/DecideWorkflowTaskRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/DecideWorkflowTaskResponse.kt
@@ -364,10 +366,14 @@ src/main/kotlin/com/maintenance/api/client/model/LeaveDateChargeObligation.kt
 src/main/kotlin/com/maintenance/api/client/model/LeaveDateChargeObligationOneOf.kt
 src/main/kotlin/com/maintenance/api/client/model/LeaveDateChargeObligationOneOf1.kt
 src/main/kotlin/com/maintenance/api/client/model/LeaveDecideRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/LeaveDecideV2Request.kt
 src/main/kotlin/com/maintenance/api/client/model/LeavePromotion.kt
 src/main/kotlin/com/maintenance/api/client/model/LeavePromotionRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/LeaveRefusalRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/LeaveRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/LeaveRequestPage.kt
+src/main/kotlin/com/maintenance/api/client/model/LeaveRequestV2Page.kt
+src/main/kotlin/com/maintenance/api/client/model/LeaveRequestV2View.kt
 src/main/kotlin/com/maintenance/api/client/model/LeaveRequestView.kt
 src/main/kotlin/com/maintenance/api/client/model/LeaveRosterEntry.kt
 src/main/kotlin/com/maintenance/api/client/model/LeaveRosterPage.kt
@@ -435,7 +441,9 @@ src/main/kotlin/com/maintenance/api/client/model/MobileStepUpActionKind.kt
 src/main/kotlin/com/maintenance/api/client/model/MobileVotePollRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/MyDispatchOffer.kt
 src/main/kotlin/com/maintenance/api/client/model/MyDispatchOfferPage.kt
+src/main/kotlin/com/maintenance/api/client/model/MyLeaveBalance.kt
 src/main/kotlin/com/maintenance/api/client/model/MyLeaveOverview.kt
+src/main/kotlin/com/maintenance/api/client/model/MyLeaveV2Overview.kt
 src/main/kotlin/com/maintenance/api/client/model/MyPayrollLine.kt
 src/main/kotlin/com/maintenance/api/client/model/MyPayrollLinePage.kt
 src/main/kotlin/com/maintenance/api/client/model/NamedEntity.kt

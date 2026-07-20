@@ -3526,26 +3526,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/me/leave": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Read the authenticated employee's own leave balance and history
-         * @description Base employee self-service. The server binds both user and linked employee identity; no employee-directory feature is required and no employee or branch identifier is accepted from the client. The balance includes a closed filing state so a missing or inactive home branch is visible before submission rather than discovered only after a 409.
-         */
-        get: operations["getMyLeave"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
     "/api/v1/leave/requests": {
         parameters: {
             query?: never;
@@ -3559,31 +3539,7 @@ export interface paths {
          */
         get: operations["listLeaveRequests"];
         put?: never;
-        /**
-         * File a self-service 연차/반차 request (본인 연차 신청)
-         * @description The caller files a leave request for THEMSELVES. `subject_employee_id` and the routing `branch_id` are resolved server-side from the caller's own account and employee.home_branch_id — never from input — so a caller can only file for their own employee record. No directory feature is required (filing one's own leave is a base employee capability); the gate is an active account linked to an active employee; an unlinked or inactive subject is denied with 403. Missing home-branch authority returns the stable 409 `leave_home_branch_review_required`. The request preserves date and AM/PM intent in `review_required`; no calendar-day or fixed-half quantity is invented. A separate resolver pins authoritative evidence before any approval can move the ledger. Modern clients generate one `idempotency_key` per user intent and reuse it after an unknown or lost response. The same key and canonical client intent return the original request without another mutation or audit; a different intent conflicts.
-         */
-        post: operations["createLeaveRequest"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/leave/requests/{id}/charge-resolution": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Record an audited exact leave-charge resolution
-         * @description Requires EmployeeDirectoryManage in the request branch. The body carries reviewed per-date obligations and source revision references, never a client total or digest. The server validates complete date coverage, canonicalizes, totals, hashes, and records an immutable resolution. `expected_version` is the current mutable request_version; the charge_version is assigned independently to the evidence snapshot.
-         */
-        post: operations["resolveLeaveCharge"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -3601,9 +3557,93 @@ export interface paths {
         put?: never;
         /**
          * Approve, return, or reject a pending leave request
-         * @description Requires `employee_directory_manage` in the request's branch. An APPROVE writes the leave ledger (used += exact resolved charge units, remaining -= exact resolved charge units) in the same audited transaction. Separation of duties — a request cannot be decided by its own requester (403). `return`/`reject` require a comment. Approval additionally requires a resolved exact charge and a distinct resolver. New clients carry the current request_version as `expected_version`; omission remains accepted only for backward compatibility with deployed v1 clients and retains first-writer-wins pending-state semantics. charge_version identifies immutable evidence and is never a request mutation precondition. A successful decision increments request_version only; charge_version remains unchanged. An unresolved approval returns 409 `leave_calendar_review_required` plus review reasons, audits the blocked attempt, and changes neither request nor ledger.
+         * @description Requires `employee_directory_manage` in the request's branch. An APPROVE writes the leave ledger (used += days, remaining -= days) in the same audited transaction. Separation of duties — a request cannot be decided by its own requester (403). `return`/`reject` require a comment. A non-pending request is 409; an out-of-branch / unknown request is 404.
          */
         post: operations["decideLeaveRequest"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/me/leave": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the authenticated employee's own leave balance and history
+         * @description Base employee self-service. The server binds both user and linked employee identity; no employee-directory feature is required and no employee or branch identifier is accepted from the client. The balance includes a closed filing state so a missing or inactive home branch is visible before submission rather than discovered only after a 409.
+         */
+        get: operations["getMyLeaveV2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/leave/requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the branch-scoped leave-request approval queue (연차 결재함)
+         * @description Pending-first, then newest. Requires `employee_directory_read`. The queue is confined to the caller's branches (resolved from the JWT); an out-of-scope request is invisible (deny-by-omission).
+         */
+        get: operations["listLeaveRequestsV2"];
+        put?: never;
+        /**
+         * File a self-service 연차/반차 request (본인 연차 신청)
+         * @description The caller files a leave request for THEMSELVES. `subject_employee_id` and the routing `branch_id` are resolved server-side from the caller's own account and employee.home_branch_id — never from input — so a caller can only file for their own employee record. No directory feature is required (filing one's own leave is a base employee capability); the gate is an active account linked to an active employee; an unlinked or inactive subject is denied with 403. Missing home-branch authority returns the stable 409 `leave_home_branch_review_required`. The request preserves date and AM/PM intent in `review_required`; no calendar-day or fixed-half quantity is invented. A separate resolver pins authoritative evidence before any approval can move the ledger. Modern clients generate one `idempotency_key` per user intent and reuse it after an unknown or lost response. The same key and canonical client intent return the original request without another mutation or audit; a different intent conflicts.
+         */
+        post: operations["createLeaveRequestV2"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/leave/requests/{id}/charge-resolution": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record an audited exact leave-charge resolution
+         * @description Requires EmployeeDirectoryManage in the request branch. The body carries reviewed per-date obligations and source revision references, never a client total or digest. The server validates complete date coverage, canonicalizes, totals, hashes, and records an immutable resolution. `expected_version` is the current mutable request_version; the charge_version is assigned independently to the evidence snapshot.
+         */
+        post: operations["resolveLeaveChargeV2"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/leave/requests/{id}/decide": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve, return, or reject a pending leave request
+         * @description Requires `employee_directory_manage` in the request's branch. An APPROVE writes the leave ledger (used += exact resolved charge units, remaining -= exact resolved charge units) in the same audited transaction. Separation of duties — a request cannot be decided by its own requester (403). `return`/`reject` require a comment. Approval additionally requires a resolved exact charge and a distinct resolver. Clients must carry the current request_version as `expected_version`; omission is rejected so every v2 decision is an explicit compare-and-swap. charge_version identifies immutable evidence and is never a request mutation precondition. A successful decision increments request_version only; charge_version remains unchanged. An unresolved approval returns 409 `leave_calendar_review_required` plus review reasons, audits the blocked attempt, and changes neither request nor ledger.
+         */
+        post: operations["decideLeaveRequestV2"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6909,9 +6949,9 @@ export interface components {
         LeaveCreateRequest: {
             /**
              * Format: uuid
-             * @description Stable client submission id. Reuse it only to retry the same canonical client intent after an unknown or lost response. Optional only for deployed v1 compatibility; modern clients should always send it.
+             * @description Stable client submission id. Reuse it only to retry the same canonical client intent after an unknown or lost response.
              */
-            idempotency_key?: string;
+            idempotency_key: string;
             /**
              * @description Full-day or partial-day intent; quantity is resolved only from evidence.
              * @enum {string}
@@ -9818,6 +9858,45 @@ export interface components {
             subject_employee_id: components["schemas"]["Uuid"];
             /** @enum {string} */
             leave_type: "annual" | "half_day";
+            /** Format: double */
+            days: number;
+            /** Format: date */
+            start_date: string;
+            /** Format: date */
+            end_date: string;
+            reason: string;
+            /** @enum {string} */
+            status: "pending" | "approved" | "returned" | "rejected";
+            /** Format: uuid */
+            decided_by: string | null;
+            /** Format: date-time */
+            decided_at: string | null;
+            /** @description Mandatory on return/reject; present only when set. */
+            decision_comment?: string;
+            /**
+             * Format: uuid
+             * @description The engine AP- run, when the submittable definition exists.
+             */
+            ap_run_id?: string;
+            created_at: components["schemas"]["Timestamp"];
+        };
+        LeaveRequestPage: {
+            items: components["schemas"]["LeaveRequestView"][];
+        };
+        LeaveDecideRequest: {
+            /** @enum {string} */
+            decision: "approve" | "return" | "reject";
+            /** @description Mandatory for return/reject; optional for approve. */
+            comment?: string;
+        };
+        /** @description One leave request in the approval queue (결재함 leave variant). */
+        LeaveRequestV2View: {
+            id: components["schemas"]["Uuid"];
+            branch_id: components["schemas"]["Uuid"];
+            requester_user_id: components["schemas"]["Uuid"];
+            subject_employee_id: components["schemas"]["Uuid"];
+            /** @enum {string} */
+            leave_type: "annual" | "half_day";
             /**
              * Format: double
              * @deprecated
@@ -9869,20 +9948,20 @@ export interface components {
             ap_run_id?: string;
             created_at: components["schemas"]["Timestamp"];
         };
-        LeaveRequestPage: {
-            items: components["schemas"]["LeaveRequestView"][];
+        LeaveRequestV2Page: {
+            items: components["schemas"]["LeaveRequestV2View"][];
             /**
              * Format: uuid
              * @description Last request id for the next stable keyset page, or null when exhausted.
              */
             next_cursor: string | null;
         };
-        LeaveDecideRequest: {
+        LeaveDecideV2Request: {
             /**
              * Format: int64
-             * @description Expected mutable request_version, not charge_version. Strongly recommended for new clients; omission is accepted only for deployed v1 compatibility.
+             * @description Required mutable request_version compare-and-swap token; never use charge_version.
              */
-            expected_version?: number;
+            expected_version: number;
             /** @enum {string} */
             decision: "approve" | "return" | "reject";
             /** @description Mandatory for return/reject; optional for approve. */
@@ -9917,9 +9996,9 @@ export interface components {
              */
             home_branch_id: string | null;
         };
-        MyLeaveOverview: {
+        MyLeaveV2Overview: {
             balance: components["schemas"]["SelfLeaveBalance"];
-            requests: components["schemas"]["LeaveRequestPage"];
+            requests: components["schemas"]["LeaveRequestV2Page"];
         };
         LeaveSourceRevisionRef: {
             kind: string;
@@ -11962,6 +12041,60 @@ export interface components {
             reason: string;
             /** Format: uuid */
             four_eyes_request_ref: string;
+        };
+        CreateLeaveRequest: {
+            /** @enum {string} */
+            leave_type: "ANNUAL" | "HALF_DAY_AM" | "HALF_DAY_PM" | "SICK" | "FAMILY_EVENT" | "PUBLIC_DUTY" | "UNPAID" | "OTHER";
+            /** @enum {string} */
+            reason: "PERSONAL" | "FAMILY_EVENT" | "MEDICAL" | "BEREAVEMENT" | "CHILDCARE" | "CIVIC_DUTY" | "OTHER";
+            /** Format: date */
+            start_date: string;
+            /** Format: date */
+            end_date: string;
+            note?: string | null;
+        };
+        DecideLeaveRequest: {
+            /** @enum {string} */
+            decision: "APPROVE" | "REJECT";
+            note?: string | null;
+        };
+        LeaveRequest: {
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            employee_id: string;
+            employee_name?: string | null;
+            /** Format: uuid */
+            branch_id?: string | null;
+            leave_type: string;
+            reason: string;
+            /** Format: date */
+            start_date: string;
+            /** Format: date */
+            end_date: string;
+            note?: string | null;
+            /** @enum {string} */
+            status: "DRAFT" | "SUBMITTED" | "APPROVED" | "REJECTED";
+            /** Format: uuid */
+            requested_by: string;
+            /** Format: date-time */
+            requested_at: string;
+            /** Format: uuid */
+            decided_by?: string | null;
+            /** Format: date-time */
+            decided_at?: string | null;
+            decision_note?: string | null;
+        };
+        MyLeaveBalance: {
+            /** Format: uuid */
+            employee_id: string;
+            leave_accrued?: string | null;
+            leave_used?: string | null;
+            leave_remaining?: string | null;
+        };
+        MyLeaveOverview: {
+            balance: components["schemas"]["MyLeaveBalance"];
+            requests: components["schemas"]["LeaveRequest"][];
         };
         CreateLeavePromotion: {
             /** @enum {integer} */
@@ -17816,42 +17949,13 @@ export interface operations {
             };
         };
     };
-    getMyLeave: {
-        parameters: {
-            query?: {
-                limit?: number;
-                /** @description Last request id from the preceding stable self-service page. */
-                cursor?: string;
-            };
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Exact self balance plus self-only request history. */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["MyLeaveOverview"];
-                };
-            };
-            401: components["responses"]["Unauthorized"];
-            403: components["responses"]["Forbidden"];
-            503: components["responses"]["ServiceUnavailable"];
-        };
-    };
     listLeaveRequests: {
         parameters: {
             query?: {
                 /** @description Filter to one status; omitted returns all four. */
                 status?: "pending" | "approved" | "returned" | "rejected";
-                /** @description Page size for the stable pending-first queue. */
+                /** @description Page size (clamped server-side to 1..=200; default 100). */
                 limit?: number;
-                /** @description Last request id from the preceding branch-scoped page. */
-                cursor?: string;
             };
             header?: never;
             path?: never;
@@ -17881,7 +17985,119 @@ export interface operations {
             };
         };
     };
-    createLeaveRequest: {
+    decideLeaveRequest: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeaveDecideRequest"];
+            };
+        };
+        responses: {
+            /** @description The decided leave request. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeaveRequestView"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description The request is not pending and cannot be decided again. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Missing mandatory comment or unknown decision. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    getMyLeaveV2: {
+        parameters: {
+            query?: {
+                limit?: number;
+                /** @description Last request id from the preceding stable self-service page. */
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Exact self balance plus self-only request history. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MyLeaveV2Overview"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    listLeaveRequestsV2: {
+        parameters: {
+            query?: {
+                /** @description Filter to one status; omitted returns all four. */
+                status?: "pending" | "approved" | "returned" | "rejected";
+                /** @description Page size for the stable pending-first queue. */
+                limit?: number;
+                /** @description Last request id from the preceding branch-scoped page. */
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A branch-scoped page of leave requests. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeaveRequestV2Page"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    createLeaveRequestV2: {
         parameters: {
             query?: never;
             header?: never;
@@ -17900,7 +18116,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["LeaveRequestView"];
+                    "application/json": components["schemas"]["LeaveRequestV2View"];
                 };
             };
             401: components["responses"]["Unauthorized"];
@@ -17934,7 +18150,7 @@ export interface operations {
             };
         };
     };
-    resolveLeaveCharge: {
+    resolveLeaveChargeV2: {
         parameters: {
             query?: never;
             header?: never;
@@ -17982,7 +18198,7 @@ export interface operations {
             };
         };
     };
-    decideLeaveRequest: {
+    decideLeaveRequestV2: {
         parameters: {
             query?: never;
             header?: never;
@@ -17993,7 +18209,7 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["LeaveDecideRequest"];
+                "application/json": components["schemas"]["LeaveDecideV2Request"];
             };
         };
         responses: {
@@ -18003,7 +18219,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["LeaveRequestView"];
+                    "application/json": components["schemas"]["LeaveRequestV2View"];
                 };
             };
             401: components["responses"]["Unauthorized"];

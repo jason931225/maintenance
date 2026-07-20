@@ -132,7 +132,7 @@ function setup(options: Setup = {}) {
     await Promise.resolve();
     const overridden = options.onGet?.(path, requestOptions);
     if (overridden !== undefined) return overridden;
-    if (path === "/api/v1/me/leave") {
+    if (path === "/api/v2/me/leave") {
       if (options.selfFailure) return { error: options.selfFailure };
       return {
         data: {
@@ -152,7 +152,7 @@ function setup(options: Setup = {}) {
         ? { error: { error: { message: "managed failed" } } }
         : { data: { items: roster } };
     }
-    if (path === "/api/v1/leave/requests") {
+    if (path === "/api/v2/leave/requests") {
       return options.managerFailure
         ? { error: { error: { message: "managed failed" } } }
         : {
@@ -170,9 +170,9 @@ function setup(options: Setup = {}) {
     await Promise.resolve();
     const overridden = options.onPost?.(path, postOptions);
     if (overridden !== undefined) return overridden;
-    if (path === "/api/v1/leave/requests")
+    if (path === "/api/v2/leave/requests")
       return { data: request({ id: "created" }) };
-    if (path === "/api/v1/leave/requests/{id}/decide") {
+    if (path === "/api/v2/leave/requests/{id}/decide") {
       return {
         data: request({
           status: "approved",
@@ -183,7 +183,7 @@ function setup(options: Setup = {}) {
         }),
       };
     }
-    if (path === "/api/v1/leave/requests/{id}/charge-resolution") {
+    if (path === "/api/v2/leave/requests/{id}/charge-resolution") {
       return {
         data: {
           request_id: "req-1",
@@ -236,10 +236,10 @@ describe("LeaveBody authoritative personas", () => {
     expect(
       await screen.findByRole("region", { name: S.self.title }),
     ).toBeVisible();
-    expect(GET).toHaveBeenCalledWith("/api/v1/me/leave", {
+    expect(GET).toHaveBeenCalledWith("/api/v2/me/leave", {
       params: { query: { limit: 200 } },
     });
-    expect(GET.mock.calls.map(([path]) => path)).toEqual(["/api/v1/me/leave"]);
+    expect(GET.mock.calls.map(([path]) => path)).toEqual(["/api/v2/me/leave"]);
     expect(screen.queryByRole("region", { name: S.ledger.title })).toBeNull();
   });
 
@@ -262,7 +262,7 @@ describe("LeaveBody authoritative personas", () => {
     setup({
       authz: projection(false),
       onGet: (path, requestOptions) => {
-        if (path !== "/api/v1/me/leave") return undefined;
+        if (path !== "/api/v2/me/leave") return undefined;
         const cursor = (
           requestOptions as { params: { query: { cursor?: string } } }
         ).params.query.cursor;
@@ -298,7 +298,7 @@ describe("LeaveBody authoritative personas", () => {
     const { GET } = setup({
       authz: projection(false),
       onGet: (path) =>
-        path === "/api/v1/me/leave"
+        path === "/api/v2/me/leave"
           ? {
               data: {
                 balance: {
@@ -317,7 +317,7 @@ describe("LeaveBody authoritative personas", () => {
 
     expect(await screen.findByText("연차 정보를 불러오지 못했습니다.")).toBeVisible();
     expect(
-      GET.mock.calls.filter(([path]) => path === "/api/v1/me/leave"),
+      GET.mock.calls.filter(([path]) => path === "/api/v2/me/leave"),
     ).toHaveLength(2);
   });
 
@@ -338,7 +338,7 @@ describe("LeaveBody authoritative personas", () => {
     ).toBeVisible();
     await waitFor(() => {
       expect(GET).toHaveBeenCalledWith(
-        "/api/v1/leave/requests",
+        "/api/v2/leave/requests",
         expect.anything(),
       );
     });
@@ -350,7 +350,7 @@ describe("LeaveBody authoritative personas", () => {
     setup({
       authz: projection(true),
       onGet: (path, requestOptions) => {
-        if (path !== "/api/v1/leave/requests") return undefined;
+        if (path !== "/api/v2/leave/requests") return undefined;
         const cursor = (
           requestOptions as { params: { query: { cursor?: string } } }
         ).params.query.cursor;
@@ -432,7 +432,7 @@ describe("LeaveBody authoritative personas", () => {
     setup({
       authz: projection(false),
       onGet: (path) =>
-        path === "/api/v1/me/leave" ? stale.promise : undefined,
+        path === "/api/v2/me/leave" ? stale.promise : undefined,
       apiName: "A",
     });
     const view = render(<LeaveBody />);
@@ -467,7 +467,7 @@ describe("LeaveBody authoritative personas", () => {
       authz: projection(false),
       self: [],
       onPost: (path) =>
-        path === "/api/v1/leave/requests"
+        path === "/api/v2/leave/requests"
           ? {
               error: {
                 error: { message: "Authoritative home branch review required" },
@@ -489,7 +489,7 @@ describe("LeaveBody authoritative personas", () => {
     expect(
       await screen.findByText("Authoritative home branch review required"),
     ).toBeVisible();
-    expect(POST).toHaveBeenCalledWith("/api/v1/leave/requests", {
+    expect(POST).toHaveBeenCalledWith("/api/v2/leave/requests", {
       body: expect.objectContaining({
         idempotency_key: expect.any(String),
         leave_type: "half_day",
@@ -506,7 +506,7 @@ describe("LeaveBody authoritative personas", () => {
       authz: projection(false),
       self: [],
       onPost: (path) =>
-        path === "/api/v1/leave/requests"
+        path === "/api/v2/leave/requests"
           ? { error: { error: { message: "connection lost" } } }
           : undefined,
     });
@@ -528,12 +528,12 @@ describe("LeaveBody authoritative personas", () => {
     await userEvent.click(submit);
     await waitFor(() => {
       expect(
-        POST.mock.calls.filter(([path]) => path === "/api/v1/leave/requests"),
+        POST.mock.calls.filter(([path]) => path === "/api/v2/leave/requests"),
       ).toHaveLength(2);
     });
 
     const createBodies = POST.mock.calls
-      .filter(([path]) => path === "/api/v1/leave/requests")
+      .filter(([path]) => path === "/api/v2/leave/requests")
       .map(([, options]) =>
         (options as { body: { idempotency_key: string } }).body
           .idempotency_key,
@@ -575,7 +575,7 @@ describe("LeaveBody authoritative personas", () => {
       name: S.queue.decideAria(S.queue.approve, "Kim"),
     });
     await userEvent.click(approve);
-    expect(POST).toHaveBeenCalledWith("/api/v1/leave/requests/{id}/decide", {
+    expect(POST).toHaveBeenCalledWith("/api/v2/leave/requests/{id}/decide", {
       params: { path: { id: "in" } },
       body: { expected_version: 12, decision: "approve", comment: undefined },
     });
@@ -593,7 +593,7 @@ describe("LeaveBody authoritative personas", () => {
         }),
       ],
       onPost: (path) => {
-        if (path === "/api/v1/leave/requests/{id}/charge-resolution") {
+        if (path === "/api/v2/leave/requests/{id}/charge-resolution") {
           return {
             data: {
               request_id: "req-1",
@@ -649,7 +649,7 @@ describe("LeaveBody authoritative personas", () => {
     );
 
     expect(POST).toHaveBeenCalledWith(
-      "/api/v1/leave/requests/{id}/charge-resolution",
+      "/api/v2/leave/requests/{id}/charge-resolution",
       expect.objectContaining({
         body: expect.objectContaining({ expected_version: 7 }),
       }),
@@ -659,7 +659,7 @@ describe("LeaveBody authoritative personas", () => {
         name: S.queue.decideAria(S.queue.approve, "Kim"),
       }),
     );
-    expect(POST).toHaveBeenCalledWith("/api/v1/leave/requests/{id}/decide", {
+    expect(POST).toHaveBeenCalledWith("/api/v2/leave/requests/{id}/decide", {
       params: { path: { id: "req-1" } },
       body: { expected_version: 8, decision: "approve", comment: undefined },
     });
