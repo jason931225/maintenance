@@ -186,6 +186,26 @@ function activeYamlScalarKeys(text, keys) {
   });
 }
 
+function extractYamlMappingBlock(text, key, keyIndent) {
+  const lines = stripHashComments(text).split(/\r?\n/);
+  const matcher = new RegExp(`^\\s{${keyIndent}}${escapeRegExp(key)}:\\s*$`);
+  for (let index = 0; index < lines.length; index += 1) {
+    if (!matcher.test(lines[index])) continue;
+    const block = [lines[index]];
+    for (let blockIndex = index + 1; blockIndex < lines.length; blockIndex += 1) {
+      const line = lines[blockIndex];
+      if (line.trim() === "") {
+        block.push(line);
+        continue;
+      }
+      if (countLeadingSpaces(line) <= keyIndent) break;
+      block.push(line);
+    }
+    return block.join("\n");
+  }
+  return "";
+}
+
 function countLeadingSpaces(line) {
   return line.match(/^\s*/)?.[0].length ?? 0;
 }
@@ -463,6 +483,53 @@ export function evaluateWorkflowHardeningChecks(readText) {
   );
 
   const activeImageRelease = stripHashComments(imageReleaseWorkflow);
+  const workflowDispatch = extractYamlMappingBlock(activeImageRelease, "workflow_dispatch", 2);
+  const productionPromotionInput = extractYamlMappingBlock(
+    workflowDispatch,
+    "promote_production",
+    6,
+  );
+  requirement(
+    result,
+    extractYamlScalar(productionPromotionInput, "required") === "true"
+      && extractYamlScalar(productionPromotionInput, "default") === "false"
+      && extractYamlScalar(productionPromotionInput, "type") === "boolean",
+    "image-release production promotion: explicit required false-by-default boolean dispatch input",
+    "image-release workflow_dispatch must declare promote_production as a required false-by-default boolean",
+  );
+
+  const bumpDigestJob = extractYamlMappingBlock(activeImageRelease, "bump-digests", 2);
+  const bumpDigestSteps = bumpDigestJob.indexOf("\n    steps:");
+  const bumpDigestJobHeader = bumpDigestSteps >= 0
+    ? bumpDigestJob.slice(0, bumpDigestSteps)
+    : bumpDigestJob;
+  requirement(
+    result,
+    /github\.event_name\s*==\s*["']workflow_dispatch["']/.test(bumpDigestJobHeader)
+      && /github\.ref\s*==\s*["']refs\/heads\/main["']/.test(bumpDigestJobHeader)
+      && /inputs\.promote_production\s*==\s*true/.test(bumpDigestJobHeader)
+      && !/github\.event_name\s*==\s*["']push["']/.test(bumpDigestJobHeader),
+    "image-release production promotion: manual dispatch on main with explicit true input",
+    "image-release bump-digests must run only for an explicit workflow_dispatch on refs/heads/main with inputs.promote_production == true; push events must never mutate production",
+  );
+  requirement(
+    result,
+    /^\s{4}environment:\s*["']?production["']?\s*$/m.test(bumpDigestJobHeader),
+    "image-release production promotion: mutation job bound to production environment",
+    "image-release must bind the mutation job to the production environment",
+  );
+  requirement(
+    result,
+    workflowHasRun(bumpDigestJob, [
+      /\bset\s+-euo\s+pipefail\b/,
+      /\bgh\s+api\b.*repos\/\$\{REPO\}\/environments\/production/,
+      /\bjq\s+-e\b/,
+      /\brequired_reviewers\b/,
+    ]),
+    "image-release production promotion: fail-closed required-reviewer preflight",
+    "image-release production promotion must fail closed unless the production environment requires reviewers",
+  );
+
   const releaseProbeStart = activeImageRelease.indexOf("\n  release-probe:");
   const releaseProbeEnd = activeImageRelease.indexOf("\n  bump-digests:", releaseProbeStart + 1);
   const releaseProbe = releaseProbeStart >= 0

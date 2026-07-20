@@ -405,6 +405,14 @@ jobs:
         run: npm audit --audit-level=high
 `,
   ".github/workflows/image-release.yml": `name: Image Release
+on:
+  workflow_dispatch:
+    inputs:
+      promote_production:
+        description: Promote the signed digests to the production overlay
+        required: true
+        default: false
+        type: boolean
 jobs:
   ci-gate:
     steps:
@@ -430,7 +438,22 @@ jobs:
       - name: Attest build provenance
         uses: actions/attest-build-provenance@v4
   bump-digests:
+    environment: production
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      github.ref == 'refs/heads/main' &&
+      inputs.promote_production == true
+    permissions:
+      contents: write
     steps:
+      - name: Verify production environment requires reviewers
+        env:
+          GH_TOKEN: \${{ github.token }}
+          REPO: \${{ github.repository }}
+        run: |
+          set -euo pipefail
+          environment="$(gh api "repos/\${REPO}/environments/production")"
+          jq -e 'any(.protection_rules[]?; .type == "required_reviewers")' <<<"\${environment}"
       - name: Bump prod overlay digests
         run: bash scripts/bump-prod-digests.sh "$APP_DIGEST" "$WEB_DIGEST"
 `,
@@ -452,6 +475,63 @@ function evaluateWorkflows(overrides = {}) {
 describe("production hardening workflow gates", () => {
   it("accepts active CI, security, and image-release workflow gates", () => {
     assert.deepEqual(evaluateWorkflows().failures, []);
+  });
+
+  it("rejects production digest promotion without an explicit required false-by-default dispatch input", () => {
+    const releaseWorkflow = validWorkflowFiles[".github/workflows/image-release.yml"];
+    const result = evaluateWorkflows({
+      ".github/workflows/image-release.yml": releaseWorkflow.replace(
+        `      promote_production:
+        description: Promote the signed digests to the production overlay
+        required: true
+        default: false
+        type: boolean
+`,
+        "",
+      ),
+    });
+
+    assertHasFailure(result, "must declare promote_production as a required false-by-default boolean");
+  });
+
+  it("rejects production digest promotion on push or outside main", () => {
+    const releaseWorkflow = validWorkflowFiles[".github/workflows/image-release.yml"];
+    const result = evaluateWorkflows({
+      ".github/workflows/image-release.yml": releaseWorkflow
+        .replace("github.event_name == 'workflow_dispatch'", "github.event_name == 'push'")
+        .replace("github.ref == 'refs/heads/main'", "startsWith(github.ref, 'refs/heads/')"),
+    });
+
+    assertHasFailure(result, "must run only for an explicit workflow_dispatch on refs/heads/main");
+  });
+
+  it("rejects production digest promotion without the production environment", () => {
+    const releaseWorkflow = validWorkflowFiles[".github/workflows/image-release.yml"];
+    const result = evaluateWorkflows({
+      ".github/workflows/image-release.yml": releaseWorkflow.replace("    environment: production\n", ""),
+    });
+
+    assertHasFailure(result, "must bind the mutation job to the production environment");
+  });
+
+  it("rejects production digest promotion without a fail-closed required-reviewer preflight", () => {
+    const releaseWorkflow = validWorkflowFiles[".github/workflows/image-release.yml"];
+    const result = evaluateWorkflows({
+      ".github/workflows/image-release.yml": releaseWorkflow.replace(
+        `      - name: Verify production environment requires reviewers
+        env:
+          GH_TOKEN: \${{ github.token }}
+          REPO: \${{ github.repository }}
+        run: |
+          set -euo pipefail
+          environment="$(gh api "repos/\${REPO}/environments/production")"
+          jq -e 'any(.protection_rules[]?; .type == "required_reviewers")' <<<"\${environment}"
+`,
+        "",
+      ),
+    });
+
+    assertHasFailure(result, "must fail closed unless the production environment requires reviewers");
   });
 
   it("rejects release-probe checkout without explicit job-level contents read", () => {
