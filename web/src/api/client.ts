@@ -43,6 +43,10 @@ function isMutatingRequest(request: Request): boolean {
   );
 }
 
+function isConsoleRolloutAuthorityRequest(request: Request): boolean {
+  return new URL(request.url).pathname === "/api/v1/console/rollout";
+}
+
 function bypassesReadCache(request: Request): boolean {
   const cacheControl = request.headers.get("Cache-Control")?.toLowerCase() ?? "";
   return cacheControl.includes("no-cache") || cacheControl.includes("no-store");
@@ -296,6 +300,13 @@ export function createConsoleApiClient(
       // and keep the body-based refresh token.
       request.headers.set("X-Auth-Transport", "cookie");
 
+      // Rollout routing includes the emergency kill switch, so every authority
+      // read must reach the network rather than the browser or this client's
+      // 30-second fresh / 5-minute stale read cache.
+      if (isConsoleRolloutAuthorityRequest(request)) {
+        request.headers.set("Cache-Control", "no-store");
+      }
+
       // Attach a stable X-Device-Id so the backend can apply its optional
       // per-device auth rate limit. Best-effort: omitted when unavailable.
       const deviceId = getDeviceId();
@@ -309,7 +320,10 @@ export function createConsoleApiClient(
       // openapi-fetch builds the Request before middleware runs, and a Request's
       // `credentials` is immutable, so we return a credentials-augmented clone
       // that inherits the headers set above.
-      const nextRequest = new Request(request, { credentials: "include" });
+      const nextRequest = new Request(request, {
+        credentials: "include",
+        cache: isConsoleRolloutAuthorityRequest(request) ? "no-store" : request.cache,
+      });
       retryableRequestClones.set(nextRequest, nextRequest.clone());
       if (isMutatingRequest(nextRequest)) {
         invalidateReadCache();

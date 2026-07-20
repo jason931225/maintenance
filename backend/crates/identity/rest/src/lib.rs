@@ -23,7 +23,7 @@ use std::collections::BTreeSet;
 use std::str::FromStr;
 
 use axum::extract::{Path, Query, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{delete, get, patch, post, put};
 use axum::{Json, Router};
@@ -2996,7 +2996,7 @@ async fn get_console_rollout(
             Box::pin(async move { fetch_console_rollout_status_tx(tx, user_id).await })
         })
         .await?;
-    Ok(Json(status))
+    Ok(([(header::CACHE_CONTROL, "no-store")], Json(status)))
 }
 
 async fn update_console_rollout_opt_in(

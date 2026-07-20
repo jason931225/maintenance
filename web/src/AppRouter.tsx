@@ -2,6 +2,8 @@ import { lazy, Suspense } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 
 import { isConsoleHost } from "./lib/consoleUrl";
+import { ConsoleRolloutBoundary } from "./console/rollout/ConsoleRolloutBoundary";
+import { EXPOSED_SCREEN_KEYS } from "./console/shell/nav";
 
 import { PublicLayout } from "./components/public/PublicLayout";
 import { AppShell } from "./components/shell/AppShell";
@@ -49,9 +51,8 @@ const PendingPage = lazy(() =>
 const ConsoleShell = lazy(() =>
   import("./components/shell/ConsoleShell").then((m) => ({ default: m.ConsoleShell })),
 );
-// Carbon-copy console (charter D1). Owns its whole viewport at /console with its
-// own verbatim tokens and NO AppShell chrome — code-split so the legacy shell
-// never pays for it. Scaffold-only in P0.0 (empty themed viewport).
+// Mounted carbon-copy development inventory. Production routing remains behind
+// both the server-owned rollout decision and the ADR-0025 evidence manifest.
 const ConsoleApp = lazy(() =>
   import("./console/ConsoleApp").then((m) => ({ default: m.ConsoleApp })),
 );
@@ -414,18 +415,17 @@ export function AppRouter() {
           <Route path="/attendance" element={null} />
         </Route>
 
-        {/* Carbon-copy console (charter D1). A catch-all under /console so the
-            prototype-style state.screen navigation lives inside one route,
-            outside AppShell — the console owns its whole viewport with its own
-            tokens. Behind ProtectedRoute like every other authenticated route;
-            its own RouteErrorBoundary contains a crash rather than falling
-            through to the blank top-level fallback (it renders shell-less). */}
+        {/* The mounted console is DARK inventory until both server rollout and
+            the ADR-0025 evidence manifest allow it. Every uncertain state
+            returns to the working legacy overview without flashing console UI. */}
         <Route
           path="/console/*"
           element={
             <RouteErrorBoundary>
               <Suspense fallback={<PageSpinner />}>
-                <ConsoleApp />
+                <ConsoleRolloutBoundary approvedScreenKeys={EXPOSED_SCREEN_KEYS}>
+                  <ConsoleApp screenKeys={EXPOSED_SCREEN_KEYS} />
+                </ConsoleRolloutBoundary>
               </Suspense>
             </RouteErrorBoundary>
           }

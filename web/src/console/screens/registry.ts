@@ -1,8 +1,8 @@
 // Screen-body registry: ConsoleShell's URL screen key → the console-pure
-// body component mounted into its screen-body slot. Production-visible keys are
-// constrained by `../shell/nav.ts`'s shipped manifest; planned keys stay DARK.
+// body component mounted into its screen-body slot. Mounted bodies remain DARK
+// until `../shell/nav.ts`'s evidence-approved exposure manifest includes them.
 import type { ComponentType } from "react";
-import type { ShippedScreenKey } from "../shell/nav";
+import type { MountedScreenKey } from "../shell/nav";
 
 import { ApprovalScreenBody } from "../appr/ApprovalScreenBody";
 import { AuditScreenBody } from "../audit/AuditScreenBody";
@@ -23,7 +23,7 @@ import OverviewScreen from "./overview/OverviewScreen";
 import { PolicyBody } from "./policy/PolicyBody";
 import { SupportBody } from "./support/SupportBody";
 
-export const SCREEN_REGISTRY: Readonly<Record<ShippedScreenKey, ComponentType>> = {
+export const SCREEN_REGISTRY: Readonly<Record<MountedScreenKey, ComponentType>> = {
   overview: OverviewScreen,
   mywork: MyWorkScreen,
   inbox: InboxScreen,

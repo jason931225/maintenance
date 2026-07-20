@@ -9,6 +9,7 @@ import { AuthTestProvider } from "../../test/AuthTestProvider";
 import type { AuthSession } from "../../context/auth";
 import type { ConsoleApiClient } from "../../api/client";
 import { ConsoleApp } from "../ConsoleApp";
+import { MOUNTED_SCREEN_KEYS } from "./nav";
 import { Sidebar } from "./Sidebar";
 import type { ThemeMode } from "./theme";
 
@@ -55,7 +56,7 @@ function renderConsole(session: AuthSession, initialEntries: string[] = ["/conso
   return render(
     <MemoryRouter initialEntries={initialEntries}>
       <AuthTestProvider session={session}>
-        <ConsoleApp />
+        <ConsoleApp screenKeys={MOUNTED_SCREEN_KEYS} />
       </AuthTestProvider>
       <RouterProbe />
     </MemoryRouter>,
@@ -109,7 +110,7 @@ describe("ConsoleShell chrome", () => {
           session={{ access_token: "t", roles: ["ADMIN"], org_id: "org-1" }}
           overrides={{ api }}
         >
-          <ConsoleApp />
+          <ConsoleApp screenKeys={MOUNTED_SCREEN_KEYS} />
         </AuthTestProvider>
       </MemoryRouter>,
     );

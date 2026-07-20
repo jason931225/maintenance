@@ -1477,6 +1477,7 @@ export const ko = {
       retryAria: "권한 확인 다시 시도",
     },
     rollout: {
+      checking: "새 콘솔 사용 가능 여부 확인 중",
       toggle: "새 콘솔 사용",
       status: {
         console: "콘솔",

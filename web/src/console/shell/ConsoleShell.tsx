@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Navigate, useLocation, useNavigate } from "react-router-dom";
 
 import { ko } from "../../i18n/ko";
 import { useAuth } from "../../context/auth";
@@ -10,10 +10,12 @@ import { Icon } from "./icons";
 import {
   consoleScreenPath,
   defaultScreen,
-  isShippedScreenKey,
+  EXPOSED_SCREEN_KEYS,
+  isMountedScreenKey,
   screenFromConsolePath,
   visibleConsoleNav,
 } from "./nav";
+import type { MountedScreenKey } from "./nav";
 import { useNavBadges } from "./navBadges";
 import { Sidebar } from "./Sidebar";
 import { useSelfProfile } from "./useSelfProfile";
@@ -47,15 +49,17 @@ function kbdLabel(): string {
 export function ConsoleShell({
   theme,
   onCycleTheme,
+  screenKeys = EXPOSED_SCREEN_KEYS,
 }: {
   theme: ThemeMode;
   onCycleTheme: () => void;
+  screenKeys?: readonly MountedScreenKey[];
 }) {
   const { session } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
   const { grants, source: authzSource } = useConsoleAuthz();
-  const groups = useMemo(() => visibleConsoleNav(grants), [grants]);
+  const groups = useMemo(() => visibleConsoleNav(grants, screenKeys), [grants, screenKeys]);
   const { options: scopeOptions } = useConsoleScopes(S.scope.all);
 
   // Responsive auto-collapse under 1280px, overridable by the user.
@@ -90,15 +94,17 @@ export function ConsoleShell({
   const routeScreen = screenFromConsolePath(location.pathname);
   const activeScreen =
     routeScreen &&
-    isShippedScreenKey(routeScreen) &&
+    isMountedScreenKey(routeScreen) &&
+    screenKeys.includes(routeScreen) &&
     groups.some((g) => g.items.some((i) => i.screen === routeScreen))
       ? routeScreen
-      : defaultScreen(grants);
-  const ScreenBody = SCREEN_REGISTRY[activeScreen];
+      : defaultScreen(grants, screenKeys);
+  const ScreenBody = activeScreen ? SCREEN_REGISTRY[activeScreen] : undefined;
 
   // Canonicalize bare, invalid, unshipped, and unauthorized destinations. A
   // replacement avoids trapping Back on a location the user cannot render.
   useEffect(() => {
+    if (!activeScreen) return;
     const canonicalPath = consoleScreenPath(activeScreen);
     if (location.pathname !== canonicalPath) {
       void navigate(
@@ -111,6 +117,7 @@ export function ConsoleShell({
   const routeSampleReady = useRef(false);
   const lastSampledScreen = useRef<string | undefined>(undefined);
   useEffect(() => {
+    if (!activeScreen) return;
     const markOnce = () => {
       lastSampledScreen.current = activeScreen;
       markConsoleRoute(activeScreen);
@@ -186,6 +193,8 @@ export function ConsoleShell({
   // (navBadges.ts). Fails soft to an empty map, so the shell never depends on it.
   const badges = useNavBadges(session?.access_token);
 
+  if (!activeScreen || !ScreenBody) return <Navigate to="/overview" replace />;
+
   return (
     <div
       data-cshell-root
@@ -243,7 +252,7 @@ export function ConsoleShell({
           userTeamLabel={userTeamLabel}
         />
 
-        {/* URL-driven screen body, constrained to shipped + authorized nav. */}
+        {/* URL-driven body, constrained to evidence-exposed + authorized nav. */}
         <section
           aria-label={S.body.label}
           data-cshell-screen={activeScreen}

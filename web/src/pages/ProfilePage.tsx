@@ -1,7 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 
-import type { operations } from "@maintenance/api-client-ts";
-
 import type { UserSummary } from "../api/types";
 import { Badge } from "../components/ui/badge";
 import { Button } from "../components/ui/button";
@@ -11,6 +9,10 @@ import { PolicyGateProvider, type PolicyGate } from "../console/policy";
 import {
   CONSOLE_ROLLOUT_ACTIONS,
   ConsoleRolloutToggle,
+  deriveConsoleOptInStatus,
+  isConsoleRolloutStatus,
+  requireConsoleRolloutStatus,
+  type ConsoleRolloutApiStatus,
   type ConsoleRolloutStatus as ConsoleRolloutToggleStatus,
 } from "../console/rollout";
 import { PageError } from "../components/states/PageError";
@@ -26,56 +28,8 @@ import { useFeedback } from "../lib/useAutoDismiss";
 
 type ReadState = "idle" | "loading" | "error";
 
-type ConsoleRolloutStatus =
-  operations["getConsoleRollout"]["responses"][200]["content"]["application/json"];
-type ConsoleRoute = ConsoleRolloutStatus["effective_route"];
-
-function isConsoleRoute(value: unknown): value is ConsoleRoute {
-  return value === "legacy" || value === "new_console";
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === "object" && !Array.isArray(value));
-}
-
-function isConsoleRolloutStatus(value: unknown): value is ConsoleRolloutStatus {
-  if (!isRecord(value)) return false;
-  const record = value;
-  return (
-    typeof record.flag_key === "string" &&
-    typeof record.org_enabled === "boolean" &&
-    typeof record.org_rollout_enabled === "boolean" &&
-    typeof record.user_opted_in === "boolean" &&
-    typeof record.legacy_kill_switch_enabled === "boolean" &&
-    typeof record.kill_switch_active === "boolean" &&
-    typeof record.effective_new_console === "boolean" &&
-    isConsoleRoute(record.effective_route) &&
-    isConsoleRoute(record.effective_route_for_opted_in_user) &&
-    record.effective_route_for_opted_out_user === "legacy" &&
-    typeof record.overrides_individual_toggles === "boolean"
-  );
-}
-
-function requireConsoleRolloutStatus(value: unknown): ConsoleRolloutStatus {
-  if (isConsoleRolloutStatus(value)) return value;
-  throw new Error("updateConsoleRolloutOptIn returned invalid rollout status");
-}
-
-function consoleEffectiveNewConsole(
-  status: ConsoleRolloutStatus,
-  optedIn = status.user_opted_in,
-): boolean {
-  return (
-    optedIn &&
-    status.org_enabled &&
-    status.org_rollout_enabled &&
-    !status.kill_switch_active &&
-    !status.legacy_kill_switch_enabled
-  );
-}
-
 function toConsoleRolloutToggleStatus(
-  status: ConsoleRolloutStatus,
+  status: ConsoleRolloutApiStatus,
 ): ConsoleRolloutToggleStatus {
   return {
     orgEnabled: status.org_enabled && status.org_rollout_enabled,
@@ -92,7 +46,7 @@ export function ProfilePage() {
   const [phone, setPhone] = useState("");
   const [pending, setPending] = useState(false);
   const [consoleRollout, setConsoleRollout] = useState<
-    ConsoleRolloutStatus | undefined
+    ConsoleRolloutApiStatus | undefined
   >(undefined);
   const [consolePending, setConsolePending] = useState(false);
   const { feedback, error, showFeedback, showError, clearFeedback, clearError } =
@@ -128,7 +82,9 @@ export function ProfilePage() {
     const rolloutResponse = await api
       .GET("/api/v1/console/rollout", {})
       .catch(() => undefined);
-    setConsoleRollout(rolloutResponse?.data);
+    setConsoleRollout(
+      isConsoleRolloutStatus(rolloutResponse?.data) ? rolloutResponse.data : undefined,
+    );
   }, [api]);
 
   useEffect(() => {
@@ -167,8 +123,8 @@ export function ProfilePage() {
     setConsoleRollout({
       ...consoleRollout,
       user_opted_in: optIn,
-      effective_new_console: consoleEffectiveNewConsole(consoleRollout, optIn),
-      effective_route: consoleEffectiveNewConsole(consoleRollout, optIn)
+      effective_new_console: deriveConsoleOptInStatus(consoleRollout, optIn),
+      effective_route: deriveConsoleOptInStatus(consoleRollout, optIn)
         ? "new_console"
         : "legacy",
     });

@@ -77,12 +77,10 @@ export interface ConsoleNavGroup {
 }
 
 /**
- * Production exposure manifest. Navigation entries intentionally remain in
- * `NAV_GROUPS` while their complete slice is unfinished, but only entries in
- * this manifest may be offered to users. This keeps planned destinations DARK
- * without losing the product information architecture.
+ * Mounted development inventory. These bodies are compile-checked and testable
+ * without implying production readiness or route exposure.
  */
-export const SHIPPED_SCREEN_KEYS = [
+export const MOUNTED_SCREEN_KEYS = [
   "overview",
   "mywork",
   "inbox",
@@ -104,12 +102,25 @@ export const SHIPPED_SCREEN_KEYS = [
   "mail",
 ] as const;
 
-export type ShippedScreenKey = (typeof SHIPPED_SCREEN_KEYS)[number];
+export type MountedScreenKey = (typeof MOUNTED_SCREEN_KEYS)[number];
 
-const SHIPPED_SCREENS: ReadonlySet<string> = new Set(SHIPPED_SCREEN_KEYS);
+/**
+ * ADR-0025 evidence-approved production exposure manifest.
+ *
+ * Bodies in `MOUNTED_SCREEN_KEYS` remain useful development inventory, but no
+ * body currently satisfies every production evidence requirement. Keep this
+ * empty until the evidence is independently reviewed and approved.
+ */
+export const EXPOSED_SCREEN_KEYS: readonly MountedScreenKey[] = [];
 
-export function isShippedScreenKey(screen: string): screen is ShippedScreenKey {
-  return SHIPPED_SCREENS.has(screen);
+const MOUNTED_SCREENS: ReadonlySet<string> = new Set(MOUNTED_SCREEN_KEYS);
+
+export function isMountedScreenKey(screen: string): screen is MountedScreenKey {
+  return MOUNTED_SCREENS.has(screen);
+}
+
+export function isExposedScreenKey(screen: string): screen is MountedScreenKey {
+  return EXPOSED_SCREEN_KEYS.includes(screen as MountedScreenKey);
 }
 
 const g = (roles?: readonly string[], features?: readonly string[]): NavGate => ({
@@ -291,17 +302,23 @@ export function isNavItemVisible(gate: NavGate | undefined, grants: ConsoleGrant
 export interface VisibleNavGroup {
   labelKey: string;
   labelId: string;
-  items: Array<ConsoleNavItem & { screen: ShippedScreenKey }>;
+  items: Array<ConsoleNavItem & { screen: MountedScreenKey }>;
 }
 
 /** The nav groups filtered to what `grants` may see; empty groups are dropped. */
-export function visibleConsoleNav(grants: ConsoleGrants): VisibleNavGroup[] {
+export function visibleConsoleNav(
+  grants: ConsoleGrants,
+  exposedScreenKeys: readonly MountedScreenKey[] = EXPOSED_SCREEN_KEYS,
+): VisibleNavGroup[] {
+  const exposed = new Set<MountedScreenKey>(exposedScreenKeys);
   return NAV_GROUPS.map((group) => ({
     labelKey: group.labelKey,
     labelId: group.labelId,
     items: group.items.filter(
-      (item): item is ConsoleNavItem & { screen: ShippedScreenKey } =>
-        isShippedScreenKey(item.screen) && isNavItemVisible(item.gate, grants),
+      (item): item is ConsoleNavItem & { screen: MountedScreenKey } =>
+        isMountedScreenKey(item.screen) &&
+        exposed.has(item.screen) &&
+        isNavItemVisible(item.gate, grants),
     ),
   })).filter((group) => group.items.length > 0);
 }
@@ -322,7 +339,10 @@ export function consoleScreenPath(screen: string): string {
   return `/console/${encodeURIComponent(screen)}`;
 }
 
-/** The default screen a session lands on (first visible item, or a stable fallback). */
-export function defaultScreen(grants: ConsoleGrants): ShippedScreenKey {
-  return visibleConsoleNav(grants)[0]?.items[0]?.screen ?? "overview";
+/** The first exposed screen for a session, or undefined when all bodies are DARK. */
+export function defaultScreen(
+  grants: ConsoleGrants,
+  exposedScreenKeys: readonly MountedScreenKey[] = EXPOSED_SCREEN_KEYS,
+): MountedScreenKey | undefined {
+  return visibleConsoleNav(grants, exposedScreenKeys)[0]?.items[0]?.screen;
 }

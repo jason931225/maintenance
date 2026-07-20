@@ -2,12 +2,13 @@ import { describe, expect, it } from "vitest";
 
 import {
   FEATURES,
+  EXPOSED_SCREEN_KEYS,
+  MOUNTED_SCREEN_KEYS,
   NAV_GROUPS,
   ROLES,
-  SHIPPED_SCREEN_KEYS,
   consoleScreenPath,
   defaultScreen,
-  isShippedScreenKey,
+  isExposedScreenKey,
   isNavItemVisible,
   screenFromConsolePath,
   visibleConsoleNav,
@@ -20,25 +21,28 @@ const grants = (roles: string[], featureGrants: string[] = []): ConsoleGrants =>
   featureGrants,
 });
 
-function screens(g: ConsoleGrants): Set<string> {
-  return new Set(visibleConsoleNav(g).flatMap((group) => group.items.map((i) => i.screen)));
+function screens(
+  g: ConsoleGrants,
+  exposed = EXPOSED_SCREEN_KEYS,
+): Set<string> {
+  return new Set(
+    visibleConsoleNav(g, exposed).flatMap((group) => group.items.map((i) => i.screen)),
+  );
 }
 
 describe("console nav deny-by-omission", () => {
-  it("shows only shipped ungated personal + comms items to any authenticated session", () => {
+  it("keeps every mounted screen DARK until its ADR-0025 evidence is approved", () => {
     const s = screens(grants([ROLES.MEMBER]));
-    // personal
-    expect(s).toContain("overview");
-    expect(s).toContain("mywork");
-    expect(s).toContain("inbox");
-    // comms
-    expect(s).toContain("messenger");
-    expect(s).toContain("mail");
-    expect(s).not.toContain("notif");
+    expect(MOUNTED_SCREEN_KEYS).toEqual(expect.arrayContaining(["overview", "mywork", "mail"]));
+    expect(EXPOSED_SCREEN_KEYS).toEqual([]);
+    expect(s).toEqual(new Set());
   });
 
   it("hides governance/identity surfaces from a non-privileged persona", () => {
-    const s = screens(grants([ROLES.MECHANIC], [FEATURES.WORK_ORDER_READ_ALL]));
+    const s = screens(
+      grants([ROLES.MECHANIC], [FEATURES.WORK_ORDER_READ_ALL]),
+      MOUNTED_SCREEN_KEYS,
+    );
     // sensitive — omitted
     expect(s.has("policy")).toBe(false);
     expect(s.has("audit")).toBe(false);
@@ -51,7 +55,7 @@ describe("console nav deny-by-omission", () => {
   });
 
   it("shows management analytics + HR to ADMIN, but never RoleManage surfaces", () => {
-    const s = screens(grants([ROLES.ADMIN]));
+    const s = screens(grants([ROLES.ADMIN]), MOUNTED_SCREEN_KEYS);
     expect(s.has("hr")).toBe(false);
     expect(s.has("payroll")).toBe(false);
     expect(s.has("audit")).toBe(true);
@@ -64,16 +68,17 @@ describe("console nav deny-by-omission", () => {
   });
 
   it("unlocks RoleManage surfaces for SUPER_ADMIN", () => {
-    const s = screens(grants([ROLES.SUPER_ADMIN]));
+    const s = screens(grants([ROLES.SUPER_ADMIN]), MOUNTED_SCREEN_KEYS);
     expect(s.has("policy")).toBe(true);
     expect(s.has("workflow")).toBe(true);
     expect(s.has("scheduled")).toBe(true);
     expect(s.has("compliance")).toBe(false); // planned, but no mounted body yet
   });
 
-  it("a feature grant alone exposes a shipped gated item, but never a DARK one", () => {
+  it("preserves mounted-inventory authz filtering without exposing DARK screens", () => {
     const s = screens(
       grants([ROLES.MEMBER], [FEATURES.KPI_READ, FEATURES.EMPLOYEE_DIRECTORY_READ]),
+      MOUNTED_SCREEN_KEYS,
     );
     expect(s.has("dashboard")).toBe(true);
     expect(s.has("hr")).toBe(false);
@@ -82,7 +87,7 @@ describe("console nav deny-by-omission", () => {
   });
 
   it("drops groups that end up empty after filtering", () => {
-    const filtered = visibleConsoleNav(grants([ROLES.MEMBER]));
+    const filtered = visibleConsoleNav(grants([ROLES.MEMBER]), MOUNTED_SCREEN_KEYS);
     // ERP is management-gated → the whole group disappears for a MEMBER
     expect(filtered.some((g) => g.labelKey.endsWith("erp"))).toBe(false);
     // overview group survives (ungated items)
@@ -98,27 +103,24 @@ describe("console nav deny-by-omission", () => {
     ).toBe(true);
   });
 
-  it("defaultScreen returns the first visible item", () => {
-    expect(defaultScreen(grants([ROLES.ADMIN]))).toBe("overview");
-    // even a MEMBER lands on a visible screen (never an empty string)
-    expect(screens(grants([ROLES.MEMBER])).has(defaultScreen(grants([ROLES.MEMBER])))).toBe(
-      true,
-    );
+  it("does not invent a default screen when no evidence-approved screen is exposed", () => {
+    expect(defaultScreen(grants([ROLES.ADMIN]))).toBeUndefined();
+    expect(defaultScreen(grants([ROLES.MEMBER]))).toBeUndefined();
   });
 
   it("keeps every production-visible destination mounted and every planned destination DARK", () => {
     const registered = new Set(Object.keys(SCREEN_REGISTRY));
-    const shipped = new Set<string>(SHIPPED_SCREEN_KEYS);
+    const exposed = new Set<string>(EXPOSED_SCREEN_KEYS);
     const declared = NAV_GROUPS.flatMap((group) => group.items.map((item) => item.screen));
 
-    expect(SHIPPED_SCREEN_KEYS.every((key) => registered.has(key))).toBe(true);
-    expect(declared.filter((key) => !shipped.has(key))).toEqual(
+    expect(MOUNTED_SCREEN_KEYS.every((key) => registered.has(key))).toBe(true);
+    expect(declared.filter((key) => !exposed.has(key))).toEqual(
       expect.arrayContaining(["hr", "recruit", "dispatch", "docs", "notif", "directory"]),
     );
 
     for (const role of Object.values(ROLES)) {
       const visible = screens(grants([role], Object.values(FEATURES)));
-      expect([...visible].every((key) => shipped.has(key) && registered.has(key))).toBe(true);
+      expect([...visible].every((key) => exposed.has(key) && registered.has(key))).toBe(true);
     }
   });
 
@@ -132,8 +134,8 @@ describe("console nav deny-by-omission", () => {
   });
 
   it("narrows only production-visible screen keys", () => {
-    expect(isShippedScreenKey("audit")).toBe(true);
-    expect(isShippedScreenKey("docs")).toBe(false);
-    expect(isShippedScreenKey("unknown")).toBe(false);
+    expect(isExposedScreenKey("audit")).toBe(false);
+    expect(isExposedScreenKey("docs")).toBe(false);
+    expect(isExposedScreenKey("unknown")).toBe(false);
   });
 });

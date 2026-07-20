@@ -567,7 +567,7 @@ async fn console_rollout_opt_in_persists_per_user_and_is_audited(pool: PgPool) {
     let admin_token = harness.token(admin, &["SUPER_ADMIN"], vec![branch]);
     let mechanic_token = harness.token(mechanic, &["MECHANIC"], vec![branch]);
 
-    let (status, initial) = send(
+    let (status, headers, initial) = send_with_headers(
         &harness,
         "GET",
         "/api/v1/console/rollout",
@@ -576,6 +576,7 @@ async fn console_rollout_opt_in_persists_per_user_and_is_audited(pool: PgPool) {
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{initial:?}");
+    assert_eq!(headers.get(header::CACHE_CONTROL).unwrap(), "no-store");
     assert_eq!(initial["flag_key"], "console_carbon_copy");
     assert_eq!(initial["org_enabled"], false);
     assert_eq!(initial["user_opted_in"], false);
@@ -2786,6 +2787,17 @@ async fn send(
     token: &str,
     body: Option<Value>,
 ) -> (StatusCode, Value) {
+    let (status, _headers, body) = send_with_headers(harness, method, uri, token, body).await;
+    (status, body)
+}
+
+async fn send_with_headers(
+    harness: &Harness,
+    method: &str,
+    uri: &str,
+    token: &str,
+    body: Option<Value>,
+) -> (StatusCode, http::HeaderMap, Value) {
     let mut builder = Request::builder()
         .method(method)
         .uri(uri)
@@ -2799,13 +2811,14 @@ async fn send(
     };
     let response = harness.service().oneshot(request).await.unwrap();
     let status = response.status();
+    let headers = response.headers().clone();
     let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let json = if bytes.is_empty() {
         Value::Null
     } else {
         serde_json::from_slice(&bytes).unwrap()
     };
-    (status, json)
+    (status, headers, json)
 }
 
 /// Issue a credential-revocation request. The HTTP method literal lives in this
