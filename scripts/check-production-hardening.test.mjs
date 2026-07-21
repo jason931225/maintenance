@@ -1908,10 +1908,16 @@ function writeExecutable(path, content) {
   chmodSync(path, 0o755);
 }
 
-function runDeployWithStubs({ deployArgs, kubectl, authority } = {}) {
+function runDeployWithStubs({
+  deployArgs,
+  kubectl,
+  authority,
+  hideKubectl = false,
+} = {}) {
   const dir = mkdtempSync(join(tmpdir(), "maintenance-deploy-test-"));
   const scriptsDir = join(dir, "scripts");
   const stubDir = join(dir, "bin");
+  const bashEnv = join(dir, "bash-env");
   mkdirSync(scriptsDir, { recursive: true });
   mkdirSync(stubDir, { recursive: true });
   mkdirSync(join(dir, "deploy/apps/maintenance/overlays/prod"), {
@@ -1983,13 +1989,31 @@ printf '200'
   if (kubectl) {
     writeExecutable(join(stubDir, "kubectl"), kubectl);
   }
+  if (hideKubectl) {
+    writeFileSync(
+      bashEnv,
+      `command() {
+  if [[ "\${1:-}" == "-v" && "\${2:-}" == "kubectl" ]]; then
+    return 1
+  fi
+  builtin command "$@"
+}
+`,
+      "utf8",
+    );
+  }
 
   const result = spawnSync(
     "bash",
     [join(scriptsDir, "deploy.sh"), ...(deployArgs ?? ["b".repeat(40)])],
     {
       cwd: dir,
-      env: { ...process.env, PATH: `${stubDir}:/usr/bin:/bin`, HOME: dir },
+      env: {
+        ...process.env,
+        PATH: `${stubDir}:/usr/bin:/bin`,
+        HOME: dir,
+        ...(hideKubectl ? { BASH_ENV: bashEnv } : {}),
+      },
       encoding: "utf8",
       timeout: 10_000,
     },
@@ -1999,7 +2023,7 @@ printf '200'
 
 describe("deploy.sh rollout verification fail-closed behavior", () => {
   it("fails instead of claiming deployment success when kubectl is missing", () => {
-    const result = runDeployWithStubs();
+    const result = runDeployWithStubs({ hideKubectl: true });
 
     assert.notEqual(result.status, 0, result.combined);
     assert.match(result.combined, /kubectl/i);

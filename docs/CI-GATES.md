@@ -173,6 +173,7 @@ names only, not incidental workflow prose or runner setup text.
 - `check:operations-intelligence-maturity`
 - `check:payroll-release-gate`
 - `check:people-hr-maturity`
+- `check:pr473-migration-operational`
 - `check:production-hardening`
 - `check:swift`
 - `check:ts`
@@ -183,8 +184,13 @@ names only, not incidental workflow prose or runner setup text.
 - `check:workflow-runtime-spine`
 - `gen:api:portable`
 - `gen:api:swift`
+- `test:api-client-contract:swift`
+- `test:api-client-contract:ts`
 - `test:contract`
 - `test:adrs`
+- `test:employee-import-contract`
+- `test:ontology-write-precondition`
+- `test:production-hardening`
 - `test:text-gate`
 
 ### Web console package scripts run by CI
