@@ -892,13 +892,13 @@ export function evaluateExpandContractReleaseChecks(readText) {
     "PR 473 CI wrapper step must set working-directory to the repository root",
   );
 
- return result;
+  return result;
 }
 
 export function evaluateWorkflowHardeningChecks(readText) {
   const result = createResult();
   const productionHardeningTestCommand =
-    "npm run test:pr473-migration-operational && python3 scripts/check-production-promotion-authority.test.py && node --test scripts/check-production-hardening.test.mjs scripts/wait-for-protected-main-ci.test.mjs";
+    "npm run test:pr473-migration-operational && python3 scripts/check-production-promotion-authority.test.py && node --test scripts/check-production-authority-blocked.test.mjs scripts/check-production-hardening.test.mjs scripts/wait-for-protected-main-ci.test.mjs";
   const ciPath = ".github/workflows/ci.yml";
   const securityPath = ".github/workflows/security.yml";
   const imageReleasePath = ".github/workflows/image-release.yml";
@@ -1080,6 +1080,15 @@ export function evaluateWorkflowHardeningChecks(readText) {
       productionHardeningTestCommand,
     "production-hardening tests execute the production promotion authority suite",
     "test:production-hardening must execute the production promotion authority test suite in the canonical fail-closed command",
+  );
+  requirement(
+    result,
+    packageJson?.scripts?.["check:production-authority-blocked"] ===
+      "node scripts/check-production-authority-blocked.mjs" &&
+      readText("scripts/check-production-authority-blocked.mjs").trim().length >
+        0,
+    "production authority blocked evaluator: explicit-SHA CLI wiring present",
+    "production authority blocked evaluator and exact package CLI wiring must be present",
   );
 
   requirement(
