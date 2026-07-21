@@ -89,5 +89,9 @@
     "openapi-typescript": "7.13.0",
     "tsx": "4.22.4",
     "typescript": "5.9.3"
+  },
+  "overrides": {
+    "js-yaml@4.x": "4.3.0",
+    "shell-quote": "1.10.0"
   }
 }
