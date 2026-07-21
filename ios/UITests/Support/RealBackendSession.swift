@@ -82,7 +82,7 @@ enum RealBackendSession {
     }
 
     private static func redeemOTP(baseURL: URL, otp: String) async throws -> TokenPair {
-        let body = try JSONSerialization.data(withJSONObject: ["code": otp])
+        let body = try JSONSerialization.data(withJSONObject: ["otp": otp])
         return try await post(
             url: baseURL.appendingPathComponent("api/v1/auth/otp/redeem"),
             body: body

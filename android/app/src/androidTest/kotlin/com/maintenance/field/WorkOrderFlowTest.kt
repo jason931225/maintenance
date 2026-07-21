@@ -20,7 +20,7 @@ import java.util.Properties
  * No-fakes session design:
  *  - A real session is obtained from the REAL backend at run start. A test user whose
  *    passkey was registered through the automatable web ceremony refreshes its token via
- *    POST /api/v1/auth/refresh; the resulting access+refresh pair is written to a
+ *    POST /api/v1/auth/token/refresh; the resulting access+refresh pair is written to a
  *    permission-restricted temporary androidTest asset fixture by the CI job (see
  *    .github/workflows/ci.yml android-instrumented), not GitHub outputs or raw Gradle CLI
  *    arguments.
