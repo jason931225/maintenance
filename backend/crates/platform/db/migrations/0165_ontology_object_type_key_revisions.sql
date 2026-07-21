@@ -116,6 +116,8 @@ GROUP BY org_id, stable_key;
 -- immutable install marker per tenant. The allowlist is intentionally not tenant
 -- writable; runtime can only present a manifest whose canonical JSONB digest was
 -- pinned by a migration.
+-- Platform-global control-plane reference data (owner/capability-only): no
+-- direct PUBLIC or mnt_rt access; ontology commands read it through the writer.
 CREATE TABLE ont_builtin_catalog_allowlist (
     catalog_version TEXT PRIMARY KEY CHECK (btrim(catalog_version) <> ''),
     manifest_digest BYTEA NOT NULL CHECK (octet_length(manifest_digest) = 32),
