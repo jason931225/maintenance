@@ -3439,6 +3439,10 @@ version = "0.1.0"
 [[package]]
 name = "mnt-gate-tenant-isolation"
 version = "0.1.0"
+dependencies = [
+ "sqlx 0.9.0",
+ "tokio",
+]
 
 [[package]]
 name = "mnt-gate-vendor-lockin"
