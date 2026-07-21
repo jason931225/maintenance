@@ -52,6 +52,7 @@ const ORG_ID = TENANT_ORG_ID;
 const SOURCE_FILENAME = "e2e-persona-hr.xlsx";
 
 const promoEmployeeId = randomUUID();
+const promoRequestId = randomUUID();
 const promoEmployeeName = `e2e 촉진대상 ${promoEmployeeId.slice(0, 8)}`;
 
 const alertId = randomUUID();
@@ -72,13 +73,6 @@ function seedPromotionTarget(): void {
   sql(`
     BEGIN;
     SELECT set_config('app.current_org', '${ORG_ID}', true);
-    DELETE FROM leave_requests
-      WHERE subject_employee_id IN (
-        SELECT id FROM employees
-        WHERE org_id = '${ORG_ID}' AND source_filename = '${SOURCE_FILENAME}'
-      );
-    DELETE FROM employees
-      WHERE org_id = '${ORG_ID}' AND source_filename = '${SOURCE_FILENAME}';
     SELECT set_config(
       'role',
       CASE WHEN to_regprocedure('leave_api.protected_request_writer_guard()') IS NULL
@@ -93,15 +87,15 @@ function seedPromotionTarget(): void {
       '${promoEmployeeId}', '${ORG_ID}', 'KNL', '${promoEmployeeName}',
       '${SOURCE_FILENAME}', 'e2e', 1, 'e2e-persona-hr-${promoEmployeeId}',
       '2022-01-02', 'ACTIVE', 15, 5, 10
-    );
+    ) ON CONFLICT (id) DO NOTHING;
     INSERT INTO leave_requests (
       id, org_id, branch_id, requester_user_id, subject_employee_id,
       leave_type, days, start_date, end_date, reason, status
     ) VALUES (
-      gen_random_uuid(), '${ORG_ID}', '${TENANT_BRANCH_ID}', '${REQUESTER_USER_ID}',
+      '${promoRequestId}', '${ORG_ID}', '${TENANT_BRANCH_ID}', '${REQUESTER_USER_ID}',
       '${promoEmployeeId}', 'annual', 1, '2026-08-01', '2026-08-01',
       'E2E persona 촉진 대상 연차 신청', 'pending'
-    );
+    ) ON CONFLICT (id) DO NOTHING;
     RESET ROLE;
     COMMIT;
   `);
@@ -134,11 +128,11 @@ function seedAbsenceAlert(): void {
 
 test.beforeEach(() => {
   resetRateLimits();
-  seedPromotionTarget();
   seedAbsenceAlert();
 });
 
 test("PERSONA-HR 인사카드 열람 — 1 click from landing", async ({ page }) => {
+  seedPromotionTarget();
   await loginAsLanding(page, "SUPER_ADMIN");
 
   // click 1/1: nav → employee directory.

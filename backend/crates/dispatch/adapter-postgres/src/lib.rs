@@ -1880,10 +1880,11 @@ async fn fetch_dispatch_summary(
     pool: &PgPool,
     dispatch_id: P1DispatchId,
 ) -> Result<P1DispatchSummary, PgDispatchError> {
-    let mut tx = pool.begin().await?;
-    let summary = fetch_dispatch_summary_tx(&mut tx, dispatch_id).await?;
-    tx.commit().await?;
-    Ok(summary)
+    let org = current_org().map_err(KernelError::from)?;
+    with_org_conn::<_, _, PgDispatchError>(pool, org, move |tx| {
+        Box::pin(async move { fetch_dispatch_summary_tx(tx, dispatch_id).await })
+    })
+    .await
 }
 
 async fn fetch_dispatch_summary_tx(
