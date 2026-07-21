@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.64](https://github.com/jason931225/maintenance/compare/v0.1.63...v0.1.64) (2026-07-21)
+
+
+### Bug Fixes
+
+* **ci:** align mobile session bootstrap contracts ([#479](https://github.com/jason931225/maintenance/issues/479)) ([0cae5a6](https://github.com/jason931225/maintenance/commit/0cae5a6028bdba1b9822492f60780e5ab73de599))
+
 ## [0.1.63](https://github.com/jason931225/maintenance/compare/v0.1.62...v0.1.63) (2026-07-21)
 
 
