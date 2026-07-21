@@ -245,6 +245,10 @@ jobs:
           export DATABASE_URL="$OWNER_DATABASE_URL"
 
           MNT_APP_ROLE=migrate SQLX_OFFLINE=true cargo run -q -p mnt-app
+          SQLX_OFFLINE=true cargo test --locked \
+            -p mnt-gate-tenant-isolation \
+            --test owner_only_acl_postgres18 -- \
+            --include-ignored --test-threads=1
 
           MNT_APP_ROLE=api \
           DATABASE_URL="$RUNTIME_DATABASE_URL" \

@@ -365,6 +365,17 @@ force Row Level Security, and use policies bound to
 `current_setting('app.current_org')`. It also rejects session-level or non-local
 GUC arming that could bleed tenant context across requests.
 
+The static scan is a fast source-level lint, not a reimplementation of
+PostgreSQL privilege resolution. During the PostgreSQL 18 boot smoke, CI also
+runs `owner_only_acl_postgres18` immediately after migrations execute as the
+production owner role (`mnt_app`). That contract reuses the gate's owner-only
+table allowlist and asks PostgreSQL for the effective `mnt_rt` table and column
+privileges, so direct, `PUBLIC`, role-inherited, column-level, schema-wide, and
+default-privilege grants are evaluated by the database itself. It also rejects
+roles that `mnt_rt` can assume with `SET ROLE`, case-distinct table-like
+relation shadows in `public`, and proves adversarial ACL mutations are
+observable before rolling them back.
+
 ### `mnt-gate-rls-arming` — production queries use an armed org context
 
 Source: `backend/ci/gates/rls-arming/`. Scans adapter/rest data-layer code for
