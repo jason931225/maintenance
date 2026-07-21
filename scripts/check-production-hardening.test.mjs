@@ -26,6 +26,27 @@ import {
   evaluateWorkflowHardeningChecks,
 } from "./check-production-hardening.mjs";
 
+describe("production authority blocked observation static integration", () => {
+  it("requires the explicit-SHA evaluator package wiring and focused hardening suite inclusion", () => {
+    const pkg = JSON.parse(
+      readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+    );
+    assert.equal(
+      pkg.scripts["check:production-authority-blocked"],
+      "node scripts/check-production-authority-blocked.mjs",
+    );
+    assert.match(
+      pkg.scripts["test:production-hardening"],
+      /scripts\/check-production-authority-blocked\.test\.mjs/,
+    );
+    assert.ok(
+      existsSync(
+        new URL("./check-production-authority-blocked.mjs", import.meta.url),
+      ),
+    );
+  });
+});
+
 const validFiles = {
   "deploy/apps/maintenance/base/database.yaml": `apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
@@ -744,7 +765,6 @@ describe("production hardening PR 473 typed operational gate", () => {
       assertHasFailure(result, "masking");
     }
   });
-
 });
 
 const validProductionEvidenceText = `${JSON.stringify(
@@ -801,10 +821,13 @@ const validProductionEvidenceText = `${JSON.stringify(
 )}\n`;
 
 const validWorkflowFiles = {
+  "scripts/check-production-authority-blocked.mjs": "#!/usr/bin/env node\n",
   "package.json": JSON.stringify({
     scripts: {
       "test:production-hardening":
-        "npm run test:pr473-migration-operational && python3 scripts/check-production-promotion-authority.test.py && node --test scripts/check-production-hardening.test.mjs scripts/wait-for-protected-main-ci.test.mjs",
+        "npm run test:pr473-migration-operational && python3 scripts/check-production-promotion-authority.test.py && node --test scripts/check-production-authority-blocked.test.mjs scripts/check-production-hardening.test.mjs scripts/wait-for-protected-main-ci.test.mjs",
+      "check:production-authority-blocked":
+        "node scripts/check-production-authority-blocked.mjs",
     },
   }),
   "docs/release/PR-473-PRODUCTION-CARDINALITY.evidence.json":
@@ -1036,6 +1059,27 @@ function evaluateDocumentedEnvironmentReviewers(environment) {
 }
 
 describe("production hardening workflow gates", () => {
+  it("rejects missing blocked-observation evaluator wiring, alias, and focused suite", () => {
+    assertHasFailure(
+      evaluateWorkflows({
+        "scripts/check-production-authority-blocked.mjs": "",
+      }),
+      "blocked evaluator and exact package CLI wiring",
+    );
+    const withoutAlias = JSON.parse(validWorkflowFiles["package.json"]);
+    delete withoutAlias.scripts["check:production-authority-blocked"];
+    assertHasFailure(
+      evaluateWorkflows({ "package.json": JSON.stringify(withoutAlias) }),
+      "blocked evaluator and exact package CLI wiring",
+    );
+    const withoutFocusedTest = JSON.parse(validWorkflowFiles["package.json"]);
+    withoutFocusedTest.scripts["test:production-hardening"] =
+      "npm run test:pr473-migration-operational && python3 scripts/check-production-promotion-authority.test.py";
+    assertHasFailure(
+      evaluateWorkflows({ "package.json": JSON.stringify(withoutFocusedTest) }),
+      "canonical fail-closed command",
+    );
+  });
   it("accepts active CI, security, and image-release workflow gates", () => {
     assert.deepEqual(evaluateWorkflows().failures, []);
   });
