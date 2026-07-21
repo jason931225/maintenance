@@ -50,7 +50,11 @@ wait_for_postgres() {
   local container="$1"
   local user="$2"
   for attempt in {1..30}; do
-    if docker exec "${container}" pg_isready -U "${user}" -d "${MNT_POSTGRES_DB}" >/dev/null 2>&1; then
+    # The official image briefly accepts connections from a temporary server
+    # while docker-entrypoint initializes the cluster, then stops that server
+    # before execing the durable PID 1. Do not let a cold pull race that handoff.
+    if [[ "$(docker exec "${container}" cat /proc/1/comm 2>/dev/null || true)" == "postgres" ]] &&
+      docker exec "${container}" pg_isready -U "${user}" -d "${MNT_POSTGRES_DB}" >/dev/null 2>&1; then
       return 0
     fi
     if [[ "${attempt}" == 30 ]]; then

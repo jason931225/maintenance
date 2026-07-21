@@ -953,10 +953,10 @@ jobs:
         env:
           POSTGRES_USER: postgres
           POSTGRES_DB: postgres
-          # The harness builds passwordless postgres:// URLs (sqlx + psql connect
-          # as the `postgres` superuser, which owns the schema and bypasses RLS for
-          # seeding); trust auth lets them connect without a password.
-          POSTGRES_HOST_AUTH_METHOD: trust
+          # The topology bootstrap requires a real administrator credential;
+          # keep the E2E service and harness on the same password-authenticated
+          # contract instead of declaring a password that trust auth ignores.
+          POSTGRES_PASSWORD: postgres
         ports:
           - "5432:5432"
         options: >-
@@ -972,6 +972,10 @@ jobs:
       CARGO_PROFILE_DEV_DEBUG: "0"
       # Point the harness (e2e/harness/*.sh) at the service as the postgres superuser.
       E2E_PG_SUPERUSER: postgres
+      E2E_PG_SUPERUSER_PASSWORD: postgres
+      # Playwright fixtures invoke psql after db.sh exits, so retain the same
+      # libpq credential in the parent job environment for their passwordless URLs.
+      PGPASSWORD: postgres
       E2E_PG_HOST: localhost
       E2E_PG_PORT: "5432"
 
