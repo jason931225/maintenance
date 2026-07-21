@@ -584,7 +584,7 @@ function runSeed(compose) {
       "-v",
       "ON_ERROR_STOP=1",
       "-U",
-      "mnt_app",
+      POSTGRES_ADMIN_USER,
       "-d",
       POSTGRES_DB,
     ]),

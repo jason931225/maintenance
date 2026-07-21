@@ -25,6 +25,10 @@ const e2eDb = readFileSync(
   new URL("../e2e/harness/db.sh", import.meta.url),
   "utf8",
 );
+const devSeed = readFileSync(
+  new URL("./dev-seed.sql", import.meta.url),
+  "utf8",
+);
 const commandRoleInit = readFileSync(
   new URL("../ops/postgres-reconcile-topology.sh", import.meta.url),
   "utf8",
@@ -303,4 +307,44 @@ test("e2e database harness never prints or passes the owner password on a psql c
   assert.doesNotMatch(e2eDb, /psql\s+"\$\{DATABASE_URL\}"/);
   assert.match(e2eDb, /password redacted/);
   assert.match(e2eDb, /PGPASSWORD="\$\{MNT_APP_POSTGRES_PASSWORD\}" psql/);
+});
+
+test("dev seed uses the audited runtime compatibility boundary for ontology definitions", () => {
+  const runSeed = devUp.match(
+    /function runSeed\(compose\) \{(?<body>[\s\S]*?)\n\}/,
+  )?.groups?.body;
+  assert.ok(runSeed);
+  assert.match(
+    runSeed,
+    /"-U",\s*POSTGRES_ADMIN_USER/,
+    "the local-only BYPASSRLS seed must match its documented cluster-admin executor",
+  );
+
+  assert.doesNotMatch(
+    devSeed,
+    /INSERT INTO ont_object_type_key_revisions/,
+    "the migration-0165 legacy trigger, not fixture SQL, must own key reservations",
+  );
+
+  const objectTypeInsert = devSeed.indexOf("INSERT INTO ont_object_types");
+  const firstRuntimeBoundary = devSeed.indexOf("SET LOCAL ROLE mnt_rt");
+  const protectedAuditInsert = devSeed.indexOf(
+    "INSERT INTO audit_events (actor, action, target_type, target_id",
+  );
+  const finalRuntimeBoundary = devSeed.lastIndexOf(
+    "SET LOCAL ROLE mnt_rt",
+    protectedAuditInsert,
+  );
+  const finalReset = devSeed.indexOf("RESET ROLE", protectedAuditInsert);
+
+  assert.ok(firstRuntimeBoundary >= 0);
+  assert.ok(firstRuntimeBoundary < objectTypeInsert);
+  assert.ok(finalRuntimeBoundary >= firstRuntimeBoundary);
+  assert.ok(protectedAuditInsert > finalRuntimeBoundary);
+  assert.ok(finalReset > protectedAuditInsert);
+  assert.match(
+    devSeed.slice(protectedAuditInsert, finalReset),
+    /o\.xmin = pg_current_xact_id\(\)::xid/,
+    "idempotent retries must audit only parents created by the current transaction",
+  );
 });

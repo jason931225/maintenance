@@ -362,6 +362,12 @@ INSERT INTO workflow_definition_versions (
 ON CONFLICT (id) DO NOTHING;
 
 -- ── ontology: one instance-backed object type + property defs + instances ────
+-- Migration 0165 retains one audited compatibility path for the exact old
+-- runtime DML shape. Enter that constrained identity only for protected
+-- definitions; its trigger owns immutable key reservations. The surrounding
+-- local-only fixture remains cluster-admin seeded as documented above.
+SET LOCAL ROLE mnt_rt;
+
 INSERT INTO ont_object_types (id, org_id, stable_key, title, title_property_key, backing_kind, schema_version, lifecycle_state, created_by) VALUES
   ('00000000-0000-0000-0000-000000a70001', '00000000-0000-0000-0000-0000000000a1', 'maintenance_contract', '정비 계약', 'name', 'instance', 1, 'published', '00000000-0000-0000-0000-00000000d001')
 ON CONFLICT (id) DO NOTHING;
@@ -370,6 +376,8 @@ INSERT INTO ont_property_defs (id, org_id, object_type_id, key, title, type, con
   ('00000000-0000-0000-0000-000000a80001', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000a70001', 'name', '계약명', 'string', '{}'::jsonb, true, false),
   ('00000000-0000-0000-0000-000000a80002', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000a70001', 'annual_fee_won', '연간 계약금(원)', 'number', '{}'::jsonb, false, false)
 ON CONFLICT (id) DO NOTHING;
+
+RESET ROLE;
 
 -- instances + genesis revision (hash chain: prev = 64 zeros, row = sha256 of attrs)
 -- Explicit created_at on the contract instances (not just DEFAULT now()):
@@ -394,6 +402,8 @@ ON CONFLICT (id) DO NOTHING;
 -- r12: deepen the 매니저 tab's 속성 (5 more, real FIELD_KINDS tags) + populate
 -- 액션/분석 (both tables were empty across every seeded object type, so those
 -- two 매니저 subtabs always rendered EmptyChip — not a UI gap, a seed gap).
+SET LOCAL ROLE mnt_rt;
+
 INSERT INTO ont_property_defs (id, org_id, object_type_id, key, title, type, config, required, in_property_policy) VALUES
   ('00000000-0000-0000-0000-000000a80003', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000a70001', 'vendor_name', '거래처명', 'text', '{}'::jsonb, true, false),
   ('00000000-0000-0000-0000-000000a80004', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000a70001', 'contract_start', '계약 시작일', 'date', '{}'::jsonb, true, false),
@@ -439,6 +449,37 @@ INSERT INTO ont_link_types (id, org_id, object_type_id, stable_key, title, rever
   ('00000000-0000-0000-0000-000000d70002', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000a70001', 'has_vendor', '협력업체', '계약', '00000000-0000-0000-0000-000000d50002', 'many_many'),
   ('00000000-0000-0000-0000-000000d70003', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d50001', 'has_visit', '점검 방문', '소속 계획', '00000000-0000-0000-0000-000000d50003', 'one_many')
 ON CONFLICT (id) DO NOTHING;
+
+-- The protected audit guard accepts the retained runtime path only when the
+-- matching parent was inserted by this transaction. The xmin filter makes a
+-- successful reseed a true no-op: existing parents receive no duplicate audit.
+INSERT INTO audit_events (actor, action, target_type, target_id, branch_id, before_snap, after_snap, trace_id, span_id, occurred_at, org_id)
+SELECT
+  '00000000-0000-0000-0000-00000000d001',
+  'ontology.object_type.create',
+  'ont_object_types',
+  o.id::text,
+  NULL,
+  NULL,
+  jsonb_build_object(
+    'stable_key', o.stable_key,
+    'schema_version', o.schema_version,
+    'lifecycle_state', o.lifecycle_state
+  ),
+  repeat('d', 32),
+  repeat('e', 16),
+  o.updated_at,
+  o.org_id
+FROM ont_object_types o
+WHERE o.id = ANY (ARRAY[
+  '00000000-0000-0000-0000-000000a70001'::uuid,
+  '00000000-0000-0000-0000-000000d50001'::uuid,
+  '00000000-0000-0000-0000-000000d50002'::uuid,
+  '00000000-0000-0000-0000-000000d50003'::uuid
+])
+  AND o.xmin = pg_current_xact_id()::xid;
+
+RESET ROLE;
 
 INSERT INTO ont_instances (id, org_id, object_type_id, title, current_revision_id, lifecycle_state) VALUES
   ('00000000-0000-0000-0000-000000d80001', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d50001', '1월-3월 정기점검 계획', '00000000-0000-0000-0000-000000db0001', 'active'),
