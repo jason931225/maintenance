@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.63](https://github.com/jason931225/maintenance/compare/v0.1.62...v0.1.63) (2026-07-21)
+
+
+### Features
+
+* **platform:** stage DARK workflows and governed PostgreSQL 18 boundaries ([#473](https://github.com/jason931225/maintenance/issues/473)) ([26f56aa](https://github.com/jason931225/maintenance/commit/26f56aae7e33d6cd63fd91fe75c89ca76d0118ae))
+
 ## [0.1.62](https://github.com/jason931225/maintenance/compare/v0.1.61...v0.1.62) (2026-07-11)
 
 
