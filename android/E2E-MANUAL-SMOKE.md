@@ -71,7 +71,7 @@ smoke**, run by a human against staging. Everything *after* login is automated (
 Once a real login succeeds on the device, the resulting **refresh token** for the test user is
 the input to the automated, no-fakes E2E:
 
-- CI refreshes that token at run start (`POST /api/v1/auth/refresh`), masks the fresh
+- CI refreshes that token at run start (`POST /api/v1/auth/token/refresh`), masks the fresh
   access+refresh pair immediately, and exposes it to `WorkOrderFlowTest` through a
   permission-restricted temporary androidTest asset fixture rather than GitHub outputs or raw
   Gradle CLI arguments.

@@ -1447,15 +1447,16 @@ export function evaluateAndroidE2eTokenHandoffChecks(readText) {
     /FIELD_E2E_SEED_REFRESH_TOKEN/,
     /FIELD_E2E_SESSION_ASSETS_DIR|field-e2e-session\.properties/,
   ]);
+  const activeMintBlock = stripHashComments(mintBlock);
   const gradleBlock = findWorkflowRunBlock(ciWorkflow, [
     /\.\/gradlew\s+fieldApi34DebugAndroidTest/,
   ]);
 
   requirement(
     result,
-    patternsAppearInOrder(activeCiWorkflow, [
-      /::add-mask::.*FIELD_E2E_SEED_REFRESH_TOKEN/,
-      /\bcurl\b.*\/api\/v1\/auth\/refresh/,
+    patternsAppearInOrder(activeMintBlock, [
+      /::add-mask::.*?FIELD_E2E_SEED_REFRESH_TOKEN/,
+      /\bcurl\b.*\/api\/v1\/auth\/token\/refresh/,
     ]),
     "Android E2E seed token is masked before backend refresh",
     "Android E2E token mint step must mask the seed token before refreshing",

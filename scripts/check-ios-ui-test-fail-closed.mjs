@@ -34,6 +34,10 @@ function requireIncludes(text, needle, label, source = ".github/workflows/ios-ui
   assert(text.includes(needle), label, `${source} must include ${JSON.stringify(needle)}`);
 }
 
+function requireNotIncludes(text, needle, label, source = ".github/workflows/ios-ui-tests.yml") {
+  assert(!text.includes(needle), label, `${source} must not include ${JSON.stringify(needle)}`);
+}
+
 function requireOrder(text, first, second, label, source = ".github/workflows/ios-ui-tests.yml") {
   const firstIndex = text.indexOf(first);
   const secondIndex = text.indexOf(second);
@@ -128,6 +132,8 @@ function runWorkflowGateCase(name, shellBlock, env, expectation) {
 
 const workflowPath = ".github/workflows/ios-ui-tests.yml";
 const workflow = read(workflowPath);
+const realBackendSessionPath = "ios/UITests/Support/RealBackendSession.swift";
+const realBackendSession = read(realBackendSessionPath);
 const packageJsonText = read("package.json");
 const ci = read(".github/workflows/ci.yml");
 let packageJson = {};
@@ -173,6 +179,18 @@ requireOrder(
   "TEST_SELECTION_ARGS=()",
   "xcodebuild test-without-building",
   "test selection is decided before xcodebuild test execution",
+);
+requireIncludes(
+  realBackendSession,
+  '["otp": otp]',
+  "iOS OTP redemption uses the backend's canonical otp request field",
+  realBackendSessionPath,
+);
+requireNotIncludes(
+  realBackendSession,
+  '["code": otp]',
+  "iOS OTP redemption does not send the rejected code request field",
+  realBackendSessionPath,
 );
 
 const guardShellBlock = extractLineRange(

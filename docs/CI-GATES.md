@@ -708,7 +708,7 @@ Required real-session inputs are:
   the seeded test session before the emulator starts.
 - `FIELD_E2E_SEED_REFRESH_TOKEN` GitHub secret: the long-lived refresh token for
   the dedicated Android E2E test technician. CI exchanges it through
-  `POST /api/v1/auth/refresh`, masks the seed token plus the fresh
+  `POST /api/v1/auth/token/refresh`, masks the seed token plus the fresh
   access/refresh pair immediately, and writes only the fresh pair to the
   temporary fixture.
 - `FIELD_E2E_SESSION_ASSETS_DIR` is a runner-local environment handoff, not a

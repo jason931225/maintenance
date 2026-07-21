@@ -1497,7 +1497,7 @@ jobs:
           session_file="\${session_assets_dir}/field-e2e-session.properties"
           rm -rf "$session_assets_dir"
           install -d -m 700 "$session_assets_dir"
-          resp=$(curl -fsS -X POST "$FIELD_E2E_BASE_URL/api/v1/auth/refresh" \
+          resp=$(curl -fsS -X POST "$FIELD_E2E_BASE_URL/api/v1/auth/token/refresh" \
             -H 'Content-Type: application/json' \
             -d "{\\"refresh_token\\":\\"$FIELD_E2E_SEED_REFRESH_TOKEN\\"}")
           access_token=$(printf '%s' "$resp" | jq -er '.access_token')
@@ -1579,6 +1579,23 @@ describe("production hardening Android E2E token handoff", () => {
     );
   });
 
+  it("rejects a noncanonical mint route even when canonical text exists elsewhere", () => {
+    const workflow = validAndroidE2eTokenFiles[".github/workflows/ci.yml"]
+      .replace(
+        "$FIELD_E2E_BASE_URL/api/v1/auth/token/refresh",
+        "$FIELD_E2E_BASE_URL/api/v1/auth/token/rotate",
+      )
+      .replace("name: CI", "name: CI\n# $FIELD_E2E_BASE_URL/api/v1/auth/token/refresh");
+    const result = evaluateAndroidE2eTokenHandoff({
+      ".github/workflows/ci.yml": workflow,
+    });
+
+    assertHasFailure(
+      result,
+      "Android E2E token mint step must mask the seed token before refreshing",
+    );
+  });
+
   it("rejects the old GitHub-output and Gradle instrumentation-argument token handoff", () => {
     const result = evaluateAndroidE2eTokenHandoff({
       ".github/workflows/ci.yml": `name: CI
@@ -1588,7 +1605,7 @@ jobs:
       - name: Mint a real backend session for the test user
         id: session
         run: |
-          resp=$(curl -fsS -X POST "$FIELD_E2E_BASE_URL/api/v1/auth/refresh" \
+          resp=$(curl -fsS -X POST "$FIELD_E2E_BASE_URL/api/v1/auth/token/refresh" \
             -d "{\\"refresh_token\\":\\"$FIELD_E2E_SEED_REFRESH_TOKEN\\"}")
           echo "access=$(echo "$resp" | jq -r '.access_token')" >> "$GITHUB_OUTPUT"
           echo "refresh=$(echo "$resp" | jq -r '.refresh_token')" >> "$GITHUB_OUTPUT"
@@ -1733,7 +1750,7 @@ jobs:
             exit 0
           fi
           printf '::add-mask::%s\\n' "$FIELD_E2E_SEED_REFRESH_TOKEN"
-          resp=$(curl -fsS -X POST "$FIELD_E2E_BASE_URL/api/v1/auth/refresh" \
+          resp=$(curl -fsS -X POST "$FIELD_E2E_BASE_URL/api/v1/auth/token/refresh" \
             -H 'Content-Type: application/json' \
             -d "{\\"refresh_token\\":\\"$FIELD_E2E_SEED_REFRESH_TOKEN\\"}")
       - name: Instrumented post-login E2E on Gradle Managed Device

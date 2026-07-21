@@ -193,6 +193,24 @@ const guardShellBlock = extractLineRange(
   "printf '::add-mask::%s\\n' \"$FIELD_E2E_SEED_REFRESH_TOKEN\"",
   "Android real-session missing-input guard shell block",
 );
+const mintShellBlock = extractLineRange(
+  workflow,
+  "printf '::add-mask::%s\\n' \"$FIELD_E2E_SEED_REFRESH_TOKEN\"",
+  "if ! access_token=",
+  "Android real-session mint shell block",
+);
+requireIncludes(
+  mintShellBlock,
+  "$FIELD_E2E_BASE_URL/api/v1/auth/token/refresh",
+  "session mint uses the backend's canonical refresh route",
+  "Android real-session mint shell block",
+);
+requireNotIncludes(
+  mintShellBlock,
+  "$FIELD_E2E_BASE_URL/api/v1/auth/refresh",
+  "session mint does not call the removed non-canonical refresh route",
+  "Android real-session mint shell block",
+);
 
 runGuardCase(
   "protected branch push context with missing inputs fails closed",
