@@ -143,7 +143,26 @@ owner, gives that migration-only identity explicit `BYPASSRLS` for populated
 tenant-wide backfills, makes it a non-admin member of both NOLOGIN definers,
 and verifies readback. The `migrate` service then connects directly as
 `mnt_app`; API and worker connect directly as `mnt_rt`. Runtime, command, and
-definer roles remain `NOBYPASSRLS`.
+definer roles remain `NOBYPASSRLS`. Reconciliation also pins exact serving-role
+defaults (`statement_timeout=30s`, `idle_in_transaction_session_timeout=30s`,
+and PostgreSQL 17+ `transaction_timeout=45s`), removes only those three keys
+from every higher-precedence database-role override, and preserves unrelated
+settings. Prepared transactions must remain disabled because they are exempt
+from `transaction_timeout`. After the settings transaction commits, existing
+serving-role sessions are terminated and fresh direct logins verify the
+effective values before migrations may start. These USERSET defaults are a
+reconciliation/startup correctness backstop, not a security boundary against a
+compromised serving process. They bound normal serving-role transactions only;
+migration-owner, offline, and operator writers remain outside this control, so
+gap-free sealing still requires quiescence/coordination or a future
+xmin/snapshot watermark.
+
+The portable reconciler also rotates role passwords, so it deliberately drains
+all existing serving sessions after a successful reconciliation to invalidate
+old authenticated sessions. The recurring DARK CloudNativePG Sync hook does
+not rotate credentials: it first classifies each role's managed timeout catalog,
+repairs and drains only roles with drift, and preserves healthy sessions on an
+exact-state whole-Application sync.
 
 An existing volume where `mnt_app` is a superuser fails closed. After auditing
 that volume, choose a new distinct cluster-admin credential and perform the

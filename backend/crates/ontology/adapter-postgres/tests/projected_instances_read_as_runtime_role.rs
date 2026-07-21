@@ -130,7 +130,7 @@ async fn seed_projected_types(
     actor: UserId,
 ) -> (ObjectTypeId, ObjectTypeId) {
     mnt_platform_request_context::scope_org(org, async {
-        let store = PgOntologyStore::new(owner_pool.clone())
+        let store = PgOntologyStore::new(runtime_role_pool(owner_pool).await)
             .with_command_pool(command_role_pool(owner_pool).await);
         let published =
             seed_projected_domain_object_types(&store, actor, datetime!(2026-07-10 09:00 UTC))

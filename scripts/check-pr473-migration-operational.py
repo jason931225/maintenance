@@ -43,6 +43,26 @@ EXPECTED_TESTS = (
     ("leave", "mnt-leave-adapter-postgres", "leave_migration_expand_contract", "backend/crates/leave/adapter-postgres/tests/leave_migration_expand_contract.rs", "legacy_leave_mutations_require_exactly_one_same_transaction_audit"),
     ("leave", "mnt-leave-adapter-postgres", "leave_migration_expand_contract", "backend/crates/leave/adapter-postgres/tests/leave_migration_expand_contract.rs", "staged_employee_import_rejects_payload_not_equal_to_immutable_ledger"),
 )
+APALIS_DB_TESTS = (
+    (
+        "mnt-platform-jobs",
+        "apalis_adapter",
+        "backend/crates/platform/jobs/tests/apalis_adapter.rs",
+        "apalis_adapter_dedupes_repeated_idempotency_keys",
+    ),
+    (
+        "mnt-platform-jobs",
+        "apalis_adapter",
+        "backend/crates/platform/jobs/tests/apalis_adapter.rs",
+        "apalis_worker_retention_prunes_only_stale_unreferenced_workers",
+    ),
+    (
+        "mnt-platform-jobs",
+        "apalis_schema_contract",
+        "backend/crates/platform/jobs/tests/apalis_schema_contract.rs",
+        "owner_and_runtime_apalis_schema_contract_is_fail_closed",
+    ),
+)
 ANSI_ESCAPE = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
 
 
@@ -115,33 +135,41 @@ def validate_cargo_metadata(
                 raise GateError(f"cargo metadata duplicates package {package['name']}")
             package_map[package["name"]] = package
 
-    for test in manifest["guarded_tests"]:
-        package = package_map.get(test["package"])
+    declared_tests = [
+        (test["package"], test["target"], test["source"])
+        for test in manifest["guarded_tests"]
+    ]
+    declared_tests.extend(
+        (package, target, source)
+        for package, target, source, _ in APALIS_DB_TESTS
+    )
+    for package_name, target_name, source_path in declared_tests:
+        package = package_map.get(package_name)
         if package is None:
-            raise GateError(f"cargo metadata is missing package {test['package']}")
+            raise GateError(f"cargo metadata is missing package {package_name}")
         matches = []
         for target in package.get("targets", []):
             if not isinstance(target, dict):
                 continue
-            if target.get("name") != test["target"] or "test" not in target.get("kind", []):
+            if target.get("name") != target_name or "test" not in target.get("kind", []):
                 continue
             source = Path(str(target.get("src_path", ""))).resolve()
-            expected_source = (repo_root / test["source"]).resolve()
+            expected_source = (repo_root / source_path).resolve()
             try:
                 expected_source.relative_to(repo_root)
                 source.relative_to(repo_root)
             except ValueError as error:
                 raise GateError(
-                    f"guarded test source escapes repository root: {test['source']}"
+                    f"guarded test source escapes repository root: {source_path}"
                 ) from error
             if not expected_source.is_file():
-                raise GateError(f"guarded test source is not a regular file: {test['source']}")
+                raise GateError(f"guarded test source is not a regular file: {source_path}")
             if source == expected_source:
                 matches.append(target)
         if len(matches) != 1:
             raise GateError(
                 f"cargo metadata must contain exactly one test target tuple "
-                f"{test['package']}:{test['target']}:{test['source']} (found {len(matches)})"
+                f"{package_name}:{target_name}:{source_path} (found {len(matches)})"
             )
 
 
@@ -219,6 +247,33 @@ def execute(repo_root: Path, cargo: str) -> int:
     validate_cargo_metadata(manifest, metadata, repo_root)
 
     tests = manifest["guarded_tests"]
+    failures: list[str] = []
+
+    for package, target, _source, name in APALIS_DB_TESTS:
+        command = [
+            cargo,
+            "test",
+            "--locked",
+            "--manifest-path",
+            "backend/Cargo.toml",
+            "-p",
+            package,
+            "--test",
+            target,
+            "--",
+            name,
+            "--exact",
+            "--test-threads=1",
+        ]
+        completed = run(command, cwd=repo_root, env=env)
+        if completed.returncode != 0:
+            failures.append(f"{name}: cargo test exited {completed.returncode}")
+            continue
+        try:
+            validate_exact_test_output(completed.stdout + completed.stderr, name)
+        except GateError as error:
+            failures.append(str(error))
+
     workspace_command = [
         cargo,
         "test",
@@ -231,9 +286,10 @@ def execute(repo_root: Path, cargo: str) -> int:
         "--test-threads=1",
         "--exact",
     ]
+    for _package, _target, _source, name in APALIS_DB_TESTS:
+        workspace_command.extend(("--skip", name))
     for test in tests:
         workspace_command.extend(("--skip", test["name"]))
-    failures: list[str] = []
     workspace_result = run(workspace_command, cwd=repo_root, env=env)
     if workspace_result.returncode != 0:
         failures.append(f"workspace tests exited {workspace_result.returncode}")
@@ -268,7 +324,10 @@ def execute(repo_root: Path, cargo: str) -> int:
         for failure in failures:
             print(f"- {failure}", file=sys.stderr)
         return 1
-    print("PR 473 migration operational gate passed: workspace plus 11 exact guarded tests")
+    print(
+        "PR 473 migration operational gate passed: "
+        "3 exact Apalis database tests, workspace, plus 11 exact guarded tests"
+    )
     return 0
 
 

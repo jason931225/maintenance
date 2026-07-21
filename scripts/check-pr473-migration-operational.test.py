@@ -37,16 +37,24 @@ test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 8 filtered out; fini
 
 def valid_metadata() -> dict:
     packages = {}
-    for test in valid_manifest()["guarded_tests"]:
+    declared_tests = [
+        (test["package"], test["target"], test["source"])
+        for test in valid_manifest()["guarded_tests"]
+    ]
+    declared_tests.extend(
+        (package, target, source)
+        for package, target, source, _name in gate.APALIS_DB_TESTS
+    )
+    for package_name, target_name, source in declared_tests:
         package = packages.setdefault(
-            test["package"], {"name": test["package"], "targets": []}
+            package_name, {"name": package_name, "targets": []}
         )
-        if not any(target["name"] == test["target"] for target in package["targets"]):
+        if not any(target["name"] == target_name for target in package["targets"]):
             package["targets"].append(
                 {
-                    "name": test["target"],
+                    "name": target_name,
                     "kind": ["test"],
-                    "src_path": str(SCRIPT.parents[1] / test["source"]),
+                    "src_path": str(SCRIPT.parents[1] / source),
                 }
             )
     return {"packages": list(packages.values())}
@@ -97,6 +105,21 @@ class ManifestTests(unittest.TestCase):
         metadata = valid_metadata()
         gate.validate_cargo_metadata(manifest, metadata, SCRIPT.parents[1])
         metadata["packages"][0]["targets"][0]["src_path"] = "/wrong/source.rs"
+        with self.assertRaises(gate.GateError):
+            gate.validate_cargo_metadata(manifest, metadata, SCRIPT.parents[1])
+
+    def test_validates_apalis_package_target_and_source_tuple(self) -> None:
+        manifest = valid_manifest()
+        metadata = valid_metadata()
+        jobs = next(
+            package
+            for package in metadata["packages"]
+            if package["name"] == "mnt-platform-jobs"
+        )
+        adapter = next(
+            target for target in jobs["targets"] if target["name"] == "apalis_adapter"
+        )
+        adapter["src_path"] = "/wrong/apalis_adapter.rs"
         with self.assertRaises(gate.GateError):
             gate.validate_cargo_metadata(manifest, metadata, SCRIPT.parents[1])
 
@@ -182,7 +205,7 @@ class CommandLineTests(unittest.TestCase):
 
 
 class ExecutionTests(unittest.TestCase):
-    def test_runs_workspace_with_all_skips_then_each_exact_test_once(self) -> None:
+    def test_runs_apalis_tests_then_workspace_with_all_skips_then_guarded_tests(self) -> None:
         tests = valid_manifest()["guarded_tests"]
 
         def fake_run(command, **_kwargs):
@@ -198,21 +221,41 @@ class ExecutionTests(unittest.TestCase):
                 with redirect_stdout(io.StringIO()), redirect_stderr(io.StringIO()):
                     self.assertEqual(gate.execute(SCRIPT.parents[1], "cargo"), 0)
 
-        self.assertEqual(run_mock.call_count, 13)
+        self.assertEqual(run_mock.call_count, 16)
         for call in run_mock.call_args_list:
             self.assertIn("--locked", call.args[0])
             self.assertEqual(call.kwargs["env"]["CARGO_TERM_COLOR"], "never")
             self.assertNotIn("RUST_TEST_NOCAPTURE", call.kwargs["env"])
-        workspace = run_mock.call_args_list[1].args[0]
+        apalis_calls = run_mock.call_args_list[1:4]
+        self.assertEqual(
+            [call.args[0][call.args[0].index("--") + 1] for call in apalis_calls],
+            [test[3] for test in gate.APALIS_DB_TESTS],
+        )
+        for call, (package, target, _source, name) in zip(
+            apalis_calls, gate.APALIS_DB_TESTS, strict=True
+        ):
+            command = call.args[0]
+            self.assertEqual(command[command.index("-p") + 1], package)
+            self.assertEqual(command[command.index("--test") + 1], target)
+            self.assertEqual(
+                command[command.index("--") + 1 :],
+                [name, "--exact", "--test-threads=1"],
+            )
+
+        workspace = run_mock.call_args_list[4].args[0]
         self.assertIn("--exact", workspace[workspace.index("--") + 1 :])
-        self.assertEqual(workspace.count("--skip"), 11)
+        self.assertEqual(workspace.count("--skip"), 14)
         self.assertEqual(
             [workspace[index + 1] for index, value in enumerate(workspace) if value == "--skip"],
-            [test["name"] for test in tests],
+            [test[3] for test in gate.APALIS_DB_TESTS]
+            + [test["name"] for test in tests],
         )
-        exact_names = [call.args[0][call.args[0].index("--") + 1] for call in run_mock.call_args_list[2:]]
+        exact_names = [
+            call.args[0][call.args[0].index("--") + 1]
+            for call in run_mock.call_args_list[5:]
+        ]
         self.assertEqual(exact_names, [test["name"] for test in tests])
-        for call, test in zip(run_mock.call_args_list[2:], tests, strict=True):
+        for call, test in zip(run_mock.call_args_list[5:], tests, strict=True):
             command = call.args[0]
             self.assertEqual(
                 command[command.index("--") + 1 :],
@@ -239,7 +282,7 @@ class ExecutionTests(unittest.TestCase):
             stderr = io.StringIO()
             with redirect_stdout(io.StringIO()), redirect_stderr(stderr):
                 self.assertEqual(gate.execute(SCRIPT.parents[1], "cargo"), 1)
-        self.assertEqual(exact_count, 11)
+        self.assertEqual(exact_count, 14)
         self.assertIn("workspace tests exited 9", stderr.getvalue())
         self.assertIn("expected exactly one 'running 1 test'", stderr.getvalue())
 

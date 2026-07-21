@@ -176,6 +176,26 @@ jobs:
             --entrypoint bash postgres:18.4@sha256:4aabea78cf39b90e834caf3af7d602a18565f6fe2508705c8d01aa63245c2e20 \
             /usr/local/bin/postgres-reconcile-topology
 
+          # The Apalis adapter contract intentionally mutates only its own
+          # dedicated database while proving direct mnt_app/mnt_rt logins. Keep
+          # the job-level DATABASE_URL on the cluster administrator because the
+          # rest of the serial workspace suite creates its own test databases.
+          docker run --rm --network host \
+            -e PGPASSWORD=postgres \
+            --entrypoint psql \
+            postgres:18.4@sha256:4aabea78cf39b90e834caf3af7d602a18565f6fe2508705c8d01aa63245c2e20 \
+            -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1 \
+            -c "DROP DATABASE IF EXISTS mnt_apalis_contract WITH (FORCE)" \
+            -c "CREATE DATABASE mnt_apalis_contract OWNER mnt_app"
+
+          echo "::add-mask::$APP_PASSWORD"
+          echo "::add-mask::$RT_PASSWORD"
+          {
+            echo "MNT_APALIS_OWNER_DATABASE_URL=postgres://mnt_app:${APP_PASSWORD}@localhost:5432/mnt_apalis_contract"
+            echo "MNT_APALIS_RUNTIME_DATABASE_URL=postgres://mnt_rt:${RT_PASSWORD}@localhost:5432/mnt_apalis_contract"
+            echo "MNT_APALIS_ADMIN_DATABASE_URL=postgres://postgres:postgres@localhost:5432/mnt_apalis_contract"
+          } >> "$GITHUB_ENV"
+
       - name: PR 473 migration operational gate
         if: ${{ !cancelled() }}
         working-directory: .
@@ -578,6 +598,7 @@ jobs:
           --health-retries 5
     env:
       CONTRACT_DATABASE_URL: postgres://postgres:postgres@localhost:5432/mnt_contract
+      MNT_APP_BIN: ${{ github.workspace }}/backend/target/debug/mnt-app
       # This job builds mnt-app before comparing the app-served OpenAPI and
       # running the generated-client round-trip. Match the backend job's lean
       # Cargo artifacts so the standard runner does not exhaust disk on cache

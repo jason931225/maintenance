@@ -53,6 +53,15 @@ test("contract and browser harnesses never alias command URLs to DATABASE_URL", 
     /ONTOLOGY_COMMAND_DATABASE_URL: topology\.ontologyCommandDatabaseUrl/,
   );
   assert.match(contract, /format\([\s\S]*?\$1::text, \$2::text\)/);
+  assert.match(
+    contract,
+    /ALTER ROLE %I SET transaction_timeout = ''45s''/,
+  );
+  assert.match(
+    contract,
+    /ALTER ROLE %I IN DATABASE %I RESET %I/,
+  );
+  assert.match(contract, /current_setting\('transaction_timeout'\)/);
 
   const e2e = read("e2e/harness/boot-backend.sh");
   assert.match(e2e, /DATABASE_URL="postgres:\/\/mnt_rt:/);
@@ -65,6 +74,24 @@ test("contract and browser harnesses never alias command URLs to DATABASE_URL", 
     e2e,
     /(?:LEAVE|ONTOLOGY)_COMMAND_DATABASE_URL="\$\{DATABASE_URL\}"/,
   );
+});
+
+test("append-only migration 0167 declares serving-role bounds and nonclaims", () => {
+  const path =
+    "backend/crates/platform/db/migrations/0167_serving_role_transaction_timeouts.sql";
+  assert.ok(existsSync(new URL(path, root)), `${path} must exist`);
+  const migration = read(path);
+  for (const role of ["mnt_rt", "mnt_leave_cmd", "mnt_ontology_cmd"]) {
+    assert.match(migration, new RegExp(`'${role}'`));
+  }
+  assert.match(migration, /ALTER ROLE %I SET statement_timeout/);
+  assert.match(migration, /ALTER ROLE %I SET idle_in_transaction_session_timeout/);
+  assert.match(migration, /ALTER ROLE %I SET transaction_timeout/);
+  assert.match(migration, /statement_timeout=30s/);
+  assert.match(migration, /idle_in_transaction_session_timeout=30s/);
+  assert.match(migration, /transaction_timeout=45s/);
+  assert.match(migration, /owner[\s\S]*outside this reconciliation and[\s\S]*startup correctness backstop/);
+  assert.match(migration, /quiescence\/coordination[\s\S]*xmin\/snapshot watermark/);
 });
 
 test("live Argo, base, prod, and secret wiring remain DARK-topology-free", () => {
@@ -174,6 +201,10 @@ test("governed command-database component declares six roles, topology readback,
   );
   assert.match(
     component,
+    /path: \/spec\/postgresql\/parameters\/max_prepared_transactions[\s\S]*?value: "0"/,
+  );
+  assert.match(
+    component,
     /name: mnt_app[\s\S]*?passwordSecret:\s*\n\s+name: mnt-db-app/,
   );
   assert.match(component, /name: LEAVE_COMMAND_DATABASE_URL/);
@@ -216,6 +247,62 @@ test("governed command-database component declares six roles, topology readback,
   assert.match(topology, /secretKeyRef: \{ name: mnt-db-app, key: username \}/);
   assert.match(
     topology,
+    /PGUSER="\$\{role\}" PGPASSWORD="\$\{password\}" psql[\s\S]*?BEGIN;[\s\S]*?ALTER ROLE %I SET statement_timeout[\s\S]*?ALTER ROLE %I SET idle_in_transaction_session_timeout[\s\S]*?ALTER ROLE %I SET transaction_timeout[\s\S]*?ALTER ROLE %I IN DATABASE %I RESET statement_timeout[\s\S]*?ALTER ROLE %I IN DATABASE %I RESET idle_in_transaction_session_timeout[\s\S]*?ALTER ROLE %I IN DATABASE %I RESET transaction_timeout[\s\S]*?COMMIT;/,
+  );
+  for (const [role, password] of [
+    ["mnt_rt", "MNT_RT_PASSWORD"],
+    ["mnt_leave_cmd", "MNT_LEAVE_COMMAND_PASSWORD"],
+    ["mnt_ontology_cmd", "MNT_ONTOLOGY_COMMAND_PASSWORD"],
+  ]) {
+    assert.match(
+      topology,
+      new RegExp(
+        `reconcile_serving_defaults ${role} "\\$\\{${password}\\}"`,
+      ),
+    );
+    assert.match(
+      topology,
+      new RegExp(
+        `assert_direct_serving_login ${role} "\\$\\{${password}\\}" '30s\\|30s\\|45s'`,
+      ),
+    );
+  }
+  assert.match(topology, /current_setting\('server_version_num'\)/);
+  assert.match(topology, /current_setting\('max_prepared_transactions'\)/);
+  assert.match(topology, /pg_prepared_xacts/);
+  assert.match(topology, /pg_terminate_backend/);
+  assert.match(topology, /pg_terminate_backend\(\$\{pid\}, 5000\)/);
+  assert.match(topology, /captured_pid_output="\$\(PGOPTIONS=/);
+  assert.doesNotMatch(topology, /mapfile -t captured_pids < <\(/);
+  assert.match(topology, /pid = ANY \(ARRAY\[\$\{captured_pid_csv\}\]::integer\[\]\)/);
+  assert.match(topology, /repair_pgoptions='-c statement_timeout=0 -c idle_in_transaction_session_timeout=0 -c transaction_timeout=0'/);
+  assert.match(topology, /serving_defaults_need_repair\(\)/);
+  assert.match(topology, /repair_mnt_rt="\$\(serving_defaults_need_repair mnt_rt/);
+  assert.match(topology, /if \[\[ "\$\{repair_mnt_rt\}" == true \]\]; then[\s\S]*?reconcile_serving_defaults mnt_rt/);
+  assert.match(topology, /if \[\[ "\$\{repair_mnt_rt\}" == true \]\]; then[\s\S]*?drain_serving_backends mnt_rt/);
+  const preflightEnd = topology.indexOf(
+    'preflight_serving_login mnt_ontology_cmd "${MNT_ONTOLOGY_COMMAND_PASSWORD}"',
+  );
+  const mutationStart = topology.indexOf(
+    'reconcile_serving_defaults mnt_rt "${MNT_RT_PASSWORD}"',
+  );
+  const repairClassification = topology.indexOf(
+    'repair_mnt_rt="$(serving_defaults_need_repair mnt_rt',
+  );
+  const mutationEnd = topology.indexOf(
+    'reconcile_serving_defaults mnt_ontology_cmd "${MNT_ONTOLOGY_COMMAND_PASSWORD}"',
+  );
+  const drainStart = topology.indexOf(
+    'drain_serving_backends mnt_rt "${MNT_RT_PASSWORD}"',
+  );
+  const freshReadback = topology.indexOf(
+    'assert_direct_serving_login mnt_rt "${MNT_RT_PASSWORD}"',
+  );
+  assert.ok(preflightEnd > 0 && preflightEnd < repairClassification);
+  assert.ok(repairClassification < mutationStart);
+  assert.ok(mutationEnd < drainStart && drainStart < freshReadback);
+  assert.match(
+    topology,
     /passwords=\([\s\S]*?\$\{PGPASSWORD\}[\s\S]*?\$\{MNT_RT_PASSWORD\}[\s\S]*?\$\{MNT_LEAVE_COMMAND_PASSWORD\}[\s\S]*?\$\{MNT_ONTOLOGY_COMMAND_PASSWORD\}[\s\S]*?\)/,
   );
   assert.match(
@@ -240,7 +327,7 @@ test("governed command-database component declares six roles, topology readback,
   );
   assert.match(
     topology,
-    /test "\$\{actual\}" = "\$\{role\}\|\$\{role\}\|t\|f\|f\|f\|f\|f\|f\|f"/,
+    /test "\$\{actual\}" = "\$\{role\}\|\$\{role\}\|t\|f\|f\|f\|f\|f\|f\|f\|\$\{expected_defaults\}"/,
   );
   for (const [secret, role] of [
     ["mnt-db-rt", "mnt_rt"],
@@ -251,6 +338,12 @@ test("governed command-database component declares six roles, topology readback,
     assert.match(topology, new RegExp(`assert_direct_serving_login ${role}`));
   }
   assert.doesNotMatch(topology, /mnt-db-superuser/);
+  assert.match(component, /enableSuperuserAccess[\s\S]*?value: false/);
+  assert.equal(
+    component.match(/maintenance\.oyatie\.com\/database-role-defaults: "0167"/g)
+      ?.length,
+    2,
+  );
 });
 
 test("DARK OCI and self-host renders include the governed topology without changing live prod", () => {

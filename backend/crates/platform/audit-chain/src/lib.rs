@@ -14,9 +14,11 @@
 //!
 //! # What it does NOT defend against (custody boundary)
 //! A party who ALSO holds the seal signing key can rewrite history and re-sign.
-//! The private key therefore lives in OCI Vault (never in-crate); [`SealSigner`]
-//! is asymmetric so the DB owner does not hold it. The in-crate
-//! [`InMemoryEd25519Signer`] is for dev/test only.
+//! The private key therefore lives behind a context-scoped external signer and
+//! key-custody port (never in-crate); [`SealSigner`] is asymmetric so the DB
+//! owner does not hold it. The owner-controlled self-host implementation lands
+//! first; OCI Vault is only the OCI adapter, while other clouds use their native
+//! KMS/HSM adapters. [`InMemoryEd25519Signer`] is for dev/test only.
 //!
 //! # PR-1 scope (dark plumbing — NO tamper evidence YET)
 //! This PR ships the chain plumbing with ONLY the in-crate signer, whose
@@ -24,8 +26,8 @@
 //! `key_ref` — so against the DB-writer threat actor above it provides **no real
 //! tamper evidence yet**: an attacker rewrites a row, recomputes the hashes,
 //! generates a fresh keypair, re-signs, and overwrites `signature` + `key_ref`.
-//! The evidentiary guarantee materializes only once the OCI Vault signer maps
-//! `key_ref` → public key through a store the DB writer cannot forge (PR-3, plus
+//! The evidentiary guarantee materializes only once the external signer adapter
+//! maps `key_ref` → public key through custody the DB writer cannot forge (plus
 //! an out-of-band seal anchor). PR-1 is correct, DARK scaffolding: it changes no
 //! live behavior and provides the seal/verify machinery PR-2 (a read-only
 //! attestation endpoint) and PR-3 (the real signer) build on.
@@ -87,19 +89,23 @@ const TS_FORMAT: &[time::format_description::BorrowedFormatItem<'_>] = time::mac
 /// watermark with a synthetic clock instead of real sleeps.
 #[derive(Debug, Clone, Copy)]
 pub struct SealConfig {
-    /// A row is sealed only once `created_at <= now - seal_lag`, so its
-    /// transaction has certainly committed (commit order ≠ `now()` order). The
-    /// invariant `seal_lag > max audited-txn duration` ⟹ no gaps is now
-    /// ENFORCED, not merely assumed: migration `0112_mnt_rt_statement_timeout`
-    /// pins `statement_timeout` and `idle_in_transaction_session_timeout` at 30s
-    /// on the `mnt_rt` login role, so no background writer transaction can
-    /// outlive the default 60s `seal_lag`. (Before 0112 `mnt_rt` had no such
-    /// bound — post-merge review F2 — and a >60s txn could commit a row below an
-    /// advanced cursor and trip a false-positive `CoverageGap`.)
-    // ponytail: time-lag watermark. Correct while max txn duration < seal_lag,
-    // enforced by the mnt_rt statement timeout (0112, 30s < 60s). If a
-    // long-running audited txn is ever genuinely needed, raise BOTH the timeout
-    // and seal_lag together, or upgrade to an xmin-snapshot watermark
+    /// A row is sealed only once `created_at <= now - seal_lag`; the query sees
+    /// only rows committed in its snapshot (commit order ≠ `now()` order). The
+    /// topology reconciliation pins PostgreSQL 17+ `transaction_timeout` at
+    /// 45s on every serving login that can write an audit row, and migration
+    /// `0167_serving_role_transaction_timeouts` asserts that catalog state. The
+    /// complementary 30s statement and idle-in-transaction defaults do not by
+    /// themselves bound total transaction duration. Thus a normal serving
+    /// transaction cannot outlive the default 60s `seal_lag`.
+    /// That lag reduces the risk of a late commit below an advanced cursor; it
+    /// establishes no global gap-free invariant. Migration-owner, offline, and
+    /// operator writers remain outside this reconciliation/startup correctness
+    /// backstop, so gap-free sealing still requires quiescence/coordination or
+    /// a future xmin/snapshot watermark. These USERSET values are not a security
+    /// boundary against a compromised database login.
+    // ponytail: time-lag watermark. Serving-role defaults are reconciled
+    // operationally and asserted by 0167 (45s < 60s), but gap-free sealing
+    // still needs writer quiescence or a future xmin/snapshot watermark
     // (pg_snapshot_xmin(pg_current_snapshot())).
     pub seal_lag: Duration,
     /// Max rows sealed in one pass (bounds one transaction). A backlog drains
@@ -156,8 +162,10 @@ impl From<sqlx::Error> for AuditChainError {
 // ===========================================================================
 
 /// Signs and verifies seal hashes. Asymmetric by design (Ed25519): production
-/// holds the private key in OCI Vault and `verify` needs only the public key,
-/// so the DB owner cannot forge a fresh chain.
+/// holds the private key behind the context-selected external key-custody port
+/// and `verify` needs only the public key, so the DB owner cannot forge a fresh
+/// chain. Self-host custody is owner-controlled; cloud adapters use native
+/// KMS/HSM services (including OCI Vault only in the OCI context).
 pub trait SealSigner: Send + Sync {
     /// Opaque identifier of the key that produced (and should verify) a
     /// signature. Persisted in `audit_chain_seals.key_ref` so a chain signed
@@ -181,7 +189,8 @@ pub trait SealSigner: Send + Sync {
 /// In-process Ed25519 signer for dev/test. Generates a fresh keypair at
 /// construction and embeds the public key in `key_ref` as
 /// `test:ed25519:<hex pk>`, so `verify` reconstructs the public key from the
-/// seal's stored `key_ref` alone. Production swaps in `OciVaultSigner` (PR-3).
+/// seal's stored `key_ref` alone. Production swaps in the context-selected
+/// external signer/key-custody adapter.
 pub struct InMemoryEd25519Signer {
     key_pair: ring::signature::Ed25519KeyPair,
     key_ref: String,

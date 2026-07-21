@@ -105,6 +105,13 @@ function assertHasFailure(result, fragment) {
   );
 }
 
+function replaceLast(text, needle, replacement) {
+  const index = text.lastIndexOf(needle);
+  return index < 0
+    ? text
+    : `${text.slice(0, index)}${replacement}${text.slice(index + needle.length)}`;
+}
+
 const smtpConfigMapWithRelayFields = `apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -475,6 +482,22 @@ const validPr473Files = {
             -e MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD="$ONTOLOGY_COMMAND_PASSWORD" \
             --entrypoint bash postgres:18.4@sha256:4aabea78cf39b90e834caf3af7d602a18565f6fe2508705c8d01aa63245c2e20 \
             /usr/local/bin/postgres-reconcile-topology
+
+          docker run --rm --network host \
+            -e PGPASSWORD=postgres \
+            --entrypoint psql \
+            postgres:18.4@sha256:4aabea78cf39b90e834caf3af7d602a18565f6fe2508705c8d01aa63245c2e20 \
+            -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1 \
+            -c "DROP DATABASE IF EXISTS mnt_apalis_contract WITH (FORCE)" \
+            -c "CREATE DATABASE mnt_apalis_contract OWNER mnt_app"
+
+          echo "::add-mask::$APP_PASSWORD"
+          echo "::add-mask::$RT_PASSWORD"
+          {
+            echo "MNT_APALIS_OWNER_DATABASE_URL=postgres://mnt_app:\${APP_PASSWORD}@localhost:5432/mnt_apalis_contract"
+            echo "MNT_APALIS_RUNTIME_DATABASE_URL=postgres://mnt_rt:\${RT_PASSWORD}@localhost:5432/mnt_apalis_contract"
+            echo "MNT_APALIS_ADMIN_DATABASE_URL=postgres://postgres:postgres@localhost:5432/mnt_apalis_contract"
+          } >> "$GITHUB_ENV"
       - name: PR 473 migration operational gate
         working-directory: .
         run: npm run check:pr473-migration-operational
@@ -653,6 +676,75 @@ describe("production hardening PR 473 typed operational gate", () => {
       assertHasFailure(result, "must invoke the exact reconcile command");
     }
   });
+
+  it("rejects an inexact Apalis contract database name", () => {
+    const result = evaluatePr473({
+      ".github/workflows/ci.yml": validPr473Files[
+        ".github/workflows/ci.yml"
+      ].replace(
+        "CREATE DATABASE mnt_apalis_contract OWNER mnt_app",
+        "CREATE DATABASE apalis_contract OWNER mnt_app",
+      ),
+    });
+
+    assertHasFailure(result, "Apalis database provisioning command");
+  });
+
+  it("rejects an Apalis contract database not owned by mnt_app", () => {
+    const result = evaluatePr473({
+      ".github/workflows/ci.yml": validPr473Files[
+        ".github/workflows/ci.yml"
+      ].replace(
+        "CREATE DATABASE mnt_apalis_contract OWNER mnt_app",
+        "CREATE DATABASE mnt_apalis_contract OWNER postgres",
+      ),
+    });
+
+    assertHasFailure(result, "Apalis database provisioning command");
+  });
+
+  it("rejects an unpinned PostgreSQL image for Apalis provisioning", () => {
+    const pinnedImage =
+      "postgres:18.4@sha256:4aabea78cf39b90e834caf3af7d602a18565f6fe2508705c8d01aa63245c2e20";
+    const result = evaluatePr473({
+      ".github/workflows/ci.yml": replaceLast(
+        validPr473Files[".github/workflows/ci.yml"],
+        pinnedImage,
+        "postgres:18.4",
+      ),
+    });
+
+    assertHasFailure(result, "pinned PostgreSQL image");
+  });
+
+  it("requires all three exact Apalis database URL exports", () => {
+    for (const variable of [
+      "MNT_APALIS_OWNER_DATABASE_URL",
+      "MNT_APALIS_RUNTIME_DATABASE_URL",
+      "MNT_APALIS_ADMIN_DATABASE_URL",
+    ]) {
+      const result = evaluatePr473({
+        ".github/workflows/ci.yml": validPr473Files[
+          ".github/workflows/ci.yml"
+        ].replace(variable, `${variable}_RENAMED`),
+      });
+
+      assertHasFailure(result, "URL exports");
+    }
+  });
+
+  it("requires both generated Apalis role passwords to be masked", () => {
+    for (const password of ["APP_PASSWORD", "RT_PASSWORD"]) {
+      const result = evaluatePr473({
+        ".github/workflows/ci.yml": validPr473Files[
+          ".github/workflows/ci.yml"
+        ].replace(`          echo "::add-mask::$${password}"\n`, ""),
+      });
+
+      assertHasFailure(result, "masking");
+    }
+  });
+
 });
 
 const validProductionEvidenceText = `${JSON.stringify(

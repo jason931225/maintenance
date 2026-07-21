@@ -97,12 +97,20 @@ kubectl exec -n maintenance mnt-db-1 -c postgres -- psql -U postgres -d maintena
      yields `+`/`/`, which break `host:port` parsing → backend crashes
      `Database(Configuration(InvalidPort))`. Percent-encode the password in the uri.
      *Proper fix:* SECRETS.md uses `rand -hex` or percent-encodes.
-  5. **apalis job queue needs runtime DDL grants.** The worker's apalis queue self-creates
-     its tables at startup as `mnt_rt` (no apalis migration exists), needing
-     `GRANT CREATE ON DATABASE maintenance TO mnt_rt; GRANT CREATE,USAGE ON SCHEMA public TO mnt_rt;`
-     — else `permission denied for database/schema public`. This does NOT weaken tenant
-     isolation (mnt_rt stays NOBYPASSRLS; the job queue is infra, not org data).
-     *Proper fix:* create the apalis schema in a migration (as `mnt_app`) + grant mnt_rt DML.
+  5. **Apalis schema ownership is migration-only.** The intended application shape
+     now runs the vendor Apalis migrations and reconciles the queue ACL in
+     `MNT_APP_ROLE=migrate` as owner `mnt_app`, on the same validated physical
+     connection as the numbered SQLx migrations. API/worker startup as `mnt_rt`
+     performs read-only schema, ledger/checksum, and ACL validation and fails closed
+     on drift; it does not self-create queue objects or require runtime DDL grants.
+     This describes the merge candidate, not proof that the live cluster has
+     activated or successfully exercised the new boundary. Existing databases
+     may still have `mnt_rt`-owned Apalis objects, the legacy migration ledger,
+     or the vendor `public.generate_ulid()` helper. Activation remains blocked
+     until an administrator inventories those exact objects, rehearses an
+     enumerated owner transfer on a restored disposable copy, and proves the
+     migrate-to-runtime transition. Never use broad `REASSIGN OWNED BY mnt_rt`;
+     the governed component runbook defines the required evidence boundary.
 - **Restoring from a dev/local dump:** purge dev-auth role-switch personas before pointing
   a release build at it — `DELETE FROM users WHERE phone LIKE 'dev-auth:%';`. The
   composition root refuses to boot (api/worker) if any remain (`mnt-app`'s

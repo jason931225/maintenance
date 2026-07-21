@@ -46,6 +46,23 @@ unexpected role membership on a serving identity and proves each credential
 opens a direct `session_user = current_user` connection. An admin connection
 followed by `SET ROLE` is not acceptable evidence.
 
+Every serving role has exact global defaults of `statement_timeout=30s`,
+`idle_in_transaction_session_timeout=30s`, and `transaction_timeout=45s`.
+CloudNativePG does not model role-default GUCs, so the wave-1 Job connects
+directly as each serving role and self-applies these USERSET values without a
+superuser secret. It removes only the three managed keys from every
+database-specific override, preserves unrelated settings, verifies exact
+catalog state inside the transaction, commits, drains older sessions only for a
+role whose managed defaults or overrides actually required repair, and then
+opens a fresh direct connection to prove effective values. An exact-state Sync
+is readback-only and preserves healthy in-flight serving sessions. PostgreSQL 17 or
+newer and `max_prepared_transactions=0` are mandatory; prepared transactions
+are exempt from `transaction_timeout`. These controls bound normal operation
+but are not a security boundary because each login may change its own USERSET
+defaults. Migration-owner, offline, and operator writers remain outside this
+control; gap-free audit sealing still requires quiescence/coordination or a
+future xmin/snapshot watermark.
+
 ## Secret contract
 
 The component consumes these Secrets in namespace `maintenance`:
@@ -75,13 +92,39 @@ The component converts the live PreSync migration into an ordered Sync sequence:
 | Wave | Resource | Required result |
 |---:|---|---|
 | 0 | `mnt-db` CloudNativePG Cluster | all six roles and password references reconcile |
-| 1 | `mnt-db-topology` Sync hook | role attributes, ownership, memberships, pairwise credential separation, and direct login identities read back exactly |
+| 1 | `mnt-db-topology` Sync hook | role attributes, ownership, memberships, pairwise credential separation, exact timeout defaults, repair-scoped old-session drain, and fresh direct login identities read back exactly |
 | 2 | `mnt-migrate` Sync hook | embedded migrations finish successfully with the migration-only owner |
 | 3 | `mnt-app` Rollout and `mnt-worker` Deployment | serving workloads start only after both database gates pass |
 
 Never selectively sync the topology Job, migration Job, API, or worker. Sync the
 whole maintenance Application so all prerequisite waves run. A topology or
 migration failure must stop the serving rollout.
+
+### Legacy Apalis ownership is an activation blocker
+
+The owner/runtime split is mergeable while this component remains DARK, but an
+existing database may contain Apalis objects created earlier by `mnt_rt`. The
+new migration path deliberately refuses any Apalis schema, relation, migration
+ledger, function, or vendor `public.generate_ulid()` helper that is not owned by
+`mnt_app`; it also refuses an unledgered partial schema. It never silently
+adopts, rewrites, or broad-transfers those objects.
+
+Before any activation proposal against an existing database, a cluster
+administrator must capture an exact inventory of the Apalis ledger and every
+vendor-created object, rehearse the transition on a restored disposable copy,
+and produce an enumerated ownership-transfer manifest plus rollback evidence.
+Transfer only the named Apalis objects and vendor helper after the inventory is
+reviewed. Do not use `REASSIGN OWNED BY mnt_rt`, because `mnt_rt` may own
+unrelated objects and a broad transfer would cross the adapter boundary. After
+the transfer, the exact candidate's migrate mode must converge the ledger and
+ACL, and fresh direct `mnt_rt` API and worker sessions must prove enqueue,
+claim, acknowledgement, retention, and denied DDL. Until that rehearsal and
+evidence exist for the selected database state, activation is blocked.
+
+The component stamps pod-template annotation version `0167` on both API and
+worker. Whole-Application activation therefore replaces every pooled serving
+process after the old-session drain; a metadata-only Deployment annotation is
+not accepted as a restart barrier.
 
 ## Connection budget
 

@@ -899,7 +899,7 @@ async fn runtime_role_has_one_validated_audited_object_type_write_surface(owner_
     .await;
     assert!(matches!(
         publish_without_approval,
-        Err(PgOntologyError::Db(_))
+        Err(PgOntologyError::Domain(ref kernel)) if kernel.kind == ErrorKind::Forbidden
     ));
     let final_revision: i64 = sqlx::query_scalar(
         "SELECT revision FROM ont_object_type_key_revisions WHERE org_id=$1 AND stable_key='cas.sql_boundary'",

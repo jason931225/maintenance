@@ -67,13 +67,15 @@ async fn command_role_pool(owner_pool: &PgPool) -> PgPool {
         .unwrap()
 }
 
-async fn runtime_role_pool_with_stage_select_barrier(owner_pool: &PgPool) -> PgPool {
+async fn command_role_pool_with_stage_select_barrier(owner_pool: &PgPool) -> PgPool {
     let options = owner_pool.connect_options().as_ref().clone();
     PgPoolOptions::new()
         .max_connections(4)
         .after_connect(|conn, _meta| {
             Box::pin(async move {
-                sqlx::query("SET ROLE mnt_rt").execute(&mut *conn).await?;
+                sqlx::query("SET ROLE mnt_ontology_cmd")
+                    .execute(&mut *conn)
+                    .await?;
                 sqlx::query("SET app.test_stage_select_barrier = 'on'")
                     .execute(&mut *conn)
                     .await?;
@@ -154,19 +156,58 @@ async fn current_precondition(
         .write_precondition()
 }
 
-async fn publish_direct(
+async fn publish_with_four_eyes(
+    owner_pool: &PgPool,
     store: &PgOntologyStore,
+    org: OrgId,
     actor: UserId,
+    approver: UserId,
     summary: &ObjectTypeSummary,
     at: time::OffsetDateTime,
 ) -> ObjectTypeSummary {
-    store
+    let reviewed = store
         .transition_lifecycle(
             actor,
             summary.id,
             summary.write_precondition(),
+            SchemaLifecycleState::ReviewPending,
+            true,
+            TraceContext::generate(),
+            at,
+        )
+        .await
+        .unwrap();
+    let request_ref = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO gov_approval_requests (org_id, request_ref, kind, requested_by, payload_summary, target_ref) VALUES ($1, $2, 'ontology.schema.publish', $3, jsonb_build_object('key_revision', $4::bigint), $5)",
+    )
+    .bind(*org.as_uuid())
+    .bind(request_ref)
+    .bind(*actor.as_uuid())
+    .bind(reviewed.key_write_revision)
+    .bind(*summary.id.as_uuid())
+    .execute(owner_pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO gov_approvals (org_id, request_ref, kind, requested_by, approver_id, decision, target_ref) VALUES ($1, $2, 'ontology.schema.publish', $3, $4, 'approved', $5)",
+    )
+    .bind(*org.as_uuid())
+    .bind(request_ref)
+    .bind(*actor.as_uuid())
+    .bind(*approver.as_uuid())
+    .bind(*summary.id.as_uuid())
+    .execute(owner_pool)
+    .await
+    .unwrap();
+
+    store
+        .transition_lifecycle(
+            actor,
+            summary.id,
+            reviewed.write_precondition(),
             SchemaLifecycleState::Published,
-            false,
+            true,
             TraceContext::generate(),
             at,
         )
@@ -324,6 +365,7 @@ async fn lifecycle_fsm_and_revision_staging_as_runtime_role(owner_pool: PgPool) 
     let rt_pool = runtime_role_pool(&owner_pool).await;
     let org_a = OrgId::knl();
     let actor = seed_org_and_user(&owner_pool, *org_a.as_uuid(), "fsm").await;
+    let approver = seed_org_and_user(&owner_pool, *org_a.as_uuid(), "fsm-approver").await;
     let at = datetime!(2026-07-09 12:00 UTC);
 
     mnt_platform_request_context::scope_org(org_a, async {
@@ -361,30 +403,8 @@ async fn lifecycle_fsm_and_revision_staging_as_runtime_role(owner_pool: PgPool) 
         );
 
         // The reviewed path publishes: draft → review_pending → published.
-        let reviewed = store
-            .transition_lifecycle(
-                actor,
-                v1.id,
-                v1.write_precondition(),
-                SchemaLifecycleState::ReviewPending,
-                true,
-                TraceContext::generate(),
-                at,
-            )
-            .await
-            .unwrap();
-        let published = store
-            .transition_lifecycle(
-                actor,
-                v1.id,
-                reviewed.write_precondition(),
-                SchemaLifecycleState::Published,
-                true,
-                TraceContext::generate(),
-                at,
-            )
-            .await
-            .unwrap();
+        let published =
+            publish_with_four_eyes(&owner_pool, &store, org_a, actor, approver, &v1, at).await;
         assert_eq!(published.lifecycle_state, SchemaLifecycleState::Published);
 
         // Stage a v+1 revision; the published head is untouched (immutable history).
@@ -410,19 +430,8 @@ async fn lifecycle_fsm_and_revision_staging_as_runtime_role(owner_pool: PgPool) 
             SchemaLifecycleState::Published
         );
 
-        // Publishing v2 (protection OFF path) supersedes v1 atomically.
-        store
-            .transition_lifecycle(
-                actor,
-                v2.id,
-                v2.write_precondition(),
-                SchemaLifecycleState::Published,
-                false,
-                TraceContext::generate(),
-                at,
-            )
-            .await
-            .unwrap();
+        // Publishing v2 through independent review supersedes v1 atomically.
+        publish_with_four_eyes(&owner_pool, &store, org_a, actor, approver, &v2, at).await;
         let head2 = store.get_object_type("wo.fsm", None).await.unwrap();
         assert_eq!(head2.object_type.schema_version, 2);
         assert_eq!(
@@ -633,8 +642,69 @@ fn push_duplicate_child(
     }
 }
 
+async fn object_type_storage_snapshot(
+    owner_pool: &PgPool,
+    org: OrgId,
+    stable_key: &str,
+) -> serde_json::Value {
+    sqlx::query_scalar(
+        r#"
+        SELECT CASE WHEN EXISTS (
+            SELECT 1 FROM ont_object_types WHERE org_id = $1 AND stable_key = $2
+        ) THEN jsonb_build_object(
+            'object_types', (
+                SELECT jsonb_agg(to_jsonb(o) ORDER BY o.schema_version)
+                FROM ont_object_types o
+                WHERE o.org_id = $1 AND o.stable_key = $2
+            ),
+            'properties', COALESCE((
+                SELECT jsonb_agg(to_jsonb(p) ORDER BY p.object_type_id, p.key)
+                FROM ont_property_defs p
+                WHERE p.org_id = $1 AND p.object_type_id IN (
+                    SELECT id FROM ont_object_types WHERE org_id = $1 AND stable_key = $2
+                )
+            ), '[]'::jsonb),
+            'links', COALESCE((
+                SELECT jsonb_agg(to_jsonb(l) ORDER BY l.object_type_id, l.stable_key)
+                FROM ont_link_types l
+                WHERE l.org_id = $1 AND l.object_type_id IN (
+                    SELECT id FROM ont_object_types WHERE org_id = $1 AND stable_key = $2
+                )
+            ), '[]'::jsonb),
+            'actions', COALESCE((
+                SELECT jsonb_agg(to_jsonb(a) ORDER BY a.object_type_id, a.stable_key)
+                FROM ont_action_types a
+                WHERE a.org_id = $1 AND a.object_type_id IN (
+                    SELECT id FROM ont_object_types WHERE org_id = $1 AND stable_key = $2
+                )
+            ), '[]'::jsonb),
+            'analytics', COALESCE((
+                SELECT jsonb_agg(to_jsonb(n) ORDER BY n.object_type_id, n.key)
+                FROM ont_analytics n
+                WHERE n.org_id = $1 AND n.object_type_id IN (
+                    SELECT id FROM ont_object_types WHERE org_id = $1 AND stable_key = $2
+                )
+            ), '[]'::jsonb)
+        ) ELSE 'null'::jsonb END
+        "#,
+    )
+    .bind(*org.as_uuid())
+    .bind(stable_key)
+    .fetch_one(owner_pool)
+    .await
+    .unwrap()
+}
+
+async fn org_audit_count(owner_pool: &PgPool, org: OrgId) -> i64 {
+    sqlx::query_scalar("SELECT COUNT(*) FROM audit_events WHERE org_id = $1")
+        .bind(*org.as_uuid())
+        .fetch_one(owner_pool)
+        .await
+        .unwrap()
+}
+
 #[sqlx::test(migrations = "../../platform/db/migrations")]
-async fn duplicate_child_identities_inside_fresh_and_append_requests_are_deterministic(
+async fn duplicate_child_identities_inside_one_draft_are_rejected_before_storage(
     owner_pool: PgPool,
 ) {
     let org = OrgId::knl();
@@ -648,53 +718,35 @@ async fn duplicate_child_identities_inside_fresh_and_append_requests_are_determi
 
         for kind in DuplicateChildKind::ALL {
             let slug = kind.slug();
-            let fresh_key = format!("wo.{slug}_equal_fresh");
-            let child_key = format!("new_{slug}");
-            let mut equal_fresh = work_order_draft(&fresh_key);
-            push_duplicate_child(&mut equal_fresh, kind, &child_key, false);
-            store
-                .create_object_type(actor, equal_fresh, TraceContext::generate(), at)
-                .await
-                .unwrap_or_else(|error| {
-                    panic!("{kind:?} equal duplicate in a fresh request failed: {error:?}")
-                });
-            let fresh = store.get_object_type(&fresh_key, None).await.unwrap();
-            let fresh_count = match kind {
-                DuplicateChildKind::Property => fresh.properties.len(),
-                DuplicateChildKind::Link => fresh.links.len(),
-                DuplicateChildKind::Action => fresh.actions.len(),
-                DuplicateChildKind::Analytic => fresh.analytics.len(),
-            };
-            let base_count = match kind {
-                DuplicateChildKind::Property | DuplicateChildKind::Link => 1,
-                DuplicateChildKind::Action | DuplicateChildKind::Analytic => 0,
-            };
-            assert_eq!(
-                fresh_count,
-                base_count + 1,
-                "{kind:?} equal fresh duplicates must collapse",
-            );
-
-            let divergent_fresh_key = format!("wo.{slug}_divergent_fresh");
-            let mut divergent_fresh = work_order_draft(&divergent_fresh_key);
-            push_duplicate_child(
-                &mut divergent_fresh,
-                kind,
-                &format!("conflict_{slug}"),
-                true,
-            );
-            let fresh_error = store
-                .create_object_type(actor, divergent_fresh, TraceContext::generate(), at)
-                .await
-                .expect_err("divergent fresh duplicate must conflict");
-            assert!(
-                matches!(
-                    fresh_error,
-                    PgOntologyError::Domain(ref kernel)
-                        if kernel.kind == ErrorKind::Conflict
-                ),
-                "{kind:?} divergent fresh duplicate returned {fresh_error:?}",
-            );
+            for divergent in [false, true] {
+                let variant = if divergent { "divergent" } else { "equal" };
+                let fresh_key = format!("wo.{slug}_{variant}_fresh");
+                let mut fresh = work_order_draft(&fresh_key);
+                push_duplicate_child(&mut fresh, kind, &format!("new_{slug}"), divergent);
+                let audits_before = org_audit_count(&owner_pool, org).await;
+                let error = store
+                    .create_object_type(actor, fresh, TraceContext::generate(), at)
+                    .await
+                    .expect_err("duplicate child identity must fail validation");
+                assert!(
+                    matches!(
+                        error,
+                        PgOntologyError::Domain(ref kernel)
+                            if kernel.kind == ErrorKind::Validation
+                    ),
+                    "{kind:?} {variant} fresh duplicate returned {error:?}",
+                );
+                assert_eq!(
+                    object_type_storage_snapshot(&owner_pool, org, &fresh_key).await,
+                    serde_json::Value::Null,
+                    "{kind:?} {variant} fresh duplicate must create no storage",
+                );
+                assert_eq!(
+                    org_audit_count(&owner_pool, org).await,
+                    audits_before,
+                    "{kind:?} {variant} fresh duplicate must emit no audit",
+                );
+            }
 
             let append_key = format!("wo.{slug}_append");
             let base = work_order_draft(&append_key);
@@ -702,79 +754,43 @@ async fn duplicate_child_identities_inside_fresh_and_append_requests_are_determi
                 .create_object_type(actor, base.clone(), TraceContext::generate(), at)
                 .await
                 .unwrap();
-            let mut equal_append = base;
-            push_duplicate_child(&mut equal_append, kind, &format!("append_{slug}"), false);
-            store
-                .stage_revision(
-                    actor,
-                    &append_key,
-                    current_precondition(&store, &append_key).await,
-                    equal_append.clone(),
-                    TraceContext::generate(),
-                    at,
-                )
-                .await
-                .unwrap_or_else(|error| {
-                    panic!("{kind:?} equal duplicate in append failed: {error:?}")
-                });
-            let appended = store.get_object_type(&append_key, None).await.unwrap();
-            let appended_count = match kind {
-                DuplicateChildKind::Property => appended.properties.len(),
-                DuplicateChildKind::Link => appended.links.len(),
-                DuplicateChildKind::Action => appended.actions.len(),
-                DuplicateChildKind::Analytic => appended.analytics.len(),
-            };
-            assert_eq!(
-                appended_count,
-                base_count + 1,
-                "{kind:?} equal append duplicates must collapse",
-            );
-
-            let future_key = format!("future_{slug}");
-            let mut divergent_append = equal_append;
-            push_duplicate_child(&mut divergent_append, kind, &future_key, true);
-            let append_error = store
-                .stage_revision(
-                    actor,
-                    &append_key,
-                    current_precondition(&store, &append_key).await,
-                    divergent_append,
-                    TraceContext::generate(),
-                    at,
-                )
-                .await
-                .expect_err("divergent append duplicate must conflict");
-            assert!(
-                matches!(
-                    append_error,
-                    PgOntologyError::Domain(ref kernel)
-                        if kernel.kind == ErrorKind::Conflict
-                ),
-                "{kind:?} divergent append duplicate returned {append_error:?}",
-            );
-            let after_conflict = store.get_object_type(&append_key, None).await.unwrap();
-            let future_exists = match kind {
-                DuplicateChildKind::Property => after_conflict
-                    .properties
-                    .iter()
-                    .any(|child| child.key == future_key),
-                DuplicateChildKind::Link => after_conflict
-                    .links
-                    .iter()
-                    .any(|child| child.stable_key == future_key),
-                DuplicateChildKind::Action => after_conflict
-                    .actions
-                    .iter()
-                    .any(|child| child.stable_key == future_key),
-                DuplicateChildKind::Analytic => after_conflict
-                    .analytics
-                    .iter()
-                    .any(|child| child.key == future_key),
-            };
-            assert!(
-                !future_exists,
-                "{kind:?} divergent append must roll back the new identity",
-            );
+            for divergent in [false, true] {
+                let variant = if divergent { "divergent" } else { "equal" };
+                let mut append = base.clone();
+                push_duplicate_child(&mut append, kind, &format!("append_{slug}"), divergent);
+                let storage_before =
+                    object_type_storage_snapshot(&owner_pool, org, &append_key).await;
+                let audits_before = org_audit_count(&owner_pool, org).await;
+                let error = store
+                    .stage_revision(
+                        actor,
+                        &append_key,
+                        current_precondition(&store, &append_key).await,
+                        append,
+                        TraceContext::generate(),
+                        at,
+                    )
+                    .await
+                    .expect_err("duplicate child identity must fail validation");
+                assert!(
+                    matches!(
+                        error,
+                        PgOntologyError::Domain(ref kernel)
+                            if kernel.kind == ErrorKind::Validation
+                    ),
+                    "{kind:?} {variant} append duplicate returned {error:?}",
+                );
+                assert_eq!(
+                    object_type_storage_snapshot(&owner_pool, org, &append_key).await,
+                    storage_before,
+                    "{kind:?} {variant} append duplicate must not mutate storage",
+                );
+                assert_eq!(
+                    org_audit_count(&owner_pool, org).await,
+                    audits_before,
+                    "{kind:?} {variant} append duplicate must emit no audit",
+                );
+            }
         }
     })
     .await;
@@ -818,6 +834,7 @@ async fn concurrent_stage_stage_has_one_cas_winner_as_runtime_role(owner_pool: P
     const INSERT_GATE: i64 = 4_730_012;
     let org = OrgId::knl();
     let actor = seed_org_and_user(&owner_pool, *org.as_uuid(), "stage-stage").await;
+    let approver = seed_org_and_user(&owner_pool, *org.as_uuid(), "stage-stage-approver").await;
     let rt_pool = runtime_role_pool(&owner_pool).await;
     let at = datetime!(2026-07-19 06:30 UTC);
     seed_object_type(&owner_pool, OrgId::from_uuid(ORG_B), "wo.concurrent_stage").await;
@@ -834,7 +851,7 @@ async fn concurrent_stage_stage_has_one_cas_winner_as_runtime_role(owner_pool: P
             )
             .await
             .unwrap();
-        publish_direct(&store, actor, &v1, at).await
+        publish_with_four_eyes(&owner_pool, &store, org, actor, approver, &v1, at).await
     })
     .await;
     let expected = v1.write_precondition();
@@ -981,10 +998,11 @@ async fn concurrent_stage_stage_has_one_cas_winner_as_runtime_role(owner_pool: P
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
-async fn concurrent_stage_publish_has_one_cas_winner_as_runtime_role(owner_pool: PgPool) {
+async fn concurrent_stage_review_has_one_cas_winner_as_runtime_role(owner_pool: PgPool) {
     const SELECT_GATE: i64 = 4_730_013;
     let org = OrgId::knl();
     let actor = seed_org_and_user(&owner_pool, *org.as_uuid(), "stage-publish").await;
+    let approver = seed_org_and_user(&owner_pool, *org.as_uuid(), "stage-publish-approver").await;
     let rt_pool = runtime_role_pool(&owner_pool).await;
     let at = datetime!(2026-07-19 06:31 UTC);
     seed_object_type(
@@ -1006,7 +1024,8 @@ async fn concurrent_stage_publish_has_one_cas_winner_as_runtime_role(owner_pool:
             )
             .await
             .unwrap();
-        let published = publish_direct(&store, actor, &v1, at).await;
+        let published =
+            publish_with_four_eyes(&owner_pool, &store, org, actor, approver, &v1, at).await;
         store
             .stage_revision(
                 actor,
@@ -1051,9 +1070,23 @@ async fn concurrent_stage_publish_has_one_cas_winner_as_runtime_role(owner_pool:
     .execute(&owner_pool)
     .await
     .unwrap();
-    let stage_pool = runtime_role_pool_with_stage_select_barrier(&owner_pool).await;
-    let stage_cmd_pool = command_role_pool(&owner_pool).await;
+    let stage_pool = rt_pool.clone();
+    let stage_cmd_pool = command_role_pool_with_stage_select_barrier(&owner_pool).await;
     let gate = hold_advisory_gate(&owner_pool, SELECT_GATE).await;
+    let mut staged_draft = revision_draft(
+        "wo.concurrent_publish",
+        "hostile stage edit",
+        "before_publish",
+    );
+    staged_draft.properties.push(PropertyDefInput {
+        key: "after_publish".to_owned(),
+        title: "after_publish".to_owned(),
+        field_type: "text".to_owned(),
+        config: serde_json::json!({}),
+        backing_column: None,
+        required: false,
+        in_property_policy: false,
+    });
 
     let stage = tokio::spawn(mnt_platform_request_context::scope_org(org, async move {
         PgOntologyStore::new(stage_pool)
@@ -1062,11 +1095,7 @@ async fn concurrent_stage_publish_has_one_cas_winner_as_runtime_role(owner_pool:
                 actor,
                 "wo.concurrent_publish",
                 expected,
-                revision_draft(
-                    "wo.concurrent_publish",
-                    "hostile stage edit",
-                    "after_publish",
-                ),
+                staged_draft,
                 TraceContext::generate(),
                 at,
             )
@@ -1074,42 +1103,46 @@ async fn concurrent_stage_publish_has_one_cas_winner_as_runtime_role(owner_pool:
     }));
     wait_for_advisory_waiters(&owner_pool, 1).await;
 
-    let publish_pool = rt_pool.clone();
-    let publish_cmd_pool = command_role_pool(&owner_pool).await;
-    let publish = tokio::spawn(mnt_platform_request_context::scope_org(org, async move {
-        PgOntologyStore::new(publish_pool)
-            .with_command_pool(publish_cmd_pool)
+    let review_pool = rt_pool.clone();
+    let review_cmd_pool = command_role_pool(&owner_pool).await;
+    let review = tokio::spawn(mnt_platform_request_context::scope_org(org, async move {
+        PgOntologyStore::new(review_pool)
+            .with_command_pool(review_cmd_pool)
             .transition_lifecycle(
                 actor,
                 v2.id,
                 expected,
-                SchemaLifecycleState::Published,
-                false,
+                SchemaLifecycleState::ReviewPending,
+                true,
                 TraceContext::generate(),
                 at,
             )
             .await
     }));
 
-    wait_for_advisory_waiters(&owner_pool, 2).await;
+    tokio::task::yield_now().await;
+    assert!(
+        !review.is_finished(),
+        "the same-token review submission must wait for the staged key lock"
+    );
     release_advisory_gate(gate, SELECT_GATE).await;
 
     let staged = stage
         .await
         .unwrap()
         .expect("the operation that already advanced the key token must finish");
-    let publish_error = publish
+    let review_error = review
         .await
         .unwrap()
-        .expect_err("the same-token publish must lose without mutating");
+        .expect_err("the same-token review submission must lose without mutating");
     assert!(
         matches!(
-            publish_error,
+            review_error,
             PgOntologyError::PreconditionFailed { ref current }
                 if current.revision == staged.key_write_revision
                     && current.etag == staged.key_write_etag
         ),
-        "stale publish must return the current key validator"
+        "stale review submission must return the current key validator"
     );
     assert_eq!(staged.id, v2.id);
 

@@ -7,7 +7,13 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 POSTGRES_IMAGE="postgres:18.4@sha256:65f70a152846cf504dff86e807007e9aeac98c3aeb7b62541b2c55ab9d264e56"
 fresh_container="mnt-topology-fresh-$$"
+pg16_container="mnt-topology-pg16-$$"
+prepared_container="mnt-topology-prepared-$$"
+legacy_pg16_container="mnt-topology-legacy-pg16-$$"
+legacy_prepared_container="mnt-topology-legacy-prepared-$$"
 legacy_project="mnt-topology-legacy-$$"
+rendered_cnpg_dir="$(mktemp -d "${REPO_ROOT}/.tmp-cnpg-topology.XXXXXX")"
+rendered_cnpg_script="${rendered_cnpg_dir}/job-script.sh"
 
 if docker compose version >/dev/null 2>&1; then
   compose_command=(docker compose)
@@ -32,6 +38,10 @@ compose() {
 
 cleanup() {
   docker rm -f "${fresh_container}" >/dev/null 2>&1 || true
+  docker rm -f "${pg16_container}" "${prepared_container}" \
+    "${legacy_pg16_container}" "${legacy_prepared_container}" >/dev/null 2>&1 || true
+  rm -f "${rendered_cnpg_script}"
+  rmdir "${rendered_cnpg_dir}" >/dev/null 2>&1 || true
   compose down -v --remove-orphans >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
@@ -75,6 +85,106 @@ query_as_direct_login() {
     -v ON_ERROR_STOP=1 -At -F '|' -c "${sql}"
 }
 
+assert_prerequisite_refusal_before_mutation() {
+  local container="$1"
+  local image="$2"
+  shift 2
+  docker run -d --name "${container}" \
+    -v "${REPO_ROOT}/ops/postgres-reconcile-topology.sh:/topology.sh:ro" \
+    -e POSTGRES_DB="${MNT_POSTGRES_DB}" \
+    -e POSTGRES_USER="${MNT_POSTGRES_ADMIN_USER}" \
+    -e POSTGRES_PASSWORD="${MNT_POSTGRES_ADMIN_PASSWORD}" \
+    "${image}" "$@" >/dev/null
+  wait_for_postgres "${container}" "${MNT_POSTGRES_ADMIN_USER}"
+  if docker exec \
+    -e POSTGRES_HOST=127.0.0.1 \
+    -e POSTGRES_DB="${MNT_POSTGRES_DB}" \
+    -e POSTGRES_ADMIN_USER="${MNT_POSTGRES_ADMIN_USER}" \
+    -e POSTGRES_ADMIN_PASSWORD="${MNT_POSTGRES_ADMIN_PASSWORD}" \
+    -e MNT_APP_POSTGRES_PASSWORD="${MNT_APP_POSTGRES_PASSWORD}" \
+    -e MNT_RT_POSTGRES_PASSWORD="${MNT_RT_POSTGRES_PASSWORD}" \
+    -e MNT_LEAVE_COMMAND_POSTGRES_PASSWORD="${MNT_LEAVE_COMMAND_POSTGRES_PASSWORD}" \
+    -e MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD="${MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD}" \
+    "${container}" bash /topology.sh >/dev/null 2>&1; then
+    echo "topology-test: prerequisite refusal unexpectedly succeeded for ${image}" >&2
+    exit 1
+  fi
+  test "$(docker exec "${container}" psql -U "${MNT_POSTGRES_ADMIN_USER}" -d "${MNT_POSTGRES_DB}" -Atqc \
+    "SELECT count(*) FROM pg_roles WHERE rolname IN ('mnt_app','mnt_rt','mnt_leave_cmd','mnt_ontology_cmd','mnt_leave_definer','mnt_ontology_writer')")" = 0
+  docker rm -f "${container}" >/dev/null
+}
+
+assert_prerequisite_refusal_before_mutation "${pg16_container}" postgres@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
+assert_prerequisite_refusal_before_mutation "${prepared_container}" "${POSTGRES_IMAGE}" -c max_prepared_transactions=10
+
+legacy_catalog_snapshot() {
+  local container="$1"
+  docker exec "${container}" psql -U mnt_app -d "${MNT_POSTGRES_DB}" -At -F '|' <<'SQL'
+SELECT 'role', oid::text, rolname, rolcanlogin::text, rolsuper::text,
+       rolbypassrls::text, rolinherit::text, rolcreatedb::text,
+       rolcreaterole::text, rolreplication::text, COALESCE(rolpassword, '')
+FROM pg_authid
+WHERE rolname IN ('mnt_app', 'mnt_rt', 'mnt_cluster_admin', 'mnt_legacy_conversion_admin')
+UNION ALL
+SELECT 'relation', relation.oid::text, namespace.nspname || '.' || relation.relname,
+       relation.relowner::text, COALESCE(relation.relacl::text, ''), '', '', '', '', '', ''
+FROM pg_class relation
+JOIN pg_namespace namespace ON namespace.oid = relation.relnamespace
+WHERE namespace.nspname = 'public' AND relation.relname = 'legacy_prerequisite_marker'
+UNION ALL
+SELECT 'default_acl', defaults.oid::text, defaults.defaclrole::text,
+       defaults.defaclnamespace::text, defaults.defaclobjtype::text,
+       defaults.defaclacl::text, '', '', '', '', ''
+FROM pg_default_acl defaults
+WHERE defaults.defaclrole = (SELECT oid FROM pg_roles WHERE rolname='mnt_app')
+ORDER BY 1, 3;
+SQL
+}
+
+assert_legacy_prerequisite_refusal_before_mutation() {
+  local container="$1"
+  local image="$2"
+  shift 2
+  docker run -d --name "${container}" \
+    -v "${REPO_ROOT}/ops/postgres-reconcile-topology.sh:/topology.sh:ro" \
+    -e POSTGRES_DB="${MNT_POSTGRES_DB}" \
+    -e POSTGRES_USER=mnt_app \
+    -e POSTGRES_PASSWORD=legacy-prerequisite-password-73d1 \
+    "${image}" "$@" >/dev/null
+  wait_for_postgres "${container}" mnt_app
+  docker exec "${container}" psql -U mnt_app -d "${MNT_POSTGRES_DB}" -v ON_ERROR_STOP=1 -qc \
+    "CREATE ROLE mnt_rt NOLOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT;
+     CREATE TABLE public.legacy_prerequisite_marker (id bigint PRIMARY KEY);
+     ALTER DEFAULT PRIVILEGES FOR ROLE mnt_app IN SCHEMA public
+       GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO mnt_rt"
+  local before after failure_output
+  before="$(legacy_catalog_snapshot "${container}")"
+  if failure_output="$(docker exec \
+    -e POSTGRES_HOST=127.0.0.1 \
+    -e POSTGRES_DB="${MNT_POSTGRES_DB}" \
+    -e POSTGRES_ADMIN_USER=mnt_cluster_admin \
+    -e POSTGRES_ADMIN_PASSWORD=legacy-new-admin-password-a672 \
+    -e MNT_APP_POSTGRES_PASSWORD=legacy-new-owner-password-b783 \
+    -e MNT_RT_POSTGRES_PASSWORD=legacy-new-runtime-password-c894 \
+    -e MNT_LEAVE_COMMAND_POSTGRES_PASSWORD=legacy-new-leave-password-d905 \
+    -e MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD=legacy-new-ontology-password-e016 \
+    -e MNT_ALLOW_LEGACY_MNT_APP_SUPERUSER_CONVERSION=1 \
+    "${container}" bash /topology.sh 2>&1)"; then
+    echo "topology-test: legacy prerequisite refusal unexpectedly succeeded for ${image}" >&2
+    exit 1
+  fi
+  grep -Fq 'topology.transaction_timeout_prerequisite_failed' <<<"${failure_output}"
+  after="$(legacy_catalog_snapshot "${container}")"
+  test "${after}" = "${before}"
+  docker rm -f "${container}" >/dev/null
+}
+
+assert_legacy_prerequisite_refusal_before_mutation \
+  "${legacy_pg16_container}" \
+  postgres@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777
+assert_legacy_prerequisite_refusal_before_mutation \
+  "${legacy_prepared_container}" "${POSTGRES_IMAGE}" -c max_prepared_transactions=10
+
 docker run -d --name "${fresh_container}" \
   -v "${REPO_ROOT}/ops/postgres-reconcile-topology.sh:/topology.sh:ro" \
   -e POSTGRES_DB="${MNT_POSTGRES_DB}" \
@@ -104,7 +214,203 @@ for secret in \
 done
 
 run_fresh_reconcile
+
+for direct_login in \
+  "mnt_rt|${MNT_RT_POSTGRES_PASSWORD}" \
+  "mnt_leave_cmd|${MNT_LEAVE_COMMAND_POSTGRES_PASSWORD}" \
+  "mnt_ontology_cmd|${MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD}"; do
+  IFS='|' read -r role password <<<"${direct_login}"
+  fresh_runtime_gucs="$(query_as_direct_login "${role}" "${password}" \
+    "SELECT current_setting('statement_timeout'),current_setting('idle_in_transaction_session_timeout'),current_setting('transaction_timeout')")"
+  test "${fresh_runtime_gucs}" = '30s|30s|45s'
+done
+
+docker exec "${fresh_container}" psql -U "${MNT_POSTGRES_ADMIN_USER}" -d "${MNT_POSTGRES_DB}" -v ON_ERROR_STOP=1 -qc \
+  "CREATE DATABASE topology_other"
+for role in mnt_rt mnt_leave_cmd mnt_ontology_cmd; do
+  docker exec "${fresh_container}" psql -U "${MNT_POSTGRES_ADMIN_USER}" -d "${MNT_POSTGRES_DB}" -v ON_ERROR_STOP=1 -qc \
+    "ALTER ROLE ${role} SET statement_timeout='1s';
+     ALTER ROLE ${role} SET idle_in_transaction_session_timeout='2s';
+     ALTER ROLE ${role} SET transaction_timeout='5s';
+     ALTER ROLE ${role} IN DATABASE ${MNT_POSTGRES_DB} SET statement_timeout='3s';
+     ALTER ROLE ${role} IN DATABASE ${MNT_POSTGRES_DB} SET idle_in_transaction_session_timeout='4s';
+     ALTER ROLE ${role} IN DATABASE ${MNT_POSTGRES_DB} SET transaction_timeout='6s';
+     ALTER ROLE ${role} IN DATABASE topology_other SET statement_timeout='7s';
+     ALTER ROLE ${role} IN DATABASE topology_other SET idle_in_transaction_session_timeout='8s';
+     ALTER ROLE ${role} IN DATABASE topology_other SET transaction_timeout='9s';"
+done
+docker exec "${fresh_container}" psql -U "${MNT_POSTGRES_ADMIN_USER}" -d "${MNT_POSTGRES_DB}" -v ON_ERROR_STOP=1 -qc \
+  "ALTER ROLE mnt_rt SET default_transaction_isolation='repeatable read';
+   ALTER ROLE mnt_rt IN DATABASE ${MNT_POSTGRES_DB} SET work_mem='8MB';
+   ALTER ROLE mnt_rt IN DATABASE topology_other SET application_name='preserve_database_runtime_guc';"
+
+declare -a stale_client_processes=()
+declare -a stale_backend_pids=()
+for direct_login in \
+  "mnt_rt|${MNT_RT_POSTGRES_PASSWORD}" \
+  "mnt_leave_cmd|${MNT_LEAVE_COMMAND_POSTGRES_PASSWORD}" \
+  "mnt_ontology_cmd|${MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD}"; do
+  IFS='|' read -r role password <<<"${direct_login}"
+  application_name="topology_stale_${role}_$$"
+  docker exec -e PGPASSWORD="${password}" \
+    -e PGAPPNAME="${application_name}" \
+    -e PGOPTIONS="-c statement_timeout=0 -c idle_in_transaction_session_timeout=0 -c transaction_timeout=0" \
+    "${fresh_container}" psql -h 127.0.0.1 -U "${role}" -d "${MNT_POSTGRES_DB}" \
+    -v ON_ERROR_STOP=1 -qc "SELECT pg_sleep(120)" >/dev/null 2>&1 &
+  stale_client_processes+=("$!")
+  for attempt in {1..30}; do
+    stale_pid="$(docker exec "${fresh_container}" psql -U "${MNT_POSTGRES_ADMIN_USER}" -d "${MNT_POSTGRES_DB}" -Atqc \
+      "SELECT pid FROM pg_stat_activity WHERE application_name='${application_name}'")"
+    if [[ -n "${stale_pid}" ]]; then
+      stale_backend_pids+=("${stale_pid}")
+      break
+    fi
+    sleep 0.1
+  done
+  test -n "${stale_pid}"
+done
 run_fresh_reconcile
+for stale_client_process in "${stale_client_processes[@]}"; do
+  if wait "${stale_client_process}"; then
+    echo "topology-test: reconciliation did not drain an existing serving session" >&2
+    exit 1
+  fi
+done
+captured_pid_csv="$(IFS=,; echo "${stale_backend_pids[*]}")"
+test "$(docker exec "${fresh_container}" psql -U "${MNT_POSTGRES_ADMIN_USER}" -d "${MNT_POSTGRES_DB}" -Atqc \
+  "SELECT count(*) FROM pg_stat_activity WHERE pid = ANY (ARRAY[${captured_pid_csv}]::integer[])")" = 0
+
+expected_runtime_settings='mnt_leave_cmd|global|idle_in_transaction_session_timeout=30s
+mnt_leave_cmd|global|statement_timeout=30s
+mnt_leave_cmd|global|transaction_timeout=45s
+mnt_ontology_cmd|global|idle_in_transaction_session_timeout=30s
+mnt_ontology_cmd|global|statement_timeout=30s
+mnt_ontology_cmd|global|transaction_timeout=45s
+mnt_rt|global|default_transaction_isolation=repeatable read
+mnt_rt|global|idle_in_transaction_session_timeout=30s
+mnt_rt|global|statement_timeout=30s
+mnt_rt|global|transaction_timeout=45s
+mnt_rt|mnt_topology_test|work_mem=8MB
+mnt_rt|topology_other|application_name=preserve_database_runtime_guc'
+actual_runtime_settings="$(docker exec "${fresh_container}" psql -U "${MNT_POSTGRES_ADMIN_USER}" -d "${MNT_POSTGRES_DB}" -At -F '|' -c \
+  "SELECT role.rolname, CASE settings.setdatabase WHEN 0 THEN 'global' ELSE database.datname END, setting FROM pg_db_role_setting settings JOIN pg_roles role ON role.oid=settings.setrole LEFT JOIN pg_database database ON database.oid=settings.setdatabase CROSS JOIN LATERAL unnest(settings.setconfig) setting WHERE role.rolname IN ('mnt_rt','mnt_leave_cmd','mnt_ontology_cmd') ORDER BY 1,2,3")"
+test "${actual_runtime_settings}" = "${expected_runtime_settings}"
+for direct_login in \
+  "mnt_rt|${MNT_RT_POSTGRES_PASSWORD}" \
+  "mnt_leave_cmd|${MNT_LEAVE_COMMAND_POSTGRES_PASSWORD}" \
+  "mnt_ontology_cmd|${MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD}"; do
+  IFS='|' read -r role password <<<"${direct_login}"
+  restored_runtime_gucs="$(query_as_direct_login "${role}" "${password}" \
+    "SELECT current_setting('statement_timeout'),current_setting('idle_in_transaction_session_timeout'),current_setting('transaction_timeout')")"
+  test "${restored_runtime_gucs}" = '30s|30s|45s'
+done
+restored_unrelated_gucs="$(query_as_direct_login mnt_rt "${MNT_RT_POSTGRES_PASSWORD}" \
+  "SELECT current_setting('default_transaction_isolation'),current_setting('work_mem')")"
+test "${restored_unrelated_gucs}" = 'repeatable read|8MB'
+
+docker exec -i -e PGPASSWORD="${MNT_APP_POSTGRES_PASSWORD}" "${fresh_container}" \
+  psql -h 127.0.0.1 -U mnt_app -d "${MNT_POSTGRES_DB}" -v ON_ERROR_STOP=1 \
+  < "${REPO_ROOT}/backend/crates/platform/db/migrations/0112_mnt_rt_statement_timeout.sql"
+docker exec -i -e PGPASSWORD="${MNT_APP_POSTGRES_PASSWORD}" "${fresh_container}" \
+  psql -h 127.0.0.1 -U mnt_app -d "${MNT_POSTGRES_DB}" -v ON_ERROR_STOP=1 \
+  < "${REPO_ROOT}/backend/crates/platform/db/migrations/0167_serving_role_transaction_timeouts.sql"
+
+# The non-superuser migration path is assert-only. A wrong global default plus
+# a higher-precedence per-database override must fail atomically and preserve
+# the catalog for operator reconciliation.
+docker exec "${fresh_container}" psql -U "${MNT_POSTGRES_ADMIN_USER}" -d "${MNT_POSTGRES_DB}" -v ON_ERROR_STOP=1 -qc \
+  "ALTER ROLE mnt_leave_cmd SET transaction_timeout='44s';
+   ALTER ROLE mnt_ontology_cmd IN DATABASE ${MNT_POSTGRES_DB} SET statement_timeout='29s';"
+migration_drift_before="$(docker exec "${fresh_container}" psql -U "${MNT_POSTGRES_ADMIN_USER}" -d "${MNT_POSTGRES_DB}" -Atqc \
+  "SELECT string_agg(role.rolname || '|' || settings.setdatabase || '|' || setting, E'\\n' ORDER BY role.rolname, settings.setdatabase, setting) FROM pg_db_role_setting settings JOIN pg_roles role ON role.oid=settings.setrole CROSS JOIN LATERAL unnest(settings.setconfig) setting WHERE role.rolname IN ('mnt_rt','mnt_leave_cmd','mnt_ontology_cmd')")"
+if docker exec -i -e PGPASSWORD="${MNT_APP_POSTGRES_PASSWORD}" "${fresh_container}" \
+  psql -h 127.0.0.1 -U mnt_app -d "${MNT_POSTGRES_DB}" -v ON_ERROR_STOP=1 \
+  < "${REPO_ROOT}/backend/crates/platform/db/migrations/0167_serving_role_transaction_timeouts.sql" >/dev/null 2>&1; then
+  echo "topology-test: owner-run 0167 accepted wrong/overridden timeout catalog" >&2
+  exit 1
+fi
+migration_drift_after="$(docker exec "${fresh_container}" psql -U "${MNT_POSTGRES_ADMIN_USER}" -d "${MNT_POSTGRES_DB}" -Atqc \
+  "SELECT string_agg(role.rolname || '|' || settings.setdatabase || '|' || setting, E'\\n' ORDER BY role.rolname, settings.setdatabase, setting) FROM pg_db_role_setting settings JOIN pg_roles role ON role.oid=settings.setrole CROSS JOIN LATERAL unnest(settings.setconfig) setting WHERE role.rolname IN ('mnt_rt','mnt_leave_cmd','mnt_ontology_cmd')")"
+test "${migration_drift_after}" = "${migration_drift_before}"
+run_fresh_reconcile
+
+# Execute the exact embedded CNPG Job script against the ephemeral database.
+# A late bad credential must fail during preflight without draining mnt_rt;
+# hostile low role defaults must not wedge the scoped repair connection.
+python3 - \
+  "${REPO_ROOT}/deploy/apps/maintenance/components/governed-command-database/database-topology-job.yaml" \
+  "${rendered_cnpg_script}" <<'PY'
+import pathlib
+import sys
+
+source = pathlib.Path(sys.argv[1]).read_text().splitlines()
+marker = source.index("            - |")
+script = []
+for line in source[marker + 1:]:
+    if line and not line.startswith(" " * 14):
+        break
+    script.append(line[14:] if line else "")
+pathlib.Path(sys.argv[2]).write_text("\n".join(script) + "\n")
+PY
+test -s "${rendered_cnpg_script}"
+postgres_address="$(docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "${fresh_container}")"
+cnpg_application_name="cnpg_preflight_survivor_$$"
+docker exec -e PGPASSWORD="${MNT_RT_POSTGRES_PASSWORD}" \
+  -e PGAPPNAME="${cnpg_application_name}" \
+  -e PGOPTIONS="-c statement_timeout=0 -c idle_in_transaction_session_timeout=0 -c transaction_timeout=0" \
+  "${fresh_container}" psql -h 127.0.0.1 -U mnt_rt -d "${MNT_POSTGRES_DB}" \
+  -v ON_ERROR_STOP=1 -qc "SELECT pg_sleep(120)" >/dev/null 2>&1 &
+cnpg_stale_client=$!
+for attempt in {1..30}; do
+  cnpg_stale_pid="$(docker exec "${fresh_container}" psql -U "${MNT_POSTGRES_ADMIN_USER}" -d "${MNT_POSTGRES_DB}" -Atqc \
+    "SELECT pid FROM pg_stat_activity WHERE application_name='${cnpg_application_name}'")"
+  [[ -n "${cnpg_stale_pid}" ]] && break
+  sleep 0.1
+done
+test -n "${cnpg_stale_pid}"
+if docker run --rm --network bridge \
+  -v "${rendered_cnpg_script}:/cnpg-topology.sh:ro" \
+  -e PGHOST="${postgres_address}" -e PGPORT=5432 -e PGDATABASE="${MNT_POSTGRES_DB}" \
+  -e PGUSER=mnt_app -e PGPASSWORD="${MNT_APP_POSTGRES_PASSWORD}" \
+  -e MNT_RT_USERNAME=mnt_rt -e MNT_RT_PASSWORD="${MNT_RT_POSTGRES_PASSWORD}" \
+  -e MNT_LEAVE_COMMAND_USERNAME=mnt_leave_cmd -e MNT_LEAVE_COMMAND_PASSWORD=invalid-late-credential \
+  -e MNT_ONTOLOGY_COMMAND_USERNAME=mnt_ontology_cmd -e MNT_ONTOLOGY_COMMAND_PASSWORD="${MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD}" \
+  "${POSTGRES_IMAGE}" bash -ceu 'source /cnpg-topology.sh' >/dev/null 2>&1; then
+  echo "topology-test: rendered CNPG script accepted an invalid second credential" >&2
+  exit 1
+fi
+test "$(docker exec "${fresh_container}" psql -U "${MNT_POSTGRES_ADMIN_USER}" -d "${MNT_POSTGRES_DB}" -Atqc \
+  "SELECT count(*) FROM pg_stat_activity WHERE pid=${cnpg_stale_pid}")" = 1
+# An exact-state recurring Sync hook is readback-only and must not abort a
+# healthy compliant session merely because an unrelated Application sync ran.
+docker run --rm --network bridge \
+  -v "${rendered_cnpg_script}:/cnpg-topology.sh:ro" \
+  -e PGHOST="${postgres_address}" -e PGPORT=5432 -e PGDATABASE="${MNT_POSTGRES_DB}" \
+  -e PGUSER=mnt_app -e PGPASSWORD="${MNT_APP_POSTGRES_PASSWORD}" \
+  -e MNT_RT_USERNAME=mnt_rt -e MNT_RT_PASSWORD="${MNT_RT_POSTGRES_PASSWORD}" \
+  -e MNT_LEAVE_COMMAND_USERNAME=mnt_leave_cmd -e MNT_LEAVE_COMMAND_PASSWORD="${MNT_LEAVE_COMMAND_POSTGRES_PASSWORD}" \
+  -e MNT_ONTOLOGY_COMMAND_USERNAME=mnt_ontology_cmd -e MNT_ONTOLOGY_COMMAND_PASSWORD="${MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD}" \
+  "${POSTGRES_IMAGE}" bash -ceu 'source /cnpg-topology.sh' >/dev/null
+test "$(docker exec "${fresh_container}" psql -U "${MNT_POSTGRES_ADMIN_USER}" -d "${MNT_POSTGRES_DB}" -Atqc \
+  "SELECT count(*) FROM pg_stat_activity WHERE pid=${cnpg_stale_pid}")" = 1
+docker exec "${fresh_container}" psql -U "${MNT_POSTGRES_ADMIN_USER}" -d "${MNT_POSTGRES_DB}" -v ON_ERROR_STOP=1 -qc \
+  "ALTER ROLE mnt_rt SET statement_timeout='1ms'; ALTER ROLE mnt_rt SET idle_in_transaction_session_timeout='1ms'; ALTER ROLE mnt_rt SET transaction_timeout='1ms';
+   ALTER ROLE mnt_leave_cmd SET statement_timeout='1ms'; ALTER ROLE mnt_leave_cmd SET idle_in_transaction_session_timeout='1ms'; ALTER ROLE mnt_leave_cmd SET transaction_timeout='1ms';
+   ALTER ROLE mnt_ontology_cmd SET statement_timeout='1ms'; ALTER ROLE mnt_ontology_cmd SET idle_in_transaction_session_timeout='1ms'; ALTER ROLE mnt_ontology_cmd SET transaction_timeout='1ms';"
+docker run --rm --network bridge \
+  -v "${rendered_cnpg_script}:/cnpg-topology.sh:ro" \
+  -e PGHOST="${postgres_address}" -e PGPORT=5432 -e PGDATABASE="${MNT_POSTGRES_DB}" \
+  -e PGUSER=mnt_app -e PGPASSWORD="${MNT_APP_POSTGRES_PASSWORD}" \
+  -e MNT_RT_USERNAME=mnt_rt -e MNT_RT_PASSWORD="${MNT_RT_POSTGRES_PASSWORD}" \
+  -e MNT_LEAVE_COMMAND_USERNAME=mnt_leave_cmd -e MNT_LEAVE_COMMAND_PASSWORD="${MNT_LEAVE_COMMAND_POSTGRES_PASSWORD}" \
+  -e MNT_ONTOLOGY_COMMAND_USERNAME=mnt_ontology_cmd -e MNT_ONTOLOGY_COMMAND_PASSWORD="${MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD}" \
+  "${POSTGRES_IMAGE}" bash -ceu 'source /cnpg-topology.sh' >/dev/null
+if wait "${cnpg_stale_client}"; then
+  echo "topology-test: rendered CNPG script did not drain tagged mnt_rt session" >&2
+  exit 1
+fi
+test "$(docker exec "${fresh_container}" psql -U "${MNT_POSTGRES_ADMIN_USER}" -d "${MNT_POSTGRES_DB}" -Atqc \
+  "SELECT count(*) FROM pg_stat_activity WHERE pid=${cnpg_stale_pid}")" = 0
 
 # The guard must compare the decoded secret values themselves, not merely DSN
 # strings or role names, and it must fail before any topology mutation.
@@ -222,6 +528,73 @@ assert_noncanonical_legacy_acl_rejected \
 assert_noncanonical_legacy_acl_rejected \
   "CREATE ROLE mnt_rt NOLOGIN NOSUPERUSER NOBYPASSRLS NOINHERIT; CREATE ROLE legacy_acl_extra NOLOGIN; ALTER DEFAULT PRIVILEGES FOR ROLE mnt_app IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO mnt_rt; ALTER DEFAULT PRIVILEGES FOR ROLE mnt_app IN SCHEMA public GRANT SELECT ON TABLES TO legacy_acl_extra" \
   5
+
+assert_legacy_conversion_admin_neutralized() {
+  local catalog_user="$1"
+  local role_state
+  role_state="$(docker exec "${legacy_container}" psql -U "${catalog_user}" -d "${MNT_POSTGRES_DB}" -At -F '|' -c \
+    "SELECT rolcanlogin,rolsuper,(rolpassword IS NULL) FROM pg_authid WHERE rolname='mnt_legacy_conversion_admin'")"
+  test "${role_state}" = 'f|f|t'
+  if docker exec -e PGPASSWORD="${MNT_POSTGRES_ADMIN_PASSWORD}" "${legacy_container}" \
+    psql -h 127.0.0.1 -U mnt_legacy_conversion_admin -d "${MNT_POSTGRES_DB}" \
+    -v ON_ERROR_STOP=1 -Atqc 'SELECT 1' >/dev/null 2>&1; then
+    echo "topology-test: neutralized legacy conversion administrator still authenticated" >&2
+    exit 1
+  fi
+}
+
+# If the rename transaction fails after the temporary superuser is created,
+# EXIT cleanup must revoke both LOGIN and SUPERUSER and discard its password.
+prepare_legacy_volume "CREATE ROLE mnt_cluster_admin NOLOGIN NOSUPERUSER"
+if compose run --rm postgres-topology >/dev/null 2>&1; then
+  echo "topology-test: colliding legacy administrator conversion unexpectedly succeeded" >&2
+  exit 1
+fi
+assert_legacy_conversion_admin_neutralized mnt_app
+
+# Reproduce the catalog left by an interruption after the real administrator
+# was established but before the temporary role was dropped. A later substrate
+# failure must still leave the temporary role unable to log in or act as root.
+prepare_legacy_volume "SELECT 1"
+docker exec -i -e ADMIN_PASSWORD="${MNT_POSTGRES_ADMIN_PASSWORD}" "${legacy_container}" \
+  psql -U mnt_app -d "${MNT_POSTGRES_DB}" -v ON_ERROR_STOP=1 -q <<'SQL'
+BEGIN;
+SET LOCAL log_statement = 'none';
+SET LOCAL log_min_error_statement = 'panic';
+\getenv admin_password ADMIN_PASSWORD
+SELECT format(
+  'CREATE ROLE mnt_legacy_conversion_admin LOGIN SUPERUSER PASSWORD %L',
+  :'admin_password'
+) \gexec
+COMMIT;
+SQL
+docker exec -i -e PGPASSWORD="${MNT_POSTGRES_ADMIN_PASSWORD}" \
+  -e ADMIN_USER="${MNT_POSTGRES_ADMIN_USER}" \
+  -e ADMIN_PASSWORD="${MNT_POSTGRES_ADMIN_PASSWORD}" "${legacy_container}" \
+  psql -h 127.0.0.1 -U mnt_legacy_conversion_admin -d "${MNT_POSTGRES_DB}" \
+  -v ON_ERROR_STOP=1 -q <<'SQL'
+BEGIN;
+SET LOCAL log_statement = 'none';
+SET LOCAL log_min_error_statement = 'panic';
+\getenv admin_user ADMIN_USER
+\getenv admin_password ADMIN_PASSWORD
+SELECT format('ALTER ROLE mnt_app RENAME TO %I', :'admin_user') \gexec
+SELECT format(
+  'ALTER ROLE %I LOGIN SUPERUSER CREATEDB CREATEROLE REPLICATION BYPASSRLS PASSWORD %L',
+  :'admin_user', :'admin_password'
+) \gexec
+COMMIT;
+SQL
+docker exec "${legacy_container}" psql -U "${MNT_POSTGRES_ADMIN_USER}" \
+  -d "${MNT_POSTGRES_DB}" -v ON_ERROR_STOP=1 -qc \
+  "ALTER SYSTEM SET max_prepared_transactions=10"
+compose restart postgres >/dev/null
+wait_for_postgres "${legacy_container}" "${MNT_POSTGRES_ADMIN_USER}"
+if compose run --rm postgres-topology >/dev/null 2>&1; then
+  echo "topology-test: interrupted legacy recovery ignored its invalid transaction substrate" >&2
+  exit 1
+fi
+assert_legacy_conversion_admin_neutralized "${MNT_POSTGRES_ADMIN_USER}"
 
 # A legacy volume with no relevant default ACL converts without inventing the
 # migration-owned grant; migration 0031 remains responsible for fresh timing.

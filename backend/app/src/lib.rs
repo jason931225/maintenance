@@ -82,7 +82,7 @@ use mnt_platform_email::{
 };
 use mnt_platform_jobs::{
     ApalisPostgresJobQueue, BoxFuture, JobQueue, JobQueueError, PlatformJob, PlatformJobHandler,
-    run_apalis_worker_until_shutdown,
+    migrate_and_reconcile_apalis_postgres, run_apalis_worker_until_shutdown,
 };
 use mnt_platform_provisioning::{BootstrapCredentialStore, PlatformProvisioner};
 use mnt_platform_push::{
@@ -150,6 +150,12 @@ const DEFAULT_SHUTDOWN_TIMEOUT_SECS: u64 = 10;
 // 2-connection command pools, caps that surge at 52 and reserves eight of
 // PostgreSQL's configured 60 for migration/topology/operator work.
 const RUNTIME_DATABASE_POOL_MAX_CONNECTIONS: u32 = 6;
+// These role-backed defaults are an operational correctness backstop for every
+// serving pool. They limit accidental/buggy work; they are not a security
+// boundary against a caller that has already compromised a database credential.
+const SERVING_STATEMENT_TIMEOUT: &str = "30s";
+const SERVING_IDLE_IN_TRANSACTION_SESSION_TIMEOUT: &str = "30s";
+const SERVING_TRANSACTION_TIMEOUT: &str = "45s";
 const DEFAULT_EVIDENCE_TRANSCODE_CONCURRENCY: usize = 2;
 const DEFAULT_JWT_ISSUER: &str = "mnt-platform-auth";
 const DEFAULT_JWT_AUDIENCE: &str = "mnt-api";
@@ -432,11 +438,14 @@ pub struct AppConfig {
     /// (`MNT_AUDIT_CHAIN_SEAL_ENABLED`, default false). Post-merge review F3:
     /// the PR-1 in-crate `InMemoryEd25519Signer` generates a FRESH keypair on
     /// every worker restart and writes real seals under `key_ref =
-    /// test:ed25519:<hex>` — dev/test-grade, not yet the OCI Vault signer
-    /// (PR-3) that makes the chain's evidentiary guarantee real. Default OFF in
-    /// production so it does not write throwaway-keyed seals every tick until
-    /// the real signer lands; the attestation REST endpoint (PR-2) reads
-    /// whatever the worker has sealed regardless of this flag.
+    /// test:ed25519:<hex>` — dev/test-grade, not yet the context-selected
+    /// external signer/key-custody adapter that makes the chain's evidentiary
+    /// guarantee real. Self-host custody is owner-controlled; OCI Vault is only
+    /// the OCI adapter and other clouds use their native KMS/HSM adapters.
+    /// Default OFF in production so it does not write throwaway-keyed seals
+    /// every tick until the external custody adapter lands; the attestation
+    /// REST endpoint (PR-2) reads whatever the worker has sealed regardless of
+    /// this flag.
     pub audit_chain_seal_enabled: bool,
     /// The tenant that owns the PUBLIC storefront/CX channel
     /// (`STOREFRONT_ORG_ID`). `None` keeps the legacy KNL default for public
@@ -1549,60 +1558,68 @@ async fn validate_database_connection_identity(
     env_name: &str,
     expected_role: &str,
 ) -> Result<(), sqlx::Error> {
-    let (
-        session_user,
-        current_user,
-        can_login,
-        is_superuser,
-        bypasses_rls,
-        inherits_privileges,
-        can_create_db,
-        can_create_role,
-        can_replicate,
-        has_forbidden_membership_edge,
-    ): (
-        String,
-        String,
-        bool,
-        bool,
-        bool,
-        bool,
-        bool,
-        bool,
-        bool,
-        bool,
-    ) = sqlx::query_as(serving_database_identity_query())
-        .fetch_one(conn)
-        .await?;
+    let readback =
+        sqlx::query_as::<_, ServingDatabaseConnectionReadback>(serving_database_identity_query())
+            .fetch_one(conn)
+            .await?;
     ensure_expected_serving_database_identity(
         env_name,
-        &session_user,
-        &current_user,
+        &readback.session_user,
+        &readback.current_user,
         expected_role,
         RoleAttributes {
-            can_login,
-            is_superuser,
-            bypasses_rls,
-            inherits_privileges,
-            can_create_db,
-            can_create_role,
-            can_replicate,
+            can_login: readback.can_login,
+            is_superuser: readback.is_superuser,
+            bypasses_rls: readback.bypasses_rls,
+            inherits_privileges: readback.inherits_privileges,
+            can_create_db: readback.can_create_db,
+            can_create_role: readback.can_create_role,
+            can_replicate: readback.can_replicate,
         },
-        has_forbidden_membership_edge,
+        readback.has_forbidden_membership_edge,
     )
-    .map_err(|error| sqlx::Error::Protocol(error.to_string()))
+    .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
+    ensure_expected_serving_database_timeouts(
+        env_name,
+        &readback.statement_timeout,
+        &readback.idle_in_transaction_session_timeout,
+        &readback.transaction_timeout,
+        readback.statement_timeout_matches,
+        readback.idle_in_transaction_session_timeout_matches,
+        readback.transaction_timeout_matches,
+    )
+}
+
+#[derive(sqlx::FromRow)]
+struct ServingDatabaseConnectionReadback {
+    session_user: String,
+    current_user: String,
+    can_login: bool,
+    is_superuser: bool,
+    bypasses_rls: bool,
+    inherits_privileges: bool,
+    can_create_db: bool,
+    can_create_role: bool,
+    can_replicate: bool,
+    has_forbidden_membership_edge: bool,
+    statement_timeout: String,
+    idle_in_transaction_session_timeout: String,
+    transaction_timeout: String,
+    statement_timeout_matches: bool,
+    idle_in_transaction_session_timeout_matches: bool,
+    transaction_timeout_matches: bool,
 }
 
 fn serving_database_identity_query() -> &'static str {
     r#"SELECT session_user::text,
               current_user::text,
-              authenticated.rolcanlogin,
-              authenticated.rolsuper,
-              authenticated.rolbypassrls,
-              authenticated.rolinherit,
-              authenticated.rolcreatedb,
-              authenticated.rolcreaterole,
-              authenticated.rolreplication,
+              authenticated.rolcanlogin AS can_login,
+              authenticated.rolsuper AS is_superuser,
+              authenticated.rolbypassrls AS bypasses_rls,
+              authenticated.rolinherit AS inherits_privileges,
+              authenticated.rolcreatedb AS can_create_db,
+              authenticated.rolcreaterole AS can_create_role,
+              authenticated.rolreplication AS can_replicate,
               EXISTS (
                   SELECT 1
                   FROM pg_catalog.pg_roles AS candidate
@@ -1612,7 +1629,17 @@ fn serving_database_identity_query() -> &'static str {
                   SELECT 1
                   FROM pg_catalog.pg_auth_members AS membership
                   WHERE membership.roleid = authenticated.oid
-              )
+              ) AS has_forbidden_membership_edge,
+              current_setting('statement_timeout') AS statement_timeout,
+              current_setting('idle_in_transaction_session_timeout')
+                  AS idle_in_transaction_session_timeout,
+              current_setting('transaction_timeout') AS transaction_timeout,
+              current_setting('statement_timeout')::interval = interval '30 seconds'
+                  AS statement_timeout_matches,
+              current_setting('idle_in_transaction_session_timeout')::interval = interval '30 seconds'
+                  AS idle_in_transaction_session_timeout_matches,
+              current_setting('transaction_timeout')::interval = interval '45 seconds'
+                  AS transaction_timeout_matches
        FROM pg_catalog.pg_roles AS authenticated
        WHERE authenticated.rolname = session_user"#
 }
@@ -1689,6 +1716,33 @@ fn ensure_expected_serving_database_identity(
         )));
     }
     Ok(())
+}
+
+fn ensure_expected_serving_database_timeouts(
+    env_name: &str,
+    statement_timeout: &str,
+    idle_in_transaction_session_timeout: &str,
+    transaction_timeout: &str,
+    statement_timeout_matches: bool,
+    idle_in_transaction_session_timeout_matches: bool,
+    transaction_timeout_matches: bool,
+) -> Result<(), sqlx::Error> {
+    if statement_timeout_matches
+        && idle_in_transaction_session_timeout_matches
+        && transaction_timeout_matches
+    {
+        return Ok(());
+    }
+
+    Err(sqlx::Error::Protocol(format!(
+        "{env_name} serving connection timeout readback failed: \
+         statement_timeout={statement_timeout:?}, \
+         idle_in_transaction_session_timeout={idle_in_transaction_session_timeout:?}, \
+         transaction_timeout={transaction_timeout:?}; \
+         required statement_timeout={SERVING_STATEMENT_TIMEOUT}, \
+         idle_in_transaction_session_timeout={SERVING_IDLE_IN_TRANSACTION_SESSION_TIMEOUT}, \
+         and transaction_timeout={SERVING_TRANSACTION_TIMEOUT}"
+    )))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2600,6 +2654,12 @@ pub fn build_router(state: AppState) -> Router {
                 }
                 DatabaseDependency::NotConfigured => PgOntologyStore::new(pool.clone()),
             };
+            let platform_tenant_config_seeder = match &state.ontology_command_database {
+                DatabaseDependency::Postgres(_) => {
+                    Some(tenant_config_seeder(ontology_registry_store.clone()))
+                }
+                DatabaseDependency::NotConfigured => None,
+            };
             let ontology_instance_store = PgInstanceStore::new(pool.clone());
             let governance_store = PgGovernanceStore::new(pool.clone());
             let cedar_policy_store = PgCedarPolicyStore::new(pool.clone());
@@ -2912,9 +2972,7 @@ pub fn build_router(state: AppState) -> Router {
                     PlatformProvisioner::new(state.config.coldstart_otp_ttl),
                 )
                 .with_view_as_issuer(state.view_as_issuer.clone())
-                .with_tenant_config_seeder(Some(tenant_config_seeder(
-                    ontology_registry_store.clone(),
-                ))),
+                .with_tenant_config_seeder(platform_tenant_config_seeder),
             );
             // Everything EXCEPT the realtime WS upgrade: base health/openapi
             // routes, the tenant domain routers, the platform tier, and the
@@ -3201,9 +3259,9 @@ async fn audit_attestation(
 
     // Shared throwaway signer is correct here: `verify` reconstructs the
     // public key from each seal's OWN stored `key_ref`; this object is not the
-    // trust root, just the implementation that performs verification. PR-3's
-    // `OciVaultSigner` will verify the same way (key material keyed off the
-    // stored `key_ref`).
+    // trust root, just the implementation that performs verification. The
+    // context-selected external signer/key-custody adapter will verify the same
+    // way (key material keyed off the stored `key_ref`).
     let signer = state.audit_attestation_signer.clone();
 
     let report = verify_org_chain(
@@ -3694,6 +3752,21 @@ pub async fn run_migrations(config: &AppConfig) -> Result<(), AppError> {
         .await
         .map_err(|err| AppError::Internal(format!("migration run failed: {err}")))?;
 
+    // Apalis' vendor migrations are deliberately owned by the same one-shot
+    // migration boundary rather than by an API/worker login. Reuse the exact
+    // already-validated physical checkout so the runtime `mnt_rt` role never
+    // needs schema or migration-ledger write privileges.
+    migrate_and_reconcile_apalis_postgres(&mut connection)
+        .await
+        .map_err(|err| AppError::Internal(format!("apalis migration run failed: {err}")))?;
+
+    // Reassert the owner identity and migration budgets after both migration
+    // engines have completed, before reading the final ledger and releasing
+    // the physical connection.
+    prepare_migration_database_connection(&mut connection)
+        .await
+        .map_err(AppError::Database)?;
+
     let applied_after = applied_migration_count(&mut connection).await?;
     let newly_applied = applied_after.saturating_sub(applied_before);
 
@@ -3815,15 +3888,17 @@ async fn run_dispatch_worker(config: AppConfig, state: AppState) -> Result<(), A
     // L20 tamper-evident audit-chain seal worker (charter §5.1). Seals batches of
     // audit_events into the append-only audit_chain_seals hash chain on the same
     // `mnt_rt` pool, re-arming `app.current_org` per tenant each tick. Dev/test
-    // uses an in-process Ed25519 signer; production swaps in an OCI Vault signer
-    // (PR-3) so the DB owner never holds the private key. The attestation REST
-    // endpoint (PR-2, `/api/v1/audit/attestation`) reads whatever is sealed
-    // regardless of this gate. F3 (post-merge review): default OFF in
+    // uses an in-process Ed25519 signer; production swaps in a context-selected
+    // external signer/key-custody adapter so the DB owner never holds the
+    // private key. Self-host uses owner-controlled custody first; OCI Vault is
+    // only the OCI adapter and other clouds use their native KMS/HSM adapters.
+    // The attestation REST endpoint (PR-2, `/api/v1/audit/attestation`) reads
+    // whatever is sealed regardless of this gate. F3 (post-merge review): default OFF in
     // production — until the real signer lands, an always-on worker writes real
     // seals every tick under a fresh `key_ref = test:ed25519:<hex>` keypair
     // generated on every restart, which is not yet the evidentiary guarantee the
     // chain is meant to provide. `MNT_AUDIT_CHAIN_SEAL_ENABLED=true` opts a
-    // deployment in (dev/staging) ahead of PR-3.
+    // deployment in (dev/staging) ahead of the external custody adapter.
     let audit_chain_handle = if config.audit_chain_seal_enabled {
         match mnt_platform_audit_chain::InMemoryEd25519Signer::generate() {
             Ok(signer) => Some(mnt_platform_audit_chain::spawn(
@@ -4615,12 +4690,183 @@ mod migration_database_budget_tests {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod serving_database_timeout_tests {
+    use std::time::Duration;
+
+    use sqlx::{PgPool, postgres::PgPoolOptions};
+
+    use super::{reset_serving_database_connection, validate_database_connection_identity};
+
+    async fn assert_serving_timeouts(pool: &PgPool) {
+        let (statement, idle_in_transaction, transaction): (String, String, String) =
+            sqlx::query_as(
+                r#"SELECT current_setting('statement_timeout'),
+                          current_setting('idle_in_transaction_session_timeout'),
+                          current_setting('transaction_timeout')"#,
+            )
+            .fetch_one(pool)
+            .await
+            .expect("serving timeouts read back");
+
+        assert_eq!(statement, "30s");
+        assert_eq!(idle_in_transaction, "30s");
+        assert_eq!(transaction, "45s");
+    }
+
+    #[sqlx::test(migrations = false)]
+    async fn serving_pool_rejects_overrides_and_restores_role_defaults_after_release(pool: PgPool) {
+        let backend_pid: i32 = sqlx::query_scalar("SELECT pg_backend_pid()")
+            .fetch_one(&pool)
+            .await
+            .expect("test backend pid reads");
+        let role = format!("mnt_serving_timeout_test_{backend_pid}");
+        let password = "serving-timeout-test-password";
+        let quoted_database: String = sqlx::query_scalar("SELECT quote_ident(current_database())")
+            .fetch_one(&pool)
+            .await
+            .expect("test database name quotes");
+
+        // `role` is a fixed prefix plus the numeric backend PID, `password` is
+        // a test literal, and PostgreSQL produced `quoted_database` with
+        // quote_ident; no external input reaches this audited dynamic DDL.
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            r#"CREATE ROLE {role}
+                    LOGIN NOINHERIT NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE NOREPLICATION
+                    PASSWORD '{password}';
+               ALTER ROLE {role} SET statement_timeout = '30s';
+               ALTER ROLE {role} SET idle_in_transaction_session_timeout = '30s';
+               ALTER ROLE {role} SET transaction_timeout = '45s';
+               GRANT CONNECT ON DATABASE {quoted_database} TO {role};"#,
+        )))
+        .execute(&pool)
+        .await
+        .expect("isolated hardened serving role provisions");
+
+        let connect_options = pool
+            .connect_options()
+            .as_ref()
+            .clone()
+            .username(&role)
+            .password(password);
+        let after_connect_role = role.clone();
+        let after_release_role = role.clone();
+        let serving_pool = PgPoolOptions::new()
+            .max_connections(1)
+            .acquire_timeout(Duration::from_secs(10))
+            .after_connect(move |conn, _meta| {
+                let expected_role = after_connect_role.clone();
+                Box::pin(async move {
+                    validate_database_connection_identity(
+                        conn,
+                        "TEST_SERVING_DATABASE_URL",
+                        &expected_role,
+                    )
+                    .await
+                })
+            })
+            .after_release(move |conn, _meta| {
+                let expected_role = after_release_role.clone();
+                Box::pin(async move {
+                    reset_serving_database_connection(
+                        conn,
+                        "TEST_SERVING_DATABASE_URL",
+                        &expected_role,
+                    )
+                    .await
+                })
+            })
+            .connect_with(connect_options.clone())
+            .await
+            .expect("exact role defaults pass serving startup validation");
+
+        assert_serving_timeouts(&serving_pool).await;
+        {
+            let mut connection = serving_pool
+                .acquire()
+                .await
+                .expect("serving connection acquires for poisoning");
+            sqlx::raw_sql(
+                r#"SET SESSION statement_timeout = '1s';
+                   SET SESSION idle_in_transaction_session_timeout = '2s';
+                   SET SESSION transaction_timeout = '3s';"#,
+            )
+            .execute(&mut *connection)
+            .await
+            .expect("serving session timeout poison applies");
+        }
+        assert_serving_timeouts(&serving_pool).await;
+        serving_pool.close().await;
+
+        let _startup_override = PgPoolOptions::new()
+            .max_connections(1)
+            .acquire_timeout(Duration::from_secs(3))
+            .after_connect({
+                let role = role.clone();
+                move |conn, _meta| {
+                    let role = role.clone();
+                    Box::pin(async move {
+                        validate_database_connection_identity(
+                            conn,
+                            "TEST_SERVING_DATABASE_URL",
+                            &role,
+                        )
+                        .await
+                    })
+                }
+            })
+            .connect_with(
+                connect_options
+                    .clone()
+                    .options([("statement_timeout", "29s")]),
+            )
+            .await
+            .expect_err("startup options must not override serving role defaults");
+
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "ALTER ROLE {role} SET transaction_timeout = '44s';"
+        )))
+        .execute(&pool)
+        .await
+        .expect("isolated role default drifts");
+        let _wrong_default = PgPoolOptions::new()
+            .max_connections(1)
+            .acquire_timeout(Duration::from_secs(3))
+            .after_connect({
+                let role = role.clone();
+                move |conn, _meta| {
+                    let role = role.clone();
+                    Box::pin(async move {
+                        validate_database_connection_identity(
+                            conn,
+                            "TEST_SERVING_DATABASE_URL",
+                            &role,
+                        )
+                        .await
+                    })
+                }
+            })
+            .connect_with(connect_options)
+            .await
+            .expect_err("wrong serving role default must fail startup");
+
+        sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+            "REVOKE CONNECT ON DATABASE {quoted_database} FROM {role}; DROP ROLE {role};"
+        )))
+        .execute(&pool)
+        .await
+        .expect("isolated serving role drops");
+    }
+}
+
+#[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod command_database_config_tests {
     use super::{
         AppConfig, AppRole, RoleAttributes, RoleMembership, SubordinateRoleContract,
         ensure_expected_migration_database_identity, ensure_expected_serving_database_identity,
-        postgres_options_set_role, serving_database_identity_query, validate_database_url_identity,
+        ensure_expected_serving_database_timeouts, postgres_options_set_role,
+        serving_database_identity_query, validate_database_url_identity,
     };
 
     const RUNTIME_URL: &str = "postgresql://mnt_rt:runtime-secret@db/maintenance";
@@ -4919,6 +5165,55 @@ mod command_database_config_tests {
             "rolreplication",
         ] {
             assert!(query.contains(attribute));
+        }
+        for timeout in [
+            "statement_timeout",
+            "idle_in_transaction_session_timeout",
+            "transaction_timeout",
+        ] {
+            assert!(query.contains(timeout));
+        }
+    }
+
+    #[test]
+    fn serving_timeout_guards_accept_only_exact_effective_defaults() {
+        assert!(
+            ensure_expected_serving_database_timeouts(
+                "DATABASE_URL",
+                "30s",
+                "30s",
+                "45s",
+                true,
+                true,
+                true,
+            )
+            .is_ok()
+        );
+
+        for matches in [
+            (false, true, true),
+            (true, false, true),
+            (true, true, false),
+            (false, false, false),
+        ] {
+            let error = ensure_expected_serving_database_timeouts(
+                "DATABASE_URL",
+                "29s",
+                "31s",
+                "44s",
+                matches.0,
+                matches.1,
+                matches.2,
+            )
+            .unwrap_err();
+            let message = error.to_string();
+
+            assert!(message.contains("statement_timeout=\"29s\""));
+            assert!(message.contains("idle_in_transaction_session_timeout=\"31s\""));
+            assert!(message.contains("transaction_timeout=\"44s\""));
+            assert!(message.contains("required statement_timeout=30s"));
+            assert!(message.contains("idle_in_transaction_session_timeout=30s"));
+            assert!(message.contains("transaction_timeout=45s"));
         }
     }
 

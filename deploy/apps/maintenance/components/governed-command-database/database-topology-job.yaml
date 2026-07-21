@@ -87,6 +87,174 @@ spec:
               test "$(psql -v ON_ERROR_STOP=1 -Atqc \
                 "SELECT session_user::text || '|' || current_user::text")" = 'mnt_app|mnt_app'
 
+              repair_pgoptions='-c statement_timeout=0 -c idle_in_transaction_session_timeout=0 -c transaction_timeout=0'
+              PGOPTIONS="${repair_pgoptions}" psql -v ON_ERROR_STOP=1 <<'SQL'
+              DO $block$
+              BEGIN
+                IF current_setting('server_version_num')::integer < 170000
+                   OR current_setting('max_prepared_transactions')::integer <> 0
+                   OR EXISTS (SELECT 1 FROM pg_prepared_xacts) THEN
+                  RAISE EXCEPTION 'topology.transaction_timeout_prerequisite_failed';
+                END IF;
+              END
+              $block$;
+              SQL
+
+              preflight_serving_login() {
+                local role="$1"
+                local password="$2"
+                local identity
+                identity="$(PGOPTIONS="${repair_pgoptions}" PGUSER="${role}" PGPASSWORD="${password}" psql \
+                  -v ON_ERROR_STOP=1 -Atqc "SELECT session_user::text || '|' || current_user::text")"
+                test "${identity}" = "${role}|${role}"
+              }
+              preflight_serving_login mnt_rt "${MNT_RT_PASSWORD}"
+              preflight_serving_login mnt_leave_cmd "${MNT_LEAVE_COMMAND_PASSWORD}"
+              preflight_serving_login mnt_ontology_cmd "${MNT_ONTOLOGY_COMMAND_PASSWORD}"
+
+              serving_defaults_need_repair() {
+                local role="$1"
+                local password="$2"
+                PGOPTIONS="${repair_pgoptions}" PGUSER="${role}" PGPASSWORD="${password}" psql \
+                  -v ON_ERROR_STOP=1 -Atqc \
+                  "SELECT (NOT EXISTS (
+                     SELECT 1 FROM pg_db_role_setting settings
+                     WHERE settings.setrole = (SELECT oid FROM pg_roles WHERE rolname=current_user)
+                       AND settings.setdatabase = 0
+                       AND settings.setconfig @> ARRAY[
+                         'statement_timeout=30s',
+                         'idle_in_transaction_session_timeout=30s',
+                         'transaction_timeout=45s'
+                       ]
+                   ) OR EXISTS (
+                     SELECT 1
+                     FROM pg_db_role_setting settings
+                     CROSS JOIN LATERAL unnest(settings.setconfig) setting
+                     WHERE settings.setrole = (SELECT oid FROM pg_roles WHERE rolname=current_user)
+                       AND settings.setdatabase <> 0
+                       AND split_part(setting, '=', 1) IN (
+                         'statement_timeout', 'idle_in_transaction_session_timeout', 'transaction_timeout'
+                       )
+                   ))::text"
+              }
+              repair_mnt_rt="$(serving_defaults_need_repair mnt_rt "${MNT_RT_PASSWORD}")"
+              repair_mnt_leave_cmd="$(serving_defaults_need_repair mnt_leave_cmd "${MNT_LEAVE_COMMAND_PASSWORD}")"
+              repair_mnt_ontology_cmd="$(serving_defaults_need_repair mnt_ontology_cmd "${MNT_ONTOLOGY_COMMAND_PASSWORD}")"
+              test "${repair_mnt_rt}" = true || test "${repair_mnt_rt}" = false
+              test "${repair_mnt_leave_cmd}" = true || test "${repair_mnt_leave_cmd}" = false
+              test "${repair_mnt_ontology_cmd}" = true || test "${repair_mnt_ontology_cmd}" = false
+
+              # CNPG managed roles do not expose role-default GUC fields. Each
+              # serving identity therefore reconciles its own USERSET defaults;
+              # no superuser or CREATEROLE credential is exposed to this Job.
+              reconcile_serving_defaults() {
+                local role="$1"
+                local password="$2"
+                PGOPTIONS="${repair_pgoptions}" PGUSER="${role}" PGPASSWORD="${password}" psql \
+                  -v ON_ERROR_STOP=1 --set=expected_role="${role}" <<'SQL'
+              BEGIN;
+              SELECT CASE
+                WHEN session_user::text = :'expected_role'
+                 AND current_user::text = :'expected_role'
+                THEN 'true' ELSE 'false'
+              END AS direct_identity \gset
+              \if :direct_identity
+              \else
+                SELECT 'topology.direct_identity_failed'::integer;
+              \endif
+              SELECT format('ALTER ROLE %I SET statement_timeout = ''30s''', current_user) \gexec
+              SELECT format('ALTER ROLE %I SET idle_in_transaction_session_timeout = ''30s''', current_user) \gexec
+              SELECT format('ALTER ROLE %I SET transaction_timeout = ''45s''', current_user) \gexec
+              SELECT format('ALTER ROLE %I IN DATABASE %I RESET statement_timeout', current_user, database.datname)
+              FROM pg_db_role_setting settings
+              JOIN pg_database database ON database.oid = settings.setdatabase
+              WHERE settings.setrole = (SELECT oid FROM pg_roles WHERE rolname=current_user)
+                AND EXISTS (SELECT 1 FROM unnest(settings.setconfig) setting WHERE setting LIKE 'statement_timeout=%')
+              \gexec
+              SELECT format('ALTER ROLE %I IN DATABASE %I RESET idle_in_transaction_session_timeout', current_user, database.datname)
+              FROM pg_db_role_setting settings
+              JOIN pg_database database ON database.oid = settings.setdatabase
+              WHERE settings.setrole = (SELECT oid FROM pg_roles WHERE rolname=current_user)
+                AND EXISTS (SELECT 1 FROM unnest(settings.setconfig) setting WHERE setting LIKE 'idle_in_transaction_session_timeout=%')
+              \gexec
+              SELECT format('ALTER ROLE %I IN DATABASE %I RESET transaction_timeout', current_user, database.datname)
+              FROM pg_db_role_setting settings
+              JOIN pg_database database ON database.oid = settings.setdatabase
+              WHERE settings.setrole = (SELECT oid FROM pg_roles WHERE rolname=current_user)
+                AND EXISTS (SELECT 1 FROM unnest(settings.setconfig) setting WHERE setting LIKE 'transaction_timeout=%')
+              \gexec
+              DO $block$
+              BEGIN
+                IF NOT EXISTS (
+                  SELECT 1 FROM pg_db_role_setting settings
+                  WHERE settings.setrole = (SELECT oid FROM pg_roles WHERE rolname=current_user)
+                    AND settings.setdatabase = 0
+                    AND settings.setconfig @> ARRAY[
+                      'statement_timeout=30s',
+                      'idle_in_transaction_session_timeout=30s',
+                      'transaction_timeout=45s'
+                    ]
+                ) OR EXISTS (
+                  SELECT 1
+                  FROM pg_db_role_setting settings
+                  CROSS JOIN LATERAL unnest(settings.setconfig) setting
+                  WHERE settings.setrole = (SELECT oid FROM pg_roles WHERE rolname=current_user)
+                    AND settings.setdatabase <> 0
+                    AND split_part(setting, '=', 1) IN (
+                      'statement_timeout', 'idle_in_transaction_session_timeout', 'transaction_timeout'
+                    )
+                ) THEN
+                  RAISE EXCEPTION 'topology.runtime_default_readback_failed';
+                END IF;
+              END
+              $block$;
+              COMMIT;
+              SQL
+              }
+              if [[ "${repair_mnt_rt}" == true ]]; then
+                reconcile_serving_defaults mnt_rt "${MNT_RT_PASSWORD}"
+              fi
+              if [[ "${repair_mnt_leave_cmd}" == true ]]; then
+                reconcile_serving_defaults mnt_leave_cmd "${MNT_LEAVE_COMMAND_PASSWORD}"
+              fi
+              if [[ "${repair_mnt_ontology_cmd}" == true ]]; then
+                reconcile_serving_defaults mnt_ontology_cmd "${MNT_ONTOLOGY_COMMAND_PASSWORD}"
+              fi
+
+              drain_serving_backends() {
+                local role="$1"
+                local password="$2"
+                local pid terminated remaining captured_pid_csv captured_pid_output
+                local -a captured_pids=()
+                captured_pid_output="$(PGOPTIONS="${repair_pgoptions}" PGUSER="${role}" PGPASSWORD="${password}" psql \
+                  -v ON_ERROR_STOP=1 -Atqc \
+                  "SELECT pid FROM pg_stat_activity WHERE usename = current_user AND pid <> pg_backend_pid() ORDER BY pid")"
+                if [[ -n "${captured_pid_output}" ]]; then
+                  mapfile -t captured_pids <<<"${captured_pid_output}"
+                fi
+                for pid in "${captured_pids[@]}"; do
+                  terminated="$(PGOPTIONS="${repair_pgoptions}" PGUSER="${role}" PGPASSWORD="${password}" psql \
+                    -v ON_ERROR_STOP=1 -Atqc "SELECT pg_terminate_backend(${pid}, 5000)")"
+                  test "${terminated}" = t
+                done
+                if ((${#captured_pids[@]} > 0)); then
+                  captured_pid_csv="$(IFS=,; echo "${captured_pids[*]}")"
+                  remaining="$(PGOPTIONS="${repair_pgoptions}" PGUSER="${role}" PGPASSWORD="${password}" psql \
+                    -v ON_ERROR_STOP=1 -Atqc \
+                    "SELECT count(*) FROM pg_stat_activity WHERE pid = ANY (ARRAY[${captured_pid_csv}]::integer[])")"
+                  test "${remaining}" = 0
+                fi
+              }
+              if [[ "${repair_mnt_rt}" == true ]]; then
+                drain_serving_backends mnt_rt "${MNT_RT_PASSWORD}"
+              fi
+              if [[ "${repair_mnt_leave_cmd}" == true ]]; then
+                drain_serving_backends mnt_leave_cmd "${MNT_LEAVE_COMMAND_PASSWORD}"
+              fi
+              if [[ "${repair_mnt_ontology_cmd}" == true ]]; then
+                drain_serving_backends mnt_ontology_cmd "${MNT_ONTOLOGY_COMMAND_PASSWORD}"
+              fi
+
               expected_roles='mnt_app|t|f|t|t|f|f|f
               mnt_leave_cmd|t|f|f|f|f|f|f
               mnt_leave_definer|f|f|f|f|f|f|f
@@ -134,6 +302,7 @@ spec:
               assert_direct_serving_login() {
                 local role="$1"
                 local password="$2"
+                local expected_defaults="$3"
                 local actual
                 actual="$(PGUSER="${role}" PGPASSWORD="${password}" psql \
                   -v ON_ERROR_STOP=1 -At -F '|' <<'SQL'
@@ -151,16 +320,19 @@ spec:
                        FROM pg_auth_members membership
                        WHERE membership.member = authenticated.oid
                           OR membership.roleid = authenticated.oid
-                     )
+                     ),
+                     current_setting('statement_timeout'),
+                     current_setting('idle_in_transaction_session_timeout'),
+                     current_setting('transaction_timeout')
               FROM pg_roles authenticated
               WHERE authenticated.rolname = session_user;
               SQL
                 )"
-                test "${actual}" = "${role}|${role}|t|f|f|f|f|f|f|f"
+                test "${actual}" = "${role}|${role}|t|f|f|f|f|f|f|f|${expected_defaults}"
               }
-              assert_direct_serving_login mnt_rt "${MNT_RT_PASSWORD}"
-              assert_direct_serving_login mnt_leave_cmd "${MNT_LEAVE_COMMAND_PASSWORD}"
-              assert_direct_serving_login mnt_ontology_cmd "${MNT_ONTOLOGY_COMMAND_PASSWORD}"
+              assert_direct_serving_login mnt_rt "${MNT_RT_PASSWORD}" '30s|30s|45s'
+              assert_direct_serving_login mnt_leave_cmd "${MNT_LEAVE_COMMAND_PASSWORD}" '30s|30s|45s'
+              assert_direct_serving_login mnt_ontology_cmd "${MNT_ONTOLOGY_COMMAND_PASSWORD}" '30s|30s|45s'
               echo 'database topology readback passed'
           resources:
             requests: { cpu: 25m, memory: 32Mi }

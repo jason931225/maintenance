@@ -154,6 +154,42 @@ test("fresh and existing databases reconcile the exact hardened six-role topolog
   );
   assert.match(commandRoleInit, /SET LOCAL log_min_error_statement = 'panic'/);
   assert.match(commandRoleInit, /OR granted\.rolname IN/);
+  for (const role of ["mnt_rt", "mnt_leave_cmd", "mnt_ontology_cmd"]) {
+    assert.match(
+      commandRoleInit,
+      new RegExp(`ALTER ROLE ${role} SET statement_timeout = '30s'`),
+    );
+    assert.match(
+      commandRoleInit,
+      new RegExp(
+        `ALTER ROLE ${role} SET idle_in_transaction_session_timeout = '30s'`,
+      ),
+    );
+    assert.match(
+      commandRoleInit,
+      new RegExp(`ALTER ROLE ${role} SET transaction_timeout = '45s'`),
+    );
+  }
+  assert.match(
+    commandRoleInit,
+    /ALTER ROLE %I IN DATABASE %I RESET statement_timeout/,
+  );
+  assert.match(
+    commandRoleInit,
+    /ALTER ROLE %I IN DATABASE %I RESET idle_in_transaction_session_timeout/,
+  );
+  assert.match(
+    commandRoleInit,
+    /ALTER ROLE %I IN DATABASE %I RESET transaction_timeout/,
+  );
+  assert.match(commandRoleInit, /topology\.runtime_default_readback_failed/);
+  assert.match(commandRoleInit, /topology\.transaction_timeout_prerequisite_failed/);
+  assert.match(commandRoleInit, /pg_prepared_xacts/);
+  assert.match(commandRoleInit, /pg_terminate_backend/);
+  assert.match(commandRoleInit, /pg_terminate_backend\(\$\{pid\}, 5000\)/);
+  assert.match(commandRoleInit, /serving_backend_pid_output="\$\(psql/);
+  assert.doesNotMatch(commandRoleInit, /mapfile -t serving_backend_pids < <\(/);
+  assert.match(commandRoleInit, /serving_backend_drain_barrier_failed/);
   assert.match(
     commandRoleInit,
     /legacy_default_acl_state[\s\S]*ALTER DEFAULT PRIVILEGES FOR ROLE mnt_app IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO mnt_rt/,
@@ -182,6 +218,14 @@ test("fresh and existing databases reconcile the exact hardened six-role topolog
     topologyIntegration,
     /runtime password authenticated the leave command login/,
   );
+  assert.match(topologyIntegration, /default_transaction_isolation/);
+  assert.match(topologyIntegration, /preserve_database_runtime_guc/);
+  assert.match(topologyIntegration, /current_setting\('statement_timeout'\)/);
+  assert.match(topologyIntegration, /0112_mnt_rt_statement_timeout\.sql/);
+  assert.match(topologyIntegration, /topology_stale_\$\{role\}/);
+  assert.match(topologyIntegration, /cnpg_preflight_survivor/);
+  assert.match(topologyIntegration, /postgres@sha256:57c72fd2a128e416c7fcc499958864df5301e940bca0a56f58fddf30ffc07777/);
+  assert.match(topologyIntegration, /max_prepared_transactions=10/);
 
   assert.equal(
     devUp.match(/reconcileDatabaseTopology\(compose\);/g)?.length,

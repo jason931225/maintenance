@@ -10,12 +10,12 @@ use std::{
 use apalis::prelude::{BoxDynError, Data, WorkerBuilder, WorkerContext};
 use apalis_postgres::{Config, PgPool as ApalisPgPool, PostgresStorage};
 use mnt_kernel_core::{Clock, FixedClock, SystemClock, Timestamp};
-use sqlx::Row;
+use sqlx::{Connection as _, Row};
 use tokio::task::JoinHandle;
 
 use crate::{
     ApalisPostgresJobQueue, JobQueue, JobQueueError, JobRequest, PlatformJob, SkewedClock,
-    schedule_after, setup_apalis_schema,
+    connect_apalis_runtime_pool, migrate_and_reconcile_apalis_postgres, schedule_after,
 };
 
 pub const DEFAULT_SOAK_JOB_COUNT: usize = 50;
@@ -150,13 +150,19 @@ pub async fn run_soak_gates(
         ));
     }
 
+    let mut owner_connection = sqlx::PgConnection::connect(database_url).await?;
+    migrate_and_reconcile_apalis_postgres(&mut owner_connection).await?;
+
+    let runtime_database_url = std::env::var("MNT_APALIS_RUNTIME_DATABASE_URL").map_err(|_| {
+        JobQueueError::Soak(
+            "MNT_APALIS_RUNTIME_DATABASE_URL is required and must authenticate as mnt_rt"
+                .to_owned(),
+        )
+    })?;
     let observation_pool = sqlx::PgPool::connect(database_url).await?;
     ensure_observation_schema(&observation_pool).await?;
 
-    let apalis_pool = ApalisPgPool::connect(database_url)
-        .await
-        .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?;
-    setup_apalis_schema(&apalis_pool).await?;
+    let apalis_pool = connect_apalis_runtime_pool(&runtime_database_url).await?;
 
     let mut gates = Vec::with_capacity(4);
     gates.push(run_normal_gate(&apalis_pool, &observation_pool, job_count).await?);

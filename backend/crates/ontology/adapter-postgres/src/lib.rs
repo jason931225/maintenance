@@ -21,6 +21,7 @@ use mnt_platform_db::{DbError, with_org_conn};
 use mnt_platform_request_context::current_org;
 use serde::{Deserialize, Serialize};
 use sqlx::{PgPool, Postgres, Row, Transaction};
+use std::collections::HashSet;
 use time::OffsetDateTime;
 
 #[derive(Debug, thiserror::Error)]
@@ -40,7 +41,66 @@ pub enum PgOntologyError {
 
 impl From<sqlx::Error> for PgOntologyError {
     fn from(value: sqlx::Error) -> Self {
+        if let sqlx::Error::Database(database) = &value {
+            let code = database.code();
+            if let Some(error) = ontology_database_kernel_error(
+                code.as_deref(),
+                database.message(),
+                database.constraint(),
+            ) {
+                return Self::Domain(error);
+            }
+        }
+
         Self::Db(DbError::Sqlx(value))
+    }
+}
+
+fn ontology_database_kernel_error(
+    code: Option<&str>,
+    message: &str,
+    constraint: Option<&str>,
+) -> Option<KernelError> {
+    match (code, message) {
+        (
+            Some("42501"),
+            "ontology_write.tenant_context_mismatch"
+            | "ontology_write.actor_forbidden"
+            | "ontology_write.publish_approval_required",
+        ) => Some(KernelError::forbidden(message)),
+        (
+            Some("22023"),
+            "ontology_write.invalid_trace"
+            | "ontology_write.invalid_snapshot_shape"
+            | "ontology_write.stable_key_mismatch",
+        ) => Some(KernelError::validation(message)),
+        (
+            Some("P0002"),
+            "ontology_write.key_not_found" | "ontology_write.object_type_not_found",
+        ) => Some(KernelError::not_found(message)),
+        (
+            Some("23514"),
+            "ontology_write.review_required" | "ontology_write.illegal_lifecycle_transition",
+        ) => Some(KernelError::invalid_transition(message)),
+        (
+            Some("23505"),
+            "ontology_write.property_snapshot_conflict"
+            | "ontology_write.link_snapshot_conflict"
+            | "ontology_write.action_snapshot_conflict"
+            | "ontology_write.analytic_snapshot_conflict"
+            | "ontology_write.property_key_conflict"
+            | "ontology_write.link_key_conflict"
+            | "ontology_write.action_key_conflict"
+            | "ontology_write.analytic_key_conflict",
+        )
+        | (Some("23514"), "ontology_write.review_pending_immutable")
+        | (Some("40001"), "ontology_write.lifecycle_changed") => {
+            Some(KernelError::conflict(message))
+        }
+        (Some("23505"), _) if constraint == Some("ont_object_type_key_revisions_pkey") => {
+            Some(KernelError::conflict(message))
+        }
+        _ => None,
     }
 }
 
@@ -1028,20 +1088,46 @@ fn validate_draft(draft: &CreateObjectTypeDraft) -> Result<(), PgOntologyError> 
     if draft.title.trim().is_empty() {
         return Err(KernelError::validation("object type title is required").into());
     }
+    let mut property_keys = HashSet::new();
     for property in &draft.properties {
+        let key = property.key.trim();
+        if !property_keys.insert(key) {
+            return Err(KernelError::validation(format!(
+                "duplicate property key {key:?} in object type draft"
+            ))
+            .into());
+        }
         if !property.config.is_object() {
             return Err(KernelError::validation(format!(
                 "property {:?} config must be a JSON object",
-                property.key.trim()
+                key
             ))
             .into());
         }
     }
+    let mut link_keys = HashSet::new();
+    for link in &draft.links {
+        let key = link.stable_key.trim();
+        if !link_keys.insert(key) {
+            return Err(KernelError::validation(format!(
+                "duplicate link key {key:?} in object type draft"
+            ))
+            .into());
+        }
+    }
+    let mut action_keys = HashSet::new();
     for action in &draft.actions {
+        let key = action.stable_key.trim();
+        if !action_keys.insert(key) {
+            return Err(KernelError::validation(format!(
+                "duplicate action key {key:?} in object type draft"
+            ))
+            .into());
+        }
         if !action.params_schema.is_object() {
             return Err(KernelError::validation(format!(
                 "action {:?} params_schema must be a JSON object",
-                action.stable_key.trim()
+                key
             ))
             .into());
         }
@@ -1054,24 +1140,32 @@ fn validate_draft(draft: &CreateObjectTypeDraft) -> Result<(), PgOntologyError> 
             if !value.is_array() {
                 return Err(KernelError::validation(format!(
                     "action {:?} {field} must be a JSON array",
-                    action.stable_key.trim()
+                    key
                 ))
                 .into());
             }
         }
     }
+    let mut analytic_keys = HashSet::new();
     for analytic in &draft.analytics {
+        let key = analytic.key.trim();
+        if !analytic_keys.insert(key) {
+            return Err(KernelError::validation(format!(
+                "duplicate analytic key {key:?} in object type draft"
+            ))
+            .into());
+        }
         if !analytic.formula.is_object() {
             return Err(KernelError::validation(format!(
                 "analytic {:?} formula must be a JSON object",
-                analytic.key.trim()
+                key
             ))
             .into());
         }
         if !analytic.result_type.is_object() {
             return Err(KernelError::validation(format!(
                 "analytic {:?} result_type must be a JSON object",
-                analytic.key.trim()
+                key
             ))
             .into());
         }
@@ -1107,4 +1201,155 @@ fn validate_draft(draft: &CreateObjectTypeDraft) -> Result<(), PgOntologyError> 
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ontology_database_kernel_error;
+    use mnt_kernel_core::ErrorKind;
+
+    #[test]
+    fn ontology_database_markers_map_only_by_exact_code_and_message() {
+        for (code, message, expected) in [
+            (
+                "42501",
+                "ontology_write.tenant_context_mismatch",
+                ErrorKind::Forbidden,
+            ),
+            (
+                "42501",
+                "ontology_write.actor_forbidden",
+                ErrorKind::Forbidden,
+            ),
+            (
+                "42501",
+                "ontology_write.publish_approval_required",
+                ErrorKind::Forbidden,
+            ),
+            (
+                "22023",
+                "ontology_write.invalid_trace",
+                ErrorKind::Validation,
+            ),
+            (
+                "22023",
+                "ontology_write.invalid_snapshot_shape",
+                ErrorKind::Validation,
+            ),
+            (
+                "22023",
+                "ontology_write.stable_key_mismatch",
+                ErrorKind::Validation,
+            ),
+            ("P0002", "ontology_write.key_not_found", ErrorKind::NotFound),
+            (
+                "P0002",
+                "ontology_write.object_type_not_found",
+                ErrorKind::NotFound,
+            ),
+            (
+                "23514",
+                "ontology_write.review_required",
+                ErrorKind::InvalidTransition,
+            ),
+            (
+                "23514",
+                "ontology_write.illegal_lifecycle_transition",
+                ErrorKind::InvalidTransition,
+            ),
+            (
+                "23514",
+                "ontology_write.review_pending_immutable",
+                ErrorKind::Conflict,
+            ),
+            (
+                "40001",
+                "ontology_write.lifecycle_changed",
+                ErrorKind::Conflict,
+            ),
+            (
+                "23505",
+                "ontology_write.property_snapshot_conflict",
+                ErrorKind::Conflict,
+            ),
+            (
+                "23505",
+                "ontology_write.link_snapshot_conflict",
+                ErrorKind::Conflict,
+            ),
+            (
+                "23505",
+                "ontology_write.action_snapshot_conflict",
+                ErrorKind::Conflict,
+            ),
+            (
+                "23505",
+                "ontology_write.analytic_snapshot_conflict",
+                ErrorKind::Conflict,
+            ),
+            (
+                "23505",
+                "ontology_write.property_key_conflict",
+                ErrorKind::Conflict,
+            ),
+            (
+                "23505",
+                "ontology_write.link_key_conflict",
+                ErrorKind::Conflict,
+            ),
+            (
+                "23505",
+                "ontology_write.action_key_conflict",
+                ErrorKind::Conflict,
+            ),
+            (
+                "23505",
+                "ontology_write.analytic_key_conflict",
+                ErrorKind::Conflict,
+            ),
+        ] {
+            let mapped = ontology_database_kernel_error(Some(code), message, None)
+                .unwrap_or_else(|| panic!("missing exact mapping for {code}/{message}"));
+            assert_eq!(mapped.kind, expected, "wrong mapping for {code}/{message}");
+            assert_eq!(mapped.message, message);
+        }
+
+        let pkey = ontology_database_kernel_error(
+            Some("23505"),
+            "duplicate key value violates unique constraint",
+            Some("ont_object_type_key_revisions_pkey"),
+        )
+        .expect("the exact object-type key revision constraint is allowlisted");
+        assert_eq!(pkey.kind, ErrorKind::Conflict);
+    }
+
+    #[test]
+    fn unknown_database_errors_are_not_downgraded_to_domain_errors() {
+        assert!(
+            ontology_database_kernel_error(Some("XX000"), "ontology_write.review_required", None,)
+                .is_none()
+        );
+        assert!(
+            ontology_database_kernel_error(Some("23514"), "unrecognized.trigger_error", None)
+                .is_none()
+        );
+        // The deferred audit constraint is a server-side integrity invariant;
+        // keep it on the raw DB path so REST logs it and returns 500.
+        assert!(
+            ontology_database_kernel_error(
+                Some("23514"),
+                "ontology_write.exactly_one_current_transaction_audit_required",
+                None,
+            )
+            .is_none()
+        );
+        assert!(
+            ontology_database_kernel_error(
+                Some("23505"),
+                "duplicate key value violates unique constraint",
+                Some("unrelated_unique_key"),
+            )
+            .is_none()
+        );
+    }
 }

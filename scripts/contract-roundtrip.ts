@@ -4,7 +4,7 @@ import {
   randomBytes,
   randomUUID,
 } from "node:crypto";
-import { readFileSync, readdirSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { createServer } from "node:net";
 import { resolve } from "node:path";
 import { spawn } from "node:child_process";
@@ -15,6 +15,9 @@ import { createMaintenanceApiClient } from "../clients/ts/src/index.js";
 const { Client: PgClient } = pg;
 const root = resolve(new URL("..", import.meta.url).pathname);
 const databaseUrl = process.env.CONTRACT_DATABASE_URL;
+const appBinary = process.env.MNT_APP_BIN
+  ? resolve(process.env.MNT_APP_BIN)
+  : resolve(root, "backend/target/debug/mnt-app");
 const port = process.env.CONTRACT_APP_PORT
   ? Number(process.env.CONTRACT_APP_PORT)
   : await findOpenPort();
@@ -36,6 +39,11 @@ if (!databaseUrl) {
     "CONTRACT_DATABASE_URL is required for the generated-client contract test",
   );
 }
+if (!existsSync(appBinary)) {
+  throw new Error(
+    `MNT_APP_BIN must name an already-built mnt-app binary (looked for ${appBinary})`,
+  );
+}
 
 const { publicKey, privateKey } = generateKeyPairSync("ec", {
   namedCurve: "P-256",
@@ -52,15 +60,8 @@ await db.connect();
 try {
   await resetLocalContractDatabase(db, databaseUrl);
   const topology = await provisionDatabaseTopology(db, databaseUrl);
-  const migrationDb = new PgClient({
-    connectionString: topology.ownerDatabaseUrl,
-  });
-  await migrationDb.connect();
-  try {
-    await applyMigrations(migrationDb);
-  } finally {
-    await migrationDb.end();
-  }
+  await runAppMigration(appBinary, topology.ownerDatabaseUrl);
+  await assertRuntimePublicSchemaAccess(topology.runtimeDatabaseUrl);
   await seedContractData(db, userId, branchId);
 
   const token = issueAccessToken(userId, branchId);
@@ -75,17 +76,11 @@ try {
     MNT_JWT_AUDIENCE: audience,
     MNT_JWT_PUBLIC_KEY_PEM: publicKeyPem,
   };
-  const app = process.env.MNT_APP_BIN
-    ? spawn(process.env.MNT_APP_BIN, [], {
-        cwd: root,
-        env: appEnv,
-        stdio: ["ignore", "pipe", "pipe"],
-      })
-    : spawn("cargo", ["run", "-p", "mnt-app"], {
-        cwd: resolve(root, "backend"),
-        env: appEnv,
-        stdio: ["ignore", "pipe", "pipe"],
-      });
+  const app = spawn(appBinary, [], {
+    cwd: root,
+    env: appEnv,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
 
   // Drain BOTH stdout and stderr. Leaving the stdout pipe unread lets a chatty
   // boot (or a cold `cargo run` recompile) fill the OS pipe buffer and block the
@@ -146,6 +141,16 @@ async function provisionDatabaseTopology(
       "CONTRACT_DATABASE_URL must use a cluster administrator distinct from mnt_app",
     );
   }
+  const timeoutPrerequisites = await client.query<{ ok: boolean }>(
+    `SELECT current_setting('server_version_num')::integer >= 170000
+            AND current_setting('max_prepared_transactions')::integer = 0
+            AND NOT EXISTS (SELECT 1 FROM pg_prepared_xacts) AS ok`,
+  );
+  if (!timeoutPrerequisites.rows[0].ok) {
+    throw new Error(
+      "contract database requires PostgreSQL 17+ with prepared transactions disabled",
+    );
+  }
 
   const allocatedPasswords = new Set<string>();
   const distinctPassword = () => {
@@ -203,6 +208,44 @@ async function provisionDatabaseTopology(
       );
     }
 
+    for (const role of ["mnt_rt", "mnt_leave_cmd", "mnt_ontology_cmd"]) {
+      const defaults = await client.query<{
+        statement_ddl: string;
+        idle_ddl: string;
+        transaction_ddl: string;
+      }>(
+        `SELECT
+           format('ALTER ROLE %I SET statement_timeout = ''30s''', $1::text) AS statement_ddl,
+           format('ALTER ROLE %I SET idle_in_transaction_session_timeout = ''30s''', $1::text) AS idle_ddl,
+           format('ALTER ROLE %I SET transaction_timeout = ''45s''', $1::text) AS transaction_ddl`,
+        [role],
+      );
+      await client.query(defaults.rows[0].statement_ddl);
+      await client.query(defaults.rows[0].idle_ddl);
+      await client.query(defaults.rows[0].transaction_ddl);
+
+      const overrides = await client.query<{ ddl: string }>(
+        `SELECT format('ALTER ROLE %I IN DATABASE %I RESET %I', role.rolname, database.datname, managed.key) AS ddl
+           FROM pg_db_role_setting settings
+           JOIN pg_roles role ON role.oid = settings.setrole
+           JOIN pg_database database ON database.oid = settings.setdatabase
+           CROSS JOIN (VALUES
+             ('statement_timeout'),
+             ('idle_in_transaction_session_timeout'),
+             ('transaction_timeout')
+           ) managed(key)
+          WHERE role.rolname = $1
+            AND EXISTS (
+              SELECT 1 FROM unnest(settings.setconfig) setting
+               WHERE split_part(setting, '=', 1) = managed.key
+            )`,
+        [role],
+      );
+      for (const { ddl } of overrides.rows) {
+        await client.query(ddl);
+      }
+    }
+
     await client.query(`
     DO $block$
     DECLARE edge RECORD;
@@ -237,6 +280,7 @@ async function provisionDatabaseTopology(
     const topology = await client.query<{
       roles: string;
       memberships: string;
+      runtime_defaults_ok: boolean;
     }>(`
     SELECT
       (SELECT string_agg(
@@ -261,13 +305,44 @@ async function provisionDatabaseTopology(
           OR granted.rolname IN (
                'mnt_app','mnt_rt','mnt_leave_cmd','mnt_ontology_cmd',
                'mnt_leave_definer','mnt_ontology_writer'
-             )) AS memberships
+             )) AS memberships,
+      current_setting('server_version_num')::integer >= 170000
+        AND current_setting('max_prepared_transactions')::integer = 0
+        AND NOT EXISTS (SELECT 1 FROM pg_prepared_xacts)
+        AND NOT EXISTS (
+          SELECT 1
+          FROM (VALUES ('mnt_rt'), ('mnt_leave_cmd'), ('mnt_ontology_cmd')) expected(role_name)
+          WHERE NOT EXISTS (
+            SELECT 1
+            FROM pg_db_role_setting settings
+            JOIN pg_roles role ON role.oid = settings.setrole
+            WHERE role.rolname = expected.role_name
+              AND settings.setdatabase = 0
+              AND settings.setconfig @> ARRAY[
+                'statement_timeout=30s',
+                'idle_in_transaction_session_timeout=30s',
+                'transaction_timeout=45s'
+              ]
+          )
+        )
+        AND NOT EXISTS (
+          SELECT 1
+          FROM pg_db_role_setting settings
+          JOIN pg_roles role ON role.oid = settings.setrole
+          CROSS JOIN LATERAL unnest(settings.setconfig) setting
+          WHERE role.rolname IN ('mnt_rt', 'mnt_leave_cmd', 'mnt_ontology_cmd')
+            AND settings.setdatabase <> 0
+            AND split_part(setting, '=', 1) IN (
+              'statement_timeout', 'idle_in_transaction_session_timeout', 'transaction_timeout'
+            )
+        ) AS runtime_defaults_ok
   `);
     if (
       topology.rows[0].roles !==
         "mnt_app:true:false:true:true,mnt_leave_cmd:true:false:false:false,mnt_leave_definer:false:false:false:false,mnt_ontology_cmd:true:false:false:false,mnt_ontology_writer:false:false:false:false,mnt_rt:true:false:false:false" ||
       topology.rows[0].memberships !==
-        "mnt_app>mnt_leave_definer:false:true:true,mnt_app>mnt_ontology_writer:false:true:true"
+        "mnt_app>mnt_leave_definer:false:true:true,mnt_app>mnt_ontology_writer:false:true:true" ||
+      !topology.rows[0].runtime_defaults_ok
     ) {
       throw new Error(
         `contract database topology readback failed: ${JSON.stringify(topology.rows[0])}`,
@@ -277,6 +352,32 @@ async function provisionDatabaseTopology(
   } catch (error) {
     await client.query("ROLLBACK");
     throw error;
+  }
+
+  const capturedBackends = await client.query<{ pid: number }>(
+    `SELECT pid
+       FROM pg_stat_activity
+      WHERE usename IN ('mnt_rt', 'mnt_leave_cmd', 'mnt_ontology_cmd')
+        AND pid <> pg_backend_pid()
+      ORDER BY pid`,
+  );
+  for (const { pid } of capturedBackends.rows) {
+    const terminated = await client.query<{ terminated: boolean }>(
+      "SELECT pg_terminate_backend($1, 5000) AS terminated",
+      [pid],
+    );
+    if (!terminated.rows[0].terminated) {
+      throw new Error(`contract database failed to terminate backend ${pid}`);
+    }
+  }
+  if (capturedBackends.rowCount) {
+    const remaining = await client.query<{ count: string }>(
+      "SELECT count(*) FROM pg_stat_activity WHERE pid = ANY($1::integer[])",
+      [capturedBackends.rows.map(({ pid }) => pid)],
+    );
+    if (remaining.rows[0].count !== "0") {
+      throw new Error("contract database serving-backend drain barrier failed");
+    }
   }
 
   const roleUrl = (role: keyof typeof rolePasswords) => {
@@ -319,6 +420,9 @@ async function assertDirectDatabaseLogin(
       current_user: string;
       attributes_ok: boolean;
       membership_shape_ok: boolean;
+      statement_timeout: string;
+      idle_in_transaction_session_timeout: string;
+      transaction_timeout: string;
     }>(
       `SELECT session_user::text,
               current_user::text,
@@ -355,7 +459,10 @@ async function assertDirectDatabaseLogin(
                 SELECT 1 FROM pg_auth_members membership
                 WHERE membership.member = authenticated.oid
                    OR membership.roleid = authenticated.oid
-              ) END AS membership_shape_ok
+              ) END AS membership_shape_ok,
+              current_setting('statement_timeout') AS statement_timeout,
+              current_setting('idle_in_transaction_session_timeout') AS idle_in_transaction_session_timeout,
+              current_setting('transaction_timeout') AS transaction_timeout
          FROM pg_roles authenticated
         WHERE authenticated.rolname = $1`,
       [expectedRole, migrationOwner],
@@ -365,7 +472,11 @@ async function assertDirectDatabaseLogin(
       identity?.session_user !== expectedRole ||
       identity.current_user !== expectedRole ||
       !identity.attributes_ok ||
-      !identity.membership_shape_ok
+      !identity.membership_shape_ok ||
+      (!migrationOwner &&
+        (identity.statement_timeout !== "30s" ||
+          identity.idle_in_transaction_session_timeout !== "30s" ||
+          identity.transaction_timeout !== "45s"))
     ) {
       throw new Error(
         `contract database direct-login check failed for ${expectedRole}`,
@@ -376,12 +487,64 @@ async function assertDirectDatabaseLogin(
   }
 }
 
-async function applyMigrations(client: pg.Client) {
-  const migrationDir = resolve(root, "backend/crates/platform/db/migrations");
-  for (const file of readdirSync(migrationDir)
-    .filter((name) => name.endsWith(".sql"))
-    .sort()) {
-    await client.query(readFileSync(resolve(migrationDir, file), "utf8"));
+async function assertRuntimePublicSchemaAccess(runtimeDatabaseUrl: string) {
+  const runtime = new PgClient({ connectionString: runtimeDatabaseUrl });
+  await runtime.connect();
+  try {
+    const result = await runtime.query<{
+      has_usage: boolean;
+      has_create: boolean;
+      visible_rows: string;
+    }>(`
+      SELECT has_schema_privilege(current_user, 'public', 'USAGE') AS has_usage,
+             has_schema_privilege(current_user, 'public', 'CREATE') AS has_create,
+             (SELECT count(*) FROM public.users WHERE false) AS visible_rows
+    `);
+    const access = result.rows[0];
+    if (
+      !access?.has_usage ||
+      access.has_create ||
+      access.visible_rows !== "0"
+    ) {
+      throw new Error(
+        `contract database mnt_rt public schema ACL readback failed: ${JSON.stringify(access)}`,
+      );
+    }
+  } finally {
+    await runtime.end();
+  }
+}
+
+async function runAppMigration(binary: string, ownerDatabaseUrl: string) {
+  const migration = spawn(binary, [], {
+    cwd: root,
+    env: {
+      ...process.env,
+      DATABASE_URL: ownerDatabaseUrl,
+      MNT_APP_ROLE: "migrate",
+    },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  let output = "";
+  const capture = (chunk: Buffer) => {
+    const text = chunk.toString();
+    output += text;
+    process.stderr.write(text);
+  };
+  migration.stdout.on("data", capture);
+  migration.stderr.on("data", capture);
+
+  const result = await new Promise<{
+    code: number | null;
+    signal: NodeJS.Signals | null;
+  }>((resolveExit, reject) => {
+    migration.once("error", reject);
+    migration.once("exit", (code, signal) => resolveExit({ code, signal }));
+  });
+  if (result.code !== 0) {
+    throw new Error(
+      `mnt-app migrate failed: code=${result.code} signal=${result.signal ?? "none"}\n${output}`,
+    );
   }
 }
 
@@ -401,6 +564,9 @@ async function resetLocalContractDatabase(
     );
   }
 
+  await client.query("DROP SCHEMA IF EXISTS apalis CASCADE");
+  await client.query("DROP SCHEMA IF EXISTS ontology_api CASCADE");
+  await client.query("DROP SCHEMA IF EXISTS leave_api CASCADE");
   await client.query("DROP SCHEMA IF EXISTS public CASCADE");
   await client.query("CREATE SCHEMA public");
 }

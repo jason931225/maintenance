@@ -10,9 +10,10 @@ use std::{future::Future, pin::Pin, sync::Arc, time::Duration as StdDuration};
 use apalis::prelude::{BoxDynError, Data, TaskSink, WorkerBuilder, WorkerContext};
 use apalis_postgres::{Config, PgPool as ApalisPgPool, PostgresStorage};
 use apalis_sql::ext::TaskBuilderExt as _;
-use apalis_sqlx::{Connection as _, Executor as _, Row as _};
+use apalis_sqlx::Row as _;
 use mnt_kernel_core::{Clock, EvidenceId, OrgId, P1DispatchId, Timestamp};
 use serde::{Deserialize, Serialize};
+use sqlx::{Connection as _, Row as _};
 use thiserror::Error;
 
 pub mod soak;
@@ -273,9 +274,7 @@ pub struct ApalisPostgresJobQueue {
 
 impl ApalisPostgresJobQueue {
     pub async fn connect(database_url: &str, queue_name: &str) -> Result<Self, JobQueueError> {
-        let pool = ApalisPgPool::connect(database_url)
-            .await
-            .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?;
+        let pool = connect_apalis_runtime_pool(database_url).await?;
         Self::from_pool(pool, queue_name).await
     }
 
@@ -283,7 +282,7 @@ impl ApalisPostgresJobQueue {
         pool: ApalisPgPool,
         queue_name: &str,
     ) -> Result<Self, JobQueueError> {
-        setup_apalis_schema(&pool).await?;
+        validate_apalis_runtime(&pool).await?;
         Ok(Self {
             pool,
             config: Config::new(queue_name),
@@ -294,41 +293,213 @@ impl ApalisPostgresJobQueue {
         pool: ApalisPgPool,
         config: Config,
     ) -> Result<Self, JobQueueError> {
-        setup_apalis_schema(&pool).await?;
+        validate_apalis_runtime(&pool).await?;
         Ok(Self { pool, config })
     }
 }
 
-pub(crate) async fn setup_apalis_schema(pool: &ApalisPgPool) -> Result<(), JobQueueError> {
-    const LOCK_ID: i64 = 901_011;
-
-    let mut conn = pool
-        .acquire()
+pub async fn connect_apalis_runtime_pool(
+    database_url: &str,
+) -> Result<ApalisPgPool, JobQueueError> {
+    apalis_sqlx::postgres::PgPoolOptions::new()
+        .after_connect(|conn, _meta| {
+            Box::pin(async move { validate_apalis_runtime_connection(conn).await })
+        })
+        .after_release(|conn, _meta| {
+            Box::pin(async move {
+                apalis_sqlx::query("RESET SESSION AUTHORIZATION")
+                    .execute(&mut *conn)
+                    .await?;
+                apalis_sqlx::query("RESET ROLE").execute(&mut *conn).await?;
+                apalis_sqlx::query("RESET ALL").execute(&mut *conn).await?;
+                Ok(validate_apalis_runtime_connection(conn).await.is_ok())
+            })
+        })
+        .connect(database_url)
         .await
-        .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?;
-    apalis_sqlx::query("SELECT pg_advisory_lock($1)")
-        .bind(LOCK_ID)
-        .execute(&mut *conn)
-        .await
-        .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?;
-
-    let result = run_apalis_migrations(&mut conn).await;
-
-    let unlock_result = apalis_sqlx::query("SELECT pg_advisory_unlock($1)")
-        .bind(LOCK_ID)
-        .execute(&mut *conn)
-        .await
-        .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()));
-
-    result.and(unlock_result.map(|_| ()))
+        .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))
 }
 
-async fn run_apalis_migrations(
-    conn: &mut apalis_sqlx::pool::PoolConnection<apalis_sqlx::Postgres>,
+async fn validate_apalis_runtime_connection(
+    conn: &mut apalis_sqlx::PgConnection,
+) -> Result<(), apalis_sqlx::Error> {
+    let row = apalis_sqlx::query(
+        r#"
+        SELECT
+            session_user = 'mnt_rt'
+            AND current_user = 'mnt_rt'
+            AND authenticated.rolcanlogin
+            AND NOT authenticated.rolsuper
+            AND NOT authenticated.rolbypassrls
+            AND NOT authenticated.rolinherit
+            AND NOT authenticated.rolcreatedb
+            AND NOT authenticated.rolcreaterole
+            AND NOT authenticated.rolreplication
+            AND NOT EXISTS (
+                SELECT 1
+                FROM pg_catalog.pg_roles AS candidate
+                WHERE candidate.rolname <> session_user
+                  AND pg_catalog.pg_has_role(session_user, candidate.oid, 'MEMBER')
+            )
+            AND NOT EXISTS (
+                SELECT 1
+                FROM pg_catalog.pg_auth_members AS membership
+                WHERE membership.roleid = authenticated.oid
+            )
+            AND current_setting('statement_timeout')::interval = interval '30 seconds'
+            AND current_setting('idle_in_transaction_session_timeout')::interval = interval '30 seconds'
+            AND current_setting('transaction_timeout')::interval = interval '45 seconds'
+            AS valid
+        FROM pg_catalog.pg_roles AS authenticated
+        WHERE authenticated.rolname = session_user
+        "#,
+    )
+    .fetch_one(&mut *conn)
+    .await?;
+    if row.try_get::<bool, _>("valid")? {
+        Ok(())
+    } else {
+        Err(apalis_sqlx::Error::Protocol(
+            "Apalis pool must authenticate directly as hardened mnt_rt with exact 30s/30s/45s timeouts and no membership edges".to_owned(),
+        ))
+    }
+}
+
+/// Apply the adapter-owned Apalis migrations and reconcile the runtime ACL.
+///
+/// The caller must pass the already validated migration-owner connection used
+/// for the numbered application migrations. Keeping this API connection-based
+/// prevents a second pool or a second physical checkout during startup.
+pub async fn migrate_and_reconcile_apalis_postgres(
+    conn: &mut sqlx::PgConnection,
 ) -> Result<(), JobQueueError> {
-    (&mut **conn)
-        .execute(
-            r#"
+    const LOCK_ID: i64 = 901_011;
+
+    let mut transaction = conn.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+        .bind(LOCK_ID)
+        .execute(&mut *transaction)
+        .await?;
+    run_apalis_owner_reconciliation(&mut transaction).await?;
+    transaction.commit().await?;
+    Ok(())
+}
+
+async fn run_apalis_owner_reconciliation(
+    conn: &mut sqlx::PgConnection,
+) -> Result<(), JobQueueError> {
+    let owner_identity_is_exact: bool = sqlx::query_scalar(
+        r#"
+        SELECT session_user = 'mnt_app'
+           AND current_user = 'mnt_app'
+           AND pg_get_userbyid(database.datdba) = 'mnt_app'
+        FROM pg_catalog.pg_database AS database
+        WHERE database.datname = current_database()
+        "#,
+    )
+    .fetch_one(&mut *conn)
+    .await?;
+    if !owner_identity_is_exact {
+        return Err(JobQueueError::ApalisPostgres(
+            "Apalis owner reconciliation requires the directly authenticated mnt_app database owner"
+                .to_owned(),
+        ));
+    }
+
+    let runtime_role_exists: bool =
+        sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'mnt_rt')")
+            .fetch_one(&mut *conn)
+            .await?;
+    if !runtime_role_exists {
+        return Err(JobQueueError::ApalisPostgres(
+            "required Apalis runtime role mnt_rt does not exist".to_owned(),
+        ));
+    }
+
+    let has_foreign_owned_apalis_objects: bool = sqlx::query_scalar(
+        r#"
+        SELECT
+            EXISTS (
+                SELECT 1 FROM pg_catalog.pg_namespace AS namespace
+                WHERE namespace.nspname = 'apalis'
+                  AND pg_get_userbyid(namespace.nspowner) <> 'mnt_app'
+            )
+            OR EXISTS (
+                SELECT 1
+                FROM pg_catalog.pg_class AS object
+                JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = object.relnamespace
+                WHERE namespace.nspname = 'apalis'
+                  AND pg_get_userbyid(object.relowner) <> 'mnt_app'
+            )
+            OR EXISTS (
+                SELECT 1
+                FROM pg_catalog.pg_proc AS function
+                JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = function.pronamespace
+                WHERE namespace.nspname = 'apalis'
+                  AND pg_get_userbyid(function.proowner) <> 'mnt_app'
+            )
+            OR EXISTS (
+                SELECT 1
+                FROM pg_catalog.pg_class AS ledger
+                JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = ledger.relnamespace
+                WHERE namespace.nspname = 'public'
+                  AND ledger.relname = 'platform_jobs_apalis_migrations'
+                  AND pg_get_userbyid(ledger.relowner) <> 'mnt_app'
+            )
+            OR EXISTS (
+                SELECT 1
+                FROM pg_catalog.pg_proc AS function
+                JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = function.pronamespace
+                WHERE namespace.nspname = 'public'
+                  AND function.proname = 'generate_ulid'
+                  AND function.pronargs = 0
+                  AND pg_get_userbyid(function.proowner) <> 'mnt_app'
+            )
+        "#,
+    )
+    .fetch_one(&mut *conn)
+    .await?;
+    if has_foreign_owned_apalis_objects {
+        return Err(JobQueueError::ApalisPostgres(
+            "refusing to adopt or mutate Apalis objects not owned by mnt_app".to_owned(),
+        ));
+    }
+
+    let unledgered_existing_schema: bool = sqlx::query_scalar(
+        r#"
+        SELECT
+            (
+                EXISTS (
+                    SELECT 1
+                    FROM pg_catalog.pg_class AS object
+                    JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = object.relnamespace
+                    WHERE namespace.nspname = 'apalis'
+                )
+                OR EXISTS (
+                    SELECT 1
+                    FROM pg_catalog.pg_proc AS function
+                    JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = function.pronamespace
+                    WHERE namespace.nspname = 'apalis'
+                )
+                OR to_regprocedure('public.generate_ulid()') IS NOT NULL
+            )
+            AND to_regclass('apalis.platform_jobs_apalis_migrations') IS NULL
+            AND to_regclass('public.platform_jobs_apalis_migrations') IS NULL
+        "#,
+    )
+    .fetch_one(&mut *conn)
+    .await?;
+    if unledgered_existing_schema {
+        return Err(JobQueueError::ApalisPostgres(
+            "refusing to auto-adopt an existing unledgered Apalis schema".to_owned(),
+        ));
+    }
+
+    let migrations = PostgresStorage::migrations();
+    preflight_existing_apalis_ledgers(conn, migrations.iter()).await?;
+
+    sqlx::raw_sql(
+        r#"
             CREATE SCHEMA IF NOT EXISTS apalis;
 
             CREATE TABLE IF NOT EXISTS apalis.platform_jobs_apalis_migrations (
@@ -340,34 +511,32 @@ async fn run_apalis_migrations(
                 execution_time BIGINT NOT NULL
             )
             "#,
-        )
-        .await
-        .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?;
+    )
+    .execute(&mut *conn)
+    .await?;
 
-    let migrations = PostgresStorage::migrations();
     copy_legacy_apalis_migration_ledger(conn).await?;
-    if adopt_existing_apalis_schema_if_needed(conn, migrations.iter()).await? {
-        return Ok(());
-    }
 
     for migration in migrations.iter() {
         if migration.migration_type.is_down_migration() {
             continue;
         }
 
-        let applied = apalis_sqlx::query(
+        let applied = sqlx::query(
             r#"
-            SELECT checksum, success
+            SELECT description, checksum, success
             FROM apalis.platform_jobs_apalis_migrations
             WHERE version = $1
             "#,
         )
         .bind(migration.version)
-        .fetch_optional(&mut **conn)
-        .await
-        .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?;
+        .fetch_optional(&mut *conn)
+        .await?;
 
         if let Some(row) = applied {
+            let description = row
+                .try_get::<String, _>("description")
+                .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?;
             let checksum = row
                 .try_get::<Vec<u8>, _>("checksum")
                 .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?;
@@ -377,6 +546,12 @@ async fn run_apalis_migrations(
             if !success {
                 return Err(JobQueueError::ApalisPostgres(format!(
                     "apalis migration {} previously failed",
+                    migration.version
+                )));
+            }
+            if description != migration.description.as_ref() {
+                return Err(JobQueueError::ApalisPostgres(format!(
+                    "apalis migration {} description mismatch",
                     migration.version
                 )));
             }
@@ -391,12 +566,11 @@ async fn run_apalis_migrations(
 
         let started = std::time::Instant::now();
         let sql = normalized_apalis_migration_sql(migration);
-        let mut transaction = conn
-            .begin()
-            .await
-            .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?;
-        (&mut *transaction)
-            .execute(sql.as_str())
+        // The only dynamic input is the compile-time vendor migration text
+        // returned by `PostgresStorage::migrations`; no user/config data is
+        // interpolated into this SQL.
+        sqlx::raw_sql(sqlx::AssertSqlSafe(sql))
+            .execute(&mut *conn)
             .await
             .map_err(|err| {
                 JobQueueError::ApalisPostgres(format!(
@@ -404,7 +578,7 @@ async fn run_apalis_migrations(
                     migration.version
                 ))
             })?;
-        apalis_sqlx::query(
+        sqlx::query(
             r#"
             INSERT INTO apalis.platform_jobs_apalis_migrations (
                 version,
@@ -420,26 +594,171 @@ async fn run_apalis_migrations(
         .bind(migration.description.as_ref())
         .bind(migration.checksum.as_ref())
         .bind(started.elapsed().as_nanos() as i64)
-        .execute(&mut *transaction)
+        .execute(&mut *conn)
         .await
         .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?;
-        transaction.commit().await.map_err(|err| {
-            JobQueueError::ApalisPostgres(format!(
-                "failed to commit apalis migration {}: {err}",
-                migration.version
-            ))
-        })?;
     }
 
+    reconcile_apalis_runtime_acl(conn).await?;
+    validate_apalis_owner_state(conn).await
+}
+
+#[derive(Debug)]
+struct ExistingMigrationLedgerRow {
+    version: i64,
+    description: String,
+    success: bool,
+    checksum: Vec<u8>,
+}
+
+async fn preflight_existing_apalis_ledgers<'a>(
+    conn: &mut sqlx::PgConnection,
+    migrations: impl Iterator<Item = &'a apalis_sqlx::migrate::Migration> + Clone,
+) -> Result<(), JobQueueError> {
+    let apalis_ledger_exists: bool = sqlx::query_scalar(
+        "SELECT to_regclass('apalis.platform_jobs_apalis_migrations') IS NOT NULL",
+    )
+    .fetch_one(&mut *conn)
+    .await?;
+    let apalis_rows = if apalis_ledger_exists {
+        let rows = sqlx::query(
+            "SELECT version, description, success, checksum FROM apalis.platform_jobs_apalis_migrations ORDER BY version",
+        )
+        .fetch_all(&mut *conn)
+        .await?
+        .into_iter()
+        .map(existing_migration_ledger_row)
+        .collect::<Result<Vec<_>, _>>()?;
+        validate_existing_migration_ledger("apalis", &rows, migrations.clone())?;
+        Some(rows)
+    } else {
+        None
+    };
+
+    let legacy_ledger_exists: bool = sqlx::query_scalar(
+        "SELECT to_regclass('public.platform_jobs_apalis_migrations') IS NOT NULL",
+    )
+    .fetch_one(&mut *conn)
+    .await?;
+    let legacy_rows = if legacy_ledger_exists {
+        let rows = sqlx::query(
+            "SELECT version, description, success, checksum FROM public.platform_jobs_apalis_migrations ORDER BY version",
+        )
+        .fetch_all(&mut *conn)
+        .await?
+        .into_iter()
+        .map(existing_migration_ledger_row)
+        .collect::<Result<Vec<_>, _>>()?;
+        validate_existing_migration_ledger("legacy public", &rows, migrations)?;
+        Some(rows)
+    } else {
+        None
+    };
+
+    if let (Some(apalis_rows), Some(legacy_rows)) = (&apalis_rows, &legacy_rows) {
+        for apalis_row in apalis_rows {
+            let ledgers_disagree = legacy_rows
+                .iter()
+                .find(|legacy_row| legacy_row.version == apalis_row.version)
+                .is_some_and(|legacy_row| {
+                    apalis_row.description != legacy_row.description
+                        || apalis_row.success != legacy_row.success
+                        || apalis_row.checksum != legacy_row.checksum
+                });
+            if ledgers_disagree {
+                return Err(JobQueueError::ApalisPostgres(format!(
+                    "canonical and legacy Apalis migration ledgers disagree at version {}",
+                    apalis_row.version
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+fn existing_migration_ledger_row(
+    row: sqlx::postgres::PgRow,
+) -> Result<ExistingMigrationLedgerRow, JobQueueError> {
+    Ok(ExistingMigrationLedgerRow {
+        version: row.try_get("version")?,
+        description: row.try_get("description")?,
+        success: row.try_get("success")?,
+        checksum: row.try_get("checksum")?,
+    })
+}
+
+fn validate_existing_migration_ledger<'a>(
+    ledger_name: &str,
+    rows: &[ExistingMigrationLedgerRow],
+    migrations: impl Iterator<Item = &'a apalis_sqlx::migrate::Migration>,
+) -> Result<(), JobQueueError> {
+    let known: Vec<_> = migrations
+        .filter(|migration| !migration.migration_type.is_down_migration())
+        .collect();
+    let max_known = known
+        .iter()
+        .map(|migration| migration.version)
+        .max()
+        .unwrap_or_default();
+    let has_future = rows.iter().any(|row| row.version > max_known);
+    let mut present = vec![false; known.len()];
+    let mut previous_version = None;
+
+    for row in rows {
+        if previous_version == Some(row.version) {
+            return Err(JobQueueError::ApalisPostgres(format!(
+                "{ledger_name} Apalis migration ledger contains duplicate version {}",
+                row.version
+            )));
+        }
+        previous_version = Some(row.version);
+        if !row.success {
+            return Err(JobQueueError::ApalisPostgres(format!(
+                "{ledger_name} Apalis migration ledger contains unsuccessful version {}",
+                row.version
+            )));
+        }
+        if row.version > max_known {
+            continue;
+        }
+        let Some((index, migration)) = known
+            .iter()
+            .enumerate()
+            .find(|(_, migration)| migration.version == row.version)
+        else {
+            return Err(JobQueueError::ApalisPostgres(format!(
+                "{ledger_name} Apalis migration ledger contains unknown historical version {}",
+                row.version
+            )));
+        };
+        validate_migration_values(migration, &row.description, &row.checksum, row.success)?;
+        present[index] = true;
+    }
+
+    if has_future && present.iter().any(|is_present| !is_present) {
+        return Err(JobQueueError::ApalisPostgres(format!(
+            "{ledger_name} Apalis migration ledger has later rows before all known migrations"
+        )));
+    }
+    if !has_future {
+        let present_count = present.iter().take_while(|is_present| **is_present).count();
+        if present[present_count..]
+            .iter()
+            .any(|is_present| *is_present)
+        {
+            return Err(JobQueueError::ApalisPostgres(format!(
+                "{ledger_name} Apalis migration ledger known rows do not form a prefix"
+            )));
+        }
+    }
     Ok(())
 }
 
 async fn copy_legacy_apalis_migration_ledger(
-    conn: &mut apalis_sqlx::pool::PoolConnection<apalis_sqlx::Postgres>,
+    conn: &mut sqlx::PgConnection,
 ) -> Result<(), JobQueueError> {
-    (&mut **conn)
-        .execute(
-            r#"
+    sqlx::raw_sql(
+        r#"
             DO $$
             BEGIN
                 IF to_regclass('public.platform_jobs_apalis_migrations') IS NOT NULL THEN
@@ -466,140 +785,639 @@ async fn copy_legacy_apalis_migration_ledger(
             END
             $$;
             "#,
-        )
-        .await
-        .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?;
+    )
+    .execute(&mut *conn)
+    .await?;
     Ok(())
 }
 
-async fn adopt_existing_apalis_schema_if_needed<'a>(
-    conn: &mut apalis_sqlx::pool::PoolConnection<apalis_sqlx::Postgres>,
-    migrations: impl Iterator<Item = &'a apalis_sqlx::migrate::Migration>,
+async fn existing_apalis_schema_is_current(
+    conn: &mut sqlx::PgConnection,
 ) -> Result<bool, JobQueueError> {
-    let applied_count = apalis_sqlx::query(
-        r#"
-        SELECT COUNT(*) AS count
-        FROM apalis.platform_jobs_apalis_migrations
-        WHERE success = TRUE
-        "#,
-    )
-    .fetch_one(&mut **conn)
-    .await
-    .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?
-    .try_get::<i64, _>("count")
-    .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?;
-
-    if applied_count > 0 || !existing_apalis_schema_is_current(conn).await? {
-        return Ok(false);
-    }
-
-    let mut transaction = conn
-        .begin()
-        .await
-        .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?;
-    for migration in migrations {
-        if migration.migration_type.is_down_migration() {
-            continue;
-        }
-        apalis_sqlx::query(
-            r#"
-            INSERT INTO apalis.platform_jobs_apalis_migrations (
-                version,
-                description,
-                success,
-                checksum,
-                execution_time
-            )
-            VALUES ($1, $2, TRUE, $3, 0)
-            ON CONFLICT (version) DO NOTHING
-            "#,
-        )
-        .bind(migration.version)
-        .bind(migration.description.as_ref())
-        .bind(migration.checksum.as_ref())
-        .execute(&mut *transaction)
-        .await
-        .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?;
-    }
-    transaction.commit().await.map_err(|err| {
-        JobQueueError::ApalisPostgres(format!("failed to adopt apalis migrations: {err}"))
-    })?;
-    Ok(true)
+    Ok(sqlx::query_scalar(APALIS_STRUCTURE_QUERY)
+        .bind(max_known_apalis_migration_version())
+        .bind(EXPECTED_GET_JOBS_PROSRC)
+        .fetch_one(&mut *conn)
+        .await?)
 }
 
-async fn existing_apalis_schema_is_current(
+async fn reconcile_apalis_runtime_acl(conn: &mut sqlx::PgConnection) -> Result<(), JobQueueError> {
+    sqlx::raw_sql(
+        r#"
+        DO $acl$
+        BEGIN
+            EXECUTE format(
+                'REVOKE CREATE ON DATABASE %I FROM mnt_rt',
+                current_database()
+            );
+        END
+        $acl$;
+
+        REVOKE ALL PRIVILEGES ON SCHEMA apalis FROM PUBLIC;
+        REVOKE ALL PRIVILEGES ON SCHEMA apalis FROM mnt_rt;
+        GRANT USAGE ON SCHEMA apalis TO mnt_rt;
+
+        REVOKE ALL PRIVILEGES ON TABLE apalis.jobs FROM PUBLIC, mnt_rt;
+        REVOKE ALL PRIVILEGES ON TABLE apalis.workers FROM PUBLIC, mnt_rt;
+        REVOKE ALL PRIVILEGES ON TABLE apalis.platform_jobs_apalis_migrations FROM PUBLIC, mnt_rt;
+        GRANT SELECT, INSERT, UPDATE ON TABLE apalis.jobs TO mnt_rt;
+        GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE apalis.workers TO mnt_rt;
+        GRANT SELECT ON TABLE apalis.platform_jobs_apalis_migrations TO mnt_rt;
+
+        REVOKE ALL PRIVILEGES ON FUNCTION apalis.get_jobs(TEXT, TEXT, INTEGER) FROM PUBLIC, mnt_rt;
+        REVOKE ALL PRIVILEGES ON FUNCTION apalis.notify_new_jobs() FROM PUBLIC, mnt_rt;
+        REVOKE ALL PRIVILEGES ON FUNCTION apalis.push_job(TEXT, JSON, TEXT, TIMESTAMPTZ, INTEGER, INTEGER) FROM PUBLIC, mnt_rt;
+        REVOKE ALL PRIVILEGES ON FUNCTION public.generate_ulid() FROM PUBLIC, mnt_rt;
+        GRANT EXECUTE ON FUNCTION apalis.get_jobs(TEXT, TEXT, INTEGER) TO mnt_rt;
+        "#,
+    )
+    .execute(&mut *conn)
+    .await?;
+    Ok(())
+}
+
+async fn validate_apalis_owner_state(conn: &mut sqlx::PgConnection) -> Result<(), JobQueueError> {
+    if !existing_apalis_schema_is_current(conn).await? {
+        return Err(JobQueueError::ApalisPostgres(
+            "Apalis schema does not match the adapter-owned structure".to_owned(),
+        ));
+    }
+    let all_objects_owned_by_mnt_app: bool = sqlx::query_scalar(
+        r#"
+        SELECT
+            (SELECT pg_get_userbyid(nspowner) = 'mnt_app'
+             FROM pg_catalog.pg_namespace WHERE nspname = 'apalis')
+            AND NOT EXISTS (
+                SELECT 1
+                FROM pg_catalog.pg_class AS object
+                JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = object.relnamespace
+                WHERE namespace.nspname = 'apalis'
+                  AND pg_get_userbyid(object.relowner) <> 'mnt_app'
+            )
+            AND NOT EXISTS (
+                SELECT 1
+                FROM pg_catalog.pg_proc AS function
+                JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = function.pronamespace
+                WHERE namespace.nspname = 'apalis'
+                  AND pg_get_userbyid(function.proowner) <> 'mnt_app'
+            )
+            AND (
+                SELECT pg_get_userbyid(function.proowner) = 'mnt_app'
+                FROM pg_catalog.pg_proc AS function
+                JOIN pg_catalog.pg_namespace AS namespace ON namespace.oid = function.pronamespace
+                WHERE namespace.nspname = 'public'
+                  AND function.proname = 'generate_ulid'
+                  AND function.pronargs = 0
+            )
+        "#,
+    )
+    .fetch_one(&mut *conn)
+    .await?;
+    if !all_objects_owned_by_mnt_app {
+        return Err(JobQueueError::ApalisPostgres(
+            "Apalis schema, relations, and functions must all be owned by mnt_app".to_owned(),
+        ));
+    }
+    validate_owner_migration_ledger(conn).await?;
+
+    let acl_is_exact: bool = sqlx::query_scalar(APALIS_EXPLICIT_ROLE_ACL_QUERY)
+        .bind("mnt_rt")
+        .fetch_one(&mut *conn)
+        .await?;
+    if !acl_is_exact {
+        return Err(JobQueueError::ApalisPostgres(
+            "Apalis mnt_rt privileges do not match the least-privilege runtime contract".to_owned(),
+        ));
+    }
+    let public_helper_acl_is_exact: bool = sqlx::query_scalar(
+        r#"
+        SELECT NOT has_function_privilege('mnt_rt', 'public.generate_ulid()', 'EXECUTE')
+           AND NOT EXISTS (
+               SELECT 1
+               FROM pg_catalog.pg_proc AS function,
+                    LATERAL aclexplode(COALESCE(function.proacl, acldefault('f', function.proowner))) AS acl
+               WHERE function.oid = to_regprocedure('public.generate_ulid()')
+                 AND acl.grantee = 0
+                 AND acl.privilege_type = 'EXECUTE'
+           )
+        "#,
+    )
+    .fetch_one(&mut *conn)
+    .await?;
+    if !public_helper_acl_is_exact {
+        return Err(JobQueueError::ApalisPostgres(
+            "Apalis public.generate_ulid privileges do not match the least-privilege contract"
+                .to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+async fn validate_owner_migration_ledger(
+    conn: &mut sqlx::PgConnection,
+) -> Result<(), JobQueueError> {
+    let migrations = PostgresStorage::migrations();
+    validate_owner_forward_compatible_ledger(conn, migrations.iter()).await?;
+    for migration in migrations
+        .iter()
+        .filter(|migration| !migration.migration_type.is_down_migration())
+    {
+        let row = sqlx::query(
+            "SELECT description, checksum, success FROM apalis.platform_jobs_apalis_migrations WHERE version = $1",
+        )
+        .bind(migration.version)
+        .fetch_optional(&mut *conn)
+        .await?;
+        validate_migration_row(
+            migration,
+            row.map(|row| {
+                (
+                    row.try_get::<String, _>("description"),
+                    row.try_get::<Vec<u8>, _>("checksum"),
+                    row.try_get::<bool, _>("success"),
+                )
+            }),
+        )?;
+    }
+    Ok(())
+}
+
+async fn validate_apalis_runtime(pool: &ApalisPgPool) -> Result<(), JobQueueError> {
+    let mut conn = pool
+        .acquire()
+        .await
+        .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?;
+    validate_runtime_migration_ledger(&mut conn).await?;
+    if !existing_apalis_schema_is_current_runtime(&mut conn).await? {
+        return Err(JobQueueError::ApalisPostgres(
+            "Apalis runtime schema does not match the adapter-owned structure".to_owned(),
+        ));
+    }
+    let acl_is_exact = apalis_sqlx::query(APALIS_CURRENT_ROLE_ACL_QUERY)
+        .fetch_one(&mut *conn)
+        .await
+        .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?
+        .try_get::<bool, _>("acl_is_exact")
+        .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?;
+    if !acl_is_exact {
+        return Err(JobQueueError::ApalisPostgres(
+            "current role does not match the least-privilege Apalis runtime contract".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+async fn validate_runtime_migration_ledger(
     conn: &mut apalis_sqlx::pool::PoolConnection<apalis_sqlx::Postgres>,
-) -> Result<bool, JobQueueError> {
+) -> Result<(), JobQueueError> {
+    let migrations = PostgresStorage::migrations();
+    validate_runtime_forward_compatible_ledger(conn, migrations.iter()).await?;
+    for migration in migrations
+        .iter()
+        .filter(|migration| !migration.migration_type.is_down_migration())
+    {
+        let row = apalis_sqlx::query(
+            "SELECT description, checksum, success FROM apalis.platform_jobs_apalis_migrations WHERE version = $1",
+        )
+        .bind(migration.version)
+        .fetch_optional(&mut **conn)
+        .await
+        .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?;
+        validate_migration_row(
+            migration,
+            row.map(|row| {
+                (
+                    row.try_get::<String, _>("description"),
+                    row.try_get::<Vec<u8>, _>("checksum"),
+                    row.try_get::<bool, _>("success"),
+                )
+            }),
+        )?;
+    }
+    Ok(())
+}
+
+type MigrationLedgerRead<E> = (Result<String, E>, Result<Vec<u8>, E>, Result<bool, E>);
+
+fn validate_migration_row<E: std::fmt::Display>(
+    migration: &apalis_sqlx::migrate::Migration,
+    row: Option<MigrationLedgerRead<E>>,
+) -> Result<(), JobQueueError> {
+    let Some((description, checksum, success)) = row else {
+        return Err(JobQueueError::ApalisPostgres(format!(
+            "required Apalis migration {} is missing",
+            migration.version
+        )));
+    };
+    let description = description.map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?;
+    let checksum = checksum.map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?;
+    let success = success.map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?;
+    validate_migration_values(migration, &description, &checksum, success)
+}
+
+fn validate_migration_values(
+    migration: &apalis_sqlx::migrate::Migration,
+    description: &str,
+    checksum: &[u8],
+    success: bool,
+) -> Result<(), JobQueueError> {
+    if !success {
+        return Err(JobQueueError::ApalisPostgres(format!(
+            "Apalis migration {} is not successful",
+            migration.version
+        )));
+    }
+    if description != migration.description.as_ref() {
+        return Err(JobQueueError::ApalisPostgres(format!(
+            "Apalis migration {} description mismatch",
+            migration.version
+        )));
+    }
+    if checksum != migration.checksum.as_ref() {
+        return Err(JobQueueError::ApalisPostgres(format!(
+            "Apalis migration {} checksum mismatch",
+            migration.version
+        )));
+    }
+    Ok(())
+}
+
+async fn validate_owner_forward_compatible_ledger<'a>(
+    conn: &mut sqlx::PgConnection,
+    migrations: impl Iterator<Item = &'a apalis_sqlx::migrate::Migration>,
+) -> Result<(), JobQueueError> {
+    let versions: Vec<i64> = migrations
+        .filter(|migration| !migration.migration_type.is_down_migration())
+        .map(|migration| migration.version)
+        .collect();
+    let max_known = versions.iter().copied().max().unwrap_or_default();
+    let known_count = i64::try_from(versions.len()).map_err(|_| {
+        JobQueueError::ApalisPostgres("Apalis migration count exceeds i64".to_owned())
+    })?;
+    let row = sqlx::query(
+        r#"
+        SELECT
+            COUNT(*) FILTER (WHERE version <= $1)::BIGINT AS at_or_before_known,
+            COUNT(*) FILTER (WHERE version > $1 AND success)::BIGINT AS later_successful,
+            COUNT(*)::BIGINT AS total,
+            COUNT(*) FILTER (WHERE NOT success)::BIGINT AS unsuccessful
+        FROM apalis.platform_jobs_apalis_migrations
+        "#,
+    )
+    .bind(max_known)
+    .fetch_one(&mut *conn)
+    .await?;
+    ensure_forward_compatible_ledger_counts(
+        known_count,
+        row.try_get("at_or_before_known")?,
+        row.try_get("later_successful")?,
+        row.try_get("total")?,
+        row.try_get("unsuccessful")?,
+    )
+}
+
+async fn validate_runtime_forward_compatible_ledger<'a>(
+    conn: &mut apalis_sqlx::pool::PoolConnection<apalis_sqlx::Postgres>,
+    migrations: impl Iterator<Item = &'a apalis_sqlx::migrate::Migration>,
+) -> Result<(), JobQueueError> {
+    let versions: Vec<i64> = migrations
+        .filter(|migration| !migration.migration_type.is_down_migration())
+        .map(|migration| migration.version)
+        .collect();
+    let max_known = versions.iter().copied().max().unwrap_or_default();
+    let known_count = i64::try_from(versions.len()).map_err(|_| {
+        JobQueueError::ApalisPostgres("Apalis migration count exceeds i64".to_owned())
+    })?;
     let row = apalis_sqlx::query(
         r#"
         SELECT
-            to_regclass('apalis.jobs') IS NOT NULL AS has_jobs,
-            to_regclass('apalis.workers') IS NOT NULL AS has_workers,
-            to_regclass('apalis.idx_jobs_idempotency_key') IS NOT NULL AS has_idempotency_index,
-            (
-                SELECT COUNT(*)
-                FROM information_schema.columns
-                WHERE table_schema = 'apalis'
-                    AND table_name = 'jobs'
-                    AND (
-                        (column_name = 'job' AND data_type = 'bytea')
-                        OR (column_name = 'id' AND data_type = 'text')
-                        OR (column_name = 'job_type' AND data_type = 'text')
-                        OR (column_name = 'status' AND data_type = 'text')
-                        OR (column_name = 'attempts' AND data_type = 'integer')
-                        OR (column_name = 'max_attempts' AND data_type = 'integer')
-                        OR (column_name = 'run_at' AND data_type = 'timestamp with time zone')
-                        OR (column_name = 'last_result' AND data_type = 'jsonb')
-                        OR (column_name = 'lock_at' AND data_type = 'timestamp with time zone')
-                        OR (column_name = 'lock_by' AND data_type = 'text')
-                        OR (column_name = 'done_at' AND data_type = 'timestamp with time zone')
-                        OR (column_name = 'priority' AND data_type = 'integer')
-                        OR (column_name = 'metadata' AND data_type = 'jsonb')
-                        OR (column_name = 'idempotency_key' AND data_type = 'text')
-                    )
-            ) AS current_job_columns,
-            (
-                SELECT COUNT(*)
-                FROM information_schema.columns
-                WHERE table_schema = 'apalis'
-                    AND table_name = 'workers'
-                    AND (
-                        (column_name = 'id' AND data_type = 'text')
-                        OR (column_name = 'worker_type' AND data_type = 'text')
-                        OR (column_name = 'storage_name' AND data_type = 'text')
-                        OR (column_name = 'layers' AND data_type = 'text')
-                        OR (column_name = 'last_seen' AND data_type = 'timestamp with time zone')
-                        OR (column_name = 'started_at' AND data_type = 'timestamp with time zone')
-                    )
-            ) AS current_worker_columns
+            COUNT(*) FILTER (WHERE version <= $1)::BIGINT AS at_or_before_known,
+            COUNT(*) FILTER (WHERE version > $1 AND success)::BIGINT AS later_successful,
+            COUNT(*)::BIGINT AS total,
+            COUNT(*) FILTER (WHERE NOT success)::BIGINT AS unsuccessful
+        FROM apalis.platform_jobs_apalis_migrations
         "#,
     )
+    .bind(max_known)
     .fetch_one(&mut **conn)
     .await
     .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?;
-
-    let has_jobs = row
-        .try_get::<bool, _>("has_jobs")
-        .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?;
-    let has_workers = row
-        .try_get::<bool, _>("has_workers")
-        .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?;
-    let has_idempotency_index = row
-        .try_get::<bool, _>("has_idempotency_index")
-        .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?;
-    let current_job_columns = row
-        .try_get::<i64, _>("current_job_columns")
-        .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?;
-    let current_worker_columns = row
-        .try_get::<i64, _>("current_worker_columns")
-        .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?;
-
-    Ok(has_jobs
-        && has_workers
-        && has_idempotency_index
-        && current_job_columns == 14
-        && current_worker_columns == 6)
+    ensure_forward_compatible_ledger_counts(
+        known_count,
+        row.try_get("at_or_before_known")
+            .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?,
+        row.try_get("later_successful")
+            .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?,
+        row.try_get("total")
+            .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?,
+        row.try_get("unsuccessful")
+            .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?,
+    )
 }
+
+fn ensure_forward_compatible_ledger_counts(
+    known_count: i64,
+    at_or_before_known: i64,
+    later_successful: i64,
+    total: i64,
+    unsuccessful: i64,
+) -> Result<(), JobQueueError> {
+    if unsuccessful != 0
+        || at_or_before_known != known_count
+        || total != known_count + later_successful
+    {
+        return Err(JobQueueError::ApalisPostgres(
+            "Apalis migration ledger contains a failed, unknown historical, or malformed row"
+                .to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+async fn existing_apalis_schema_is_current_runtime(
+    conn: &mut apalis_sqlx::pool::PoolConnection<apalis_sqlx::Postgres>,
+) -> Result<bool, JobQueueError> {
+    let row = apalis_sqlx::query(APALIS_STRUCTURE_QUERY)
+        .bind(max_known_apalis_migration_version())
+        .bind(EXPECTED_GET_JOBS_PROSRC)
+        .fetch_one(&mut **conn)
+        .await
+        .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?;
+    row.try_get::<bool, _>("structure_is_current")
+        .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))
+}
+
+fn max_known_apalis_migration_version() -> i64 {
+    PostgresStorage::migrations()
+        .iter()
+        .filter(|migration| !migration.migration_type.is_down_migration())
+        .map(|migration| migration.version)
+        .max()
+        .unwrap_or_default()
+}
+
+const APALIS_STRUCTURE_QUERY: &str = r#"
+SELECT
+    to_regclass('apalis.jobs') IS NOT NULL
+    AND to_regclass('apalis.workers') IS NOT NULL
+    AND to_regclass('apalis.platform_jobs_apalis_migrations') IS NOT NULL
+    AND EXISTS (
+        SELECT 1
+        FROM pg_catalog.pg_index AS job_index
+        WHERE job_index.indexrelid = to_regclass('apalis.idx_jobs_idempotency_key')
+          AND job_index.indrelid = to_regclass('apalis.jobs')
+          AND job_index.indisunique
+          AND job_index.indisvalid
+          AND job_index.indisready
+          AND job_index.indnkeyatts = 2
+          AND job_index.indnatts = 2
+          AND job_index.indexprs IS NULL
+          AND job_index.indpred IS NULL
+          AND ARRAY(
+              SELECT attribute.attname
+              FROM unnest(job_index.indkey::SMALLINT[]) WITH ORDINALITY AS key(attnum, position)
+              JOIN pg_catalog.pg_attribute AS attribute
+                ON attribute.attrelid = job_index.indrelid AND attribute.attnum = key.attnum
+              ORDER BY key.position
+          ) = ARRAY['job_type', 'idempotency_key']::NAME[]
+    )
+    AND EXISTS (
+        SELECT 1
+        FROM pg_catalog.pg_constraint AS primary_key
+        JOIN pg_catalog.pg_attribute AS attribute
+          ON attribute.attrelid = primary_key.conrelid
+         AND attribute.attnum = primary_key.conkey[1]
+        WHERE primary_key.conrelid = to_regclass('apalis.jobs')
+          AND primary_key.contype = 'p'
+          AND cardinality(primary_key.conkey) = 1
+          AND attribute.attname = 'id'
+    )
+    AND EXISTS (
+        SELECT 1
+        FROM pg_catalog.pg_constraint AS foreign_key
+        JOIN pg_catalog.pg_attribute AS local_attribute
+          ON local_attribute.attrelid = foreign_key.conrelid
+         AND local_attribute.attnum = foreign_key.conkey[1]
+        JOIN pg_catalog.pg_attribute AS referenced_attribute
+          ON referenced_attribute.attrelid = foreign_key.confrelid
+         AND referenced_attribute.attnum = foreign_key.confkey[1]
+        WHERE foreign_key.conrelid = to_regclass('apalis.jobs')
+          AND foreign_key.confrelid = to_regclass('apalis.workers')
+          AND foreign_key.contype = 'f'
+          AND cardinality(foreign_key.conkey) = 1
+          AND cardinality(foreign_key.confkey) = 1
+          AND local_attribute.attname = 'lock_by'
+          AND referenced_attribute.attname = 'id'
+          AND foreign_key.confupdtype = 'a'
+          AND foreign_key.confdeltype = 'a'
+          AND foreign_key.confmatchtype = 's'
+          AND foreign_key.convalidated
+          AND NOT foreign_key.condeferrable
+          AND NOT foreign_key.condeferred
+    )
+    AND EXISTS (
+        SELECT 1
+        FROM pg_catalog.pg_constraint AS primary_key
+        JOIN pg_catalog.pg_attribute AS attribute
+          ON attribute.attrelid = primary_key.conrelid
+         AND attribute.attnum = primary_key.conkey[1]
+        WHERE primary_key.conrelid = to_regclass('apalis.workers')
+          AND primary_key.contype = 'p'
+          AND cardinality(primary_key.conkey) = 1
+          AND attribute.attname = 'id'
+    )
+    AND EXISTS (
+        SELECT 1 FROM pg_trigger
+        WHERE tgrelid = 'apalis.jobs'::regclass
+          AND tgname = 'notify_workers'
+          AND NOT tgisinternal
+          AND tgenabled <> 'D'
+          AND tgfoid = to_regprocedure('apalis.notify_new_jobs()')
+          AND (tgtype & 1) = 1
+          AND (tgtype & 2) = 0
+          AND (tgtype & 4) = 4
+          AND (tgtype & (8 | 16 | 32)) = 0
+    )
+    AND EXISTS (
+        SELECT 1
+        FROM pg_catalog.pg_proc AS function
+        JOIN pg_catalog.pg_language AS language ON language.oid = function.prolang
+        WHERE function.oid = to_regprocedure('apalis.get_jobs(text,text,integer)')
+          AND function.proretset
+          AND function.prorettype = to_regtype('apalis.jobs')
+          AND function.provolatile = 'v'
+          AND function.prokind = 'f'
+          AND function.pronargdefaults = 1
+          AND language.lanname = 'plpgsql'
+          AND (
+              EXISTS (
+                  SELECT 1
+                  FROM apalis.platform_jobs_apalis_migrations
+                  WHERE version > $1 AND success
+              )
+              OR btrim(function.prosrc) = btrim($2)
+          )
+    )
+    AND NOT EXISTS (
+        SELECT 1
+        FROM (VALUES
+            ('attempts', 'integer'), ('done_at', 'timestamp with time zone'),
+            ('id', 'text'), ('idempotency_key', 'text'), ('job', 'bytea'),
+            ('job_type', 'text'), ('last_result', 'jsonb'),
+            ('lock_at', 'timestamp with time zone'), ('lock_by', 'text'),
+            ('max_attempts', 'integer'), ('metadata', 'jsonb'),
+            ('priority', 'integer'), ('run_at', 'timestamp with time zone'),
+            ('status', 'text')
+        ) AS required(column_name, data_type)
+        WHERE NOT EXISTS (
+            SELECT 1 FROM information_schema.columns actual
+            WHERE actual.table_schema = 'apalis' AND actual.table_name = 'jobs'
+              AND actual.column_name = required.column_name
+              AND actual.data_type = required.data_type
+        )
+    )
+    AND NOT EXISTS (
+        SELECT 1
+        FROM (VALUES
+            ('job', NULL::TEXT), ('id', NULL), ('job_type', NULL),
+            ('status', '''Pending''::text'), ('attempts', '0'),
+            ('max_attempts', '25'), ('run_at', 'now()')
+        ) AS required(column_name, column_default)
+        WHERE NOT EXISTS (
+            SELECT 1 FROM information_schema.columns actual
+            WHERE actual.table_schema = 'apalis' AND actual.table_name = 'jobs'
+              AND actual.column_name = required.column_name
+              AND actual.is_nullable = 'NO'
+              AND (required.column_default IS NULL OR actual.column_default = required.column_default)
+        )
+    )
+    AND NOT EXISTS (
+        SELECT 1
+        FROM (VALUES
+            ('id', 'text'), ('last_seen', 'timestamp with time zone'),
+            ('layers', 'text'), ('started_at', 'timestamp with time zone'),
+            ('storage_name', 'text'), ('worker_type', 'text')
+        ) AS required(column_name, data_type)
+        WHERE NOT EXISTS (
+            SELECT 1 FROM information_schema.columns actual
+            WHERE actual.table_schema = 'apalis' AND actual.table_name = 'workers'
+              AND actual.column_name = required.column_name
+              AND actual.data_type = required.data_type
+        )
+    )
+    AND NOT EXISTS (
+        SELECT 1
+        FROM (VALUES
+            ('id', NULL::TEXT), ('worker_type', NULL), ('storage_name', NULL),
+            ('layers', '''''::text'), ('last_seen', 'now()')
+        ) AS required(column_name, column_default)
+        WHERE NOT EXISTS (
+            SELECT 1 FROM information_schema.columns actual
+            WHERE actual.table_schema = 'apalis' AND actual.table_name = 'workers'
+              AND actual.column_name = required.column_name
+              AND actual.is_nullable = 'NO'
+              AND (required.column_default IS NULL OR actual.column_default = required.column_default)
+        )
+    )
+    AS structure_is_current
+"#;
+
+const EXPECTED_GET_JOBS_PROSRC: &str = r#" BEGIN RETURN QUERY
+UPDATE apalis.jobs
+SET status = 'Queued',
+    lock_by = worker_id,
+    lock_at = now()
+WHERE id IN (
+        SELECT id
+        FROM apalis.jobs
+        WHERE (status='Pending' OR (status = 'Failed' AND attempts < max_attempts))
+            AND run_at < now()
+            AND job_type = v_job_type
+        ORDER BY priority DESC, run_at ASC
+        LIMIT v_job_count FOR
+        UPDATE SKIP LOCKED
+    )
+returning *;
+END;
+"#;
+
+const APALIS_EXPLICIT_ROLE_ACL_QUERY: &str = r#"
+SELECT
+    has_schema_privilege($1, 'apalis', 'USAGE')
+    AND NOT has_schema_privilege($1, 'apalis', 'CREATE')
+    AND NOT has_database_privilege($1, current_database(), 'CREATE')
+    AND has_table_privilege($1, 'apalis.jobs', 'SELECT')
+    AND has_table_privilege($1, 'apalis.jobs', 'INSERT')
+    AND has_table_privilege($1, 'apalis.jobs', 'UPDATE')
+    AND NOT has_table_privilege($1, 'apalis.jobs', 'DELETE')
+    AND NOT has_table_privilege($1, 'apalis.jobs', 'TRUNCATE')
+    AND NOT has_table_privilege($1, 'apalis.jobs', 'REFERENCES')
+    AND NOT has_table_privilege($1, 'apalis.jobs', 'TRIGGER')
+    AND has_table_privilege($1, 'apalis.workers', 'SELECT')
+    AND has_table_privilege($1, 'apalis.workers', 'INSERT')
+    AND has_table_privilege($1, 'apalis.workers', 'UPDATE')
+    AND has_table_privilege($1, 'apalis.workers', 'DELETE')
+    AND NOT has_table_privilege($1, 'apalis.workers', 'TRUNCATE')
+    AND NOT has_table_privilege($1, 'apalis.workers', 'REFERENCES')
+    AND NOT has_table_privilege($1, 'apalis.workers', 'TRIGGER')
+    AND has_table_privilege($1, 'apalis.platform_jobs_apalis_migrations', 'SELECT')
+    AND NOT has_table_privilege($1, 'apalis.platform_jobs_apalis_migrations', 'INSERT')
+    AND NOT has_table_privilege($1, 'apalis.platform_jobs_apalis_migrations', 'UPDATE')
+    AND NOT has_table_privilege($1, 'apalis.platform_jobs_apalis_migrations', 'DELETE')
+    AND NOT has_table_privilege($1, 'apalis.platform_jobs_apalis_migrations', 'TRUNCATE')
+    AND NOT has_table_privilege($1, 'apalis.platform_jobs_apalis_migrations', 'REFERENCES')
+    AND NOT has_table_privilege($1, 'apalis.platform_jobs_apalis_migrations', 'TRIGGER')
+    AND has_function_privilege($1, 'apalis.get_jobs(text,text,integer)', 'EXECUTE')
+    AND NOT has_function_privilege($1, 'apalis.notify_new_jobs()', 'EXECUTE')
+    AND NOT has_function_privilege($1, 'apalis.push_job(text,json,text,timestamp with time zone,integer,integer)', 'EXECUTE')
+    AND NOT has_function_privilege($1, 'public.generate_ulid()', 'EXECUTE')
+    AS acl_is_exact
+"#;
+
+const APALIS_CURRENT_ROLE_ACL_QUERY: &str = r#"
+SELECT
+    has_schema_privilege(current_user, 'apalis', 'USAGE')
+    AND NOT has_schema_privilege(current_user, 'apalis', 'CREATE')
+    AND NOT has_database_privilege(current_user, current_database(), 'CREATE')
+    AND has_table_privilege(current_user, 'apalis.jobs', 'SELECT')
+    AND has_table_privilege(current_user, 'apalis.jobs', 'INSERT')
+    AND has_table_privilege(current_user, 'apalis.jobs', 'UPDATE')
+    AND NOT has_table_privilege(current_user, 'apalis.jobs', 'DELETE')
+    AND NOT has_table_privilege(current_user, 'apalis.jobs', 'TRUNCATE')
+    AND NOT has_table_privilege(current_user, 'apalis.jobs', 'REFERENCES')
+    AND NOT has_table_privilege(current_user, 'apalis.jobs', 'TRIGGER')
+    AND has_table_privilege(current_user, 'apalis.workers', 'SELECT')
+    AND has_table_privilege(current_user, 'apalis.workers', 'INSERT')
+    AND has_table_privilege(current_user, 'apalis.workers', 'UPDATE')
+    AND has_table_privilege(current_user, 'apalis.workers', 'DELETE')
+    AND NOT has_table_privilege(current_user, 'apalis.workers', 'TRUNCATE')
+    AND NOT has_table_privilege(current_user, 'apalis.workers', 'REFERENCES')
+    AND NOT has_table_privilege(current_user, 'apalis.workers', 'TRIGGER')
+    AND has_table_privilege(current_user, 'apalis.platform_jobs_apalis_migrations', 'SELECT')
+    AND NOT has_table_privilege(current_user, 'apalis.platform_jobs_apalis_migrations', 'INSERT')
+    AND NOT has_table_privilege(current_user, 'apalis.platform_jobs_apalis_migrations', 'UPDATE')
+    AND NOT has_table_privilege(current_user, 'apalis.platform_jobs_apalis_migrations', 'DELETE')
+    AND NOT has_table_privilege(current_user, 'apalis.platform_jobs_apalis_migrations', 'TRUNCATE')
+    AND NOT has_table_privilege(current_user, 'apalis.platform_jobs_apalis_migrations', 'REFERENCES')
+    AND NOT has_table_privilege(current_user, 'apalis.platform_jobs_apalis_migrations', 'TRIGGER')
+    AND has_function_privilege(current_user, 'apalis.get_jobs(text,text,integer)', 'EXECUTE')
+    AND NOT has_function_privilege(current_user, 'apalis.notify_new_jobs()', 'EXECUTE')
+    AND NOT has_function_privilege(current_user, 'apalis.push_job(text,json,text,timestamp with time zone,integer,integer)', 'EXECUTE')
+    AND NOT has_function_privilege(
+        current_user,
+        (
+            SELECT function.oid
+            FROM pg_catalog.pg_proc AS function
+            JOIN pg_catalog.pg_namespace AS namespace
+              ON namespace.oid = function.pronamespace
+            WHERE namespace.nspname = 'public'
+              AND function.proname = 'generate_ulid'
+              AND function.pronargs = 0
+        ),
+        'EXECUTE'
+    )
+    AS acl_is_exact
+"#;
 
 fn normalized_apalis_migration_sql(migration: &apalis_sqlx::migrate::Migration) -> String {
     let mut sql = migration.sql.replace(
@@ -665,10 +1483,8 @@ where
     H: PlatformJobHandler,
     F: Future<Output = ()> + Send,
 {
-    let pool = ApalisPgPool::connect(database_url)
-        .await
-        .map_err(|err| JobQueueError::ApalisPostgres(err.to_string()))?;
-    setup_apalis_schema(&pool).await?;
+    let pool = connect_apalis_runtime_pool(database_url).await?;
+    validate_apalis_runtime(&pool).await?;
     let worker_name = worker_name.into();
     let retention_summary = prune_stale_apalis_workers(
         &pool,
@@ -898,6 +1714,16 @@ mod tests {
             retention,
             true
         ));
+    }
+
+    #[test]
+    fn migration_ledger_accepts_only_successful_forward_rows() {
+        assert!(ensure_forward_compatible_ledger_counts(4, 4, 0, 4, 0).is_ok());
+        assert!(ensure_forward_compatible_ledger_counts(4, 4, 2, 6, 0).is_ok());
+
+        assert!(ensure_forward_compatible_ledger_counts(4, 5, 0, 5, 0).is_err());
+        assert!(ensure_forward_compatible_ledger_counts(4, 4, 1, 6, 0).is_err());
+        assert!(ensure_forward_compatible_ledger_counts(4, 4, 1, 5, 1).is_err());
     }
 
     #[test]

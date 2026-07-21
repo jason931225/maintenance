@@ -19,6 +19,7 @@ use p256::elliptic_curve::rand_core::OsRng;
 use p256::pkcs8::{EncodePrivateKey, EncodePublicKey, LineEnding};
 use serde_json::{Value, json};
 use sqlx::PgPool;
+use sqlx::postgres::PgPoolOptions;
 use time::{Duration, OffsetDateTime};
 use tower::ServiceExt;
 
@@ -45,6 +46,23 @@ struct StoredState {
     stage_audits: i64,
 }
 
+async fn command_role_pool(owner_pool: &PgPool) -> PgPool {
+    let options = owner_pool.connect_options().as_ref().clone();
+    PgPoolOptions::new()
+        .max_connections(4)
+        .after_connect(|conn, _meta| {
+            Box::pin(async move {
+                sqlx::query("SET ROLE mnt_ontology_cmd")
+                    .execute(conn)
+                    .await?;
+                Ok(())
+            })
+        })
+        .connect_with(options)
+        .await
+        .unwrap()
+}
+
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn object_type_cas_is_enforced_by_the_real_router(owner_pool: PgPool) {
     let org = OrgId::knl();
@@ -52,7 +70,8 @@ async fn object_type_cas_is_enforced_by_the_real_router(owner_pool: PgPool) {
     let auth = test_auth(actor, org);
     let runtime_pool = runtime_role_pool(&owner_pool).await;
     let service = router(OntologyRestState::new(
-        PgOntologyStore::new(runtime_pool.clone()),
+        PgOntologyStore::new(runtime_pool.clone())
+            .with_command_pool(command_role_pool(&owner_pool).await),
         PgInstanceStore::new(runtime_pool.clone()),
         PgGovernanceStore::new(runtime_pool),
         Some(auth.verifier),

@@ -584,6 +584,20 @@ const PR473_TOPOLOGY_COMMAND = [
   '-e MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD="$ONTOLOGY_COMMAND_PASSWORD"',
   "--entrypoint bash postgres:18.4@sha256:4aabea78cf39b90e834caf3af7d602a18565f6fe2508705c8d01aa63245c2e20",
   "/usr/local/bin/postgres-reconcile-topology",
+  "docker run --rm --network host",
+  "-e PGPASSWORD=postgres",
+  "--entrypoint psql",
+  "postgres:18.4@sha256:4aabea78cf39b90e834caf3af7d602a18565f6fe2508705c8d01aa63245c2e20",
+  "-h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1",
+  '-c "DROP DATABASE IF EXISTS mnt_apalis_contract WITH (FORCE)"',
+  '-c "CREATE DATABASE mnt_apalis_contract OWNER mnt_app"',
+  'echo "::add-mask::$APP_PASSWORD"',
+  'echo "::add-mask::$RT_PASSWORD"',
+  "{",
+  'echo "MNT_APALIS_OWNER_DATABASE_URL=postgres://mnt_app:${APP_PASSWORD}@localhost:5432/mnt_apalis_contract"',
+  'echo "MNT_APALIS_RUNTIME_DATABASE_URL=postgres://mnt_rt:${RT_PASSWORD}@localhost:5432/mnt_apalis_contract"',
+  'echo "MNT_APALIS_ADMIN_DATABASE_URL=postgres://postgres:postgres@localhost:5432/mnt_apalis_contract"',
+  '} >> "$GITHUB_ENV"',
 ].join(" ");
 const PR473_DOCUMENTS = [
   {
@@ -861,8 +875,8 @@ export function evaluateExpandContractReleaseChecks(readText) {
   requirement(
     result,
     topologyRuns.length === 1 && topologyCommand === PR473_TOPOLOGY_COMMAND,
-    "PR 473 backend topology step invokes the exact pinned reconcile command",
-    "PR 473 backend topology step must invoke the exact reconcile command and credential setup through the pinned PostgreSQL image",
+    "PR 473 backend topology step invokes the exact pinned reconcile and Apalis database provisioning commands",
+    "PR 473 backend topology step must invoke the exact reconcile command and Apalis database provisioning command, credential setup, URL exports, and masking through the pinned PostgreSQL image",
   );
   requirement(
     result,
@@ -877,7 +891,8 @@ export function evaluateExpandContractReleaseChecks(readText) {
     "PR 473 CI wrapper runs from repository root",
     "PR 473 CI wrapper step must set working-directory to the repository root",
   );
-  return result;
+
+ return result;
 }
 
 export function evaluateWorkflowHardeningChecks(readText) {
