@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useInsertionEffect,
   useMemo,
   useRef,
   useState,
@@ -32,11 +33,23 @@ interface SavedLayout {
   panelWidth: number;
 }
 
-const STORAGE_KEY = "oyatie.console.window.layout";
+const PARTITIONED_STORAGE_PREFIX = "oyatie.console.window.layout.v2";
 
-function readSavedLayout(): SavedLayout {
+function layoutStorageKey(
+  authorityPartition: string | undefined,
+): string | undefined {
+  const normalized = authorityPartition?.trim();
+  return normalized
+    ? `${PARTITIONED_STORAGE_PREFIX}.${encodeURIComponent(normalized)}`
+    : undefined;
+}
+
+function readSavedLayout(storageKey: string | undefined): SavedLayout {
+  if (!storageKey) {
+    return { states: {}, panelWidth: PANEL_DEFAULT_WIDTH };
+  }
   try {
-    const raw = globalThis.localStorage.getItem(STORAGE_KEY);
+    const raw = globalThis.localStorage.getItem(storageKey);
     if (!raw) return { states: {}, panelWidth: PANEL_DEFAULT_WIDTH };
     const parsed = JSON.parse(raw) as Partial<SavedLayout> | null;
     return {
@@ -48,17 +61,22 @@ function readSavedLayout(): SavedLayout {
   }
 }
 
-function writeSavedLayout(layout: SavedLayout): void {
+function writeSavedLayout(
+  storageKey: string | undefined,
+  layout: SavedLayout,
+): void {
+  if (!storageKey) return;
   try {
-    globalThis.localStorage.setItem(STORAGE_KEY, JSON.stringify(layout));
+    globalThis.localStorage.setItem(storageKey, JSON.stringify(layout));
   } catch {
     // storage unavailable/quota — layout stays in-memory only
   }
 }
 
-function clearSavedLayout(): void {
+function clearSavedLayout(storageKey: string | undefined): void {
+  if (!storageKey) return;
   try {
-    globalThis.localStorage.removeItem(STORAGE_KEY);
+    globalThis.localStorage.removeItem(storageKey);
   } catch {
     // ignore
   }
@@ -72,15 +90,54 @@ function savedStateFor(states: Record<string, SavedState>, id: string): SavedSta
   return Object.prototype.hasOwnProperty.call(states, id) ? states[id] : undefined;
 }
 
-export function WindowManagerProvider({
-  children,
-  renderTray = true,
-}: {
+interface WindowManagerProviderProps {
+  /** Exact non-secret provider/session authority partition for saved layout. */
+  authorityPartition?: string;
   children: ReactNode;
+  /** Disable persistence, but keep all window interaction in memory. */
+  retentionEnabled?: boolean;
   /** Set false when the host mounts TrayDock itself (e.g. the shell bottom dock). */
   renderTray?: boolean;
+}
+
+export function WindowManagerProvider({
+  authorityPartition,
+  children,
+  retentionEnabled = true,
+  renderTray = true,
+}: WindowManagerProviderProps) {
+  const partitionKey = layoutStorageKey(authorityPartition);
+  const storageKey = retentionEnabled ? partitionKey : undefined;
+  // The shell hosts its tray outside this provider and requires an owned
+  // partition before exposing cross-navigation windows. Standalone providers
+  // keep their ordinary in-memory interaction even without persistence.
+  const interactionEnabled = renderTray || partitionKey !== undefined;
+  return (
+    <WindowManagerPartitionProvider
+      key={storageKey}
+      interactionEnabled={interactionEnabled}
+      storageKey={storageKey}
+      renderTray={renderTray}
+    >
+      {children}
+    </WindowManagerPartitionProvider>
+  );
+}
+
+function WindowManagerPartitionProvider({
+  children,
+  interactionEnabled,
+  renderTray,
+  storageKey,
+}: {
+  children: ReactNode;
+  interactionEnabled: boolean;
+  renderTray: boolean;
+  storageKey: string | undefined;
 }) {
-  const [initialLayout] = useState<SavedLayout>(readSavedLayout);
+  const persistenceScope = useMemo<object>(() => ({ storageKey }), [storageKey]);
+  const activePersistenceScopeRef = useRef<object | null>(null);
+  const [initialLayout] = useState<SavedLayout>(() => readSavedLayout(storageKey));
   const savedStatesRef = useRef<Record<string, SavedState>>(initialLayout.states);
   const knownIdsRef = useRef<Set<string>>(new Set());
 
@@ -88,6 +145,15 @@ export function WindowManagerProvider({
   const [arrangement, setArrangement] = useState<Arrangement>({ pinnedId: null, minimizedIds: [] });
   const [panelWidth, setPanelWidthState] = useState<number>(initialLayout.panelWidth);
   const [narrow, setNarrow] = useState<boolean>(isNarrow);
+
+  useInsertionEffect(() => {
+    activePersistenceScopeRef.current = persistenceScope;
+    return () => {
+      if (activePersistenceScopeRef.current === persistenceScope) {
+        activePersistenceScopeRef.current = null;
+      }
+    };
+  }, [persistenceScope]);
 
   useEffect(() => {
     const onResize = () => {
@@ -100,6 +166,7 @@ export function WindowManagerProvider({
   }, []);
 
   const pin = useCallback((id: string) => {
+    if (!interactionEnabled) return;
     setArrangement((prev) => {
       const withoutTarget = prev.minimizedIds.filter((entryId) => entryId !== id);
       const demoted =
@@ -108,17 +175,19 @@ export function WindowManagerProvider({
           : withoutTarget;
       return { pinnedId: id, minimizedIds: [...new Set(demoted)] };
     });
-  }, []);
+  }, [interactionEnabled]);
 
   const minimize = useCallback((id: string) => {
+    if (!interactionEnabled) return;
     setArrangement((prev) => ({
       pinnedId: prev.pinnedId === id ? null : prev.pinnedId,
       minimizedIds: [id, ...prev.minimizedIds.filter((entryId) => entryId !== id)],
     }));
-  }, []);
+  }, [interactionEnabled]);
 
   const register = useCallback(
     (entry: WindowEntry) => {
+      if (!interactionEnabled) return;
       setEntries((prev) => {
         const next = new Map(prev);
         next.set(entry.id, entry);
@@ -131,11 +200,12 @@ export function WindowManagerProvider({
         else if (saved === "minimized") minimize(entry.id);
       }
     },
-    [pin, minimize],
+    [interactionEnabled, minimize, pin],
   );
 
   const open = useCallback(
     (entry: WindowEntry) => {
+      if (!interactionEnabled) return;
       setEntries((prev) => {
         const next = new Map(prev);
         next.set(entry.id, entry);
@@ -144,7 +214,7 @@ export function WindowManagerProvider({
       knownIdsRef.current.add(entry.id);
       pin(entry.id);
     },
-    [pin],
+    [interactionEnabled, pin],
   );
 
   const restore = useCallback(
@@ -155,6 +225,7 @@ export function WindowManagerProvider({
   );
 
   const close = useCallback((id: string) => {
+    if (!interactionEnabled) return;
     knownIdsRef.current.delete(id);
     setEntries((prev) => {
       if (!prev.has(id)) return prev;
@@ -166,7 +237,7 @@ export function WindowManagerProvider({
       pinnedId: prev.pinnedId === id ? null : prev.pinnedId,
       minimizedIds: prev.minimizedIds.filter((entryId) => entryId !== id),
     }));
-  }, []);
+  }, [interactionEnabled]);
 
   const togglePin = useCallback(
     (entry: WindowEntry) => {
@@ -177,31 +248,38 @@ export function WindowManagerProvider({
   );
 
   const setPanelWidth = useCallback((width: number) => {
+    if (!interactionEnabled) return;
     setPanelWidthState(clampPanelWidth(width));
-  }, []);
+  }, [interactionEnabled]);
 
   const saveLayout = useCallback(() => {
+    if (!interactionEnabled) return;
     const states: Record<string, SavedState> = {};
     if (arrangement.pinnedId) states[arrangement.pinnedId] = "pinned";
     for (const id of arrangement.minimizedIds) states[id] = "minimized";
     savedStatesRef.current = states;
-    writeSavedLayout({ states, panelWidth });
-  }, [arrangement, panelWidth]);
+    if (activePersistenceScopeRef.current === persistenceScope) {
+      writeSavedLayout(storageKey, { states, panelWidth });
+    }
+  }, [arrangement, interactionEnabled, panelWidth, persistenceScope, storageKey]);
 
   const restoreDefault = useCallback(() => {
     savedStatesRef.current = {};
-    clearSavedLayout();
+    if (activePersistenceScopeRef.current === persistenceScope) {
+      clearSavedLayout(storageKey);
+    }
     setArrangement({ pinnedId: null, minimizedIds: [] });
     setPanelWidthState(PANEL_DEFAULT_WIDTH);
-  }, []);
+  }, [persistenceScope, storageKey]);
 
   const stateOf = useCallback(
     (id: string): WindowState => {
+      if (!interactionEnabled) return "default";
       if (arrangement.pinnedId === id) return "pinned";
       if (arrangement.minimizedIds.includes(id)) return "minimized";
       return "default";
     },
-    [arrangement],
+    [arrangement, interactionEnabled],
   );
 
   const value = useMemo<WindowManagerContextValue>(

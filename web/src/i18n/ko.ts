@@ -1018,7 +1018,9 @@ export const ko = {
         insufficient: "표본 부족",
         addSample: "표본 추가",
         assumptionEwma: (lambda: string) => `EWMA λ ${lambda}`,
+        assumptionEwmaVolatility: (sigma: string) => `EWMA σ ${sigma}`,
         assumptionDist: "Student-t ν=4",
+        assumptionStudentT: (nu: number) => `Student-t ν=${String(nu)}`,
         assumptionN: (n: number) => `표본 ${String(n)}`,
       },
     },
@@ -1475,6 +1477,7 @@ export const ko = {
       retryAria: "권한 확인 다시 시도",
     },
     rollout: {
+      checking: "새 콘솔 사용 가능 여부 확인 중",
       toggle: "새 콘솔 사용",
       status: {
         console: "콘솔",
@@ -1543,6 +1546,7 @@ export const ko = {
       status: {
         loading: "불러오는 중",
         loadFailed: "불러오기 실패",
+        branchRequired: "메신저를 열 지점을 먼저 선택하세요.",
         muted: "무음",
         unreadDivider: "새 메시지",
       },
@@ -1896,6 +1900,7 @@ export const ko = {
         nav: "자산",
         title: "자산",
         objectName: "장비",
+        emptyLiveHint: "등록된 장비가 없습니다",
         stats: {
           total: "전체",
           rented: "임대",
@@ -3089,6 +3094,10 @@ export const ko = {
         invalidRange: "종료일이 시작일보다 빠름",
         formLink: "연차신청서로 제출",
         unknownEmployee: "직원 확인 필요",
+        submit: "연차 신청",
+        submitting: "신청 중",
+        submitFailed: "연차 신청에 실패했습니다",
+        submitted: "연차 신청이 접수되었습니다",
       },
       reasons: {
         annual: "연차",
@@ -3173,6 +3182,87 @@ export const ko = {
         loading: "연차 정보를 불러오는 중…",
         loadFailed: "연차 정보를 불러오지 못했습니다.",
         retry: "다시 시도",
+      },
+    },
+    // ── ko.console.mywork — 내 업무 (overview lane, §4-11) ──
+    mywork: {
+      title: "내 업무",
+      todos: {
+        title: "할 일",
+        addPlaceholder: "할 일 추가",
+        addButton: "추가",
+        empty: "할 일이 없습니다",
+        showDone: "완료 항목 표시",
+        doneToggle: (text: string) => `${text} 완료 토글`,
+        deleteLabel: (text: string) => `${text} 삭제`,
+        createFailed: "할 일을 추가하지 못했습니다",
+        mutateFailed: "변경하지 못했습니다",
+      },
+      assigned: {
+        title: "배정된 업무",
+        empty: "배정된 업무가 없습니다",
+        allDays: "이번 주 전체",
+        today: "오늘",
+        open: "열기",
+        loadMore: "더 불러오기",
+      },
+      kind: { approval: "결재", dispatch: "배차", work: "정비", support: "회신" },
+      error: "불러오지 못했습니다",
+      retry: "다시 시도",
+      loading: "불러오는 중",
+    },
+    // ── ko.console.inboxVault — 개인 수신함 (overview lane, §4-11) ──
+    inboxVault: {
+      title: "개인 수신함",
+      filters: { all: "전체", action: "확인 필요", pay: "급여명세", done: "완료" },
+      status: {
+        locked: "확인 필요",
+        confirmed: (date: string) => `수령 확인 ${date}`,
+        payslip: "급여명세",
+      },
+      kind: { payslip: "급여명세", legal_notice: "법적 통지" },
+      detail: {
+        lockedTitle: "본인 인증 후 열람",
+        lockedHint:
+          "법적 통지 문서입니다. 본인 인증(패스키)을 완료하면 열람 처리되며, 이 시점이 수령 확인 증빙으로 기록됩니다.",
+        confirmButton: "본인 인증하고 열람",
+        confirming: "인증 중",
+        confirmedAt: (date: string) => `${date} 수령 확인됨`,
+        basisLabel: "근거",
+        fromLabel: "발신",
+        receiptFailed: "본인 인증에 실패했거나 취소되었습니다.",
+      },
+      empty: { list: "문서가 없습니다", selection: "왼쪽에서 문서를 선택하세요" },
+      count: (n: number) => `${String(n)}건`,
+      error: "수신함을 불러오지 못했습니다",
+      retry: "다시 시도",
+      loading: "불러오는 중",
+    },
+    // ── ko.console.laborcost — 인건비 분석 (analytics lane, §4-11) ──
+    laborcost: {
+      title: "인건비 분석",
+      periodsTitle: "급여 기간",
+      periodDrill: (period: string, status: string) => `${period} ${status} 상세 열기`,
+      compositionTitle: "근로시간 구성",
+      hoursRegular: "정규",
+      hoursOvertime: "연장",
+      hoursNight: "야간",
+      hoursHoliday: "휴일",
+      hourUnit: "시간",
+      trendTitle: "근로시간 추이",
+      costPendingTitle: "인건비 금액(₩)",
+      costPendingReason: "표시 안 함 — 급여 금액 원천 행이 아직 없어 근로시간만 집계합니다",
+      emptyReason: "집계할 급여 기간이 없습니다",
+      listError: "급여 기간 목록을 불러오지 못했습니다.",
+      detailError: "일부 급여 기간 상세를 불러오지 못해 근로시간 분석을 표시하지 않습니다.",
+      retry: "다시 시도",
+      status: {
+        STAGED: "준비",
+        BLOCKED_LEGAL_GATE: "법적 검토 대기",
+        READY_FOR_REVIEW: "검토 대기",
+        APPROVED: "승인",
+        ISSUED: "지급",
+        VOID: "무효",
       },
     },
     // ── ko.console.supportdesk — 지원 데스크 목록·핀 (support-desk lane, §4-11) ──
@@ -5853,6 +5943,8 @@ export const ko = {
     focusedDeepLink: "통합 개요에서 연결된 전자결재시스템 건을 강조했습니다.",
     focusedMissing:
       "연결된 전자결재시스템 건이 현재 전자결재시스템 대기 목록에 없습니다. 이미 처리되었거나 권한 범위 밖일 수 있습니다.",
+    focusedUnavailable:
+      "연결된 전자결재시스템 건을 지금 불러올 수 없습니다. 잠시 후 다시 시도하세요.",
     focusedItemLabel: "연결된 전자결재시스템 건",
     // Per-row report reveal. The approver must read the diagnosis / action /
     // result / evidence before deciding, so each queue item lazily fetches its
@@ -6724,6 +6816,10 @@ export const ko = {
     createTitle: "사내 티켓 등록",
     detailTitle: "티켓 상세",
     empty: "표시할 티켓이 없습니다.",
+    focusedMissing:
+      "연결된 지원 티켓이 현재 목록에 없습니다. 이미 처리되었거나 권한 범위 밖일 수 있습니다.",
+    focusedUnavailable:
+      "연결된 지원 티켓을 지금 불러올 수 없습니다. 잠시 후 다시 시도하세요.",
     selectPrompt: "왼쪽 목록에서 티켓을 선택하세요.",
     loadMore: "더 보기",
     loadingMore: "불러오는 중",

@@ -85,6 +85,21 @@ describe("GraphExplorer", () => {
     });
   });
 
+  it("ignores authority cancellation and permits the current resolver to retry", async () => {
+    const cancelled = vi.fn().mockResolvedValue(undefined);
+    const view = render(<GraphExplorer model={model} resolveNodeDescriptor={cancelled} />);
+    await waitFor(() => {
+      expect(cancelled).toHaveBeenCalledWith(expect.objectContaining({ id: "n1" }));
+    });
+
+    const current = vi.fn((node: ObjectExplorerNode) => Promise.resolve(resolvedDescriptor(node)));
+    view.rerender(<GraphExplorer model={model} resolveNodeDescriptor={current} />);
+    await waitFor(() => {
+      expect(current).toHaveBeenCalledWith(expect.objectContaining({ id: "n1" }));
+      expect(screen.getByText("월 계약금")).toBeInTheDocument();
+    });
+  });
+
   it("shows the honest 조회 전용 state for a projected node and never resolves it", () => {
     const resolve = vi.fn((node: ObjectExplorerNode) => Promise.resolve(resolvedDescriptor(node)));
     render(

@@ -6,7 +6,7 @@ describe("notificationRoute", () => {
   it("routes an object link through the object registry", () => {
     expect(
       notificationRoute({ type: "object", kind: "approval", id: "AP-1" }),
-    ).toMatch(/^\/approvals\?ref=/);
+    ).toBe("/approvals?run=AP-1");
     expect(
       notificationRoute({ type: "object", kind: "workOrder", id: "wo-uuid" }),
     ).toBe("/work-orders/wo-uuid");

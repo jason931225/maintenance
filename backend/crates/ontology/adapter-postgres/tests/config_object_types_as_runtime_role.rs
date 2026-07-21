@@ -48,6 +48,23 @@ async fn runtime_role_pool(owner_pool: &PgPool) -> PgPool {
         .unwrap()
 }
 
+async fn command_role_pool(owner_pool: &PgPool) -> PgPool {
+    let options = owner_pool.connect_options().as_ref().clone();
+    PgPoolOptions::new()
+        .max_connections(4)
+        .after_connect(|conn, _meta| {
+            Box::pin(async move {
+                sqlx::query("SET ROLE mnt_ontology_cmd")
+                    .execute(conn)
+                    .await?;
+                Ok(())
+            })
+        })
+        .connect_with(options)
+        .await
+        .unwrap()
+}
+
 async fn seed_org_and_user(owner_pool: &PgPool, org: Uuid) -> UserId {
     sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING")
         .bind(org)
@@ -72,7 +89,8 @@ async fn seed_org_and_user(owner_pool: &PgPool, org: Uuid) -> UserId {
 /// console_view_type_id) as published heads.
 async fn seed(owner_pool: &PgPool, org: OrgId, actor: UserId) -> (ObjectTypeId, ObjectTypeId) {
     scope_org(org, async {
-        let store = PgOntologyStore::new(owner_pool.clone());
+        let store = PgOntologyStore::new(owner_pool.clone())
+            .with_command_pool(command_role_pool(owner_pool).await);
         let published = seed_governed_config_object_types(&store, actor, AT_V1)
             .await
             .expect("seed governed config object types");

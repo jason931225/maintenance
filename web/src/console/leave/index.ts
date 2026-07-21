@@ -6,8 +6,6 @@ export {
 } from "./LeaveConsole";
 export {
   KO_CONSOLE_LEAVE,
-  LEAVE_ACTIONS,
-  LEAVE_RUNTIME_GATE,
   type LeaveLedgerRow,
   type LeaveReason,
   type LeaveStrings,

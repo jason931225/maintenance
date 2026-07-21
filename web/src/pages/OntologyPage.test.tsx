@@ -1,13 +1,34 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { StrictMode } from "react";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import { GENESIS_HASH, type CreateObjectTypeDraft } from "../api/ontology";
 import { clearAuthorizeBulkCache } from "../api/authorizeBulk";
 import { createConsoleApiClient } from "../api/client";
 import { WindowManagerProvider } from "../console/window";
-import { AuthContext, type AuthContextValue, type AuthSession } from "../context/auth";
+import {
+  AuthContext,
+  type AuthContextValue,
+  type AuthSession,
+} from "../context/auth";
 import { ko } from "../i18n/ko";
 import { allowAllBulkAuthorize } from "../test/policyGateMock";
 import { OntologyPage } from "./OntologyPage";
@@ -50,6 +71,8 @@ const woSummary = {
   backing_kind: "projected",
   schema_version: 2,
   lifecycle_state: "published",
+  key_write_revision: 2,
+  key_write_etag: '"ont-object-type-key:11111111111111111111111111111111:r2"',
 };
 
 const memoSummary = {
@@ -59,6 +82,8 @@ const memoSummary = {
   backing_kind: "instance",
   schema_version: 1,
   lifecycle_state: "draft",
+  key_write_revision: 1,
+  key_write_etag: '"ont-object-type-key:22222222222222222222222222222222:r1"',
 };
 
 const woDetail = {
@@ -206,6 +231,26 @@ const woTraversal = {
   ],
 };
 
+function successorSummary(summary: typeof woSummary): typeof woSummary {
+  const revision = summary.key_write_revision + 1;
+  return {
+    ...summary,
+    key_write_revision: revision,
+    key_write_etag: summary.key_write_etag.replace(
+      /:r\d+"$/,
+      `:r${String(revision)}"`,
+    ),
+  };
+}
+
+function stagedResponse(summary: typeof woSummary) {
+  const successor = successorSummary(summary);
+  return HttpResponse.json(successor, {
+    status: 201,
+    headers: { ETag: successor.key_write_etag },
+  });
+}
+
 function registryHandlers() {
   return [
     http.get("*/api/v1/ontology/object-types", () =>
@@ -234,15 +279,45 @@ function registryHandlers() {
 
 const session: AuthSession = {
   access_token: "ontology-token",
+  client_session_incarnation: "ontology-session-default",
   user_id: "admin-1",
   org_id: "11111111-1111-4111-8111-111111111111",
   roles: ["ADMIN"],
   branches: [],
 };
 
-function makeAuthContext(): AuthContextValue {
+function authoritySession(label: "A" | "B"): AuthSession {
+  const suffix = label.toLowerCase();
   return {
-    session,
+    ...session,
+    access_token: `token-${suffix}`,
+    client_session_incarnation: `ontology-session-${suffix}`,
+    org_id: `tenant-${suffix}`,
+  };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+    resolve = resolvePromise;
+    reject = rejectPromise;
+  });
+  return { promise, resolve, reject };
+}
+
+async function flushTasks(): Promise<void> {
+  await act(async () => {
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+    await new Promise<void>((resolve) => window.setTimeout(resolve, 0));
+  });
+}
+
+function makeAuthContext(
+  activeSession: AuthSession = session,
+): AuthContextValue {
+  return {
+    session: activeSession,
     restoring: false,
     login: async () => {},
     logout: async () => {},
@@ -252,18 +327,65 @@ function makeAuthContext(): AuthContextValue {
     viewAs: undefined,
     enterViewAs: () => {},
     exitViewAs: () => undefined,
-    api: createConsoleApiClient(session.access_token),
+    api: createConsoleApiClient(activeSession.access_token),
   };
 }
 
-function renderPage() {
-  return render(
-    <AuthContext.Provider value={makeAuthContext()}>
+function pageTree(auth: AuthContextValue) {
+  return (
+    <AuthContext.Provider value={auth}>
       <WindowManagerProvider>
         <OntologyPage />
       </WindowManagerProvider>
-    </AuthContext.Provider>,
+    </AuthContext.Provider>
   );
+}
+
+function renderPage(auth: AuthContextValue = makeAuthContext()) {
+  return render(pageTree(auth));
+}
+
+function authorityRegistry(label: "A" | "B") {
+  const summary = { ...woSummary, title: `${label} 작업지시` };
+  const validator =
+    label === "A"
+      ? "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      : "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+  summary.key_write_etag = `"ont-object-type-key:${validator}:r${String(summary.key_write_revision)}"`;
+  const detail = { ...woDetail, object_type: summary };
+  const instance = {
+    ...woInstanceState,
+    instance: { ...woInstanceState.instance, title: `${label} 그래프` },
+  };
+  const traversal = {
+    ...woTraversal,
+    nodes: woTraversal.nodes.map((node, index) => ({
+      ...node,
+      title: index === 0 ? `${label} 그래프` : node.title,
+    })),
+  };
+  return { summary, detail, instance, traversal };
+}
+
+function authoritySwitchRegistry(label: "A" | "B") {
+  const registry = authorityRegistry(label);
+  const summary = {
+    ...registry.summary,
+    id:
+      label === "A"
+        ? "11111111-1111-4111-8111-11111111111a"
+        : "11111111-1111-4111-8111-11111111111b",
+    stable_key: `${label.toLowerCase()}_work_order`,
+  };
+  return {
+    ...registry,
+    summary,
+    detail: { ...registry.detail, object_type: summary },
+    instance: {
+      ...registry.instance,
+      instance: { ...registry.instance.instance, object_type_id: summary.id },
+    },
+  };
 }
 
 async function findTypeRow() {
@@ -289,21 +411,23 @@ describe("OntologyPage (REST-wired ontology workspace)", () => {
     const linkRow = within(panel).getByText("점검 메모").closest("li");
     expect(linkRow).not.toBeNull();
     // link target resolved by to_object_type_id → the memo type's stable key.
-    expect(within(linkRow as HTMLElement).getByText("safety_memo")).toBeVisible();
+    expect(
+      within(linkRow as HTMLElement).getByText("safety_memo"),
+    ).toBeVisible();
   });
 
   it("stages a v+1 revision via PUT /ontology/object-types/{key} with a faithful draft", async () => {
     let staged: CreateObjectTypeDraft | undefined;
     server.use(
       ...registryHandlers(),
-      http.put("*/api/v1/ontology/object-types/:key", async ({ request, params }) => {
-        expect(params.key).toBe("work_order");
-        staged = (await request.json()) as CreateObjectTypeDraft;
-        return HttpResponse.json(
-          { ...woSummary, schema_version: 3 },
-          { status: 201 },
-        );
-      }),
+      http.put(
+        "*/api/v1/ontology/object-types/:key",
+        async ({ request, params }) => {
+          expect(params.key).toBe("work_order");
+          staged = (await request.json()) as CreateObjectTypeDraft;
+          return stagedResponse({ ...woSummary, schema_version: 3 });
+        },
+      ),
     );
     renderPage();
     await findTypeRow();
@@ -331,8 +455,14 @@ describe("OntologyPage (REST-wired ontology workspace)", () => {
     expect(staged?.primary_key_property).toBe("id");
     const properties = staged?.properties as Record<string, unknown>[];
     expect(properties).toHaveLength(3);
-    expect(properties[0]).toMatchObject({ key: "title", config: { max_len: 200 } });
-    expect(properties[2]).toMatchObject({ title: "예산 코드", field_type: "text" });
+    expect(properties[0]).toMatchObject({
+      key: "title",
+      config: { max_len: 200 },
+    });
+    expect(properties[2]).toMatchObject({
+      title: "예산 코드",
+      field_type: "text",
+    });
     const links = staged?.links as Record<string, unknown>[];
     expect(links[0]).toMatchObject({
       stable_key: "wo_memo",
@@ -358,7 +488,9 @@ describe("OntologyPage (REST-wired ontology workspace)", () => {
     // The instance-open control is gated behind BulkPolicyGateProvider, whose
     // decision resolves after mount — find (async) rather than get (sync).
     fireEvent.click(
-      await within(panel).findByRole("button", { name: "AAAA1111 개체 카드 열기" }),
+      await within(panel).findByRole("button", {
+        name: "AAAA1111 개체 카드 열기",
+      }),
     );
 
     const card = await screen.findByRole("region", { name: "4호기 유압 점검" });
@@ -389,7 +521,9 @@ describe("OntologyPage (REST-wired ontology workspace)", () => {
     // The instance-open control is gated behind BulkPolicyGateProvider, whose
     // decision resolves after mount — find (async) rather than get (sync).
     fireEvent.click(
-      await within(panel).findByRole("button", { name: "AAAA1111 개체 카드 열기" }),
+      await within(panel).findByRole("button", {
+        name: "AAAA1111 개체 카드 열기",
+      }),
     );
 
     const card = await screen.findByRole("region", { name: "4호기 유압 점검" });
@@ -408,7 +542,9 @@ describe("OntologyPage (REST-wired ontology workspace)", () => {
 
     fireEvent.click(screen.getByRole("tab", { name: "그래프·탐색" }));
 
-    const graph = await screen.findByRole("region", { name: "객체 관계 그래프" });
+    const graph = await screen.findByRole("region", {
+      name: "객체 관계 그래프",
+    });
     expect(within(graph).getByText("4호기 유압 점검")).toBeVisible();
     expect(within(graph).getByText("유압 점검 메모")).toBeVisible();
     // Registry rail cards come from the object-type list (stable_key handle).
@@ -422,7 +558,10 @@ describe("OntologyPage (REST-wired ontology workspace)", () => {
   it("shows the error state with retry when the registry read fails", async () => {
     server.use(
       http.get("*/api/v1/ontology/object-types", () =>
-        HttpResponse.json({ error: { code: "internal", message: "boom" } }, { status: 500 }),
+        HttpResponse.json(
+          { error: { code: "internal", message: "boom" } },
+          { status: 500 },
+        ),
       ),
     );
     renderPage();
@@ -432,5 +571,434 @@ describe("OntologyPage (REST-wired ontology workspace)", () => {
     server.use(...registryHandlers());
     fireEvent.click(screen.getByRole("button", { name: ko.page.retry }));
     expect(await findTypeRow()).toBeVisible();
+  });
+
+  it("masks A immediately on an authority rerender and only lets loaded B persist", async () => {
+    const a = authoritySwitchRegistry("A");
+    const b = authoritySwitchRegistry("B");
+    const putRequests: Array<{
+      authorization: string | null;
+      key: string;
+      body: CreateObjectTypeDraft;
+    }> = [];
+    server.use(
+      http.get("*/api/v1/ontology/object-types", ({ request }) =>
+        HttpResponse.json([
+          request.headers.get("authorization") === "Bearer token-a"
+            ? a.summary
+            : b.summary,
+        ]),
+      ),
+      http.get("*/api/v1/ontology/object-types/:key", ({ request }) =>
+        HttpResponse.json(
+          request.headers.get("authorization") === "Bearer token-a"
+            ? a.detail
+            : b.detail,
+        ),
+      ),
+      http.get("*/api/v1/ontology/instances", ({ request }) =>
+        HttpResponse.json([
+          request.headers.get("authorization") === "Bearer token-a"
+            ? a.instance
+            : b.instance,
+        ]),
+      ),
+      http.get("*/api/v1/ontology/instances/:id/traverse", ({ request }) =>
+        HttpResponse.json(
+          request.headers.get("authorization") === "Bearer token-a"
+            ? a.traversal
+            : b.traversal,
+        ),
+      ),
+      http.put(
+        "*/api/v1/ontology/object-types/:key",
+        async ({ request, params }) => {
+          putRequests.push({
+            authorization: request.headers.get("authorization"),
+            key: String(params.key),
+            body: (await request.json()) as CreateObjectTypeDraft,
+          });
+          return stagedResponse(b.summary);
+        },
+      ),
+    );
+    const authA = makeAuthContext(authoritySession("A"));
+    const authB = makeAuthContext(authoritySession("B"));
+    const view = render(<StrictMode>{pageTree(authA)}</StrictMode>);
+    const staleAPanel = await screen.findByRole("article", {
+      name: "A 작업지시",
+    });
+    const staleAInput = await within(staleAPanel).findByLabelText("속성 이름");
+    const staleAAdd = within(staleAPanel).getByRole("button", {
+      name: "속성 추가",
+    });
+
+    view.rerender(<StrictMode>{pageTree(authB)}</StrictMode>);
+    fireEvent.change(staleAInput, { target: { value: "A 유출" } });
+    fireEvent.click(staleAAdd);
+    const staleApproval = within(staleAPanel).queryByRole("status", {
+      name: "개정 대기",
+    });
+    if (staleApproval) {
+      fireEvent.click(
+        within(staleApproval).getByRole("button", { name: "적용 승인" }),
+      );
+    }
+
+    expect(
+      screen.queryByRole("article", { name: "A 작업지시" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("속성 이름")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("status", { name: ko.page.loading }),
+    ).toBeInTheDocument();
+    expect(putRequests).toEqual([]);
+
+    const bPanel = await screen.findByRole("article", { name: "B 작업지시" });
+    fireEvent.change(await within(bPanel).findByLabelText("속성 이름"), {
+      target: { value: "B 저장" },
+    });
+    fireEvent.click(within(bPanel).getByRole("button", { name: "속성 추가" }));
+    fireEvent.click(
+      within(
+        within(bPanel).getByRole("status", { name: "개정 대기" }),
+      ).getByRole("button", {
+        name: "적용 승인",
+      }),
+    );
+    await waitFor(() => {
+      expect(
+        putRequests.some(
+          ({ authorization, key }) =>
+            authorization === "Bearer token-b" && key === "b_work_order",
+        ),
+      ).toBe(true);
+    });
+    expect(
+      putRequests.some(
+        ({ authorization, key }) =>
+          authorization === "Bearer token-b" && key === "a_work_order",
+      ),
+    ).toBe(false);
+    const bRequest = putRequests.find(
+      ({ authorization, key }) =>
+        authorization === "Bearer token-b" && key === "b_work_order",
+    );
+    expect(bRequest?.body.properties).toEqual(
+      expect.arrayContaining([expect.objectContaining({ title: "B 저장" })]),
+    );
+    expect(bRequest?.body.properties).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ title: "A 유출" })]),
+    );
+  });
+
+  it("keeps B registry and graph when A's deferred read resolves last", async () => {
+    const aGate = deferred<undefined>();
+    const aTraversalRequests = vi.fn();
+    const a = authorityRegistry("A");
+    const b = authorityRegistry("B");
+    server.use(
+      http.get("*/api/v1/ontology/object-types", async ({ request }) => {
+        if (request.headers.get("authorization") === "Bearer token-a") {
+          await aGate.promise;
+          return HttpResponse.json([a.summary]);
+        }
+        return HttpResponse.json([b.summary]);
+      }),
+      http.get("*/api/v1/ontology/object-types/:key", ({ request }) =>
+        HttpResponse.json(
+          request.headers.get("authorization") === "Bearer token-a"
+            ? a.detail
+            : b.detail,
+        ),
+      ),
+      http.get("*/api/v1/ontology/instances", ({ request }) =>
+        HttpResponse.json(
+          request.headers.get("authorization") === "Bearer token-a"
+            ? [a.instance]
+            : [b.instance],
+        ),
+      ),
+      http.get("*/api/v1/ontology/instances/:id/traverse", ({ request }) => {
+        if (request.headers.get("authorization") === "Bearer token-a") {
+          aTraversalRequests();
+          return HttpResponse.json(a.traversal);
+        }
+        return HttpResponse.json(b.traversal);
+      }),
+    );
+    const authA = makeAuthContext(authoritySession("A"));
+    const authB = makeAuthContext(authoritySession("B"));
+    const view = renderPage(authA);
+    await flushTasks();
+    view.rerender(pageTree(authB));
+    expect((await screen.findAllByText("B 작업지시")).length).toBeGreaterThan(
+      0,
+    );
+    fireEvent.click(screen.getByRole("tab", { name: "그래프·탐색" }));
+    expect((await screen.findAllByText("B 그래프")).length).toBeGreaterThan(0);
+
+    aGate.resolve(undefined);
+    await flushTasks();
+    expect(aTraversalRequests).not.toHaveBeenCalled();
+    expect(screen.queryByText("A 작업지시")).not.toBeInTheDocument();
+    expect(screen.queryByText("A 그래프")).not.toBeInTheDocument();
+    expect(screen.getAllByText("B 그래프").length).toBeGreaterThan(0);
+  });
+
+  it("keeps B readable when A's deferred read rejects last", async () => {
+    const aGate = deferred<undefined>();
+    const aResponseSent = vi.fn();
+    const b = authorityRegistry("B");
+    server.use(
+      http.get("*/api/v1/ontology/object-types", async ({ request }) => {
+        if (request.headers.get("authorization") === "Bearer token-a") {
+          await aGate.promise;
+          aResponseSent();
+          return HttpResponse.json(
+            { error: { code: "internal", message: "A failed" } },
+            { status: 500 },
+          );
+        }
+        return HttpResponse.json([b.summary]);
+      }),
+      http.get("*/api/v1/ontology/object-types/:key", () =>
+        HttpResponse.json(b.detail),
+      ),
+      http.get("*/api/v1/ontology/instances", () =>
+        HttpResponse.json([b.instance]),
+      ),
+      http.get("*/api/v1/ontology/instances/:id/traverse", () =>
+        HttpResponse.json(b.traversal),
+      ),
+    );
+    const authA = makeAuthContext(authoritySession("A"));
+    const authB = makeAuthContext(authoritySession("B"));
+    const view = renderPage(authA);
+    await flushTasks();
+    view.rerender(pageTree(authB));
+    expect((await screen.findAllByText("B 작업지시")).length).toBeGreaterThan(
+      0,
+    );
+
+    aGate.resolve(undefined);
+    await waitFor(() => {
+      expect(aResponseSent).toHaveBeenCalledTimes(1);
+    });
+    await flushTasks();
+    expect(screen.queryByText(ko.page.loadFailed)).not.toBeInTheDocument();
+    expect(screen.getAllByText("B 작업지시").length).toBeGreaterThan(0);
+  });
+
+  it("prevents deferred A read continuation and writes after unmount", async () => {
+    const aGate = deferred<undefined>();
+    const detailRequests = vi.fn();
+    const a = authorityRegistry("A");
+    server.use(
+      http.get("*/api/v1/ontology/object-types", async () => {
+        await aGate.promise;
+        return HttpResponse.json([a.summary]);
+      }),
+      http.get("*/api/v1/ontology/object-types/:key", () => {
+        detailRequests();
+        return HttpResponse.json(a.detail);
+      }),
+      http.get("*/api/v1/ontology/instances", () =>
+        HttpResponse.json([a.instance]),
+      ),
+      http.get("*/api/v1/ontology/instances/:id/traverse", () =>
+        HttpResponse.json(a.traversal),
+      ),
+    );
+    const view = renderPage(makeAuthContext(authoritySession("A")));
+    await flushTasks();
+    view.unmount();
+    aGate.resolve(undefined);
+    await flushTasks();
+    expect(detailRequests).not.toHaveBeenCalled();
+  });
+
+  for (const surface of ["manager instance", "graph node"] as const) {
+    for (const settlement of ["resolve", "reject"] as const) {
+      it(`cancels stale A ${surface} ${settlement} after B is current`, async () => {
+        const a = authoritySwitchRegistry("A");
+        const b = authoritySwitchRegistry("B");
+        const aDetailGate = deferred<undefined>();
+        const aDetailStarted = deferred<undefined>();
+        server.use(
+          http.get("*/api/v1/ontology/object-types", ({ request }) =>
+            HttpResponse.json([
+              request.headers.get("authorization") === "Bearer token-a"
+                ? a.summary
+                : b.summary,
+            ]),
+          ),
+          http.get("*/api/v1/ontology/object-types/:key", ({ request }) =>
+            HttpResponse.json(
+              request.headers.get("authorization") === "Bearer token-a"
+                ? a.detail
+                : b.detail,
+            ),
+          ),
+          http.get("*/api/v1/ontology/instances", ({ request }) =>
+            HttpResponse.json([
+              request.headers.get("authorization") === "Bearer token-a"
+                ? a.instance
+                : b.instance,
+            ]),
+          ),
+          http.get("*/api/v1/ontology/instances/:id", async ({ request }) => {
+            if (request.headers.get("authorization") === "Bearer token-a") {
+              aDetailStarted.resolve(undefined);
+              await aDetailGate.promise;
+              if (settlement === "reject") {
+                return HttpResponse.json(
+                  { error: { code: "internal", message: "A retired" } },
+                  { status: 500 },
+                );
+              }
+              return HttpResponse.json(a.instance);
+            }
+            return HttpResponse.json(b.instance);
+          }),
+          http.get("*/api/v1/ontology/instances/:id/history", () =>
+            HttpResponse.json(woHistory),
+          ),
+          http.get("*/api/v1/ontology/instances/:id/traverse", ({ request }) =>
+            HttpResponse.json(
+              request.headers.get("authorization") === "Bearer token-a"
+                ? a.traversal
+                : b.traversal,
+            ),
+          ),
+        );
+        const authA = makeAuthContext(authoritySession("A"));
+        const authB = makeAuthContext(authoritySession("B"));
+        const view = render(<StrictMode>{pageTree(authA)}</StrictMode>);
+        const aPanel = await screen.findByRole("article", {
+          name: "A 작업지시",
+        });
+        if (surface === "manager instance") {
+          fireEvent.click(
+            within(aPanel).getByRole("tab", { name: "인스턴스" }),
+          );
+          fireEvent.click(
+            await within(aPanel).findByRole("button", {
+              name: "AAAA1111 개체 카드 열기",
+            }),
+          );
+        } else {
+          fireEvent.click(screen.getByRole("tab", { name: "그래프·탐색" }));
+          fireEvent.click(
+            await screen.findByRole("button", {
+              name: "유압 점검 메모 중심으로 이동",
+            }),
+          );
+        }
+        await aDetailStarted.promise;
+
+        view.rerender(<StrictMode>{pageTree(authB)}</StrictMode>);
+        if (surface === "manager instance") {
+          expect(
+            await screen.findByRole("article", { name: "B 작업지시" }),
+          ).toBeInTheDocument();
+        } else {
+          expect(
+            (await screen.findAllByText("B 그래프")).length,
+          ).toBeGreaterThan(0);
+        }
+        expect(
+          screen.queryByRole("region", { name: "A 그래프" }),
+        ).not.toBeInTheDocument();
+
+        await act(async () => {
+          aDetailGate.resolve(undefined);
+          await aDetailGate.promise;
+        });
+        await flushTasks();
+        expect(
+          screen.queryByRole("region", { name: "A 그래프" }),
+        ).not.toBeInTheDocument();
+        expect(screen.queryByText("A 작업지시")).not.toBeInTheDocument();
+        expect(
+          screen.getAllByText(
+            surface === "manager instance" ? "B 작업지시" : "B 그래프",
+          ).length,
+        ).toBeGreaterThan(0);
+      });
+    }
+  }
+
+  it("does not surface A persist feedback after switching to B", async () => {
+    const persistGate = deferred<undefined>();
+    const a = authorityRegistry("A");
+    const b = authorityRegistry("B");
+    server.use(
+      http.get("*/api/v1/ontology/object-types", ({ request }) =>
+        HttpResponse.json([
+          request.headers.get("authorization") === "Bearer token-a"
+            ? a.summary
+            : b.summary,
+        ]),
+      ),
+      http.get("*/api/v1/ontology/object-types/:key", ({ request }) =>
+        HttpResponse.json(
+          request.headers.get("authorization") === "Bearer token-a"
+            ? a.detail
+            : b.detail,
+        ),
+      ),
+      http.get("*/api/v1/ontology/instances", ({ request }) =>
+        HttpResponse.json([
+          request.headers.get("authorization") === "Bearer token-a"
+            ? a.instance
+            : b.instance,
+        ]),
+      ),
+      http.get("*/api/v1/ontology/instances/:id/traverse", ({ request }) =>
+        HttpResponse.json(
+          request.headers.get("authorization") === "Bearer token-a"
+            ? a.traversal
+            : b.traversal,
+        ),
+      ),
+      http.put("*/api/v1/ontology/object-types/:key", async ({ request }) => {
+        if (request.headers.get("authorization") === "Bearer token-a") {
+          await persistGate.promise;
+          return HttpResponse.json(
+            { error: { code: "internal", message: "A save failed" } },
+            { status: 500 },
+          );
+        }
+        return stagedResponse(b.summary);
+      }),
+    );
+    const authA = makeAuthContext(authoritySession("A"));
+    const authB = makeAuthContext(authoritySession("B"));
+    const view = renderPage(authA);
+    expect((await screen.findAllByText("A 작업지시")).length).toBeGreaterThan(
+      0,
+    );
+    const panel = screen.getByRole("article", { name: "A 작업지시" });
+    fireEvent.change(await within(panel).findByLabelText("속성 이름"), {
+      target: { value: "A 저장" },
+    });
+    fireEvent.click(within(panel).getByRole("button", { name: "속성 추가" }));
+    fireEvent.click(
+      within(
+        within(panel).getByRole("status", { name: "개정 대기" }),
+      ).getByRole("button", {
+        name: "적용 승인",
+      }),
+    );
+    view.rerender(pageTree(authB));
+    expect((await screen.findAllByText("B 작업지시")).length).toBeGreaterThan(
+      0,
+    );
+
+    persistGate.resolve(undefined);
+    await flushTasks();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getAllByText("B 작업지시").length).toBeGreaterThan(0);
   });
 });

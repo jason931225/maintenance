@@ -36,6 +36,7 @@ use mnt_platform_test_support::{
 };
 use serde_json::json;
 use sqlx::PgPool;
+use sqlx::postgres::PgPoolOptions;
 use time::macros::datetime;
 use uuid::Uuid;
 
@@ -51,9 +52,26 @@ fn super_admin(user_id: UserId, org: OrgId) -> Principal {
     )
 }
 
-fn state(pool: &PgPool) -> OntologyRestState {
+async fn command_role_pool(owner_pool: &PgPool) -> PgPool {
+    let options = owner_pool.connect_options().as_ref().clone();
+    PgPoolOptions::new()
+        .max_connections(4)
+        .after_connect(|conn, _meta| {
+            Box::pin(async move {
+                sqlx::query("SET ROLE mnt_ontology_cmd")
+                    .execute(conn)
+                    .await?;
+                Ok(())
+            })
+        })
+        .connect_with(options)
+        .await
+        .unwrap()
+}
+
+fn state(pool: &PgPool, command_pool: &PgPool) -> OntologyRestState {
     OntologyRestState::new(
-        PgOntologyStore::new(pool.clone()),
+        PgOntologyStore::new(pool.clone()).with_command_pool(command_pool.clone()),
         PgInstanceStore::new(pool.clone()),
         PgGovernanceStore::new(pool.clone()),
         None,
@@ -64,7 +82,8 @@ fn state(pool: &PgPool) -> OntologyRestState {
 /// (dot-free stable_key so a workflow definition can bind to it).
 async fn seed_type(owner_pool: &PgPool, org: OrgId, actor: UserId, key: &str) -> ObjectTypeId {
     scope_org(org, async {
-        let store = PgOntologyStore::new(owner_pool.clone());
+        let store = PgOntologyStore::new(owner_pool.clone())
+            .with_command_pool(command_role_pool(owner_pool).await);
         let draft = CreateObjectTypeDraft {
             stable_key: key.to_owned(),
             title: "작업지시".to_owned(),
@@ -164,6 +183,7 @@ async fn lifecycle_state(owner_pool: &PgPool, instance_id: Uuid) -> String {
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn configured_edge_commits_and_unconfigured_is_fail_closed(owner_pool: PgPool) {
     let rt = runtime_role_pool(&owner_pool).await;
+    let cmd = command_role_pool(&owner_pool).await;
     let org = OrgId::knl();
     let actor = seed_org_and_super_admin(&owner_pool, *org.as_uuid(), "a").await;
     let type_id = seed_type(&owner_pool, org, actor, "workorder").await;
@@ -182,7 +202,7 @@ async fn configured_edge_commits_and_unconfigured_is_fail_closed(owner_pool: PgP
 
     // Configured edge commits: state advances to active.
     let outcome = scope_org(org, async {
-        state(&rt)
+        state(&rt, &cmd)
             .commit_lifecycle(
                 &super_admin(actor, org),
                 instance.instance.id,
@@ -205,7 +225,7 @@ async fn configured_edge_commits_and_unconfigured_is_fail_closed(owner_pool: PgP
 
     // Unconfigured edge (active→locked) is fail-closed: GateDenied, no state change.
     let err = scope_org(org, async {
-        state(&rt)
+        state(&rt, &cmd)
             .commit_lifecycle(
                 &super_admin(actor, org),
                 instance.instance.id,
@@ -229,7 +249,7 @@ async fn configured_edge_commits_and_unconfigured_is_fail_closed(owner_pool: PgP
 
     // Illegal base-FSM edge (active→draft) is rejected before config even matters.
     let err = scope_org(org, async {
-        state(&rt)
+        state(&rt, &cmd)
             .commit_lifecycle(
                 &super_admin(actor, org),
                 instance.instance.id,
@@ -282,6 +302,147 @@ async fn acting_surfaces_workflow_and_object_policy(owner_pool: PgPool) {
             .iter()
             .any(|r| r.kind == ActingKind::Policy && r.label == "WO Edit"),
         "the attached object policy must surface: {acting:?}"
+    );
+}
+
+// ---- Gap 2b: type-keyed acting-read (자동화 subtab, no instance needed) --------
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn acting_on_type_surfaces_workflow_and_object_policy(owner_pool: PgPool) {
+    let rt = runtime_role_pool(&owner_pool).await;
+    let org = OrgId::knl();
+    let org_uuid = *org.as_uuid();
+    let actor = seed_org_and_super_admin(&owner_pool, org_uuid, "a").await;
+    let type_id = seed_type(&owner_pool, org, actor, "workorder").await;
+    seed_bound_workflow_and_policy(&owner_pool, org_uuid, *type_id.as_uuid()).await;
+
+    // The manager's 자동화 subtab reads acting keyed by the TYPE (it may show a
+    // type with zero instances), and must surface the same rules as the
+    // instance-keyed read.
+    let acting = scope_org(org, async {
+        PgOntologyStore::new(rt.clone())
+            .acting_on_type("workorder")
+            .await
+    })
+    .await
+    .expect("acting-on-type read");
+    assert!(
+        acting
+            .iter()
+            .any(|r| r.kind == ActingKind::Automation && r.label == "WO Review"),
+        "the bound workflow must surface for the type: {acting:?}"
+    );
+    assert!(
+        acting
+            .iter()
+            .any(|r| r.kind == ActingKind::Policy && r.label == "WO Edit"),
+        "the attached object policy must surface for the type: {acting:?}"
+    );
+
+    // An unknown key is NotFound (no fabricated empty surface).
+    let missing = scope_org(org, async {
+        PgOntologyStore::new(rt.clone())
+            .acting_on_type("does-not-exist")
+            .await
+    })
+    .await;
+    assert!(
+        missing.is_err(),
+        "an unknown type key must not resolve: {missing:?}"
+    );
+}
+
+// ---- Gap 4: an in-flight draft is edited IN PLACE, never as a second draft ----
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn stage_revision_updates_draft_head_in_place(owner_pool: PgPool) {
+    let rt = runtime_role_pool(&owner_pool).await;
+    let cmd = command_role_pool(&owner_pool).await;
+    let org = OrgId::knl();
+    let actor = seed_org_and_super_admin(&owner_pool, *org.as_uuid(), "a").await;
+    // seed_type creates a DRAFT "workorder" carrying one property ("code").
+    seed_type(&owner_pool, org, actor, "workorder").await;
+
+    // The full replacement snapshot the manager sends: existing prop + a new one,
+    // plus a changed title.
+    let revised = CreateObjectTypeDraft {
+        stable_key: "workorder".to_owned(),
+        title: "작업지시 개정".to_owned(),
+        title_property_key: None,
+        backing_kind: BackingKind::Instance,
+        backing_table: None,
+        primary_key_property: None,
+        properties: vec![
+            PropertyDefInput {
+                key: "code".to_owned(),
+                title: "코드".to_owned(),
+                field_type: "text".to_owned(),
+                config: json!({}),
+                backing_column: None,
+                required: false,
+                in_property_policy: false,
+            },
+            PropertyDefInput {
+                key: "priority".to_owned(),
+                title: "우선순위".to_owned(),
+                field_type: "text".to_owned(),
+                config: json!({}),
+                backing_column: None,
+                required: true,
+                in_property_policy: false,
+            },
+        ],
+        links: Vec::new(),
+        actions: Vec::new(),
+        analytics: Vec::new(),
+    };
+
+    let summary = scope_org(org, async {
+        let store = PgOntologyStore::new(rt.clone()).with_command_pool(cmd.clone());
+        let current = store.get_object_type("workorder", None).await?.object_type;
+        store
+            .stage_revision(
+                actor,
+                "workorder",
+                current.write_precondition(),
+                revised,
+                TraceContext::generate(),
+                AT,
+            )
+            .await
+    })
+    .await
+    .expect("editing an in-flight draft must persist in place");
+
+    // Still v1 draft — NOT a staged v2 (the one-draft partial index forbids two).
+    assert_eq!(summary.schema_version, 1, "a draft edit must stay at v1");
+
+    // Exactly one head row for the key: an in-place rewrite, not a new version.
+    let versions: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM ont_object_types WHERE stable_key = $1")
+            .bind("workorder")
+            .fetch_one(&owner_pool)
+            .await
+            .unwrap();
+    assert_eq!(versions, 1, "in-place update must not add a version row");
+
+    // The appended property + the changed title are the persisted head.
+    let detail = scope_org(org, async {
+        PgOntologyStore::new(rt.clone())
+            .get_object_type("workorder", None)
+            .await
+    })
+    .await
+    .expect("read back the rewritten draft");
+    assert_eq!(detail.object_type.title, "작업지시 개정");
+    assert!(
+        detail.properties.iter().any(|p| p.key == "priority"),
+        "the appended property must persist: {:?}",
+        detail.properties.iter().map(|p| &p.key).collect::<Vec<_>>()
+    );
+    assert!(
+        detail.properties.iter().any(|p| p.key == "code"),
+        "the replacement snapshot keeps the existing property too"
     );
 }
 

@@ -4,8 +4,11 @@
  * Pure client-side math over a passed sample: EWMA point estimate + EWMA σ,
  * CI95 and CVaR95 under a fat-tailed Student-t (ν=4). No AI, no randomness.
  *
- * wire-pending: Phase C — backend Monte-Carlo/EVT (HANDOFF §18) replaces this
- * client math behind the same Projection shape.
+ * The backend Monte-Carlo/EVT service (HANDOFF §18, POST /api/v1/analytics/projection)
+ * is now wired: screens that own a money/percent series pass its ProjectionResult
+ * into ProjectionPanel (`backendResult`). This client math remains the
+ * deterministic fallback for in-flight/denied fetches and for non-money/percent
+ * fields the endpoint does not serve (e.g. the dashboard completed-count trend).
  */
 
 /** RiskMetrics EWMA decay. */

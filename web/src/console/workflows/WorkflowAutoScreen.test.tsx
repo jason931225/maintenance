@@ -16,11 +16,42 @@ const scheduleOnlyGate: PolicyGate = {
   can: (action) => action !== WORKFLOW_AUTO_ACTIONS.viewWorkflowTab,
 };
 
+// Explicit fixture for the gating/edit tests — the screen no longer ships a
+// stub fallback, so tests supply their own model like the real caller does.
+const gatingFixture: WorkflowAutoModel = {
+  workflows: [
+    {
+      id: "wf-attendance-exception",
+      name: "무단결근 3회 소명 기안",
+      active: true,
+      version: 3,
+      runs: 42,
+      lastRun: "2026-07-09 17:10",
+      lastResult: "ok",
+      blocks: [],
+      runLog: [],
+    },
+  ],
+  schedules: [
+    {
+      id: "sch-attendance-close",
+      name: "근태 마감 리마인더",
+      active: true,
+      cron: "0 17 * * *",
+      cronLabel: "매일 17:00",
+      nextRun: "2026-07-09 17:00",
+      lastRun: "2026-07-08 17:00",
+      lastResult: "warn",
+      runLog: [],
+    },
+  ],
+};
+
 describe("WorkflowAutoScreen", () => {
   it("renders workflow and schedule tab affordances when policy allows them", () => {
     render(
       <PolicyGateProvider gate={allowAll}>
-        <WorkflowAutoScreen />
+        <WorkflowAutoScreen model={gatingFixture} />
       </PolicyGateProvider>,
     );
 
@@ -31,7 +62,7 @@ describe("WorkflowAutoScreen", () => {
   it("omits workflow and schedule tab panels when policy denies tab views", () => {
     render(
       <PolicyGateProvider gate={denyTabAffordances}>
-        <WorkflowAutoScreen />
+        <WorkflowAutoScreen model={gatingFixture} />
       </PolicyGateProvider>,
     );
 
@@ -45,7 +76,7 @@ describe("WorkflowAutoScreen", () => {
   it("falls back to the first allowed tab instead of rendering a denied tab panel", () => {
     render(
       <PolicyGateProvider gate={scheduleOnlyGate}>
-        <WorkflowAutoScreen />
+        <WorkflowAutoScreen model={gatingFixture} />
       </PolicyGateProvider>,
     );
 
@@ -66,7 +97,7 @@ describe("WorkflowAutoScreen", () => {
 
     render(
       <PolicyGateProvider gate={gate}>
-        <WorkflowAutoScreen />
+        <WorkflowAutoScreen model={gatingFixture} />
       </PolicyGateProvider>,
     );
 
@@ -84,6 +115,7 @@ describe("WorkflowAutoScreen", () => {
     render(
       <PolicyGateProvider gate={allowAll}>
         <WorkflowAutoScreen
+          model={gatingFixture}
           initialTab="schedule"
           onScheduleSave={(id, draft) => {
             saved.push({

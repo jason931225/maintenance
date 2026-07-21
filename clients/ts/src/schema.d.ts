@@ -791,6 +791,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/employees/{id}/home-branch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Assign an employee's authoritative home branch
+         * @description Audited explicit assignment; the server never infers a branch from user memberships. The target branch must be active and in the same tenant. Reassignment requires EmployeeDirectoryManage for both the prior and new branch. An employee with no prior branch requires org-wide manage authority. `expected_updated_at` prevents silent concurrent overwrite.
+         */
+        put: operations["setEmployeeHomeBranch"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/employees/{id}/lifecycle-events": {
         parameters: {
             query?: never;
@@ -3546,6 +3566,90 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v2/me/leave": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read the authenticated employee's own leave balance and history
+         * @description Base employee self-service. The server binds both user and linked employee identity; no employee-directory feature is required and no employee or branch identifier is accepted from the client. The balance includes a closed filing state so a missing or inactive home branch is visible before submission rather than discovered only after a 409.
+         */
+        get: operations["getMyLeaveV2"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/leave/requests": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the branch-scoped leave-request approval queue (연차 결재함)
+         * @description Pending-first, then newest. Requires `employee_directory_read`. The queue is confined to the caller's branches (resolved from the JWT); an out-of-scope request is invisible (deny-by-omission).
+         */
+        get: operations["listLeaveRequestsV2"];
+        put?: never;
+        /**
+         * File a self-service 연차/반차 request (본인 연차 신청)
+         * @description The caller files a leave request for THEMSELVES. `subject_employee_id` and the routing `branch_id` are resolved server-side from the caller's own account and employee.home_branch_id — never from input — so a caller can only file for their own employee record. No directory feature is required (filing one's own leave is a base employee capability); the gate is an active account linked to an active employee; an unlinked or inactive subject is denied with 403. Missing home-branch authority returns the stable 409 `leave_home_branch_review_required`. The request preserves date and AM/PM intent in `review_required`; no calendar-day or fixed-half quantity is invented. A separate resolver pins authoritative evidence before any approval can move the ledger. Modern clients generate one `idempotency_key` per user intent and reuse it after an unknown or lost response. The same key and canonical client intent return the original request without another mutation or audit; a different intent conflicts.
+         */
+        post: operations["createLeaveRequestV2"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/leave/requests/{id}/charge-resolution": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Record an audited exact leave-charge resolution
+         * @description Requires EmployeeDirectoryManage in the request branch. The body carries reviewed per-date obligations and source revision references, never a client total or digest. The server validates complete date coverage, canonicalizes, totals, hashes, and records an immutable resolution. `expected_version` is the current mutable request_version; the charge_version is assigned independently to the evidence snapshot.
+         */
+        post: operations["resolveLeaveChargeV2"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v2/leave/requests/{id}/decide": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Approve, return, or reject a pending leave request
+         * @description Requires `employee_directory_manage` in the request's branch. An APPROVE writes the leave ledger (used += exact resolved charge units, remaining -= exact resolved charge units) in the same audited transaction. Separation of duties — a request cannot be decided by its own requester (403). `return`/`reject` require a comment. Approval additionally requires a resolved exact charge and a distinct resolver. Clients must carry the current request_version as `expected_version`; omission is rejected so every v2 decision is an explicit compare-and-swap. charge_version identifies immutable evidence and is never a request mutation precondition. A successful decision increments request_version only; charge_version remains unchanged. An unresolved approval returns 409 `leave_calendar_review_required` plus review reasons, audits the blocked attempt, and changes neither request nor ledger.
+         */
+        post: operations["decideLeaveRequestV2"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/leave/balances": {
         parameters: {
             query?: never;
@@ -3756,7 +3860,7 @@ export interface paths {
         };
         /**
          * Unified action inbox for the authenticated principal
-         * @description One server-side fan-in of the caller's actionable items across every source that owns a person-scoped list: workflow/approval tasks awaiting the caller (the ?assignee=me path), pending P1 dispatch offers, support tickets assigned to the caller, and work orders assigned to the caller. Each source is queried through the exact predicate its own list endpoint uses, so the aggregate never widens visibility (deny-by-omission). Items are bucketed by urgency (now/today/wait) with a derived due tone. Fields the overview prototype carries but no backend source can supply are omitted (entity, amount, detail, files, stats, mailId); site/who/submitted are present only for the sources that carry them. Attendance exceptions are not aggregated (no exception object exists yet).
+         * @description One server-side fan-in of the caller's actionable items across every source that owns a person-scoped list: workflow/approval tasks awaiting the caller (the ?assignee=me path), pending P1 dispatch offers, support tickets assigned to the caller, and work orders assigned to the caller. Each source is queried through the exact predicate its own list endpoint uses, so the aggregate never widens visibility (deny-by-omission). Items are bucketed by urgency (now/today/wait) with a derived due tone. Fields the overview prototype carries but no backend source can supply are omitted (entity, amount, detail, files, stats, mailId); site/who/submitted are present only for the sources that carry them. Attendance exceptions are not aggregated (no exception object exists yet). Results use an immutable `(created_at, kind:id)` traversal key plus an `as_of` admission boundary, so rows created after the first page are excluded. Membership is deliberately live rather than a repeatable full-state snapshot: resolved, reassigned, or expired rows can disappear between page requests. Totals are recalculated from live membership admitted by `as_of`; `total_is_exact` is false when an authorization-filtered source reaches its bounded counting budget. Source failures fail the whole request rather than returning a deceptively partial queue.
          */
         get: operations["listMyActionInbox"];
         put?: never;
@@ -5830,6 +5934,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/ontology/object-types/{key}/acting": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Acting rules keyed by object-type
+         * @description Automations (bound workflow definitions) and object policies acting on the object type identified by stable key. Type-centric sibling of /instances/{id}/acting — it may return rules for a type that has no instances yet. An unknown key is 404 (deny-by-omission, RLS-scoped).
+         */
+        get: operations["listObjectTypeActing"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/ontology/instances": {
         parameters: {
             query?: never;
@@ -6821,6 +6945,32 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        /** @description A self-service leave-request filing. The subject employee and branch are NOT accepted here — they are resolved from the authenticated caller. */
+        LeaveCreateRequest: {
+            /**
+             * Format: uuid
+             * @description Stable client submission id. Reuse it only to retry the same canonical client intent after an unknown or lost response.
+             */
+            idempotency_key: string;
+            /**
+             * @description Full-day or partial-day intent; quantity is resolved only from evidence.
+             * @enum {string}
+             */
+            leave_type: "annual" | "half_day";
+            /**
+             * @description Required exactly when leave_type is half_day.
+             * @enum {string|null}
+             */
+            partial_day_period?: "am" | "pm" | null;
+            /**
+             * Format: date
+             * @description YYYY-MM-DD. A half-day request must use the same start and end date.
+             */
+            start_date: string;
+            /** Format: date */
+            end_date: string;
+            reason: string;
+        };
         ProjectionRequest: {
             /** @description Ordered historical values, oldest first (min 3). */
             series: number[];
@@ -8357,6 +8507,14 @@ export interface components {
             leave_used?: string | null;
             leave_remaining?: string | null;
             /**
+             * Format: uuid
+             * @description Active authoritative leave-routing branch; null requires HR review before self-service filing.
+             */
+            home_branch_id?: string | null;
+            home_branch_name?: string | null;
+            /** @description True when no active authoritative home branch is configured. */
+            home_branch_review_required: boolean;
+            /**
              * @description Non-PII strategy used to keep same-name employees from being merged by name alone.
              * @enum {string}
              */
@@ -8371,6 +8529,16 @@ export interface components {
             /** @description Always false; name-only merging is not allowed because different people can share a name. */
             identity_name_only_merge: boolean;
             created_at: components["schemas"]["Timestamp"];
+            updated_at: components["schemas"]["Timestamp"];
+        };
+        SetEmployeeHomeBranchRequest: {
+            branch_id: components["schemas"]["Uuid"];
+            expected_updated_at: components["schemas"]["Timestamp"];
+        };
+        EmployeeHomeBranch: {
+            employee_id: components["schemas"]["Uuid"];
+            branch_id: components["schemas"]["Uuid"];
+            branch_name: string;
             updated_at: components["schemas"]["Timestamp"];
         };
         EmployeePage: {
@@ -8432,6 +8600,7 @@ export interface components {
             input_rows: number;
             inserted: number;
             updated: number;
+            skipped: number;
         };
         EmployeeImportColumn: {
             source_header: string;
@@ -8480,6 +8649,7 @@ export interface components {
             input_rows: number;
             inserted: number;
             updated: number;
+            skipped: number;
             companies: components["schemas"]["EmployeeImportCompanySummary"][];
         };
         HrOrgChartEmployee: {
@@ -9421,6 +9591,10 @@ export interface components {
             error: {
                 code: string;
                 message: string;
+                /** @description Stable machine-readable reasons for review-required conflicts, when applicable. */
+                reasons?: string[];
+                /** Format: int64 */
+                current_key_write_revision?: number;
             };
         };
         /** @enum {string} */
@@ -9715,6 +9889,171 @@ export interface components {
             /** @description Mandatory for return/reject; optional for approve. */
             comment?: string;
         };
+        /** @description One leave request in the approval queue (결재함 leave variant). */
+        LeaveRequestV2View: {
+            id: components["schemas"]["Uuid"];
+            branch_id: components["schemas"]["Uuid"];
+            requester_user_id: components["schemas"]["Uuid"];
+            subject_employee_id: components["schemas"]["Uuid"];
+            /** @enum {string} */
+            leave_type: "annual" | "half_day";
+            /**
+             * Format: double
+             * @deprecated
+             * @description Non-null legacy compatibility projection; never authoritative for new approvals.
+             */
+            days: number;
+            /** @description Exact resolved charge; null while review is required or no charge applies. */
+            charge_units: components["schemas"]["LeaveUnits"] | null;
+            /** @enum {string} */
+            charge_state: "review_required" | "resolved" | "not_required" | "legacy_unverified";
+            charge_review_reasons: components["schemas"]["LeaveChargeReviewReason"][];
+            /**
+             * Format: int64
+             * @description Mutable request/workflow CAS token; submit as expected_version for resolve or decide.
+             */
+            request_version: number;
+            /**
+             * Format: int64
+             * @description Monotonic immutable charge-evidence revision counter; decisions do not advance it and it is never a request mutation precondition.
+             */
+            charge_version: number;
+            /** @description Server digest of the immutable resolution snapshot, when resolved. */
+            charge_digest?: string;
+            charge_resolved_by?: components["schemas"]["Uuid"];
+            /**
+             * @description Provenance of the current immutable charge snapshot, when one exists.
+             * @enum {string}
+             */
+            charge_resolution_origin?: "automated" | "manual";
+            /** @enum {string} */
+            partial_day_period?: "am" | "pm";
+            /** Format: date */
+            start_date: string;
+            /** Format: date */
+            end_date: string;
+            reason: string;
+            /** @enum {string} */
+            status: "pending" | "approved" | "returned" | "rejected";
+            /** Format: uuid */
+            decided_by: string | null;
+            /** Format: date-time */
+            decided_at: string | null;
+            /** @description Mandatory on return/reject; present only when set. */
+            decision_comment?: string;
+            /**
+             * Format: uuid
+             * @description The engine AP- run, when the submittable definition exists.
+             */
+            ap_run_id?: string;
+            created_at: components["schemas"]["Timestamp"];
+        };
+        LeaveRequestV2Page: {
+            items: components["schemas"]["LeaveRequestV2View"][];
+            /**
+             * Format: uuid
+             * @description Last request id for the next stable keyset page, or null when exhausted.
+             */
+            next_cursor: string | null;
+        };
+        LeaveDecideV2Request: {
+            /**
+             * Format: int64
+             * @description Required mutable request_version compare-and-swap token; never use charge_version.
+             */
+            expected_version: number;
+            /** @enum {string} */
+            decision: "approve" | "return" | "reject";
+            /** @description Mandatory for return/reject; optional for approve. */
+            comment?: string;
+        };
+        /**
+         * @description Exact fixed-scale leave days; six fractional digits and no floating-point semantics.
+         * @example 0.500000
+         */
+        LeaveUnits: string;
+        /**
+         * @description Exact signed fixed-scale ledger days; historical imports may legitimately be negative.
+         * @example 13.000000
+         */
+        LeaveBalanceAmount: string;
+        /** @enum {string} */
+        LeaveChargeReviewReason: "missing_calendar" | "ambiguous_calendar" | "calendar_source_unavailable" | "missing_policy" | "ambiguous_policy" | "policy_source_unavailable";
+        SelfLeaveBalance: {
+            employee_id: components["schemas"]["Uuid"];
+            name: string;
+            accrued_units: components["schemas"]["LeaveBalanceAmount"] | null;
+            used_units: components["schemas"]["LeaveBalanceAmount"] | null;
+            remaining_units: components["schemas"]["LeaveBalanceAmount"] | null;
+            /**
+             * @description Whether self-service filing currently has an active authoritative home branch.
+             * @enum {string}
+             */
+            filing_state: "ready" | "home_branch_required";
+            /**
+             * Format: uuid
+             * @description Active authoritative routing branch; null exactly when filing_state is home_branch_required.
+             */
+            home_branch_id: string | null;
+        };
+        MyLeaveV2Overview: {
+            balance: components["schemas"]["SelfLeaveBalance"];
+            requests: components["schemas"]["LeaveRequestV2Page"];
+        };
+        LeaveSourceRevisionRef: {
+            kind: string;
+            reference: string;
+            revision: string;
+        };
+        LeaveDateCharge: {
+            /** Format: date */
+            date: string;
+            obligation: {
+                /** @enum {string} */
+                kind: "scheduled";
+                /** Format: int32 */
+                minutes: number;
+            } | {
+                /** @enum {string} */
+                kind: "not_scheduled";
+                /** @enum {string} */
+                basis: "rest_day" | "public_holiday" | "substitute_holiday" | "contractual_day_off" | "other";
+            };
+            charge_units: components["schemas"]["LeaveUnits"];
+        };
+        LeaveChargeResolutionRequest: {
+            /**
+             * Format: int64
+             * @description Expected mutable request_version; charge_version is evidence-only.
+             */
+            expected_version: number;
+            date_charges: components["schemas"]["LeaveDateCharge"][];
+            calendar_revision_ref: components["schemas"]["LeaveSourceRevisionRef"];
+            policy_revision_ref: components["schemas"]["LeaveSourceRevisionRef"];
+            /** @default [] */
+            supporting_source_refs: components["schemas"]["LeaveSourceRevisionRef"][];
+        };
+        LeaveChargeResolutionView: {
+            request_id: components["schemas"]["Uuid"];
+            /**
+             * Format: int64
+             * @description New mutable request/workflow CAS token after the resolution commits.
+             */
+            request_version: number;
+            charge_units: components["schemas"]["LeaveUnits"];
+            /** @enum {string} */
+            charge_state: "resolved";
+            /**
+             * Format: int64
+             * @description Immutable revision of the newly recorded charge-evidence snapshot.
+             */
+            charge_version: number;
+            server_digest: string;
+            /** @enum {string} */
+            resolution_origin: "automated" | "manual";
+            /** Format: uuid */
+            resolved_by: string | null;
+        };
         /** @description One employee's annual-leave balance row (직원별 연차 현황). */
         LeaveRosterEntry: {
             employee_id: components["schemas"]["Uuid"];
@@ -9829,10 +10168,11 @@ export interface components {
         MyDispatchOfferPage: {
             items: components["schemas"]["MyDispatchOffer"][];
         };
-        /** @description A bounded cross-object reference for an action-inbox item. */
+        /** @description One server-ordered canonical source-object reference for an action-inbox item. Clients resolve only explicitly registered kind/id pairs; current browser-linkable kinds are approval_run, work_order, and support_ticket. Unknown kinds remain valid for forward compatibility and MUST stay inert until a client registry adds support. Clients MUST NOT accept a server URL or infer a destination from the enclosing item kind, item id, label, or a code prefix. */
         ActionInboxLink: {
-            /** @description Object type label (e.g. work_order, workflow_run). */
+            /** @description Canonical source-object kind. Current browser-linkable values are approval_run, work_order, and support_ticket; other strings are forward-compatible but inert. */
             kind: string;
+            /** @description Canonical source-object identifier. Clients trim surrounding whitespace and reject a blank result before route construction. */
             id: string;
             label?: string;
         };
@@ -9858,7 +10198,12 @@ export interface components {
         };
         ActionInboxResponse: {
             items: components["schemas"]["ActionInboxItem"][];
+            /** @description Live visible item count across sources admitted by as_of; inspect total_is_exact before treating it as authoritative. */
             total: number;
+            /** @description False only when a bounded authorization-filtered count reached its scan budget. */
+            total_is_exact: boolean;
+            /** @description Opaque cursor for the next immutable-keyset page, or null when exhausted. */
+            next_cursor: string | null;
         };
         /** @enum {string} */
         EquipmentStatus: "rented" | "spare" | "disposed" | "replacement" | "sold";
@@ -11848,6 +12193,9 @@ export interface components {
             schema_version: number;
             /** @enum {string} */
             lifecycle_state: "draft" | "review_pending" | "published" | "superseded" | "retired";
+            /** Format: int64 */
+            key_write_revision: number;
+            key_write_etag: string;
         };
         /** @enum {string} */
         InstanceLifecycleState: "draft" | "active" | "locked" | "archived" | "disposed";
@@ -12237,6 +12585,15 @@ export interface components {
                 "application/json": components["schemas"]["ErrorBody"];
             };
         };
+        /** @description Request syntax or conditional validator is malformed. */
+        BadRequest: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorBody"];
+            };
+        };
         /** @description Request failed validation. */
         ValidationError: {
             headers: {
@@ -12258,6 +12615,18 @@ export interface components {
         /** @description State conflict or illegal transition. */
         Conflict: {
             headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorBody"];
+            };
+        };
+        /** @description The submitted ontology key write validator is stale. */
+        PreconditionFailed: {
+            headers: {
+                /** @description Current strong tenant/key write validator. */
+                ETag?: string;
+                "Cache-Control"?: "no-store";
                 [name: string]: unknown;
             };
             content: {
@@ -13745,6 +14114,8 @@ export interface operations {
             query?: {
                 /** @description Filter by workbook sheet/company name. */
                 company?: string;
+                /** @description Filter to employees whose active authoritative home branch is missing/inactive (true) or usable (false). */
+                home_branch_review_required?: boolean;
                 limit?: number;
                 offset?: number;
             };
@@ -13765,6 +14136,54 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+        };
+    };
+    setEmployeeHomeBranch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SetEmployeeHomeBranchRequest"];
+            };
+        };
+        responses: {
+            /** @description The explicit authoritative home-branch assignment. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmployeeHomeBranch"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description The employee changed after the supplied precondition; reload before retrying. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            422: components["responses"]["ValidationError"];
+            /** @description The separately credentialed leave command database is not configured or unavailable. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
         };
     };
     listEmployeeLifecycleEvents: {
@@ -17614,6 +18033,228 @@ export interface operations {
             };
         };
     };
+    getMyLeaveV2: {
+        parameters: {
+            query?: {
+                limit?: number;
+                /** @description Last request id from the preceding stable self-service page. */
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Exact self balance plus self-only request history. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MyLeaveV2Overview"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    listLeaveRequestsV2: {
+        parameters: {
+            query?: {
+                /** @description Filter to one status; omitted returns all four. */
+                status?: "pending" | "approved" | "returned" | "rejected";
+                /** @description Page size for the stable pending-first queue. */
+                limit?: number;
+                /** @description Last request id from the preceding branch-scoped page. */
+                cursor?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A branch-scoped page of leave requests. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeaveRequestV2Page"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description JWT verification is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    createLeaveRequestV2: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeaveCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description The created pending leave request. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeaveRequestV2View"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description The linked active employee has no explicit home branch (`leave_home_branch_review_required`), or the supplied `idempotency_key` is already bound to different client intent (`leave_create.idempotency_conflict`). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Invalid leave type, date range, reason, or partial-day intent. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description JWT verification or the separately credentialed leave command database is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    resolveLeaveChargeV2: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeaveChargeResolutionRequest"];
+            };
+        };
+        responses: {
+            /** @description Server-computed exact charge and digest with the new request CAS and charge-evidence revisions. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeaveChargeResolutionView"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description The request is no longer pending or expected_version does not match the current request_version (`leave_concurrent_modification`). */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            422: components["responses"]["ValidationError"];
+            /** @description The separately credentialed leave command database is not configured or unavailable. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
+    decideLeaveRequestV2: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LeaveDecideV2Request"];
+            };
+        };
+        responses: {
+            /** @description The decided leave request. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LeaveRequestV2View"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            /** @description Not pending, stale expected request_version (`leave_concurrent_modification`), or unresolved calendar/policy evidence. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description Missing mandatory comment or unknown decision. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description The separately credentialed leave command database is not configured or unavailable. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+        };
+    };
     listLeaveBalances: {
         parameters: {
             query?: never;
@@ -18010,14 +18651,19 @@ export interface operations {
     };
     listMyActionInbox: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description Page size, clamped server-side to 1..=200. */
+                limit?: number;
+                /** @description Opaque immutable-traversal cursor returned as `next_cursor` by the previous page. */
+                cursor?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description The caller's actionable items, most urgent first. */
+            /** @description The caller's actionable items in immutable creation order. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -18027,6 +18673,24 @@ export interface operations {
                 };
             };
             401: components["responses"]["Unauthorized"];
+            /** @description The action-inbox cursor is malformed. */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
+            /** @description A source failed; no partial action-inbox response is returned. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
             /** @description JWT verification is not configured. */
             503: {
                 headers: {
@@ -21752,12 +22416,12 @@ export interface operations {
             /** @description Draft object type created. */
             201: {
                 headers: {
+                    /** @description Strong tenant/key write validator for the created object type. */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["ObjectTypeSummary"];
                 };
             };
             401: components["responses"]["Unauthorized"];
@@ -21783,6 +22447,8 @@ export interface operations {
             /** @description Object type definition. */
             200: {
                 headers: {
+                    /** @description Strong tenant/key write validator for subsequent mutations. */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
@@ -21800,7 +22466,10 @@ export interface operations {
     stageObjectTypeRevision: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                /** @description Exactly one strong ontology tenant/key write validator. */
+                "If-Match": string;
+            };
             path: {
                 key: string;
             };
@@ -21815,20 +22484,48 @@ export interface operations {
             /** @description Staged schema revision. */
             201: {
                 headers: {
+                    /** @description Strong successor tenant/key write validator. */
+                    ETag?: string;
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": {
-                        [key: string]: unknown;
-                    };
+                    "application/json": components["schemas"]["ObjectTypeSummary"];
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["PreconditionFailed"];
+            422: components["responses"]["ValidationError"];
+            428: components["responses"]["PreconditionRequired"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    listObjectTypeActing: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description automation rules + policies acting on the object type */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActingRule"][];
                 };
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
-            409: components["responses"]["Conflict"];
-            422: components["responses"]["ValidationError"];
-            503: components["responses"]["ServiceUnavailable"];
         };
     };
     listOntologyInstances: {

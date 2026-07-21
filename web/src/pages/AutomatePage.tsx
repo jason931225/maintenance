@@ -106,7 +106,7 @@ export const AUTOMATE_GATE_ACTIONS: readonly string[] = Object.values(ACT);
 
 // ── View models over the definition payloads ────────────────────────────────
 
-type AutomateTab = "rules" | "schedules" | "monitors";
+export type AutomateTab = "rules" | "schedules" | "monitors";
 type RuleScope = "org" | "personal";
 type CadenceKey = "hourly" | "daily" | "weekly" | "monthly";
 
@@ -1037,8 +1037,13 @@ function ScheduleDetail({
 type ReadState = "loading" | "idle" | "error";
 type FeedbackKind = "success" | "error";
 
+interface AutomateHubProps {
+  tab?: AutomateTab;
+  onTabChange?: (tab: AutomateTab) => void;
+}
+
 /** Exported for tests: mount under a custom PolicyGateProvider to exercise gating. */
-export function AutomateHub() {
+export function AutomateHub({ tab: controlledTab, onTabChange }: AutomateHubProps = {}) {
   const { api, session } = useAuth();
   const gate = usePolicyGate();
 
@@ -1048,7 +1053,8 @@ export function AutomateHub() {
   const [runLogById, setRunLogById] = useState<
     Partial<Record<string, WorkflowRunResponse[]>>
   >({});
-  const [tab, setTab] = useState<AutomateTab>("rules");
+  const [localTab, setLocalTab] = useState<AutomateTab>("rules");
+  const tab = controlledTab ?? localTab;
   const [scopeFilter, setScopeFilter] = useState<ScopeFilter>("all");
   const [ruleId, setRuleId] = useState<string | undefined>(undefined);
   const [scheduleId, setScheduleId] = useState<string | undefined>(undefined);
@@ -1059,6 +1065,14 @@ export function AutomateHub() {
     cadence: CadenceKey;
     ruleId: string;
   }>({ name: "", cadence: "daily", ruleId: "" });
+
+  const selectTab = useCallback(
+    (nextTab: AutomateTab) => {
+      if (controlledTab === undefined) setLocalTab(nextTab);
+      onTabChange?.(nextTab);
+    },
+    [controlledTab, onTabChange],
+  );
 
   const fields = useMemo(() => fieldRegistryOf(registry), [registry]);
   const actionOptions = useMemo(() => actionOptionsOf(registry), [registry]);
@@ -1428,7 +1442,7 @@ export function AutomateHub() {
     if (created) {
       setRuleId(created.id);
       setScopeFilter("all");
-      setTab("rules");
+      selectTab("rules");
       showSuccess(W.createSuccess);
     }
   }
@@ -1515,7 +1529,7 @@ export function AutomateHub() {
               role="tab"
               aria-selected={activeTab === key}
               onClick={() => {
-                setTab(key);
+                selectTab(key);
               }}
               style={tabButtonStyle(activeTab === key)}
             >
@@ -1866,7 +1880,7 @@ export function AutomateHub() {
                           // definition in the rules-tab builder.
                           setRuleId(monitor.id);
                           setScopeFilter("all");
-                          setTab("rules");
+                          selectTab("rules");
                         }}
                         style={buttonStyle}
                       >

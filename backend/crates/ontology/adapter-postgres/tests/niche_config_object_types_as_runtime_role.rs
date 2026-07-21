@@ -58,6 +58,23 @@ async fn runtime_role_pool(owner_pool: &PgPool) -> PgPool {
         .unwrap()
 }
 
+async fn command_role_pool(owner_pool: &PgPool) -> PgPool {
+    let options = owner_pool.connect_options().as_ref().clone();
+    PgPoolOptions::new()
+        .max_connections(4)
+        .after_connect(|conn, _meta| {
+            Box::pin(async move {
+                sqlx::query("SET ROLE mnt_ontology_cmd")
+                    .execute(conn)
+                    .await?;
+                Ok(())
+            })
+        })
+        .connect_with(options)
+        .await
+        .unwrap()
+}
+
 async fn seed_org_and_user(owner_pool: &PgPool, org: Uuid) -> UserId {
     sqlx::query("INSERT INTO organizations (id, slug, name) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING")
         .bind(org)
@@ -91,7 +108,8 @@ async fn all_seven_niche_types_seed_published_and_isolated_per_org(owner_pool: P
     // (app/src/lib.rs) provisions through in production; a superuser pool here
     // would bypass RLS and let org B's publish cross-supersede org A's row.
     let rt = runtime_role_pool(&owner_pool).await;
-    let store = PgOntologyStore::new(rt.clone());
+    let cmd = command_role_pool(&owner_pool).await;
+    let store = PgOntologyStore::new(rt.clone()).with_command_pool(cmd);
 
     scope_org(org_a, async {
         seed_governed_config_object_types(&store, actor_a, AT_V1)
@@ -146,7 +164,8 @@ async fn regulation_param_instance_creates_and_stages_v2(owner_pool: PgPool) {
     let actor = seed_org_and_user(&owner_pool, ORG_A).await;
 
     let type_id: ObjectTypeId = scope_org(org, async {
-        let store = PgOntologyStore::new(owner_pool.clone());
+        let store = PgOntologyStore::new(owner_pool.clone())
+            .with_command_pool(command_role_pool(&owner_pool).await);
         let published = seed_governed_config_object_types(&store, actor, AT_V1)
             .await
             .expect("seed governed config object types");

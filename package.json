@@ -17,8 +17,10 @@
     "gen:api:portable": "npm run gen:api:ts && npm run gen:api:kotlin",
     "gen:api": "npm run gen:api:portable && npm run gen:api:swift",
     "check:ts": "tsc -p tsconfig.json",
+    "test:api-client-contract:ts": "tsx --test clients/ts/test/leave-request-view.contract.test.ts",
     "check:kotlin": "node scripts/run-kotlin-build.mjs",
     "check:swift": "swift build --package-path clients/swift",
+    "test:api-client-contract:swift": "swift run --package-path clients/swift MaintenanceAPIClientContractTests",
     "check:ios-ui-test-fail-closed": "node scripts/check-ios-ui-test-fail-closed.mjs",
     "check:android-e2e-fail-closed": "node scripts/check-android-e2e-fail-closed.mjs",
     "check:openapi-app": "node scripts/check-openapi-app.mjs",
@@ -34,7 +36,11 @@
     "check:api-drift:portable": "npm run gen:api:portable && git diff --exit-code -- clients/ts clients/kotlin",
     "check:api-drift:swift": "npm run gen:api:swift && git diff --exit-code -- clients/swift",
     "test:contract": "tsx scripts/contract-roundtrip.ts",
-    "test:production-hardening": "node --test scripts/check-production-hardening.test.mjs",
+    "test:employee-import-contract": "node --test scripts/check-employee-import-replay-contract.test.mjs",
+    "test:ontology-write-precondition": "node --test scripts/check-ontology-write-precondition.test.mjs",
+    "check:pr473-migration-operational": "python3 scripts/check-pr473-migration-operational.py",
+    "test:pr473-migration-operational": "python3 scripts/check-pr473-migration-operational.test.py",
+    "test:production-hardening": "npm run test:pr473-migration-operational && python3 scripts/check-production-promotion-authority.test.py && node --test scripts/check-production-hardening.test.mjs scripts/wait-for-protected-main-ci.test.mjs",
     "web:dev": "npm --workspace web run dev",
     "dev:doctor": "node scripts/dev-up.mjs doctor",
     "dev:up": "node scripts/dev-up.mjs up",
@@ -67,7 +73,7 @@
     "check:workflow-runtime-m2-runtime": "node scripts/check-workflow-runtime-m2-runtime.mjs",
     "check:workflow-runtime-m2-drainer": "node scripts/check-workflow-runtime-m2-drainer.mjs",
     "check:mailbox-core": "node scripts/check-mailbox-core.mjs",
-    "check:api-atomicity": "npm run check:openapi-app && npm run check:api-drift:portable && npm run check:kotlin && npm run check:api-drift:swift && npm run check:swift",
+    "check:api-atomicity": "npm run check:openapi-app && npm run check:api-drift:portable && npm run check:ts && npm run test:api-client-contract:ts && npm run check:kotlin && npm run check:api-drift:swift && npm run check:swift && npm run test:api-client-contract:swift",
     "check:korean-institutional-connectivity": "node scripts/check-korean-institutional-connectivity.mjs",
     "kic:scrape-public-docs": "node scripts/korean-connectivity/public-doc-scraper.mjs",
     "kic:generate-nhis-loss-report-fixture": "node scripts/korean-connectivity/nhis-edi-loss-report.mjs",
@@ -83,5 +89,9 @@
     "openapi-typescript": "7.13.0",
     "tsx": "4.22.4",
     "typescript": "5.9.3"
+  },
+  "overrides": {
+    "js-yaml@4.x": "4.3.0",
+    "shell-quote": "1.10.0"
   }
 }

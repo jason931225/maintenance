@@ -55,7 +55,7 @@ function formatRouteAdoption(tenant: PlatformTenantHealth): string {
  * with its user counts, active/open work-order counts, and last activity.
  */
 export function PlatformOpsPage() {
-  const { session } = useAuth();
+  const { session, refreshAuthority } = useAuth();
   const token = session?.access_token;
 
   const [tenants, setTenants] = useState<PlatformTenantHealth[]>([]);
@@ -78,14 +78,14 @@ export function PlatformOpsPage() {
 
   const loadOps = useCallback(async () => {
     setReadState("loading");
-    const result = await getPlatformOps(token).catch(() => undefined);
+    const result = await getPlatformOps(token, refreshAuthority).catch(() => undefined);
     if (!result) {
       setReadState("error");
       return;
     }
     setTenants(result);
     setReadState("idle");
-  }, [token]);
+  }, [refreshAuthority, token]);
 
   useEffect(() => {
     void Promise.resolve().then(loadOps);

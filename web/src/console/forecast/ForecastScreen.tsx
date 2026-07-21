@@ -2,6 +2,7 @@ import type { CSSProperties } from "react";
 
 import type { AssetLifecycleCostSummary, EquipmentListItem } from "../../api/types";
 import { ProjectionPanel, type ProjectionDrillPart } from "../charts";
+import type { ServerProjectionState } from "../charts/ProjectionPanel";
 import { StatusChip } from "../components";
 import "../tokens.css";
 import { ko } from "../../i18n/ko";
@@ -19,11 +20,15 @@ export interface ForecastScreenProps {
   onClearEquipment: () => void;
   lifecycleCost?: AssetLifecycleCostSummary;
   isLoading: boolean;
+  lifecycleState?: "loading" | "ready" | "empty" | "denied" | "error";
+  onRetryLifecycle?: () => void;
   horizonMonths: HorizonMonths;
   onHorizonChange: (months: HorizonMonths) => void;
   whatIfPct: number;
   onWhatIfChange: (pct: number) => void;
   onDrill: (part: ProjectionDrillPart) => void;
+  /** Explicit lifecycle of the server-owned Monte-Carlo/EVT projection. */
+  projectionState?: ServerProjectionState;
 }
 
 const rootStyle: CSSProperties = {
@@ -149,11 +154,14 @@ export function ForecastScreen({
   onClearEquipment,
   lifecycleCost,
   isLoading,
+  lifecycleState,
+  onRetryLifecycle,
   horizonMonths,
   onHorizonChange,
   whatIfPct,
   onWhatIfChange,
   onDrill,
+  projectionState,
 }: ForecastScreenProps) {
   if (!selectedEquipment) {
     return (
@@ -202,6 +210,8 @@ export function ForecastScreen({
   const sample = lifecycleCost
     ? monthlyCostSample(lifecycleCost.timeline, horizonMonths, new Date(), whatIfPct)
     : [];
+  const effectiveLifecycleState =
+    lifecycleState ?? (isLoading ? "loading" : lifecycleCost ? "ready" : "empty");
 
   return (
     <div style={rootStyle}>
@@ -260,14 +270,30 @@ export function ForecastScreen({
         </label>
       </div>
 
-      {isLoading ? <StatusChip role="status">{ko.common.loading}</StatusChip> : null}
-
-      <ProjectionPanel
-        title={S.seriesTitle(selectedEquipment.equipment_no)}
-        kind="money"
-        sample={sample}
-        onDrill={onDrill}
-      />
+      {effectiveLifecycleState === "loading" ? (
+        <StatusChip role="status">{ko.page.loading}</StatusChip>
+      ) : effectiveLifecycleState === "denied" ? (
+        <StatusChip tone="danger" role="alert">{ko.page.permissionDenied}</StatusChip>
+      ) : effectiveLifecycleState === "error" ? (
+        <section>
+          <StatusChip tone="danger" role="alert">{ko.page.loadFailed}</StatusChip>
+          {onRetryLifecycle ? (
+            <button type="button" data-window-control="true" onClick={onRetryLifecycle} style={segmentStyle(false)}>
+              {ko.page.retry}
+            </button>
+          ) : null}
+        </section>
+      ) : effectiveLifecycleState === "empty" ? (
+        <StatusChip tone="neutral" role="status">{ko.page.empty}</StatusChip>
+      ) : (
+        <ProjectionPanel
+          title={S.seriesTitle(selectedEquipment.equipment_no)}
+          kind="money"
+          sample={sample}
+          serverState={projectionState}
+          onDrill={onDrill}
+        />
+      )}
     </div>
   );
 }

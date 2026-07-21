@@ -9,10 +9,13 @@
 // grammar are left intact — never emptied — and the fetch resolves to the last
 // good cache (or []). The registry only tells us WHICH types exist and their
 // code prefixes; per-type property/link/action schemas are not served for
-// projected domain kinds yet, so rich detail still comes from the static
+// projected domain kinds here, so rich detail still comes from the static
 // ONT_TYPES defs (see modules/typeRegistry.ts) with new kinds getting a generic
-// surface. wire-pending: W1-be-ontology GET /api/v1/ontology/object-types/{key}
-// projected-type schema → generic surfaces gain their real columns.
+// surface. The per-type schema IS now served (GET /ontology/object-types/{key}
+// returns the full ObjectTypeDetail; see api/ontology.getObjectType); wiring the
+// generic module surfaces to it is a modules/typeRegistry.ts consumer change
+// (that file owns its own follow-up markers) — this registry cache stays
+// schema-free by design.
 //
 // The fetch is co-located here (not api/ontology.ts) to keep this lane's files
 // self-contained; api/ontology.ts is under concurrent edit by the serial-wire

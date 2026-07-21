@@ -46,16 +46,13 @@ export interface ObjectRefEntry {
   formatLabel: (ref: ObjectRef) => string;
 }
 
-const withPrefix = (prefix: string, ref: ObjectRef) =>
-  ref.code ?? `${prefix}${ref.id}`;
-
 export const objectRegistry: Record<ObjectKind, ObjectRefEntry> = {
   approval: {
     codePrefix: "AP-",
     chipTone: "accent",
     icon: "fileCheck",
     kindLabel: ko.console.objectKinds.approval,
-    route: (ref) => `/approvals?ref=${encodeURIComponent(withPrefix("AP-", ref))}`,
+    route: (ref) => `/approvals?run=${encodeURIComponent(ref.id)}`,
     formatLabel: (ref) => safeLabel(ref.name, ref.code),
   },
   workOrder: {
@@ -67,11 +64,10 @@ export const objectRegistry: Record<ObjectKind, ObjectRefEntry> = {
     formatLabel: (ref) => safeLabel(ref.name, ref.code),
   },
   support: {
-    codePrefix: "CS-",
     chipTone: "warn",
     icon: "msg",
     kindLabel: ko.console.objectKinds.support,
-    route: (ref) => `/support?ticket=${encodeURIComponent(withPrefix("CS-", ref))}`,
+    route: (ref) => `/support?ticket=${encodeURIComponent(ref.id)}`,
     formatLabel: (ref) => safeLabel(ref.name, ref.code),
   },
   attendance: {
@@ -79,7 +75,8 @@ export const objectRegistry: Record<ObjectKind, ObjectRefEntry> = {
     chipTone: "ok",
     icon: "calCheck",
     kindLabel: ko.console.objectKinds.attendance,
-    route: (ref) => `/attendance?exception=${encodeURIComponent(withPrefix("AT-", ref))}`,
+    route: (ref) =>
+      `/attendance?exception=${encodeURIComponent(ref.code ?? ref.id)}`,
     formatLabel: (ref) => safeLabel(ref.name, ref.code),
   },
   payroll: {
@@ -87,7 +84,7 @@ export const objectRegistry: Record<ObjectKind, ObjectRefEntry> = {
     chipTone: "purple",
     icon: "receipt",
     kindLabel: ko.console.objectKinds.payroll,
-    route: (ref) => `/payroll?run=${encodeURIComponent(withPrefix("PS-", ref))}`,
+    route: (ref) => `/payroll?run=${encodeURIComponent(ref.code ?? ref.id)}`,
     formatLabel: (ref) => safeLabel(ref.name, ref.code),
   },
   contract: {
@@ -95,7 +92,8 @@ export const objectRegistry: Record<ObjectKind, ObjectRefEntry> = {
     chipTone: "neutral",
     icon: "scroll",
     kindLabel: ko.console.objectKinds.contract,
-    route: (ref) => `/financial?contract=${encodeURIComponent(withPrefix("C-", ref))}`,
+    route: (ref) =>
+      `/financial?contract=${encodeURIComponent(ref.code ?? ref.id)}`,
     formatLabel: (ref) => safeLabel(ref.name, ref.code),
   },
   journal: {
@@ -103,7 +101,8 @@ export const objectRegistry: Record<ObjectKind, ObjectRefEntry> = {
     chipTone: "info",
     icon: "book",
     kindLabel: ko.console.objectKinds.journal,
-    route: (ref) => `/daily-plan?journal=${encodeURIComponent(withPrefix("JL-", ref))}`,
+    route: (ref) =>
+      `/daily-plan?journal=${encodeURIComponent(ref.code ?? ref.id)}`,
     formatLabel: (ref) => safeLabel(ref.name, ref.code),
   },
   intake: {
@@ -111,7 +110,7 @@ export const objectRegistry: Record<ObjectKind, ObjectRefEntry> = {
     chipTone: "warn",
     icon: "inbox",
     kindLabel: ko.console.objectKinds.intake,
-    route: (ref) => `/intake?ref=${encodeURIComponent(withPrefix("IN-", ref))}`,
+    route: (ref) => `/intake?ref=${encodeURIComponent(ref.code ?? ref.id)}`,
     formatLabel: (ref) => safeLabel(ref.name, ref.code),
   },
   person: {
@@ -129,6 +128,43 @@ export const objectRegistry: Record<ObjectKind, ObjectRefEntry> = {
     formatLabel: (ref) => safeLabel(ref.name, ref.code),
   },
 };
+
+/**
+ * Server-owned action-inbox object reference. The browser deliberately accepts
+ * the wire kind as a string so newer server kinds remain forward compatible:
+ * unknown kinds are inert until they are explicitly registered here.
+ */
+export interface ActionInboxObjectLink {
+  kind: string;
+  id: string;
+  label?: string;
+}
+
+const ACTION_INBOX_OBJECT_KINDS: Readonly<Partial<Record<string, ObjectKind>>> =
+  {
+    approval_run: "approval",
+    work_order: "workOrder",
+    support_ticket: "support",
+  };
+
+/**
+ * Resolve the first canonical action-inbox source reference in server order.
+ *
+ * This is intentionally a closed, browser-owned allowlist: blank ids and
+ * unknown kinds are skipped, server-provided URLs are never consumed, and no
+ * route is inferred from an action item's kind, id, label, or code prefix.
+ */
+export function resolveActionInboxLinkRoute(
+  links: readonly ActionInboxObjectLink[],
+): string | undefined {
+  for (const link of links) {
+    const objectKind = ACTION_INBOX_OBJECT_KINDS[link.kind];
+    const id = link.id.trim();
+    if (!objectKind || id.length === 0) continue;
+    return objectRegistry[objectKind].route({ id });
+  }
+  return undefined;
+}
 
 /**
  * Resolve which registered kind a code belongs to from its prefix

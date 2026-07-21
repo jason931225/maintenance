@@ -2,14 +2,13 @@
 
 use std::time::Duration as StdDuration;
 
-use apalis_postgres::PgPool as ApalisPgPool;
 use mnt_kernel_core::{FixedClock, Timestamp};
 use mnt_platform_jobs::{
     ApalisPostgresJobQueue, DEFAULT_APALIS_WORKER_RETENTION, JobQueue, JobRequest, SkewedClock,
-    prune_stale_apalis_workers,
+    connect_apalis_runtime_pool, migrate_and_reconcile_apalis_postgres, prune_stale_apalis_workers,
     soak::{self, APALIS_POSTGRES_VERSION, APALIS_VERSION},
 };
-use sqlx::Row;
+use sqlx::{Connection as _, Row};
 
 #[test]
 fn crate_versions_are_pinned_to_live_verified_rcs() {
@@ -33,13 +32,21 @@ fn skewed_clock_drives_schedule_after() {
 
 #[tokio::test]
 async fn apalis_adapter_dedupes_repeated_idempotency_keys() {
-    let database_url =
-        std::env::var("DATABASE_URL").expect("DATABASE_URL is required for apalis adapter test");
-    let queue_name = format!("mnt.t110.adapter-test.{}", uuid::Uuid::new_v4());
-    let queue = ApalisPostgresJobQueue::connect(&database_url, &queue_name)
+    let owner_database_url = std::env::var("MNT_APALIS_OWNER_DATABASE_URL")
+        .expect("MNT_APALIS_OWNER_DATABASE_URL is required for apalis adapter test");
+    let runtime_database_url = std::env::var("MNT_APALIS_RUNTIME_DATABASE_URL")
+        .expect("MNT_APALIS_RUNTIME_DATABASE_URL is required for apalis adapter test");
+    let mut owner_connection = sqlx::PgConnection::connect(&owner_database_url)
         .await
-        .expect("setup apalis queue");
-    let workspace_pool = sqlx::PgPool::connect(&database_url)
+        .expect("connect migration owner");
+    migrate_and_reconcile_apalis_postgres(&mut owner_connection)
+        .await
+        .expect("migrate and reconcile Apalis as owner");
+    let queue_name = format!("mnt.t110.adapter-test.{}", uuid::Uuid::new_v4());
+    let queue = ApalisPostgresJobQueue::connect(&runtime_database_url, &queue_name)
+        .await
+        .expect("validate and connect Apalis queue as mnt_rt");
+    let workspace_pool = sqlx::PgPool::connect(&owner_database_url)
         .await
         .expect("connect workspace sqlx pool");
     let scheduled_for: Timestamp = time::OffsetDateTime::now_utc() + time::Duration::seconds(60);
@@ -80,8 +87,16 @@ async fn apalis_adapter_dedupes_repeated_idempotency_keys() {
 
 #[tokio::test]
 async fn apalis_worker_retention_prunes_only_stale_unreferenced_workers() {
-    let database_url =
-        std::env::var("DATABASE_URL").expect("DATABASE_URL is required for apalis adapter test");
+    let owner_database_url = std::env::var("MNT_APALIS_OWNER_DATABASE_URL")
+        .expect("MNT_APALIS_OWNER_DATABASE_URL is required for apalis adapter test");
+    let runtime_database_url = std::env::var("MNT_APALIS_RUNTIME_DATABASE_URL")
+        .expect("MNT_APALIS_RUNTIME_DATABASE_URL is required for apalis adapter test");
+    let mut owner_connection = sqlx::PgConnection::connect(&owner_database_url)
+        .await
+        .expect("connect migration owner");
+    migrate_and_reconcile_apalis_postgres(&mut owner_connection)
+        .await
+        .expect("migrate and reconcile Apalis as owner");
     let queue_name = format!("mnt.t110.retention-test.{}", uuid::Uuid::new_v4());
     let other_queue_name = format!("mnt.t110.retention-other.{}", uuid::Uuid::new_v4());
     let current_worker = format!("retention-current-{}", uuid::Uuid::new_v4());
@@ -91,13 +106,13 @@ async fn apalis_worker_retention_prunes_only_stale_unreferenced_workers() {
     let other_queue_worker = format!("retention-other-{}", uuid::Uuid::new_v4());
     let referenced_job_id = format!("retention-job-{}", uuid::Uuid::new_v4());
 
-    let _queue = ApalisPostgresJobQueue::connect(&database_url, &queue_name)
+    let _queue = ApalisPostgresJobQueue::connect(&runtime_database_url, &queue_name)
         .await
-        .expect("setup apalis queue");
-    let apalis_pool = ApalisPgPool::connect(&database_url)
+        .expect("validate and connect Apalis queue as mnt_rt");
+    let apalis_pool = connect_apalis_runtime_pool(&runtime_database_url)
         .await
-        .expect("connect apalis sqlx pool");
-    let workspace_pool = sqlx::PgPool::connect(&database_url)
+        .expect("connect hardened apalis sqlx runtime pool");
+    let workspace_pool = sqlx::PgPool::connect(&owner_database_url)
         .await
         .expect("connect workspace sqlx pool");
 

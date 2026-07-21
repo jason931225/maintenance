@@ -7,7 +7,7 @@ x-app-image: &app-image
   image: mnt-app:local
 
 x-app-env: &app-env
-  DATABASE_URL: postgresql://${MNT_POSTGRES_USER:-mnt_app}:${MNT_POSTGRES_PASSWORD:-mnt-prod-local-change-me}@postgres:5432/${MNT_POSTGRES_DB:-mnt_prod}
+  DATABASE_URL: postgresql://mnt_rt:${MNT_RT_POSTGRES_PASSWORD:?set the runtime database password}@postgres:5432/${MNT_POSTGRES_DB:-mnt_prod}
   MNT_SHUTDOWN_TIMEOUT_SECS: "10"
   OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
   RUST_LOG: ${RUST_LOG:-info,tower_http=info}
@@ -69,11 +69,15 @@ services:
       - max_connections=60
     environment:
       POSTGRES_DB: ${MNT_POSTGRES_DB:-mnt_prod}
-      POSTGRES_USER: ${MNT_POSTGRES_USER:-mnt_app}
-      POSTGRES_PASSWORD: ${MNT_POSTGRES_PASSWORD:-mnt-prod-local-change-me}
+      POSTGRES_USER: ${MNT_POSTGRES_ADMIN_USER:-mnt_cluster_admin}
+      POSTGRES_PASSWORD: ${MNT_POSTGRES_ADMIN_PASSWORD:?set the cluster-admin database password}
     volumes:
       - postgres-data:/var/lib/postgresql
       - postgres-wal-archive:/var/lib/postgresql/wal-archive
+      # Shared only with the one-shot topology reconciler. This local socket is
+      # the guarded recovery path for legacy volumes whose sole superuser is
+      # mnt_app and therefore cannot yet accept the new admin over TCP.
+      - postgres-socket:/var/run/postgresql
     healthcheck:
       test:
         [
@@ -87,6 +91,38 @@ services:
     mem_limit: 3g
     cpus: 2.0
     restart: unless-stopped
+
+  postgres-topology:
+    image: postgres:18.4@sha256:65f70a152846cf504dff86e807007e9aeac98c3aeb7b62541b2c55ab9d264e56
+    depends_on:
+      postgres:
+        condition: service_healthy
+    entrypoint: ["bash", "/usr/local/bin/postgres-reconcile-topology"]
+    environment:
+      POSTGRES_HOST: postgres
+      POSTGRES_LOCAL_SOCKET_DIR: /var/run/postgresql
+      POSTGRES_DB: ${MNT_POSTGRES_DB:-mnt_prod}
+      POSTGRES_ADMIN_USER: ${MNT_POSTGRES_ADMIN_USER:-mnt_cluster_admin}
+      POSTGRES_ADMIN_PASSWORD: ${MNT_POSTGRES_ADMIN_PASSWORD:?set the cluster-admin database password}
+      MNT_APP_POSTGRES_PASSWORD: ${MNT_APP_POSTGRES_PASSWORD:?set the migration-owner database password}
+      MNT_RT_POSTGRES_PASSWORD: ${MNT_RT_POSTGRES_PASSWORD:?set the runtime database password}
+      MNT_LEAVE_COMMAND_POSTGRES_PASSWORD: ${MNT_LEAVE_COMMAND_POSTGRES_PASSWORD:?set a distinct leave command database password}
+      MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD: ${MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD:?set a distinct ontology command database password}
+      MNT_ALLOW_LEGACY_MNT_APP_SUPERUSER_CONVERSION: ${MNT_ALLOW_LEGACY_MNT_APP_SUPERUSER_CONVERSION:-0}
+    volumes:
+      - ./postgres-reconcile-topology.sh:/usr/local/bin/postgres-reconcile-topology:ro
+      - postgres-socket:/var/run/postgresql
+    restart: "no"
+
+  migrate:
+    <<: *app-image
+    environment:
+      MNT_APP_ROLE: migrate
+      DATABASE_URL: postgresql://mnt_app:${MNT_APP_POSTGRES_PASSWORD:?set the migration-owner database password}@postgres:5432/${MNT_POSTGRES_DB:-mnt_prod}
+    depends_on:
+      postgres-topology:
+        condition: service_completed_successfully
+    restart: "no"
 
   seaweedfs:
     image: chrislusf/seaweedfs:4.32
@@ -141,11 +177,13 @@ services:
     environment:
       <<: *app-env
       MNT_APP_ROLE: api
+      LEAVE_COMMAND_DATABASE_URL: postgresql://mnt_leave_cmd:${MNT_LEAVE_COMMAND_POSTGRES_PASSWORD:?set a distinct leave command database password}@postgres:5432/${MNT_POSTGRES_DB:-mnt_prod}
+      ONTOLOGY_COMMAND_DATABASE_URL: postgresql://mnt_ontology_cmd:${MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD:?set a distinct ontology command database password}@postgres:5432/${MNT_POSTGRES_DB:-mnt_prod}
       MNT_HTTP_ADDR: 0.0.0.0:8080
       OTEL_SERVICE_NAME: mnt-app-api
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       otel-collector:
         condition: service_healthy
     labels:
@@ -174,8 +212,8 @@ services:
       MNT_HTTP_ADDR: 0.0.0.0:8080
       OTEL_SERVICE_NAME: mnt-app-worker
     depends_on:
-      postgres:
-        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
       otel-collector:
         condition: service_healthy
     healthcheck:
@@ -191,4 +229,5 @@ services:
 volumes:
   postgres-data:
   postgres-wal-archive:
+  postgres-socket:
   seaweedfs-data:

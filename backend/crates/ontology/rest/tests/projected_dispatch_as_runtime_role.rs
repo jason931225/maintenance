@@ -66,6 +66,23 @@ async fn runtime_role_pool(owner_pool: &PgPool) -> PgPool {
         .unwrap()
 }
 
+async fn command_role_pool(owner_pool: &PgPool) -> PgPool {
+    let options = owner_pool.connect_options().as_ref().clone();
+    PgPoolOptions::new()
+        .max_connections(4)
+        .after_connect(|conn, _meta| {
+            Box::pin(async move {
+                sqlx::query("SET ROLE mnt_ontology_cmd")
+                    .execute(conn)
+                    .await?;
+                Ok(())
+            })
+        })
+        .connect_with(options)
+        .await
+        .unwrap()
+}
+
 // --- seed helpers (org / branch / user / equipment) --------------------------
 
 fn test_audit_event(
@@ -282,13 +299,13 @@ fn update_equipment_handler(store: PgRegistryStore) -> ProjectedHandler {
     })
 }
 
-fn state_with_registry(pool: &PgPool) -> OntologyRestState {
+fn state_with_registry(pool: &PgPool, command_pool: &PgPool) -> OntologyRestState {
     let registry = ProjectedDispatchRegistry::new().register(
         DISPATCH_TARGET,
         update_equipment_handler(PgRegistryStore::new(pool.clone())),
     );
     OntologyRestState::new(
-        PgOntologyStore::new(pool.clone()),
+        PgOntologyStore::new(pool.clone()).with_command_pool(command_pool.clone()),
         PgInstanceStore::new(pool.clone()),
         PgGovernanceStore::new(pool.clone()),
         None,
@@ -310,7 +327,8 @@ async fn seed_projected_action(
     submission_criteria: Value,
 ) -> ObjectTypeId {
     mnt_platform_request_context::scope_org(org, async {
-        let store = PgOntologyStore::new(owner_pool.clone());
+        let store = PgOntologyStore::new(owner_pool.clone())
+            .with_command_pool(command_role_pool(owner_pool).await);
         let draft = CreateObjectTypeDraft {
             stable_key: key.to_owned(),
             title: "장비".to_owned(),
@@ -385,6 +403,7 @@ fn dispatch_command(object_type_id: ObjectTypeId, equipment_id: EquipmentId) -> 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn projected_dispatch_fires_domain_use_case_and_engine_writes_nothing(owner_pool: PgPool) {
     let rt = runtime_role_pool(&owner_pool).await;
+    let cmd = command_role_pool(&owner_pool).await;
     let org = OrgId::knl();
     let org_uuid = *org.as_uuid();
     seed_org(&owner_pool, org_uuid, "a").await;
@@ -404,7 +423,7 @@ async fn projected_dispatch_fires_domain_use_case_and_engine_writes_nothing(owne
     .await;
 
     let outcome = mnt_platform_request_context::scope_org(org, async {
-        state_with_registry(&rt)
+        state_with_registry(&rt, &cmd)
             .execute_action(
                 &super_admin(actor, org),
                 "reclassify",
@@ -447,6 +466,7 @@ async fn projected_dispatch_fires_domain_use_case_and_engine_writes_nothing(owne
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn unknown_dispatch_target_fails_closed_and_writes_nothing(owner_pool: PgPool) {
     let rt = runtime_role_pool(&owner_pool).await;
+    let cmd = command_role_pool(&owner_pool).await;
     let org = OrgId::knl();
     let org_uuid = *org.as_uuid();
     seed_org(&owner_pool, org_uuid, "a").await;
@@ -468,7 +488,7 @@ async fn unknown_dispatch_target_fails_closed_and_writes_nothing(owner_pool: PgP
     .await;
 
     let err = mnt_platform_request_context::scope_org(org, async {
-        state_with_registry(&rt)
+        state_with_registry(&rt, &cmd)
             .execute_action(
                 &super_admin(actor, org),
                 "reclassify",
@@ -494,6 +514,7 @@ async fn unknown_dispatch_target_fails_closed_and_writes_nothing(owner_pool: PgP
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn failed_gate_denies_before_dispatch_and_writes_nothing(owner_pool: PgPool) {
     let rt = runtime_role_pool(&owner_pool).await;
+    let cmd = command_role_pool(&owner_pool).await;
     let org = OrgId::knl();
     let org_uuid = *org.as_uuid();
     seed_org(&owner_pool, org_uuid, "a").await;
@@ -514,7 +535,7 @@ async fn failed_gate_denies_before_dispatch_and_writes_nothing(owner_pool: PgPoo
     .await;
 
     let err = mnt_platform_request_context::scope_org(org, async {
-        state_with_registry(&rt)
+        state_with_registry(&rt, &cmd)
             .execute_action(
                 &super_admin(actor, org),
                 "reclassify",
@@ -536,6 +557,7 @@ async fn failed_gate_denies_before_dispatch_and_writes_nothing(owner_pool: PgPoo
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn projected_action_is_invisible_across_tenants(owner_pool: PgPool) {
     let rt = runtime_role_pool(&owner_pool).await;
+    let cmd = command_role_pool(&owner_pool).await;
     let org_a = OrgId::knl();
     let org_b = OrgId::from_uuid(ORG_B);
     seed_org(&owner_pool, *org_a.as_uuid(), "a").await;
@@ -558,7 +580,7 @@ async fn projected_action_is_invisible_across_tenants(owner_pool: PgPool) {
 
     // Under org-B's GUC, org-A's action type does not resolve → NotFound.
     let err = mnt_platform_request_context::scope_org(org_b, async {
-        state_with_registry(&rt)
+        state_with_registry(&rt, &cmd)
             .execute_action(
                 &super_admin(actor_b, org_b),
                 "reclassify",
@@ -575,6 +597,7 @@ async fn projected_action_is_invisible_across_tenants(owner_pool: PgPool) {
 #[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn projected_submission_criteria_fail_closed_and_write_nothing(owner_pool: PgPool) {
     let rt = runtime_role_pool(&owner_pool).await;
+    let cmd = command_role_pool(&owner_pool).await;
     let org = OrgId::knl();
     let org_uuid = *org.as_uuid();
     seed_org(&owner_pool, org_uuid, "a").await;
@@ -598,7 +621,7 @@ async fn projected_submission_criteria_fail_closed_and_write_nothing(owner_pool:
     .await;
 
     let err = mnt_platform_request_context::scope_org(org, async {
-        state_with_registry(&rt)
+        state_with_registry(&rt, &cmd)
             .execute_action(
                 &super_admin(actor, org),
                 "reclassify",

@@ -1,7 +1,7 @@
 import { Suspense, useEffect, useRef, useState } from "react";
 import { Outlet, useLocation } from "react-router-dom";
 
-import { useAuth } from "../../context/auth";
+import { useAuth, type AuthSession, type ViewAsState } from "../../context/auth";
 import { TitleProvider } from "../../context/title";
 import { ko } from "../../i18n/ko";
 import { ViewAsBanner } from "../../features/platform/ViewAsBanner";
@@ -18,6 +18,67 @@ import { Topbar } from "./Topbar";
 const COMMS_OPEN_STORAGE_KEY = "oyatie.console.commsRail.open";
 /** The rail defaults open only where the 3-column layout has room (ref ≥1440px). */
 const COMMS_DEFAULT_OPEN_QUERY = "(min-width: 1440px)";
+
+function sortedClaims(values: string[] | undefined): string[] {
+  return [...new Set(values ?? [])].sort((left, right) =>
+    left.localeCompare(right),
+  );
+}
+
+function normalizedIdentity(value: string | undefined): string | null {
+  const normalized = value?.trim();
+  return normalized ? normalized : null;
+}
+
+function authorityClaims(session: AuthSession | undefined) {
+  return {
+    roles: sortedClaims(session?.roles),
+    groupRoles: sortedClaims(session?.group_roles),
+    featureGrants: sortedClaims(session?.feature_grants),
+    branches: sortedClaims(session?.branches),
+    isPlatform: session?.isPlatform === true,
+  };
+}
+
+/** Non-secret authority + exact provider-owned incarnation partition. */
+function shellWindowAuthorityKey(
+  session: AuthSession | undefined,
+  viewAs: ViewAsState | undefined,
+): string | null {
+  const effectiveIncarnation = normalizedIdentity(
+    session?.client_session_incarnation,
+  );
+  const sourceIncarnation = viewAs
+    ? normalizedIdentity(viewAs.platformSession.client_session_incarnation)
+    : null;
+  if (!effectiveIncarnation || (viewAs && !sourceIncarnation)) return null;
+
+  return JSON.stringify({
+    version: 3,
+    effective: {
+      incarnation: effectiveIncarnation,
+      orgId: normalizedIdentity(viewAs?.actingOrgId ?? session?.org_id),
+      userId:
+        normalizedIdentity(session?.user_id) ??
+        (viewAs ? normalizedIdentity(viewAs.platformSession.user_id) : null),
+      ...authorityClaims(session),
+    },
+    viewAs: viewAs
+      ? {
+          orgId: viewAs.actingOrgId,
+          role: viewAs.actingRole,
+          mode: viewAs.mode ?? null,
+          source: viewAs.source ?? null,
+          sourceIdentity: {
+            incarnation: sourceIncarnation,
+            orgId: normalizedIdentity(viewAs.platformSession.org_id),
+            userId: normalizedIdentity(viewAs.platformSession.user_id),
+            ...authorityClaims(viewAs.platformSession),
+          },
+        }
+      : null,
+  });
+}
 
 function readInitialCommsOpen(): boolean {
   try {
@@ -58,7 +119,8 @@ function AppShellContent() {
   // Default-open on wide viewports; the user's toggle persists per device.
   const [commsOpen, setCommsOpen] = useState(readInitialCommsOpen);
   const [commsSurface, setCommsSurface] = useState<CommsSurface>("messenger");
-  const { session } = useAuth();
+  const { session, viewAs } = useAuth();
+  const windowAuthorityKey = shellWindowAuthorityKey(session, viewAs);
   const location = useLocation();
   const mainRef = useRef<HTMLElement>(null);
 
@@ -107,7 +169,12 @@ function AppShellContent() {
   // persistent bottom dock (ShellDock hosts TrayDock; renderTray=false stops
   // the provider's floating fallback from duplicating it).
   return (
-    <WindowManagerProvider renderTray={false}>
+    <WindowManagerProvider
+      key={windowAuthorityKey ?? "owned-incarnation-required"}
+      authorityPartition={windowAuthorityKey ?? undefined}
+      retentionEnabled={windowAuthorityKey !== null}
+      renderTray={false}
+    >
       <div className="console flex h-screen flex-col overflow-hidden bg-console-canvas">
         {/* Skip-to-main */}
         <a

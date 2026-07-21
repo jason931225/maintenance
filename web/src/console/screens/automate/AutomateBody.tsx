@@ -16,10 +16,15 @@
 // that same real enforcer instead of the empty Cedar lane: SUPER_ADMIN holds
 // every automate capability, feature grants unlock individual actions for other
 // roles, and everyone else is denied by omission (no tabs).
-import { useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 
 import { useAuth } from "../../../context/auth";
-import { AutomateHub, AUTOMATE_GATE_ACTIONS } from "../../../pages/AutomatePage";
+import {
+  AutomateHub,
+  AUTOMATE_GATE_ACTIONS,
+  type AutomateTab,
+} from "../../../pages/AutomatePage";
 import { PolicyGateProvider, type PolicyGate } from "../../policy";
 
 // System-tier surface — mirrors the nav's ROLE_MANAGE_ROLES gate on "workflow".
@@ -28,8 +33,57 @@ const AUTOMATE_ACTION_SET = new Set<string>(AUTOMATE_GATE_ACTIONS);
 
 export function AutomateBody() {
   const { session } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
   const roles = session?.roles;
   const featureGrants = session?.feature_grants;
+  const routeSearch = new URLSearchParams(location.search);
+  const requestedTab = routeSearch.get("tab");
+  const routeTab: AutomateTab =
+    location.pathname === "/console/scheduled"
+      ? "schedules"
+      : requestedTab === "monitors"
+        ? "monitors"
+        : "rules";
+
+  if (location.pathname === "/console/scheduled" || requestedTab !== "monitors") {
+    routeSearch.delete("tab");
+  } else {
+    routeSearch.set("tab", "monitors");
+  }
+  const canonicalQuery = routeSearch.toString();
+  const canonicalSearch = canonicalQuery ? `?${canonicalQuery}` : "";
+
+  useEffect(() => {
+    if (canonicalSearch !== location.search) {
+      void navigate(
+        { pathname: location.pathname, search: canonicalSearch, hash: location.hash },
+        { replace: true },
+      );
+    }
+  }, [canonicalSearch, location.hash, location.pathname, location.search, navigate]);
+
+  const navigateToTab = useCallback(
+    (tab: AutomateTab) => {
+      const search = new URLSearchParams(location.search);
+      if (tab === "monitors") search.set("tab", "monitors");
+      else search.delete("tab");
+      const query = search.toString();
+      const target = {
+        pathname: tab === "schedules" ? "/console/scheduled" : "/console/workflow",
+        search: query ? `?${query}` : "",
+        hash: location.hash,
+      };
+      if (
+        target.pathname !== location.pathname ||
+        target.search !== location.search ||
+        target.hash !== location.hash
+      ) {
+        void navigate(target);
+      }
+    },
+    [location.hash, location.pathname, location.search, navigate],
+  );
 
   const gate = useMemo<PolicyGate>(
     () => ({
@@ -46,7 +100,7 @@ export function AutomateBody() {
 
   return (
     <PolicyGateProvider gate={gate}>
-      <AutomateHub />
+      <AutomateHub tab={routeTab} onTabChange={navigateToTab} />
     </PolicyGateProvider>
   );
 }

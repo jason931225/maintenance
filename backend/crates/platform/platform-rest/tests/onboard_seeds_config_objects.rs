@@ -4,11 +4,11 @@
 //! PUBLISHED and org-scoped for the new tenant — created by the tenant's own admin
 //! (so the registry FK to `users(id, org_id)` holds) and isolated from other orgs.
 //!
-//! The app router runs against a pool whose connections `SET ROLE mnt_rt`, so the
-//! onboarding + the engine seed both execute as the production runtime role under
-//! FORCE RLS (per the project's rls-verify-as-runtime-role discipline). The
-//! assertions read `ont_object_types` as the OWNER with RLS off, so they see the
-//! truth regardless of any armed GUC.
+//! The onboarding shell and catalog reads use a pool whose connections `SET ROLE
+//! mnt_rt`, while catalog mutation uses a distinct pool whose connections `SET
+//! ROLE mnt_ontology_cmd`. This mirrors the production runtime/command capability
+//! split while keeping FORCE RLS active. The assertions read `ont_object_types` as
+//! the OWNER with RLS off, so they see the truth regardless of any armed GUC.
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
 
 use axum::Router;
@@ -36,11 +36,10 @@ const TEST_AUDIENCE: &str = "mnt-api";
 /// The engine-backed catalog seeder, mirroring the production impl the App tier
 /// injects (`mnt_app::tenant_config_seeder`). Kept here because the platform tier
 /// only depends on the ontology adapter as a dev-dependency.
-fn seeder(pool: PgPool) -> TenantConfigSeeder {
+fn seeder(store: PgOntologyStore) -> TenantConfigSeeder {
     std::sync::Arc::new(move |org, actor, at| {
-        let pool = pool.clone();
+        let store = store.clone();
         Box::pin(async move {
-            let store = PgOntologyStore::new(pool);
             mnt_platform_request_context::scope_org(
                 org,
                 seed_governed_config_object_types(&store, actor, at),
@@ -56,6 +55,7 @@ struct Harness {
     private_pem: String,
     public_pem: String,
     rt_pool: PgPool,
+    command_pool: PgPool,
 }
 
 impl Harness {
@@ -73,6 +73,7 @@ impl Harness {
             private_pem,
             public_pem,
             rt_pool: runtime_role_pool(owner_pool).await,
+            command_pool: command_role_pool(owner_pool).await,
         }
     }
 
@@ -92,7 +93,10 @@ impl Harness {
                 Some(verifier),
                 PlatformProvisioner::new(Duration::minutes(15)),
             )
-            .with_tenant_config_seeder(Some(seeder(self.rt_pool.clone()))),
+            .with_tenant_config_seeder(Some(seeder(
+                PgOntologyStore::new(self.rt_pool.clone())
+                    .with_command_pool(self.command_pool.clone()),
+            ))),
         )
     }
 
@@ -134,6 +138,23 @@ async fn runtime_role_pool(owner_pool: &PgPool) -> PgPool {
         .after_connect(|conn, _meta| {
             Box::pin(async move {
                 sqlx::query("SET ROLE mnt_rt").execute(conn).await?;
+                Ok(())
+            })
+        })
+        .connect_with(options)
+        .await
+        .unwrap()
+}
+
+async fn command_role_pool(owner_pool: &PgPool) -> PgPool {
+    let options = owner_pool.connect_options().as_ref().clone();
+    PgPoolOptions::new()
+        .max_connections(4)
+        .after_connect(|conn, _meta| {
+            Box::pin(async move {
+                sqlx::query("SET ROLE mnt_ontology_cmd")
+                    .execute(conn)
+                    .await?;
                 Ok(())
             })
         })

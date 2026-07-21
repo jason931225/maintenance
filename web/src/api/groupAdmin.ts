@@ -1,6 +1,7 @@
 import { canonicalOrgSlug } from "../lib/orgSlug";
 import { getDeviceId } from "./device";
-import { shouldSkipAuthRefresh, singleFlightRefresh } from "./refresh";
+import { singleFlightRefresh } from "./refresh";
+import type { RefreshAuthority } from "./refresh";
 
 export interface GroupAdminMemberOrg {
   id: string;
@@ -63,45 +64,39 @@ async function groupAdminFetch(
   bearerToken: string | undefined,
   path: string,
   init: RequestInit,
+  refreshAuthority?: RefreshAuthority,
 ): Promise<Response> {
-  const headers = new Headers(init.headers);
-  headers.set("Accept", "application/json");
-  if (init.body !== undefined) {
-    headers.set("Content-Type", "application/json");
-  }
-  if (bearerToken) {
-    headers.set("Authorization", `Bearer ${bearerToken}`);
-  }
-  headers.set("X-Auth-Transport", "cookie");
-  const deviceId = getDeviceId();
-  if (deviceId) {
-    headers.set("X-Device-Id", deviceId);
-  }
-
-  const url = `${apiBaseUrl()}${path}`;
-  const response = await fetch(url, {
-    ...init,
-    headers,
-    credentials: "include",
-  });
-
-  if (response.status === 401 && !shouldSkipAuthRefresh(url)) {
-    let newToken: string;
-    try {
-      newToken = await singleFlightRefresh();
-    } catch {
-      return response;
+  const request = (token: string | undefined) => {
+    const headers = new Headers(init.headers);
+    headers.set("Accept", "application/json");
+    if (init.body !== undefined) {
+      headers.set("Content-Type", "application/json");
     }
-    const retryHeaders = new Headers(headers);
-    retryHeaders.set("Authorization", `Bearer ${newToken}`);
-    return fetch(url, {
+    if (token) {
+      headers.set("Authorization", `Bearer ${token}`);
+    }
+    headers.set("X-Auth-Transport", "cookie");
+    const deviceId = getDeviceId();
+    if (deviceId) {
+      headers.set("X-Device-Id", deviceId);
+    }
+
+    return fetch(`${apiBaseUrl()}${path}`, {
       ...init,
-      headers: retryHeaders,
+      headers,
       credentials: "include",
     });
-  }
+  };
 
-  return response;
+  const response = await request(bearerToken);
+  if (response.status !== 401) return response;
+
+  try {
+    const freshBearer = await singleFlightRefresh(refreshAuthority);
+    return await request(freshBearer);
+  } catch {
+    return response;
+  }
 }
 
 async function parseError(response: Response): Promise<GroupAdminApiError> {
@@ -128,11 +123,13 @@ async function parseError(response: Response): Promise<GroupAdminApiError> {
 
 export async function listGroupAdminGroups(
   bearerToken: string | undefined,
+  refreshAuthority?: RefreshAuthority,
 ): Promise<GroupAdminGroup[]> {
   const response = await groupAdminFetch(
     bearerToken,
     "/api/v1/group-admin/groups",
     { method: "GET" },
+    refreshAuthority,
   );
   if (!response.ok) throw await parseError(response);
   const body = (await response.json()) as GroupAdminGroupsResponse;
@@ -142,6 +139,7 @@ export async function listGroupAdminGroups(
 export async function startGroupTenantContext(
   bearerToken: string | undefined,
   orgId: string,
+  refreshAuthority?: RefreshAuthority,
 ): Promise<GroupTenantContextStartResponse> {
   const response = await groupAdminFetch(
     bearerToken,
@@ -150,6 +148,7 @@ export async function startGroupTenantContext(
       method: "POST",
       body: JSON.stringify({ org_id: orgId }),
     },
+    refreshAuthority,
   );
   if (!response.ok) throw await parseError(response);
   return (await response.json()) as GroupTenantContextStartResponse;
@@ -158,6 +157,7 @@ export async function startGroupTenantContext(
 export async function exitGroupTenantContext(
   bearerToken: string | undefined,
   orgId: string,
+  refreshAuthority?: RefreshAuthority,
 ): Promise<void> {
   const response = await groupAdminFetch(
     bearerToken,
@@ -166,6 +166,7 @@ export async function exitGroupTenantContext(
       method: "POST",
       body: JSON.stringify({ org_id: orgId }),
     },
+    refreshAuthority,
   );
   if (!response.ok) throw await parseError(response);
 }

@@ -42,6 +42,19 @@ import {
 
 type SubmitEventLike = { preventDefault: () => void };
 
+type OntologyChildKeyPrefix = "prop" | "link" | "action" | "analytic";
+
+function newOntologyChildKey(prefix: OntologyChildKeyPrefix): string {
+  const suffix = globalThis.crypto
+    .randomUUID()
+    .replaceAll("-", "")
+    .toLowerCase();
+  if (!/^[0-9a-f]{32}$/.test(suffix)) {
+    throw new Error("Unable to create ontology child identity");
+  }
+  return `${prefix}_${suffix}`;
+}
+
 const CONTROL_MIN = 44; // WCAG AA target size
 
 const rootStyle: CSSProperties = {
@@ -294,8 +307,12 @@ function TypeRail({
                   <StatusChip tone={schemaStageTone(type.lifecycleState)}>
                     {T.stage[type.lifecycleState]}
                   </StatusChip>
-                  <StatusChip tone="info">{T.version(type.schemaVersion)}</StatusChip>
-                  <StatusChip tone="neutral">{T.instanceCount(type.instances.length)}</StatusChip>
+                  <StatusChip tone="info">
+                    {T.version(type.schemaVersion)}
+                  </StatusChip>
+                  <StatusChip tone="neutral">
+                    {T.instanceCount(type.instances.length)}
+                  </StatusChip>
                   {isStaged(state, type.id) ? (
                     <StatusChip tone="warn">{T.staging.pending}</StatusChip>
                   ) : null}
@@ -338,13 +355,9 @@ function AddField({ label, children }: { label: string; children: ReactNode }) {
 
 function PropertyAddForm({
   T,
-  typeId,
-  count,
   onAdd,
 }: {
   T: OntologyManagerStrings;
-  typeId: string;
-  count: number;
   onAdd: (edit: SchemaEdit) => void;
 }) {
   const [name, setName] = useState("");
@@ -356,7 +369,12 @@ function PropertyAddForm({
     if (title.length === 0) return;
     onAdd({
       kind: "property",
-      def: { key: `prop_${typeId}_${String(count + 1)}`, title, type: kind, required: false },
+      def: {
+        key: newOntologyChildKey("prop"),
+        title,
+        type: kind,
+        required: false,
+      },
     });
     setName("");
   }
@@ -414,8 +432,12 @@ function PropertiesPanel({
               <span style={labelTextStyle}>{property.title}</span>
               <span style={monoStyle}>{property.key}</span>
               <span style={chipRowStyle}>
-                <StatusChip tone="accent">{T.fieldKind[property.type]}</StatusChip>
-                {property.required ? <StatusChip tone="warn">{T.properties.required}</StatusChip> : null}
+                <StatusChip tone="accent">
+                  {T.fieldKind[property.type]}
+                </StatusChip>
+                {property.required ? (
+                  <StatusChip tone="warn">{T.properties.required}</StatusChip>
+                ) : null}
                 {property.inPropertyPolicy ? (
                   <StatusChip tone="purple">{T.properties.policy}</StatusChip>
                 ) : null}
@@ -430,7 +452,7 @@ function PropertiesPanel({
         action={ONTOLOGY_MANAGER_ACTIONS.schemaEdit}
         resource={{ kind: "ontology_schema", id: view.id }}
       >
-        <PropertyAddForm T={T} typeId={view.id} count={view.properties.length} onAdd={onAdd} />
+        <PropertyAddForm T={T} onAdd={onAdd} />
       </PolicyGated>
     </>
   );
@@ -439,14 +461,10 @@ function PropertiesPanel({
 function LinkAddForm({
   T,
   types,
-  typeId,
-  count,
   onAdd,
 }: {
   T: OntologyManagerStrings;
   types: OntObjectTypeDef[];
-  typeId: string;
-  count: number;
   onAdd: (edit: SchemaEdit) => void;
 }) {
   const [name, setName] = useState("");
@@ -460,7 +478,7 @@ function LinkAddForm({
     onAdd({
       kind: "link",
       def: {
-        stableKey: `link_${typeId}_${String(count + 1)}`,
+        stableKey: newOntologyChildKey("link"),
         title,
         toTypeKey: target,
         cardinality,
@@ -507,11 +525,13 @@ function LinkAddForm({
           style={inputStyle}
         >
           {/* many_one is display-only sugar; the registry admits one_one|one_many|many_many. */}
-          {ONT_CARDINALITIES.filter((option) => option !== "many_one").map((option) => (
-            <option key={option} value={option}>
-              {T.cardinality[option]}
-            </option>
-          ))}
+          {ONT_CARDINALITIES.filter((option) => option !== "many_one").map(
+            (option) => (
+              <option key={option} value={option}>
+                {T.cardinality[option]}
+              </option>
+            ),
+          )}
         </select>
       </AddField>
       <button type="submit" style={buttonStyle}>
@@ -537,14 +557,22 @@ function LinksPanel({
       {view.links.length > 0 ? (
         <ol style={listStyle}>
           {view.links.map((link) => {
-            const target = types.find((type) => type.stableKey === link.toTypeKey);
+            const target = types.find(
+              (type) => type.stableKey === link.toTypeKey,
+            );
             return (
               <li key={link.stableKey} style={defRowStyle}>
                 <span style={labelTextStyle}>{link.title}</span>
                 <span style={chipRowStyle}>
-                  <StatusChip tone="info">{target ? target.code : link.toTypeKey}</StatusChip>
-                  <StatusChip tone="neutral">{target ? target.title : link.toTypeKey}</StatusChip>
-                  <StatusChip tone="accent">{T.cardinality[link.cardinality]}</StatusChip>
+                  <StatusChip tone="info">
+                    {target ? target.code : link.toTypeKey}
+                  </StatusChip>
+                  <StatusChip tone="neutral">
+                    {target ? target.title : link.toTypeKey}
+                  </StatusChip>
+                  <StatusChip tone="accent">
+                    {T.cardinality[link.cardinality]}
+                  </StatusChip>
                 </span>
               </li>
             );
@@ -557,7 +585,7 @@ function LinksPanel({
         action={ONTOLOGY_MANAGER_ACTIONS.schemaEdit}
         resource={{ kind: "ontology_schema", id: view.id }}
       >
-        <LinkAddForm T={T} types={types} typeId={view.id} count={view.links.length} onAdd={onAdd} />
+        <LinkAddForm T={T} types={types} onAdd={onAdd} />
       </PolicyGated>
     </>
   );
@@ -565,13 +593,9 @@ function LinksPanel({
 
 function ActionAddForm({
   T,
-  typeId,
-  count,
   onAdd,
 }: {
   T: OntologyManagerStrings;
-  typeId: string;
-  count: number;
   onAdd: (edit: SchemaEdit) => void;
 }) {
   const [name, setName] = useState("");
@@ -583,7 +607,7 @@ function ActionAddForm({
     if (title.length === 0) return;
     onAdd({
       kind: "action",
-      def: { stableKey: `action_${typeId}_${String(count + 1)}`, title, dispatch },
+      def: { stableKey: newOntologyChildKey("action"), title, dispatch },
     });
     setName("");
   }
@@ -640,7 +664,9 @@ function ActionsPanel({
             <li key={action.stableKey} style={defRowStyle}>
               <span style={labelTextStyle}>{action.title}</span>
               <span style={monoStyle}>{action.stableKey}</span>
-              <StatusChip tone="accent">{T.dispatch[action.dispatch]}</StatusChip>
+              <StatusChip tone="accent">
+                {T.dispatch[action.dispatch]}
+              </StatusChip>
             </li>
           ))}
         </ol>
@@ -651,7 +677,7 @@ function ActionsPanel({
         action={ONTOLOGY_MANAGER_ACTIONS.schemaEdit}
         resource={{ kind: "ontology_schema", id: view.id }}
       >
-        <ActionAddForm T={T} typeId={view.id} count={view.actions.length} onAdd={onAdd} />
+        <ActionAddForm T={T} onAdd={onAdd} />
       </PolicyGated>
     </>
   );
@@ -659,13 +685,9 @@ function ActionsPanel({
 
 function AnalyticAddForm({
   T,
-  typeId,
-  count,
   onAdd,
 }: {
   T: OntologyManagerStrings;
-  typeId: string;
-  count: number;
   onAdd: (edit: SchemaEdit) => void;
 }) {
   const [name, setName] = useState("");
@@ -678,7 +700,7 @@ function AnalyticAddForm({
     if (title.length === 0 || expression.length === 0) return;
     onAdd({
       kind: "analytic",
-      def: { key: `analytic_${typeId}_${String(count + 1)}`, title, formula: expression },
+      def: { key: newOntologyChildKey("analytic"), title, formula: expression },
     });
     setName("");
     setFormula("");
@@ -740,7 +762,7 @@ function AnalyticsPanel({
         action={ONTOLOGY_MANAGER_ACTIONS.schemaEdit}
         resource={{ kind: "ontology_schema", id: view.id }}
       >
-        <AnalyticAddForm T={T} typeId={view.id} count={view.analytics.length} onAdd={onAdd} />
+        <AnalyticAddForm T={T} onAdd={onAdd} />
       </PolicyGated>
     </>
   );
@@ -752,7 +774,9 @@ function InstanceRowContent({ row }: { row: OntInstanceRow }) {
     <>
       <span style={monoStyle}>{row.code}</span>
       <span style={labelTextStyle}>{row.title}</span>
-      <StatusChip tone={instanceTone(row.lifecycleState)}>{lifecycle}</StatusChip>
+      <StatusChip tone={instanceTone(row.lifecycleState)}>
+        {lifecycle}
+      </StatusChip>
     </>
   );
 }
@@ -775,7 +799,11 @@ function InstancesPanel({
             action={ONTOLOGY_MANAGER_ACTIONS.instanceOpen}
             resource={{ kind: "object", id: row.id }}
             fallback={
-              <span {...objDrag(row.code, row.title)} title={ko.console.window.dragRefOf(row.title)} style={defRowStyle}>
+              <span
+                {...objDrag(row.code, row.title)}
+                title={ko.console.window.dragRefOf(row.title)}
+                style={defRowStyle}
+              >
                 <InstanceRowContent row={row} />
               </span>
             }
@@ -799,13 +827,27 @@ function InstancesPanel({
   );
 }
 
-function AutomationsPanel({ T, view }: { T: OntologyManagerStrings; view: OntObjectTypeDef }) {
+function AutomationsPanel({
+  T,
+  view,
+}: {
+  T: OntologyManagerStrings;
+  view: OntObjectTypeDef;
+}) {
   if (view.acting.length === 0) return <EmptyChip T={T} />;
   return (
     <ol style={listStyle}>
       {view.acting.map((rule) => (
         <li key={rule.id} style={defRowStyle}>
-          <StatusChip tone={rule.kind === "automation" ? "accent" : rule.kind === "policy" ? "purple" : "info"}>
+          <StatusChip
+            tone={
+              rule.kind === "automation"
+                ? "accent"
+                : rule.kind === "policy"
+                  ? "purple"
+                  : "info"
+            }
+          >
             {ko.console.objectcard.acting[rule.kind]}
           </StatusChip>
           <span style={monoStyle}>{rule.label}</span>
@@ -827,7 +869,9 @@ export interface OntologyManagerScreenProps {
    */
   onCommitRevision?: (staged: OntObjectTypeDef) => Promise<void>;
   /** GET /ontology/instances/{id} (+history/traverse) → the full card payload. */
-  resolveInstanceCard?: (row: OntInstanceRow) => Promise<ObjectCardDescriptor>;
+  resolveInstanceCard?: (
+    row: OntInstanceRow,
+  ) => Promise<ObjectCardDescriptor | undefined>;
 }
 
 /** Card payload from registry data alone (used when the full read fails). */
@@ -872,7 +916,9 @@ export function OntologyManagerScreen({
   const [state, setState] = useState<RegistryState>(() =>
     initialRegistryState(registry ?? []),
   );
-  const [selectedId, setSelectedId] = useState(initialTypeId ?? state.types.at(0)?.id ?? "");
+  const [selectedId, setSelectedId] = useState(
+    initialTypeId ?? state.types.at(0)?.id ?? "",
+  );
   const [subtab, setSubtab] = useState<ManagerSubtab>("properties");
 
   // The host reloads the registry after each committed mutation; adopt the
@@ -893,10 +939,26 @@ export function OntologyManagerScreen({
   const staged = isStaged(state, selectedId);
 
   function handleEdit(edit: SchemaEdit): void {
-    // Draft-type edits apply direct but stay client-local until published.
-    // wire-pending: HANDOFF §ontology-draft-update — no in-place draft update
-    // endpoint yet (PUT /object-types/{key} always stages an immutable v+1).
-    setState((current) => applySchemaEdit(current, selectedId, edit));
+    const editingDraft =
+      committedOf(state, selectedId)?.lifecycleState === "draft";
+    const nextState = applySchemaEdit(state, selectedId, edit);
+    setState(nextState);
+    // A draft edits in place: persist the appended definition immediately via
+    // PUT /object-types/{key}, which appends the new child to the in-flight
+    // draft (§9.8 append-only) and reloads the registry. A non-draft edit
+    // accumulates on the staged v+1 copy and persists on 적용 승인 instead.
+    if (editingDraft && onCommitRevision) {
+      const editedDraft = viewOf(nextState, selectedId);
+      if (editedDraft) {
+        try {
+          void onCommitRevision(editedDraft).catch(() => {
+            // The host surfaces the failure; local accumulated edits stay visible.
+          });
+        } catch {
+          // Match an asynchronously rejected host callback.
+        }
+      }
+    }
   }
 
   function handleTypeCreate(title: string): void {
@@ -931,9 +993,13 @@ export function OntologyManagerScreen({
     // the card payload read from GET /ontology/instances/{id} (+history).
     let descriptor: ObjectCardDescriptor;
     try {
-      descriptor = resolveInstanceCard
-        ? await resolveInstanceCard(row)
-        : instanceCardFallback(row, view);
+      if (resolveInstanceCard) {
+        const resolved = await resolveInstanceCard(row);
+        if (!resolved) return;
+        descriptor = resolved;
+      } else {
+        descriptor = instanceCardFallback(row, view);
+      }
     } catch {
       descriptor = instanceCardFallback(row, view);
     }
@@ -942,7 +1008,13 @@ export function OntologyManagerScreen({
 
   return (
     <div className="console" style={rootStyle}>
-      <TypeRail T={T} state={state} selectedId={selectedId} onSelect={setSelectedId} onCreate={handleTypeCreate} />
+      <TypeRail
+        T={T}
+        state={state}
+        selectedId={selectedId}
+        onSelect={setSelectedId}
+        onCreate={handleTypeCreate}
+      />
 
       {view && committed ? (
         <article aria-label={view.title} style={cardStyle}>
@@ -955,16 +1027,26 @@ export function OntologyManagerScreen({
               <StatusChip tone={schemaStageTone(committed.lifecycleState)}>
                 {T.stage[committed.lifecycleState]}
               </StatusChip>
-              <StatusChip tone="info">{T.version(committed.schemaVersion)}</StatusChip>
-              <StatusChip tone="neutral">{T.backing[view.backingKind]}</StatusChip>
+              <StatusChip tone="info">
+                {T.version(committed.schemaVersion)}
+              </StatusChip>
+              <StatusChip tone="neutral">
+                {T.backing[view.backingKind]}
+              </StatusChip>
             </span>
           </header>
 
           {staged ? (
-            <section role="status" aria-label={T.staging.pending} style={stagingBannerStyle}>
+            <section
+              role="status"
+              aria-label={T.staging.pending}
+              style={stagingBannerStyle}
+            >
               <span style={chipRowStyle}>
                 <StatusChip tone="warn">{T.staging.pending}</StatusChip>
-                <StatusChip tone="info">{T.stagedVersion(committed.schemaVersion + 1)}</StatusChip>
+                <StatusChip tone="info">
+                  {T.stagedVersion(committed.schemaVersion + 1)}
+                </StatusChip>
                 <StatusChip tone="purple">{T.staging.fourEyes}</StatusChip>
               </span>
               <span style={chipRowStyle}>
@@ -989,7 +1071,9 @@ export function OntologyManagerScreen({
                   <button
                     type="button"
                     onClick={() => {
-                      setState((current) => discardRevision(current, selectedId));
+                      setState((current) =>
+                        discardRevision(current, selectedId),
+                      );
                     }}
                     style={buttonStyle}
                   >
@@ -1000,7 +1084,15 @@ export function OntologyManagerScreen({
             </section>
           ) : null}
 
-          <div role="tablist" aria-label={T.subtabsAria} style={{ display: "flex", flexWrap: "wrap", borderBottom: "1px solid var(--border)" }}>
+          <div
+            role="tablist"
+            aria-label={T.subtabsAria}
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              borderBottom: "1px solid var(--border)",
+            }}
+          >
             {MANAGER_SUBTABS.map((key) => (
               <button
                 key={key}
@@ -1025,10 +1117,23 @@ export function OntologyManagerScreen({
             aria-labelledby={`ontology-manager-tab-${subtab}`}
             style={{ display: "grid", gap: "var(--sp-4)" }}
           >
-            {subtab === "properties" ? <PropertiesPanel T={T} view={view} onAdd={handleEdit} /> : null}
-            {subtab === "links" ? <LinksPanel T={T} view={view} types={state.types} onAdd={handleEdit} /> : null}
-            {subtab === "actions" ? <ActionsPanel T={T} view={view} onAdd={handleEdit} /> : null}
-            {subtab === "analytics" ? <AnalyticsPanel T={T} view={view} onAdd={handleEdit} /> : null}
+            {subtab === "properties" ? (
+              <PropertiesPanel T={T} view={view} onAdd={handleEdit} />
+            ) : null}
+            {subtab === "links" ? (
+              <LinksPanel
+                T={T}
+                view={view}
+                types={state.types}
+                onAdd={handleEdit}
+              />
+            ) : null}
+            {subtab === "actions" ? (
+              <ActionsPanel T={T} view={view} onAdd={handleEdit} />
+            ) : null}
+            {subtab === "analytics" ? (
+              <AnalyticsPanel T={T} view={view} onAdd={handleEdit} />
+            ) : null}
             {subtab === "instances" ? (
               <InstancesPanel
                 T={T}
@@ -1038,7 +1143,9 @@ export function OntologyManagerScreen({
                 }}
               />
             ) : null}
-            {subtab === "automations" ? <AutomationsPanel T={T} view={view} /> : null}
+            {subtab === "automations" ? (
+              <AutomationsPanel T={T} view={view} />
+            ) : null}
           </section>
         </article>
       ) : null}

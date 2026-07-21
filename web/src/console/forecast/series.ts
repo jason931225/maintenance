@@ -7,11 +7,13 @@
  * an empty sample — ProjectionPanel renders its own insufficient-sample state
  * for that, not a placeholder here.
  *
- * wire-pending: HANDOFF §18 Monte-Carlo/EVT service replaces this client-side
- * EWMA (console/charts/projection.ts) once it lands; the sample shape carries
- * over unchanged. True "contract profitability" / isolated "labor cost" series
- * don't exist in the backend yet (no contracts domain, no labor/parts cost
- * split) — this uses the closest real money time series that does.
+ * The HANDOFF §18 Monte-Carlo/EVT service is now wired: the forecast body feeds
+ * this real cost sample to POST /api/v1/analytics/projection and passes the
+ * ProjectionResult into ProjectionPanel (client-side EWMA in
+ * console/charts/projection.ts remains the offline fallback). True "contract
+ * profitability" / isolated "labor cost" series still don't exist in the backend
+ * (no contracts domain, no labor/parts cost split) — this uses the closest real
+ * money time series that does.
  */
 import type { CostLedgerEntrySummary } from "../../api/types";
 

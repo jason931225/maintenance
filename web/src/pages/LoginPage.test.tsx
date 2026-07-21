@@ -2,14 +2,18 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { AppRouter } from "../AppRouter";
 import { AuthContext } from "../context/auth";
-import type { AuthContextValue, AuthSession } from "../context/auth";
+import type { AcceptableTokens, AuthContextValue, AuthSession, TokenAcceptanceLease } from "../context/auth";
 import { createConsoleApiClient } from "../api/client";
-import { setRefreshCallbacks } from "../api/refresh";
+import {
+  createRefreshAuthority,
+  createRefreshCoordinator,
+  setRefreshCallbacks,
+} from "../api/refresh";
 
 const server = setupServer();
 
@@ -20,10 +24,6 @@ afterEach(() => {
   server.resetHandlers();
   window.history.replaceState(null, "", "/");
   window.sessionStorage.clear();
-  setRefreshCallbacks(
-    () => Promise.reject(new Error("unexpected refresh in LoginPage test")),
-    () => {},
-  );
 });
 afterAll(() => {
   server.close();
@@ -32,7 +32,10 @@ afterAll(() => {
 function makeAuthContext(
   overrides: Partial<AuthContextValue> & { session?: AuthSession },
 ): AuthContextValue {
-  const api = createConsoleApiClient(overrides.session?.access_token);
+  const api = createConsoleApiClient(
+    overrides.session?.access_token,
+    overrides.refreshAuthority,
+  );
   return {
     session: overrides.session,
     // Injected directly (no AuthProvider): the boot silent refresh is already
@@ -41,13 +44,23 @@ function makeAuthContext(
     login: overrides.login ?? (async () => {}),
     logout: overrides.logout ?? (async () => {}),
     refresh: overrides.refresh ?? (async () => {}),
-    acceptTokens: overrides.acceptTokens ?? (() => {}),
+    acceptTokens: overrides.acceptTokens ?? (() => true),
+    beginTokenAcceptance:
+      overrides.beginTokenAcceptance ??
+      (() => Object.freeze({}) as TokenAcceptanceLease),
     clearPasskeySetup: overrides.clearPasskeySetup ?? (() => {}),
     api,
+    refreshAuthority: overrides.refreshAuthority,
+    sourceRefreshAuthority: overrides.sourceRefreshAuthority,
     viewAs: overrides.viewAs,
     enterViewAs: overrides.enterViewAs ?? (() => {}),
     exitViewAs: overrides.exitViewAs ?? (() => undefined),
   };
+}
+
+function LoginLocationProbe() {
+  const location = useLocation();
+  return <output data-testid="login-location">{location.pathname}</output>;
 }
 
 function renderApp(path: string, ctx: AuthContextValue) {
@@ -55,6 +68,7 @@ function renderApp(path: string, ctx: AuthContextValue) {
     <AuthContext.Provider value={ctx}>
       <MemoryRouter initialEntries={[path]}>
         <AppRouter />
+        <LoginLocationProbe />
       </MemoryRouter>
     </AuthContext.Provider>,
   );
@@ -194,7 +208,7 @@ describe("LoginPage sign-in", () => {
         expect(acceptTokens).toHaveBeenCalledWith({
           access_token: "desktop-access",
           requires_passkey_setup: false,
-        });
+        }, expect.any(Object));
       },
       { timeout: 3_000 },
     );
@@ -286,7 +300,7 @@ describe("LoginPage sign-in", () => {
       expect(acceptTokens).toHaveBeenCalledWith({
         access_token: "otp-access",
         requires_passkey_setup: true,
-      });
+      }, expect.any(Object));
     });
   });
 
@@ -722,7 +736,11 @@ describe("OnboardingPage enrollment", () => {
       access_token: "fresh-access",
     });
     const onUnauthenticated = vi.fn();
-    setRefreshCallbacks(refreshCalled, onUnauthenticated);
+    const authority = createRefreshAuthority(
+      createRefreshCoordinator(),
+      "login-phone-enrollment",
+    );
+    setRefreshCallbacks(authority, refreshCalled, onUnauthenticated);
     let handoffCalls = 0;
     const authorizationHeaders: string[] = [];
     usePrivacyConsentHandlers(true);
@@ -748,6 +766,8 @@ describe("OnboardingPage enrollment", () => {
           access_token: "stale-access",
           requires_passkey_setup: true,
         },
+        refreshAuthority: authority,
+        sourceRefreshAuthority: authority,
       }),
     );
 
@@ -830,7 +850,7 @@ describe("OnboardingPage enrollment", () => {
     expect(acceptTokens).toHaveBeenCalledWith({
       access_token: "phone-qr-desktop-access",
       requires_passkey_setup: false,
-    });
+    }, expect.any(Object));
   });
 
   it("prefills and clears the OTP panel from a scanned fragment link", async () => {
@@ -856,5 +876,147 @@ describe("OnboardingPage enrollment", () => {
     expect(
       await screen.findByRole("button", { name: /일회용 코드로 로그인/ }),
     ).toBeTruthy();
+  });
+});
+
+describe("LoginPage provider-owned acceptance lease fencing", () => {
+  it("captures the device-login lease before the request and rejects delayed A after accepted B", async () => {
+    const user = userEvent.setup();
+    const events: string[] = [];
+    let sequence = 0;
+    let currentLease: TokenAcceptanceLease | undefined;
+    let acceptedToken = "none";
+    const beginTokenAcceptance = vi.fn(() => {
+      events.push(`lease-${String(sequence + 1)}`);
+      currentLease = Object.freeze({ sequence: ++sequence }) as unknown as TokenAcceptanceLease;
+      return currentLease;
+    });
+    const acceptTokens = vi.fn((
+      tokens: AcceptableTokens | undefined,
+      lease?: TokenAcceptanceLease,
+    ) => {
+      events.push(`accept-${tokens?.access_token ?? "none"}`);
+      if (!lease || lease !== currentLease) return false;
+      currentLease = undefined;
+      acceptedToken = tokens?.access_token ?? "none";
+      return true;
+    });
+    let markPollStarted!: () => void;
+    const pollStarted = new Promise<void>((resolve) => {
+      markPollStarted = resolve;
+    });
+    let releasePoll!: () => void;
+    const pollBarrier = new Promise<void>((resolve) => {
+      releasePoll = resolve;
+    });
+    server.use(
+      http.post("*/api/v1/auth/device-login/start", () => {
+        events.push("device-start-request");
+        return HttpResponse.json({
+          poll_token: `mnt_dlp_${"a".repeat(64)}`,
+          approve_url: `https://console.knllogistic.com/login#desktop_approve=mnt_dla_${"b".repeat(64)}`,
+          expires_at: "2099-01-01T00:00:00Z",
+        });
+      }),
+      http.post("*/api/v1/auth/device-login/poll", async () => {
+        events.push("device-poll-start");
+        markPollStarted();
+        await pollBarrier;
+        events.push("device-poll-resolve");
+        return HttpResponse.json({
+          status: "approved",
+          access_token: "delayed-device-a",
+          requires_passkey_setup: false,
+        });
+      }),
+    );
+
+    renderApp(
+      "/login",
+      makeAuthContext({ beginTokenAcceptance, acceptTokens }),
+    );
+    await user.click(screen.getByRole("button", { name: "휴대폰으로 PC 로그인" }));
+    await pollStarted;
+    expect(events.indexOf("lease-1")).toBeLessThan(events.indexOf("device-start-request"));
+    expect(events.indexOf("lease-1")).toBeLessThan(events.indexOf("device-poll-start"));
+
+    const leaseB = beginTokenAcceptance();
+    expect(acceptTokens({ access_token: "accepted-b" }, leaseB)).toBe(true);
+    releasePoll();
+    await waitFor(() => {
+      expect(events).toContain("device-poll-resolve");
+      expect(acceptTokens).toHaveBeenCalledWith(
+        { access_token: "delayed-device-a", requires_passkey_setup: false },
+        expect.any(Object),
+      );
+    });
+    expect(acceptedToken).toBe("accepted-b");
+    expect(screen.getByTestId("login-location")).toHaveTextContent("/login");
+    expect(screen.queryByText("휴대폰에서 로그인을 승인했습니다.")).not.toBeInTheDocument();
+  });
+
+  it("captures the OTP lease before redeem starts and does not commit delayed A after B", async () => {
+    const user = userEvent.setup();
+    const events: string[] = [];
+    let sequence = 0;
+    let currentLease: TokenAcceptanceLease | undefined;
+    let acceptedToken = "none";
+    const beginTokenAcceptance = vi.fn(() => {
+      events.push(`lease-${String(sequence + 1)}`);
+      currentLease = Object.freeze({ sequence: ++sequence }) as unknown as TokenAcceptanceLease;
+      return currentLease;
+    });
+    const acceptTokens = vi.fn((
+      tokens: AcceptableTokens | undefined,
+      lease?: TokenAcceptanceLease,
+    ) => {
+      if (!lease || lease !== currentLease) return false;
+      currentLease = undefined;
+      acceptedToken = tokens?.access_token ?? "none";
+      return true;
+    });
+    let markRedeemStarted!: () => void;
+    const redeemStarted = new Promise<void>((resolve) => {
+      markRedeemStarted = resolve;
+    });
+    let releaseRedeem!: () => void;
+    const redeemBarrier = new Promise<void>((resolve) => {
+      releaseRedeem = resolve;
+    });
+    server.use(
+      http.post("*/api/v1/auth/otp/redeem", async () => {
+        events.push("otp-request-start");
+        markRedeemStarted();
+        await redeemBarrier;
+        events.push("otp-request-resolve");
+        return HttpResponse.json({
+          access_token: "delayed-otp-a",
+          requires_passkey_setup: true,
+        });
+      }),
+    );
+
+    renderApp(
+      "/login",
+      makeAuthContext({ beginTokenAcceptance, acceptTokens }),
+    );
+    await user.click(screen.getByRole("button", { name: "처음이신가요? 일회용 코드로 로그인" }));
+    await user.type(screen.getByLabelText("일회용 코드"), "ABCD1234");
+    await user.click(screen.getByRole("button", { name: "코드로 로그인" }));
+    await redeemStarted;
+    expect(events.indexOf("lease-1")).toBeLessThan(events.indexOf("otp-request-start"));
+
+    const leaseB = beginTokenAcceptance();
+    expect(acceptTokens({ access_token: "accepted-b" }, leaseB)).toBe(true);
+    releaseRedeem();
+    await waitFor(() => {
+      expect(events).toContain("otp-request-resolve");
+      expect(acceptTokens).toHaveBeenCalledWith(
+        { access_token: "delayed-otp-a", requires_passkey_setup: true },
+        expect.any(Object),
+      );
+    });
+    expect(acceptedToken).toBe("accepted-b");
+    expect(screen.getByTestId("login-location")).toHaveTextContent("/login");
   });
 });

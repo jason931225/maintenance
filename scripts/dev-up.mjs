@@ -96,9 +96,19 @@ const PORTS = {
 };
 
 const POSTGRES_DB = process.env.MNT_POSTGRES_DB ?? "mnt_dev";
-const POSTGRES_USER = process.env.MNT_POSTGRES_USER ?? "mnt_app";
-const POSTGRES_PASSWORD =
-  process.env.MNT_POSTGRES_PASSWORD ?? "mnt-dev-local-change-me";
+const POSTGRES_ADMIN_USER =
+  process.env.MNT_POSTGRES_ADMIN_USER ?? "mnt_cluster_admin";
+const POSTGRES_ADMIN_PASSWORD =
+  process.env.MNT_POSTGRES_ADMIN_PASSWORD ?? "mnt-dev-admin-change-me";
+const APP_POSTGRES_PASSWORD =
+  process.env.MNT_APP_POSTGRES_PASSWORD ?? "mnt-dev-owner-change-me";
+const RT_POSTGRES_PASSWORD =
+  process.env.MNT_RT_POSTGRES_PASSWORD ?? "mnt-dev-runtime-change-me";
+const LEAVE_COMMAND_POSTGRES_PASSWORD =
+  process.env.MNT_LEAVE_COMMAND_POSTGRES_PASSWORD ?? "mnt-dev-leave-command-change-me";
+const ONTOLOGY_COMMAND_POSTGRES_PASSWORD =
+  process.env.MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD ??
+  "mnt-dev-ontology-command-change-me";
 
 function log(msg) {
   console.log(`dev-up: ${msg}`);
@@ -456,8 +466,12 @@ async function bringUpDeps() {
     ...process.env,
     MNT_POSTGRES_PORT: String(PORTS.postgres),
     MNT_POSTGRES_DB: POSTGRES_DB,
-    MNT_POSTGRES_USER: POSTGRES_USER,
-    MNT_POSTGRES_PASSWORD: POSTGRES_PASSWORD,
+    MNT_POSTGRES_ADMIN_USER: POSTGRES_ADMIN_USER,
+    MNT_POSTGRES_ADMIN_PASSWORD: POSTGRES_ADMIN_PASSWORD,
+    MNT_APP_POSTGRES_PASSWORD: APP_POSTGRES_PASSWORD,
+    MNT_RT_POSTGRES_PASSWORD: RT_POSTGRES_PASSWORD,
+    MNT_LEAVE_COMMAND_POSTGRES_PASSWORD: LEAVE_COMMAND_POSTGRES_PASSWORD,
+    MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD: ONTOLOGY_COMMAND_POSTGRES_PASSWORD,
     MNT_S3_PORT: String(PORTS.s3),
     MNT_OTEL_PORT: String(PORTS.otel),
     MNT_MAILPIT_SMTP_PORT: String(PORTS.mailpitSmtp),
@@ -490,7 +504,15 @@ async function bringUpDeps() {
 }
 
 function databaseUrl() {
-  return `postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@127.0.0.1:${PORTS.postgres}/${POSTGRES_DB}`;
+  return `postgres://mnt_app:${APP_POSTGRES_PASSWORD}@127.0.0.1:${PORTS.postgres}/${POSTGRES_DB}`;
+}
+
+function runtimeDatabaseUrl() {
+  return `postgres://mnt_rt:${RT_POSTGRES_PASSWORD}@127.0.0.1:${PORTS.postgres}/${POSTGRES_DB}`;
+}
+
+function commandDatabaseUrl(role, password) {
+  return `postgres://${role}:${password}@127.0.0.1:${PORTS.postgres}/${POSTGRES_DB}`;
 }
 
 // Each of `runMigrations`, `buildAppEnv`, and backend/bacon.toml's
@@ -521,6 +543,29 @@ function runMigrations() {
   if (result.status !== 0) throw new Error("migration run failed (MNT_APP_ROLE=migrate)");
 }
 
+function reconcileDatabaseTopology(compose) {
+  log("reconciling and verifying the six-role database topology...");
+  const result = runCompose(compose, ["run", "--rm", "postgres-topology"], {
+    cwd: REPO_ROOT,
+    env: {
+      ...process.env,
+      // Keep the topology one-shot on the same Compose model used to start
+      // Postgres. Falling back to compose.dev.yml's 5432 default makes Compose
+      // recreate the dependency that dev-up published on PORTS.postgres.
+      MNT_POSTGRES_PORT: String(PORTS.postgres),
+      MNT_POSTGRES_DB: POSTGRES_DB,
+      MNT_POSTGRES_ADMIN_USER: POSTGRES_ADMIN_USER,
+      MNT_POSTGRES_ADMIN_PASSWORD: POSTGRES_ADMIN_PASSWORD,
+      MNT_APP_POSTGRES_PASSWORD: APP_POSTGRES_PASSWORD,
+      MNT_RT_POSTGRES_PASSWORD: RT_POSTGRES_PASSWORD,
+      MNT_LEAVE_COMMAND_POSTGRES_PASSWORD: LEAVE_COMMAND_POSTGRES_PASSWORD,
+      MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD: ONTOLOGY_COMMAND_POSTGRES_PASSWORD,
+    },
+    stdio: "inherit",
+  });
+  if (result.status !== 0) throw new Error("database topology reconciliation failed");
+}
+
 // Load the KNL tenant dev fixtures (scripts/dev-seed.sql) so every console
 // screen shows real org-scoped rows instead of 0-counts. Idempotent
 // (ON CONFLICT DO NOTHING) — safe to run on every up/bootstrap. Piped into the
@@ -539,7 +584,7 @@ function runSeed(compose) {
       "-v",
       "ON_ERROR_STOP=1",
       "-U",
-      POSTGRES_USER,
+      POSTGRES_ADMIN_USER,
       "-d",
       POSTGRES_DB,
     ]),
@@ -559,7 +604,15 @@ function buildAppEnv(role) {
   return {
     ...process.env,
     MNT_APP_ROLE: role,
-    DATABASE_URL: databaseUrl(),
+    DATABASE_URL: role === "migrate" ? databaseUrl() : runtimeDatabaseUrl(),
+    LEAVE_COMMAND_DATABASE_URL: commandDatabaseUrl(
+      "mnt_leave_cmd",
+      LEAVE_COMMAND_POSTGRES_PASSWORD,
+    ),
+    ONTOLOGY_COMMAND_DATABASE_URL: commandDatabaseUrl(
+      "mnt_ontology_cmd",
+      ONTOLOGY_COMMAND_POSTGRES_PASSWORD,
+    ),
     MNT_HTTP_ADDR: `127.0.0.1:${PORTS.backend}`,
     // Local dev intentionally uses the OTP-logging stub unless a caller supplies
     // a complete SMTP relay config via MNT_EMAIL_*.
@@ -640,6 +693,7 @@ function printUrls() {
 async function cmdUp() {
   await assertPortFree(PORTS.backend, "backend");
   const compose = await bringUpDeps();
+  reconcileDatabaseTopology(compose);
   runMigrations();
   runSeed(compose);
 
@@ -733,6 +787,7 @@ async function cmdBootstrap() {
   await assertPortFree(PORTS.backend, "backend");
   const devAuth = process.env.MNT_DEV_AUTH_E2E === "1";
   const compose = await bringUpDeps();
+  reconcileDatabaseTopology(compose);
   runMigrations();
   // Seed ONLY the dev-auth stack. dev-seed.sql pre-seeds a `dev-auth:*` persona
   // (so `POST /dev-auth/session` upserts the SAME row), which a DEFAULT-feature
@@ -874,7 +929,18 @@ async function cmdDown() {
   const compose = detectCompose();
   if (compose) {
     log("stopping docker deps...");
-    runCompose(compose, ["down"], { cwd: REPO_ROOT, stdio: "inherit" });
+    runCompose(compose, ["down"], {
+      cwd: REPO_ROOT,
+      env: {
+        ...process.env,
+        MNT_POSTGRES_ADMIN_PASSWORD: POSTGRES_ADMIN_PASSWORD,
+        MNT_APP_POSTGRES_PASSWORD: APP_POSTGRES_PASSWORD,
+        MNT_RT_POSTGRES_PASSWORD: RT_POSTGRES_PASSWORD,
+        MNT_LEAVE_COMMAND_POSTGRES_PASSWORD: LEAVE_COMMAND_POSTGRES_PASSWORD,
+        MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD: ONTOLOGY_COMMAND_POSTGRES_PASSWORD,
+      },
+      stdio: "inherit",
+    });
   } else {
     log("no container runtime detected; skipping compose down");
   }

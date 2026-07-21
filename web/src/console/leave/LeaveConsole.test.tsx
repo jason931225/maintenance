@@ -1,11 +1,22 @@
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { LeaveRequestView, LeaveRosterEntry } from "../../api/types";
-import { PolicyGateProvider, type PolicyGate } from "../policy";
 import { WindowManagerProvider } from "../window";
-import { LeaveConsole, type LeaveDecideOutcome, type LeavePromotionOutcome } from "./LeaveConsole";
-import { KO_CONSOLE_LEAVE as S, LEAVE_ACTIONS, LEAVE_RUNTIME_GATE, type LeaveLedgerRow } from "./model";
+import {
+  LeaveConsole,
+  type LeaveCreateInput,
+  type LeaveCreateOutcome,
+  type LeaveDecideOutcome,
+  type LeavePromotionOutcome,
+} from "./LeaveConsole";
+import { KO_CONSOLE_LEAVE as S, type LeaveLedgerRow } from "./model";
 
 function makeLedger(): LeaveLedgerRow[] {
   return [
@@ -49,7 +60,12 @@ function makeRequest(overrides: Partial<LeaveRequestView>): LeaveRequestView {
     requester_user_id: "employee-2",
     subject_employee_id: "employee-2",
     leave_type: "annual",
-    days: 1,
+    days: null,
+    charge_units: "1.000000",
+    charge_state: "resolved",
+    charge_review_reasons: [],
+    request_version: 0,
+    charge_version: 0,
     start_date: "2026-07-20",
     end_date: "2026-07-20",
     reason: "개인 사유",
@@ -62,10 +78,19 @@ function makeRequest(overrides: Partial<LeaveRequestView>): LeaveRequestView {
 }
 
 interface RenderOptions {
-  gate?: PolicyGate;
+  canReadManaged?: boolean;
+  canManageBranch?: (branchId: string) => boolean;
   requests?: LeaveRequestView[];
+  selfRequests?: LeaveRequestView[];
   selfUserId?: string;
-  decide?: (id: string, decision: "approve" | "return" | "reject", comment?: string) => Promise<LeaveDecideOutcome>;
+  decide?: (
+    id: string,
+    expectedVersion: number,
+    decision: "approve" | "return" | "reject",
+    comment?: string,
+  ) => Promise<LeaveDecideOutcome>;
+  createRequest?: (input: LeaveCreateInput) => Promise<LeaveCreateOutcome>;
+  resolveCharge?: () => Promise<{ ok: boolean; error?: unknown }>;
   pushPromotion?: (payload: {
     branchId: string;
     targetUserId: string;
@@ -78,69 +103,279 @@ interface RenderOptions {
 
 function renderConsole(options: RenderOptions = {}) {
   const decide = options.decide ?? (() => Promise.resolve({ ok: true }));
-  const pushPromotion = options.pushPromotion ?? (() => Promise.resolve({ ok: true }));
+  const createRequest =
+    options.createRequest ?? (() => Promise.resolve({ ok: true }));
+  const pushPromotion =
+    options.pushPromotion ?? (() => Promise.resolve({ ok: true }));
   // `?? "self-user"` would coerce an explicit `selfUserId: undefined` (the S3
   // fail-closed case) back to a default — distinguish "omitted" from "asserted
   // unresolved" via `in`.
   const selfUserId = "selfUserId" in options ? options.selfUserId : "self-user";
   return render(
     <WindowManagerProvider>
-      <PolicyGateProvider gate={options.gate ?? LEAVE_RUNTIME_GATE}>
-        <LeaveConsole
-          ledger={makeLedger()}
-          requests={options.requests ?? []}
-          selfUserId={selfUserId}
-          decide={decide}
-          pushPromotion={pushPromotion}
-        />
-      </PolicyGateProvider>
+      <LeaveConsole
+        ledger={makeLedger()}
+        requests={options.requests ?? []}
+        selfRequests={options.selfRequests ?? options.requests ?? []}
+        selfUserId={selfUserId}
+        canReadManaged={options.canReadManaged ?? true}
+        canManageBranch={options.canManageBranch ?? (() => true)}
+        decide={decide}
+        resolveCharge={
+          options.resolveCharge ?? (() => Promise.resolve({ ok: true }))
+        }
+        createRequest={createRequest}
+        pushPromotion={pushPromotion}
+      />
     </WindowManagerProvider>,
   );
 }
 
 describe("LeaveConsole (레인1 leave 카드 존, real-wired)", () => {
   it("persona lens is deny-by-omission: a 본인-only gate hides queue/promotion/ledger (§4-25-⑦)", () => {
-    const selfOnly = new Set<string>([LEAVE_ACTIONS.selfView, LEAVE_ACTIONS.requestCreate]);
-    renderConsole({ gate: { can: (action) => selfOnly.has(action) } });
+    renderConsole({ canReadManaged: false, canManageBranch: () => false });
 
     expect(screen.getByRole("region", { name: S.self.title })).toBeVisible();
     expect(screen.queryByText(S.queue.title)).toBeNull();
     expect(screen.queryByText(S.ledger.title)).toBeNull();
   });
 
-  it("팀장 approve calls the real decide callback and clears the pending row", () => {
-    const decide = vi.fn<() => Promise<LeaveDecideOutcome>>(() => Promise.resolve({ ok: true }));
+  it("Executive can read managed data but receives no mutation affordances", () => {
     renderConsole({
-      requests: [makeRequest({ id: "req-9", requester_user_id: "employee-2", subject_employee_id: "employee-2" })],
+      requests: [makeRequest({ requester_user_id: "employee-2" })],
+      selfUserId: "executive-user",
+      canReadManaged: true,
+      canManageBranch: () => false,
+    });
+    expect(screen.getByRole("region", { name: S.ledger.title })).toBeVisible();
+    const queue = screen.getByRole("region", { name: S.queue.title });
+    expect(within(queue).queryByRole("button")).toBeNull();
+  });
+
+  it("Admin mutation affordances intersect with each request's immutable branch", () => {
+    renderConsole({
+      requests: [
+        makeRequest({
+          id: "in",
+          branch_id: "branch-1",
+          requester_user_id: "employee-2",
+        }),
+        makeRequest({
+          id: "out",
+          branch_id: "branch-2",
+          requester_user_id: "employee-3",
+          subject_employee_id: "employee-3",
+        }),
+      ],
+      selfUserId: "admin-user",
+      canManageBranch: (branchId) => branchId === "branch-1",
+    });
+    const queue = screen.getByRole("region", { name: S.queue.title });
+    expect(
+      within(queue).getByRole("button", {
+        name: S.queue.decideAria(S.queue.approve, "이정비"),
+      }),
+    ).toBeVisible();
+    expect(
+      within(queue).queryByRole("button", {
+        name: S.queue.decideAria(S.queue.approve, "박기사"),
+      }),
+    ).toBeNull();
+  });
+
+  it("unresolved requests require manual review and never offer approval", () => {
+    renderConsole({
+      requests: [
+        makeRequest({ charge_state: "review_required", charge_units: null }),
+      ],
+      selfUserId: "admin-user",
+    });
+    const queue = screen.getByRole("region", { name: S.queue.title });
+    expect(
+      within(queue).getByText("Calendar/policy review required"),
+    ).toBeVisible();
+    expect(
+      within(queue).getByRole("button", { name: "Open manual review: 이정비" }),
+    ).toBeVisible();
+    expect(
+      within(queue).queryByRole("button", {
+        name: S.queue.decideAria(S.queue.approve, "이정비"),
+      }),
+    ).toBeNull();
+  });
+
+  it.each(["0.400000", "0.500000", "0.125000"])(
+    "renders the exact resolved charge %s without client recomputation",
+    (chargeUnits) => {
+      renderConsole({
+        requests: [
+          makeRequest({
+            requester_user_id: "self-user",
+            charge_units: chargeUnits,
+            charge_state: "resolved",
+          }),
+        ],
+        canReadManaged: false,
+      });
+      expect(screen.getByText(chargeUnits)).toBeVisible();
+    },
+  );
+
+  it("surfaces a request-version conflict without inventing a result", async () => {
+    const resolveCharge = vi.fn(() =>
+      Promise.resolve({
+        ok: false,
+        error: { error: { message: "request version conflict" } },
+      }),
+    );
+    renderConsole({
+      requests: [
+        makeRequest({
+          charge_state: "review_required",
+          charge_units: null,
+          request_version: 11,
+          charge_version: 7,
+        }),
+      ],
+      selfRequests: [],
+      selfUserId: "admin-user",
+      resolveCharge,
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open manual review: 이정비" }),
+    );
+    fireEvent.change(screen.getByLabelText("Scheduled minutes"), {
+      target: { value: "480" },
+    });
+    fireEvent.change(screen.getByLabelText("Exact charge units"), {
+      target: { value: "0.400000" },
+    });
+    fireEvent.change(screen.getByLabelText("Calendar source kind"), {
+      target: { value: "work_calendar" },
+    });
+    fireEvent.change(screen.getByLabelText("Calendar source reference"), {
+      target: { value: "employee-2" },
+    });
+    fireEvent.change(screen.getByLabelText("Calendar source revision"), {
+      target: { value: "cal-v1" },
+    });
+    fireEvent.change(screen.getByLabelText("Policy source kind"), {
+      target: { value: "leave_policy" },
+    });
+    fireEvent.change(screen.getByLabelText("Policy source reference"), {
+      target: { value: "annual" },
+    });
+    fireEvent.change(screen.getByLabelText("Policy source revision"), {
+      target: { value: "pol-v3" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Resolve charge" }));
+    expect(await screen.findByText("request version conflict")).toBeVisible();
+    expect(resolveCharge).toHaveBeenCalledWith(
+      "req-1",
+      expect.objectContaining({ expected_version: 11 }),
+    );
+    expect(screen.getByText("Calendar/policy review required")).toBeVisible();
+  });
+
+  it("팀장 approve calls the real decide callback and clears the pending row", () => {
+    const decide = vi.fn<() => Promise<LeaveDecideOutcome>>(() =>
+      Promise.resolve({ ok: true }),
+    );
+    renderConsole({
+      requests: [
+        makeRequest({
+          id: "req-9",
+          requester_user_id: "employee-2",
+          subject_employee_id: "employee-2",
+        }),
+      ],
       selfUserId: "someone-else",
       decide,
     });
     const queue = screen.getByRole("region", { name: S.queue.title });
     expect(within(queue).getByText(S.count(1))).toBeVisible();
 
-    fireEvent.click(within(queue).getByRole("button", { name: S.queue.decideAria(S.queue.approve, "이정비") }));
-    expect(decide).toHaveBeenCalledWith("req-9", "approve", undefined);
+    fireEvent.click(
+      within(queue).getByRole("button", {
+        name: S.queue.decideAria(S.queue.approve, "이정비"),
+      }),
+    );
+    expect(decide).toHaveBeenCalledWith("req-9", 0, "approve", undefined);
+  });
+
+  it("keeps a stale decision pending and reports the request-version conflict", async () => {
+    const decide = vi.fn(() =>
+      Promise.resolve({
+        ok: false as const,
+        error: { error: { message: "request version changed; reload" } },
+      }),
+    );
+    renderConsole({
+      requests: [
+        makeRequest({
+          id: "req-stale",
+          requester_user_id: "employee-2",
+          subject_employee_id: "employee-2",
+          request_version: 4,
+          charge_version: 99,
+        }),
+      ],
+      selfUserId: "someone-else",
+      decide,
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: S.queue.decideAria(S.queue.approve, "이정비"),
+      }),
+    );
+
+    expect(
+      await screen.findByText("request version changed; reload"),
+    ).toBeVisible();
+    expect(decide).toHaveBeenCalledWith("req-stale", 4, "approve", undefined);
+    expect(
+      within(screen.getByRole("region", { name: S.queue.title })).getByText(
+        S.count(1),
+      ),
+    ).toBeVisible();
   });
 
   it("SoD: my own pending request never shows decide buttons", () => {
     renderConsole({
-      requests: [makeRequest({ id: "req-self", requester_user_id: "self-user", subject_employee_id: "employee-1" })],
+      requests: [
+        makeRequest({
+          id: "req-self",
+          requester_user_id: "self-user",
+          subject_employee_id: "employee-1",
+        }),
+      ],
       selfUserId: "self-user",
     });
     const queue = screen.getByRole("region", { name: S.queue.title });
     expect(
-      within(queue).queryByRole("button", { name: S.queue.decideAria(S.queue.approve, "김현장") }),
+      within(queue).queryByRole("button", {
+        name: S.queue.decideAria(S.queue.approve, "김현장"),
+      }),
     ).toBeNull();
   });
 
   it("S3 fail-closed: an unresolved selfUserId hides decide buttons on every row (never fail-open)", () => {
     renderConsole({
-      requests: [makeRequest({ id: "req-9", requester_user_id: "employee-2", subject_employee_id: "employee-2" })],
+      requests: [
+        makeRequest({
+          id: "req-9",
+          requester_user_id: "employee-2",
+          subject_employee_id: "employee-2",
+        }),
+      ],
       selfUserId: undefined,
     });
     const queue = screen.getByRole("region", { name: S.queue.title });
     expect(
-      within(queue).queryByRole("button", { name: S.queue.decideAria(S.queue.approve, "이정비") }),
+      within(queue).queryByRole("button", {
+        name: S.queue.decideAria(S.queue.approve, "이정비"),
+      }),
     ).toBeNull();
   });
 
@@ -148,65 +383,113 @@ describe("LeaveConsole (레인1 leave 카드 존, real-wired)", () => {
     const decide = vi.fn<() => Promise<LeaveDecideOutcome>>(() =>
       Promise.resolve({
         ok: false,
-        error: { error: { code: "forbidden", message: "cannot decide own request" } },
+        error: {
+          error: { code: "forbidden", message: "cannot decide own request" },
+        },
       }),
     );
     renderConsole({
-      requests: [makeRequest({ id: "req-7", requester_user_id: "employee-2", subject_employee_id: "employee-2" })],
+      requests: [
+        makeRequest({
+          id: "req-7",
+          requester_user_id: "employee-2",
+          subject_employee_id: "employee-2",
+        }),
+      ],
       selfUserId: "someone-else",
       decide,
     });
     const queue = screen.getByRole("region", { name: S.queue.title });
-    fireEvent.click(within(queue).getByRole("button", { name: S.queue.decideAria(S.queue.reject, "이정비") }));
+    fireEvent.click(
+      within(queue).getByRole("button", {
+        name: S.queue.decideAria(S.queue.reject, "이정비"),
+      }),
+    );
 
     // Fail-closed: submitting with no comment never calls decide.
-    fireEvent.click(within(queue).getByRole("button", { name: S.queue.reject }));
+    fireEvent.click(
+      within(queue).getByRole("button", { name: S.queue.reject }),
+    );
     expect(decide).not.toHaveBeenCalled();
     expect(within(queue).getByText(S.queue.commentRequired)).toBeVisible();
 
     fireEvent.change(within(queue).getByLabelText(S.queue.commentLabel), {
       target: { value: "일정 재조정 필요" },
     });
-    fireEvent.click(within(queue).getByRole("button", { name: S.queue.reject }));
+    fireEvent.click(
+      within(queue).getByRole("button", { name: S.queue.reject }),
+    );
     await screen.findByText("cannot decide own request");
-    expect(decide).toHaveBeenCalledWith("req-7", "reject", "일정 재조정 필요");
+    expect(decide).toHaveBeenCalledWith(
+      "req-7",
+      0,
+      "reject",
+      "일정 재조정 필요",
+    );
   });
 
   it("보류(return) is a third, distinct decision that also requires a comment (승인/반려/거부)", async () => {
-    const decide = vi.fn<() => Promise<LeaveDecideOutcome>>(() => Promise.resolve({ ok: true }));
+    const decide = vi.fn<() => Promise<LeaveDecideOutcome>>(() =>
+      Promise.resolve({ ok: true }),
+    );
     renderConsole({
-      requests: [makeRequest({ id: "req-ret", requester_user_id: "employee-2", subject_employee_id: "employee-2" })],
+      requests: [
+        makeRequest({
+          id: "req-ret",
+          requester_user_id: "employee-2",
+          subject_employee_id: "employee-2",
+        }),
+      ],
       selfUserId: "someone-else",
       decide,
     });
     const queue = screen.getByRole("region", { name: S.queue.title });
     fireEvent.click(
-      within(queue).getByRole("button", { name: S.queue.decideAria(S.requestState.returned, "이정비") }),
+      within(queue).getByRole("button", {
+        name: S.queue.decideAria(S.requestState.returned, "이정비"),
+      }),
     );
 
     // Fail-closed: 보류 with no comment never calls decide.
-    fireEvent.click(within(queue).getByRole("button", { name: S.requestState.returned }));
+    fireEvent.click(
+      within(queue).getByRole("button", { name: S.requestState.returned }),
+    );
     expect(decide).not.toHaveBeenCalled();
     expect(within(queue).getByText(S.queue.commentRequired)).toBeVisible();
 
     fireEvent.change(within(queue).getByLabelText(S.queue.commentLabel), {
       target: { value: "서류 보완 요청" },
     });
-    fireEvent.click(within(queue).getByRole("button", { name: S.requestState.returned }));
+    fireEvent.click(
+      within(queue).getByRole("button", { name: S.requestState.returned }),
+    );
     await waitFor(() => {
-      expect(decide).toHaveBeenCalledWith("req-ret", "return", "서류 보완 요청");
+      expect(decide).toHaveBeenCalledWith(
+        "req-ret",
+        0,
+        "return",
+        "서류 보완 요청",
+      );
     });
   });
 
   it("SoD surfaces 내 신청 on the caller's own pending request (approver ≠ requester made visible)", () => {
     renderConsole({
-      requests: [makeRequest({ id: "req-self", requester_user_id: "self-user", subject_employee_id: "employee-1" })],
+      requests: [
+        makeRequest({
+          id: "req-self",
+          requester_user_id: "self-user",
+          subject_employee_id: "employee-1",
+        }),
+      ],
       selfUserId: "self-user",
     });
     const queue = screen.getByRole("region", { name: S.queue.title });
     expect(within(queue).getByText(S.self.myRequests)).toBeVisible();
     expect(
-      within(queue).queryByRole("button", { name: S.queue.decideAria(S.queue.approve, "김현장") }),
+      within(queue).queryByRole("button", {
+        name: S.queue.decideAria(S.queue.approve, "김현장"),
+      }),
     ).toBeNull();
   });
 
@@ -216,13 +499,17 @@ describe("LeaveConsole (레인1 leave 카드 존, real-wired)", () => {
     expect(code).toHaveAttribute("draggable", "true");
 
     fireEvent.click(code);
-    const pin = screen.getByRole("region", { name: S.objects.ledgerTitle("김현장") });
+    const pin = screen.getByRole("region", {
+      name: S.objects.ledgerTitle("김현장"),
+    });
     expect(within(pin).getByText(S.objects.props.accrued)).toBeVisible();
   });
 
   it("원장 직원 코드 cell stays single-line (no one-char-per-line wrap) beside an open detail pin", () => {
     renderConsole();
-    const codeCell = screen.getByRole("button", { name: S.openObject("JL-A001") }).closest("td");
+    const codeCell = screen
+      .getByRole("button", { name: S.openObject("JL-A001") })
+      .closest("td");
     expect(codeCell).not.toBeNull();
     expect(codeCell).toHaveStyle({ whiteSpace: "nowrap" });
   });
@@ -233,7 +520,11 @@ describe("LeaveConsole (레인1 leave 카드 존, real-wired)", () => {
     const table = within(ledgerRegion).getByRole("table");
     expect(within(table).getByText("이정비")).toBeVisible();
 
-    fireEvent.click(screen.getByRole("button", { name: S.stats.drill(S.stats.promotionTargets) }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: S.stats.drill(S.stats.promotionTargets),
+      }),
+    );
     expect(within(table).queryByText("이정비")).toBeNull();
     expect(within(table).getByText("박기사")).toBeVisible();
   });
@@ -243,7 +534,9 @@ describe("LeaveConsole (레인1 leave 카드 존, real-wired)", () => {
     const selfRegion = screen.getByRole("region", { name: S.self.title });
     // Validation is derived from the fields, not a manual step — the
     // debug-looking "입력값 확인" button is gone (verdict R9).
-    expect(within(selfRegion).queryByText(S.self.validate)).not.toBeInTheDocument();
+    expect(
+      within(selfRegion).queryByText(S.self.validate),
+    ).not.toBeInTheDocument();
     // An incomplete form (no 사유/기간) previews nothing and never grows "내
     // 신청" with a fabricated row.
     expect(within(selfRegion).queryByRole("alert")).not.toBeInTheDocument();
@@ -262,19 +555,206 @@ describe("LeaveConsole (레인1 leave 카드 존, real-wired)", () => {
     fireEvent.change(within(selfRegion).getByLabelText(S.self.endLabel), {
       target: { value: "2026-07-01" },
     });
-    expect(within(selfRegion).getByRole("alert")).toHaveTextContent(S.self.invalidRange);
+    expect(within(selfRegion).getByRole("alert")).toHaveTextContent(
+      S.self.invalidRange,
+    );
     // Fail-closed: an invalid range never fabricates a queue row.
     expect(within(selfRegion).getByText(S.self.empty)).toBeVisible();
   });
 
+  it("본인 신청: a valid 연차 form submits the derived self-service payload (subject/branch resolved server-side) and confirms", async () => {
+    const createRequest = vi.fn<
+      (input: LeaveCreateInput) => Promise<LeaveCreateOutcome>
+    >(() => Promise.resolve({ ok: true }));
+    renderConsole({ createRequest });
+    const selfRegion = screen.getByRole("region", { name: S.self.title });
+    fireEvent.change(within(selfRegion).getByLabelText(S.self.reasonLabel), {
+      target: { value: "annual" },
+    });
+    fireEvent.change(within(selfRegion).getByLabelText(S.self.startLabel), {
+      target: { value: "2026-07-06" },
+    });
+    fireEvent.change(within(selfRegion).getByLabelText(S.self.endLabel), {
+      target: { value: "2026-07-08" },
+    });
+    fireEvent.click(
+      within(selfRegion).getByRole("button", { name: S.self.submit }),
+    );
+    // The FE never sends subject_employee_id/branch_id — the backend resolves
+    // them from the caller. days is derived server-side, so it isn't sent either.
+    await waitFor(() => {
+      expect(createRequest).toHaveBeenCalledWith({
+        leave_type: "annual",
+        start_date: "2026-07-06",
+        end_date: "2026-07-08",
+        reason: S.reasons.annual,
+      });
+    });
+    await within(selfRegion).findByText(S.self.submitted);
+  });
+
+  it("본인 신청: pending submission freezes the draft and suppresses duplicate submission", async () => {
+    let resolveRequest!: (outcome: LeaveCreateOutcome) => void;
+    const createRequest = vi.fn<
+      (input: LeaveCreateInput) => Promise<LeaveCreateOutcome>
+    >(
+      () =>
+        new Promise((resolve) => {
+          resolveRequest = resolve;
+        }),
+    );
+    renderConsole({ createRequest });
+    const selfRegion = screen.getByRole("region", { name: S.self.title });
+    const reason = within(selfRegion).getByLabelText(S.self.reasonLabel);
+    const startDate = within(selfRegion).getByLabelText(S.self.startLabel);
+    const endDate = within(selfRegion).getByLabelText(S.self.endLabel);
+
+    fireEvent.change(reason, { target: { value: "annual" } });
+    fireEvent.change(startDate, { target: { value: "2026-07-06" } });
+    fireEvent.change(endDate, { target: { value: "2026-07-08" } });
+    fireEvent.click(
+      within(selfRegion).getByRole("button", { name: S.self.submit }),
+    );
+
+    await waitFor(() => {
+      expect(createRequest).toHaveBeenCalledTimes(1);
+    });
+    expect(reason).toBeDisabled();
+    expect(startDate).toBeDisabled();
+    expect(endDate).toBeDisabled();
+    expect(
+      within(selfRegion).getByRole("button", { name: S.self.submitting }),
+    ).toBeDisabled();
+
+    fireEvent.change(reason, { target: { value: "half_pm" } });
+    fireEvent.change(startDate, { target: { value: "2026-07-09" } });
+    fireEvent.submit(
+      within(selfRegion).getByRole("form", { name: S.self.formAria }),
+    );
+    expect(createRequest).toHaveBeenCalledTimes(1);
+    expect(reason).toHaveValue("annual");
+    expect(startDate).toHaveValue("2026-07-06");
+
+    resolveRequest({ ok: true });
+    await within(selfRegion).findByText(S.self.submitted);
+    expect(createRequest).toHaveBeenCalledWith({
+      leave_type: "annual",
+      start_date: "2026-07-06",
+      end_date: "2026-07-08",
+      reason: S.reasons.annual,
+    });
+  });
+
+  it("본인 신청: a rejected request restores the draft, reports failure, and permits retry", async () => {
+    const createRequest = vi
+      .fn<(input: LeaveCreateInput) => Promise<LeaveCreateOutcome>>()
+      .mockRejectedValueOnce(new Error("network unavailable"))
+      .mockResolvedValueOnce({ ok: true });
+    renderConsole({ createRequest });
+    const selfRegion = screen.getByRole("region", { name: S.self.title });
+    const reason = within(selfRegion).getByLabelText(S.self.reasonLabel);
+    const startDate = within(selfRegion).getByLabelText(S.self.startLabel);
+    const endDate = within(selfRegion).getByLabelText(S.self.endLabel);
+
+    fireEvent.change(reason, { target: { value: "annual" } });
+    fireEvent.change(startDate, { target: { value: "2026-07-06" } });
+    fireEvent.change(endDate, { target: { value: "2026-07-08" } });
+    fireEvent.click(
+      within(selfRegion).getByRole("button", { name: S.self.submit }),
+    );
+
+    expect(await within(selfRegion).findByRole("alert")).toHaveTextContent(
+      S.self.submitFailed,
+    );
+    expect(reason).toBeEnabled();
+    expect(startDate).toBeEnabled();
+    expect(endDate).toBeEnabled();
+    expect(reason).toHaveValue("annual");
+    expect(startDate).toHaveValue("2026-07-06");
+    expect(endDate).toHaveValue("2026-07-08");
+
+    fireEvent.click(
+      within(selfRegion).getByRole("button", { name: S.self.submit }),
+    );
+    await waitFor(() => {
+      expect(createRequest).toHaveBeenCalledTimes(2);
+    });
+    await within(selfRegion).findByText(S.self.submitted);
+  });
+
+  it("본인 신청: a 반차 maps to half_day on a single date, and a backend rejection surfaces verbatim", async () => {
+    const createRequest = vi.fn<
+      (input: LeaveCreateInput) => Promise<LeaveCreateOutcome>
+    >(() =>
+      Promise.resolve({
+        ok: false,
+        error: { error: { message: "잔여 연차가 부족합니다" } },
+      }),
+    );
+    renderConsole({ createRequest });
+    const selfRegion = screen.getByRole("region", { name: S.self.title });
+    fireEvent.change(within(selfRegion).getByLabelText(S.self.reasonLabel), {
+      target: { value: "half_am" },
+    });
+    fireEvent.change(within(selfRegion).getByLabelText(S.self.startLabel), {
+      target: { value: "2026-07-06" },
+    });
+    fireEvent.click(
+      within(selfRegion).getByRole("button", { name: S.self.submit }),
+    );
+    await waitFor(() => {
+      expect(createRequest).toHaveBeenCalledWith({
+        leave_type: "half_day",
+        partial_day_period: "am",
+        start_date: "2026-07-06",
+        end_date: "2026-07-06",
+        reason: S.reasons.half_am,
+      });
+    });
+    expect(await within(selfRegion).findByRole("alert")).toHaveTextContent(
+      "잔여 연차가 부족합니다",
+    );
+  });
+
+  it("preserves PM partial-day intent without a universal 0.5 preview", async () => {
+    const createRequest = vi.fn(() => Promise.resolve({ ok: true }));
+    renderConsole({ createRequest, canReadManaged: false });
+    const selfRegion = screen.getByRole("region", { name: S.self.title });
+    fireEvent.change(within(selfRegion).getByLabelText(S.self.reasonLabel), {
+      target: { value: "half_pm" },
+    });
+    fireEvent.change(within(selfRegion).getByLabelText(S.self.startLabel), {
+      target: { value: "2026-07-06" },
+    });
+    fireEvent.click(
+      within(selfRegion).getByRole("button", { name: S.self.submit }),
+    );
+    await waitFor(() => {
+      expect(createRequest).toHaveBeenCalledWith({
+        leave_type: "half_day",
+        partial_day_period: "pm",
+        start_date: "2026-07-06",
+        end_date: "2026-07-06",
+        reason: S.reasons.half_pm,
+      });
+    });
+    expect(within(selfRegion).queryByText(/0[.,]5/u)).toBeNull();
+  });
+
   it("사용촉진 발송: no linked request degrades gracefully (no misdelivery guess)", () => {
     renderConsole();
-    const promotionRegion = screen.getByRole("region", { name: S.promotion.queueTitle });
-    expect(within(promotionRegion).getByText(S.promotion.noLinkedRequest)).toBeVisible();
+    const promotionRegion = screen.getByRole("region", {
+      name: S.promotion.queueTitle,
+    });
+    expect(
+      within(promotionRegion).getByText(S.promotion.noLinkedRequest),
+    ).toBeVisible();
   });
 
   it("사용촉진 발송: a resolvable target sends round 1 via the real POST payload", async () => {
-    const pushPromotion = vi.fn<(payload: unknown) => Promise<LeavePromotionOutcome>>(() =>
+    const pushPromotion = vi.fn<
+      (payload: unknown) => Promise<LeavePromotionOutcome>
+    >(() =>
       Promise.resolve({
         ok: true,
         push: {
@@ -298,8 +778,14 @@ describe("LeaveConsole (레인1 leave 카드 존, real-wired)", () => {
       ],
       pushPromotion,
     });
-    const promotionRegion = screen.getByRole("region", { name: S.promotion.queueTitle });
-    fireEvent.click(within(promotionRegion).getByRole("button", { name: S.promotion.sendAria("박기사", 1) }));
+    const promotionRegion = screen.getByRole("region", {
+      name: S.promotion.queueTitle,
+    });
+    fireEvent.click(
+      within(promotionRegion).getByRole("button", {
+        name: S.promotion.sendAria("박기사", 1),
+      }),
+    );
 
     expect(pushPromotion).toHaveBeenCalledWith({
       branchId: "branch-1",
@@ -312,7 +798,11 @@ describe("LeaveConsole (레인1 leave 카드 존, real-wired)", () => {
     await screen.findByText(S.promotion.pushed);
     // round advances to 2 — the panel keeps offering the next round rather
     // than treating a single push as terminal (regression guard).
-    expect(within(promotionRegion).getByRole("button", { name: S.promotion.sendAria("박기사", 2) })).toBeVisible();
+    expect(
+      within(promotionRegion).getByRole("button", {
+        name: S.promotion.sendAria("박기사", 2),
+      }),
+    ).toBeVisible();
   });
 
   it("소진율 meter: every ledger row shows a burn-rate percent, and 촉진 대상 rows carry the inline chip (§4-11 density)", () => {
@@ -324,15 +814,23 @@ describe("LeaveConsole (레인1 leave 카드 존, real-wired)", () => {
     // employee-3: used 5 / accrued 15 = 33%. The trimmed ref-density table
     // (이름·부여·사용·잔여·소진율, no 상태 column) carries the "사용촉진 대상"
     // label once — the inline meter chip on the promote-tone row.
-    expect(within(promoteRow as HTMLElement).getByText(S.stats.percent(33))).toBeVisible();
-    expect(within(promoteRow as HTMLElement).getAllByText(S.status.promote)).toHaveLength(1);
+    expect(
+      within(promoteRow as HTMLElement).getByText(S.stats.percent(33)),
+    ).toBeVisible();
+    expect(
+      within(promoteRow as HTMLElement).getAllByText(S.status.promote),
+    ).toHaveLength(1);
 
     const okRow = within(table).getByText("김현장").closest("tr");
-    expect(within(okRow as HTMLElement).queryByText(S.status.promote)).toBeNull();
+    expect(
+      within(okRow as HTMLElement).queryByText(S.status.promote),
+    ).toBeNull();
   });
 
   it("사용 촉진 panel is visible by default whenever there are promotion targets (no extra click)", () => {
     renderConsole();
-    expect(screen.getByRole("region", { name: S.promotion.queueTitle })).toBeVisible();
+    expect(
+      screen.getByRole("region", { name: S.promotion.queueTitle }),
+    ).toBeVisible();
   });
 });

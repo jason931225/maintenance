@@ -7,6 +7,7 @@ resolver = "3"
 #   "app"                mnt-app composition root
 members = [
   "app",
+  "crates/action-inbox/*",
   "crates/kernel/*",
   "crates/benefit/*",
   "crates/compliance/*",
@@ -172,6 +173,7 @@ webpki-roots = "1.0.8"
 futures = { version = "0.3.32", default-features = false, features = ["std"] }
 
 mnt-kernel-core = { path = "crates/kernel/core" }
+mnt-action-inbox-application = { path = "crates/action-inbox/application" }
 mnt-benefit-domain = { path = "crates/benefit/domain" }
 mnt-benefit-application = { path = "crates/benefit/application" }
 mnt-benefit-adapter-postgres = { path = "crates/benefit/adapter-postgres" }

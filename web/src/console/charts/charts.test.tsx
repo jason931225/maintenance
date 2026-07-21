@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { ko } from "../../i18n/ko";
 import { HonestBar, HonestSpark } from "./HonestMarks";
-import { ProjectionPanel } from "./ProjectionPanel";
+import { ProjectionPanel, type BackendProjection } from "./ProjectionPanel";
 
 const T = ko.console.charts;
 
@@ -65,6 +65,80 @@ describe("ProjectionPanel (change-log 68 정량 투영)", () => {
     expect(screen.getByText(T.projection.assumptionEwma("0.94"))).toBeTruthy();
     expect(screen.getByText(T.projection.assumptionDist)).toBeTruthy();
     expect(screen.getByText(T.projection.assumptionN(5))).toBeTruthy();
+  });
+
+  it("renders the backend projection assumptions instead of the client decay lambda", () => {
+    const backendResult = {
+      point_estimate: 111,
+      ci95_low: 90,
+      ci95_high: 140,
+      cvar95: 75,
+      assumptions: {
+        ewma_volatility: 0.123,
+        student_t_nu: 7,
+        drift: 0.02,
+        simulations: 10_000,
+        seed: 42,
+      },
+    } satisfies BackendProjection;
+
+    render(
+      <ProjectionPanel
+        title="월 정비비"
+        kind="money"
+        sample={sample}
+        backendResult={backendResult}
+        lambda={0.5}
+        onDrill={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByText(
+        T.projection.assumptionEwmaVolatility(
+          new Intl.NumberFormat("ko-KR", {
+            style: "percent",
+            maximumFractionDigits: 1,
+          }).format(0.123),
+        ),
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText(T.projection.assumptionStudentT(7))).toBeTruthy();
+    expect(screen.queryByText(T.projection.assumptionEwma("0.5"))).toBeNull();
+  });
+
+  it.each([
+    ["denied", ko.page.permissionDenied],
+    ["error", ko.page.loadFailed],
+  ] as const)("fails closed for a %s server result", (status, message) => {
+    render(
+      <ProjectionPanel title="월 정비비" kind="money" sample={sample} serverState={{ status }} onDrill={vi.fn()} />,
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(message);
+    expect(screen.queryByText(T.projection.point)).toBeNull();
+    expect(screen.queryByText(T.projection.ci95)).toBeNull();
+    expect(screen.queryByText(T.projection.cvar95)).toBeNull();
+  });
+
+  it("renders only the supplied server values in ready mode", () => {
+    const backendResult = {
+      point_estimate: 777,
+      ci95_low: 700,
+      ci95_high: 850,
+      cvar95: 650,
+      assumptions: { ewma_volatility: 0.2, student_t_nu: 5, drift: 0.01, simulations: 10_000, seed: 7 },
+    } satisfies BackendProjection;
+    render(
+      <ProjectionPanel
+        title="월 정비비"
+        kind="percent"
+        sample={sample}
+        serverState={{ status: "ready", result: backendResult }}
+        onDrill={vi.fn()}
+      />,
+    );
+    expect(screen.getByText("777.0%")).toBeTruthy();
+    expect(screen.queryByText("105.4%")).toBeNull();
   });
 
   it("drills each stat separately (§4.7-9)", () => {

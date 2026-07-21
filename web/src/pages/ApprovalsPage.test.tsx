@@ -1,13 +1,20 @@
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useNavigate } from "react-router-dom";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { createConsoleApiClient } from "../api/client";
+import type { ConsoleApiClient } from "../api/client";
 import type { AuthContextValue, AuthSession } from "../context/auth";
 import { AuthContext } from "../context/auth";
-import { branchId, primaryMechanicId, workOrderListItems } from "../test/fixtures";
+import { ko } from "../i18n/ko";
+import {
+  branchId,
+  primaryMechanicId,
+  workOrderListItems,
+} from "../test/fixtures";
 import { ApprovalsPage } from "./ApprovalsPage";
 
 const federatedRequests: URL[] = [];
@@ -19,6 +26,74 @@ const server = setupServer();
 
 const requestedPlanId = "44444444-4444-4444-8444-444444444444";
 const testTenantId = "99999999-0000-4000-8000-999999999999";
+const workflowRunId = "77777777-7777-4777-8777-777777777777";
+const otherWorkflowRunId = "99999999-9999-4999-8999-999999999999";
+
+function deferred() {
+  let resolve!: () => void;
+  const promise = new Promise<undefined>((next) => {
+    resolve = () => {
+      next(undefined);
+    };
+  });
+  return { promise, resolve };
+}
+
+function ApprovalHistoryControls() {
+  const navigate = useNavigate();
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => {
+          void navigate("/approvals");
+        }}
+      >
+        base approvals
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          void navigate(`/approvals?run=${otherWorkflowRunId}`);
+        }}
+      >
+        other approval run
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          void navigate(-1);
+        }}
+      >
+        approval back
+      </button>
+      <button
+        type="button"
+        onClick={() => {
+          void navigate(1);
+        }}
+      >
+        approval forward
+      </button>
+    </>
+  );
+}
+
+function workflowRunDetail(id = workflowRunId) {
+  return {
+    run: {
+      id,
+      status: "WAITING",
+      definition_id: "88888888-8888-4888-8888-888888888888",
+      definition_version: 1,
+      trigger_type: "MANUAL",
+      started_at: "2026-07-19T12:00:00Z",
+      updated_at: "2026-07-19T12:01:00Z",
+    },
+    waiting_tasks: [],
+    timeline: [],
+  };
+}
 
 const adminSession: AuthSession = {
   access_token: "admin-token",
@@ -35,6 +110,10 @@ const executiveSession: AuthSession = {
 };
 
 beforeAll(() => {
+  Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+    configurable: true,
+    value: () => {},
+  });
   server.listen({ onUnhandledRequest: "error" });
 });
 
@@ -51,7 +130,10 @@ afterAll(() => {
   server.close();
 });
 
-function makeAuthContext(session: AuthSession = adminSession): AuthContextValue {
+function makeAuthContext(
+  session: AuthSession = adminSession,
+  api: ConsoleApiClient = createConsoleApiClient(session.access_token),
+): AuthContextValue {
   return {
     session,
     restoring: false,
@@ -63,26 +145,32 @@ function makeAuthContext(session: AuthSession = adminSession): AuthContextValue 
     viewAs: undefined,
     enterViewAs: () => {},
     exitViewAs: () => undefined,
-    api: createConsoleApiClient(session.access_token),
+    api,
   };
 }
 
 function renderPage(
   initialEntries = ["/approvals"],
   session: AuthSession = adminSession,
+  api: ConsoleApiClient = createConsoleApiClient(session.access_token),
 ) {
-  return render(
-    <AuthContext.Provider value={makeAuthContext(session)}>
+  const tree = (activeSession: AuthSession) => (
+    <AuthContext.Provider value={makeAuthContext(activeSession, api)}>
       <MemoryRouter initialEntries={initialEntries}>
         <ApprovalsPage />
+        <ApprovalHistoryControls />
       </MemoryRouter>
-    </AuthContext.Provider>,
+    </AuthContext.Provider>
   );
+  return render(tree(session));
 }
 
 const targetChangeId = "66666666-6666-4666-8666-666666666666";
 
-function approvalContext(source: "WORK_ORDER" | "DAILY_PLAN" | "TARGET_CHANGE", sourceId: string) {
+function approvalContext(
+  source: "WORK_ORDER" | "DAILY_PLAN" | "TARGET_CHANGE",
+  sourceId: string,
+) {
   const contexts = {
     WORK_ORDER: {
       workflow_key: "work_order.report_completion_review",
@@ -282,11 +370,17 @@ function installHappyHandlers() {
     }),
     http.get("*/api/v1/work-orders", ({ request }) => {
       legacyListRequests.push(new URL(request.url));
-      return HttpResponse.json({ error: "legacy work-order approval list should not be called" }, { status: 500 });
+      return HttpResponse.json(
+        { error: "legacy work-order approval list should not be called" },
+        { status: 500 },
+      );
     }),
     http.get("*/api/daily-work-plans", ({ request }) => {
       legacyDailyRequests.push(new URL(request.url));
-      return HttpResponse.json({ error: "legacy daily-plan approval list should not be called" }, { status: 500 });
+      return HttpResponse.json(
+        { error: "legacy daily-plan approval list should not be called" },
+        { status: 500 },
+      );
     }),
   );
 }
@@ -298,7 +392,10 @@ describe("ApprovalsPage", () => {
     renderPage();
 
     expect(
-      await screen.findByRole("heading", { name: "전자결재시스템 대기", level: 1 }),
+      await screen.findByRole("heading", {
+        name: "전자결재시스템 대기",
+        level: 1,
+      }),
     ).toBeVisible();
     expect(screen.queryByText("Workflow + Approval")).not.toBeInTheDocument();
     expect(
@@ -321,11 +418,17 @@ describe("ApprovalsPage", () => {
     expect(screen.getByText("액션: 작업 승인")).toBeVisible();
     expect(screen.queryByText("approve_work_order")).not.toBeInTheDocument();
     expect(screen.getAllByText("정책: 서버 재검사")[0]).toBeVisible();
-    expect(screen.getByRole("link", { name: /20260612-002 작업 보고 승인 결정하기/ })).toHaveAttribute(
+    expect(
+      screen.getByRole("link", {
+        name: /20260612-002 작업 보고 승인 결정하기/,
+      }),
+    ).toHaveAttribute(
       "href",
       expect.stringContaining("/approvals?source=work-order&focus="),
     );
-    expect(screen.getByRole("link", { name: "전자결재시스템 작업 큐로 이동" })).toBeVisible();
+    expect(
+      screen.getByRole("link", { name: "전자결재시스템 작업 큐로 이동" }),
+    ).toBeVisible();
     expect(screen.getByText("계획업무 검토")).toBeVisible();
     expect(screen.getByText("일정 변경 검토")).toBeVisible();
     expect(screen.getByText("전자결재 문서·연동 데스크")).toBeVisible();
@@ -338,8 +441,12 @@ describe("ApprovalsPage", () => {
       "href",
       `/daily-plan?planId=${requestedPlanId}`,
     );
-    expect(screen.queryByRole("link", { name: /2026-06-30 계획업무/ })).not.toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "일정 변경 요청 검토", level: 2 })).toBeVisible();
+    expect(
+      screen.queryByRole("link", { name: /2026-06-30 계획업무/ }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "일정 변경 요청 검토", level: 2 }),
+    ).toBeVisible();
     expect(screen.getByText("2026-07-05 09:00")).toBeVisible();
 
     await waitFor(() => {
@@ -368,13 +475,18 @@ describe("ApprovalsPage", () => {
     installHappyHandlers();
     server.use(
       http.get("*/api/approval-items", () =>
-        HttpResponse.json({ error: "approval federation offline" }, { status: 503 }),
+        HttpResponse.json(
+          { error: "approval federation offline" },
+          { status: 503 },
+        ),
       ),
     );
 
     renderPage();
 
-    expect(await screen.findByText("데이터를 불러오지 못했습니다.")).toBeVisible();
+    expect(
+      await screen.findByText("데이터를 불러오지 못했습니다."),
+    ).toBeVisible();
     expect(screen.queryByText("20260612-002")).not.toBeInTheDocument();
   });
 
@@ -384,19 +496,174 @@ describe("ApprovalsPage", () => {
     const focusedWorkOrder = federatedApprovalPayload().items.find(
       (item) => item.source === "WORK_ORDER",
     );
-    if (!focusedWorkOrder) throw new Error("fixture missing work-order approval item");
+    if (!focusedWorkOrder)
+      throw new Error("fixture missing work-order approval item");
 
     renderPage([
       `/approvals?source=work-order&focus=${focusedWorkOrder.source_id}`,
     ]);
 
-    expect(await screen.findByText("통합 개요에서 연결된 전자결재시스템 건을 강조했습니다.")).toBeVisible();
-    const focusedApproval = screen.getByLabelText(/20260612-002 연결된 전자결재시스템 건/);
+    expect(
+      await screen.findByText(
+        "통합 개요에서 연결된 전자결재시스템 건을 강조했습니다.",
+      ),
+    ).toBeVisible();
+    const focusedApproval = screen.getByLabelText(
+      /20260612-002 연결된 전자결재시스템 건/,
+    );
     expect(focusedApproval).toHaveAttribute(
       "id",
       `approval-work-order-${focusedWorkOrder.source_id}`,
     );
     expect(focusedApproval).toHaveAttribute("aria-current", "true");
+  });
+
+  it("opens and focuses an exact approval run from a direct URL after reload", async () => {
+    installHappyHandlers();
+    let runReads = 0;
+    server.use(
+      http.get("*/api/v1/workflow-runs/:runId", ({ params }) => {
+        runReads += 1;
+        return HttpResponse.json(workflowRunDetail(String(params.runId)));
+      }),
+    );
+
+    const first = renderPage([`/approvals?run=${workflowRunId}`]);
+    const firstFocus = await screen.findByLabelText(
+      ko.approvals.focusedItemLabel,
+    );
+    await waitFor(() => {
+      expect(firstFocus).toHaveFocus();
+    });
+    expect(firstFocus).toHaveAttribute("id", `approval-run-${workflowRunId}`);
+    expect(firstFocus).toHaveTextContent(workflowRunId);
+    first.unmount();
+
+    renderPage([`/approvals?run=${workflowRunId}`]);
+    const reloadedFocus = await screen.findByLabelText(
+      ko.approvals.focusedItemLabel,
+    );
+    await waitFor(() => {
+      expect(reloadedFocus).toHaveFocus();
+    });
+    expect(runReads).toBe(2);
+  });
+
+  it("distinguishes a stale approval-run link from a transport failure", async () => {
+    installHappyHandlers();
+    server.use(
+      http.get("*/api/v1/workflow-runs/:runId", () =>
+        HttpResponse.json({ error: "gone" }, { status: 404 }),
+      ),
+    );
+    const stale = renderPage([`/approvals?run=${workflowRunId}`]);
+    expect(await screen.findByText(ko.approvals.focusedMissing)).toBeVisible();
+    stale.unmount();
+
+    server.use(
+      http.get("*/api/v1/workflow-runs/:runId", () =>
+        HttpResponse.json({ error: "offline" }, { status: 503 }),
+      ),
+    );
+    renderPage([`/approvals?run=${workflowRunId}`]);
+    expect(
+      await screen.findByText(ko.approvals.focusedUnavailable),
+    ).toBeVisible();
+    expect(
+      screen.queryByText(ko.approvals.focusedMissing),
+    ).not.toBeInTheDocument();
+  });
+
+  it("never flashes an old run across query removal and browser history", async () => {
+    installHappyHandlers();
+    server.use(
+      http.get("*/api/v1/workflow-runs/:runId", ({ params }) =>
+        params.runId === workflowRunId
+          ? HttpResponse.json(workflowRunDetail())
+          : HttpResponse.json({ error: "gone" }, { status: 404 }),
+      ),
+    );
+    const user = userEvent.setup();
+    renderPage([`/approvals?run=${workflowRunId}`]);
+    expect(await screen.findByText(workflowRunId)).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "base approvals" }));
+    expect(screen.queryByText(workflowRunId)).not.toBeInTheDocument();
+    expect(
+      screen.queryByText(ko.approvals.focusedMissing),
+    ).not.toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: "other approval run" }),
+    );
+    expect(screen.queryByText(workflowRunId)).not.toBeInTheDocument();
+    expect(await screen.findByText(ko.approvals.focusedMissing)).toBeVisible();
+
+    await user.click(screen.getByRole("button", { name: "approval back" }));
+    await waitFor(() => {
+      expect(
+        screen.queryByText(ko.approvals.focusedMissing),
+      ).not.toBeInTheDocument();
+    });
+    await user.click(screen.getByRole("button", { name: "approval forward" }));
+    expect(await screen.findByText(ko.approvals.focusedMissing)).toBeVisible();
+  });
+
+  it("rejects a stale same-id completion after the session authority changes", async () => {
+    installHappyHandlers();
+    const oldRequest = deferred();
+    const newRequest = deferred();
+    let runReads = 0;
+    server.use(
+      http.get("*/api/v1/workflow-runs/:runId", async () => {
+        runReads += 1;
+        if (runReads === 1) {
+          await oldRequest.promise;
+          return HttpResponse.json(
+            { error: "old authority offline" },
+            { status: 503 },
+          );
+        }
+        await newRequest.promise;
+        return HttpResponse.json(workflowRunDetail());
+      }),
+    );
+    const api = createConsoleApiClient("shared-api-token");
+    const authorityA = {
+      ...adminSession,
+      client_session_incarnation: "approval-authority-a",
+    };
+    const authorityB = {
+      ...adminSession,
+      client_session_incarnation: "approval-authority-b",
+    };
+    const initialEntries = [`/approvals?run=${workflowRunId}`];
+    const tree = (session: AuthSession) => (
+      <AuthContext.Provider value={makeAuthContext(session, api)}>
+        <MemoryRouter initialEntries={initialEntries}>
+          <ApprovalsPage />
+        </MemoryRouter>
+      </AuthContext.Provider>
+    );
+    const view = render(tree(authorityA));
+    await waitFor(() => {
+      expect(runReads).toBe(1);
+    });
+
+    view.rerender(tree(authorityB));
+    oldRequest.resolve();
+    await waitFor(() => {
+      expect(runReads).toBe(2);
+    });
+    newRequest.resolve();
+    expect(await screen.findByText(workflowRunId)).toBeVisible();
+
+    await waitFor(() => {
+      expect(
+        screen.queryByText(ko.approvals.focusedUnavailable),
+      ).not.toBeInTheDocument();
+    });
+    expect(screen.getByText(workflowRunId)).toBeVisible();
   });
 
   it("explains stale work-order approval deep links instead of focusing the wrong row", async () => {
@@ -411,6 +678,8 @@ describe("ApprovalsPage", () => {
         "연결된 전자결재시스템 건이 현재 전자결재시스템 대기 목록에 없습니다. 이미 처리되었거나 권한 범위 밖일 수 있습니다.",
       ),
     ).toBeVisible();
-    expect(screen.queryByLabelText(/20260612-002 연결된 전자결재시스템 건/)).not.toBeInTheDocument();
+    expect(
+      screen.queryByLabelText(/20260612-002 연결된 전자결재시스템 건/),
+    ).not.toBeInTheDocument();
   });
 });

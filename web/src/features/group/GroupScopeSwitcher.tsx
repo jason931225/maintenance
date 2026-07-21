@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import {
@@ -48,18 +48,29 @@ function destinationAfterSelectingOrg(pathname: string, search: string): string 
  * this component is only the ergonomic control surface.
  */
 export function GroupScopeSwitcher() {
-  const { session, viewAs, enterViewAs, exitViewAs } = useAuth();
+  const {
+    session,
+    viewAs,
+    enterViewAs,
+    exitViewAs,
+    refreshAuthority,
+    sourceRefreshAuthority,
+  } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [groups, setGroups] = useState<GroupAdminGroup[]>([]);
   const [loadState, setLoadState] = useState<LoadState>("idle");
   const [switching, setSwitching] = useState(false);
   const [error, setError] = useState<string | undefined>();
+  const switchGenerationRef = useRef(0);
 
   const sourceIsGroupAdminContext = viewAs?.source === "GROUP_ADMIN";
   const sourceToken = sourceIsGroupAdminContext
     ? viewAs.platformSession.access_token
     : session?.access_token;
+  const sourceAuthority = sourceIsGroupAdminContext
+    ? sourceRefreshAuthority
+    : refreshAuthority;
   const eligible =
     sourceIsGroupAdminContext || hasGroupAdminRole(session?.group_roles);
 
@@ -76,46 +87,81 @@ export function GroupScopeSwitcher() {
     setLoadState("loading");
     setError(undefined);
     try {
-      setGroups(await listGroupAdminGroups(sourceToken));
+      setGroups(await listGroupAdminGroups(sourceToken, sourceAuthority));
       setLoadState("idle");
     } catch {
       setGroups([]);
       setLoadState("error");
       setError(ko.shell.scopeSwitcher.loadFailed);
     }
-  }, [eligible, sourceToken]);
+  }, [eligible, sourceAuthority, sourceToken]);
 
   useEffect(() => {
     void Promise.resolve().then(load);
   }, [load]);
 
-  if (!eligible) return null;
+  useEffect(
+    () => () => {
+      switchGenerationRef.current += 1;
+    },
+    [],
+  );
 
-  async function switchToGroupAll() {
-    if (sourceIsGroupAdminContext) {
-      const activeOrgId = viewAs.actingOrgId;
-      const token = exitViewAs();
-      await exitGroupTenantContext(token, activeOrgId).catch(() => {});
-    }
-    void navigate("/settings/group");
+  function isCurrentSwitch(generation: number): boolean {
+    return switchGenerationRef.current === generation;
   }
 
-  async function switchToOrg(orgId: string) {
+  if (!eligible) return null;
+
+  async function switchToGroupAll(generation: number) {
+    if (sourceIsGroupAdminContext) {
+      if (!sourceToken) throw new Error("missing group-admin source token");
+      await exitGroupTenantContext(
+        sourceToken,
+        viewAs.actingOrgId,
+        sourceAuthority,
+      );
+      if (!isCurrentSwitch(generation)) return;
+      if (!exitViewAs()) {
+        throw new Error("group-admin context exit was rejected");
+      }
+    }
+    if (isCurrentSwitch(generation)) {
+      void navigate("/settings/group");
+    }
+  }
+
+  async function switchToOrg(orgId: string, generation: number) {
     if (!sourceToken) throw new Error("missing group-admin source token");
     if (sourceIsGroupAdminContext && viewAs.actingOrgId === orgId) return;
     const org = orgOptions.find((option) => option.id === orgId);
-    const result = await startGroupTenantContext(sourceToken, orgId);
+    const result = await startGroupTenantContext(
+      sourceToken,
+      orgId,
+      sourceAuthority,
+    );
+    if (!isCurrentSwitch(generation)) return;
     if (sourceIsGroupAdminContext) {
-      await exitGroupTenantContext(sourceToken, viewAs.actingOrgId).catch(() => {});
+      await exitGroupTenantContext(
+        sourceToken,
+        viewAs.actingOrgId,
+        sourceAuthority,
+      );
+      if (!isCurrentSwitch(generation)) return;
     }
-    enterViewAs({
-      token: result.access_token,
-      mode: "MANAGE",
-      source: "GROUP_ADMIN",
-      actingOrgId: result.acting_org_id,
-      actingOrgName: result.acting_org_name,
-      actingRole: result.acting_role,
-    });
+    if (
+      enterViewAs({
+        token: result.access_token,
+        mode: "MANAGE",
+        source: "GROUP_ADMIN",
+        actingOrgId: result.acting_org_id,
+        actingOrgName: result.acting_org_name,
+        actingRole: result.acting_role,
+      }) !== true
+    ) {
+      throw new Error("group-admin context replacement was rejected");
+    }
+    if (!isCurrentSwitch(generation)) return;
     void navigate(destinationAfterSelectingOrg(location.pathname, location.search), {
       replace: sourceIsGroupAdminContext,
       state: org ? { groupScopeOrgName: org.name } : undefined,
@@ -123,18 +169,24 @@ export function GroupScopeSwitcher() {
   }
 
   async function handleChange(value: string) {
+    const generation = switchGenerationRef.current + 1;
+    switchGenerationRef.current = generation;
     setError(undefined);
     setSwitching(true);
     try {
       if (value === "group:all") {
-        await switchToGroupAll();
+        await switchToGroupAll(generation);
       } else if (value.startsWith("org:")) {
-        await switchToOrg(value.slice("org:".length));
+        await switchToOrg(value.slice("org:".length), generation);
       }
     } catch {
-      setError(ko.shell.scopeSwitcher.switchFailed);
+      if (isCurrentSwitch(generation)) {
+        setError(ko.shell.scopeSwitcher.switchFailed);
+      }
     } finally {
-      setSwitching(false);
+      if (isCurrentSwitch(generation)) {
+        setSwitching(false);
+      }
     }
   }
 

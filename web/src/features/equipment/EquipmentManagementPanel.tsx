@@ -3,6 +3,7 @@ import type { KeyboardEvent } from "react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { createConsoleApiClient, type ConsoleApiClient } from "../../api/client";
+import type { RefreshAuthority } from "../../api/refresh";
 import {
   exitGroupTenantContext,
   startGroupTenantContext,
@@ -47,6 +48,8 @@ interface EquipmentManagementPanelProps {
   onSelectedOwnerOrgIdChange?: (orgId: string) => void;
   activeOrgId?: string;
   groupAdminSourceToken?: string;
+  /** Exact provider/source capability for group-admin control-plane calls. */
+  groupAdminRefreshAuthority?: RefreshAuthority;
 }
 
 type Mode = "idle" | "create" | "edit";
@@ -161,6 +164,7 @@ export function EquipmentManagementPanel({
   onSelectedOwnerOrgIdChange,
   activeOrgId,
   groupAdminSourceToken,
+  groupAdminRefreshAuthority,
 }: EquipmentManagementPanelProps) {
   const [mode, setMode] = useState<Mode>("idle");
   const [editingId, setEditingId] = useState<string>();
@@ -302,8 +306,11 @@ export function EquipmentManagementPanel({
             const context = await startGroupTenantContext(
               groupAdminSourceToken,
               targetOwnerOrgId,
+              groupAdminRefreshAuthority,
             );
             delegatedOrgId = context.acting_org_id;
+            // Intentionally non-refreshable: the cookie refresh ceremony mints
+            // the source group-admin identity, never this delegated tenant.
             writeApi = createConsoleApiClient(context.access_token);
           }
         }
@@ -363,7 +370,11 @@ export function EquipmentManagementPanel({
       setWriteState("error");
     } finally {
       if (delegatedOrgId && groupAdminSourceToken) {
-        await exitGroupTenantContext(groupAdminSourceToken, delegatedOrgId).catch(
+        await exitGroupTenantContext(
+          groupAdminSourceToken,
+          delegatedOrgId,
+          groupAdminRefreshAuthority,
+        ).catch(
           () => {},
         );
       }

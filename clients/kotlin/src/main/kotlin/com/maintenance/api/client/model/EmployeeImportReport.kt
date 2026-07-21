@@ -35,6 +35,7 @@ import kotlinx.serialization.Contextual
  * @param inputRows
  * @param inserted
  * @param updated
+ * @param skipped
  * @param companies
  */
 @Serializable
@@ -49,6 +50,9 @@ data class EmployeeImportReport (
 
     @SerialName(value = "updated")
     val updated: kotlin.Int,
+
+    @SerialName(value = "skipped")
+    val skipped: kotlin.Int,
 
     @SerialName(value = "companies")
     val companies: kotlin.collections.List<EmployeeImportCompanySummary>

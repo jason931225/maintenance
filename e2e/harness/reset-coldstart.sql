@@ -3,7 +3,7 @@
 -- Restores the "first boot" condition so every AUTH spec starts from the same
 -- place: the PLATFORM cold-start admin has NO passkey and exactly one open,
 -- unexpired bootstrap OTP whose hash is sha256('e2e-coldstart-otp-000'). Run as
--- the PG superuser (BYPASSRLS), which is how the e2e backend connects.
+-- migration-only mnt_app (BYPASSRLS), which the reset harness uses directly.
 --
 -- Idempotent: safe to run before every test.
 BEGIN;

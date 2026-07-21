@@ -1,4 +1,5 @@
 import React, {
+  useCallback,
   createContext,
   useContext,
   useEffect,
@@ -9,7 +10,12 @@ import React, {
 
 import { createConsoleApiClient } from "../api/client";
 import type { ConsoleApiClient } from "../api/client";
-import { setRefreshCallbacks } from "../api/refresh";
+import {
+  createRefreshCoordinator,
+  setRefreshCallbacks,
+  singleFlightRefresh,
+} from "../api/refresh";
+import type { RefreshAuthority, RefreshRegistration } from "../api/refresh";
 import type { CedarPolicyProjectionClaim } from "../auth/policyProjection";
 import { normalizeCedarPolicyProjectionClaim } from "../auth/policyProjection";
 import {
@@ -22,6 +28,15 @@ import {
 export interface AuthSession {
   /** Short-lived bearer token, held in memory only (never persisted). */
   access_token: string;
+  /**
+   * Client-only, non-secret identity for one established session incarnation.
+   *
+   * AuthProvider allocates this on boot/login/token acceptance and explicit
+   * tenant-context entry, and preserves it only for a proven refresh/update of
+   * that same session. It partitions retained client state; it is never sent to
+   * the backend and is not authorization evidence.
+   */
+  client_session_incarnation?: string;
   user_id?: string;
   /**
    * JWT `name` claim — the signed-in user's display name. Present on tenant and
@@ -87,6 +102,13 @@ export interface AcceptableTokens {
   requires_passkey_setup?: boolean;
 }
 
+declare const tokenAcceptanceLeaseBrand: unique symbol;
+
+/** Opaque, provider-owned permission to commit one external token result. */
+export interface TokenAcceptanceLease {
+  readonly [tokenAcceptanceLeaseBrand]: true;
+}
+
 /**
  * An active tenant context session. While set, the app behaves as the selected
  * tenant/role (the active `session` is the tenant-context token), and the banner
@@ -99,6 +121,8 @@ export type TenantContextSource = "PLATFORM" | "GROUP_ADMIN";
 export interface ViewAsState {
   /** The short-lived tenant-context access token. */
   token: string;
+  /** AuthProvider-owned client incarnation for this effective tenant context. */
+  client_session_incarnation?: string;
   /** VIEW_ONLY blocks mutations server-side; MANAGE is an audited writable tenant-admin context. */
   mode?: TenantContextMode;
   /** Which console/session started this tenant context; controls exit audit/navigation. */
@@ -123,11 +147,24 @@ export interface AuthContextValue {
   login: () => Promise<void>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
-  /** Accept a token pair obtained externally (e.g. via OTP redeem). */
-  acceptTokens: (tokens: AcceptableTokens | undefined) => void;
+  /** Mint a one-use acceptance lease before starting external asynchronous work. */
+  beginTokenAcceptance?: () => TokenAcceptanceLease | undefined;
+  /** Commit only with the current provider-issued one-use lease. */
+  acceptTokens: (
+    tokens: AcceptableTokens | undefined,
+    lease?: TokenAcceptanceLease,
+  ) => unknown;
   /** Clear the requires_passkey_setup flag after enrollment succeeds. */
   clearPasskeySetup: () => void;
   api: ConsoleApiClient;
+  /** Opaque authority for the active effective session, if refresh-capable. */
+  refreshAuthority?: RefreshAuthority;
+  /**
+   * Opaque authority for the source/operator session. During tenant context this
+   * intentionally differs from `refreshAuthority`; source-only platform/group
+   * calls must carry this port.
+   */
+  sourceRefreshAuthority?: RefreshAuthority;
   /**
    * The active read-only impersonation session, or `undefined` when not viewing
    * as a tenant. Drives the persistent banner and exit affordance.
@@ -145,7 +182,7 @@ export interface AuthContextValue {
     actingOrgId: string;
     actingOrgName: string;
     actingRole: string;
-  }) => void;
+  }) => unknown;
   /**
    * Exit the active tenant context and restore the source session. Returns the
    * source access token so the caller can audit the exit; `undefined` when no
@@ -257,200 +294,399 @@ function decodeAccessClaims(accessToken: string): {
 function sessionFromAccessToken(
   accessToken: string,
   requiresPasskeySetup?: boolean,
+  clientSessionIncarnation?: string,
 ): AuthSession {
   return {
     access_token: accessToken,
+    client_session_incarnation: clientSessionIncarnation,
     requires_passkey_setup: requiresPasskeySetup,
     ...decodeAccessClaims(accessToken),
   };
 }
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
-  // The access token lives ONLY in memory; the refresh token never reaches JS
-  // (it is an HttpOnly cookie). On boot there is therefore nothing to hydrate
-  // synchronously — we recover the session via a silent cookie refresh instead.
   const [session, setSession] = useState<AuthSession | undefined>(undefined);
-  const [restoring, setRestoring] = useState(true);
-  // Active read-only impersonation, if any. While set, the app runs as the
-  // impersonated tenant/role (see `activeSession` below) and the banner shows.
   const [viewAs, setViewAs] = useState<ViewAsState | undefined>(undefined);
+  const [restoring, setRestoring] = useState(true);
+  const [transitionGeneration, setTransitionGeneration] = useState(0);
+  const [refreshCoordinator] = useState(createRefreshCoordinator);
+  const [refreshPorts, setRefreshPorts] = useState<{
+    effective?: RefreshAuthority;
+    source?: RefreshAuthority;
+  }>({});
 
-  // The session the app actually runs under: the impersonation session when
-  // viewing as a tenant, otherwise the operator/user's own session. Building it
-  // from the view_as token (via `sessionFromAccessToken`) gives `isPlatform =
-  // false` and the acting role, so routing drops into the tenant AppShell.
-  const activeSession = useMemo<AuthSession | undefined>(
-    () => (viewAs ? sessionFromAccessToken(viewAs.token) : session),
-    [viewAs, session],
+  const sessionRef = useRef<AuthSession | undefined>(undefined);
+  const viewAsRef = useRef<ViewAsState | undefined>(undefined);
+  const mountedRef = useRef(false);
+  const transitionGenerationRef = useRef(0);
+  const tokenAcceptanceEpochRef = useRef(0);
+  const tokenAcceptanceCustodyRef = useRef(
+    new WeakMap<object, number>(),
   );
+  const refreshBindingsRef = useRef<{
+    source?: { incarnation: string; registration: RefreshRegistration };
+    effective?: { incarnation: string; registration: RefreshRegistration };
+  }>({});
+  const nextSessionIncarnationRef = useRef(0);
+  const replaceAuthorityRef = useRef<(
+    nextSession: AuthSession | undefined,
+    nextViewAs: ViewAsState | undefined,
+  ) => number>(() => 0);
 
-  // A bootstrap api client (no bearer) just for the boot refresh; the per-session
-  // client below carries the access token once we have one.
   const bootApi = useMemo(() => createConsoleApiClient(undefined), []);
 
-  const api = useMemo(
-    () => createConsoleApiClient(activeSession?.access_token),
-    [activeSession?.access_token],
-  );
+  const allocateSessionIncarnation = useCallback((): string => {
+    nextSessionIncarnationRef.current += 1;
+    return `client-session-${String(nextSessionIncarnationRef.current)}`;
+  }, []);
 
-  // Wire the single-flight refresh interceptor (client.ts / platform.ts) to this
-  // provider's refresh logic. Runs on every api/session change so the interceptor
-  // always holds a closure over the current token-bearing api instance.
-  //
-  // While impersonating (`viewAs` set) the refresh path is deliberately disabled:
-  // the cookie refresh would mint a fresh PLATFORM token (the operator's), which
-  // must never silently replace the read-only view_as token. A 401 on an expired
-  // impersonation token instead drops the session and exits view-as, returning the
-  // operator to the platform console — the safe, explicit outcome.
-  useEffect(() => {
-    if (viewAs) {
-      setRefreshCallbacks(
-        () => Promise.reject(new Error("view-as session cannot refresh")),
+  const invalidateTokenAcceptanceLeases = useCallback(() => {
+    tokenAcceptanceEpochRef.current += 1;
+    tokenAcceptanceCustodyRef.current = new WeakMap<object, number>();
+  }, []);
+
+  const disposeEffectiveRefreshBinding = useCallback(() => {
+    refreshBindingsRef.current.effective?.registration.dispose();
+    refreshBindingsRef.current.effective = undefined;
+  }, []);
+
+  const disposeAllRefreshBindings = useCallback(() => {
+    disposeEffectiveRefreshBinding();
+    refreshBindingsRef.current.source?.registration.dispose();
+    refreshBindingsRef.current.source = undefined;
+  }, [disposeEffectiveRefreshBinding]);
+
+  const advanceTransition = useCallback((): number => {
+    invalidateTokenAcceptanceLeases();
+    transitionGenerationRef.current += 1;
+    const next = transitionGenerationRef.current;
+    setTransitionGeneration(next);
+    return next;
+  }, [invalidateTokenAcceptanceLeases]);
+
+  const createSourceRefreshBinding = useCallback(
+    (sourceIncarnation: string) => {
+      const registration = setRefreshCallbacks(
+        refreshCoordinator,
+        async () => {
+          const tokens = await refreshTokenFn(bootApi);
+          const currentBinding = refreshBindingsRef.current.source;
+          const currentSource = sessionRef.current;
+          if (
+            !mountedRef.current ||
+            currentBinding?.registration !== registration ||
+            currentSource?.client_session_incarnation !== sourceIncarnation
+          ) {
+            throw new Error("Refresh completed for a retired source authority");
+          }
+          const refreshedSource: AuthSession = {
+            ...currentSource,
+            access_token: tokens.access_token,
+            requires_passkey_setup: tokens.requires_passkey_setup,
+            ...decodeAccessClaims(tokens.access_token),
+          };
+          const currentView = viewAsRef.current;
+          sessionRef.current = refreshedSource;
+          setSession(refreshedSource);
+          if (currentView) {
+            const refreshedView: ViewAsState = {
+              ...currentView,
+              platformSession: refreshedSource,
+            };
+            viewAsRef.current = refreshedView;
+            setViewAs(refreshedView);
+          }
+          return { access_token: tokens.access_token };
+        },
         () => {
-          setViewAs(undefined);
+          if (refreshBindingsRef.current.source?.registration === registration) {
+            replaceAuthorityRef.current(undefined, undefined);
+          }
         },
       );
-      return;
-    }
-    setRefreshCallbacks(
-      async () => {
-        const tokens = await refreshTokenFn(api);
-        setSession((current) =>
-          current
-            ? {
-                ...current,
-                access_token: tokens.access_token,
-                requires_passkey_setup:
-                  tokens.requires_passkey_setup,
-                ...decodeAccessClaims(tokens.access_token),
-              }
-            : current,
-        );
-        return { access_token: tokens.access_token };
-      },
-      () => {
-        setSession(undefined);
-      },
-    );
-  }, [api, viewAs]);
+      return { incarnation: sourceIncarnation, registration };
+    },
+    [bootApi, refreshCoordinator],
+  );
 
-  // Boot-time silent refresh: POST /refresh with the HttpOnly cookie. Success ->
-  // authenticated with a fresh access token; any failure (e.g. 401, no cookie)
-  // -> unauthenticated.
-  //
-  // Two StrictMode (dev-only) hazards, both handled below:
-  // 1. `cancelled` is a LOCAL variable captured per effect invocation (NOT a
-  //    ref): a shared ref (or a `booted`-style "run once" guard) would let the
-  //    FIRST invocation's mount -> cleanup -> mount double-invoke poison a
-  //    flag the SECOND (surviving) invocation never resets, permanently
-  //    skipping its own `setRestoring(false)` and leaving every sign-in flow
-  //    (passkey/OTP/dev-auth) unable to navigate away from /login.
-  // 2. `bootRefreshPromiseRef` dedupes the ACTUAL NETWORK CALL across both
-  //    invocations (the ref, unlike `cancelled`, is shared — refs persist
-  //    across StrictMode's double-invoke). Without this, both invocations
-  //    would POST the SAME single-use refresh token concurrently, and the
-  //    backend's reuse-detection would treat the second arrival as a replay
-  //    and revoke the whole refresh family (see refresh-tokens tests).
-  // Intentionally never reset after being set once: `bootApi` is a stable
-  // (useMemo, empty-deps) client, so this effect's `[bootApi]` dependency
-  // never changes and the boot refresh runs exactly one real "session" of the
-  // app's lifetime — there is no later point where re-arming the ref would be
-  // correct.
+  const createEffectiveRefreshBinding = useCallback(
+    (effectiveIncarnation: string) => {
+      const registration = setRefreshCallbacks(
+        refreshCoordinator,
+        () => Promise.reject(new Error("Effective tenant context cannot refresh")),
+        () => {
+          if (
+            refreshBindingsRef.current.effective?.registration === registration
+          ) {
+            replaceAuthorityRef.current(sessionRef.current, undefined);
+          }
+        },
+      );
+      return { incarnation: effectiveIncarnation, registration };
+    },
+    [refreshCoordinator],
+  );
+
+  const synchronizeRefreshBindings = useCallback(
+    (
+      nextSession: AuthSession | undefined,
+      nextViewAs: ViewAsState | undefined,
+    ) => {
+      const sourceIncarnation = nextSession?.client_session_incarnation?.trim();
+      if (!sourceIncarnation) {
+        disposeAllRefreshBindings();
+        setRefreshPorts({});
+        return;
+      }
+
+      const bindings = refreshBindingsRef.current;
+      if (bindings.source?.incarnation !== sourceIncarnation) {
+        disposeAllRefreshBindings();
+        bindings.source = createSourceRefreshBinding(sourceIncarnation);
+      }
+      const sourceBinding = bindings.source;
+
+      const effectiveIncarnation =
+        nextViewAs?.client_session_incarnation?.trim();
+      if (!effectiveIncarnation) {
+        disposeEffectiveRefreshBinding();
+        setRefreshPorts({
+          effective: sourceBinding.registration.authority,
+          source: sourceBinding.registration.authority,
+        });
+        return;
+      }
+
+      if (bindings.effective?.incarnation !== effectiveIncarnation) {
+        disposeEffectiveRefreshBinding();
+        bindings.effective = createEffectiveRefreshBinding(effectiveIncarnation);
+      }
+      setRefreshPorts({
+        effective: bindings.effective.registration.authority,
+        source: sourceBinding.registration.authority,
+      });
+    },
+    [
+      createEffectiveRefreshBinding,
+      createSourceRefreshBinding,
+      disposeAllRefreshBindings,
+      disposeEffectiveRefreshBinding,
+    ],
+  );
+
+  const replaceAuthority = useCallback(
+    (
+      nextSession: AuthSession | undefined,
+      nextViewAs: ViewAsState | undefined,
+    ): number => {
+      const generation = advanceTransition();
+      sessionRef.current = nextSession;
+      viewAsRef.current = nextViewAs;
+      synchronizeRefreshBindings(nextSession, nextViewAs);
+      setSession(nextSession);
+      setViewAs(nextViewAs);
+      return generation;
+    },
+    [advanceTransition, synchronizeRefreshBindings],
+  );
+  useEffect(() => {
+    replaceAuthorityRef.current = replaceAuthority;
+  }, [replaceAuthority]);
+
+  const activeSession = useMemo<AuthSession | undefined>(
+    () =>
+      viewAs
+        ? sessionFromAccessToken(
+            viewAs.token,
+            undefined,
+            viewAs.client_session_incarnation,
+          )
+        : session,
+    [viewAs, session],
+  );
+  const refreshAuthority = refreshPorts.effective;
+  const sourceRefreshAuthority = refreshPorts.source;
+
+  const api = useMemo(
+    () =>
+      createConsoleApiClient(activeSession?.access_token, refreshAuthority),
+    [activeSession?.access_token, refreshAuthority],
+  );
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      invalidateTokenAcceptanceLeases();
+      disposeAllRefreshBindings();
+    };
+  }, [disposeAllRefreshBindings, invalidateTokenAcceptanceLeases]);
+
   const bootRefreshPromiseRef = useRef<ReturnType<typeof refreshTokenFn> | null>(
     null,
   );
   useEffect(() => {
     let cancelled = false;
+    const originGeneration = transitionGenerationRef.current;
+
     async function bootRefresh() {
       try {
         bootRefreshPromiseRef.current ??= refreshTokenFn(bootApi);
         const tokens = await bootRefreshPromiseRef.current;
-        // Guard against a race with an explicit sign-in (passkey/OTP/dev-auth)
-        // completing WHILE this boot-time refresh is still in flight: never
-        // clobber a session someone else already established.
-        if (!cancelled) {
-          setSession(
-            (current) =>
-              current ??
-              sessionFromAccessToken(
-                tokens.access_token,
-                tokens.requires_passkey_setup,
-              ),
+        if (
+          !cancelled &&
+          mountedRef.current &&
+          transitionGenerationRef.current === originGeneration &&
+          sessionRef.current === undefined &&
+          viewAsRef.current === undefined
+        ) {
+          replaceAuthority(
+            sessionFromAccessToken(
+              tokens.access_token,
+              tokens.requires_passkey_setup,
+              allocateSessionIncarnation(),
+            ),
+            undefined,
           );
         }
       } catch {
-        // No cookie / expired / etc. — leave `session` exactly as it is: still
-        // `undefined` in the normal case, but NOT clobbered if an explicit
-        // sign-in already set it while this refresh was in flight.
-        // (intentionally no setSession call here)
+        // No cookie or an expired/revoked cookie leaves current authority intact.
       } finally {
         if (!cancelled) setRestoring(false);
       }
     }
+
     void bootRefresh();
     return () => {
       cancelled = true;
     };
-  }, [bootApi]);
+  }, [allocateSessionIncarnation, bootApi, replaceAuthority]);
+
+  function beginTokenAcceptance(): TokenAcceptanceLease | undefined {
+    if (
+      !mountedRef.current ||
+      transitionGenerationRef.current !== transitionGeneration
+    ) {
+      return undefined;
+    }
+    invalidateTokenAcceptanceLeases();
+    const lease = Object.freeze({}) as TokenAcceptanceLease;
+    tokenAcceptanceCustodyRef.current.set(
+      lease,
+      tokenAcceptanceEpochRef.current,
+    );
+    return lease;
+  }
+
+  function providerIsMounted(): boolean {
+    return mountedRef.current;
+  }
 
   async function login() {
+    if (
+      !mountedRef.current ||
+      transitionGenerationRef.current !== transitionGeneration
+    ) {
+      return;
+    }
+    const originGeneration = advanceTransition();
+    disposeAllRefreshBindings();
+    setRefreshPorts({});
     const ceremony = await startPasskeyLogin(api);
     const tokens = await finishPasskeyLogin(api, ceremony);
-    setSession(
+    if (
+      !providerIsMounted() ||
+      transitionGenerationRef.current !== originGeneration
+    ) {
+      return;
+    }
+    replaceAuthority(
       sessionFromAccessToken(
         tokens.access_token,
         tokens.requires_passkey_setup,
+        allocateSessionIncarnation(),
       ),
+      undefined,
     );
   }
 
   async function logout() {
-    // If impersonating, drop the view-as session first so logout acts on the
-    // operator's real session, not the read-only impersonation token.
-    setViewAs(undefined);
-    if (session) {
-      const operatorApi = viewAs
-        ? createConsoleApiClient(viewAs.platformSession.access_token)
-        : api;
-      await logoutWebAuthn(operatorApi).catch(() => {});
+    invalidateTokenAcceptanceLeases();
+    if (
+      !mountedRef.current ||
+      transitionGenerationRef.current !== transitionGeneration
+    ) {
+      return;
     }
-    setSession(undefined);
+    const currentViewAs = viewAsRef.current;
+    const operatorSession = currentViewAs?.platformSession ?? sessionRef.current;
+    replaceAuthority(undefined, undefined);
+    if (!operatorSession) return;
+    const operatorApi = createConsoleApiClient(operatorSession.access_token);
+    await logoutWebAuthn(operatorApi).catch(() => {});
   }
 
   async function refresh() {
-    if (!session) return;
-    const tokens = await refreshTokenFn(api);
-    setSession((current) =>
-      current
-        ? {
-            ...current,
-            access_token: tokens.access_token,
-            requires_passkey_setup: tokens.requires_passkey_setup,
-            ...decodeAccessClaims(tokens.access_token),
-          }
-        : current,
-    );
-  }
-
-  function acceptTokens(tokens: AcceptableTokens | undefined) {
-    if (!tokens) {
-      setSession(undefined);
-      setRestoring(false);
+    invalidateTokenAcceptanceLeases();
+    if (
+      !mountedRef.current ||
+      transitionGenerationRef.current !== transitionGeneration ||
+      !refreshAuthority
+    ) {
       return;
     }
-    setSession(
+    await singleFlightRefresh(refreshAuthority);
+  }
+
+  function acceptTokens(
+    tokens: AcceptableTokens | undefined,
+    lease?: TokenAcceptanceLease,
+  ): boolean {
+    if (
+      !mountedRef.current ||
+      transitionGenerationRef.current !== transitionGeneration ||
+      !lease ||
+      (typeof lease !== "object" && typeof lease !== "function")
+    ) {
+      return false;
+    }
+    const leaseEpoch = tokenAcceptanceCustodyRef.current.get(lease);
+    if (leaseEpoch !== tokenAcceptanceEpochRef.current) return false;
+
+    tokenAcceptanceCustodyRef.current.delete(lease);
+    invalidateTokenAcceptanceLeases();
+    if (!tokens) {
+      replaceAuthority(undefined, undefined);
+      setRestoring(false);
+      return true;
+    }
+    replaceAuthority(
       sessionFromAccessToken(
         tokens.access_token,
         tokens.requires_passkey_setup,
+        allocateSessionIncarnation(),
       ),
+      undefined,
     );
     setRestoring(false);
+    return true;
   }
 
   function clearPasskeySetup() {
-    setSession((current) =>
-      current ? { ...current, requires_passkey_setup: false } : current,
-    );
+    if (
+      !mountedRef.current ||
+      transitionGenerationRef.current !== transitionGeneration
+    ) {
+      return;
+    }
+    const renderedIncarnation = session?.client_session_incarnation;
+    const current = sessionRef.current;
+    if (!current || current.client_session_incarnation !== renderedIncarnation) {
+      return;
+    }
+    const next = { ...current, requires_passkey_setup: false };
+    sessionRef.current = next;
+    setSession(next);
   }
 
   function enterViewAs(params: {
@@ -460,28 +696,46 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     actingOrgId: string;
     actingOrgName: string;
     actingRole: string;
-  }) {
-    // Capture the current source session so exit restores it verbatim. Guard
-    // against entering with no session — context switching always starts from an
-    // authenticated console.
-    if (!session) return;
-    setViewAs({
+  }): boolean {
+    if (
+      !mountedRef.current ||
+      transitionGenerationRef.current !== transitionGeneration ||
+      viewAsRef.current !== viewAs
+    ) {
+      return false;
+    }
+    const sourceSession = viewAs?.platformSession ?? session;
+    if (!sourceSession || sessionRef.current !== sourceSession) return false;
+
+    const nextViewAs: ViewAsState = {
       token: params.token,
+      client_session_incarnation: allocateSessionIncarnation(),
       mode: params.mode ?? "VIEW_ONLY",
       source: params.source ?? "PLATFORM",
       actingOrgId: params.actingOrgId,
       actingOrgName: params.actingOrgName,
       actingRole: params.actingRole,
-      platformSession: session,
-    });
+      platformSession: sourceSession,
+    };
+    replaceAuthority(sourceSession, nextViewAs);
+    return true;
   }
 
   function exitViewAs(): string | undefined {
-    if (!viewAs) return undefined;
-    // Restore the source session and drop the context token.
-    setSession(viewAs.platformSession);
-    setViewAs(undefined);
-    return viewAs.platformSession.access_token;
+    const renderedViewAs = viewAs;
+    if (
+      !mountedRef.current ||
+      !renderedViewAs ||
+      transitionGenerationRef.current !== transitionGeneration ||
+      viewAsRef.current !== renderedViewAs ||
+      sessionRef.current !== renderedViewAs.platformSession
+    ) {
+      return undefined;
+    }
+
+    const sourceSession = renderedViewAs.platformSession;
+    replaceAuthority(sourceSession, undefined);
+    return sourceSession.access_token;
   }
 
   return (
@@ -492,9 +746,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         login,
         logout,
         refresh,
+        beginTokenAcceptance,
         acceptTokens,
         clearPasskeySetup,
         api,
+        refreshAuthority,
+        sourceRefreshAuthority,
         viewAs,
         enterViewAs,
         exitViewAs,

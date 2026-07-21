@@ -1,5 +1,5 @@
 -- E2E seed data for RECEPTIONIST story specs.
--- Run as PG superuser (BYPASSRLS) against mnt_e2e, AFTER seed-mech.sql.
+-- Run as migration-only mnt_app (BYPASSRLS) against mnt_e2e, AFTER seed-mech.sql.
 -- Idempotent via ON CONFLICT DO NOTHING.
 --
 -- The shared support ticket (…b00001) is branch-scoped and already visible to any

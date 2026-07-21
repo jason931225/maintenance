@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { displayValue } from "./wire";
+import type { ObjectTypeDetailWire } from "../../api/ontology";
+import type { OntObjectTypeDef } from "./types";
+import {
+  displayValue,
+  objectTypeDefFromDetail,
+  stagedRevisionDraft,
+} from "./wire";
 
 describe("displayValue money formatting", () => {
   it("renders a money-typed won integer with the shared ₩ helper (§4-18), never raw", () => {
@@ -38,5 +44,78 @@ describe("displayValue number formatting", () => {
     // percent/choice/text are not numeric kinds — untouched.
     expect(displayValue(74, "percent")).toBe("74");
     expect(displayValue(true, "boolean")).toBe("true");
+  });
+});
+
+describe("analytic formula wire canonicalization", () => {
+  it("round-trips a newly authored expression without converting it to empty JSON", () => {
+    const detail = {
+      object_type: {
+        id: "type-1",
+        stable_key: "work_order",
+        title: "Work order",
+        backing_kind: "instance",
+        schema_version: 1,
+        lifecycle_state: "draft",
+      },
+      title_property_key: null,
+      backing_table: null,
+      primary_key_property: null,
+      properties: [],
+      links: [],
+      actions: [],
+      analytics: [],
+    } satisfies ObjectTypeDetailWire;
+    const staged: OntObjectTypeDef = {
+      id: "type-1",
+      stableKey: "work_order",
+      code: "work_order",
+      title: "Work order",
+      backingKind: "instance",
+      schemaVersion: 1,
+      lifecycleState: "draft",
+      properties: [],
+      links: [],
+      actions: [],
+      analytics: [
+        {
+          key: "analytic_00000000000040008000000000000001",
+          title: "Delay days",
+          formula: "days_between(due_date, now())",
+        },
+      ],
+      instances: [],
+      acting: [],
+    };
+
+    const request = stagedRevisionDraft(detail, staged, new Map());
+    expect(request.analytics).toEqual([
+      {
+        key: "analytic_00000000000040008000000000000001",
+        title: "Delay days",
+        formula: { expression: "days_between(due_date, now())" },
+      },
+    ]);
+
+    const formula = request.analytics?.[0]?.formula;
+    const reloaded = objectTypeDefFromDetail(
+      {
+        ...detail,
+        analytics: [
+          {
+            id: "analytic-id",
+            key: "analytic_00000000000040008000000000000001",
+            title: "Delay days",
+            formula,
+            result_type: {},
+          },
+        ],
+      },
+      [],
+      new Map(),
+    );
+    expect(reloaded.analytics[0]?.formula).toBe(
+      "days_between(due_date, now())",
+    );
   });
 });

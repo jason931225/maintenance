@@ -67,6 +67,14 @@ FROM unnest(ARRAY[
 ON CONFLICT (user_id, branch_id) DO NOTHING;
 
 -- ── employees (roster → leave + policy 인원 count) ───────────────────────────
+-- The conditional role switch keeps this file valid both before 0166 (during
+-- bootstrap/recovery) and after its leave-owned employee guard is installed.
+SELECT set_config(
+  'role',
+  CASE WHEN to_regprocedure('leave_api.employee_leave_writer_guard()') IS NULL
+    THEN current_user ELSE 'mnt_leave_definer' END,
+  true
+);
 INSERT INTO employees (
   id, org_id, company, name, source_filename, source_sheet, source_row, source_key,
   raw_row, source_metadata, employment_status, employee_number, org_unit, job, position,
@@ -89,6 +97,7 @@ INSERT INTO employees (
   ('00000000-0000-0000-0000-000000ee0011', '00000000-0000-0000-0000-0000000000a1', 'KNL로지스틱스', '신라온', 'roster_2026.xlsx', '정규직', 12, 'emp-1011', '{}'::jsonb, '{}'::jsonb, 'ACTIVE', '1011', '정비팀', '지게차 정비', '주임', '창원 본사', '2017-04-17', 20, 16, 4, 'employee_number', 'high', false, false),
   ('00000000-0000-0000-0000-000000ee0012', '00000000-0000-0000-0000-0000000000a1', 'KNL로지스틱스', '문가온', 'roster_2026.xlsx', '정규직', 13, 'emp-1012', '{}'::jsonb, '{}'::jsonb, 'ACTIVE', '1012', '접수팀', '고객 접수', '사원', '부산 지점', '2021-10-05', 15, 5, 10, 'employee_number', 'high', false, false)
 ON CONFLICT (id) DO NOTHING;
+RESET ROLE;
 
 -- ── leave: annual obligations + a couple of pending requests ─────────────────
 INSERT INTO annual_leave_obligations (id, org_id, employee_id, leave_year, leave_accrued, leave_used, leave_remaining, status, statutory_basis, notification_plan) VALUES
@@ -97,10 +106,21 @@ INSERT INTO annual_leave_obligations (id, org_id, employee_id, leave_year, leave
   ('00000000-0000-0000-0000-000000a10003', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000ee0003', 2026, 20, 2, 18, 'PROMOTION_SENT', '{"law":"근로기준법 제61조"}'::jsonb, '{"stage":"sent","sent_on":"2026-06-30"}'::jsonb)
 ON CONFLICT (id) DO NOTHING;
 
+-- 0166 makes leave-request writes command-owned. Keep this seed runnable both
+-- before and after that migration: only assume the definer role once the
+-- command guard exists, then restore the migration login immediately after the
+-- fixture insert. The retained `days` column is the expand/rollback contract.
+SELECT set_config(
+  'role',
+  CASE WHEN to_regprocedure('leave_api.protected_request_writer_guard()') IS NULL
+    THEN current_user ELSE 'mnt_leave_definer' END,
+  true
+);
 INSERT INTO leave_requests (id, org_id, branch_id, requester_user_id, subject_employee_id, leave_type, days, start_date, end_date, reason, status) VALUES
   ('00000000-0000-0000-0000-000000a20001', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-00000000d002', '00000000-0000-0000-0000-000000ee0001', 'annual', 2, '2026-07-21', '2026-07-22', '개인 사유 연차 사용', 'pending'),
   ('00000000-0000-0000-0000-000000a20002', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-0000000000c2', '00000000-0000-0000-0000-00000000d003', '00000000-0000-0000-0000-000000ee0003', 'half_day', 0.5, '2026-07-18', '2026-07-18', '오전 반차 (병원 방문)', 'pending')
 ON CONFLICT (id) DO NOTHING;
+RESET ROLE;
 
 -- ── registry chain (customer → site → equipment) backing work orders ─────────
 INSERT INTO registry_customers (id, branch_id, name, org_id) VALUES
@@ -342,6 +362,12 @@ INSERT INTO workflow_definition_versions (
 ON CONFLICT (id) DO NOTHING;
 
 -- ── ontology: one instance-backed object type + property defs + instances ────
+-- Migration 0165 retains one audited compatibility path for the exact old
+-- runtime DML shape. Enter that constrained identity only for protected
+-- definitions; its trigger owns immutable key reservations. The surrounding
+-- local-only fixture remains cluster-admin seeded as documented above.
+SET LOCAL ROLE mnt_rt;
+
 INSERT INTO ont_object_types (id, org_id, stable_key, title, title_property_key, backing_kind, schema_version, lifecycle_state, created_by) VALUES
   ('00000000-0000-0000-0000-000000a70001', '00000000-0000-0000-0000-0000000000a1', 'maintenance_contract', '정비 계약', 'name', 'instance', 1, 'published', '00000000-0000-0000-0000-00000000d001')
 ON CONFLICT (id) DO NOTHING;
@@ -350,6 +376,8 @@ INSERT INTO ont_property_defs (id, org_id, object_type_id, key, title, type, con
   ('00000000-0000-0000-0000-000000a80001', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000a70001', 'name', '계약명', 'string', '{}'::jsonb, true, false),
   ('00000000-0000-0000-0000-000000a80002', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000a70001', 'annual_fee_won', '연간 계약금(원)', 'number', '{}'::jsonb, false, false)
 ON CONFLICT (id) DO NOTHING;
+
+RESET ROLE;
 
 -- instances + genesis revision (hash chain: prev = 64 zeros, row = sha256 of attrs)
 -- Explicit created_at on the contract instances (not just DEFAULT now()):
@@ -374,6 +402,8 @@ ON CONFLICT (id) DO NOTHING;
 -- r12: deepen the 매니저 tab's 속성 (5 more, real FIELD_KINDS tags) + populate
 -- 액션/분석 (both tables were empty across every seeded object type, so those
 -- two 매니저 subtabs always rendered EmptyChip — not a UI gap, a seed gap).
+SET LOCAL ROLE mnt_rt;
+
 INSERT INTO ont_property_defs (id, org_id, object_type_id, key, title, type, config, required, in_property_policy) VALUES
   ('00000000-0000-0000-0000-000000a80003', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000a70001', 'vendor_name', '거래처명', 'text', '{}'::jsonb, true, false),
   ('00000000-0000-0000-0000-000000a80004', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000a70001', 'contract_start', '계약 시작일', 'date', '{}'::jsonb, true, false),
@@ -419,6 +449,37 @@ INSERT INTO ont_link_types (id, org_id, object_type_id, stable_key, title, rever
   ('00000000-0000-0000-0000-000000d70002', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000a70001', 'has_vendor', '협력업체', '계약', '00000000-0000-0000-0000-000000d50002', 'many_many'),
   ('00000000-0000-0000-0000-000000d70003', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d50001', 'has_visit', '점검 방문', '소속 계획', '00000000-0000-0000-0000-000000d50003', 'one_many')
 ON CONFLICT (id) DO NOTHING;
+
+-- The protected audit guard accepts the retained runtime path only when the
+-- matching parent was inserted by this transaction. The xmin filter makes a
+-- successful reseed a true no-op: existing parents receive no duplicate audit.
+INSERT INTO audit_events (actor, action, target_type, target_id, branch_id, before_snap, after_snap, trace_id, span_id, occurred_at, org_id)
+SELECT
+  '00000000-0000-0000-0000-00000000d001',
+  'ontology.object_type.create',
+  'ont_object_types',
+  o.id::text,
+  NULL,
+  NULL,
+  jsonb_build_object(
+    'stable_key', o.stable_key,
+    'schema_version', o.schema_version,
+    'lifecycle_state', o.lifecycle_state
+  ),
+  repeat('d', 32),
+  repeat('e', 16),
+  o.updated_at,
+  o.org_id
+FROM ont_object_types o
+WHERE o.id = ANY (ARRAY[
+  '00000000-0000-0000-0000-000000a70001'::uuid,
+  '00000000-0000-0000-0000-000000d50001'::uuid,
+  '00000000-0000-0000-0000-000000d50002'::uuid,
+  '00000000-0000-0000-0000-000000d50003'::uuid
+])
+  AND o.xmin = pg_current_xact_id()::xid;
+
+RESET ROLE;
 
 INSERT INTO ont_instances (id, org_id, object_type_id, title, current_revision_id, lifecycle_state) VALUES
   ('00000000-0000-0000-0000-000000d80001', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000d50001', '1월-3월 정기점검 계획', '00000000-0000-0000-0000-000000db0001', 'active'),
@@ -895,5 +956,22 @@ INSERT INTO site_attendance_events (id, org_id, user_id, branch_id, work_order_i
   ('00000000-0000-0000-0000-000000ae0004', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000d003', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-000000ad0002', '00000000-0000-0000-0000-000000c10001', 'DEPARTURE', now() - interval '2 days' - interval '1 hour'),
   ('00000000-0000-0000-0000-000000ae0005', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000d002', '00000000-0000-0000-0000-0000000000c1', '00000000-0000-0000-0000-000000ad0001', '00000000-0000-0000-0000-000000c10001', 'ARRIVAL', now() - interval '8 hours')
 ON CONFLICT (id, org_id) DO NOTHING;
+
+-- ── 내 업무 (todos) + 개인 수신함 (inbox_docs) for d001 ─────────────────────
+-- Backs the 개요/내 업무/개인 수신함 screens so a fresh dev-auth session (d001)
+-- sees real rows instead of empty states. Deterministic ids + ON CONFLICT so
+-- re-runs stay idempotent (file idiom).
+INSERT INTO todos (id, org_id, owner_user_id, body, done, done_at) VALUES
+  ('00000000-0000-0000-0000-000000f0d001', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000d001', '리프트 3호기 유압 점검 일정 확정', false, NULL),
+  ('00000000-0000-0000-0000-000000f0d002', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000d001', '주간 안전점검 보고서 검토', true, now())
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO inbox_docs (id, org_id, recipient_user_id, kind, title, payload) VALUES
+  ('00000000-0000-0000-0000-000000f1d001', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000d001', 'payslip', '2026년 6월 급여명세서', '{"기본급":"3,200,000","식대":"200,000","공제계":"420,000","실지급액":"2,980,000"}'::jsonb)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO inbox_docs (id, org_id, recipient_user_id, kind, notice_type, title, payload, legal_basis) VALUES
+  ('00000000-0000-0000-0000-000000f1d002', '00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-00000000d001', 'legal_notice', '연차촉진', '2026년 연차휴가 사용촉진 통지', '{"paragraphs":["귀하의 미사용 연차 5일에 대해 근로기준법 제61조에 따라 사용을 촉진합니다.","사용 시기를 지정하여 회신하여 주시기 바랍니다."]}'::jsonb, '근로기준법 §61')
+ON CONFLICT (id) DO NOTHING;
 
 COMMIT;

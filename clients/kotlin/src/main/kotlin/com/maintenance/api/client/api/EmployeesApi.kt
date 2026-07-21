@@ -28,6 +28,7 @@ import okhttp3.Call
 import okhttp3.HttpUrl
 
 import com.maintenance.api.client.model.CreateEmployeeLifecycleEventRequest
+import com.maintenance.api.client.model.EmployeeHomeBranch
 import com.maintenance.api.client.model.EmployeeImportDryRunSummary
 import com.maintenance.api.client.model.EmployeeImportPreviewResponse
 import com.maintenance.api.client.model.EmployeeImportReport
@@ -36,6 +37,7 @@ import com.maintenance.api.client.model.EmployeeLifecycleEventPage
 import com.maintenance.api.client.model.EmployeePage
 import com.maintenance.api.client.model.ErrorBody
 import com.maintenance.api.client.model.ImportApplyRequest
+import com.maintenance.api.client.model.SetEmployeeHomeBranchRequest
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -514,6 +516,7 @@ open class EmployeesApi(basePath: kotlin.String = defaultBasePath, client: Call.
      * Paginated tenant HR employee directory
      * Executive/admin/super-admin read of first-class employee rows. Employees are not auth users.
      * @param company Filter by workbook sheet/company name. (optional)
+     * @param homeBranchReviewRequired Filter to employees whose active authoritative home branch is missing/inactive (true) or usable (false). (optional)
      * @param limit  (optional, default to 500L)
      * @param offset  (optional, default to 0L)
      * @return EmployeePage
@@ -525,8 +528,8 @@ open class EmployeesApi(basePath: kotlin.String = defaultBasePath, client: Call.
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun listEmployees(company: kotlin.String? = null, limit: kotlin.Long? = 500L, offset: kotlin.Long? = 0L) : EmployeePage = withContext(Dispatchers.IO) {
-        val localVarResponse = listEmployeesWithHttpInfo(company = company, limit = limit, offset = offset)
+    suspend fun listEmployees(company: kotlin.String? = null, homeBranchReviewRequired: kotlin.Boolean? = null, limit: kotlin.Long? = 500L, offset: kotlin.Long? = 0L) : EmployeePage = withContext(Dispatchers.IO) {
+        val localVarResponse = listEmployeesWithHttpInfo(company = company, homeBranchReviewRequired = homeBranchReviewRequired, limit = limit, offset = offset)
 
         return@withContext when (localVarResponse.responseType) {
             ResponseType.Success -> (localVarResponse as Success<*>).data as EmployeePage
@@ -548,6 +551,7 @@ open class EmployeesApi(basePath: kotlin.String = defaultBasePath, client: Call.
      * Paginated tenant HR employee directory
      * Executive/admin/super-admin read of first-class employee rows. Employees are not auth users.
      * @param company Filter by workbook sheet/company name. (optional)
+     * @param homeBranchReviewRequired Filter to employees whose active authoritative home branch is missing/inactive (true) or usable (false). (optional)
      * @param limit  (optional, default to 500L)
      * @param offset  (optional, default to 0L)
      * @return ApiResponse<EmployeePage?>
@@ -556,8 +560,8 @@ open class EmployeesApi(basePath: kotlin.String = defaultBasePath, client: Call.
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun listEmployeesWithHttpInfo(company: kotlin.String?, limit: kotlin.Long?, offset: kotlin.Long?) : ApiResponse<EmployeePage?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = listEmployeesRequestConfig(company = company, limit = limit, offset = offset)
+    suspend fun listEmployeesWithHttpInfo(company: kotlin.String?, homeBranchReviewRequired: kotlin.Boolean?, limit: kotlin.Long?, offset: kotlin.Long?) : ApiResponse<EmployeePage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listEmployeesRequestConfig(company = company, homeBranchReviewRequired = homeBranchReviewRequired, limit = limit, offset = offset)
 
         return@withContext request<Unit, EmployeePage>(
             localVariableConfig
@@ -568,16 +572,20 @@ open class EmployeesApi(basePath: kotlin.String = defaultBasePath, client: Call.
      * To obtain the request config of the operation listEmployees
      *
      * @param company Filter by workbook sheet/company name. (optional)
+     * @param homeBranchReviewRequired Filter to employees whose active authoritative home branch is missing/inactive (true) or usable (false). (optional)
      * @param limit  (optional, default to 500L)
      * @param offset  (optional, default to 0L)
      * @return RequestConfig
      */
-    fun listEmployeesRequestConfig(company: kotlin.String?, limit: kotlin.Long?, offset: kotlin.Long?) : RequestConfig<Unit> {
+    fun listEmployeesRequestConfig(company: kotlin.String?, homeBranchReviewRequired: kotlin.Boolean?, limit: kotlin.Long?, offset: kotlin.Long?) : RequestConfig<Unit> {
         val localVariableBody = null
         val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
             .apply {
                 if (company != null) {
                     put("company", listOf(company.toString()))
+                }
+                if (homeBranchReviewRequired != null) {
+                    put("home_branch_review_required", listOf(homeBranchReviewRequired.toString()))
                 }
                 if (limit != null) {
                     put("limit", listOf(limit.toString()))
@@ -666,6 +674,83 @@ open class EmployeesApi(basePath: kotlin.String = defaultBasePath, client: Call.
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/v1/employees/import/preview",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * PUT /api/v1/employees/{id}/home-branch
+     * Assign an employee&#39;s authoritative home branch
+     * Audited explicit assignment; the server never infers a branch from user memberships. The target branch must be active and in the same tenant. Reassignment requires EmployeeDirectoryManage for both the prior and new branch. An employee with no prior branch requires org-wide manage authority. &#x60;expected_updated_at&#x60; prevents silent concurrent overwrite.
+     * @param id
+     * @param setEmployeeHomeBranchRequest
+     * @return EmployeeHomeBranch
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun setEmployeeHomeBranch(id: java.util.UUID, setEmployeeHomeBranchRequest: SetEmployeeHomeBranchRequest) : EmployeeHomeBranch = withContext(Dispatchers.IO) {
+        val localVarResponse = setEmployeeHomeBranchWithHttpInfo(id = id, setEmployeeHomeBranchRequest = setEmployeeHomeBranchRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as EmployeeHomeBranch
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * PUT /api/v1/employees/{id}/home-branch
+     * Assign an employee&#39;s authoritative home branch
+     * Audited explicit assignment; the server never infers a branch from user memberships. The target branch must be active and in the same tenant. Reassignment requires EmployeeDirectoryManage for both the prior and new branch. An employee with no prior branch requires org-wide manage authority. &#x60;expected_updated_at&#x60; prevents silent concurrent overwrite.
+     * @param id
+     * @param setEmployeeHomeBranchRequest
+     * @return ApiResponse<EmployeeHomeBranch?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun setEmployeeHomeBranchWithHttpInfo(id: java.util.UUID, setEmployeeHomeBranchRequest: SetEmployeeHomeBranchRequest) : ApiResponse<EmployeeHomeBranch?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = setEmployeeHomeBranchRequestConfig(id = id, setEmployeeHomeBranchRequest = setEmployeeHomeBranchRequest)
+
+        return@withContext request<SetEmployeeHomeBranchRequest, EmployeeHomeBranch>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation setEmployeeHomeBranch
+     *
+     * @param id
+     * @param setEmployeeHomeBranchRequest
+     * @return RequestConfig
+     */
+    fun setEmployeeHomeBranchRequestConfig(id: java.util.UUID, setEmployeeHomeBranchRequest: SetEmployeeHomeBranchRequest) : RequestConfig<SetEmployeeHomeBranchRequest> {
+        val localVariableBody = setEmployeeHomeBranchRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.PUT,
+            path = "/api/v1/employees/{id}/home-branch".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

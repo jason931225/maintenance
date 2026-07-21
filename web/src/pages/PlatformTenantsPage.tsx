@@ -36,7 +36,7 @@ interface PendingChange {
 }
 
 export function PlatformTenantsPage() {
-  const { session, enterViewAs } = useAuth();
+  const { session, enterViewAs, refreshAuthority } = useAuth();
   const navigate = useNavigate();
   const token = session?.access_token;
 
@@ -72,14 +72,14 @@ export function PlatformTenantsPage() {
 
   const loadOrgs = useCallback(async () => {
     setListState("loading");
-    const result = await listPlatformOrgs(token).catch(() => undefined);
+    const result = await listPlatformOrgs(token, refreshAuthority).catch(() => undefined);
     if (!result) {
       setListState("error");
       return;
     }
     setOrgs(result);
     setListState("idle");
-  }, [token]);
+  }, [refreshAuthority, token]);
 
   useEffect(() => {
     void Promise.resolve().then(loadOrgs);
@@ -91,6 +91,7 @@ export function PlatformTenantsPage() {
       token,
       pendingChange.org.id,
       pendingChange.next,
+      refreshAuthority,
     );
     // Optimistically reflect the returned org, then close the dialog and refresh
     // from the server so the list stays authoritative.
@@ -106,7 +107,7 @@ export function PlatformTenantsPage() {
     // A 409 (tenant has data) / 404 / failure is thrown to the dialog, which
     // surfaces the "archive instead" guidance (and, on 409, reveals the force
     // escape) and stays open. On success the tenant is gone, so close and refresh.
-    await removePlatformOrg(token, pendingRemoval.id);
+    await removePlatformOrg(token, pendingRemoval.id, refreshAuthority);
     setPendingRemoval(undefined);
     await loadOrgs();
   }
@@ -117,7 +118,7 @@ export function PlatformTenantsPage() {
     // (`tenant_active`, not archived) / 404 / failure is thrown to the force
     // dialog, which surfaces the "archive first" guidance and stays open. On
     // success the tenant is gone, so close and refresh from the server.
-    await forceRemovePlatformOrg(token, pendingForceRemoval.id);
+    await forceRemovePlatformOrg(token, pendingForceRemoval.id, refreshAuthority);
     setPendingForceRemoval(undefined);
     await loadOrgs();
   }
@@ -126,35 +127,46 @@ export function PlatformTenantsPage() {
     if (!pendingViewAs) return;
     // Mint the short-lived read-only impersonation token with the operator's
     // platform token. A failure (e.g. 409 not-active) is thrown to the dialog.
-    const result = await startViewAs(token, {
-      org_id: pendingViewAs.id,
-      role,
-    });
+    const result = await startViewAs(
+      token,
+      { org_id: pendingViewAs.id, role },
+      refreshAuthority,
+    );
     // Switch the app into the tenant view: store the view_as token + platform
     // session, then navigate into the tenant shell. The persistent banner is
     // rendered by AppShell while impersonating.
-    enterViewAs({
-      token: result.access_token,
-      actingOrgId: result.acting_org_id,
-      actingOrgName: result.acting_org_name,
-      actingRole: result.acting_role,
-    });
+    if (
+      enterViewAs({
+        token: result.access_token,
+        actingOrgId: result.acting_org_id,
+        actingOrgName: result.acting_org_name,
+        actingRole: result.acting_role,
+      }) !== true
+    ) {
+      throw new Error("tenant view-as authority was retired");
+    }
     setPendingViewAs(undefined);
     void navigate("/overview");
   }
 
   async function startManageTenantSession(org: PlatformOrg): Promise<void> {
     setManageError(undefined);
-    const result = await startTenantContext(token, {
-      org_id: org.id,
-    });
-    enterViewAs({
-      token: result.access_token,
-      mode: "MANAGE",
-      actingOrgId: result.acting_org_id,
-      actingOrgName: result.acting_org_name,
-      actingRole: result.acting_role,
-    });
+    const result = await startTenantContext(
+      token,
+      { org_id: org.id },
+      refreshAuthority,
+    );
+    if (
+      enterViewAs({
+        token: result.access_token,
+        mode: "MANAGE",
+        actingOrgId: result.acting_org_id,
+        actingOrgName: result.acting_org_name,
+        actingRole: result.acting_role,
+      }) !== true
+    ) {
+      throw new Error("tenant management authority was retired");
+    }
     void navigate("/settings/org");
   }
 

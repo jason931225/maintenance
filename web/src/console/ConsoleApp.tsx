@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { ConsoleShell } from "./shell/ConsoleShell";
+import { EXPOSED_SCREEN_KEYS, type MountedScreenKey } from "./shell/nav";
 import { nextTheme, themeAttribute } from "./shell/theme";
 import type { ThemeMode } from "./shell/theme";
 import "./tokens.css";
@@ -23,7 +24,11 @@ import { initConsoleRum } from "./rum/rum";
  * Internal navigation is `state.screen`-driven (owned by `ConsoleShell`), not
  * React-Router pages.
  */
-export function ConsoleApp() {
+export function ConsoleApp({
+  screenKeys = EXPOSED_SCREEN_KEYS,
+}: {
+  screenKeys?: readonly MountedScreenKey[];
+}) {
   const [theme, setTheme] = useState<ThemeMode>("system");
   const cycleTheme = useCallback(() => {
     setTheme((t) => nextTheme(t));
@@ -47,7 +52,7 @@ export function ConsoleApp() {
         fontFamily: "var(--font-sans)",
       }}
     >
-      <ConsoleShell theme={theme} onCycleTheme={cycleTheme} />
+      <ConsoleShell theme={theme} onCycleTheme={cycleTheme} screenKeys={screenKeys} />
     </div>
   );
 }

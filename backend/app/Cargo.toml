@@ -46,6 +46,7 @@ mnt-comms-adapter-postgres = { workspace = true }
 mnt-comms-application = { workspace = true }
 mnt-comms-credential-cipher = { workspace = true }
 mnt-comms-rest = { workspace = true }
+mnt-action-inbox-application = { workspace = true }
 mnt-compliance-adapter-postgres = { workspace = true }
 mnt-compliance-rest = { workspace = true }
 mnt-erp-domain = { workspace = true }
@@ -70,6 +71,7 @@ mnt-notifications-rest = { workspace = true }
 mnt-inbox-adapter-postgres = { workspace = true }
 mnt-inbox-rest = { workspace = true }
 mnt-leave-adapter-postgres = { workspace = true }
+mnt-leave-domain = { workspace = true }
 mnt-leave-rest = { workspace = true }
 mnt-todos-adapter-postgres = { workspace = true }
 mnt-todos-rest = { workspace = true }
@@ -116,6 +118,7 @@ mnt-workflow-domain = { workspace = true }
 mnt-workflow-runtime = { workspace = true }
 mnt-workflow-runtime-adapter-postgres = { workspace = true }
 mnt-workorder-adapter-postgres = { workspace = true }
+mnt-workorder-application = { workspace = true }
 mnt-workorder-rest = { workspace = true }
 opentelemetry = { workspace = true }
 opentelemetry-otlp = { workspace = true, features = ["grpc-tonic"] }

@@ -567,6 +567,73 @@ impl PgSupportStore {
         })
     }
 
+    /// Bounded due/id keyset page for the unified action inbox. It reuses the
+    /// canonical branch-scope builder and assignee predicate from
+    /// [`Self::list_tickets`], while excluding terminal tickets in SQL.
+    pub async fn list_assigned_action_inbox_page(
+        &self,
+        branch_scope: BranchScope,
+        assignee: UserId,
+        as_of: OffsetDateTime,
+        after: Option<(OffsetDateTime, String)>,
+        limit: i64,
+    ) -> Result<(Vec<TicketSummary>, i64, bool), PgSupportError> {
+        let limit = limit.clamp(1, 200);
+        let (after_created_at, after_id) = after.map_or((None, None), |(created_at, id)| {
+            (Some(created_at), Some(id))
+        });
+        let push_filters = move |builder: &mut QueryBuilder<Postgres>| {
+            builder.push("(");
+            push_branch_scope(builder, &branch_scope, false);
+            builder.push(") AND assignee_user_id = ");
+            builder.push_bind(*assignee.as_uuid());
+            builder.push(" AND status NOT IN ('RESOLVED', 'CLOSED') AND created_at <= ");
+            builder.push_bind(as_of);
+        };
+        let mut count_builder =
+            QueryBuilder::<Postgres>::new("SELECT COUNT(*) FROM support_tickets WHERE ");
+        push_filters(&mut count_builder);
+        let mut builder = QueryBuilder::<Postgres>::new(
+            "SELECT id, branch_id, origin, category, priority, status, title, \
+             requester_user_id, requester_name, assignee_user_id, \
+             (SELECT u.display_name FROM users u \
+               WHERE u.id = support_tickets.assignee_user_id) AS assignee_name, \
+             due_at, created_at, updated_at, resolved_at, closed_at \
+             FROM support_tickets WHERE ",
+        );
+        push_filters(&mut builder);
+        if let (Some(after_created_at), Some(after_id)) = (after_created_at, after_id) {
+            builder.push(" AND (created_at > ");
+            builder.push_bind(after_created_at);
+            builder.push(" OR (created_at = ");
+            builder.push_bind(after_created_at);
+            builder.push(" AND ('support:' || id::text) > ");
+            builder.push_bind(after_id);
+            builder.push("))");
+        }
+        builder.push(" ORDER BY created_at ASC, ('support:' || id::text) ASC LIMIT ");
+        builder.push_bind(limit.clamp(1, 200) + 1);
+        let org = current_org().map_err(KernelError::from)?;
+        let (total, rows) = with_org_conn::<_, _, PgSupportError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                let total = count_builder
+                    .build_query_scalar::<i64>()
+                    .fetch_one(tx.as_mut())
+                    .await?;
+                let rows = builder.build().fetch_all(tx.as_mut()).await?;
+                Ok((total, rows))
+            })
+        })
+        .await?;
+        let has_more = i64::try_from(rows.len()).unwrap_or(0) > limit;
+        let items = rows
+            .iter()
+            .take(usize::try_from(limit).unwrap_or(rows.len()))
+            .map(summary_from_row)
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok((items, total, has_more))
+    }
+
     // -----------------------------------------------------------------------
     // get_ticket (+ comments, audience-filtered)
     // -----------------------------------------------------------------------

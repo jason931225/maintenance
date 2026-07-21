@@ -55,7 +55,6 @@ if command -v lsof >/dev/null 2>&1; then
   fi
 fi
 
-PG_SUPERUSER="${E2E_PG_SUPERUSER:-${USER}}"
 PG_HOST="${E2E_PG_HOST:-localhost}"
 PG_PORT="${E2E_PG_PORT:-5432}"
 DB_NAME="${E2E_DB_NAME:-mnt_e2e}"
@@ -65,7 +64,12 @@ DB_NAME="${E2E_DB_NAME:-mnt_e2e}"
 . "$(dirname "${BASH_SOURCE[0]}")/gen-keys.sh"
 
 export MNT_APP_ROLE=api
-export DATABASE_URL="postgres://${PG_SUPERUSER}@${PG_HOST}:${PG_PORT}/${DB_NAME}"
+MNT_RT_POSTGRES_PASSWORD="${E2E_MNT_RT_POSTGRES_PASSWORD:-mnt-e2e-runtime-change-me}"
+MNT_LEAVE_COMMAND_POSTGRES_PASSWORD="${E2E_MNT_LEAVE_COMMAND_POSTGRES_PASSWORD:-mnt-e2e-leave-command-change-me}"
+MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD="${E2E_MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD:-mnt-e2e-ontology-command-change-me}"
+export DATABASE_URL="postgres://mnt_rt:${MNT_RT_POSTGRES_PASSWORD}@${PG_HOST}:${PG_PORT}/${DB_NAME}"
+export LEAVE_COMMAND_DATABASE_URL="postgres://mnt_leave_cmd:${MNT_LEAVE_COMMAND_POSTGRES_PASSWORD}@${PG_HOST}:${PG_PORT}/${DB_NAME}"
+export ONTOLOGY_COMMAND_DATABASE_URL="postgres://mnt_ontology_cmd:${MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD}@${PG_HOST}:${PG_PORT}/${DB_NAME}"
 export MNT_HTTP_ADDR="${HTTP_ADDR}"
 export MNT_WEBAUTHN_RP_ID="${E2E_RP_ID:-localhost}"
 export MNT_WEBAUTHN_RP_ORIGIN="${E2E_RP_ORIGIN:-http://localhost:5173}"

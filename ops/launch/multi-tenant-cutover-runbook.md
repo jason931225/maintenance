@@ -21,7 +21,7 @@ window is the safe, simple way to guarantee that.
 0. **Take the `maintenance` Argo app off auto-sync FIRST.** It is
    `automated: { prune: true, selfHeal: true }` (`deploy/argocd/apps/maintenance.yaml`),
    so a merge to `main` would otherwise *immediately* apply the whole cutover
-   (the PreSync migrate Job enables RLS on the live DB, and the app Deployment
+   (the wave-2 Sync migrate Job enables RLS on the live DB, and the app Deployment
    flips `DATABASE_URL` to `mnt-db-rt`) as an uncontrolled rolling update — an
    outage. Switching to manual sync is **non-disruptive**: running workloads keep
    running; Argo just stops auto-applying git. Do this before the merge:
@@ -38,21 +38,25 @@ window is the safe, simple way to guarantee that.
 1. **Branch is merged + images built.** `feat/multi-tenant-phase1` is merged to
    `main`, CI green; `image-release` has built+signed new `mnt-app` and `mnt-web`
    images by digest. Record the two `sha256:` digests.
-2. **Runtime secret exists.** Create `mnt-db-rt` (the non-owner runtime
-   connection) per `deploy/SECRETS.md` — `username=mnt_rt`, a strong `password`,
-   and a `uri` pointing at `mnt-db-rw.maintenance.svc:5432/maintenance`. This must
-   exist before the app Deployment (which now reads `DATABASE_URL` from it) syncs.
-3. **Managed role config.** `deploy/.../database.yaml` declares `mnt_rt` under
-   CNPG `managed.roles` (login, NOSUPERUSER, NOBYPASSRLS) with
-   `passwordSecret: mnt-db-rt`. Confirm Argo will reconcile it (CNPG creates the
-   role + attaches the password). Migration 0031 also pins the role attributes.
+2. **All non-owner login secrets exist.** Create `mnt-db-rt`,
+   `mnt-db-leave-command`, and `mnt-db-ontology-command` per
+   `deploy/SECRETS.md`, each with matching `username`, URL-safe generated
+   `password`, and `uri` fields. Preserve all three in the authoritative Vault
+   recovery bundle. They must exist before CNPG and the API/worker sync.
+3. **Managed role config.** `deploy/.../database.yaml` declares migration-only
+   `mnt_app` as `BYPASSRLS`, while `mnt_rt` and both command logins are
+   `NOSUPERUSER NOBYPASSRLS`. Confirm Argo will reconcile the exact attributes
+   and bind the separate password Secrets before migration 0031 runs.
 4. **Backup is fresh + restore is proven.** Confirm a recent CNPG/Barman base
    backup + WAL archiving is current (`ops/dr/cnpg-restore-drill.*`). Note the
    exact pre-cutover timestamp — this is the PITR rollback target.
 5. **Migrate runner ready (#14).** The `mnt-app` image supports `MNT_APP_ROLE=
-   migrate`, and the Argo PreSync `migrate-job` runs it as the OWNER
+   migrate`, and the Argo wave-2 Sync `migrate-job` runs it as the OWNER
    (`mnt-db-app` secret) before the app syncs. Verify the Job renders
    (`kubectl kustomize deploy/apps/maintenance/base`).
+6. **Full sync only.** Do not selectively sync the migration Job, API, or
+   worker. Sync the maintenance Application as a whole so CNPG, topology
+   readback, migration, and serving waves execute in order.
    - **_sqlx_migrations alignment:** prod was migrated manually with sqlx-cli, so
      `_sqlx_migrations` already records 0001..0025 with checksums. The embedded
      Migrator must match those checksums byte-for-byte or it will refuse. CONFIRM
@@ -76,7 +80,8 @@ window is the safe, simple way to guarantee that.
    ```
 2. **Snapshot point.** Record `SELECT now();` (the PITR rollback target) and
    confirm WAL is archiving.
-3. **Apply migrations 0026→0037.** Either let the PreSync `migrate-job` run on the
+3. **Apply migrations 0026→0037.** Let the ordered Sync `migrate-job` run after
+   the wave-1 database topology readback gate, or run the same image as `mnt_app` on the
    next sync (it connects as owner via `mnt-db-app`), or run them manually as
    owner through the tunnel:
    ```sh
@@ -101,11 +106,11 @@ window is the safe, simple way to guarantee that.
    `deploy/apps/maintenance/overlays/prod/kustomization.yaml` (`mnt-app` +
    `mnt-web`), commit to `main`. Auto-sync is OFF (§0.0), so Argo will NOT apply
    yet — it shows OutOfSync and waits. Trigger the cutover deliberately with a
-   **manual sync**, which runs the PreSync `migrate-job` (migrations 0026–0037,
+   **manual sync**, which runs the wave-2 Sync `migrate-job` (migrations 0026–0037,
    incl. RLS enable) to completion first, then rolls the Deployments to the new
    digest (now connecting as `mnt_rt`):
    ```sh
-   argocd app sync maintenance        # PreSync migrate Job → then app/worker/web
+   argocd app sync maintenance        # CNPG → topology gate → migrate → app/worker/web
    # or: kubectl -n argocd annotate application maintenance argocd.argoproj.io/sync=...
    ```
    Watch the `mnt-migrate` Job to Completed before the Deployments roll.
@@ -179,7 +184,7 @@ Pick based on how far the cutover got:
   the idempotent `migrate-job` (a no-op once up to date) then rolls the app.
 - Remove the maintenance page; confirm Argo shows the app Healthy/Synced on the
   new digests.
-- Confirm the next routine deploy runs the PreSync `migrate-job` cleanly (it is
+- Confirm the next routine deploy runs the wave-2 Sync `migrate-job` cleanly (it is
   idempotent — "up to date").
 - Track: deploy-time signature enforcement (#6), observability stack (#10), the
   refresh/worker org follow-ups, and the `work_orders.service_category` column if

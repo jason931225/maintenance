@@ -1,12 +1,12 @@
 import { KeyRound, Mail, QrCode, Smartphone, Ticket } from "lucide-react";
 import { QRCodeCanvas } from "qrcode.react";
-import { Suspense, lazy, useEffect, useState } from "react";
+import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 
 import { Button } from "../components/ui/button";
 import { Card } from "../components/ui/card";
 import { Input } from "../components/ui/input";
-import { useAuth } from "../context/auth";
+import { useAuth, type TokenAcceptanceLease } from "../context/auth";
 import { ko } from "../i18n/ko";
 import {
   OtpRedeemError,
@@ -66,7 +66,7 @@ const RoleSwitcher = import.meta.env.DEV
   : null;
 
 export function LoginPage() {
-  const { session, restoring, login, acceptTokens, api } = useAuth();
+  const { session, restoring, login, beginTokenAcceptance, acceptTokens, api } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [searchParams] = useSearchParams();
@@ -97,6 +97,7 @@ export function LoginPage() {
   >({ status: "idle" });
   const [phoneApprovePending, setPhoneApprovePending] = useState(false);
   const [phoneApproveDone, setPhoneApproveDone] = useState(false);
+  const deviceAcceptanceLeaseRef = useRef<TokenAcceptanceLease | undefined>(undefined);
 
   useEffect(() => {
     if ((!scannedOtp && !desktopApproveToken) || !location.hash) return;
@@ -140,14 +141,28 @@ export function LoginPage() {
       const result = await pollDeviceLogin(api, pollToken).catch(() => undefined);
       if (cancelled || !result) return;
       if (result.status === "expired") {
+        deviceAcceptanceLeaseRef.current = undefined;
         setDesktopQr({ status: "expired" });
         return;
       }
       if (result.status !== "approved" || !result.access_token) return;
-      acceptTokens({
-        access_token: result.access_token,
-        requires_passkey_setup: result.requires_passkey_setup ?? false,
-      });
+      const lease = deviceAcceptanceLeaseRef.current;
+      if (!lease) {
+        setError(ko.auth.phoneLoginFailed);
+        return;
+      }
+      const accepted = acceptTokens(
+        {
+          access_token: result.access_token,
+          requires_passkey_setup: result.requires_passkey_setup ?? false,
+        },
+        lease,
+      );
+      if (accepted === false) {
+        setError(ko.auth.phoneLoginFailed);
+        return;
+      }
+      deviceAcceptanceLeaseRef.current = undefined;
       setNotice(ko.auth.phoneLoginApproved);
       void navigate(safeNext(searchParams.get("next")), { replace: true });
     }
@@ -179,6 +194,12 @@ export function LoginPage() {
   }
 
   async function handleStartDesktopQrLogin() {
+    const lease = beginTokenAcceptance?.();
+    if (!lease) {
+      setError(ko.auth.phoneLoginFailed);
+      return;
+    }
+    deviceAcceptanceLeaseRef.current = lease;
     setError(undefined);
     setNotice(undefined);
     setDesktopQr({ status: "starting" });
@@ -190,6 +211,7 @@ export function LoginPage() {
         approveUrl: handoff.approve_url,
       });
     } catch {
+      deviceAcceptanceLeaseRef.current = undefined;
       setDesktopQr({ status: "idle" });
       setError(ko.auth.phoneLoginFailed);
     }
@@ -219,22 +241,34 @@ export function LoginPage() {
       setError(ko.auth.otpRequired);
       return;
     }
+    const lease = beginTokenAcceptance?.();
+    if (!lease) {
+      setError(ko.auth.otpInvalid);
+      return;
+    }
     setOtpPending(true);
     try {
       const result = await redeemOtp(api, otp);
       // Cookie transport: the refresh token is set as an HttpOnly cookie by the
       // backend and is absent from the body, so only the access token is carried
       // into the session here.
+      const accepted = acceptTokens(
+        {
+          access_token: result.access_token,
+          requires_passkey_setup: result.requires_passkey_setup,
+        },
+        lease,
+      );
+      if (accepted === false) {
+        setError(ko.auth.otpInvalid);
+        return;
+      }
       if (desktopApproveToken && result.requires_passkey_setup) {
         window.sessionStorage.setItem(
           DESKTOP_APPROVE_SESSION_KEY,
           desktopApproveToken,
         );
       }
-      acceptTokens({
-        access_token: result.access_token,
-        requires_passkey_setup: result.requires_passkey_setup,
-      });
       // Navigation is driven by the session effect (or the onboarding guard when
       // requires_passkey_setup is set), so nothing else to do here.
     } catch (cause) {

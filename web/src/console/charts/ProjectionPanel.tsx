@@ -1,4 +1,5 @@
 import type { CSSProperties } from "react";
+import type { components } from "@maintenance/api-client-ts";
 
 import { ko } from "../../i18n/ko";
 import { StatusChip } from "../components";
@@ -10,13 +11,34 @@ const T = ko.console.charts;
 
 export type ProjectionDrillPart = "point" | "ci95" | "cvar95" | "sample";
 
+/** Backend Monte-Carlo/EVT result (POST /api/v1/analytics/projection, HANDOFF §18). */
+export type BackendProjection = components["schemas"]["ProjectionResult"];
+
+export type ServerProjectionState =
+  | { status: "loading" }
+  | { status: "denied" }
+  | { status: "error" }
+  | { status: "empty" }
+  | { status: "ready"; result: BackendProjection };
+
 export interface ProjectionPanelProps {
   /** Field name the projection is over, e.g. 월 정비비. */
   title: string;
   /** §4-19 typed field: controls formatting. */
   kind: "money" | "percent";
-  /** wire-pending: Phase C — sample arrives from backend Monte-Carlo/EVT (HANDOFF §18). */
+  /** The real historical series (drives the spark and, when no backend result is
+   *  supplied, the deterministic client-side estimate below). */
   sample: number[];
+  /**
+   * Backend Monte-Carlo/EVT projection over `sample` (HANDOFF §18, wired via
+   * POST /api/v1/analytics/projection). When present it is the source of truth
+   * for point/CI95/CVaR95; when absent (in-flight, denied, or a non-money/percent
+   * field the endpoint doesn't serve) the panel falls back to the deterministic
+   * client `project()` math over `sample` — same shape, no fabrication.
+   */
+  backendResult?: BackendProjection;
+  /** Server-owned state. Supplying it disables the client projection fallback. */
+  serverState?: ServerProjectionState;
   lambda?: number;
   onDrill: (part: ProjectionDrillPart) => void;
   /** §4-22 in-place add path for the underlying sample. */
@@ -29,7 +51,61 @@ export interface ProjectionPanelProps {
   format?: ChartFormat;
 }
 
+/** Unified render shape derived from either the backend result or client math. */
+interface ProjectionView {
+  point: number;
+  ci95: readonly [number, number];
+  cvar95: number;
+  n: number;
+  ewmaAssumption:
+    | { source: "backend"; volatility: number }
+    | { source: "client"; label: string };
+  distributionAssumption: string;
+}
+
+function toView(
+  backendResult: BackendProjection | undefined,
+  sample: number[],
+  lambda: number,
+): ProjectionView | null {
+  if (backendResult) {
+    return {
+      point: backendResult.point_estimate,
+      ci95: [backendResult.ci95_low, backendResult.ci95_high],
+      cvar95: backendResult.cvar95,
+      n: sample.filter((v) => Number.isFinite(v)).length,
+      ewmaAssumption: {
+        source: "backend",
+        volatility: backendResult.assumptions.ewma_volatility,
+      },
+      distributionAssumption: T.projection.assumptionStudentT(
+        backendResult.assumptions.student_t_nu,
+      ),
+    };
+  }
+  const p = project(sample, lambda);
+  return p
+    ? {
+        point: p.point,
+        ci95: p.ci95,
+        cvar95: p.cvar95,
+        n: p.n,
+        ewmaAssumption: {
+          source: "client",
+          label: T.projection.assumptionEwma(String(p.lambda)),
+        },
+        distributionAssumption: T.projection.assumptionDist,
+      }
+    : null;
+}
+
 const formatPercent: ChartFormat = (value) => `${value.toFixed(1)}%`;
+
+const formatReturnFraction = (value: number) =>
+  new Intl.NumberFormat("ko-KR", {
+    style: "percent",
+    maximumFractionDigits: 1,
+  }).format(value);
 
 const statButtonStyle: CSSProperties = {
   display: "grid",
@@ -63,9 +139,22 @@ const statValueStyle: CSSProperties = {
  * DESIGN change-log (68) 정량 투영: deterministic point estimate + CI95 band
  * + CVaR95 fat-tail over a money/percent field. Every number drills (§4.7-9).
  */
-export function ProjectionPanel({ title, kind, sample, lambda = DEFAULT_LAMBDA, onDrill, onAddSample, format: formatOverride }: ProjectionPanelProps) {
+export function ProjectionPanel({ title, kind, sample, backendResult, serverState, lambda = DEFAULT_LAMBDA, onDrill, onAddSample, format: formatOverride }: ProjectionPanelProps) {
   const format = formatOverride ?? (kind === "money" ? formatWon : formatPercent);
-  const p = project(sample, lambda);
+  const p = serverState
+    ? serverState.status === "ready"
+      ? toView(serverState.result, sample, lambda)
+      : null
+    : toView(backendResult, sample, lambda);
+  const ewmaAssumption = p
+    ? p.ewmaAssumption.source === "backend"
+      ? T.projection.assumptionEwmaVolatility(
+          kind === "money"
+            ? formatReturnFraction(p.ewmaAssumption.volatility)
+            : format(p.ewmaAssumption.volatility),
+        )
+      : p.ewmaAssumption.label
+    : undefined;
 
   return (
     <section
@@ -94,8 +183,8 @@ export function ProjectionPanel({ title, kind, sample, lambda = DEFAULT_LAMBDA, 
         </h3>
         {p ? (
           <span style={{ display: "inline-flex", gap: "var(--sp-1)", flexWrap: "wrap" }}>
-            <StatusChip>{T.projection.assumptionEwma(String(p.lambda))}</StatusChip>
-            <StatusChip>{T.projection.assumptionDist}</StatusChip>
+            <StatusChip>{ewmaAssumption}</StatusChip>
+            <StatusChip>{p.distributionAssumption}</StatusChip>
             <StatusChip>{T.projection.assumptionN(p.n)}</StatusChip>
           </span>
         ) : null}
@@ -151,9 +240,19 @@ export function ProjectionPanel({ title, kind, sample, lambda = DEFAULT_LAMBDA, 
             }}
           />
         </>
+      ) : serverState?.status === "denied" ? (
+        <StatusChip tone="danger" role="alert">
+          {ko.page.permissionDenied}
+        </StatusChip>
+      ) : serverState?.status === "error" ? (
+        <StatusChip tone="danger" role="alert">
+          {ko.page.loadFailed}
+        </StatusChip>
+      ) : serverState?.status === "loading" ? (
+        <StatusChip role="status">{ko.page.loading}</StatusChip>
       ) : (
         <StatusChip tone="warn" role="status">
-          {T.projection.insufficient}
+          {serverState ? ko.page.empty : T.projection.insufficient}
         </StatusChip>
       )}
 
@@ -172,7 +271,7 @@ export function ProjectionPanel({ title, kind, sample, lambda = DEFAULT_LAMBDA, 
 }
 
 /** CI95 band with point and CVaR95 ticks on a shared horizontal axis. */
-function ProjectionBand({ projection }: { projection: NonNullable<ReturnType<typeof project>> }) {
+function ProjectionBand({ projection }: { projection: ProjectionView }) {
   const lo = Math.min(projection.cvar95, projection.ci95[0]);
   const hi = projection.ci95[1];
   const span = hi - lo;

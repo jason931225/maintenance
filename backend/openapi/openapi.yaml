@@ -1594,6 +1594,12 @@ paths:
         schema:
           type: string
         description: Filter by workbook sheet/company name.
+      - name: home_branch_review_required
+        in: query
+        required: false
+        schema:
+          type: boolean
+        description: Filter to employees whose active authoritative home branch is missing/inactive (true) or usable (false).
       - name: limit
         in: query
         required: false
@@ -1622,6 +1628,59 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+  /api/v1/employees/{id}/home-branch:
+    put:
+      tags:
+        - employees
+      operationId: setEmployeeHomeBranch
+      summary: Assign an employee's authoritative home branch
+      description: >-
+        Audited explicit assignment; the server never infers a branch from user
+        memberships. The target branch must be active and in the same tenant.
+        Reassignment requires EmployeeDirectoryManage for both the prior and new
+        branch. An employee with no prior branch requires org-wide manage
+        authority. `expected_updated_at` prevents silent concurrent overwrite.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetEmployeeHomeBranchRequest'
+      responses:
+        '200':
+          description: The explicit authoritative home-branch assignment.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmployeeHomeBranch'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: The employee changed after the supplied precondition; reload before retrying.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          description: The separately credentialed leave command database is not configured or unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
   /api/v1/employees/{id}/lifecycle-events:
     get:
       tags:
@@ -6151,6 +6210,282 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
+  /api/v2/me/leave:
+    get:
+      tags:
+        - leave
+      operationId: getMyLeaveV2
+      summary: Read the authenticated employee's own leave balance and history
+      description: >-
+        Base employee self-service. The server binds both user and linked
+        employee identity; no employee-directory feature is required and no
+        employee or branch identifier is accepted from the client. The balance
+        includes a closed filing state so a missing or inactive home branch is
+        visible before submission rather than discovered only after a 409.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 200
+          default: 100
+      - name: cursor
+        in: query
+        required: false
+        description: Last request id from the preceding stable self-service page.
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: Exact self balance plus self-only request history.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyLeaveV2Overview'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v2/leave/requests:
+    get:
+      tags:
+        - leave
+      operationId: listLeaveRequestsV2
+      summary: List the branch-scoped leave-request approval queue (연차 결재함)
+      description: >-
+        Pending-first, then newest. Requires `employee_directory_read`. The
+        queue is confined to the caller's branches (resolved from the JWT); an
+        out-of-scope request is invisible (deny-by-omission).
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: status
+        in: query
+        required: false
+        description: Filter to one status; omitted returns all four.
+        schema:
+          type: string
+          enum: [pending, approved, returned, rejected]
+      - name: limit
+        in: query
+        required: false
+        description: Page size for the stable pending-first queue.
+        schema:
+          type: integer
+          format: int64
+          minimum: 1
+          maximum: 200
+          default: 100
+      - name: cursor
+        in: query
+        required: false
+        description: Last request id from the preceding branch-scoped page.
+        schema:
+          type: string
+          format: uuid
+      responses:
+        '200':
+          description: A branch-scoped page of leave requests.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaveRequestV2Page'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '503':
+          description: JWT verification is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+    post:
+      tags:
+        - leave
+      operationId: createLeaveRequestV2
+      summary: File a self-service 연차/반차 request (본인 연차 신청)
+      description: >-
+        The caller files a leave request for THEMSELVES. `subject_employee_id`
+        and the routing `branch_id` are resolved server-side from the caller's
+        own account and employee.home_branch_id — never from input — so a
+        caller can only file for their own employee record. No directory feature
+        is required (filing one's own leave is a base employee capability); the
+        gate is an active account linked to an active employee; an unlinked or
+        inactive subject is denied with 403. Missing home-branch authority returns the
+        stable 409 `leave_home_branch_review_required`. The request preserves
+        date and AM/PM intent in `review_required`; no calendar-day or fixed-half
+        quantity is invented. A separate resolver pins authoritative evidence
+        before any approval can move the ledger. Modern clients generate one
+        `idempotency_key` per user intent and reuse it after an unknown or lost
+        response. The same key and canonical client intent return the original
+        request without another mutation or audit; a different intent conflicts.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LeaveCreateRequest'
+      responses:
+        '201':
+          description: The created pending leave request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaveRequestV2View'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '409':
+          description: The linked active employee has no explicit home branch (`leave_home_branch_review_required`), or the supplied `idempotency_key` is already bound to different client intent (`leave_create.idempotency_conflict`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '422':
+          description: >-
+            Invalid leave type, date range, reason, or partial-day intent.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '503':
+          description: JWT verification or the separately credentialed leave command database is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /api/v2/leave/requests/{id}/charge-resolution:
+    post:
+      tags:
+        - leave
+      operationId: resolveLeaveChargeV2
+      summary: Record an audited exact leave-charge resolution
+      description: >-
+        Requires EmployeeDirectoryManage in the request branch. The body carries
+        reviewed per-date obligations and source revision references, never a
+        client total or digest. The server validates complete date coverage,
+        canonicalizes, totals, hashes, and records an immutable resolution.
+        `expected_version` is the current mutable request_version; the
+        charge_version is assigned independently to the evidence snapshot.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LeaveChargeResolutionRequest'
+      responses:
+        '200':
+          description: Server-computed exact charge and digest with the new request CAS and charge-evidence revisions.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaveChargeResolutionView'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: The request is no longer pending or expected_version does not match the current request_version (`leave_concurrent_modification`).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          description: The separately credentialed leave command database is not configured or unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+  /api/v2/leave/requests/{id}/decide:
+    post:
+      tags:
+        - leave
+      operationId: decideLeaveRequestV2
+      summary: Approve, return, or reject a pending leave request
+      description: >-
+        Requires `employee_directory_manage` in the request's branch. An
+        APPROVE writes the leave ledger (used += exact resolved charge units,
+        remaining -= exact resolved charge units) in the same audited transaction.
+        Separation of duties — a request cannot be
+        decided by its own requester (403). `return`/`reject` require a comment.
+        Approval additionally requires a resolved exact charge and a distinct
+        resolver. Clients must carry the current request_version as
+        `expected_version`; omission is rejected so every v2 decision is an
+        explicit compare-and-swap. charge_version identifies immutable evidence
+        and is never a request mutation precondition. A successful decision
+        increments request_version only; charge_version remains unchanged. An
+        unresolved approval returns 409 `leave_calendar_review_required` plus
+        review reasons, audits the blocked attempt, and changes neither request
+        nor ledger.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: id
+        in: path
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LeaveDecideV2Request'
+      responses:
+        '200':
+          description: The decided leave request.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LeaveRequestV2View'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '409':
+          description: Not pending, stale expected request_version (`leave_concurrent_modification`), or unresolved calendar/policy evidence.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '422':
+          description: Missing mandatory comment or unknown decision.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '503':
+          description: The separately credentialed leave command database is not configured or unavailable.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
   /api/v1/leave/balances:
     get:
       tags:
@@ -6581,18 +6916,54 @@ paths:
         the overview prototype carries but no backend source can supply are
         omitted (entity, amount, detail, files, stats, mailId); site/who/submitted
         are present only for the sources that carry them. Attendance exceptions
-        are not aggregated (no exception object exists yet).
+        are not aggregated (no exception object exists yet). Results use an
+        immutable `(created_at, kind:id)` traversal key plus an `as_of` admission
+        boundary, so rows created after the first page are excluded. Membership is
+        deliberately live rather than a repeatable full-state snapshot: resolved,
+        reassigned, or expired rows can disappear between page requests. Totals are
+        recalculated from live membership admitted by `as_of`; `total_is_exact` is
+        false when an authorization-filtered source reaches its bounded counting
+        budget. Source failures fail the whole request rather than returning a
+        deceptively partial queue.
       security:
       - bearerAuth: []
+      parameters:
+      - name: limit
+        in: query
+        required: false
+        description: Page size, clamped server-side to 1..=200.
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 200
+          default: 100
+      - name: cursor
+        in: query
+        required: false
+        description: Opaque immutable-traversal cursor returned as `next_cursor` by the previous page.
+        schema:
+          type: string
       responses:
         '200':
-          description: The caller's actionable items, most urgent first.
+          description: The caller's actionable items in immutable creation order.
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ActionInboxResponse'
         '401':
           $ref: '#/components/responses/Unauthorized'
+        '422':
+          description: The action-inbox cursor is malformed.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
+        '500':
+          description: A source failed; no partial action-inbox response is returned.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorBody'
         '503':
           description: JWT verification is not configured.
           content:
@@ -10889,11 +11260,14 @@ paths:
       responses:
         '201':
           description: Draft object type created.
+          headers:
+            ETag:
+              description: Strong tenant/key write validator for the created object type.
+              schema: { type: string }
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: true
+                $ref: '#/components/schemas/ObjectTypeSummary'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -10930,6 +11304,10 @@ paths:
       responses:
         '200':
           description: Object type definition.
+          headers:
+            ETag:
+              description: Strong tenant/key write validator for subsequent mutations.
+              schema: { type: string }
           content:
             application/json:
               schema:
@@ -10958,6 +11336,13 @@ paths:
         required: true
         schema:
           type: string
+      - name: If-Match
+        in: header
+        required: true
+        description: Exactly one strong ontology tenant/key write validator.
+        schema:
+          type: string
+          pattern: '^"ont-object-type-key:[0-9a-f]{32}:r[1-9][0-9]*"$'
       requestBody:
         required: true
         content:
@@ -10967,11 +11352,16 @@ paths:
       responses:
         '201':
           description: Staged schema revision.
+          headers:
+            ETag:
+              description: Strong successor tenant/key write validator.
+              schema: { type: string }
           content:
             application/json:
               schema:
-                type: object
-                additionalProperties: true
+                $ref: '#/components/schemas/ObjectTypeSummary'
+        '400':
+          $ref: '#/components/responses/BadRequest'
         '401':
           $ref: '#/components/responses/Unauthorized'
         '403':
@@ -10980,10 +11370,48 @@ paths:
           $ref: '#/components/responses/NotFound'
         '409':
           $ref: '#/components/responses/Conflict'
+        '412':
+          $ref: '#/components/responses/PreconditionFailed'
         '422':
           $ref: '#/components/responses/ValidationError'
+        '428':
+          $ref: '#/components/responses/PreconditionRequired'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/ontology/object-types/{key}/acting:
+    get:
+      tags:
+        - Ontology
+      operationId: listObjectTypeActing
+      summary: Acting rules keyed by object-type
+      description: >
+        Automations (bound workflow definitions) and object policies acting on
+        the object type identified by stable key. Type-centric sibling of
+        /instances/{id}/acting — it may return rules for a type that has no
+        instances yet. An unknown key is 404 (deny-by-omission, RLS-scoped).
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: automation rules + policies acting on the object type
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/ActingRule'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
   /api/v1/ontology/instances:
     get:
       operationId: listOntologyInstances
@@ -12912,6 +13340,12 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorBody'
+    BadRequest:
+      description: Request syntax or conditional validator is malformed.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
     ValidationError:
       description: Request failed validation.
       content:
@@ -12926,6 +13360,18 @@ components:
             $ref: '#/components/schemas/ErrorBody'
     Conflict:
       description: State conflict or illegal transition.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorBody'
+    PreconditionFailed:
+      description: The submitted ontology key write validator is stale.
+      headers:
+        ETag:
+          description: Current strong tenant/key write validator.
+          schema: { type: string }
+        Cache-Control:
+          schema: { type: string, enum: [no-store] }
       content:
         application/json:
           schema:
@@ -12962,6 +13408,43 @@ components:
           schema:
             $ref: '#/components/schemas/ErrorBody'
   schemas:
+    LeaveCreateRequest:
+      type: object
+      description: >-
+        A self-service leave-request filing. The subject employee and branch are
+        NOT accepted here — they are resolved from the authenticated caller.
+      additionalProperties: false
+      required:
+        - idempotency_key
+        - leave_type
+        - start_date
+        - end_date
+        - reason
+      properties:
+        idempotency_key:
+          type: string
+          format: uuid
+          description: Stable client submission id. Reuse it only to retry the same canonical client intent after an unknown or lost response.
+        leave_type:
+          type: string
+          enum: [annual, half_day]
+          description: Full-day or partial-day intent; quantity is resolved only from evidence.
+        partial_day_period:
+          type: string
+          enum: [am, pm]
+          nullable: true
+          description: Required exactly when leave_type is half_day.
+        start_date:
+          type: string
+          format: date
+          description: YYYY-MM-DD. A half-day request must use the same start and end date.
+        end_date:
+          type: string
+          format: date
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
     ProjectionRequest:
       type: object
       required: [series, horizon, kind]
@@ -16802,6 +17285,7 @@ components:
       - identity_resolution_confidence
       - identity_review_required
       - identity_name_only_merge
+      - home_branch_review_required
       - created_at
       - updated_at
       properties:
@@ -16847,6 +17331,17 @@ components:
         leave_remaining:
           type: string
           nullable: true
+        home_branch_id:
+          type: string
+          format: uuid
+          nullable: true
+          description: Active authoritative leave-routing branch; null requires HR review before self-service filing.
+        home_branch_name:
+          type: string
+          nullable: true
+        home_branch_review_required:
+          type: boolean
+          description: True when no active authoritative home branch is configured.
         identity_resolution_strategy:
           type: string
           enum:
@@ -16870,6 +17365,33 @@ components:
           description: Always false; name-only merging is not allowed because different people can share a name.
         created_at:
           $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+    SetEmployeeHomeBranchRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - branch_id
+      - expected_updated_at
+      properties:
+        branch_id:
+          $ref: '#/components/schemas/Uuid'
+        expected_updated_at:
+          $ref: '#/components/schemas/Timestamp'
+    EmployeeHomeBranch:
+      type: object
+      required:
+      - employee_id
+      - branch_id
+      - branch_name
+      - updated_at
+      properties:
+        employee_id:
+          $ref: '#/components/schemas/Uuid'
+        branch_id:
+          $ref: '#/components/schemas/Uuid'
+        branch_name:
+          type: string
         updated_at:
           $ref: '#/components/schemas/Timestamp'
     EmployeePage:
@@ -17029,6 +17551,7 @@ components:
       - input_rows
       - inserted
       - updated
+      - skipped
       properties:
         company:
           type: string
@@ -17039,6 +17562,9 @@ components:
           type: integer
           minimum: 0
         updated:
+          type: integer
+          minimum: 0
+        skipped:
           type: integer
           minimum: 0
     EmployeeImportColumn:
@@ -17185,6 +17711,7 @@ components:
       - input_rows
       - inserted
       - updated
+      - skipped
       - companies
       properties:
         input_rows:
@@ -17194,6 +17721,9 @@ components:
           type: integer
           minimum: 0
         updated:
+          type: integer
+          minimum: 0
+        skipped:
           type: integer
           minimum: 0
         companies:
@@ -19596,6 +20126,15 @@ components:
               type: string
             message:
               type: string
+            reasons:
+              type: array
+              items:
+                type: string
+              description: Stable machine-readable reasons for review-required conflicts, when applicable.
+            current_key_write_revision:
+              type: integer
+              format: int64
+              minimum: 1
     MessengerThreadKind:
       type: string
       enum:
@@ -20254,6 +20793,293 @@ components:
         comment:
           type: string
           description: Mandatory for return/reject; optional for approve.
+    LeaveRequestV2View:
+      type: object
+      description: One leave request in the approval queue (결재함 leave variant).
+      required:
+      - id
+      - branch_id
+      - requester_user_id
+      - subject_employee_id
+      - leave_type
+      - days
+      - charge_units
+      - charge_state
+      - charge_review_reasons
+      - request_version
+      - charge_version
+      - start_date
+      - end_date
+      - reason
+      - status
+      - decided_by
+      - decided_at
+      - created_at
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        branch_id:
+          $ref: '#/components/schemas/Uuid'
+        requester_user_id:
+          $ref: '#/components/schemas/Uuid'
+        subject_employee_id:
+          $ref: '#/components/schemas/Uuid'
+        leave_type:
+          type: string
+          enum: [annual, half_day]
+        days:
+          type: number
+          format: double
+          deprecated: true
+          description: Non-null legacy compatibility projection; never authoritative for new approvals.
+        charge_units:
+          anyOf:
+          - $ref: '#/components/schemas/LeaveUnits'
+          - type: 'null'
+          description: Exact resolved charge; null while review is required or no charge applies.
+        charge_state:
+          type: string
+          enum: [review_required, resolved, not_required, legacy_unverified]
+        charge_review_reasons:
+          type: array
+          items:
+            $ref: '#/components/schemas/LeaveChargeReviewReason'
+        request_version:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Mutable request/workflow CAS token; submit as expected_version for resolve or decide.
+        charge_version:
+          type: integer
+          format: int64
+          minimum: 0
+          description: Monotonic immutable charge-evidence revision counter; decisions do not advance it and it is never a request mutation precondition.
+        charge_digest:
+          type: string
+          pattern: '^[0-9a-f]{64}$'
+          description: Server digest of the immutable resolution snapshot, when resolved.
+        charge_resolved_by:
+          $ref: '#/components/schemas/Uuid'
+        charge_resolution_origin:
+          type: string
+          enum: [automated, manual]
+          description: Provenance of the current immutable charge snapshot, when one exists.
+        partial_day_period:
+          type: string
+          enum: [am, pm]
+        start_date:
+          type: string
+          format: date
+        end_date:
+          type: string
+          format: date
+        reason:
+          type: string
+        status:
+          type: string
+          enum: [pending, approved, returned, rejected]
+        decided_by:
+          type:
+          - string
+          - 'null'
+          format: uuid
+        decided_at:
+          type:
+          - string
+          - 'null'
+          format: date-time
+        decision_comment:
+          type: string
+          description: Mandatory on return/reject; present only when set.
+        ap_run_id:
+          type: string
+          format: uuid
+          description: The engine AP- run, when the submittable definition exists.
+        created_at:
+          $ref: '#/components/schemas/Timestamp'
+    LeaveRequestV2Page:
+      type: object
+      required:
+      - items
+      - next_cursor
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/LeaveRequestV2View'
+        next_cursor:
+          type:
+          - string
+          - 'null'
+          format: uuid
+          description: Last request id for the next stable keyset page, or null when exhausted.
+    LeaveDecideV2Request:
+      type: object
+      additionalProperties: false
+      required:
+      - expected_version
+      - decision
+      properties:
+        expected_version:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Required mutable request_version compare-and-swap token; never use charge_version.
+        decision:
+          type: string
+          enum: [approve, return, reject]
+        comment:
+          type: string
+          description: Mandatory for return/reject; optional for approve.
+    LeaveUnits:
+      type: string
+      pattern: '^(0|[1-9][0-9]{0,9})\.[0-9]{6}$'
+      example: '0.500000'
+      description: Exact fixed-scale leave days; six fractional digits and no floating-point semantics.
+    LeaveBalanceAmount:
+      type: string
+      pattern: '^-?(0|[1-9][0-9]{0,9})\.[0-9]{6}$'
+      example: '13.000000'
+      description: Exact signed fixed-scale ledger days; historical imports may legitimately be negative.
+    LeaveChargeReviewReason:
+      type: string
+      enum:
+      - missing_calendar
+      - ambiguous_calendar
+      - calendar_source_unavailable
+      - missing_policy
+      - ambiguous_policy
+      - policy_source_unavailable
+    SelfLeaveBalance:
+      type: object
+      required:
+      - employee_id
+      - name
+      - accrued_units
+      - used_units
+      - remaining_units
+      - filing_state
+      - home_branch_id
+      properties:
+        employee_id:
+          $ref: '#/components/schemas/Uuid'
+        name:
+          type: string
+        accrued_units:
+          allOf: [{$ref: '#/components/schemas/LeaveBalanceAmount'}]
+          nullable: true
+        used_units:
+          allOf: [{$ref: '#/components/schemas/LeaveBalanceAmount'}]
+          nullable: true
+        remaining_units:
+          allOf: [{$ref: '#/components/schemas/LeaveBalanceAmount'}]
+          nullable: true
+        filing_state:
+          type: string
+          enum: [ready, home_branch_required]
+          description: Whether self-service filing currently has an active authoritative home branch.
+        home_branch_id:
+          type:
+          - string
+          - 'null'
+          format: uuid
+          description: Active authoritative routing branch; null exactly when filing_state is home_branch_required.
+    MyLeaveV2Overview:
+      type: object
+      required: [balance, requests]
+      properties:
+        balance:
+          $ref: '#/components/schemas/SelfLeaveBalance'
+        requests:
+          $ref: '#/components/schemas/LeaveRequestV2Page'
+    LeaveSourceRevisionRef:
+      type: object
+      additionalProperties: false
+      required: [kind, reference, revision]
+      properties:
+        kind: {type: string, minLength: 1, maxLength: 64}
+        reference: {type: string, minLength: 1, maxLength: 256}
+        revision: {type: string, minLength: 1, maxLength: 128}
+    LeaveDateCharge:
+      type: object
+      additionalProperties: false
+      required: [date, obligation, charge_units]
+      properties:
+        date: {type: string, format: date}
+        obligation:
+          oneOf:
+          - type: object
+            additionalProperties: false
+            required: [kind, minutes]
+            properties:
+              kind: {type: string, enum: [scheduled]}
+              minutes: {type: integer, format: int32, minimum: 1}
+          - type: object
+            additionalProperties: false
+            required: [kind, basis]
+            properties:
+              kind: {type: string, enum: [not_scheduled]}
+              basis:
+                type: string
+                enum: [rest_day, public_holiday, substitute_holiday, contractual_day_off, other]
+        charge_units:
+          $ref: '#/components/schemas/LeaveUnits'
+    LeaveChargeResolutionRequest:
+      type: object
+      additionalProperties: false
+      required:
+      - expected_version
+      - date_charges
+      - calendar_revision_ref
+      - policy_revision_ref
+      properties:
+        expected_version:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Expected mutable request_version; charge_version is evidence-only.
+        date_charges:
+          type: array
+          minItems: 1
+          items: {$ref: '#/components/schemas/LeaveDateCharge'}
+        calendar_revision_ref: {$ref: '#/components/schemas/LeaveSourceRevisionRef'}
+        policy_revision_ref: {$ref: '#/components/schemas/LeaveSourceRevisionRef'}
+        supporting_source_refs:
+          type: array
+          items: {$ref: '#/components/schemas/LeaveSourceRevisionRef'}
+          default: []
+    LeaveChargeResolutionView:
+      type: object
+      required:
+      - request_id
+      - request_version
+      - charge_units
+      - charge_state
+      - charge_version
+      - server_digest
+      - resolution_origin
+      - resolved_by
+      properties:
+        request_id: {$ref: '#/components/schemas/Uuid'}
+        request_version:
+          type: integer
+          format: int64
+          minimum: 1
+          description: New mutable request/workflow CAS token after the resolution commits.
+        charge_units: {$ref: '#/components/schemas/LeaveUnits'}
+        charge_state: {type: string, enum: [resolved]}
+        charge_version:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Immutable revision of the newly recorded charge-evidence snapshot.
+        server_digest: {type: string, pattern: '^[0-9a-f]{64}$'}
+        resolution_origin: {type: string, enum: [automated, manual]}
+        resolved_by:
+          type:
+          - string
+          - 'null'
+          format: uuid
     LeaveRosterEntry:
       type: object
       description: One employee's annual-leave balance row (직원별 연차 현황).
@@ -20501,16 +21327,29 @@ components:
             $ref: '#/components/schemas/MyDispatchOffer'
     ActionInboxLink:
       type: object
-      description: A bounded cross-object reference for an action-inbox item.
+      description: >-
+        One server-ordered canonical source-object reference for an action-inbox
+        item. Clients resolve only explicitly registered kind/id pairs; current
+        browser-linkable kinds are approval_run, work_order, and support_ticket.
+        Unknown kinds remain valid for forward compatibility and MUST stay inert
+        until a client registry adds support. Clients MUST NOT accept a server URL
+        or infer a destination from the enclosing item kind, item id, label, or a
+        code prefix.
       required:
       - kind
       - id
       properties:
         kind:
           type: string
-          description: Object type label (e.g. work_order, workflow_run).
+          description: >-
+            Canonical source-object kind. Current browser-linkable values are
+            approval_run, work_order, and support_ticket; other strings are
+            forward-compatible but inert.
         id:
           type: string
+          description: >-
+            Canonical source-object identifier. Clients trim surrounding
+            whitespace and reject a blank result before route construction.
         label:
           type: string
     ActionInboxItem:
@@ -20577,6 +21416,8 @@ components:
       required:
       - items
       - total
+      - total_is_exact
+      - next_cursor
       properties:
         items:
           type: array
@@ -20584,6 +21425,16 @@ components:
             $ref: '#/components/schemas/ActionInboxItem'
         total:
           type: integer
+          minimum: 0
+          description: Live visible item count across sources admitted by as_of; inspect total_is_exact before treating it as authoritative.
+        total_is_exact:
+          type: boolean
+          description: False only when a bounded authorization-filtered count reached its scan budget.
+        next_cursor:
+          type:
+          - string
+          - 'null'
+          description: Opaque cursor for the next immutable-keyset page, or null when exhausted.
     EquipmentStatus:
       type: string
       enum:
@@ -25142,7 +25993,7 @@ components:
         edges: { type: array, items: { $ref: '#/components/schemas/TraversalEdge' } }
     ObjectTypeSummary:
       type: object
-      required: [id, stable_key, title, backing_kind, schema_version, lifecycle_state]
+      required: [id, stable_key, title, backing_kind, schema_version, lifecycle_state, key_write_revision, key_write_etag]
       properties:
         id: { type: string, format: uuid }
         stable_key: { type: string }
@@ -25150,6 +26001,10 @@ components:
         backing_kind: { type: string, enum: [instance, projected] }
         schema_version: { type: integer, format: int64 }
         lifecycle_state: { type: string, enum: [draft, review_pending, published, superseded, retired] }
+        key_write_revision: { type: integer, format: int64, minimum: 1 }
+        key_write_etag:
+          type: string
+          pattern: '^"ont-object-type-key:[0-9a-f]{32}:r[1-9][0-9]*"$'
     InstanceLifecycleState:
       type: string
       enum: [draft, active, locked, archived, disposed]

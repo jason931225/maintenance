@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { AppRouter } from "./AppRouter";
 import { AuthContext } from "./context/auth";
 import type { AuthContextValue } from "./context/auth";
+import type { ConsoleApiClient } from "./api/client";
 import { createConsoleApiClient } from "./api/client";
 import type * as ConsoleUrl from "./lib/consoleUrl";
 
@@ -31,12 +32,20 @@ function unauthContext(): AuthContextValue {
     enterViewAs: () => {},
     exitViewAs: () => undefined,
     api: createConsoleApiClient(""),
-  } as AuthContextValue;
+  };
 }
 
 function LocationProbe() {
   const { pathname, search } = useLocation();
   return <div data-testid="location">{`${pathname}${search}`}</div>;
+}
+
+function authenticatedContext(api: ConsoleApiClient): AuthContextValue {
+  return {
+    ...unauthContext(),
+    session: { access_token: "test-token", roles: ["ADMIN"], org_id: "org-1" },
+    api,
+  };
 }
 
 function renderAt(
@@ -112,5 +121,34 @@ describe("AppRouter development-only routes", () => {
     renderAt(path, { auth });
 
     expect(await screen.findByTestId("location")).toHaveTextContent("/overview");
+  });
+});
+
+describe("AppRouter console rollout boundary", () => {
+  it("keeps the mounted console unreachable without consulting rollout authority when no screen has ADR-0025 evidence", () => {
+    isConsoleHost.mockReturnValue(false);
+    const api = {
+      GET: vi.fn().mockResolvedValue({
+        data: {
+          flag_key: "console_carbon_copy",
+          org_enabled: true,
+          org_rollout_enabled: true,
+          user_opted_in: true,
+          legacy_kill_switch_enabled: false,
+          kill_switch_active: false,
+          effective_new_console: true,
+          effective_route: "new_console",
+          effective_route_for_opted_in_user: "new_console",
+          effective_route_for_opted_out_user: "legacy",
+          overrides_individual_toggles: false,
+        },
+      }),
+    } as unknown as ConsoleApiClient;
+
+    renderAt("/console/overview", { auth: authenticatedContext(api) });
+
+    expect(screen.getByTestId("location")).toHaveTextContent("/overview");
+    expect(document.querySelector("[data-console-root]")).toBeNull();
+    expect(api.GET).not.toHaveBeenCalled();
   });
 });

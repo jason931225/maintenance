@@ -1,5 +1,13 @@
 import { Search } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { useLocation } from "react-router-dom";
 
 import type {
   CreateInternalTicketRequest,
@@ -66,6 +74,23 @@ const emptyFilters: Filters = {
 };
 
 type ReadState = "idle" | "loading" | "error";
+type TicketLinkState =
+  | { status: "absent" }
+  | { status: "loading"; id: string }
+  | { status: "ready"; id: string; ticket: SupportTicketSummary }
+  | { status: "missing"; id: string }
+  | { status: "unavailable"; id: string };
+
+type SessionAuthorityIdentity =
+  | string
+  | NonNullable<ReturnType<typeof useAuth>["session"]>
+  | undefined;
+
+function sessionAuthorityIdentity(
+  session: ReturnType<typeof useAuth>["session"],
+): SessionAuthorityIdentity {
+  return session?.client_session_incarnation?.trim() || session;
+}
 
 /**
  * Stat-strip drill keys (§4-11: every stat filters the list, never a dead
@@ -87,6 +112,7 @@ export function SupportPage() {
   const { api, session } = useAuth();
   const branchId = useActiveBranchId();
   const windowManager = useOptionalWindowManager();
+  const location = useLocation();
   const currentUserId = session?.user_id;
   // Ticket triage (assign/claim + status transitions) maps to the backend
   // AssigneeManage feature, which is ADMIN/SUPER_ADMIN only. Mechanics can read
@@ -131,6 +157,39 @@ export function SupportPage() {
   // Unpaged total matching the current filters, reported by the API.
   const [total, setTotal] = useState<number>();
   const [loadingMore, setLoadingMore] = useState(false);
+  const ticketAuthorityIdentity = sessionAuthorityIdentity(session);
+  const requestedTicketId = useMemo(() => {
+    const value = new URLSearchParams(location.search).get("ticket")?.trim();
+    return value || undefined;
+  }, [location.search]);
+  const [ticketLinkOwned, setTicketLinkOwned] = useState<{
+    api: object;
+    authority: SessionAuthorityIdentity;
+    value: TicketLinkState;
+  }>({
+    api,
+    authority: ticketAuthorityIdentity,
+    value: { status: "absent" },
+  });
+  const openedDeepLink = useRef<
+    {
+      api: typeof api;
+      authority: SessionAuthorityIdentity;
+      id: string;
+    } | undefined
+  >(undefined);
+  const activeTicketLinkState = useMemo<TicketLinkState>(
+    () =>
+      !requestedTicketId
+        ? { status: "absent" }
+        : ticketLinkOwned.api === api &&
+            ticketLinkOwned.authority === ticketAuthorityIdentity &&
+            "id" in ticketLinkOwned.value &&
+            ticketLinkOwned.value.id === requestedTicketId
+          ? ticketLinkOwned.value
+          : { status: "loading", id: requestedTicketId },
+    [api, requestedTicketId, ticketAuthorityIdentity, ticketLinkOwned],
+  );
 
   const queryFilters = useCallback(
     () => ({
@@ -256,6 +315,98 @@ export function SupportPage() {
     [tickets, openTicket],
   );
 
+  useEffect(() => {
+    if (!requestedTicketId) return;
+    let live = true;
+    api
+      .GET("/api/v1/support/tickets/{id}", {
+        headers: { "Cache-Control": "no-cache" },
+        params: { path: { id: requestedTicketId } },
+      })
+      .then((response) => {
+        if (!live) return;
+        if (response.data?.ticket.id === requestedTicketId) {
+          setTicketLinkOwned({
+            api,
+            authority: ticketAuthorityIdentity,
+            value: {
+              status: "ready",
+              id: requestedTicketId,
+              ticket: response.data.ticket,
+            },
+          });
+        } else if (response.response.status === 404) {
+          setTicketLinkOwned({
+            api,
+            authority: ticketAuthorityIdentity,
+            value: { status: "missing", id: requestedTicketId },
+          });
+        } else {
+          setTicketLinkOwned({
+            api,
+            authority: ticketAuthorityIdentity,
+            value: { status: "unavailable", id: requestedTicketId },
+          });
+        }
+      })
+      .catch(() => {
+        if (live) {
+          setTicketLinkOwned({
+            api,
+            authority: ticketAuthorityIdentity,
+            value: { status: "unavailable", id: requestedTicketId },
+          });
+        }
+      });
+    return () => {
+      live = false;
+    };
+  }, [api, requestedTicketId, ticketAuthorityIdentity]);
+
+  useLayoutEffect(() => {
+    const opened = openedDeepLink.current;
+    const current =
+      activeTicketLinkState.status === "ready"
+        ? {
+            api,
+            authority: ticketAuthorityIdentity,
+            id: activeTicketLinkState.id,
+            ticket: activeTicketLinkState.ticket,
+          }
+        : undefined;
+
+    if (
+      opened &&
+      (!requestedTicketId ||
+        opened.api !== api ||
+        opened.authority !== ticketAuthorityIdentity ||
+        opened.id !== requestedTicketId)
+    ) {
+      windowManager?.close(opened.id);
+      setSelectedId((selected) =>
+        selected === opened.id ? undefined : selected,
+      );
+      openedDeepLink.current = undefined;
+    }
+
+    if (
+      current &&
+      (openedDeepLink.current?.api !== current.api ||
+        openedDeepLink.current.authority !== current.authority ||
+        openedDeepLink.current.id !== current.id)
+    ) {
+      openTicket(current.ticket);
+      openedDeepLink.current = current;
+    }
+  }, [
+    activeTicketLinkState,
+    api,
+    openTicket,
+    requestedTicketId,
+    ticketAuthorityIdentity,
+    windowManager,
+  ]);
+
   async function createTicket(
     request: CreateInternalTicketRequest,
   ): Promise<SupportTicketSummary> {
@@ -325,6 +476,19 @@ export function SupportPage() {
           setDrill((current) => (current === key ? null : key));
         }}
       />
+
+      {activeTicketLinkState.status === "missing" ? (
+        <p
+          role="status"
+          className="mb-5 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm font-medium text-amber-900"
+        >
+          {ko.support.focusedMissing}
+        </p>
+      ) : activeTicketLinkState.status === "unavailable" ? (
+        <div className="mb-5">
+          <PageError message={ko.support.focusedUnavailable} />
+        </div>
+      ) : null}
 
       {breachedTickets.length > 0 ? (
         <SloBreachAlerts
@@ -521,7 +685,10 @@ function FilterChips({
           type="button"
           aria-pressed={filters.includeUntriaged}
           onClick={() => {
-            onChange({ ...filters, includeUntriaged: !filters.includeUntriaged });
+            onChange({
+              ...filters,
+              includeUntriaged: !filters.includeUntriaged,
+            });
           }}
           className={chipClass(filters.includeUntriaged)}
         >
@@ -619,7 +786,10 @@ export interface SupportStats {
 }
 
 // eslint-disable-next-line react-refresh/only-export-components
-export function filterTickets(tickets: SupportTicketSummary[], searchTerm: string) {
+export function filterTickets(
+  tickets: SupportTicketSummary[],
+  searchTerm: string,
+) {
   if (searchTerm.length === 0) {
     return tickets;
   }

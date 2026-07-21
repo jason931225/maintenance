@@ -255,9 +255,9 @@ Create it **before** the `maintenance` app first syncs so CNPG can bind the role
 set -euo pipefail
 set +x
 # Pick a strong password; it must match what CNPG attaches to mnt_rt.
-RT_PASSWORD="$(openssl rand -base64 24)"
+RT_PASSWORD="$(openssl rand -hex 32)"
 # host = the CNPG read/write service for the cluster; db = maintenance.
-RT_URI="postgresql://mnt_rt:***@mnt-db-rw.maintenance.svc:5432/maintenance"
+RT_URI="postgresql://mnt_rt:${RT_PASSWORD}@mnt-db-rw.maintenance.svc:5432/maintenance"
 RT_SECRET_TMP="$(mktemp -d "${TMPDIR:-/tmp}/mnt-db-rt.XXXXXX")"
 trap 'rm -rf "$RT_SECRET_TMP"' EXIT
 printf '%s' "$RT_PASSWORD" > "$RT_SECRET_TMP/password"
@@ -265,13 +265,33 @@ printf '%s' "$RT_URI" > "$RT_SECRET_TMP/uri"
 chmod 600 "$RT_SECRET_TMP"/*
 
 kubectl create secret generic mnt-db-rt -n maintenance \
+  --type=kubernetes.io/basic-auth \
   --from-literal=username=mnt_rt \
   --from-file=password="$RT_SECRET_TMP/password" \
   --from-file=uri="$RT_SECRET_TMP/uri"
+kubectl label secret mnt-db-rt -n maintenance cnpg.io/reload=true
 rm -rf "$RT_SECRET_TMP"
 trap - EXIT
 unset RT_PASSWORD RT_URI
 ```
+
+Hex keeps the password URI-safe. If an operator uses another character set,
+percent-encode the password component before constructing `uri`; never place a
+raw `+`, `/`, `@`, `:`, or `%` in that component. The
+`kubernetes.io/basic-auth` type makes the username/password contract explicit,
+and `cnpg.io/reload=true` tells CloudNativePG to reconcile the managed login
+after a password change.
+
+Updating a Kubernetes Secret does **not** update environment variables in
+already-running containers. After CNPG has reconciled a rotated `mnt_rt`
+password, deliberately restart both `mnt-app` and `mnt-worker`, then prove their
+readiness and prove the retired password is rejected. Do not claim zero-downtime
+credential rotation without observed workload and request-level evidence.
+
+The six-role, two-command-credential topology proposed by PR 473 is intentionally
+DARK and is not part of this live two-role procedure. Its complete secret
+contract and activation evidence are documented in
+[`apps/secrets-management/components/governed-command-database/README.md`](apps/secrets-management/components/governed-command-database/README.md).
 
 ## Platform-admin cold start + tenant onboarding
 

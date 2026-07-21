@@ -4,10 +4,12 @@
 //! bespoke stores — they are ordinary `instance`-backed object types in the §18
 //! registry, so they get lifecycle, revision staging (§3.9.0), fixity, RLS and
 //! audit for free from the one engine. This module only builds the
-//! [`CreateObjectTypeDraft`]s and drives them through the existing store
-//! (`create_object_type` → publish), so a new tenant is provisioned with the
-//! standard catalog via the same audited path a human authoring surface uses —
-//! never raw INSERTs.
+//! [`CreateObjectTypeDraft`]s and submits one tenant-independent manifest to the
+//! database-owned built-in catalog installer. PostgreSQL accepts only the
+//! migration-allowlisted catalog version and digest, resolves stable-key links,
+//! and publishes the complete catalog atomically. Human authoring remains on the
+//! separate reviewed lifecycle path; bootstrap has no protection flag, GUC, or
+//! fake-approval escape hatch.
 //!
 //! Each type ships a generic `create` action (`instance_revision` dispatch) whose
 //! `edits` copy each declared property from a same-named param. That is the path
@@ -15,12 +17,15 @@
 //! direct POST /instances) and, with `instance_id` supplied, to stage a v+1
 //! revision.
 
-use mnt_kernel_core::{TraceContext, UserId};
+use std::collections::HashMap;
+
+use mnt_kernel_core::{KernelError, TraceContext, UserId};
 use mnt_ontology_domain::{
     ActionDispatch, BackingKind, LinkCardinality, ObjectTypeId, SchemaLifecycleState,
 };
 use serde_json::json;
 use time::OffsetDateTime;
+use uuid::Uuid;
 
 use crate::{
     ActionTypeInput, CreateObjectTypeDraft, LinkTypeInput, ObjectTypeSummary, PgOntologyError,
@@ -57,6 +62,11 @@ pub const WORKFLOW_DEFINITION_KEY: &str = "workflow_definition";
 pub const MESSENGER_THREAD_KEY: &str = "messenger_thread";
 pub const MAIL_KEY: &str = "mail";
 
+/// Versioned identity of the immutable built-in ontology catalog. Changing any
+/// authoritative schema in [`builtin_catalog_manifest`] requires a new version
+/// and a newly reviewed database allowlist digest.
+pub const BUILTIN_CATALOG_VERSION: &str = "2026-07-19.1";
+
 // C-chain (거래처 계약 → 직무/직위 → 채용 공고 → 직원): the client-contract-to-hire
 // spine. Each is an `instance`-backed engine type; the forward links form the
 // traversable chain contract → position → posting → employee.
@@ -64,10 +74,11 @@ pub const CONTRACT_KEY: &str = "contract";
 pub const POSITION_KEY: &str = "position";
 pub const POSTING_KEY: &str = "posting";
 
-/// Stable key of the `posting → employee` link. The employee target type is not
-/// registered by this lane, so the link is authored with `to_object_type_id =
-/// None` (unresolved); the employee-backfill lane resolves it BY THIS KEY once a
-/// stable employee object type exists. Named as the cross-lane coordination handle.
+/// Stable key of the `posting → employee` link. The historical contract leaves
+/// its target unresolved (`to_object_type_id = None`) until a separately
+/// governed compatibility change binds it. The catalog installer preserves that
+/// intentional null rather than inferring a target merely because the employee
+/// projection is present in the same catalog.
 pub const POSTING_EMPLOYEE_LINK_KEY: &str = "employee";
 
 /// A required property backed by a stored field-type tag (§3c).
@@ -1073,25 +1084,26 @@ pub fn posting_draft() -> CreateObjectTypeDraft {
     }
 }
 
-/// Provision the C-chain (contract → position → posting) as published engine
-/// types for the armed org. Created in REVERSE dependency order (posting, then
-/// position linking to it, then contract linking to position) because a forward
-/// link's `to_object_type_id` FK requires the target version to already exist.
+/// Provision the C-chain (contract → position → posting) from the immutable
+/// built-in catalog for the armed org.
 pub async fn seed_c_chain_object_types(
     store: &PgOntologyStore,
     actor: UserId,
     occurred_at: OffsetDateTime,
 ) -> Result<Vec<ObjectTypeSummary>, PgOntologyError> {
-    let posting = seed_published(store, actor, posting_draft(), occurred_at).await?;
-    let position = seed_published(store, actor, position_draft(posting.id), occurred_at).await?;
-    let contract = seed_published(store, actor, contract_draft(position.id), occurred_at).await?;
-    Ok(vec![contract, position, posting])
+    install_builtin_catalog(
+        store,
+        actor,
+        occurred_at,
+        &[CONTRACT_KEY, POSITION_KEY, POSTING_KEY],
+    )
+    .await
 }
 
 /// BE-semantic-backfill: register the ~15 existing domain tables listed in
-/// the coverage-matrix gap lane #4 as `projected` object types, in FK
-/// dependency order so each type's links can resolve its target's
-/// (already-published) `object_type_id`. Read path only this lane — no
+/// the coverage-matrix gap lane #4 as `projected` object types. The installer
+/// resolves their logical stable-key links to tenant-local IDs atomically. Read
+/// path only this lane — no
 /// actions are attached, so these types cannot yet be created/edited through
 /// the engine; the domain crates' own use-cases remain the sole writers
 /// (arch §9.3: never a second writeback into a projected table).
@@ -1100,125 +1112,208 @@ pub async fn seed_projected_domain_object_types(
     actor: UserId,
     occurred_at: OffsetDateTime,
 ) -> Result<Vec<ObjectTypeSummary>, PgOntologyError> {
-    let customer = seed_published(store, actor, customer_draft(), occurred_at).await?;
-    let site = seed_published(store, actor, site_draft(customer.id), occurred_at).await?;
-    let equipment = seed_published(
-        store,
-        actor,
-        equipment_draft(customer.id, site.id),
-        occurred_at,
-    )
-    .await?;
-    let employee = seed_published(store, actor, employee_draft(), occurred_at).await?;
-    let work_order = seed_published(
-        store,
-        actor,
-        work_order_draft(equipment.id, customer.id, site.id),
-        occurred_at,
-    )
-    .await?;
-    let approval = seed_published(store, actor, approval_draft(), occurred_at).await?;
-    let support_ticket = seed_published(store, actor, support_ticket_draft(), occurred_at).await?;
-    let evidence = seed_published(store, actor, evidence_draft(), occurred_at).await?;
-    let compliance_obligation = seed_published(
-        store,
-        actor,
-        compliance_obligation_draft(site.id),
-        occurred_at,
-    )
-    .await?;
-    let compliance_regulation =
-        seed_published(store, actor, compliance_regulation_draft(), occurred_at).await?;
-    let compliance_framework =
-        seed_published(store, actor, compliance_framework_draft(), occurred_at).await?;
-    let leave_request =
-        seed_published(store, actor, leave_request_draft(employee.id), occurred_at).await?;
-    let workflow_definition =
-        seed_published(store, actor, workflow_definition_draft(), occurred_at).await?;
-    let messenger_thread = seed_published(
-        store,
-        actor,
-        messenger_thread_draft(work_order.id),
-        occurred_at,
-    )
-    .await?;
-    let mail = seed_published(store, actor, mail_draft(), occurred_at).await?;
-
-    Ok(vec![
-        customer,
-        site,
-        equipment,
-        employee,
-        work_order,
-        approval,
-        support_ticket,
-        evidence,
-        compliance_obligation,
-        compliance_regulation,
-        compliance_framework,
-        leave_request,
-        workflow_definition,
-        messenger_thread,
-        mail,
-    ])
+    install_builtin_catalog(store, actor, occurred_at, PROJECTED_DOMAIN_KEYS).await
 }
 
-/// Create + publish one draft through the engine, returning the published head.
-async fn seed_published(
+const GOVERNED_CONFIG_KEYS: &[&str] = &[
+    SUPPORT_SLO_SETTING_KEY,
+    CONSOLE_VIEW_KEY,
+    SLA_SETTING_KEY,
+    HANDOVER_POLICY_KEY,
+    SHIFT_TIMETABLE_KEY,
+    LABOR_REFUSAL_KEY,
+    REGULATION_PARAM_KEY,
+    SITE_COVERAGE_KEY,
+    PROFITABILITY_ANALYTIC_KEY,
+];
+
+const C_CHAIN_KEYS: &[&str] = &[CONTRACT_KEY, POSITION_KEY, POSTING_KEY];
+
+const PROJECTED_DOMAIN_KEYS: &[&str] = &[
+    CUSTOMER_KEY,
+    SITE_KEY,
+    EQUIPMENT_KEY,
+    EMPLOYEE_KEY,
+    WORK_ORDER_KEY,
+    APPROVAL_KEY,
+    SUPPORT_TICKET_KEY,
+    EVIDENCE_KEY,
+    COMPLIANCE_OBLIGATION_KEY,
+    COMPLIANCE_REGULATION_KEY,
+    COMPLIANCE_FRAMEWORK_KEY,
+    LEAVE_REQUEST_KEY,
+    WORKFLOW_DEFINITION_KEY,
+    MESSENGER_THREAD_KEY,
+    MAIL_KEY,
+];
+
+fn catalog_target(value: u128) -> ObjectTypeId {
+    ObjectTypeId::from_uuid(Uuid::from_u128(value))
+}
+
+/// Build the complete tenant-independent catalog manifest. Placeholder target
+/// ids exist only while invoking the existing strongly typed draft builders;
+/// they are replaced by stable keys before the manifest crosses the adapter
+/// boundary. Consequently no tenant-local UUID can enter the allowlisted digest.
+#[doc(hidden)]
+pub fn builtin_catalog_manifest() -> Result<serde_json::Value, PgOntologyError> {
+    let posting_id = catalog_target(1);
+    let position_id = catalog_target(2);
+    let customer_id = catalog_target(3);
+    let site_id = catalog_target(4);
+    let equipment_id = catalog_target(5);
+    let employee_id = catalog_target(6);
+    let work_order_id = catalog_target(7);
+
+    let target_keys = HashMap::from([
+        (posting_id.to_string(), POSTING_KEY),
+        (position_id.to_string(), POSITION_KEY),
+        (customer_id.to_string(), CUSTOMER_KEY),
+        (site_id.to_string(), SITE_KEY),
+        (equipment_id.to_string(), EQUIPMENT_KEY),
+        (employee_id.to_string(), EMPLOYEE_KEY),
+        (work_order_id.to_string(), WORK_ORDER_KEY),
+    ]);
+
+    let drafts = vec![
+        support_slo_setting_draft(),
+        console_view_draft(),
+        sla_setting_draft(),
+        handover_policy_draft(),
+        shift_timetable_draft(),
+        labor_refusal_draft(),
+        regulation_param_draft(),
+        site_coverage_draft(),
+        profitability_analytic_draft(),
+        contract_draft(position_id),
+        position_draft(posting_id),
+        posting_draft(),
+        customer_draft(),
+        site_draft(customer_id),
+        equipment_draft(customer_id, site_id),
+        employee_draft(),
+        work_order_draft(equipment_id, customer_id, site_id),
+        approval_draft(),
+        support_ticket_draft(),
+        evidence_draft(),
+        compliance_obligation_draft(site_id),
+        compliance_regulation_draft(),
+        compliance_framework_draft(),
+        leave_request_draft(employee_id),
+        workflow_definition_draft(),
+        messenger_thread_draft(work_order_id),
+        mail_draft(),
+    ];
+
+    let mut object_types = Vec::with_capacity(drafts.len());
+    for draft in drafts {
+        crate::validate_draft(&draft)?;
+        let mut snapshot = serde_json::to_value(draft).map_err(|error| {
+            KernelError::validation(format!("invalid built-in ontology snapshot: {error}"))
+        })?;
+        let links = snapshot
+            .get_mut("links")
+            .and_then(serde_json::Value::as_array_mut)
+            .ok_or_else(|| KernelError::validation("built-in ontology links must be an array"))?;
+        for link in links {
+            let link = link.as_object_mut().ok_or_else(|| {
+                KernelError::validation("built-in ontology link must be an object")
+            })?;
+            let target = link.remove("to_object_type_id").unwrap_or_default();
+            let stable_key = match target.as_str() {
+                Some(id) => target_keys.get(id).copied().ok_or_else(|| {
+                    KernelError::validation("built-in ontology link target is not in the catalog")
+                })?,
+                None if target.is_null() => "",
+                None => {
+                    return Err(KernelError::validation(
+                        "built-in ontology link target must be a UUID or null",
+                    )
+                    .into());
+                }
+            };
+            link.insert(
+                "to_stable_key".to_owned(),
+                if stable_key.is_empty() {
+                    serde_json::Value::Null
+                } else {
+                    serde_json::Value::String(stable_key.to_owned())
+                },
+            );
+        }
+        object_types.push(snapshot);
+    }
+
+    Ok(json!({
+        "catalog_version": BUILTIN_CATALOG_VERSION,
+        "object_types": object_types,
+    }))
+}
+
+/// Atomically install the exact digest-allowlisted catalog, then return the
+/// requested published heads in caller-specified order. Exact retries are a
+/// database-owned no-op; any drift or partial pre-existing catalog fails closed.
+async fn install_builtin_catalog(
     store: &PgOntologyStore,
     actor: UserId,
-    draft: CreateObjectTypeDraft,
     occurred_at: OffsetDateTime,
-) -> Result<ObjectTypeSummary, PgOntologyError> {
-    let created = store
-        .create_object_type(actor, draft, TraceContext::generate(), occurred_at)
+    requested_keys: &[&str],
+) -> Result<Vec<ObjectTypeSummary>, PgOntologyError> {
+    let manifest = builtin_catalog_manifest()?;
+    let trace = TraceContext::generate();
+    let expected_count = manifest
+        .get("object_types")
+        .and_then(serde_json::Value::as_array)
+        .and_then(|object_types| i64::try_from(object_types.len()).ok())
+        .ok_or_else(|| KernelError::validation("built-in ontology catalog is malformed"))?;
+    let result = store
+        .install_builtin_catalog(actor, BUILTIN_CATALOG_VERSION, manifest, trace, occurred_at)
         .await?;
-    // draft → published (protection off allows the direct publish).
-    store
-        .transition_lifecycle(
-            actor,
-            created.id,
-            SchemaLifecycleState::Published,
-            false,
-            TraceContext::generate(),
-            occurred_at,
-        )
-        .await
+    if result.object_type_count != expected_count {
+        return Err(KernelError::validation(format!(
+            "built-in ontology installer returned {} objects; expected {expected_count}",
+            result.object_type_count
+        ))
+        .into());
+    }
+
+    let mut heads = store.list_object_types().await?;
+    let mut selected = Vec::with_capacity(requested_keys.len());
+    for key in requested_keys {
+        let index = heads
+            .iter()
+            .position(|head| head.stable_key == *key)
+            .ok_or_else(|| {
+                KernelError::validation(format!(
+                    "built-in ontology installer omitted published key `{key}`"
+                ))
+            })?;
+        let head = heads.swap_remove(index);
+        if head.lifecycle_state != SchemaLifecycleState::Published {
+            return Err(KernelError::validation(format!(
+                "built-in ontology key `{key}` is not published"
+            ))
+            .into());
+        }
+        selected.push(head);
+    }
+    Ok(selected)
 }
 
-/// Provision the standard governed-config catalog for the org armed on the
-/// current request context (`app.current_org`). Idempotency is the caller's
-/// concern — a second call conflicts on the registry's one-draft / one-published
-/// unique indexes.
+/// Provision the standard complete built-in catalog for the org armed on the
+/// current request context (`app.current_org`). The database verifies its
+/// canonical JSONB digest against a migration-owned allowlist, installs all
+/// definitions atomically, and treats an exact retry as a no-op.
 pub async fn seed_governed_config_object_types(
     store: &PgOntologyStore,
     actor: UserId,
     occurred_at: OffsetDateTime,
 ) -> Result<Vec<ObjectTypeSummary>, PgOntologyError> {
-    let slo = seed_published(store, actor, support_slo_setting_draft(), occurred_at).await?;
-    let view = seed_published(store, actor, console_view_draft(), occurred_at).await?;
-    let sla = seed_published(store, actor, sla_setting_draft(), occurred_at).await?;
-    let handover = seed_published(store, actor, handover_policy_draft(), occurred_at).await?;
-    let shift = seed_published(store, actor, shift_timetable_draft(), occurred_at).await?;
-    let refusal = seed_published(store, actor, labor_refusal_draft(), occurred_at).await?;
-    let regulation = seed_published(store, actor, regulation_param_draft(), occurred_at).await?;
-    let coverage = seed_published(store, actor, site_coverage_draft(), occurred_at).await?;
-    let profitability =
-        seed_published(store, actor, profitability_analytic_draft(), occurred_at).await?;
-    let mut out = vec![
-        slo,
-        view,
-        sla,
-        handover,
-        shift,
-        refusal,
-        regulation,
-        coverage,
-        profitability,
-    ];
-    // The C-chain (contract → position → posting) provisions into every tenant.
-    out.append(&mut seed_c_chain_object_types(store, actor, occurred_at).await?);
-    // BE-semantic-backfill: the ~15 existing-domain-table projected types.
-    out.append(&mut seed_projected_domain_object_types(store, actor, occurred_at).await?);
-    Ok(out)
+    let mut requested = Vec::with_capacity(
+        GOVERNED_CONFIG_KEYS.len() + C_CHAIN_KEYS.len() + PROJECTED_DOMAIN_KEYS.len(),
+    );
+    requested.extend_from_slice(GOVERNED_CONFIG_KEYS);
+    requested.extend_from_slice(C_CHAIN_KEYS);
+    requested.extend_from_slice(PROJECTED_DOMAIN_KEYS);
+    install_builtin_catalog(store, actor, occurred_at, &requested).await
 }

@@ -22,6 +22,8 @@ export const summaryFixture: ObjectTypeSummaryWire = {
   backing_kind: "instance",
   schema_version: 1,
   lifecycle_state: "published",
+  key_write_revision: 1,
+  key_write_etag: '"ont-object-type-key:11111111111111111111111111111111:r1"',
 };
 
 export const detailFixture: ObjectTypeDetailWire = {
@@ -103,10 +105,27 @@ export const instanceFixture: InstanceStateWire = {
 export const graphFixture: TraversalGraphWire = {
   root: INSTANCE_ID,
   nodes: [
-    { instance_id: INSTANCE_ID, object_type_id: TYPE_ID, title: "NK보안 경비용역", lifecycle_state: "active", depth: 0 },
-    { instance_id: NEIGHBOUR_ID, object_type_id: TYPE_ID, title: "경비 근무 장구 44세트", lifecycle_state: "active", depth: 1 },
+    {
+      instance_id: INSTANCE_ID,
+      object_type_id: TYPE_ID,
+      title: "NK보안 경비용역",
+      lifecycle_state: "active",
+      depth: 0,
+    },
+    {
+      instance_id: NEIGHBOUR_ID,
+      object_type_id: TYPE_ID,
+      title: "경비 근무 장구 44세트",
+      lifecycle_state: "active",
+      depth: 1,
+    },
   ],
   edges: [
-    { id: "e1", link_type_id: LINK_TYPE_ID, from_instance_id: INSTANCE_ID, to_instance_id: NEIGHBOUR_ID },
+    {
+      id: "e1",
+      link_type_id: LINK_TYPE_ID,
+      from_instance_id: INSTANCE_ID,
+      to_instance_id: NEIGHBOUR_ID,
+    },
   ],
 };

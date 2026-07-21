@@ -28,13 +28,20 @@ import okhttp3.Call
 import okhttp3.HttpUrl
 
 import com.maintenance.api.client.model.ErrorBody
+import com.maintenance.api.client.model.LeaveChargeResolutionRequest
+import com.maintenance.api.client.model.LeaveChargeResolutionView
+import com.maintenance.api.client.model.LeaveCreateRequest
 import com.maintenance.api.client.model.LeaveDecideRequest
+import com.maintenance.api.client.model.LeaveDecideV2Request
 import com.maintenance.api.client.model.LeavePromotionRequest
 import com.maintenance.api.client.model.LeaveRefusalRequest
 import com.maintenance.api.client.model.LeaveRequestPage
+import com.maintenance.api.client.model.LeaveRequestV2Page
+import com.maintenance.api.client.model.LeaveRequestV2View
 import com.maintenance.api.client.model.LeaveRequestView
 import com.maintenance.api.client.model.LeaveRosterPage
 import com.maintenance.api.client.model.LeaveStatutoryPushView
+import com.maintenance.api.client.model.MyLeaveV2Overview
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -62,6 +69,80 @@ open class LeaveApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
         val defaultBasePath: String by lazy {
             System.getProperties().getProperty(ApiClient.BASE_URL_KEY, "http://localhost")
         }
+    }
+
+    /**
+     * POST /api/v2/leave/requests
+     * File a self-service 연차/반차 request (본인 연차 신청)
+     * The caller files a leave request for THEMSELVES. &#x60;subject_employee_id&#x60; and the routing &#x60;branch_id&#x60; are resolved server-side from the caller&#39;s own account and employee.home_branch_id — never from input — so a caller can only file for their own employee record. No directory feature is required (filing one&#39;s own leave is a base employee capability); the gate is an active account linked to an active employee; an unlinked or inactive subject is denied with 403. Missing home-branch authority returns the stable 409 &#x60;leave_home_branch_review_required&#x60;. The request preserves date and AM/PM intent in &#x60;review_required&#x60;; no calendar-day or fixed-half quantity is invented. A separate resolver pins authoritative evidence before any approval can move the ledger. Modern clients generate one &#x60;idempotency_key&#x60; per user intent and reuse it after an unknown or lost response. The same key and canonical client intent return the original request without another mutation or audit; a different intent conflicts.
+     * @param leaveCreateRequest
+     * @return LeaveRequestV2View
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun createLeaveRequestV2(leaveCreateRequest: LeaveCreateRequest) : LeaveRequestV2View = withContext(Dispatchers.IO) {
+        val localVarResponse = createLeaveRequestV2WithHttpInfo(leaveCreateRequest = leaveCreateRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as LeaveRequestV2View
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v2/leave/requests
+     * File a self-service 연차/반차 request (본인 연차 신청)
+     * The caller files a leave request for THEMSELVES. &#x60;subject_employee_id&#x60; and the routing &#x60;branch_id&#x60; are resolved server-side from the caller&#39;s own account and employee.home_branch_id — never from input — so a caller can only file for their own employee record. No directory feature is required (filing one&#39;s own leave is a base employee capability); the gate is an active account linked to an active employee; an unlinked or inactive subject is denied with 403. Missing home-branch authority returns the stable 409 &#x60;leave_home_branch_review_required&#x60;. The request preserves date and AM/PM intent in &#x60;review_required&#x60;; no calendar-day or fixed-half quantity is invented. A separate resolver pins authoritative evidence before any approval can move the ledger. Modern clients generate one &#x60;idempotency_key&#x60; per user intent and reuse it after an unknown or lost response. The same key and canonical client intent return the original request without another mutation or audit; a different intent conflicts.
+     * @param leaveCreateRequest
+     * @return ApiResponse<LeaveRequestV2View?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun createLeaveRequestV2WithHttpInfo(leaveCreateRequest: LeaveCreateRequest) : ApiResponse<LeaveRequestV2View?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = createLeaveRequestV2RequestConfig(leaveCreateRequest = leaveCreateRequest)
+
+        return@withContext request<LeaveCreateRequest, LeaveRequestV2View>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation createLeaveRequestV2
+     *
+     * @param leaveCreateRequest
+     * @return RequestConfig
+     */
+    fun createLeaveRequestV2RequestConfig(leaveCreateRequest: LeaveCreateRequest) : RequestConfig<LeaveCreateRequest> {
+        val localVariableBody = leaveCreateRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v2/leave/requests",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
     }
 
     /**
@@ -134,6 +215,167 @@ open class LeaveApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/v1/leave/requests/{id}/decide".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v2/leave/requests/{id}/decide
+     * Approve, return, or reject a pending leave request
+     * Requires &#x60;employee_directory_manage&#x60; in the request&#39;s branch. An APPROVE writes the leave ledger (used +&#x3D; exact resolved charge units, remaining -&#x3D; exact resolved charge units) in the same audited transaction. Separation of duties — a request cannot be decided by its own requester (403). &#x60;return&#x60;/&#x60;reject&#x60; require a comment. Approval additionally requires a resolved exact charge and a distinct resolver. Clients must carry the current request_version as &#x60;expected_version&#x60;; omission is rejected so every v2 decision is an explicit compare-and-swap. charge_version identifies immutable evidence and is never a request mutation precondition. A successful decision increments request_version only; charge_version remains unchanged. An unresolved approval returns 409 &#x60;leave_calendar_review_required&#x60; plus review reasons, audits the blocked attempt, and changes neither request nor ledger.
+     * @param id
+     * @param leaveDecideV2Request
+     * @return LeaveRequestV2View
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun decideLeaveRequestV2(id: java.util.UUID, leaveDecideV2Request: LeaveDecideV2Request) : LeaveRequestV2View = withContext(Dispatchers.IO) {
+        val localVarResponse = decideLeaveRequestV2WithHttpInfo(id = id, leaveDecideV2Request = leaveDecideV2Request)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as LeaveRequestV2View
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v2/leave/requests/{id}/decide
+     * Approve, return, or reject a pending leave request
+     * Requires &#x60;employee_directory_manage&#x60; in the request&#39;s branch. An APPROVE writes the leave ledger (used +&#x3D; exact resolved charge units, remaining -&#x3D; exact resolved charge units) in the same audited transaction. Separation of duties — a request cannot be decided by its own requester (403). &#x60;return&#x60;/&#x60;reject&#x60; require a comment. Approval additionally requires a resolved exact charge and a distinct resolver. Clients must carry the current request_version as &#x60;expected_version&#x60;; omission is rejected so every v2 decision is an explicit compare-and-swap. charge_version identifies immutable evidence and is never a request mutation precondition. A successful decision increments request_version only; charge_version remains unchanged. An unresolved approval returns 409 &#x60;leave_calendar_review_required&#x60; plus review reasons, audits the blocked attempt, and changes neither request nor ledger.
+     * @param id
+     * @param leaveDecideV2Request
+     * @return ApiResponse<LeaveRequestV2View?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun decideLeaveRequestV2WithHttpInfo(id: java.util.UUID, leaveDecideV2Request: LeaveDecideV2Request) : ApiResponse<LeaveRequestV2View?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = decideLeaveRequestV2RequestConfig(id = id, leaveDecideV2Request = leaveDecideV2Request)
+
+        return@withContext request<LeaveDecideV2Request, LeaveRequestV2View>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation decideLeaveRequestV2
+     *
+     * @param id
+     * @param leaveDecideV2Request
+     * @return RequestConfig
+     */
+    fun decideLeaveRequestV2RequestConfig(id: java.util.UUID, leaveDecideV2Request: LeaveDecideV2Request) : RequestConfig<LeaveDecideV2Request> {
+        val localVariableBody = leaveDecideV2Request
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v2/leave/requests/{id}/decide".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v2/me/leave
+     * Read the authenticated employee&#39;s own leave balance and history
+     * Base employee self-service. The server binds both user and linked employee identity; no employee-directory feature is required and no employee or branch identifier is accepted from the client. The balance includes a closed filing state so a missing or inactive home branch is visible before submission rather than discovered only after a 409.
+     * @param limit  (optional, default to 100L)
+     * @param cursor Last request id from the preceding stable self-service page. (optional)
+     * @return MyLeaveV2Overview
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun getMyLeaveV2(limit: kotlin.Long? = 100L, cursor: java.util.UUID? = null) : MyLeaveV2Overview = withContext(Dispatchers.IO) {
+        val localVarResponse = getMyLeaveV2WithHttpInfo(limit = limit, cursor = cursor)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as MyLeaveV2Overview
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v2/me/leave
+     * Read the authenticated employee&#39;s own leave balance and history
+     * Base employee self-service. The server binds both user and linked employee identity; no employee-directory feature is required and no employee or branch identifier is accepted from the client. The balance includes a closed filing state so a missing or inactive home branch is visible before submission rather than discovered only after a 409.
+     * @param limit  (optional, default to 100L)
+     * @param cursor Last request id from the preceding stable self-service page. (optional)
+     * @return ApiResponse<MyLeaveV2Overview?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun getMyLeaveV2WithHttpInfo(limit: kotlin.Long?, cursor: java.util.UUID?) : ApiResponse<MyLeaveV2Overview?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getMyLeaveV2RequestConfig(limit = limit, cursor = cursor)
+
+        return@withContext request<Unit, MyLeaveV2Overview>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getMyLeaveV2
+     *
+     * @param limit  (optional, default to 100L)
+     * @param cursor Last request id from the preceding stable self-service page. (optional)
+     * @return RequestConfig
+     */
+    fun getMyLeaveV2RequestConfig(limit: kotlin.Long?, cursor: java.util.UUID?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+                if (cursor != null) {
+                    put("cursor", listOf(cursor.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v2/me/leave",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -315,6 +557,115 @@ open class LeaveApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
     }
 
     /**
+     * enum for parameter status
+     */
+     enum class StatusListLeaveRequestsV2(val value: kotlin.String) {
+         @SerialName(value = "pending") PENDING("pending"),
+         @SerialName(value = "approved") APPROVED("approved"),
+         @SerialName(value = "returned") RETURNED("returned"),
+         @SerialName(value = "rejected") REJECTED("rejected");
+
+        /**
+         * Override [toString()] to avoid using the enum variable name as the value, and instead use
+         * the actual value defined in the API spec file.
+         *
+         * This solves a problem when the variable name and its value are different, and ensures that
+         * the client sends the correct enum values to the server always.
+         */
+        override fun toString(): kotlin.String = "$value"
+     }
+
+    /**
+     * GET /api/v2/leave/requests
+     * List the branch-scoped leave-request approval queue (연차 결재함)
+     * Pending-first, then newest. Requires &#x60;employee_directory_read&#x60;. The queue is confined to the caller&#39;s branches (resolved from the JWT); an out-of-scope request is invisible (deny-by-omission).
+     * @param status Filter to one status; omitted returns all four. (optional)
+     * @param limit Page size for the stable pending-first queue. (optional, default to 100L)
+     * @param cursor Last request id from the preceding branch-scoped page. (optional)
+     * @return LeaveRequestV2Page
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listLeaveRequestsV2(status: StatusListLeaveRequestsV2? = null, limit: kotlin.Long? = 100L, cursor: java.util.UUID? = null) : LeaveRequestV2Page = withContext(Dispatchers.IO) {
+        val localVarResponse = listLeaveRequestsV2WithHttpInfo(status = status, limit = limit, cursor = cursor)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as LeaveRequestV2Page
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v2/leave/requests
+     * List the branch-scoped leave-request approval queue (연차 결재함)
+     * Pending-first, then newest. Requires &#x60;employee_directory_read&#x60;. The queue is confined to the caller&#39;s branches (resolved from the JWT); an out-of-scope request is invisible (deny-by-omission).
+     * @param status Filter to one status; omitted returns all four. (optional)
+     * @param limit Page size for the stable pending-first queue. (optional, default to 100L)
+     * @param cursor Last request id from the preceding branch-scoped page. (optional)
+     * @return ApiResponse<LeaveRequestV2Page?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listLeaveRequestsV2WithHttpInfo(status: StatusListLeaveRequestsV2?, limit: kotlin.Long?, cursor: java.util.UUID?) : ApiResponse<LeaveRequestV2Page?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listLeaveRequestsV2RequestConfig(status = status, limit = limit, cursor = cursor)
+
+        return@withContext request<Unit, LeaveRequestV2Page>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listLeaveRequestsV2
+     *
+     * @param status Filter to one status; omitted returns all four. (optional)
+     * @param limit Page size for the stable pending-first queue. (optional, default to 100L)
+     * @param cursor Last request id from the preceding branch-scoped page. (optional)
+     * @return RequestConfig
+     */
+    fun listLeaveRequestsV2RequestConfig(status: StatusListLeaveRequestsV2?, limit: kotlin.Long?, cursor: java.util.UUID?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (status != null) {
+                    put("status", listOf(status.value))
+                }
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+                if (cursor != null) {
+                    put("cursor", listOf(cursor.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v2/leave/requests",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/v1/leave/promotions
      * Serve a §61 연차 사용 촉진 (round 1 or 2)
      * Requires &#x60;employee_directory_manage&#x60; in the target &#x60;branch_id&#x60; (which is validated against the actor&#39;s scope). Delivers a receipt-gated 연차촉진 notice into the target&#39;s 개인 수신함 and records the push. The engine AP- run binds once the 연차촉진 submittable definition exists; until then the push carries &#x60;ap_submission: pending_engine_definition&#x60;. Idempotent per (target, round).
@@ -455,6 +806,83 @@ open class LeaveApi(basePath: kotlin.String = defaultBasePath, client: Call.Fact
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/v1/leave/refusal-notices",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v2/leave/requests/{id}/charge-resolution
+     * Record an audited exact leave-charge resolution
+     * Requires EmployeeDirectoryManage in the request branch. The body carries reviewed per-date obligations and source revision references, never a client total or digest. The server validates complete date coverage, canonicalizes, totals, hashes, and records an immutable resolution. &#x60;expected_version&#x60; is the current mutable request_version; the charge_version is assigned independently to the evidence snapshot.
+     * @param id
+     * @param leaveChargeResolutionRequest
+     * @return LeaveChargeResolutionView
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun resolveLeaveChargeV2(id: java.util.UUID, leaveChargeResolutionRequest: LeaveChargeResolutionRequest) : LeaveChargeResolutionView = withContext(Dispatchers.IO) {
+        val localVarResponse = resolveLeaveChargeV2WithHttpInfo(id = id, leaveChargeResolutionRequest = leaveChargeResolutionRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as LeaveChargeResolutionView
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v2/leave/requests/{id}/charge-resolution
+     * Record an audited exact leave-charge resolution
+     * Requires EmployeeDirectoryManage in the request branch. The body carries reviewed per-date obligations and source revision references, never a client total or digest. The server validates complete date coverage, canonicalizes, totals, hashes, and records an immutable resolution. &#x60;expected_version&#x60; is the current mutable request_version; the charge_version is assigned independently to the evidence snapshot.
+     * @param id
+     * @param leaveChargeResolutionRequest
+     * @return ApiResponse<LeaveChargeResolutionView?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun resolveLeaveChargeV2WithHttpInfo(id: java.util.UUID, leaveChargeResolutionRequest: LeaveChargeResolutionRequest) : ApiResponse<LeaveChargeResolutionView?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = resolveLeaveChargeV2RequestConfig(id = id, leaveChargeResolutionRequest = leaveChargeResolutionRequest)
+
+        return@withContext request<LeaveChargeResolutionRequest, LeaveChargeResolutionView>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation resolveLeaveChargeV2
+     *
+     * @param id
+     * @param leaveChargeResolutionRequest
+     * @return RequestConfig
+     */
+    fun resolveLeaveChargeV2RequestConfig(id: java.util.UUID, leaveChargeResolutionRequest: LeaveChargeResolutionRequest) : RequestConfig<LeaveChargeResolutionRequest> {
+        val localVariableBody = leaveChargeResolutionRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v2/leave/requests/{id}/charge-resolution".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

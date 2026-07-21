@@ -116,6 +116,20 @@ embedded migrations, then exits.
 > checksum mismatch (by design) rather than silently re-run it — never edit an
 > applied migration; add a new one.
 
+### Governed command database topology (DARK)
+
+PR 473 stages a portable six-role database topology as an unreferenced Kustomize
+component. It does not change the live `base`, `prod` overlay, or Argo CD
+Application. The current live contract above remains the two-role
+`mnt_app`/`mnt_rt` topology with the PreSync migration behavior and fresh-deploy
+gotchas recorded in [`OPS-RUNBOOK.md`](OPS-RUNBOOK.md).
+
+Start with the component's
+[`activation and evidence contract`](apps/maintenance/components/governed-command-database/README.md).
+Use the self-host/on-prem overlay as the north-star adapter and the OCI-guest
+overlay as a first-class cloud adapter. A render is only static evidence; it is
+not activation, deployment, migration, readiness, rollback, or claim authority.
+
 ### Placeholders to replace before applying
 
 | Token | Where | Set to |

@@ -33,6 +33,8 @@ import kotlinx.serialization.Contextual
  *
  * @param code
  * @param message
+ * @param reasons Stable machine-readable reasons for review-required conflicts, when applicable.
+ * @param currentKeyWriteRevision
  */
 @Serializable
 
@@ -42,7 +44,14 @@ data class ErrorBodyError (
     val code: kotlin.String,
 
     @SerialName(value = "message")
-    val message: kotlin.String
+    val message: kotlin.String,
+
+    /* Stable machine-readable reasons for review-required conflicts, when applicable. */
+    @SerialName(value = "reasons")
+    val reasons: kotlin.collections.List<kotlin.String>? = null,
+
+    @SerialName(value = "current_key_write_revision")
+    val currentKeyWriteRevision: kotlin.Long? = null
 
 ) {
 

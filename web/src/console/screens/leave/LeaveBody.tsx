@@ -1,52 +1,77 @@
-import { useCallback, useEffect, useState, type CSSProperties } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from "react";
 
 import type { LeaveRequestView } from "../../../api/types";
 import { useAuth } from "../../../context/auth";
 import { ko } from "../../../i18n/ko";
-import { LeaveConsole, type LeaveDecideOutcome, type LeavePromotionOutcome } from "../../leave/LeaveConsole";
-import { LEAVE_RUNTIME_GATE, rosterToLedgerRow, type LeaveLedgerRow } from "../../leave/model";
-import { PolicyGateProvider } from "../../policy";
+import { createLeaveRequest } from "../../leave/api";
+import {
+  LeaveConsole,
+  type LeaveChargeResolutionInput,
+  type LeaveCreateInput,
+  type LeaveCreateOutcome,
+  type LeaveDecideOutcome,
+  type LeavePromotionOutcome,
+  type LeaveResolveOutcome,
+} from "../../leave/LeaveConsole";
+import { rosterToLedgerRow, type LeaveLedgerRow } from "../../leave/model";
+import {
+  DENY_ALL_PROJECTION,
+  fetchAuthzProjection,
+  gateAllows,
+  type AuthzProjection,
+} from "../../policy/authz";
 import "../../tokens.css";
 
-/**
- * 연차 screen body (ConsoleShell nav "leave") — composes the existing,
- * fully-wired `console/leave/LeaveConsole` (§4-18: no rebuild) into the
- * console shell's screen slot. Self-contained: owns the roster/queue fetch
- * (GET /api/v1/leave/balances + /leave/requests), the roster→ledger mapping
- * (`rosterToLedgerRow`, model.ts), and the decide/§61-push REST calls
- * LeaveConsole's props contract expects.
- *
- * Render-gate: `LEAVE_RUNTIME_GATE` (model.ts), the documented Phase-C interim
- * allow-list. An earlier lane swapped this to `BulkPolicyGateProvider`
- * (POST /api/v1/policy/authorize/bulk) prematurely — but the bulk evaluator's
- * authoring schema only authorizes the fixed object/property/console actions
- * (`view`/`edit`/`read_field`/`console:configure`/`console:deploy`), so every
- * dotted `console.leave.*` action fell through deny-by-omission and the whole
- * body (ledger/queue/촉진) unmounted, leaving only the ungated stat pills. The
- * management surfaces are still authorized for real where it counts — the
- * backend enforces `decide` (require_manage + SoD) and the §61 push
- * (EmployeeDirectoryManage against the target branch) regardless of this
- * render-gate. Re-wire to the bulk gate once `console.leave.*` is a first-class
- * authorizable action set. The serial wire mounts `<LeaveBody />` with no props.
- */
-
 type ReadState = "loading" | "idle" | "error";
+type LeaveRequestPageWire = {
+  items: LeaveRequestView[];
+  next_cursor?: string | null;
+};
 
-// The body's own loading/error/retry copy — read defensively off the
-// already-wired ko.console.leave, with an English fallback until the
-// koManifest lands `wire.{loading,loadFailed,retry}` (this lane must not edit
-// ko.ts — same defensive-pick pattern as DashboardBody).
-function bodyStrings(): { loading: string; loadFailed: string; retry: string } {
-  const leave = (ko.console as { leave?: { wire?: Record<string, unknown> } }).leave;
+function requestWasAborted(controller: AbortController): boolean {
+  return controller.signal.aborted;
+}
+
+function bodyStrings(): {
+  loading: string;
+  loadFailed: string;
+  retry: string;
+  managedLoadFailed: string;
+} {
+  const leave = (ko.console as { leave?: { wire?: Record<string, unknown> } })
+    .leave;
   const pick = (key: string, fallback: string) => {
     const value = leave?.wire?.[key];
     return typeof value === "string" ? value : fallback;
   };
   return {
     loading: pick("loading", "Loading leave data…"),
-    loadFailed: pick("loadFailed", "Could not load leave data."),
+    loadFailed: pick("loadFailed", "Could not load your leave data."),
     retry: pick("retry", "Retry"),
+    managedLoadFailed: pick(
+      "managedLoadFailed",
+      "Your leave data is available, but managed leave data could not be loaded.",
+    ),
   };
+}
+
+function errorMessage(error: unknown, fallback: string): string {
+  if (error && typeof error === "object" && "error" in error) {
+    const nested = (error as { error?: unknown }).error;
+    if (nested && typeof nested === "object" && "message" in nested) {
+      const message = (nested as { message?: unknown }).message;
+      if (typeof message === "string" && message.trim()) return message;
+    }
+  }
+  return fallback;
 }
 
 const bodyStyle: CSSProperties = {
@@ -82,46 +107,278 @@ const retryStyle: CSSProperties = {
   cursor: "pointer",
 };
 
+interface LeaveAuthority {
+  api: ReturnType<typeof useAuth>["api"];
+  bearer: string | undefined;
+  key: string;
+  controller: AbortController;
+}
+
 export function LeaveBody() {
   const { api, session } = useAuth();
-  const S = bodyStrings();
-  const [ledger, setLedger] = useState<LeaveLedgerRow[]>([]);
-  const [requests, setRequests] = useState<LeaveRequestView[]>([]);
-  const [readState, setReadState] = useState<ReadState>("loading");
+  const authority: LeaveAuthority = useMemo(
+    () => ({
+      api,
+      bearer: session?.access_token,
+      key: [
+        session?.org_id,
+        session?.user_id,
+        session?.client_session_incarnation,
+        session?.access_token,
+      ].join(":"),
+      controller: new AbortController(),
+    }),
+    [
+      api,
+      session?.access_token,
+      session?.client_session_incarnation,
+      session?.org_id,
+      session?.user_id,
+    ],
+  );
 
-  const load = useCallback(async () => {
-    setReadState("loading");
-    const [balances, page] = await Promise.all([
-      api.GET("/api/v1/leave/balances", {}).catch(() => undefined),
-      api.GET("/api/v1/leave/requests", { params: { query: { limit: 200 } } }).catch(() => undefined),
-    ]);
-    if (!balances?.data || !page?.data) {
-      setReadState("error");
-      return;
-    }
-    setLedger(balances.data.items.map(rosterToLedgerRow));
-    setRequests(page.data.items);
-    setReadState("idle");
-  }, [api]);
+  return (
+    <LeaveAuthorityBody
+      key={authority.key}
+      authority={authority}
+      selfUserId={session?.user_id}
+    />
+  );
+}
+
+function LeaveAuthorityBody({
+  authority,
+  selfUserId,
+}: {
+  authority: LeaveAuthority;
+  selfUserId: string | undefined;
+}) {
+  const S = bodyStrings();
+  const [projection, setProjection] =
+    useState<AuthzProjection>(DENY_ALL_PROJECTION);
+  const [authzReady, setAuthzReady] = useState(false);
+  const [selfRequests, setSelfRequests] = useState<LeaveRequestView[]>([]);
+  const [selfState, setSelfState] = useState<ReadState>("loading");
+  const [selfError, setSelfError] = useState<string>();
+  const [managedLedger, setManagedLedger] = useState<LeaveLedgerRow[]>([]);
+  const [managedRequests, setManagedRequests] = useState<LeaveRequestView[]>(
+    [],
+  );
+  const [managedState, setManagedState] = useState<ReadState>("idle");
+  const pendingSubmissionRef = useRef<{
+    fingerprint: string;
+    idempotencyKey: string;
+  } | undefined>(undefined);
+
+  useLayoutEffect(
+    () => () => {
+      authority.controller.abort();
+    },
+    [authority],
+  );
 
   useEffect(() => {
-    // Defer out of the synchronous effect body so the initial setState(loading)
-    // does not cascade a render (react-hooks/set-state-in-effect).
-    void Promise.resolve().then(load);
-  }, [load]);
+    pendingSubmissionRef.current = undefined;
+  }, [authority]);
+
+  const loadSelf = useCallback(async () => {
+    setSelfState("loading");
+    setSelfError(undefined);
+    const items: LeaveRequestView[] = [];
+    const seenCursors = new Set<string>();
+    let cursor: string | undefined;
+    for (;;) {
+      const query = cursor ? { limit: 200, cursor } : { limit: 200 };
+      const result = await authority.api
+        .GET("/api/v2/me/leave", { params: { query } })
+        .catch(() => undefined);
+      if (requestWasAborted(authority.controller)) return;
+      if (!result?.data) {
+        setSelfRequests([]);
+        setSelfError(errorMessage(result?.error, S.loadFailed));
+        setSelfState("error");
+        return;
+      }
+      const page = result.data.requests as LeaveRequestPageWire;
+      items.push(...page.items);
+      const next = page.next_cursor ?? undefined;
+      if (!next) break;
+      if (seenCursors.has(next)) {
+        setSelfRequests([]);
+        setSelfError(S.loadFailed);
+        setSelfState("error");
+        return;
+      }
+      seenCursors.add(next);
+      cursor = next;
+    }
+    setSelfRequests(items);
+    setSelfState("idle");
+  }, [S.loadFailed, authority]);
+
+  useEffect(() => {
+    void Promise.resolve().then(loadSelf);
+    void fetchAuthzProjection(
+      authority.bearer,
+      authority.controller.signal,
+    ).then((next) => {
+      if (authority.controller.signal.aborted) return;
+      setProjection(next ?? DENY_ALL_PROJECTION);
+      setAuthzReady(true);
+    });
+  }, [authority, loadSelf]);
+
+  const canReadManaged =
+    authzReady &&
+    gateAllows(projection, { feature: "employee_directory_read" });
+
+  const loadManaged = useCallback(async () => {
+    if (!canReadManaged) return;
+    setManagedState("loading");
+    const balances = await authority.api
+      .GET("/api/v1/leave/balances", {})
+      .catch(() => undefined);
+    if (authority.controller.signal.aborted) return;
+    if (!balances?.data) {
+      setManagedLedger([]);
+      setManagedRequests([]);
+      setManagedState("error");
+      return;
+    }
+    const items: LeaveRequestView[] = [];
+    const seenCursors = new Set<string>();
+    let cursor: string | undefined;
+    for (;;) {
+      const query = cursor ? { limit: 200, cursor } : { limit: 200 };
+      const result = await authority.api
+        .GET("/api/v2/leave/requests", { params: { query } })
+        .catch(() => undefined);
+      if (requestWasAborted(authority.controller)) return;
+      if (!result?.data) {
+        setManagedLedger([]);
+        setManagedRequests([]);
+        setManagedState("error");
+        return;
+      }
+      const page = result.data as LeaveRequestPageWire;
+      items.push(...page.items);
+      const next = page.next_cursor ?? undefined;
+      if (!next) break;
+      if (seenCursors.has(next)) {
+        setManagedLedger([]);
+        setManagedRequests([]);
+        setManagedState("error");
+        return;
+      }
+      seenCursors.add(next);
+      cursor = next;
+    }
+    setManagedLedger(balances.data.items.map(rosterToLedgerRow));
+    setManagedRequests(items);
+    setManagedState("idle");
+  }, [authority, canReadManaged]);
+
+  useEffect(() => {
+    if (canReadManaged) void Promise.resolve().then(loadManaged);
+  }, [canReadManaged, loadManaged]);
 
   const decide = useCallback(
-    async (requestId: string, decision: "approve" | "return" | "reject", comment?: string): Promise<LeaveDecideOutcome> => {
-      const result = await api.POST("/api/v1/leave/requests/{id}/decide", {
-        params: { path: { id: requestId } },
-        body: { decision, comment },
-      });
+    async (
+      requestId: string,
+      expectedVersion: number,
+      decision: "approve" | "return" | "reject",
+      comment?: string,
+    ): Promise<LeaveDecideOutcome> => {
+      const result = await authority.api.POST(
+        "/api/v2/leave/requests/{id}/decide",
+        {
+          params: { path: { id: requestId } },
+          body: { expected_version: expectedVersion, decision, comment },
+        },
+      );
+      if (authority.controller.signal.aborted) return { ok: false };
       if (!result.data) return { ok: false, error: result.error };
       const decided = result.data;
-      setRequests((current) => current.map((r) => (r.id === requestId ? decided : r)));
+      setManagedRequests((current) =>
+        current.map((request) =>
+          request.id === requestId ? decided : request,
+        ),
+      );
+      setSelfRequests((current) =>
+        current.map((request) =>
+          request.id === requestId ? decided : request,
+        ),
+      );
       return { ok: true };
     },
-    [api],
+    [authority],
+  );
+
+  const resolveCharge = useCallback(
+    async (
+      requestId: string,
+      input: LeaveChargeResolutionInput,
+    ): Promise<LeaveResolveOutcome> => {
+      const result = await authority.api.POST(
+        "/api/v2/leave/requests/{id}/charge-resolution",
+        {
+          params: { path: { id: requestId } },
+          body: input,
+        },
+      );
+      if (authority.controller.signal.aborted) return { ok: false };
+      if (!result.data) return { ok: false, error: result.error };
+      const resolved = result.data;
+      const apply = (current: LeaveRequestView[]) =>
+        current.map((request) =>
+          request.id === requestId
+            ? {
+                ...request,
+                request_version: resolved.request_version,
+                charge_units: resolved.charge_units,
+                charge_state: resolved.charge_state,
+                charge_version: resolved.charge_version,
+                charge_digest: resolved.server_digest,
+              }
+            : request,
+        );
+      setManagedRequests(apply);
+      setSelfRequests(apply);
+      return { ok: true };
+    },
+    [authority],
+  );
+
+  const createRequest = useCallback(
+    async (input: LeaveCreateInput): Promise<LeaveCreateOutcome> => {
+      const fingerprint = [
+        input.leave_type,
+        input.partial_day_period ?? "",
+        input.start_date,
+        input.end_date,
+        input.reason,
+      ].join("\u0000");
+      if (pendingSubmissionRef.current?.fingerprint !== fingerprint) {
+        pendingSubmissionRef.current = {
+          fingerprint,
+          idempotencyKey: globalThis.crypto.randomUUID(),
+        };
+      }
+      const result = await createLeaveRequest(
+        authority.api,
+        input,
+        pendingSubmissionRef.current.idempotencyKey,
+      );
+      if (authority.controller.signal.aborted) return { ok: false };
+      if (!result.ok || !result.data) return { ok: false, error: result.error };
+      pendingSubmissionRef.current = undefined;
+      const created = result.data;
+      setSelfRequests((current) => [created, ...current]);
+      if (canReadManaged)
+        setManagedRequests((current) => [created, ...current]);
+      return { ok: true };
+    },
+    [authority, canReadManaged],
   );
 
   const pushPromotion = useCallback(
@@ -133,7 +390,7 @@ export function LeaveBody() {
       round: 1 | 2;
       unusedDays: number;
     }): Promise<LeavePromotionOutcome> => {
-      const result = await api.POST("/api/v1/leave/promotions", {
+      const result = await authority.api.POST("/api/v1/leave/promotions", {
         body: {
           branch_id: payload.branchId,
           target_user_id: payload.targetUserId,
@@ -143,41 +400,80 @@ export function LeaveBody() {
           unused_days: payload.unusedDays,
         },
       });
+      if (authority.controller.signal.aborted) return { ok: false };
       if (!result.data) return { ok: false, error: result.error };
       return { ok: true, push: result.data };
     },
-    [api],
+    [authority],
+  );
+
+  const canManageBranch = useCallback(
+    (branchId: string) =>
+      authzReady &&
+      gateAllows(projection, {
+        feature: "employee_directory_manage",
+        branch: branchId,
+      }),
+    [authzReady, projection],
   );
 
   return (
     <div className="console" data-cshell-screen-body="leave" style={bodyStyle}>
-      {readState === "error" ? (
+      {selfState === "loading" ? (
+        <p style={{ color: "var(--steel)", fontFamily: "var(--font-sans)" }}>
+          {S.loading}
+        </p>
+      ) : selfState === "error" ? (
         <section style={errorPanelStyle} role="alert">
-          <p style={{ margin: 0, fontSize: "var(--text-body)", color: "var(--steel)" }}>
-            {S.loadFailed}
+          <p
+            style={{
+              margin: 0,
+              fontSize: "var(--text-body)",
+              color: "var(--steel)",
+            }}
+          >
+            {selfError ?? S.loadFailed}
           </p>
           <button
             type="button"
             style={retryStyle}
             onClick={() => {
-              void load();
+              void loadSelf();
             }}
           >
             {S.retry}
           </button>
         </section>
-      ) : readState === "loading" ? (
-        <p style={{ color: "var(--steel)", fontFamily: "var(--font-sans)" }}>{S.loading}</p>
       ) : (
-        <PolicyGateProvider gate={LEAVE_RUNTIME_GATE}>
+        <>
+          {managedState === "error" ? (
+            <section style={errorPanelStyle} role="alert">
+              <p style={{ margin: 0 }}>{S.managedLoadFailed}</p>
+              <button
+                type="button"
+                style={retryStyle}
+                onClick={() => {
+                  void loadManaged();
+                }}
+              >
+                {S.retry}
+              </button>
+            </section>
+          ) : null}
           <LeaveConsole
-            ledger={ledger}
-            requests={requests}
-            selfUserId={session?.user_id}
+            key={authority.key}
+            ledger={managedLedger}
+            requests={managedRequests}
+            selfRequests={selfRequests}
+            selfUserId={selfUserId}
+            canReadManaged={canReadManaged}
+            canManageBranch={canManageBranch}
             decide={decide}
+            resolveCharge={resolveCharge}
+            createRequest={createRequest}
             pushPromotion={pushPromotion}
           />
-        </PolicyGateProvider>
+        </>
       )}
     </div>
   );

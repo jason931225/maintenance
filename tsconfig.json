@@ -8,5 +8,10 @@
     "skipLibCheck": false,
     "types": ["node"]
   },
-  "include": ["clients/ts/src/**/*.ts", "clients/ts/src/**/*.d.ts", "scripts/**/*.ts"]
+  "include": [
+    "clients/ts/src/**/*.ts",
+    "clients/ts/src/**/*.d.ts",
+    "clients/ts/test/**/*.ts",
+    "scripts/**/*.ts"
+  ]
 }

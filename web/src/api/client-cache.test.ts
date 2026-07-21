@@ -3,7 +3,11 @@ import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { createConsoleApiClient } from "./client";
-import { setRefreshCallbacks } from "./refresh";
+import {
+  createRefreshAuthority,
+  createRefreshCoordinator,
+  setRefreshCallbacks,
+} from "./refresh";
 
 const server = setupServer();
 
@@ -36,6 +40,23 @@ function usersPayload(displayName: string) {
   };
 }
 
+function consoleRollout(killSwitchActive: boolean) {
+  const effectiveNewConsole = !killSwitchActive;
+  return {
+    flag_key: "console_carbon_copy",
+    org_enabled: true,
+    org_rollout_enabled: true,
+    user_opted_in: true,
+    legacy_kill_switch_enabled: killSwitchActive,
+    kill_switch_active: killSwitchActive,
+    effective_new_console: effectiveNewConsole,
+    effective_route: effectiveNewConsole ? "new_console" : "legacy",
+    effective_route_for_opted_in_user: effectiveNewConsole ? "new_console" : "legacy",
+    effective_route_for_opted_out_user: "legacy",
+    overrides_individual_toggles: killSwitchActive,
+  };
+}
+
 const USERS_REQUEST = {
   params: { query: { include_inactive: false, limit: 200, offset: 0 } },
 } as const;
@@ -44,6 +65,56 @@ const TOKEN_V1 = fakeToken("user-1");
 const TOKEN_V2 = fakeToken("user-2");
 
 describe("console API read cache", () => {
+  it("always fetches a fresh rollout authority decision so a kill switch takes effect immediately", async () => {
+    let calls = 0;
+    const cacheControls: Array<string | null> = [];
+    const requestCaches: RequestCache[] = [];
+    server.use(
+      http.get("*/api/v1/console/rollout", ({ request }) => {
+        calls += 1;
+        cacheControls.push(request.headers.get("Cache-Control"));
+        requestCaches.push(request.cache);
+        return HttpResponse.json(consoleRollout(calls > 1));
+      }),
+    );
+
+    const client = createConsoleApiClient(TOKEN_V1);
+    const beforeKillSwitch = await client.GET("/api/v1/console/rollout", {});
+    const afterKillSwitch = await client.GET("/api/v1/console/rollout", {});
+
+    expect(beforeKillSwitch.data?.kill_switch_active).toBe(false);
+    expect(afterKillSwitch.data?.kill_switch_active).toBe(true);
+    expect(calls).toBe(2);
+    expect(cacheControls).toEqual(["no-store", "no-store"]);
+    expect(requestCaches).toEqual(["no-store", "no-store"]);
+  });
+
+  it("preserves rollout no-store request semantics through a 401 refresh retry", async () => {
+    const refreshCalled = vi.fn(() => Promise.resolve({ access_token: TOKEN_V2 }));
+    const refreshAuthority = createRefreshAuthority(
+      createRefreshCoordinator(),
+      "rollout-cache-retry-session",
+    );
+    setRefreshCallbacks(refreshAuthority, refreshCalled, vi.fn());
+    const requestCaches: RequestCache[] = [];
+    server.use(
+      http.get("*/api/v1/console/rollout", ({ request }) => {
+        requestCaches.push(request.cache);
+        if (request.headers.get("Authorization") !== `Bearer ${TOKEN_V2}`) {
+          return HttpResponse.json({ error: "unauthorized" }, { status: 401 });
+        }
+        return HttpResponse.json(consoleRollout(true));
+      }),
+    );
+
+    const client = createConsoleApiClient(TOKEN_V1, refreshAuthority);
+    const response = await client.GET("/api/v1/console/rollout", {});
+
+    expect(response.data?.kill_switch_active).toBe(true);
+    expect(refreshCalled).toHaveBeenCalledOnce();
+    expect(requestCaches).toEqual(["no-store", "no-store"]);
+  });
+
   it("deduplicates concurrent GETs and reuses a fresh cached response for high-traffic CRUD lists", async () => {
     let calls = 0;
     server.use(
@@ -124,7 +195,15 @@ describe("console API read cache", () => {
     vi.spyOn(Date, "now").mockReturnValue(0);
     const refreshCalled = vi.fn(() => Promise.resolve({ access_token: TOKEN_V2 }));
     const onUnauthenticated = vi.fn();
-    setRefreshCallbacks(refreshCalled, onUnauthenticated);
+    const refreshAuthority = createRefreshAuthority(
+      createRefreshCoordinator(),
+      "cache-test-session",
+    );
+    setRefreshCallbacks(
+      refreshAuthority,
+      refreshCalled,
+      onUnauthenticated,
+    );
     let calls = 0;
     let resolveRetriedRefresh!: () => void;
     const retriedRefresh = new Promise<void>((resolve) => {
@@ -145,7 +224,7 @@ describe("console API read cache", () => {
       }),
     );
 
-    const client = createConsoleApiClient(TOKEN_V1);
+    const client = createConsoleApiClient(TOKEN_V1, refreshAuthority);
     const first = await client.GET("/api/v1/users", USERS_REQUEST);
     expect(first.data?.items[0]?.display_name).toBe("cached protected roster");
 

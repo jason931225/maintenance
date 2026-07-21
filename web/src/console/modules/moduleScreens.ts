@@ -487,6 +487,10 @@ export const assetModuleScreen: ModuleScreenConfig = {
   typeKey: "equipment",
   codePrefix: "FL-",
   emptyMode: "live",
+  // §4-10 empty state: an org with no equipment yet shows this neutral hint
+  // instead of a blank list track (never a fabricated row). ko key added via
+  // this lane's koManifest.
+  emptyLiveHintKey: "console.modules.asset.emptyLiveHint",
   policy: ASSET_MODULE_ACTIONS,
   data: {
     list: "/api/v1/equipment/list",

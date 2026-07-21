@@ -83,7 +83,9 @@ jobs:
   backend:
     name: Backend — fmt / clippy / test / gates
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # Serial integration execution avoids cluster-global role mutation races;
+    # retain enough headroom for the full workspace on a cold hosted runner.
+    timeout-minutes: 45
     services:
       postgres:
         image: postgres:18.4
@@ -152,17 +154,62 @@ jobs:
         if: ${{ !cancelled() }}
         run: SQLX_OFFLINE=true cargo clippy --all-targets -- -D warnings
 
-      - name: cargo test
+      # Migration 0165 fails closed unless the portable six-role topology
+      # already exists. Reconcile it before any database test applies the
+      # migration, using the distinct service administrator only for this
+      # cluster-scoped bootstrap.
+      - name: Reconcile portable PostgreSQL role topology
         if: ${{ !cancelled() }}
+        run: |
+          APP_PASSWORD="$(openssl rand -hex 32)"
+          RT_PASSWORD="$(openssl rand -hex 32)"
+          LEAVE_COMMAND_PASSWORD="$(openssl rand -hex 32)"
+          ONTOLOGY_COMMAND_PASSWORD="$(openssl rand -hex 32)"
+          docker run --rm --network host \
+            -v "$GITHUB_WORKSPACE/ops/postgres-reconcile-topology.sh:/usr/local/bin/postgres-reconcile-topology:ro" \
+            -e POSTGRES_HOST=127.0.0.1 -e POSTGRES_DB=mnt_ci \
+            -e POSTGRES_ADMIN_USER=postgres -e POSTGRES_ADMIN_PASSWORD=postgres \
+            -e MNT_APP_POSTGRES_PASSWORD="$APP_PASSWORD" \
+            -e MNT_RT_POSTGRES_PASSWORD="$RT_PASSWORD" \
+            -e MNT_LEAVE_COMMAND_POSTGRES_PASSWORD="$LEAVE_COMMAND_PASSWORD" \
+            -e MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD="$ONTOLOGY_COMMAND_PASSWORD" \
+            --entrypoint bash postgres:18.4@sha256:4aabea78cf39b90e834caf3af7d602a18565f6fe2508705c8d01aa63245c2e20 \
+            /usr/local/bin/postgres-reconcile-topology
+
+          # The Apalis adapter contract intentionally mutates only its own
+          # dedicated database while proving direct mnt_app/mnt_rt logins. Keep
+          # the job-level DATABASE_URL on the cluster administrator because the
+          # rest of the serial workspace suite creates its own test databases.
+          docker run --rm --network host \
+            -e PGPASSWORD=postgres \
+            --entrypoint psql \
+            postgres:18.4@sha256:4aabea78cf39b90e834caf3af7d602a18565f6fe2508705c8d01aa63245c2e20 \
+            -h 127.0.0.1 -U postgres -d postgres -v ON_ERROR_STOP=1 \
+            -c "DROP DATABASE IF EXISTS mnt_apalis_contract WITH (FORCE)" \
+            -c "CREATE DATABASE mnt_apalis_contract OWNER mnt_app"
+
+          echo "::add-mask::$APP_PASSWORD"
+          echo "::add-mask::$RT_PASSWORD"
+          {
+            echo "MNT_APALIS_OWNER_DATABASE_URL=postgres://mnt_app:${APP_PASSWORD}@localhost:5432/mnt_apalis_contract"
+            echo "MNT_APALIS_RUNTIME_DATABASE_URL=postgres://mnt_rt:${RT_PASSWORD}@localhost:5432/mnt_apalis_contract"
+            echo "MNT_APALIS_ADMIN_DATABASE_URL=postgres://postgres:postgres@localhost:5432/mnt_apalis_contract"
+          } >> "$GITHUB_ENV"
+
+      - name: PR 473 migration operational gate
+        if: ${{ !cancelled() }}
+        working-directory: .
         # SQLX_OFFLINE=true so the query! macros compile against the committed
         # .sqlx cache (the documented contract — see crates/platform/db/src/lib.rs)
         # rather than the unmigrated CI service DB. The #[sqlx::test] runtime
         # tests still use DATABASE_URL to create their own per-test databases.
         # Without this, a Cargo.lock change busts the build cache and the macros
         # re-check online against a schema-less DB ("audit_events does not exist").
-        # --no-fail-fast runs every test binary so one failing suite does not hide
-        # the rest — the whole run reports all failures.
-        run: SQLX_OFFLINE=true cargo test --no-fail-fast
+        # The wrapper preserves the full workspace run while isolating the 11
+        # migration regressions for exact one-test runtime-result validation.
+        # Every test binary remains serial because topology upgrade tests
+        # intentionally mutate cluster-global roles.
+        run: npm run check:pr473-migration-operational
 
       # Boot smoke: the real mnt-app binary, migrate then serve mode, against
       # this job's fresh service DB — catches route-panic-at-boot regressions
@@ -177,9 +224,32 @@ jobs:
           openssl ecparam -name prime256v1 -genkey -noout | openssl pkcs8 -topk8 -nocrypt -out /tmp/smoke-priv.pem
           openssl ec -in /tmp/smoke-priv.pem -pubout -out /tmp/smoke-pub.pem
 
+          APP_PASSWORD="$(openssl rand -hex 32)"
+          RT_PASSWORD="$(openssl rand -hex 32)"
+          LEAVE_COMMAND_PASSWORD="$(openssl rand -hex 32)"
+          ONTOLOGY_COMMAND_PASSWORD="$(openssl rand -hex 32)"
+          docker run --rm --network host \
+            -v "$GITHUB_WORKSPACE/ops/postgres-reconcile-topology.sh:/usr/local/bin/postgres-reconcile-topology:ro" \
+            -e POSTGRES_HOST=127.0.0.1 -e POSTGRES_DB=mnt_ci \
+            -e POSTGRES_ADMIN_USER=postgres -e POSTGRES_ADMIN_PASSWORD=postgres \
+            -e MNT_APP_POSTGRES_PASSWORD="$APP_PASSWORD" \
+            -e MNT_RT_POSTGRES_PASSWORD="$RT_PASSWORD" \
+            -e MNT_LEAVE_COMMAND_POSTGRES_PASSWORD="$LEAVE_COMMAND_PASSWORD" \
+            -e MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD="$ONTOLOGY_COMMAND_PASSWORD" \
+            --entrypoint bash postgres:18.4 /usr/local/bin/postgres-reconcile-topology
+
+          OWNER_DATABASE_URL="postgres://mnt_app:${APP_PASSWORD}@localhost:5432/mnt_ci"
+          RUNTIME_DATABASE_URL="postgres://mnt_rt:${RT_PASSWORD}@localhost:5432/mnt_ci"
+          LEAVE_COMMAND_DATABASE_URL="postgres://mnt_leave_cmd:${LEAVE_COMMAND_PASSWORD}@localhost:5432/mnt_ci"
+          ONTOLOGY_COMMAND_DATABASE_URL="postgres://mnt_ontology_cmd:${ONTOLOGY_COMMAND_PASSWORD}@localhost:5432/mnt_ci"
+          export DATABASE_URL="$OWNER_DATABASE_URL"
+
           MNT_APP_ROLE=migrate SQLX_OFFLINE=true cargo run -q -p mnt-app
 
           MNT_APP_ROLE=api \
+          DATABASE_URL="$RUNTIME_DATABASE_URL" \
+          LEAVE_COMMAND_DATABASE_URL="$LEAVE_COMMAND_DATABASE_URL" \
+          ONTOLOGY_COMMAND_DATABASE_URL="$ONTOLOGY_COMMAND_DATABASE_URL" \
           MNT_HTTP_ADDR=127.0.0.1:8092 \
           MNT_JWT_ISSUER=ci-boot-smoke \
           MNT_JWT_AUDIENCE=ci-boot-smoke \
@@ -251,9 +321,9 @@ jobs:
         # one run reports every failing suite (no exit-code masking).
         run: |
           rc=0
-          SQLX_OFFLINE=true cargo test -p mnt-platform-auth-rest --features dev-auth --no-fail-fast || rc=1
-          SQLX_OFFLINE=true cargo test -p mnt-app --features dev-auth --test dev_auth_persona_guard_feature --no-fail-fast || rc=1
-          SQLX_OFFLINE=true cargo test -p mnt-platform-provisioning --test dev_principal_upsert_race --no-fail-fast || rc=1
+          SQLX_OFFLINE=true cargo test -p mnt-platform-auth-rest --features dev-auth --no-fail-fast -- --test-threads=1 || rc=1
+          SQLX_OFFLINE=true cargo test -p mnt-app --features dev-auth --test dev_auth_persona_guard_feature --no-fail-fast -- --test-threads=1 || rc=1
+          SQLX_OFFLINE=true cargo test -p mnt-platform-provisioning --test dev_principal_upsert_race --no-fail-fast -- --test-threads=1 || rc=1
           exit $rc
 
   dev-up-smoke:
@@ -291,6 +361,9 @@ jobs:
 
       - name: dev-up compose contract unit test
         run: node --test scripts/dev-up-compose.test.mjs
+
+      - name: PostgreSQL topology integration regression
+        run: ops/postgres-topology.integration.test.sh
 
       - name: dev-up bootstrap (compose deps + migrate + backend readyz)
         # macOS/Windows GH-hosted runners cannot run Linux containers reliably,
@@ -375,7 +448,11 @@ jobs:
         if: ${{ !cancelled() }}
         run: npm run check:ts
 
-      - name: Kotlin compile
+      - name: TypeScript generated contract tests
+        if: ${{ !cancelled() }}
+        run: npm run test:api-client-contract:ts
+
+      - name: Kotlin compile and generated contract tests
         if: ${{ !cancelled() }}
         run: npm run check:kotlin
 
@@ -521,6 +598,7 @@ jobs:
           --health-retries 5
     env:
       CONTRACT_DATABASE_URL: postgres://postgres:postgres@localhost:5432/mnt_contract
+      MNT_APP_BIN: ${{ github.workspace }}/backend/target/debug/mnt-app
       # This job builds mnt-app before comparing the app-served OpenAPI and
       # running the generated-client round-trip. Match the backend job's lean
       # Cargo artifacts so the standard runner does not exhaust disk on cache
@@ -558,6 +636,14 @@ jobs:
         if: ${{ !cancelled() }}
         run: npm run check:openapi-app
 
+      - name: Employee import replay contract
+        if: ${{ !cancelled() }}
+        run: npm run test:employee-import-contract
+
+      - name: Ontology write precondition contract
+        if: ${{ !cancelled() }}
+        run: npm run test:ontology-write-precondition
+
       - name: Generated TypeScript client round-trip
         if: ${{ !cancelled() }}
         run: npm run test:contract
@@ -570,6 +656,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          fetch-depth: 0
 
       - name: Install kubectl (for kustomize renderer)
         env:
@@ -580,6 +668,9 @@ jobs:
           echo "$(cat kubectl.sha256)  kubectl" | sha256sum --check
           sudo install -m 0755 kubectl /usr/local/bin/kubectl
           kubectl version --client=true
+
+      - name: Governed command-database DARK wiring regression
+        run: node --test scripts/check-command-database-wiring.test.mjs
 
       - name: Render manifests and NetworkPolicy enforcement preflight
         if: ${{ !cancelled() }}
@@ -593,6 +684,10 @@ jobs:
       - name: Production hardening contract
         if: ${{ !cancelled() }}
         run: npm run check:production-hardening
+
+      - name: Production hardening regression tests
+        if: ${{ !cancelled() }}
+        run: npm run test:production-hardening
 
   swift-client:
     name: API client — Swift generation and build
@@ -624,6 +719,10 @@ jobs:
       - name: Swift build
         if: ${{ !cancelled() }}
         run: npm run check:swift
+
+      - name: Swift generated contract tests
+        if: ${{ !cancelled() }}
+        run: npm run test:api-client-contract:swift
 
   mobile-parity:
     name: Mobile parity — checklist and strings
@@ -854,10 +953,10 @@ jobs:
         env:
           POSTGRES_USER: postgres
           POSTGRES_DB: postgres
-          # The harness builds passwordless postgres:// URLs (sqlx + psql connect
-          # as the `postgres` superuser, which owns the schema and bypasses RLS for
-          # seeding); trust auth lets them connect without a password.
-          POSTGRES_HOST_AUTH_METHOD: trust
+          # The topology bootstrap requires a real administrator credential;
+          # keep the E2E service and harness on the same password-authenticated
+          # contract instead of declaring a password that trust auth ignores.
+          POSTGRES_PASSWORD: postgres
         ports:
           - "5432:5432"
         options: >-
@@ -873,6 +972,10 @@ jobs:
       CARGO_PROFILE_DEV_DEBUG: "0"
       # Point the harness (e2e/harness/*.sh) at the service as the postgres superuser.
       E2E_PG_SUPERUSER: postgres
+      E2E_PG_SUPERUSER_PASSWORD: postgres
+      # Playwright fixtures invoke psql after db.sh exits, so retain the same
+      # libpq credential in the parent job environment for their passwordless URLs.
+      PGPASSWORD: postgres
       E2E_PG_HOST: localhost
       E2E_PG_PORT: "5432"
 

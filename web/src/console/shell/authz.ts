@@ -154,7 +154,7 @@ export function useConsoleScopes(unionLabel: string): {
   options: ScopeOption[];
   loading: boolean;
 } {
-  const { session, api } = useAuth();
+  const { session, api, refreshAuthority } = useAuth();
   const [entities, setEntities] = useState<ScopeEntity[] | undefined>();
   const isGroupAdmin = (session?.group_roles ?? []).includes("GROUP_ADMIN");
 
@@ -173,7 +173,7 @@ export function useConsoleScopes(unionLabel: string): {
       }
       if (isGroupAdmin) {
         try {
-          const groups = await listGroupAdminGroups(session?.access_token);
+          const groups = await listGroupAdminGroups(session?.access_token, refreshAuthority);
           for (const group of groups) {
             for (const member of group.members) {
               collected.push({ id: member.id, label: member.name });
@@ -189,7 +189,7 @@ export function useConsoleScopes(unionLabel: string): {
     return () => {
       cancelled = true;
     };
-  }, [api, session?.access_token, session?.org_id, isGroupAdmin]);
+  }, [api, session?.access_token, session?.org_id, isGroupAdmin, refreshAuthority]);
 
   const options = useMemo(
     () => computeScopeOptions(entities ?? [], unionLabel),

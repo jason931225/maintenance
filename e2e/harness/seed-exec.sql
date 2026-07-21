@@ -1,5 +1,5 @@
 -- E2E seed data for EXECUTIVE story specs.
--- Run as PG superuser (BYPASSRLS) against mnt_e2e, AFTER seed-admin.sql.
+-- Run as migration-only mnt_app (BYPASSRLS) against mnt_e2e, AFTER seed-admin.sql.
 -- Idempotent via ON CONFLICT DO NOTHING.
 --
 -- Provides the executive-only prerequisite the EXEC specs act on:

@@ -8,15 +8,16 @@
 #   2. Reads both freshly built @sha256 digests (mnt-app, mnt-web) from the run's
 #      digest artifacts (the same artifacts the auto-bump job consumes).
 #   3. Bumps deploy/apps/maintenance/overlays/prod/kustomization.yaml via
-#      scripts/bump-prod-digests.sh and commits the change to the current branch
-#      (skipped if CI already auto-committed the same digests — idempotent).
+#      scripts/bump-prod-digests.sh and commits the one-shot authorization
+#      consumption plus any digest change to the current branch.
 #   4. Triggers an Argo refresh, verifies the Argo Application synced the
 #      desired git revision, waits for mnt-app/mnt-web Rollouts and mnt-worker,
 #      and verifies their pod image digests match the built artifacts.
 #   5. Verifies the public endpoints return HTTP 200.
 #
-# Idempotent: safe to re-run. Each step echoes what it is doing and skips work
-# that is already done. Default deploy mode requires: gh (authenticated), git,
+# One-shot by design: a successful or partially consumed authorization must not
+# be replayed. Start a new governed authorization lineage instead of rerunning.
+# Each step echoes what it is doing. Default deploy mode requires: gh (authenticated), git,
 # curl, kubectl with the target cluster kubeconfig, and the argo-rollouts kubectl
 # plugin. Rollout verification is fail-closed: missing/unreachable cluster
 # tooling, Argo refresh/sync failures, rollout failures, or image-digest
@@ -131,6 +132,18 @@ verify_argo_revision() {
   fail "Argo Application/${APP_NAME} did not report Synced at ${expected_revision}; deployment is not verified."
 }
 
+verify_argo_pre_refresh_revision() {
+  local authorized_revision="$1"
+  local desired_revision="$2"
+  local revision
+
+  revision="$(kubectl_jsonpath "read Argo Application/${APP_NAME} pre-refresh revision" "${ARGO_NS}" "application/${APP_NAME}" '{.status.sync.revision}')"
+  if [[ "${revision}" != "${authorized_revision}" && "${revision}" != "${desired_revision}" ]]; then
+    fail "Argo Application/${APP_NAME} pre-refresh revision is '${revision:-unknown}', expected exact authorized ${authorized_revision} or exact desired ${desired_revision}."
+  fi
+  log "  Argo pre-refresh revision is exact known revision ${revision}"
+}
+
 verify_workload_template_image() {
   local resource_kind="$1"
   local name="$2"
@@ -180,9 +193,23 @@ verify_pod_images() {
 
 require gh
 require git
+require python3
 if [[ "${MODE}" == "deploy" ]]; then
   require curl
   require kubectl
+fi
+
+BRANCH="$(git rev-parse --abbrev-ref HEAD)"
+python3 "${REPO_ROOT}/scripts/check-production-promotion-authority.py" initial \
+  --expected-sha "${SHA}" \
+  --expected-ref "refs/heads/${BRANCH}" \
+  --require-local-branch
+
+if [[ "${MODE}" == "deploy" ]]; then
+  kubectl_required "reach the target Kubernetes cluster" version >/dev/null
+  kubectl_required "verify the argo-rollouts kubectl plugin" argo rollouts version >/dev/null
+  kubectl_required "read Argo Application/${APP_NAME}" -n "${ARGO_NS}" get "application/${APP_NAME}" >/dev/null
+  verify_argo_pre_refresh_revision "${SHA}" "${SHA}"
 fi
 
 # ---------------------------------------------------------------------------
@@ -230,24 +257,25 @@ log "  mnt-app digest: ${APP_DIGEST}"
 log "  mnt-web digest: ${WEB_DIGEST}"
 
 # ---------------------------------------------------------------------------
-# 3. Bump the overlay + commit (idempotent: a no-op if already current).
+# 3. Bump the overlay + consume the one-shot authorization in a new commit.
 # ---------------------------------------------------------------------------
 OVERLAY="deploy/apps/maintenance/overlays/prod/kustomization.yaml"
 log "[3/5] bumping ${OVERLAY}"
 bash "${REPO_ROOT}/scripts/bump-prod-digests.sh" "${APP_DIGEST}" "${WEB_DIGEST}"
+python3 "${REPO_ROOT}/scripts/check-production-promotion-authority.py" reset \
+  --expected-sha "${SHA}"
 
-if git diff --quiet -- "${OVERLAY}"; then
-  log "  digests already current (likely CI auto-bumped); nothing to commit"
-else
-  BRANCH="$(git rev-parse --abbrev-ref HEAD)"
-  log "  committing the bump to ${BRANCH}"
-  git add "${OVERLAY}"
-  git commit -m "deploy(prod): auto-bump mnt-app/mnt-web @${SHORT_SHA}"
-  git push origin "HEAD:${BRANCH}"
-fi
+log "  committing one-shot authorization consumption and optional digest bump to ${BRANCH}"
+git add "${OVERLAY}" docs/release/PR-473-PRODUCTION-PROMOTION.authorization.json
+git commit -m "deploy(prod): auto-bump mnt-app/mnt-web @${SHORT_SHA}"
+python3 "${REPO_ROOT}/scripts/check-production-promotion-authority.py" pre-push \
+  --expected-sha "${SHA}"
+git push origin "HEAD:${BRANCH}"
 
 DEPLOY_REVISION="$(git rev-parse HEAD)"
 log "  desired prod git revision: ${DEPLOY_REVISION}"
+python3 "${REPO_ROOT}/scripts/check-production-promotion-authority.py" remote \
+  --expected-sha "${DEPLOY_REVISION}"
 
 if [[ "${MODE}" == "digest-bump-only" ]]; then
   log "done: ${SHORT_SHA} desired prod digests updated only (mnt-app=${APP_DIGEST}, mnt-web=${WEB_DIGEST}); deployment, rollout, pod-image, and endpoint verification were NOT run."
@@ -261,9 +289,9 @@ fi
 #    bad release regardless of how the sync was triggered.
 # ---------------------------------------------------------------------------
 log "[4/5] refreshing Argo, verifying revision, and waiting for in-cluster workloads"
-kubectl_required "reach the target Kubernetes cluster" version >/dev/null
-kubectl_required "verify the argo-rollouts kubectl plugin" argo rollouts version >/dev/null
-kubectl_required "read Argo Application/${APP_NAME}" -n "${ARGO_NS}" get "application/${APP_NAME}" >/dev/null
+verify_argo_pre_refresh_revision "${SHA}" "${DEPLOY_REVISION}"
+python3 "${REPO_ROOT}/scripts/check-production-promotion-authority.py" remote \
+  --expected-sha "${DEPLOY_REVISION}"
 
 log "  requesting an Argo hard refresh on Application/${APP_NAME}"
 kubectl_required "request an Argo hard refresh on Application/${APP_NAME}" -n "${ARGO_NS}" annotate "application/${APP_NAME}" \
@@ -310,4 +338,7 @@ for url in "${ENDPOINTS[@]}"; do
   log "  ${url} -> 200"
 done
 
+python3 "${REPO_ROOT}/scripts/check-production-promotion-authority.py" remote \
+  --expected-sha "${DEPLOY_REVISION}"
+verify_argo_revision "${DEPLOY_REVISION}"
 log "done: ${SHORT_SHA} deployed and verified (revision=${DEPLOY_REVISION:0:7}, mnt-app=${APP_DIGEST}, mnt-web=${WEB_DIGEST})"

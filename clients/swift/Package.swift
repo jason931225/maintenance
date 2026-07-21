@@ -24,5 +24,10 @@ let package = Package(
                 .product(name: "OpenAPIRuntime", package: "swift-openapi-runtime"),
             ]
         ),
+        .executableTarget(
+            name: "MaintenanceAPIClientContractTests",
+            dependencies: ["MaintenanceAPIClient"],
+            path: "Tests/MaintenanceAPIClientContractTests"
+        ),
     ]
 )

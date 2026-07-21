@@ -1,15 +1,33 @@
 import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { MemoryRouter } from "react-router-dom";
+import userEvent from "@testing-library/user-event";
+import { http, HttpResponse } from "msw";
+import { setupServer } from "msw/node";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
 
 import { AuthTestProvider } from "../../test/AuthTestProvider";
 import type { AuthSession } from "../../context/auth";
 import type { ConsoleApiClient } from "../../api/client";
 import { ConsoleApp } from "../ConsoleApp";
+import { MOUNTED_SCREEN_KEYS } from "./nav";
 import { Sidebar } from "./Sidebar";
 import type { ThemeMode } from "./theme";
 
-const markConsoleRoute = vi.fn();
+const markConsoleRoute = vi.fn<(screen: string) => void>();
+const server = setupServer(
+  http.get("*/api/v1/ontology/object-types", () => HttpResponse.json([])),
+  http.get("*/api/v1/workflow-studio/definitions", () => HttpResponse.json({ items: [] })),
+);
+
+beforeAll(() => {
+  server.listen({ onUnhandledRequest: "bypass" });
+});
+afterEach(() => {
+  server.resetHandlers();
+});
+afterAll(() => {
+  server.close();
+});
 
 vi.mock("../rum/rum", () => ({
   initConsoleRum: () => () => {},
@@ -18,12 +36,29 @@ vi.mock("../rum/rum", () => ({
   },
 }));
 
-function renderConsole(session: AuthSession) {
+function RouterProbe() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  return (
+    <>
+      <output data-router-location>{`${location.pathname}${location.search}${location.hash}`}</output>
+      <button type="button" onClick={() => void navigate(-1)}>
+        history back
+      </button>
+      <button type="button" onClick={() => void navigate(1)}>
+        history forward
+      </button>
+    </>
+  );
+}
+
+function renderConsole(session: AuthSession, initialEntries: string[] = ["/console"]) {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={initialEntries}>
       <AuthTestProvider session={session}>
-        <ConsoleApp />
+        <ConsoleApp screenKeys={MOUNTED_SCREEN_KEYS} />
       </AuthTestProvider>
+      <RouterProbe />
     </MemoryRouter>,
   );
 }
@@ -33,6 +68,11 @@ const ADMIN: AuthSession = {
   display_name: "전성진",
   roles: ["ADMIN"],
   org_id: "org-1",
+};
+
+const SUPER_ADMIN: AuthSession = {
+  ...ADMIN,
+  roles: ["SUPER_ADMIN"],
 };
 
 describe("ConsoleShell chrome", () => {
@@ -70,7 +110,7 @@ describe("ConsoleShell chrome", () => {
           session={{ access_token: "t", roles: ["ADMIN"], org_id: "org-1" }}
           overrides={{ api }}
         >
-          <ConsoleApp />
+          <ConsoleApp screenKeys={MOUNTED_SCREEN_KEYS} />
         </AuthTestProvider>
       </MemoryRouter>,
     );
@@ -117,7 +157,95 @@ describe("ConsoleShell chrome", () => {
     expect(audit).toHaveAttribute("aria-current", "true");
     expect(overview).not.toHaveAttribute("aria-current");
     expect(screen.getByLabelText("화면 본문")).toHaveAttribute("data-cshell-screen", "audit");
+    expect(document.querySelector("[data-router-location]")).toHaveTextContent("/console/audit");
     expect(markConsoleRoute).toHaveBeenCalledWith("audit");
+  });
+
+  it("restores a shipped authorized screen from its URL on refresh", () => {
+    renderConsole(ADMIN, ["/console/audit"]);
+    expect(screen.getByRole("button", { name: "감사 로그" })).toHaveAttribute(
+      "aria-current",
+      "true",
+    );
+    expect(screen.getByLabelText("화면 본문")).toHaveAttribute("data-cshell-screen", "audit");
+    expect(markConsoleRoute).toHaveBeenCalledWith("audit");
+  });
+
+  it("tracks browser back and forward without emitting duplicate route samples", async () => {
+    renderConsole(ADMIN, ["/console/overview"]);
+    expect(screen.getByLabelText("화면 본문")).toHaveAttribute("data-cshell-screen", "overview");
+
+    await userEvent.click(screen.getByRole("button", { name: "감사 로그" }));
+    expect(screen.getByLabelText("화면 본문")).toHaveAttribute("data-cshell-screen", "audit");
+
+    await userEvent.click(screen.getByRole("button", { name: "history back" }));
+    await waitFor(() => {
+      expect(screen.getByLabelText("화면 본문")).toHaveAttribute(
+        "data-cshell-screen",
+        "overview",
+      );
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "history forward" }));
+    await waitFor(() => {
+      expect(screen.getByLabelText("화면 본문")).toHaveAttribute("data-cshell-screen", "audit");
+    });
+    expect(markConsoleRoute.mock.calls.map(([route]) => route)).toEqual([
+      "overview",
+      "audit",
+      "overview",
+      "audit",
+    ]);
+  });
+
+  it("resets the workflow tab after monitor → Scheduled side menu → Workflow side menu", async () => {
+    renderConsole(SUPER_ADMIN, ["/console/workflow?keep=1#anchor"]);
+
+    expect(
+      await screen.findByRole("tab", { name: "워크플로", selected: true }),
+    ).toBeVisible();
+    await userEvent.click(screen.getByRole("tab", { name: "분석·감시" }));
+    expect(document.querySelector("[data-router-location]")?.textContent).toBe(
+      "/console/workflow?keep=1&tab=monitors#anchor",
+    );
+
+    await userEvent.click(screen.getByRole("button", { name: "예약 작업" }));
+    await waitFor(() => {
+      expect(document.querySelector("[data-router-location]")?.textContent).toBe(
+        "/console/scheduled?keep=1#anchor",
+      );
+      expect(screen.getByRole("tab", { name: "예약" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
+    });
+
+    await userEvent.click(screen.getByRole("button", { name: "워크플로 스튜디오" }));
+    await waitFor(() => {
+      expect(document.querySelector("[data-router-location]")?.textContent).toBe(
+        "/console/workflow?keep=1#anchor",
+      );
+      expect(screen.getByRole("tab", { name: "워크플로" })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      );
+    });
+  });
+
+  it("replaces invalid, unshipped, and unauthorized URL screens with the safe default", async () => {
+    for (const destination of ["unknown", "hr", "policy"]) {
+      const view = renderConsole(ADMIN, [`/console/${destination}?keep=1#anchor`]);
+      expect(screen.getByLabelText("화면 본문")).toHaveAttribute(
+        "data-cshell-screen",
+        "overview",
+      );
+      await waitFor(() => {
+        expect(document.querySelector("[data-router-location]")).toHaveTextContent(
+          "/console/overview?keep=1#anchor",
+        );
+      });
+      view.unmount();
+    }
   });
 
   it("collapses and expands the sidebar", () => {

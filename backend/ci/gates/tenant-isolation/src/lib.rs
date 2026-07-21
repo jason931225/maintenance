@@ -105,11 +105,12 @@ pub fn global_table_allowlist() -> &'static [(&'static str, &'static str)] {
     ]
 }
 
-/// Cross-tenant authorization tables that intentionally have no `org_id`, no
-/// RLS policy, and no runtime-role raw table grants. They are not "global read"
-/// tables; `mnt_rt` may only reach them through narrow SECURITY DEFINER
-/// resolvers. A table listed here is classified for the tenant gate, and a
-/// direct GRANT to mnt_rt/PUBLIC is a violation.
+/// Platform-global or cross-tenant control/authorization tables that
+/// intentionally have no `org_id`, no RLS policy, and no runtime-role raw table
+/// grants. They are not "global read" tables; access is limited to the migration
+/// owner or a narrow NOLOGIN/SECURITY DEFINER capability. A table listed here is
+/// classified for the tenant gate, and a direct GRANT to mnt_rt/PUBLIC is a
+/// violation.
 #[must_use]
 pub fn owner_only_table_allowlist() -> &'static [(&'static str, &'static str)] {
     &[
@@ -120,6 +121,10 @@ pub fn owner_only_table_allowlist() -> &'static [(&'static str, &'static str)] {
         (
             "group_role_grants",
             "cross-tenant group role authorization; own-grants resolver only",
+        ),
+        (
+            "ont_builtin_catalog_allowlist",
+            "migration-pinned ontology manifest digests; readable only by the NOLOGIN ontology writer capability",
         ),
     ]
 }
@@ -1447,6 +1452,56 @@ mod tests {
                 .iter()
                 .any(|v| v.kind == ViolationKind::UnclassifiedTable),
             "allowlisted global table must not be unclassified: {:?}",
+            result.violations
+        );
+    }
+
+    #[test]
+    fn builtin_catalog_allowlist_is_owner_only_and_rejects_runtime_grants() {
+        assert!(
+            owner_only_table_allowlist()
+                .iter()
+                .any(|(table, _)| *table == "ont_builtin_catalog_allowlist"),
+            "built-in catalog allowlist must stay in the owner-only classification"
+        );
+        assert!(
+            !global_table_allowlist()
+                .iter()
+                .any(|(table, _)| *table == "ont_builtin_catalog_allowlist"),
+            "owner-only catalog control data must not be treated as global-read data"
+        );
+
+        let dir = tmpdir("builtin-catalog-allowlist");
+        write(
+            &dir,
+            "0001_w.sql",
+            "CREATE TABLE ont_builtin_catalog_allowlist (
+                catalog_version text primary key,
+                manifest_digest bytea not null
+            );\n",
+        );
+        let result = check_migrations_root(&dir);
+        assert!(
+            !result
+                .violations
+                .iter()
+                .any(|v| v.kind == ViolationKind::UnclassifiedTable),
+            "built-in catalog manifest allowlist must be classified as owner-only: {:?}",
+            result.violations
+        );
+
+        write(
+            &dir,
+            "0002_bad_grant.sql",
+            "GRANT SELECT ON ont_builtin_catalog_allowlist TO mnt_rt;\n",
+        );
+        let result = check_migrations_root(&dir);
+        assert!(
+            result
+                .violations
+                .iter()
+                .any(|v| v.kind == ViolationKind::OwnerOnlyTableGrant),
+            "owner-only catalog table grant should be rejected: {:?}",
             result.violations
         );
     }

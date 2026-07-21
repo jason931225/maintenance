@@ -9,6 +9,8 @@ import {
 } from "../fixtures/roles";
 
 const SOURCE_FILENAME = "e2e-hr-core.xlsx";
+const ACTIVE_EMPLOYEE_ID = "00000000-0000-0000-0000-000000aa2403";
+const EXITED_EMPLOYEE_ID = "00000000-0000-0000-0000-000000aa2404";
 const MECHANIC_ID = "00000000-0000-0000-0000-0000000d0002";
 const WORK_ORDER_ID = "00000000-0000-0000-0000-000000f00001";
 const SITE_ID = "00000000-0000-0000-0000-000000ee0002";
@@ -17,27 +19,20 @@ test.beforeEach(() => {
   sql(`
     BEGIN;
     SELECT set_config('app.current_org', '${TENANT_ORG_ID}', true);
-    DELETE FROM employee_lifecycle_events
-      WHERE org_id = '${TENANT_ORG_ID}'
-        AND employee_id IN (
-          SELECT id FROM employees
-          WHERE org_id = '${TENANT_ORG_ID}' AND source_filename = '${SOURCE_FILENAME}'
-        );
     DELETE FROM site_attendance_events
       WHERE id IN (
         '00000000-0000-0000-0000-000000aa2401',
         '00000000-0000-0000-0000-000000aa2402'
       );
-    DELETE FROM employees
-      WHERE org_id = '${TENANT_ORG_ID}' AND source_filename = '${SOURCE_FILENAME}';
+    SELECT set_config('role', 'mnt_rt', true);
     INSERT INTO employees (
-      org_id, company, name, source_filename, source_sheet, source_row,
+      id, org_id, company, name, source_filename, source_sheet, source_row,
       source_key, raw_row, source_metadata, employee_number, org_unit, job,
       position, worksite_name, worksite_address, hire_date, employment_status,
       leave_accrued, leave_used, leave_remaining
     ) VALUES
       (
-        '${TENANT_ORG_ID}', '대한물류', '김현장', '${SOURCE_FILENAME}', '대한물류', 2,
+        '${ACTIVE_EMPLOYEE_ID}', '${TENANT_ORG_ID}', '대한물류', '김현장', '${SOURCE_FILENAME}', '대한물류', 2,
         'e2e-hr-core|대한물류|2',
         jsonb_build_object('성명', '김현장', '사번', 'A-001', '부서명', '물류팀', '잔여연차', '7.5'),
         jsonb_build_object('filename', '${SOURCE_FILENAME}', 'sheet', '대한물류', 'row', 2),
@@ -45,13 +40,19 @@ test.beforeEach(() => {
         15, 7.5, 7.5
       ),
       (
-        '${TENANT_ORG_ID}', '한울로지스', '이퇴사', '${SOURCE_FILENAME}', '한울로지스', 3,
+        '${EXITED_EMPLOYEE_ID}', '${TENANT_ORG_ID}', '한울로지스', '이퇴사', '${SOURCE_FILENAME}', '한울로지스', 3,
         'e2e-hr-core|한울로지스|3',
         jsonb_build_object('성명', '이퇴사', '사번', 'B-002', '부서명', '관리팀', '퇴사일', '2026-01-31'),
         jsonb_build_object('filename', '${SOURCE_FILENAME}', 'sheet', '한울로지스', 'row', 3),
         'B-002', '관리팀', '관리', '과장', '부산센터', '부산광역시', '2023-03-01', 'EXITED',
         10, 10, 0
-      );
+      )
+    ON CONFLICT (id) DO UPDATE SET
+      employment_status = EXCLUDED.employment_status,
+      leave_accrued = EXCLUDED.leave_accrued,
+      leave_used = EXCLUDED.leave_used,
+      leave_remaining = EXCLUDED.leave_remaining;
+    RESET ROLE;
     INSERT INTO site_attendance_events (
       id, org_id, user_id, branch_id, work_order_id, site_id, kind, occurred_at
     ) VALUES
@@ -95,7 +96,9 @@ test("ADMIN-24 HR core renders imported employees, org chart, leave, and attenda
   await page.getByLabel("급여 마감 영향 확인").check();
   await page.getByLabel("퇴직금 정산 필요성 확인").check();
   await page.getByRole("button", { name: "생애주기 기록" }).click();
-  await expect(page.getByText("권고사직 협의 완료")).toBeVisible();
+  await expect(
+    page.getByRole("listitem").getByText("권고사직 협의 완료").first(),
+  ).toBeVisible();
 
   await expect
     .poll(

@@ -5,6 +5,7 @@
 // staging never wipes fields the editor does not surface).
 import {
   revisionHashVerified,
+  type ActingRuleWire,
   type CreateObjectTypeDraft,
   type InstanceStateWire,
   type ObjectTypeDetailWire,
@@ -85,7 +86,16 @@ export function fieldKindOf(rawTag: string): FieldKind {
 }
 
 function formulaText(formula: unknown): string {
-  return typeof formula === "string" ? formula : JSON.stringify(formula ?? "");
+  if (typeof formula === "string") return formula;
+  if (
+    formula !== null &&
+    typeof formula === "object" &&
+    !Array.isArray(formula) &&
+    typeof (formula as { expression?: unknown }).expression === "string"
+  ) {
+    return (formula as { expression: string }).expression;
+  }
+  return JSON.stringify(formula ?? "");
 }
 
 /** InstanceState → one 인스턴스 subtab row. */
@@ -106,6 +116,7 @@ export function objectTypeDefFromDetail(
   detail: ObjectTypeDetailWire,
   instances: InstanceStateWire[],
   typeKeyById: ReadonlyMap<string, string>,
+  acting: readonly ActingRuleWire[] = [],
 ): OntObjectTypeDef {
   const head = detail.object_type;
   return {
@@ -119,6 +130,8 @@ export function objectTypeDefFromDetail(
     titlePropertyKey: detail.title_property_key,
     schemaVersion: head.schema_version,
     lifecycleState: head.lifecycle_state,
+    keyWriteRevision: head.key_write_revision,
+    keyWriteEtag: head.key_write_etag,
     properties: detail.properties.map((property) => ({
       key: property.key,
       title: property.title,
@@ -148,9 +161,14 @@ export function objectTypeDefFromDetail(
       formula: formulaText(analytic.formula),
     })),
     instances: instances.map(instanceRowFromState),
-    // Acting automation/policy bindings have no registry read yet.
-    // wire-pending: HANDOFF §ontology-acting GET /api/v1/ontology/object-types/{key}/acting
-    acting: [],
+    // Automations + PBAC policies bound to the type (자동화 subtab), from
+    // GET /api/v1/ontology/object-types/{key}/acting. ActingRule {id,label,kind}
+    // maps straight onto the ObjectCard acting chip (kind is a subset).
+    acting: acting.map((rule) => ({
+      id: rule.id,
+      label: rule.label,
+      kind: rule.kind,
+    })),
   };
 }
 
@@ -219,7 +237,8 @@ export function stagedRevisionDraft(
           to_object_type_id: typeIdByKey.get(link.toTypeKey) ?? null,
           // The DB CHECK admits one_one|one_many|many_many; the add form no
           // longer offers the UI-only many_one sugar.
-          cardinality: link.cardinality === "many_one" ? "one_many" : link.cardinality,
+          cardinality:
+            link.cardinality === "many_one" ? "one_many" : link.cardinality,
         })),
     ],
     actions: [
@@ -254,7 +273,7 @@ export function stagedRevisionDraft(
         .map((analytic) => ({
           key: analytic.key,
           title: analytic.title,
-          formula: analytic.formula,
+          formula: { expression: analytic.formula },
         })),
     ],
   };
@@ -289,11 +308,16 @@ export function revisionsFromHistory(
       actor: revision.actor ? instanceCode(revision.actor) : "",
       reason: revision.reason ?? undefined,
       hashVerified: verified.get(revision.version) ?? false,
-      action: revision.action_type_id ? instanceCode(revision.action_type_id) : undefined,
+      action: revision.action_type_id
+        ? instanceCode(revision.action_type_id)
+        : undefined,
     }));
 }
 
-export function displayValue(value: unknown, fieldType?: string): string | null {
+export function displayValue(
+  value: unknown,
+  fieldType?: string,
+): string | null {
   if (value === null || value === undefined) return null;
   // A money-typed attribute is a raw won integer on the wire; render it with the
   // one shared ₩ helper (§4-18) so the inspector never leaks "36000000". A value

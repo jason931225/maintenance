@@ -266,7 +266,7 @@ for (const releaseNeedle of [
   "docker buildx imagetools create",
   "cosign sign --yes",
   "attest-build-provenance",
-  "auto-bump",
+  "Promote signed digests to production overlay",
 ]) {
   requireIncludes(".github/workflows/image-release.yml", releaseNeedle, `image release gate: ${releaseNeedle}`);
 }

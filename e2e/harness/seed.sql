@@ -4,7 +4,7 @@
 -- AUTH specs do NOT use these — they drive the real cold-start -> onboard ->
 -- enroll chain against the PLATFORM admin seeded by the app at boot.
 --
--- Connected as the PG superuser (BYPASSRLS), so writes are not gated by RLS;
+-- Connected as migration-only mnt_app (BYPASSRLS), so writes are not gated by RLS;
 -- app.current_org is still armed to mirror the runtime tenant-scoping pattern
 -- and to satisfy any FORCE-RLS WITH CHECK if the role ever changes.
 BEGIN;
