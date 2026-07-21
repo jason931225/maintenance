@@ -3139,6 +3139,7 @@ dependencies = [
  "mnt-kernel-core",
  "mnt-platform-db",
  "mnt-platform-request-context",
+ "mnt-platform-test-support",
  "mnt-workorder-application",
  "mnt-workorder-domain",
  "serde_json",

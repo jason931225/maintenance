@@ -7,6 +7,7 @@ use mnt_dispatch_application::{
 };
 use mnt_dispatch_domain::{DispatchResponseKind, DispatchStatus, DispatchTimerConfig};
 use mnt_kernel_core::{BranchId, ErrorKind, OrgId, TraceContext, UserId, WorkOrderId};
+use mnt_platform_test_support::{grant_mnt_rt, runtime_role_pool};
 use sqlx::{PgPool, Row};
 use time::macros::datetime;
 
@@ -787,4 +788,57 @@ async fn my_pending_offers_lists_only_unanswered_targets(pool: PgPool) {
         assert!(expired.is_empty(), "window-expired offer is gone");
     })
     .await;
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn dispatch_summary_returns_same_tenant_and_hides_cross_tenant_as_runtime_role(
+    owner_pool: PgPool,
+) {
+    let org = OrgId::knl();
+    let seeded = seed_dispatch_context(&owner_pool).await;
+    let owner_store = PgDispatchStore::new(owner_pool.clone());
+    let now = datetime!(2026-06-12 09:00 UTC);
+    let started = mnt_platform_request_context::scope_org(
+        org,
+        owner_store.start_dispatch(
+            StartP1DispatchCommand {
+                actor: seeded.receptionist,
+                work_order_id: seeded.work_order_id,
+                incident_location: None,
+                include_region: false,
+                trace: TraceContext::generate(),
+                occurred_at: now,
+            },
+            DispatchTimerConfig::default(),
+        ),
+    )
+    .await
+    .unwrap();
+
+    grant_mnt_rt(
+        &owner_pool,
+        &["GRANT SELECT ON p1_dispatches, p1_dispatch_targets, p1_dispatch_responses TO mnt_rt"],
+    )
+    .await;
+    let runtime_pool = runtime_role_pool(&owner_pool).await;
+    let current_user: String = sqlx::query_scalar("SELECT current_user::text")
+        .fetch_one(&runtime_pool)
+        .await
+        .unwrap();
+    assert_eq!(current_user, "mnt_rt");
+    let runtime_store = PgDispatchStore::new(runtime_pool);
+
+    let same_tenant =
+        mnt_platform_request_context::scope_org(org, runtime_store.dispatch(started.id))
+            .await
+            .expect("same-tenant dispatch lookup must succeed as mnt_rt");
+    assert_eq!(same_tenant.id, started.id);
+    assert_eq!(same_tenant.work_order_id, seeded.work_order_id);
+    assert_eq!(same_tenant.target_count, started.target_count);
+
+    let cross_tenant =
+        mnt_platform_request_context::scope_org(OrgId::new(), runtime_store.dispatch(started.id))
+            .await
+            .expect_err("cross-tenant dispatch must be invisible as mnt_rt");
+    assert_eq!(cross_tenant.kind(), ErrorKind::NotFound);
 }
