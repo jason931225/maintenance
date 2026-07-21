@@ -234,6 +234,11 @@ test("fresh and existing databases reconcile the exact hardened six-role topolog
   );
   assert.match(
     devUp,
+    /function reconcileDatabaseTopology\(compose\)[\s\S]*?MNT_POSTGRES_PORT: String\(PORTS\.postgres\)/,
+    "topology reconciliation must preserve the published PostgreSQL port used to start the dependency stack",
+  );
+  assert.match(
+    devUp,
     /DATABASE_URL: role === "migrate" \? databaseUrl\(\) : runtimeDatabaseUrl\(\)/,
   );
   assert.match(devUp, /LEAVE_COMMAND_DATABASE_URL: commandDatabaseUrl/);

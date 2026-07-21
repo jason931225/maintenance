@@ -549,6 +549,10 @@ function reconcileDatabaseTopology(compose) {
     cwd: REPO_ROOT,
     env: {
       ...process.env,
+      // Keep the topology one-shot on the same Compose model used to start
+      // Postgres. Falling back to compose.dev.yml's 5432 default makes Compose
+      // recreate the dependency that dev-up published on PORTS.postgres.
+      MNT_POSTGRES_PORT: String(PORTS.postgres),
       MNT_POSTGRES_DB: POSTGRES_DB,
       MNT_POSTGRES_ADMIN_USER: POSTGRES_ADMIN_USER,
       MNT_POSTGRES_ADMIN_PASSWORD: POSTGRES_ADMIN_PASSWORD,
