@@ -315,7 +315,7 @@ struct CreateWorkOrderRequest {
     management_no: String,
     symptom: String,
     customer_request: Option<String>,
-    #[serde(with = "time::serde::rfc3339::option")]
+    #[serde(default, with = "time::serde::rfc3339::option")]
     target_due_at: Option<time::OffsetDateTime>,
 }
 
@@ -4930,6 +4930,16 @@ mod tests {
                 .nanosecond(),
             123_456_789
         );
+
+        let create_without_due_at: CreateWorkOrderRequest = serde_json::from_str(
+            r#"{
+                "branch_id": "00000000-0000-0000-0000-000000000001",
+                "management_no": "EQ-001",
+                "symptom": "Test symptom"
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(create_without_due_at.target_due_at, None);
 
         let sync: SyncBatchRequest = serde_json::from_str(
             r#"{
