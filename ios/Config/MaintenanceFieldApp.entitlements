@@ -3,10 +3,11 @@
 <plist version="1.0">
 <dict>
 	<!--
-	  Shared keychain access group. The UITests target ships the SAME group so it
-	  can seed a real session token pair into the Keychain item the app reads on
-	  launch (KeychainSessionTokenStore). The "$(AppIdentifierPrefix)" is the
-	  Team ID, supplied by the build system at sign time so it is never hardcoded.
+	  Shared keychain access group. The separate MaintenanceFieldUITestSeeder app
+	  ships the SAME group so it can seed a real session token pair into the item
+	  the production app reads on launch (KeychainSessionTokenStore). The XCTest
+	  Runner intentionally has no shared-keychain entitlement. The
+	  "$(AppIdentifierPrefix)" is supplied by the build system at sign time.
 	-->
 	<key>keychain-access-groups</key>
 	<array>

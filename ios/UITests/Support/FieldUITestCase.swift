@@ -194,9 +194,10 @@ enum UITestFixture {
 ///
 /// Before each test-class shard, the workflow injects a fresh server-minted
 /// access/refresh pair into the runner. This case writes that shard-local pair
-/// into the production Keychain layout, then launches the unmodified app. Any
-/// missing runner input, entitlement, or fixture throws and fails XCTest rather
-/// than permitting an all-skipped/fake success.
+/// into the repository-owned seeder app, which writes the production Keychain
+/// layout under its own signed entitlement. The unmodified app then restores
+/// normally. Any missing runner input, helper result, or fixture throws and
+/// fails XCTest rather than permitting an all-skipped/fake success.
 class FieldUITestCase: XCTestCase {
     var app: XCUIApplication!
     private(set) var seededSession = false
@@ -206,11 +207,12 @@ class FieldUITestCase: XCTestCase {
         continueAfterFailure = false
 
         let tokens = try RealBackendSession.tokens()
-        try RealSessionSeed.seed(SeedTokens(accessToken: tokens.accessToken, refreshToken: tokens.refreshToken))
+        try RealSessionSeed.seed(tokens)
         seededSession = true
     }
 
     override func tearDown() async throws {
+        app?.terminate()
         if seededSession {
             try RealSessionSeed.clear()
         }

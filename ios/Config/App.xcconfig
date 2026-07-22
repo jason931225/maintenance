@@ -25,19 +25,18 @@ PRODUCT_BUNDLE_IDENTIFIER = $(MNT_IOS_BUNDLE_ID)
 DEVELOPMENT_TEAM = $(MNT_IOS_TEAM_ID)
 
 // --- Shared Keychain access group ---
-// The no-fakes session seeding writes the real session token pair into the
-// Keychain from the UITests process; the app reads it back through its NORMAL
-// launch path (KeychainSessionTokenStore.init / restore()). For one process to
-// read another's Keychain item both must share this access group.
+// The separate CI-only seeder app writes the real session token pair into the
+// Keychain; the production app reads it back through its normal launch path
+// (KeychainSessionTokenStore.init / restore()). Those two app processes must
+// share this access group.
 //
-// IMPORTANT: this literal is only a CI override hint. On a properly-signed
-// device build "$(AppIdentifierPrefix)" is the Team ID, but on the ad-hoc-signed
-// Simulator build it is a placeholder, so both the app
-// (KeychainAccessGroup.resolveShared) and the test seeder
-// (RealSessionSeed.resolvedAccessGroup) resolve the ACTUAL granted group at
-// runtime by probing the Keychain — they never rely on this exact string
-// matching. The override below is used only if a probe write to it succeeds.
-MNT_IOS_KEYCHAIN_GROUP = $(MNT_IOS_TEAM_ID).com.maintenance.field.shared
+// The production app and separate CI-only UI-test seeder app omit the
+// access-group selector on a unique probe, then read and suffix-validate the
+// exact default group Keychain Services grants. CI proves both executable
+// Mach-O __TEXT,__entitlements sections contain the same group before tests
+// run; it never re-signs or mutates Xcode's generated UI-test Runner. No
+// runtime path guesses or reconstructs the signing prefix, and the production
+// app has no test-only authentication bypass.
 
 // --- Simulator test build: ad-hoc sign so entitlements actually embed ---
 // The shared keychain-access-group seeding requires the keychain-access-groups
@@ -46,8 +45,9 @@ MNT_IOS_KEYCHAIN_GROUP = $(MNT_IOS_TEAM_ID).com.maintenance.field.shared
 // errSecMissingEntitlement (-34018). The iOS Simulator honors ad-hoc signing
 // ("-") with entitlements, which is enough for cross-process keychain sharing
 // there — no real provisioning profile or registered bundle id needed. The
-// RealSessionSeed fails the suite if the shared group is absent or cannot be
-// read back, so an entitlement/signing regression cannot produce a false green.
+// dedicated seeder app fails its protocol if the shared group is absent or
+// cannot be read back, so an entitlement/signing regression cannot produce a
+// false green.
 CODE_SIGN_STYLE = Manual
 CODE_SIGNING_REQUIRED = YES
 CODE_SIGNING_ALLOWED = YES

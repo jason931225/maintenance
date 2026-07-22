@@ -11,7 +11,7 @@ distribution archive, TestFlight upload, or production go-live path is ready.
 | --- | --- |
 | `App.xcconfig` | Build settings for the app target. Hermetic CI uses the repository defaults `com.maintenance.field` and `98Q89GFZWP`; a separately governed release build may override `MNT_IOS_BUNDLE_ID` and `MNT_IOS_TEAM_ID`. |
 | `MaintenanceFieldApp.entitlements` | App entitlements: shared keychain access group + associated domain for passkeys. |
-| `MaintenanceFieldUITests.entitlements` | UITests entitlements: the SAME shared keychain access group, so the test runner can seed a real session the app reads back. |
+| `MaintenanceFieldUITestSeeder.entitlements` | CI-only seeder app entitlement: the SAME shared keychain access group as the production app. |
 | `../project.yml` | XcodeGen definition consumed by CI (`xcodegen generate`) to produce `MaintenanceField.xcodeproj` (a build artifact, not committed). |
 
 ## Bundle ID and signing status
@@ -52,8 +52,8 @@ The flow is:
 ## Why a shared keychain access group
 
 `KeychainSessionTokenStore` (in `MaintenanceFieldCore`) persists the session
-token pair as a `kSecClassGenericPassword` item. The XCUITest suite seeds a
-**real** session into that item from the test-runner process so the app's normal
+token pair as a `kSecClassGenericPassword` item. The separate CI-only seeder
+app writes a **real** session into that item so the production app's normal
 `restore()` path authenticates — with **no fake `AuthRepository`** and **no
 test-only branch in `AppContainer`**.
 
@@ -62,28 +62,31 @@ both the primary and legacy Keychain stores is proven. A deletion failure blocks
 the refresh request; logout/invalidation failures preserve truthful authenticated
 state and surface an error instead of claiming that restorable credentials are gone.
 
-For one process to read another's Keychain item, both must declare the **same**
-`keychain-access-groups` entitlement. That group
-(`$(AppIdentifierPrefix)com.maintenance.field.shared`) is declared in both
-entitlement files above.
+For the production app to read the CI seeder's Keychain item, both apps must
+declare the **same** `keychain-access-groups` entitlement. That group
+(`$(AppIdentifierPrefix)com.maintenance.field.shared`) is declared in the app
+and dedicated seeder entitlement files above.
 
 ### Runtime group resolution (app and test agree on ONE value)
 
-`$(AppIdentifierPrefix)` is the Team ID on a properly-signed device build but a
-**placeholder** on the ad-hoc-signed Simulator build, so the fully-qualified
-group string is **not** hardcoded. Both sides resolve the *granted* group at
-runtime by probing the Keychain and reading back the actual `kSecAttrAccessGroup`
-the system assigned:
+`$(AppIdentifierPrefix)` is resolved by signing and must not be guessed or
+reconstructed in application code. Both sides normally add a uniquely named
+probe without an explicit access group, which makes Keychain Services select the
+process's first entitled group, then read back and suffix-validate the exact
+`kSecAttrAccessGroup` the system assigned:
 
 - App: `KeychainAccessGroup.resolveShared(suffix:)` (production, in
   `MaintenanceFieldCore`). `AppContainer.live()` uses it to build the session
   store on the shared group, with a legacy default-group store for one-time
   forward migration so existing installs are not logged out.
-- Test: `RealSessionSeed.resolvedAccessGroup()` uses the identical probe, so it
-  seeds into exactly the group the app reads from. A locally supplied
-  `MNT_IOS_KEYCHAIN_GROUP` can select an explicitly granted group for diagnosis;
-  hermetic CI resolves the entitlement directly and does not depend on that
-  override.
+- CI-only seeder app: `MaintenanceFieldUITestSeeder` uses the same probe and
+  writes a real session only after the test protocol authorizes it. It is a
+  separate product from the production app; it does not add an authentication
+  bypass to production code. Hermetic CI verifies the Xcode-signed production
+  app and seeder app, then parses each executable's link-time Mach-O
+  `__TEXT,__entitlements` section and requires one identical, suffix-valid
+  keychain group. The generated XCTest Runner remains Xcode-signed and
+  untouched; no keychain-group value is injected into `.xctestrun`.
 
 ### Ad-hoc signing is required
 

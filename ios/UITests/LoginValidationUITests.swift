@@ -16,6 +16,7 @@ final class LoginValidationUITests: XCTestCase {
     }
 
     override func tearDownWithError() throws {
+        app?.terminate()
         app = nil
         try super.tearDownWithError()
     }

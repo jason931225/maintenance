@@ -259,55 +259,40 @@ public struct SecKeychainAccess: KeychainAccess {
 ///
 /// The fully-qualified group is `<AppIdentifierPrefix>.<suffix>`. The
 /// `<AppIdentifierPrefix>` differs between a properly-signed device build (the
-/// Team ID) and an ad-hoc-signed Simulator build (a placeholder), so it must not
-/// be hardcoded. This probes the Keychain — adds a throwaway generic-password
-/// item declaring the suffixed group and reads back the resolved
-/// `kSecAttrAccessGroup` the system actually granted — and returns that exact
-/// string, so the app and any cooperating process (e.g. the CI UI-test seeder)
-/// agree on one value. Returns `nil` when the build is not entitled to the group
-/// (the app then transparently uses its default group).
+/// Team ID) and an ad-hoc-signed Simulator build, so it must not be reconstructed
+/// in code. This adds a uniquely named throwaway item without specifying an
+/// access group, causing Keychain Services to use the process's first (default)
+/// entitled group, then reads back and validates the exact group the system
+/// granted. Returns `nil` when that default group does not match the shared-group
+/// suffix (the app then transparently uses its legacy default-group store).
 public enum KeychainAccessGroup {
     public static func resolveShared(
         suffix: String,
         service: String = "maintenance.field",
         probeAccount: String = "maintenance.field.group.probe"
     ) -> String? {
-        // Try each plausible group spelling the entitlement may resolve to:
-        // the bare suffix (ad-hoc Simulator, no prefix) is covered by reading
-        // back whatever the system grants when we add with the suffix group.
+        let uniqueProbeAccount = "\(probeAccount).\(UUID().uuidString.lowercased())"
         let add: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: probeAccount,
-            kSecAttrAccessGroup as String: suffix,
+            kSecAttrAccount as String: uniqueProbeAccount,
             kSecValueData as String: Data("probe".utf8),
             kSecReturnAttributes as String: true,
         ]
         var result: CFTypeRef?
-        var status = SecItemAdd(add as CFDictionary, &result)
-        if status == errSecDuplicateItem {
-            let query: [String: Any] = [
-                kSecClass as String: kSecClassGenericPassword,
-                kSecAttrService as String: service,
-                kSecAttrAccount as String: probeAccount,
-                kSecAttrAccessGroup as String: suffix,
-                kSecReturnAttributes as String: true,
-                kSecMatchLimit as String: kSecMatchLimitOne,
-            ]
-            status = SecItemCopyMatching(query as CFDictionary, &result)
-        }
+        let status = SecItemAdd(add as CFDictionary, &result)
         defer {
             SecItemDelete([
                 kSecClass as String: kSecClassGenericPassword,
                 kSecAttrService as String: service,
-                kSecAttrAccount as String: probeAccount,
-                kSecAttrAccessGroup as String: suffix,
+                kSecAttrAccount as String: uniqueProbeAccount,
             ] as CFDictionary)
         }
         guard
             status == errSecSuccess,
             let attributes = result as? [String: Any],
-            let granted = attributes[kSecAttrAccessGroup as String] as? String
+            let granted = attributes[kSecAttrAccessGroup as String] as? String,
+            granted == suffix || granted.hasSuffix(".\(suffix)")
         else {
             return nil
         }

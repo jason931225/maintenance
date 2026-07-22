@@ -10,10 +10,16 @@ const validFiles = {
   ".github/workflows/ios-ui-tests.yml": validWorkflow,
   "scripts/boot-ios-ui-backend.mjs": validLauncher,
   "ios/Sources/MaintenanceFieldApp/Info.plist": "<plist><dict><key>CFBundleIdentifier</key></dict></plist>",
+  "ios/Sources/MaintenanceFieldCore/PersistenceStores.swift": readFileSync(new URL("../ios/Sources/MaintenanceFieldCore/PersistenceStores.swift", import.meta.url), "utf8"),
   "ios/Sources/MaintenanceFieldApp/FieldAccessibilityID.swift": `public enum FieldAccessibilityID { public static let staticID = "static.id"; public static func dynamicID(_ id: String) -> String { "dynamic.\\(id)" } }`,
   "ios/Sources/MaintenanceFieldApp/FieldViews.swift": `ForEach(viewModel.messengerState.searchResults) { message in FieldAccessibilityID.messengerSearchResultRow(message.id) }\nForEach(messages) { message in FieldAccessibilityID.messengerMessageRow(message.id) }`,
   "ios/UITests/Support/FieldUITestCase.swift": `enum AID { static let staticID = "static.id"; static func dynamicID(_ id: String) -> String { "dynamic.\\(id)" } }\nstatic func requiredID(_ key: String) throws -> String { guard let value = ProcessInfo.processInfo.environment[key], UUID(uuidString: value) != nil else { throw Error.missing(key) }; return value }\ntry app.performAccessibilityAudit(for: .all)`,
-  "ios/UITests/Support/RealSessionSeed.swift": "enum RealSessionSeed {}",
+  "ios/UITests/Support/RealSessionSeed.swift": readFileSync(new URL("../ios/UITests/Support/RealSessionSeed.swift", import.meta.url), "utf8"),
+  "ios/Sources/MaintenanceFieldUITestSeeder/UITestSeederApp.swift": readFileSync(new URL("../ios/Sources/MaintenanceFieldUITestSeeder/UITestSeederApp.swift", import.meta.url), "utf8"),
+  "ios/Config/App.xcconfig": readFileSync(new URL("../ios/Config/App.xcconfig", import.meta.url), "utf8"),
+  "ios/Config/MaintenanceFieldApp.entitlements": readFileSync(new URL("../ios/Config/MaintenanceFieldApp.entitlements", import.meta.url), "utf8"),
+  "ios/Config/MaintenanceFieldUITestSeeder.entitlements": readFileSync(new URL("../ios/Config/MaintenanceFieldUITestSeeder.entitlements", import.meta.url), "utf8"),
+  "ios/project.yml": readFileSync(new URL("../ios/project.yml", import.meta.url), "utf8"),
   "ios/UITests/FieldCriticalPathUITests.swift": `startWork.tap()\nlet detailStatus = app.descendants(matching: .any)[AID.detailStatus]\nXCTAssertEqual(detailStatus.label, KO.inProgress)\ngrant.tap()\napp.terminate()\n// A fresh app launch must read the granted state back\nreloadedWithdraw.tap()\napp.terminate()\n// A fresh app launch must read the withdrawn terminal state back`,
   "ios/UITests/MessengerUITests.swift": `app.buttons[AID.messengerSendButton].tap()\napp.terminate()\ntry await openSeededThread()\nXCTAssertTrue(app.staticTexts[sentMessageBody].exists)`,
   "ios/UITests/CameraCaptureUITests.swift": `if previewIsUsable { reachedTerminalState = true }\ncancel.tap()`,
@@ -146,6 +152,74 @@ describe("iOS hermetic UI CI contract", () => {
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow('for test_class in "\${TEST_CLASSES[@]}"; do mint_class_session', 'for test_class in "\${TEST_CLASSES[@]}"; do true') }), "mint and mask");
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("sleep 720", "sleep 900") }), "mint and mask");
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("00000000-0000-0000-0000-000000c20001", "c20001") }), "mint and mask");
+  });
+  it("rejects missing, mismatched, or wrongly wired app/seeder keychain configuration", () => {
+    expectsFailure(evaluate({
+      "ios/Config/MaintenanceFieldUITestSeeder.entitlements": validFiles["ios/Config/MaintenanceFieldUITestSeeder.entitlements"].replace("com.maintenance.field.shared", "com.maintenance.field.wrong"),
+    }), "identically signed default keychain access group");
+    expectsFailure(evaluate({
+      "ios/Config/MaintenanceFieldUITestSeeder.entitlements": validFiles["ios/Config/MaintenanceFieldUITestSeeder.entitlements"].replace("<key>keychain-access-groups</key>", "<key>missing-keychain-access-groups</key>"),
+    }), "identically signed default keychain access group");
+    expectsFailure(evaluate({
+      "ios/project.yml": validFiles["ios/project.yml"].replace("Sources/MaintenanceFieldUITestSeeder", "Sources/MissingSeeder"),
+    }), "identically signed default keychain access group");
+    expectsFailure(evaluate({
+      "ios/project.yml": validFiles["ios/project.yml"].replace("- target: MaintenanceFieldUITestSeeder", "- target: MissingSeeder"),
+    }), "identically signed default keychain access group");
+    expectsFailure(evaluate({
+      "ios/project.yml": validFiles["ios/project.yml"].replace("CODE_SIGN_ENTITLEMENTS: Config/MaintenanceFieldUITestSeeder.entitlements", "CODE_SIGN_ENTITLEMENTS: Config/Missing.entitlements"),
+    }), "identically signed default keychain access group");
+    expectsFailure(evaluate({
+      "ios/Config/App.xcconfig": validFiles["ios/Config/App.xcconfig"].replace("CODE_SIGNING_ALLOWED = YES", "CODE_SIGNING_ALLOWED = NO"),
+    }), "identically signed default keychain access group");
+  });
+  it("rejects a UI-test Keychain implementation instead of the dedicated helper", () => {
+    expectsFailure(evaluate({
+      "ios/UITests/Support/RealSessionSeed.swift": `${validFiles["ios/UITests/Support/RealSessionSeed.swift"]}\nimport Security\nlet forbidden = kSecAttrAccessGroup`,
+    }), "system-granted default group");
+    expectsFailure(evaluate({
+      "ios/Sources/MaintenanceFieldUITestSeeder/UITestSeederApp.swift": validFiles["ios/Sources/MaintenanceFieldUITestSeeder/UITestSeederApp.swift"].replace("KeychainAccessGroup.resolveShared", "MissingAccessGroup.resolveShared"),
+    }), "system-granted default group");
+    expectsFailure(evaluate({
+      "ios/Sources/MaintenanceFieldCore/PersistenceStores.swift": validFiles["ios/Sources/MaintenanceFieldCore/PersistenceStores.swift"].replace(
+        "            kSecAttrAccount as String: uniqueProbeAccount,",
+        "            kSecAttrAccount as String: uniqueProbeAccount,\n            kSecAttrAccessGroup as String: suffix,",
+      ),
+    }), "system-granted default group");
+  });
+  it("rejects Runner mutation, stale Runner environment injection, and incomplete Mach-O entitlement proof", () => {
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow(
+      '/usr/bin/codesign --verify --deep --strict "$SEEDER_APP"',
+      "true",
+    ) }), "preserve the Xcode-created Simulator Runner");
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow(
+      '/usr/bin/codesign --verify --deep --strict "$UITEST_RUNNER_APP"',
+      '/usr/bin/codesign --force --sign - "$UITEST_RUNNER_APP"',
+    ) }), "preserve the Xcode-created Simulator Runner");
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow(
+      'test "$APP_KEYCHAIN_GROUP" = "$SEEDER_KEYCHAIN_GROUP"',
+      "true",
+    ) }), "preserve the Xcode-created Simulator Runner");
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow(
+      'APP_KEYCHAIN_GROUP="$(mach_o_keychain_group "$BUILT_APP/MaintenanceFieldApp")"',
+      'APP_KEYCHAIN_GROUP="missing"',
+    ) }), "preserve the Xcode-created Simulator Runner");
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow(
+      '/usr/bin/lipo -archs "$executable"',
+      'false # missing lipo architecture inspection',
+    ) }), "preserve the Xcode-created Simulator Runner");
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow(
+      '/bin/cp "$executable" "$thin"',
+      '/usr/bin/lipo "$executable" -thin "$MACH_O_ARCH" -output "$thin"',
+    ) }), "preserve the Xcode-created Simulator Runner");
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow(
+      '_, _, segment, _, _, _, _, _, _, nsects, _ = struct.unpack_from("<II16sQQQQiiII", executable, offset)',
+      '_, _, segment, _, _, _, _, _, nsects, _ = struct.unpack_from("<II16sQQQQiiII", executable, offset)',
+    ) }), "preserve the Xcode-created Simulator Runner");
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow(
+      "--env MNT_UITEST_BASE_URL",
+      "--env MNT_IOS_KEYCHAIN_GROUP --env MNT_UITEST_BASE_URL",
+    ) }), "preserve the Xcode-created Simulator Runner");
   });
   it("rejects xctestrun, ATS, and xcresult regression", () => {
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow('chmod 600 "$XCTESTRUN"', "") }), "mode-0600");

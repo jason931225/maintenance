@@ -130,6 +130,67 @@ jobs:
           BUILT_PLIST="$(find "$DERIVED/Build/Products" -path '*MaintenanceFieldApp.app/Info.plist' -print -quit)"; test -n "$BUILT_PLIST"; # Built.app/Info.plist receives CI-only NSAllowsLocalNetworking
           test "$(/usr/libexec/PlistBuddy -c 'Print :NSAppTransportSecurity:NSAllowsLocalNetworking' "$BUILT_PLIST")" = true
           if /usr/libexec/PlistBuddy -c 'Print :NSAppTransportSecurity' Sources/MaintenanceFieldApp/Info.plist >/dev/null 2>&1; then echo 'production Info.plist must remain ATS-free' >&2; exit 1; fi
+          BUILT_APP="$(find "$DERIVED/Build/Products" -type d -name 'MaintenanceFieldApp.app' -print -quit)"; test -n "$BUILT_APP"
+          SEEDER_APP="$(find "$DERIVED/Build/Products" -type d -name 'MaintenanceFieldUITestSeeder.app' -print -quit)"; test -n "$SEEDER_APP"
+          UITEST_RUNNER_APP="$(find "$DERIVED/Build/Products" -type d -name 'MaintenanceFieldUITests-Runner.app' -print -quit)"; test -n "$UITEST_RUNNER_APP"
+          UITEST_BUNDLE="$UITEST_RUNNER_APP/PlugIns/MaintenanceFieldUITests.xctest"; test -d "$UITEST_BUNDLE"
+          # Simulator entitlement authority is the signed executable's Mach-O
+          # __TEXT,__entitlements section. Do not infer it from an xcent file or
+          # alter the Xcode-created Runner after build-for-testing.
+          case "$RUNNER_ARCH" in ARM64) MACH_O_ARCH=arm64 ;; X64) MACH_O_ARCH=x86_64 ;; *) echo "unsupported Mach-O architecture: $RUNNER_ARCH" >&2; exit 1 ;; esac
+          mach_o_keychain_group() {
+          local executable thin architectures
+          executable="$1"
+          thin="$D/$(basename "$1").$MACH_O_ARCH"
+          architectures="$(/usr/bin/lipo -archs "$executable")"
+          case " $architectures " in *" $MACH_O_ARCH "*) ;; *) echo "missing required Mach-O architecture: $MACH_O_ARCH" >&2; return 1 ;; esac
+          if [[ "$architectures" == "$MACH_O_ARCH" ]]; then /bin/cp "$executable" "$thin"; else /usr/bin/lipo "$executable" -thin "$MACH_O_ARCH" -output "$thin"; fi
+          /usr/bin/python3 - "$thin" <<'PY'
+          import plistlib
+          import struct
+          import sys
+
+          executable = open(sys.argv[1], "rb").read()
+          if len(executable) < 32 or executable[:4] != b"\xcf\xfa\xed\xfe":
+              raise SystemExit("expected a 64-bit little-endian Mach-O executable")
+          _, _, _, _, ncmds, _, _, _ = struct.unpack_from("<IiiIIIII", executable)
+          offset = 32
+          section = None
+          for _ in range(ncmds):
+              command, size = struct.unpack_from("<II", executable, offset)
+              if size < 8 or offset + size > len(executable):
+                  raise SystemExit("malformed Mach-O load command")
+              if command == 0x19 and size >= 72:
+                  _, _, segment, _, _, _, _, _, _, nsects, _ = struct.unpack_from("<II16sQQQQiiII", executable, offset)
+                  cursor = offset + 72
+                  for _ in range(nsects):
+                      name, section_segment, _, section_size, section_offset, _, _, _, _, _, _, _ = struct.unpack_from("<16s16sQQIIIIIIII", executable, cursor)
+                      if name.rstrip(b"\0") == b"__entitlements" and section_segment.rstrip(b"\0") == b"__TEXT" and segment.rstrip(b"\0") == b"__TEXT":
+                          if section is not None:
+                              raise SystemExit("duplicate __TEXT,__entitlements section")
+                          section = executable[section_offset:section_offset + section_size]
+                      cursor += 80
+              offset += size
+          if not section:
+              raise SystemExit("missing __TEXT,__entitlements section")
+          entitlements = plistlib.loads(section)
+          groups = entitlements.get("keychain-access-groups")
+          if not isinstance(groups, list) or len(groups) != 1 or not isinstance(groups[0], str):
+              raise SystemExit("expected exactly one keychain-access-groups value")
+          group = groups[0]
+          suffix = "com.maintenance.field.shared"
+          if group != suffix and not group.endswith("." + suffix):
+              raise SystemExit("unexpected keychain-access-group suffix")
+          print(group)
+          PY
+          }
+          /usr/bin/codesign --verify --deep --strict "$BUILT_APP"
+          /usr/bin/codesign --verify --deep --strict "$SEEDER_APP"
+          /usr/bin/codesign --verify --deep --strict "$UITEST_RUNNER_APP"
+          /usr/bin/codesign --verify --strict "$UITEST_BUNDLE"
+          APP_KEYCHAIN_GROUP="$(mach_o_keychain_group "$BUILT_APP/MaintenanceFieldApp")"
+          SEEDER_KEYCHAIN_GROUP="$(mach_o_keychain_group "$SEEDER_APP/MaintenanceFieldUITestSeeder")"
+          test "$APP_KEYCHAIN_GROUP" = "$SEEDER_KEYCHAIN_GROUP"
           XCTESTRUN="$(find "$DERIVED/Build/Products" -name '*.xctestrun' -print -quit)"
           test -n "$XCTESTRUN"
           chmod 600 "$XCTESTRUN"

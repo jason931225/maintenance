@@ -206,7 +206,7 @@ function hasValidLoopbackWebauthnPolicy(job, launcher) {
   const launch = matches[0]?.index ?? -1;
   const pidRead = activeJob.indexOf('BACKEND_PID="$(cat "$BACKEND_PID_FILE")"');
   const forbiddenLowLevelControls = /\b(?:E2E_AUTH_DIR|E2E_HTTP_ADDR|E2E_PORT_CONFLICT_MODE|E2E_COLDSTART_OTP|E2E_RP_ORIGIN|E2E_RP_ID)\b|e2e\/harness\/boot-backend\.sh/;
-  const approvedBackendStepSha256 = "b2ebe9b908a9846f0cc869795d962710ca143ab3dceaffdd8233ad6c2b23fc7b";
+  const approvedBackendStepSha256 = "ad06633cbde470e1e518b3448d42fcb91e89e727d55b8ac9d5b101dcd8f549f5";
   const approvedLauncherSha256 = "a153fab32c9f4ca597605ec126d40e3bfc106c0ce17c368078e22c265ca9f1ad";
   const backendStepSha256 = createHash("sha256").update(backendStep).digest("hex");
   const launcherSha256 = createHash("sha256").update(launcher).digest("hex");
@@ -377,6 +377,106 @@ function extractEnumBody(source, enumName) {
   return openingBrace === -1 ? null : extractBalancedBlock(source, openingBrace);
 }
 
+function extractFunctionBody(source, declaration) {
+  const match = declaration.exec(source);
+  if (!match) return null;
+  const openingBrace = source.indexOf("{", match.index + match[0].length);
+  return openingBrace === -1 ? null : extractBalancedBlock(source, openingBrace);
+}
+
+function plistKeychainAccessGroups(source) {
+  const match = source.match(/<key>keychain-access-groups<\/key>\s*<array>([\s\S]*?)<\/array>/);
+  if (!match) return [];
+  return [...match[1].matchAll(/<string>([^<]+)<\/string>/g)].map((entry) => entry[1].trim());
+}
+
+function hasSharedKeychainEntitlementContract(files) {
+  const expectedGroup = "$(AppIdentifierPrefix)com.maintenance.field.shared";
+  const appGroups = plistKeychainAccessGroups(files["ios/Config/MaintenanceFieldApp.entitlements"] ?? "");
+  const seederGroups = plistKeychainAccessGroups(files["ios/Config/MaintenanceFieldUITestSeeder.entitlements"] ?? "");
+  const project = files["ios/project.yml"] ?? "";
+  const config = files["ios/Config/App.xcconfig"] ?? "";
+  const seederTarget = /MaintenanceFieldUITestSeeder:\s*\n\s*type:\s*application\b[\s\S]*?\n\s{2}(?=\S|schemes:)/.exec(project)?.[0] ?? "";
+  const uiTarget = /MaintenanceFieldUITests:\s*\n\s*type:\s*bundle\.ui-testing\b[\s\S]*?\n\s{2}(?=\S|schemes:)/.exec(project)?.[0] ?? "";
+  return appGroups.length === 1
+    && seederGroups.length === 1
+    && appGroups[0] === expectedGroup
+    && seederGroups[0] === expectedGroup
+    && (project.match(/CODE_SIGN_ENTITLEMENTS:\s*Config\/MaintenanceFieldApp\.entitlements/g) ?? []).length === 1
+    && (project.match(/CODE_SIGN_ENTITLEMENTS:\s*Config\/MaintenanceFieldUITestSeeder\.entitlements/g) ?? []).length === 1
+    && /-\s*path:\s*Sources\/MaintenanceFieldUITestSeeder\b/.test(seederTarget)
+    && /PRODUCT_BUNDLE_IDENTIFIER:\s*"\$\(MNT_IOS_BUNDLE_ID\)\.UITestSeeder"/.test(seederTarget)
+    && /-\s*target:\s*MaintenanceFieldUITestSeeder\b/.test(uiTarget)
+    && !/CODE_SIGN_ENTITLEMENTS:\s*Config\/MaintenanceFieldUITests\.entitlements/.test(uiTarget)
+    && !/MaintenanceFieldUITests\.entitlements/.test(project)
+    && /configFiles:\s*\n\s*Debug:\s*Config\/App\.xcconfig\s*\n\s*Release:\s*Config\/App\.xcconfig/.test(project)
+    && /^CODE_SIGN_STYLE\s*=\s*Manual\s*$/m.test(config)
+    && /^CODE_SIGNING_REQUIRED\s*=\s*YES\s*$/m.test(config)
+    && /^CODE_SIGNING_ALLOWED\s*=\s*YES\s*$/m.test(config)
+    && /^CODE_SIGN_IDENTITY\s*=\s*-\s*$/m.test(config);
+}
+
+function hasDefaultSharedKeychainResolution(files) {
+  const productionBody = extractFunctionBody(
+    files["ios/Sources/MaintenanceFieldCore/PersistenceStores.swift"] ?? "",
+    /public\s+static\s+func\s+resolveShared\s*\(/,
+  );
+  const helper = files["ios/Sources/MaintenanceFieldUITestSeeder/UITestSeederApp.swift"] ?? "";
+  const uiTestSupport = files["ios/UITests/Support/RealSessionSeed.swift"] ?? "";
+  if (productionBody === null) return false;
+  const productionAccessGroupReferences = productionBody.match(/kSecAttrAccessGroup/g) ?? [];
+  return productionAccessGroupReferences.length === 1
+    && productionBody.includes("UUID().uuidString.lowercased()")
+    && productionBody.includes("kSecReturnAttributes as String: true")
+    && productionBody.includes('granted == suffix || granted.hasSuffix(".\\(suffix)")')
+    && helper.includes("KeychainAccessGroup.resolveShared(suffix: sharedGroupSuffix)")
+    && helper.includes("KeychainSessionTokenStore(")
+    && helper.includes("SecKeychainAccess(accessGroup: accessGroup)")
+    && !/import\s+Security\b|\bSecItem\w*\b|\bkSecAttrAccessGroup\b/.test(uiTestSupport);
+}
+
+function hasEntitledSimulatorSeederContract(job) {
+  const activeJob = stripInertShellData(job);
+  const rawJob = stripShellComments(job);
+  const build = activeJob.indexOf("xcodebuild build-for-testing");
+  const app = activeJob.indexOf('BUILT_APP="$(find "$DERIVED/Build/Products" -type d -name \'MaintenanceFieldApp.app\' -print -quit)"');
+  const seeder = activeJob.indexOf('SEEDER_APP="$(find "$DERIVED/Build/Products" -type d -name \'MaintenanceFieldUITestSeeder.app\' -print -quit)"');
+  const runner = activeJob.indexOf('UITEST_RUNNER_APP="$(find "$DERIVED/Build/Products"');
+  const sectionParser = rawJob.indexOf('missing __TEXT,__entitlements section');
+  const verifyApp = activeJob.indexOf('/usr/bin/codesign --verify --deep --strict "$BUILT_APP"');
+  const verifySeeder = activeJob.indexOf('/usr/bin/codesign --verify --deep --strict "$SEEDER_APP"');
+  const verifyRunner = activeJob.indexOf('/usr/bin/codesign --verify --deep --strict "$UITEST_RUNNER_APP"');
+  const appGroup = activeJob.indexOf('APP_KEYCHAIN_GROUP="$(mach_o_keychain_group "$BUILT_APP/MaintenanceFieldApp")"');
+  const seederGroup = activeJob.indexOf('SEEDER_KEYCHAIN_GROUP="$(mach_o_keychain_group "$SEEDER_APP/MaintenanceFieldUITestSeeder")"');
+  const execute = activeJob.indexOf("xcodebuild test-without-building");
+  return build !== -1
+    && app > build
+    && seeder > app
+    && runner > seeder
+    && sectionParser !== -1
+    && /case "\$RUNNER_ARCH" in ARM64\) MACH_O_ARCH=arm64 ;; X64\) MACH_O_ARCH=x86_64/.test(activeJob)
+    && /architectures="\$\(\/usr\/bin\/lipo -archs "\$executable"\)"/.test(activeJob)
+    && /case " \$architectures " in \*" \$MACH_O_ARCH "\*\)/.test(activeJob)
+    && /if \[\[ "\$architectures" == "\$MACH_O_ARCH" \]\]; then \/bin\/cp "\$executable" "\$thin"; else \/usr\/bin\/lipo "\$executable" -thin "\$MACH_O_ARCH" -output "\$thin"; fi/.test(activeJob)
+    && /_, _, segment, _, _, _, _, _, _, nsects, _ = struct\.unpack_from\("<II16sQQQQiiII", executable, offset\)/.test(rawJob)
+    && /name\.rstrip\(b"\\0"\) == b"__entitlements"/.test(rawJob)
+    && /section_segment\.rstrip\(b"\\0"\) == b"__TEXT"/.test(rawJob)
+    && /segment\.rstrip\(b"\\0"\) == b"__TEXT"/.test(rawJob)
+    && /plistlib\.loads\(section\)/.test(rawJob)
+    && /expected exactly one keychain-access-groups value/.test(rawJob)
+    && /if group != suffix and not group\.endswith\("\." \+ suffix\):/.test(rawJob)
+    && verifyApp > runner
+    && verifySeeder > verifyApp
+    && verifyRunner > verifySeeder
+    && appGroup > verifyRunner
+    && seederGroup > appGroup
+    && activeJob.indexOf('test "$APP_KEYCHAIN_GROUP" = "$SEEDER_KEYCHAIN_GROUP"') > seederGroup
+    && execute > seederGroup
+    && !/codesign\s+--force\s+--sign\b/.test(activeJob)
+    && !/MNT_IOS_KEYCHAIN_GROUP/.test(activeJob)
+    && !/codesign\s+--display\s+--entitlements/.test(activeJob);
+}
+
 function normalizeInterpolationParameters(value) {
   return value.replace(/\\\(\s*[A-Za-z_][A-Za-z0-9_]*\s*\)/g, "\\($)");
 }
@@ -508,6 +608,9 @@ export function evaluateIosUiTestFailClosedChecks(files) {
   checks.push([hasRequiredPostgresExtensions(job), "iOS UI CI must configure PostgreSQL with OpenSSL and build, install, and load-test the required pgcrypto and pg_trgm extensions before compiling the backend"]);
   checks.push([hasJobLocalPostgres(job), "iOS UI CI must use a mode-0700 job-root PGDATA with a random loopback-only PostgreSQL port"]);
   checks.push([hasPerClassSessions(job), "iOS UI CI must mint and mask a random, SHA-256-backed OTP session for every 720-second only-testing shard and provide all deterministic fixtures"]);
+  checks.push([hasSharedKeychainEntitlementContract(files), "iOS app and dedicated UI-test seeder target must share one identically signed default keychain access group"]);
+  checks.push([hasDefaultSharedKeychainResolution(files), "iOS app and UI-test seeder must resolve the fully qualified shared keychain group through the system-granted default group"]);
+  checks.push([hasEntitledSimulatorSeederContract(job), "iOS UI CI must preserve the Xcode-created Simulator Runner and prove matching app/seeder Mach-O keychain entitlements before test execution"]);
   checks.push([hasMode600Xctestrun(job), "iOS UI CI must inject session material through a mode-0600 job-root xctestrun before patch/use"]);
   checks.push([!/-skip-testing|XCTSkip|optional\/skipped|HAS_REAL_SESSION_SOURCE/.test(workflow + (files["ios/UITests/Support/FieldUITestCase.swift"] ?? "") + (files["ios/UITests/Support/RealSessionSeed.swift"] ?? "")), "iOS UI CI and its test support must not include skip-testing, XCTSkip, or fail-open session branches"]);
   checks.push([! /MNT_UITEST_AUDIT_STRICT/.test(workflow), "iOS UI CI must not make strict accessibility conditional through an environment toggle"]);
@@ -538,8 +641,13 @@ function main() {
     ".github/workflows/ios-ui-tests.yml",
     "scripts/boot-ios-ui-backend.mjs",
     "ios/Sources/MaintenanceFieldApp/Info.plist",
+    "ios/Sources/MaintenanceFieldCore/PersistenceStores.swift",
     "ios/Sources/MaintenanceFieldApp/FieldAccessibilityID.swift",
     "ios/Sources/MaintenanceFieldApp/FieldViews.swift",
+    "ios/Config/App.xcconfig",
+    "ios/Config/MaintenanceFieldApp.entitlements",
+    "ios/Config/MaintenanceFieldUITestSeeder.entitlements",
+    "ios/Sources/MaintenanceFieldUITestSeeder/UITestSeederApp.swift",
     "ios/project.yml",
     "ios/UITests/Support/FieldUITestCase.swift",
     "ios/UITests/Support/RealSessionSeed.swift",
