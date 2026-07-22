@@ -23,13 +23,14 @@ const validWorkflow = `jobs:
           D="$MNT_IOS_JOB_ROOT"; PGDATA="$D/postgres-data"; PG_PREFIX="$D/postgres"; DERIVED="$D/derived-data"; CI_PLIST="$D/Info.ci.plist"; CI_PROJECT_SPEC="$D/project.ci.yml"; ARTIFACTS="$D/artifacts"; AUTH_DIR="$D/auth"; BACKEND_PID_FILE="$AUTH_DIR/backend.pid"; BACKEND_COMMAND_FILE="$AUTH_DIR/backend.command"; UUID=abc
           install -d -m 700 "$D" "$PGDATA" "$ARTIFACTS" "$AUTH_DIR"
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          ${candidateBuild}
           curl -fsSLO https://ftp.postgresql.org/pub/source/v18.4/postgresql-18.4.tar.bz2
           echo "81a81ec695fb0c7901407defaa1d2f7973617154cf27ba74e3a7ab8e64436094 postgresql-18.4.tar.bz2" | shasum -a 256 -c -
-          tar -xjf postgresql-18.4.tar.bz2 && ./configure --prefix="$PG_PREFIX" && make -j2 && make install
+          tar -xjf postgresql-18.4.tar.bz2 && ./configure --prefix="$PG_PREFIX" && make -j2 && make install && make -C contrib/pg_trgm -j2 && make -C contrib/pg_trgm install
           port() { python3 -c "import socket; s=socket.socket(); s.bind(('127.0.0.1', 0)); print(s.getsockname()[1]); s.close()"; }
           PP="$(port)"; BP="$(port)"; while [[ "$PP" == "$BP" ]]; do BP="$(port)"; done
-          initdb -D "$PGDATA"; pg_ctl -D "$PGDATA" start
+          "$PG_PREFIX/bin/initdb" -D "$PGDATA"; "$PG_PREFIX/bin/pg_ctl" -D "$PGDATA" -w start
+          PGPASSWORD="$UP" "$PG_PREFIX/bin/psql" -h 127.0.0.1 -p "$PP" -U "$PG_SUPERUSER" -d postgres -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION pg_trgm;' -c 'DROP EXTENSION pg_trgm;'
+          ${candidateBuild}
           URL="http://127.0.0.1:$BP"; export MNT_UITEST_BASE_URL="$URL"
           SIM_RUNTIME=com.apple.CoreSimulator.SimRuntime.iOS-18-5
           SIM_DEVICE_TYPE=com.apple.CoreSimulator.SimDeviceType.iPhone-16
@@ -105,6 +106,17 @@ describe("iOS hermetic UI CI contract", () => {
   it("rejects mutable XcodeGen and unsafe PGDATA", () => {
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": validWorkflow.replace("4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806", "dynamic") }), "checksum-pinned XcodeGen");
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": validWorkflow.replace('install -d -m 700 "$D" "$PGDATA"', 'mkdir -p /tmp/pg') }), "mode-0700 job-root PGDATA");
+  });
+  it("rejects PostgreSQL builds that omit or cannot load pg_trgm", () => {
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": validWorkflow.replace(" && make -C contrib/pg_trgm -j2", "") }), "pg_trgm");
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": validWorkflow.replace(" && make -C contrib/pg_trgm install", "") }), "pg_trgm");
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": validWorkflow.replace(" -c 'CREATE EXTENSION pg_trgm;'", "") }), "pg_trgm");
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": validWorkflow.replace(" -c 'DROP EXTENSION pg_trgm;'", "") }), "pg_trgm");
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": validWorkflow.replace(" && make -C contrib/pg_trgm -j2 && make -C contrib/pg_trgm install", " # make -C contrib/pg_trgm -j2 && make -C contrib/pg_trgm install") }), "pg_trgm");
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": validWorkflow.replace('          PGPASSWORD="$UP"', '          # PGPASSWORD="$UP"') }), "pg_trgm");
+    const start = '          "$PG_PREFIX/bin/initdb" -D "$PGDATA"; "$PG_PREFIX/bin/pg_ctl" -D "$PGDATA" -w start';
+    const load = '          PGPASSWORD="$UP" "$PG_PREFIX/bin/psql" -h 127.0.0.1 -p "$PP" -U "$PG_SUPERUSER" -d postgres -v ON_ERROR_STOP=1 -c \'CREATE EXTENSION pg_trgm;\' -c \'DROP EXTENSION pg_trgm;\'';
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": validWorkflow.replace(`${start}\n${load}`, `${load}\n${start}`) }), "pg_trgm");
   });
   it("rejects missing per-shard session controls and fixtures", () => {
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": validWorkflow.replace('for test_class in "\${TEST_CLASSES[@]}"; do mint_class_session', 'for test_class in "\${TEST_CLASSES[@]}"; do true') }), "mint and mask");
