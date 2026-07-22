@@ -4,12 +4,12 @@
   "type": "module",
   "workspaces": [
     "clients/ts",
-    "web",
-    "coss-rn"
+    "web"
   ],
   "engines": {
     "node": ">=22.0.0"
   },
+  "packageManager": "npm@11.13.0",
   "scripts": {
     "gen:api:ts": "node scripts/generate-ts-client.mjs",
     "gen:api:kotlin": "node scripts/generate-kotlin-client.mjs",
@@ -31,6 +31,9 @@
     "check:dispatch-map": "node scripts/check-dispatch-map.mjs",
     "check:adrs": "node scripts/check-adrs.mjs",
     "check:foundation-gates": "node scripts/check-foundation-gates.mjs",
+    "check:package-lock": "npm install --package-lock-only --ignore-scripts --no-audit --no-fund && git diff --exit-code -- package-lock.json",
+    "check:root-workspaces": "node scripts/check-root-workspaces.mjs",
+    "test:root-workspaces": "node --test scripts/check-root-workspaces.test.mjs",
     "test:adrs": "node --test scripts/check-adrs.test.mjs",
     "test:text-gate": "node --test scripts/lib/text-gate.test.mjs",
     "check:api-drift:portable": "npm run gen:api:portable && git diff --exit-code -- clients/ts clients/kotlin",

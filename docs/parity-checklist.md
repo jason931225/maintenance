@@ -6,7 +6,7 @@ References: `android/app/src`, `ios/`, generated clients under `clients/{kotlin,
 
 This checklist is the release parity source for the MaintenanceField native iOS and Android technician apps only. It covers user-visible mobile capability in `ios/**`, `android/app/**`, generated Swift/Kotlin client use, mobile string keys, and the browser enrollment/admin flows that are prerequisites for mobile passkey or admin-managed stories.
 
-`coss-rn/**` is explicitly excluded from MaintenanceField parity evidence. It is a standalone COSS public-site React Native application and must not be counted as MaintenanceField field-app parity, UI evidence, string coverage, or release readiness unless a separate accepted ADR/card authorizes that scope bridge.
+The standalone COSS public-site React Native application was retired by ADR-0026 and is not a repository surface. MaintenanceField parity evidence must not cite historical COSS RN artifacts, public-site native hosts, or their former release evidence.
 
 Before adding a new mobile user-visible capability, update this checklist with the Android parity target, the iOS implementation path, the evidence command or manual sign-off path, and any new localized string keys. A release candidate fails the ADR-0009 gate when a row is blank, contains placeholder language, or does not have current Android+iOS evidence.
 
@@ -25,7 +25,7 @@ Each ADR-0009 release must attach evidence for every applicable row below. Local
 | Android instrumented post-login E2E | Gradle Managed Device uses an isolated PostgreSQL 18.4 database and exact-candidate backend, then proves a random-OTP mechanic session can call the protected work-order API; missing, skipped, failed, or errored evidence fails | Android post-login flows, release candidates requiring Android end-to-end evidence, or token/session transport changes | CI `android-instrumented`; local `cd android && ./gradlew fieldApi34DebugAndroidTest` after equivalent harness setup |
 | Android secure passkey ceremony | Real device Credential Manager create/assert/negative-path sign-off, including RP-origin confirmation and refresh-token persistence hand-off | Native passkey/auth changes, release candidates requiring secure-system UI proof, or when real ceremony evidence is stale for the release | `android/E2E-MANUAL-SMOKE.md` |
 | Browser enrollment/admin prerequisites | Web console enrollment/admin/passkey create story works through the real browser harness before native login evidence depends on it | Mobile user story depends on web enrollment, admin provisioning, passkey create, or console-managed setup | `bash e2e/run.sh`; relevant web lint/test/build evidence from CI |
-| MaintenanceField-only boundary | Evidence does not rely on COSS RN public-site artifacts or public-site native hosts | Every release | `coss-rn/**` remains out of scope unless a separate authorization card/ADR says otherwise |
+| MaintenanceField-only boundary | Evidence does not rely on retired COSS RN public-site artifacts or public-site native hosts | Every release | Historical COSS RN artifacts are not a valid parity or release-evidence source; ADR-0026 governs the retirement |
 
 ## Verified in T1.7
 
