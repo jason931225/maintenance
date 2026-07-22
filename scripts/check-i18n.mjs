@@ -136,6 +136,7 @@ function checkStringKeyParity(failures) {
     operations_approval_submitted: "iOS-only operations approval confirmation copy",
     request_no: "SwiftUI detail label",
     result_type: "SwiftUI alias for report_result_type",
+    session_invalidation_failed: "iOS-only Keychain session-deletion failure copy",
     site: "SwiftUI detail label",
     submit_report: "SwiftUI alias for detail_submit_report",
     symptom: "SwiftUI detail label",
