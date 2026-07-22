@@ -564,6 +564,7 @@ struct MessengerTabView: View {
                 if viewModel.messengerState.searchResults.isEmpty == false {
                     ForEach(viewModel.messengerState.searchResults) { message in
                         MessengerMessageRow(message: message, currentUserID: viewModel.currentUserID)
+                            .accessibilityIdentifier(FieldAccessibilityID.messengerMessageRow(message.id))
                     }
                 } else if viewModel.messengerHasSearched {
                     Text("messenger_search_no_results")
@@ -607,6 +608,7 @@ struct MessengerTabView: View {
                     }
                     ForEach(messages) { message in
                         MessengerMessageRow(message: message, currentUserID: viewModel.currentUserID)
+                            .accessibilityIdentifier(FieldAccessibilityID.messengerMessageRow(message.id))
                     }
                     TextField(String(localized: "messenger_composer"), text: $viewModel.messengerDraft, axis: .vertical)
                         .lineLimit(2...5)
@@ -798,6 +800,7 @@ struct WorkOrderDetailView: View {
                         HStack {
                             FieldChip(key: workOrder.priority.fieldLabelKey)
                             FieldChip(key: workOrder.status.fieldLabelKey)
+                                .accessibilityIdentifier(FieldAccessibilityID.detailStatus)
                             FieldChip(key: workOrder.syncState.fieldLabelKey)
                         }
                     }

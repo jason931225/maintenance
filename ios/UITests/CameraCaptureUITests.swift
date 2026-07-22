@@ -1,67 +1,74 @@
 import XCTest
 
-/// The camera-capture screen's UI states. The capture sheet is presented from a
-/// real work-order detail. On the Simulator there is no camera device, so the
-/// real outcome is the permission/denied/unavailable branch — which is exactly a
-/// UI state worth asserting (the field app must degrade gracefully when the
-/// camera is unavailable or permission is refused).
-///
-/// CI-ONLY.
+/// Camera-capture UI states reached from the deterministic seeded work order.
+/// CI-only.
 final class CameraCaptureUITests: FieldUITestCase {
-    func testCaptureSheetPresentsAGracefulRealStateOnSimulator() throws {
-        launchApp()
+    func testCaptureSheetPresentsAGracefulRealStateOnSimulator() async throws {
+        _ = try await launchApp()
         waitForAuthenticatedShell()
-
-        let rowPredicate = NSPredicate(format: "identifier BEGINSWITH %@", "today.workOrderRow.")
-        let firstRow = app.buttons.containing(rowPredicate).firstMatch
-        guard firstRow.waitForExistence(timeout: 15) else {
-            throw XCTSkip("No dispatched work order to open the capture screen from.")
-        }
-        firstRow.tap()
-        XCTAssertTrue(app.otherElements[AID.detailView].waitForExistence(timeout: 10))
+        try openSeededWorkOrder(fixtureKey: UITestFixture.cameraWorkOrderID)
 
         let capture = app.buttons[AID.detailCaptureEvidenceButton]
         XCTAssertTrue(capture.waitForExistence(timeout: 5), "증빙 촬영 button should be present.")
-        capture.tap()
 
-        // System camera-permission alert may appear first; allow it so we reach
-        // the app's own state. (springboard alert handling.)
-        addUIInterruptionMonitor(withDescription: "Camera permission") { alert in
-            for label in ["OK", "확인", "Allow", "허용", "Don't Allow", "허용 안 함"] {
-                let button = alert.buttons[label]
-                if button.exists {
-                    button.tap()
+        // Resolve the one-time system prompt into the same explicit denied
+        // terminal state asserted below. The monitor is only input handling;
+        // it is never counted as a successful camera outcome.
+        let permissionMonitor = addUIInterruptionMonitor(withDescription: "Camera permission") { alert in
+            for label in ["Don't Allow", "허용 안 함", "허용하지 않음"] {
+                let deny = alert.buttons[label]
+                if deny.exists {
+                    deny.tap()
                     return true
                 }
             }
             return false
         }
-        app.tap() // trigger the interruption monitor
+        defer { removeUIInterruptionMonitor(permissionMonitor) }
 
-        // The capture screen must resolve to one of its real, defined states:
-        // requesting permission, denied (with cancel/open-settings), the live
-        // preview shutter, or the unavailable fallback — never a blank screen.
-        let requesting = app.otherElements[AID.cameraPermissionRequesting]
-        let progress = app.activityIndicators.firstMatch
+        capture.tap()
+        app.tap()
+
+        // The Simulator can deterministically reach either a camera preview or
+        // a denied/unavailable state. Permission-requesting/progress UI is
+        // deliberately not a terminal success: it has no usable escape path.
         let denied = app.staticTexts[AID.cameraPermissionDenied]
-        let deniedKO = app.staticTexts[KO.cameraPermissionDenied]
         let shutter = app.buttons[AID.cameraShutterButton]
         let cancel = app.buttons[AID.cameraCancelButton]
         let unavailable = app.staticTexts[AID.cameraUnavailable]
 
-        let anyState = [requesting, progress, denied, deniedKO, shutter, cancel, unavailable]
-            .contains { $0.waitForExistence(timeout: 10) }
-        XCTAssertTrue(
-            anyState,
-            "The capture screen must present a defined camera state (requesting / denied / preview / unavailable)."
-        )
-
-        // If denied or unavailable, the user must always have a way out.
-        if denied.exists || deniedKO.exists || unavailable.exists {
-            XCTAssertTrue(
-                app.buttons[AID.cameraCancelButton].exists || app.buttons[KO.cameraCancel].exists,
-                "A non-capturing camera state must offer a cancel control."
-            )
+        var reachedTerminalState = false
+        let deadline = Date().addingTimeInterval(15)
+        while Date() < deadline {
+            let previewIsUsable = shutter.exists && cancel.exists
+            let deniedIsEscapable = denied.exists && cancel.exists
+            let unavailableIsEscapable = unavailable.exists && cancel.exists
+            if previewIsUsable {
+                reachedTerminalState = true
+                break
+            }
+            if deniedIsEscapable || unavailableIsEscapable {
+                reachedTerminalState = true
+                break
+            }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
         }
+
+        guard reachedTerminalState else {
+            XCTFail(
+                "Camera capture must reach a bounded usable terminal state: preview with shutter+cancel, or denied/unavailable with cancel."
+            )
+            return
+        }
+
+        cancel.tap()
+        XCTAssertFalse(
+            cancel.waitForExistence(timeout: 5),
+            "Cancelling any usable camera terminal state must dismiss the camera sheet."
+        )
+        XCTAssertFalse(
+            denied.exists || unavailable.exists || shutter.exists,
+            "No camera terminal controls should remain after cancelling the camera sheet."
+        )
     }
 }

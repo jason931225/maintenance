@@ -1,59 +1,46 @@
 import XCTest
 
-/// Signed-out login-screen behavior. This is the one automatable slice of the
-/// auth surface: the client-side validation the production view model performs
-/// BEFORE the passkey ceremony (the ceremony itself is the manual smoke). No
-/// session is seeded here — the app starts at the real login form.
-///
-/// CI-ONLY.
+/// Signed-out production login validation against the same local backend URL as
+/// the authenticated suite. CI-only.
 final class LoginValidationUITests: XCTestCase {
     private var app: XCUIApplication!
 
-    override func setUp() {
-        super.setUp()
+    override func setUpWithError() throws {
+        try super.setUpWithError()
         continueAfterFailure = false
-        // Ensure no seeded session lingers from another spec on the same host.
-        RealSessionSeed.clear()
+        try RealSessionSeed.clear()
         app = XCUIApplication()
         app.launchArguments += LaunchLocale.arguments
+        app.launchEnvironment["MAINTENANCE_API_BASE_URL"] = try RealBackendSession.baseURL()
         app.launch()
     }
 
-    override func tearDown() {
+    override func tearDownWithError() throws {
         app = nil
-        super.tearDown()
+        try super.tearDownWithError()
     }
 
     func testLoginFormRendersInKorean() {
-        XCTAssertTrue(
-            app.staticTexts[KO.loginTitle].waitForExistence(timeout: 15),
-            "패스키 로그인 title should render on the signed-out launch."
-        )
-        XCTAssertTrue(
-            app.textFields[AID.loginUserIDField].exists,
-            "The user-id field should be present."
-        )
-        XCTAssertTrue(
-            app.buttons[AID.loginButton].exists,
-            "The 로그인 button should be present."
-        )
+        XCTAssertTrue(app.staticTexts[KO.loginTitle].waitForExistence(timeout: 15), "패스키 로그인 title should render on the signed-out launch.")
+        XCTAssertTrue(app.textFields[AID.loginUserIDField].exists, "The user-id field should be present.")
+        XCTAssertTrue(app.buttons[AID.loginButton].exists, "The 로그인 button should be present.")
     }
 
     func testInvalidUserIDSurfacesRealValidationCopy() {
         let field = app.textFields[AID.loginUserIDField]
         XCTAssertTrue(field.waitForExistence(timeout: 15))
         field.tap()
-        // Numeric-only input keeps this validation check independent of the
-        // simulator's active keyboard layout while still failing UUID parsing.
         field.typeText("123")
         app.buttons[AID.loginButton].tap()
-
-        // The production view model rejects a non-UUID id with error_invalid_user_id
-        // BEFORE any network/passkey work — a real, automatable outcome.
+        let loginError = app.staticTexts[AID.loginErrorMessage]
         XCTAssertTrue(
-            app.staticTexts[AID.loginErrorMessage].waitForExistence(timeout: 10)
-                || app.staticTexts[KO.errorInvalidUserID].waitForExistence(timeout: 1),
+            loginError.waitForExistence(timeout: 10),
             "An invalid user id should surface 올바른 사용자 ID 형식이 아닙니다."
+        )
+        XCTAssertEqual(
+            loginError.label,
+            KO.errorInvalidUserID,
+            "The validation identifier must carry the exact Korean invalid-user-id copy."
         )
     }
 }

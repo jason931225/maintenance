@@ -10,8 +10,9 @@ import Foundation
 ///
 /// The string values are duplicated (not shared at compile time) by the UITests
 /// target, because an XCUITest bundle and the host app are separate modules. The
-/// duplication is intentional and asserted by `FieldAccessibilityIDParityTests`
-/// in the UITests target, which fails if the two lists drift.
+/// duplication is intentional and checked by the host-side
+/// `check-ios-ui-test-fail-closed.mjs` gate, which compares both enum declarations
+/// (including dynamic formatters) and fails if they drift.
 public enum FieldAccessibilityID {
     // Login
     public static let loginUserIDField = "login.userIDField"
@@ -49,6 +50,7 @@ public enum FieldAccessibilityID {
 
     // Work-order detail
     public static let detailView = "detail.view"
+    public static let detailStatus = "detail.status"
     public static let detailStartWorkButton = "detail.startWork"
     public static let detailResultTypePicker = "detail.resultTypePicker"
     public static let detailDiagnosisField = "detail.diagnosisField"
@@ -86,10 +88,11 @@ public enum FieldAccessibilityID {
     /// Per-row identifier for a messenger thread, keyed by the thread id.
     public static func messengerThreadRow(_ id: String) -> String { "messenger.threadRow.\(id)" }
 
-    /// The full, stable list used by the UITests parity check. Adding a new
-    /// constant above without listing it here is allowed; the parity test only
-    /// guards the identifiers it knows about, so this is the authoritative set
-    /// the UI tests rely on.
+    /// Per-row identifier for a persisted messenger message, keyed by message id.
+    public static func messengerMessageRow(_ id: String) -> String { "messenger.messageRow.\(id)" }
+
+    /// Static identifiers exposed by the app. Dynamic formatters are intentionally
+    /// absent from this value list and are covered by the host-side parity gate.
     public static let allStableIdentifiers: [String] = [
         loginUserIDField,
         loginButton,
@@ -109,6 +112,7 @@ public enum FieldAccessibilityID {
         todayLogoutButton,
         todayLoading,
         detailView,
+        detailStatus,
         detailStartWorkButton,
         detailResultTypePicker,
         detailDiagnosisField,

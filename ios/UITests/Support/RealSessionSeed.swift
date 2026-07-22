@@ -1,6 +1,5 @@
 import Foundation
 import Security
-import XCTest
 
 /// Seeds a **real** session token pair into the **real** Keychain so the app's
 /// normal launch path (`KeychainSessionTokenStore.init` / `restore()`) restores
@@ -26,10 +25,32 @@ import XCTest
 /// Without the shared group, a separate test process cannot read/write the app's
 /// Keychain item, and the only real alternative is to drive the passkey ceremony
 /// manually (see `E2E-MANUAL-SMOKE.md`). The seeding here is therefore gated on
-/// the signed, entitled build that CI produces; on a fully unsigned build it is
-/// skipped and the dependent tests are skipped with a clear message rather than
-/// silently faking auth.
+/// the signed, entitled build that CI produces. A missing entitlement is a
+/// hard test failure: the post-login suite cannot otherwise prove real-session
+/// restore.
 enum RealSessionSeed {
+    enum SeedError: Error, LocalizedError {
+        case missingAccessGroup
+        case keychainWrite(OSStatus)
+        case keychainReadback(String)
+        case keychainReadbackDataMismatch(String)
+        case keychainDelete(OSStatus)
+
+        var errorDescription: String? {
+            switch self {
+            case .missingAccessGroup:
+                return "No shared keychain access group was granted; the iOS UI-test build must carry the shared keychain entitlement."
+            case let .keychainWrite(status):
+                return "Unable to seed the real session into the shared Keychain (OSStatus \(status))."
+            case let .keychainReadback(group):
+                return "Seeded session could not be read back from shared Keychain group \(group)."
+            case let .keychainReadbackDataMismatch(group):
+                return "Shared Keychain group \(group) returned session data that did not exactly match the seeded token blob."
+            case let .keychainDelete(status):
+                return "Unable to remove the seeded session from the shared Keychain (OSStatus \(status))."
+            }
+        }
+    }
     /// Keychain coordinates — must mirror `KeychainSessionTokenStore`'s
     /// `namespace` defaults exactly.
     static let service = "maintenance.field"
@@ -48,7 +69,7 @@ enum RealSessionSeed {
     /// `<prefix>.<suffix>` by string surgery — guarantees the seeder and the app
     /// agree on one value on both device and the ad-hoc-signed Simulator (where
     /// the AppIdentifierPrefix is not the Team ID). Returns nil if the build is
-    /// not entitled to the group, so dependent tests skip honestly.
+    /// not entitled to the group; callers treat that as a hard test failure.
     static func resolvedAccessGroup() -> String? {
         if let provided = ProcessInfo.processInfo.environment["MNT_IOS_KEYCHAIN_GROUP"],
            provided.isEmpty == false,
@@ -125,19 +146,12 @@ enum RealSessionSeed {
 
     /// Write the token pair into the shared-group Keychain in the app's exact
     /// item layout. Returns the access group it used so the test can verify and
-    /// clean up. Throws `XCTSkip` if the shared group is unavailable (unsigned
-    /// build) so dependent tests skip honestly rather than fake a session.
+    /// clean up. Missing entitlement is a hard error: without it the post-login
+    /// suite cannot prove the app restored a real session.
     @discardableResult
     static func seed(_ tokens: SeedTokens) throws -> String {
         guard let accessGroup = resolvedAccessGroup() else {
-            throw XCTSkip(
-                """
-                No shared keychain-access-group is present in this build's entitlements, \
-                so a real session cannot be seeded cross-process. This is expected on a \
-                fully unsigned build. Run the entitled CI Simulator build, or perform the \
-                passkey ceremony manually per E2E-MANUAL-SMOKE.md.
-                """
-            )
+            throw SeedError.missingAccessGroup
         }
 
         // Encode in the EXACT shape KeychainSessionTokenStore decodes:
@@ -156,27 +170,8 @@ enum RealSessionSeed {
         insert[kSecValueData as String] = blob
         insert[kSecAttrAccessible as String] = kSecAttrAccessibleWhenUnlockedThisDeviceOnly
         let status = SecItemAdd(insert as CFDictionary, nil)
-        if status == errSecMissingEntitlement {
-            // -34018: the build lacks the keychain-access-groups entitlement for
-            // this group, so cross-process seeding is impossible. Skip honestly
-            // rather than fail red or fake a session. CI must sign the Simulator
-            // build with the shared-group entitlement for these tests to run.
-            throw XCTSkip(
-                """
-                SecItemAdd returned errSecMissingEntitlement (-34018) for group \(accessGroup). \
-                The build is not entitled to the shared keychain access group, so a real \
-                session cannot be seeded cross-process. Sign the CI Simulator build with the \
-                shared-group entitlement (Config/MaintenanceFieldUITests.entitlements), or run \
-                the manual passkey smoke (E2E-MANUAL-SMOKE.md).
-                """
-            )
-        }
         guard status == errSecSuccess else {
-            throw NSError(
-                domain: "RealSessionSeed",
-                code: Int(status),
-                userInfo: [NSLocalizedDescriptionKey: "SecItemAdd failed (OSStatus \(status))"]
-            )
+            throw SeedError.keychainWrite(status)
         }
 
         // Verify the item is actually readable back under the same group — proves
@@ -191,25 +186,31 @@ enum RealSessionSeed {
         ]
         var readBack: CFTypeRef?
         guard SecItemCopyMatching(verify as CFDictionary, &readBack) == errSecSuccess else {
-            throw NSError(
-                domain: "RealSessionSeed",
-                code: -1,
-                userInfo: [NSLocalizedDescriptionKey: "Seeded item could not be read back under \(accessGroup)."]
-            )
+            throw SeedError.keychainReadback(accessGroup)
+        }
+        guard let returnedBlob = readBack as? Data, returnedBlob == blob else {
+            throw SeedError.keychainReadbackDataMismatch(accessGroup)
         }
         return accessGroup
     }
 
     /// Remove the seeded item so each test starts from a clean Keychain.
-    static func clear() {
-        guard let accessGroup = resolvedAccessGroup() else { return }
+    /// Failure to resolve the group is a hard error; otherwise a stale session
+    /// could turn a signed-out test into a false positive.
+    static func clear() throws {
+        guard let accessGroup = resolvedAccessGroup() else {
+            throw SeedError.missingAccessGroup
+        }
         let query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
             kSecAttrAccessGroup as String: accessGroup,
         ]
-        SecItemDelete(query as CFDictionary)
+        let status = SecItemDelete(query as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw SeedError.keychainDelete(status)
+        }
     }
 }
 

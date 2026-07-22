@@ -1,122 +1,178 @@
 import XCTest
 
-/// The field mechanic's post-login critical path, driven against a **real**
-/// session (seeded via `FieldUITestCase`) talking to the **real** backend.
-///
-/// These assertions check the **real visible outcomes** — the rendered Korean
-/// labels and the elements keyed by production accessibility identifiers. There
-/// is no fake repository anywhere: the work orders, threads and consent state
-/// come from the backend the seeded session authenticates against.
-///
-/// CI-ONLY: requires the iOS Simulator + a real backend session source. Locally
-/// (`swift build` / `swift test`) this target is not built — see the CI job
-/// `ios-ui-tests` in `.github/workflows/ios-ui-tests.yml`.
+/// Field mechanic critical path against the real isolated backend and a session
+/// restored by the production Keychain path. CI-only.
 final class FieldCriticalPathUITests: FieldUITestCase {
-    func testAuthenticatedLaunchShowsTodayTabInKorean() {
-        launchApp()
+    func testAuthenticatedLaunchShowsTodayTabInKorean() async throws {
+        _ = try await launchApp()
         waitForAuthenticatedShell()
-
-        // The Today tab and its title render in Korean.
-        XCTAssertTrue(
-            app.staticTexts[KO.todayTitle].waitForExistence(timeout: 10),
-            "Today tab title 오늘 작업 should be visible after real-session restore."
-        )
-        // The login form must NOT be present — we are past auth for real.
-        XCTAssertFalse(
-            app.textFields[AID.loginUserIDField].exists,
-            "Login field must not be present once the real session is restored."
-        )
+        XCTAssertTrue(app.staticTexts[KO.todayTitle].waitForExistence(timeout: 10), "Today tab title 오늘 작업 should be visible after real-session restore.")
+        XCTAssertFalse(app.textFields[AID.loginUserIDField].exists, "Login field must not be present once the real session is restored.")
     }
 
-    func testDispatchListRendersMechanicWorkOrdersOrRealEmptyState() {
-        launchApp()
+    func testDispatchListRendersDeterministicMechanicWorkOrder() async throws {
+        _ = try await launchApp()
         waitForAuthenticatedShell()
-
-        let list = app.collectionViews[AID.todayList]
-        XCTAssertTrue(list.waitForExistence(timeout: 15), "Dispatch list should render.")
-
-        // Either the mechanic has real work orders (at least one row keyed by the
-        // production identifier prefix) OR the real empty-state copy is shown.
-        let rowPredicate = NSPredicate(format: "identifier BEGINSWITH %@", "today.workOrderRow.")
-        let rows = app.buttons.containing(rowPredicate)
-        let emptyState = app.staticTexts[AID.todayEmpty]
-
-        let hasRows = rows.firstMatch.waitForExistence(timeout: 10)
-        let hasEmpty = emptyState.exists || app.staticTexts[KO.emptyToday].exists
-        XCTAssertTrue(
-            hasRows || hasEmpty,
-            "Dispatch tab must show either real work-order rows or the empty state 오늘 배정된 작업이 없습니다."
-        )
+        XCTAssertTrue(app.collectionViews[AID.todayList].waitForExistence(timeout: 15), "Dispatch list should render.")
+        let fixtureID = try UITestFixture.workOrderID(UITestFixture.detailWorkOrderID)
+        let fixtureRow = app.buttons[AID.workOrderRow(fixtureID)]
+        XCTAssertTrue(fixtureRow.waitForExistence(timeout: 15), "Dispatch tab must render the deterministic mechanic fixture; an empty state is a failed seed or API result, not a valid CI outcome.")
     }
 
-    func testOpenWorkOrderDetailAndAdvanceWhenADispatchExists() throws {
-        launchApp()
+    func testOpenWorkOrderDetailAndAdvance() async throws {
+        _ = try await launchApp()
         waitForAuthenticatedShell()
-
-        let rowPredicate = NSPredicate(format: "identifier BEGINSWITH %@", "today.workOrderRow.")
-        let firstRow = app.buttons.containing(rowPredicate).firstMatch
-        guard firstRow.waitForExistence(timeout: 15) else {
-            throw XCTSkip("The seeded mechanic has no dispatched work orders on the real backend; nothing to open.")
-        }
-
-        firstRow.tap()
-
-        // Detail sheet renders with its real controls.
-        let detail = app.otherElements[AID.detailView]
-        XCTAssertTrue(detail.waitForExistence(timeout: 10), "Work-order detail should open.")
+        try openSeededWorkOrder(fixtureKey: UITestFixture.startWorkOrderID)
 
         let startWork = app.buttons[AID.detailStartWorkButton]
         XCTAssertTrue(startWork.waitForExistence(timeout: 5), "작업 시작 button should be present in detail.")
         XCTAssertTrue(app.buttons[AID.detailSubmitReportButton].exists, "보고 제출 button should be present.")
         XCTAssertTrue(app.buttons[AID.detailCaptureEvidenceButton].exists, "증빙 촬영 button should be present.")
-
-        // Advance the work order for real (start work). The visible outcome is a
-        // status message or a non-error detail state; we assert the action is
-        // reachable and produces no login regression.
         startWork.tap()
+
+        // A successful mutation must be observable in the rendered detail,
+        // not inferred from still being authenticated or from another IN_PROGRESS
+        // row behind the sheet. The isolated fixture is seeded as assigned; the
+        // production API transitions this exact detail to 진행 중.
+        let detailStatus = app.descendants(matching: .any)[AID.detailStatus]
+        XCTAssertTrue(
+            detailStatus.waitForExistence(timeout: 15),
+            "The selected detail must expose its status through the stable detail.status identifier."
+        )
+        XCTAssertEqual(
+            detailStatus.label,
+            KO.inProgress,
+            "Starting the deterministic work order must visibly transition it to 진행 중."
+        )
         XCTAssertFalse(
-            app.textFields[AID.loginUserIDField].waitForExistence(timeout: 2),
-            "Advancing a work order must not drop the real session back to login."
+            app.staticTexts[AID.detailMessage].exists || app.staticTexts[KO.operationFailed].exists,
+            "Starting work must not settle in the visible failure state."
         )
+        XCTAssertFalse(app.textFields[AID.loginUserIDField].exists, "Advancing a work order must not drop the real session back to login.")
 
-        // Close the detail via the real back control.
         let back = app.buttons[AID.detailBackButton]
-        if back.exists { back.tap() }
-        XCTAssertTrue(
-            app.collectionViews[AID.todayList].waitForExistence(timeout: 10),
-            "Closing detail should return to the dispatch list."
-        )
+        XCTAssertTrue(back.waitForExistence(timeout: 5), "Detail must expose a back control.")
+        back.tap()
+        XCTAssertTrue(app.collectionViews[AID.todayList].waitForExistence(timeout: 10), "Closing detail should return to the dispatch list.")
     }
 
-    func testReportFormValidationSurfacesRealRequiredCopy() throws {
-        launchApp()
+    func testReportFormValidationSurfacesRealRequiredCopy() async throws {
+        _ = try await launchApp()
         waitForAuthenticatedShell()
-
-        let rowPredicate = NSPredicate(format: "identifier BEGINSWITH %@", "today.workOrderRow.")
-        let firstRow = app.buttons.containing(rowPredicate).firstMatch
-        guard firstRow.waitForExistence(timeout: 15) else {
-            throw XCTSkip("No dispatched work order to exercise the report form.")
-        }
-        firstRow.tap()
-        XCTAssertTrue(app.otherElements[AID.detailView].waitForExistence(timeout: 10))
-
-        // Submitting with empty diagnosis/action surfaces the real required-field
-        // copy (error_required) — a genuine outcome of the production view model.
+        try openSeededWorkOrder(fixtureKey: UITestFixture.reportWorkOrderID)
         app.buttons[AID.detailSubmitReportButton].tap()
-        let message = app.staticTexts[AID.detailMessage]
         XCTAssertTrue(
-            message.waitForExistence(timeout: 5),
-            "Submitting an empty report should surface the required-field message."
+            app.staticTexts[KO.requiredField].waitForExistence(timeout: 5),
+            "Submitting an empty report must render the exact required-field validation copy."
+        )
+        XCTAssertFalse(
+            app.staticTexts[KO.operationFailed].exists,
+            "Required-field validation must not collapse into the generic operation failure."
         )
     }
 
-    func testLocationConsentSectionIsPresentOnTheRealSession() {
-        launchApp()
+    func testReportSubmissionPersistsVisibleTerminalOutcome() async throws {
+        _ = try await launchApp()
         waitForAuthenticatedShell()
-        // The GPS consent section header renders in Korean on the Today tab.
+        try openSeededWorkOrder(fixtureKey: UITestFixture.reportSuccessWorkOrderID)
+
+        let diagnosis = app.textFields[AID.detailDiagnosisField]
+        XCTAssertTrue(diagnosis.waitForExistence(timeout: 5), "Report diagnosis field should be present in detail.")
+        diagnosis.tap()
+        diagnosis.typeText("iOS UI 보고 성공 진단")
+
+        let actionTaken = app.textFields[AID.detailActionTakenField]
+        XCTAssertTrue(actionTaken.waitForExistence(timeout: 5), "Report action field should be present in detail.")
+        actionTaken.tap()
+        actionTaken.typeText("iOS UI 보고 성공 조치")
+
+        app.buttons[AID.detailSubmitReportButton].tap()
+
         XCTAssertTrue(
-            app.staticTexts[KO.locationConsentTitle].waitForExistence(timeout: 15),
-            "GPS 위치 동의 section should render for the authenticated mechanic."
+            app.staticTexts[KO.reportSuccessMessage].waitForExistence(timeout: 15),
+            "Submitting the isolated report fixture must prove the live API success response."
         )
+        XCTAssertTrue(
+            app.staticTexts[KO.reportSubmitted].waitForExistence(timeout: 15),
+            "Submitting the isolated report fixture must visibly persist the 보고 완료 terminal outcome."
+        )
+        XCTAssertFalse(
+            app.staticTexts[KO.operationFailed].exists,
+            "A successfully persisted report must not settle in the generic operation failure state."
+        )
+    }
+
+    func testLocationConsentTransitionsPersistThroughTheRealBackend() async throws {
+        _ = try await launchApp()
+        waitForAuthenticatedShell()
+        try openSeededWorkOrder(fixtureKey: UITestFixture.detailWorkOrderID)
+        XCTAssertTrue(app.staticTexts[KO.locationConsentTitle].waitForExistence(timeout: 15), "GPS 위치 동의 section should render for the authenticated mechanic.")
+
+        let grant = app.buttons[AID.locationConsentGrantButton]
+        let suspend = app.buttons[AID.locationConsentSuspendButton]
+        let resume = app.buttons[AID.locationConsentResumeButton]
+        let withdraw = app.buttons[AID.locationConsentWithdrawButton]
+        XCTAssertTrue(grant.waitForExistence(timeout: 5), "Location-consent controls must render.")
+        XCTAssertTrue(app.staticTexts[KO.locationConsentNoRecord].exists, "The isolated backend must begin without a consent record.")
+        XCTAssertTrue(app.staticTexts[KO.no].exists, "No-record consent must prohibit GPS collection.")
+        XCTAssertTrue(grant.isEnabled)
+        XCTAssertFalse(suspend.isEnabled)
+        XCTAssertFalse(resume.isEnabled)
+        XCTAssertFalse(withdraw.isEnabled)
+
+        grant.tap()
+        XCTAssertTrue(app.staticTexts[KO.locationConsentGranted].waitForExistence(timeout: 15), "Grant must persist the consented state through the real API.")
+        XCTAssertTrue(app.staticTexts[KO.yes].exists, "Granted consent must permit GPS collection.")
+        XCTAssertFalse(grant.isEnabled)
+        XCTAssertTrue(suspend.isEnabled)
+        XCTAssertFalse(resume.isEnabled)
+        XCTAssertTrue(withdraw.isEnabled)
+
+        // Discard all in-memory reducer state and prove GET status readback from
+        // a newly launched app before continuing the state machine.
+        app.terminate()
+        _ = try await launchApp()
+        waitForAuthenticatedShell()
+        try openSeededWorkOrder(fixtureKey: UITestFixture.detailWorkOrderID)
+        XCTAssertTrue(
+            app.staticTexts[KO.locationConsentGranted].waitForExistence(timeout: 15),
+            "A fresh app launch must read the granted state back from the backend."
+        )
+        XCTAssertTrue(app.staticTexts[KO.yes].exists, "Persisted granted consent must permit GPS collection after relaunch.")
+
+        let reloadedSuspend = app.buttons[AID.locationConsentSuspendButton]
+        let reloadedResume = app.buttons[AID.locationConsentResumeButton]
+        let reloadedWithdraw = app.buttons[AID.locationConsentWithdrawButton]
+        reloadedSuspend.tap()
+        XCTAssertTrue(app.staticTexts[KO.locationConsentSuspended].waitForExistence(timeout: 15), "Suspend must persist the GPS-off state through the real API.")
+        XCTAssertTrue(app.staticTexts[KO.no].exists, "Suspended consent must prohibit GPS collection.")
+        XCTAssertFalse(app.buttons[AID.locationConsentGrantButton].isEnabled)
+        XCTAssertFalse(reloadedSuspend.isEnabled)
+        XCTAssertTrue(reloadedResume.isEnabled)
+        XCTAssertTrue(reloadedWithdraw.isEnabled)
+
+        reloadedResume.tap()
+        XCTAssertTrue(app.staticTexts[KO.locationConsentGranted].waitForExistence(timeout: 15), "Resume must restore the consented state through the real API.")
+        XCTAssertTrue(app.staticTexts[KO.yes].exists, "Resumed consent must permit GPS collection.")
+
+        reloadedWithdraw.tap()
+        XCTAssertTrue(app.staticTexts[KO.locationConsentWithdrawn].waitForExistence(timeout: 15), "Withdraw must persist the terminal revoked state through the real API.")
+        XCTAssertTrue(app.staticTexts[KO.no].exists, "Withdrawn consent must prohibit GPS collection.")
+        XCTAssertTrue(app.buttons[AID.locationConsentGrantButton].isEnabled)
+        XCTAssertFalse(reloadedSuspend.isEnabled)
+        XCTAssertFalse(reloadedResume.isEnabled)
+        XCTAssertFalse(reloadedWithdraw.isEnabled)
+        XCTAssertFalse(app.staticTexts[KO.operationFailed].exists, "Every consent transition must complete without a visible failure state.")
+
+        app.terminate()
+        _ = try await launchApp()
+        waitForAuthenticatedShell()
+        try openSeededWorkOrder(fixtureKey: UITestFixture.detailWorkOrderID)
+        XCTAssertTrue(
+            app.staticTexts[KO.locationConsentWithdrawn].waitForExistence(timeout: 15),
+            "A fresh app launch must read the withdrawn terminal state back from the backend."
+        )
+        XCTAssertTrue(app.staticTexts[KO.no].exists, "Persisted withdrawn consent must prohibit GPS collection after relaunch.")
+        XCTAssertFalse(app.staticTexts[KO.operationFailed].exists)
     }
 }
