@@ -116,6 +116,13 @@ describe("Android hermetic E2E CI contract", () => {
     expectsFailure(evaluate(validWorkflow.replace("if grep -Eq 'skipped|failures=\"[1-9]|errors=\"[1-9]'", "if grep -Eq 'failures=\"[1-9]|errors=\"[1-9]'")), "missing, skipped, or unsuccessful");
   });
 
+  it("rejects an always cleanup step that does not terminate the backend", () => {
+    expectsFailure(evaluate(validWorkflow.replace(
+      '          kill "${MNT_E2E_BACKEND_PID:-}" || true',
+      '          echo boot-backend',
+    )), "always remove the session asset and stop the candidate backend");
+  });
+
   it("rejects release cleartext enablement", () => {
     expectsFailure(evaluate(validWorkflow, {
       "android/app/src/main/AndroidManifest.xml": '<application android:usesCleartextTraffic="true" />',

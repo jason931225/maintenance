@@ -46,9 +46,10 @@ function hasRequiredResultGate(job) {
 }
 
 function hasAlwaysCleanup(job) {
-  return /if:\s*always\(\)/.test(job)
-    && /(?:rm\s+-rf|rm\s+-f)/.test(job)
-    && /(?:kill|pkill|boot-backend)/.test(job);
+  const steps = job.split(/(?=^[ ]{6}- )/m);
+  return steps.some((step) => /if:\s*always\(\)/.test(step)
+    && /(?:rm\s+-rf|rm\s+-f)/.test(step)
+    && /\b(?:kill|pkill)\b/.test(step));
 }
 
 function hasDebugOnlyLoopbackCleartext(files) {
