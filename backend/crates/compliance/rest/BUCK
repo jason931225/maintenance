@@ -1,0 +1,32 @@
+# Hand-maintained Buck2 Rust targets for the current backend workspace.
+# Cargo.toml and Cargo.lock are dependency inputs; these checked-in labels are build authority.
+
+rust_library(
+    name = "mnt-compliance-rest",
+    srcs = glob(["src/**/*.rs"]),
+    crate = "mnt_compliance_rest",
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    visibility = ["PUBLIC"],
+    env = {
+        "CARGO_PKG_NAME": "mnt-compliance-rest",
+        "CARGO_PKG_VERSION": "0.1.0",
+        "CARGO_PKG_VERSION_MAJOR": "0",
+        "CARGO_PKG_VERSION_MINOR": "1",
+        "CARGO_PKG_VERSION_PATCH": "0",
+        "CARGO_PKG_VERSION_PRE": "",
+    },
+    deps = [
+        "//backend/crates/compliance/adapter-postgres:mnt-compliance-adapter-postgres",
+        "//backend/crates/compliance/application:mnt-compliance-application",
+        "//backend/crates/compliance/domain:mnt-compliance-domain",
+        "//backend/crates/kernel/core:mnt-kernel-core",
+        "//backend/crates/platform/auth:mnt-platform-auth",
+        "//backend/crates/platform/authz:mnt-platform-authz",
+        "//backend/crates/platform/db:mnt-platform-db",
+        "//backend/crates/platform/request-context:mnt-platform-request-context",
+        "//backend:axum",
+        "//backend:serde",
+        "//backend:time",
+    ],
+)

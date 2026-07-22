@@ -1,0 +1,5 @@
+# ref-cast writes private.rs into OUT_DIR and includes it from src/lib.rs.
+cargo_env = true
+
+[buildscript]
+run = true

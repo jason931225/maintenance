@@ -1,0 +1,11 @@
+# The high-level crate's build.rs normally derives cfgs from openssl-sys links
+# metadata, which Reindeer does not propagate. Bind it directly to the exact
+# OpenSSL 3.6.3 bottle contract instead of probing any host installation.
+cfgs = [
+    "ossl101", "ossl102", "ossl110", "ossl110g", "ossl110h",
+    "ossl111", "ossl111d",
+    "ossl300", "ossl310", "ossl320", "ossl330", "ossl340", "ossl350",
+]
+
+[buildscript]
+run = false

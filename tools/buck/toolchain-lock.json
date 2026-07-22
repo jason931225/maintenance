@@ -1,0 +1,313 @@
+{
+  "schema_version": 1,
+  "buck2": {
+    "release": "2026-06-15",
+    "commit": "1169724e85cc1ef071df842d8ac603905c38e68e",
+    "version": "2026-06-14-1169724e85cc1ef071df842d8ac603905c38e68e",
+    "prelude_commit": "405925e4737177390719d5555794dcce1aab7e30",
+    "prelude_hash_asset_sha256": "74d0e210f124bb01cb66dd4e902294956334c135231f6bb7aded6ff10bf9fc83",
+    "prelude_source": "bundled"
+  },
+  "rust": {
+    "version": "1.96.0",
+    "commit": "ac68faa20c58cbccd01ee7208bf3b6e93a7d7f96",
+    "manifest_url": "https://static.rust-lang.org/dist/channel-rust-1.96.0.toml",
+    "manifest_sha256": "9af50610e1d82699f78a40b985c9277ae1a2c5a0bec86ae430cfe58832038285"
+  },
+  "platforms": {
+    "macos-aarch64": {
+      "target_triple": "aarch64-apple-darwin",
+      "buck2": {
+        "filename": "buck2-aarch64-apple-darwin.zst",
+        "url": "https://github.com/facebook/buck2/releases/download/2026-06-15/buck2-aarch64-apple-darwin.zst",
+        "sha256": "0695199363e3dc6630cd8ef722d7b736f61f7e2c1d83f13184ba8c6a6625b550",
+        "binary_sha256": "69a723384a977a4caae0bd6b5a529740e27d000d8112524e151a15a45d92d376",
+        "binary_size": 112063872
+      },
+      "rust": {
+        "filename": "rust-1.96.0-aarch64-apple-darwin.tar.xz",
+        "url": "https://static.rust-lang.org/dist/2026-05-28/rust-1.96.0-aarch64-apple-darwin.tar.xz",
+        "sha256": "f04a974f3579d3524f6b9bc6490a27c9fb358050e7cd8a641945f30bf24c1dce",
+        "executables": {
+          "rustc": {
+            "sha256": "c5922366bfe3d6d028a65d626f4e629b3adad066995cf0b60c8a4b617bba5ffe",
+            "size": 412504
+          },
+          "rustdoc": {
+            "sha256": "702eb65b0e89c984a8466468d41c0e82fb6db5396a5bdd47d25c053fc346287f",
+            "size": 11725816
+          },
+          "clippy-driver": {
+            "sha256": "a1e69abcc2e4d7a27dc5083c673a47991add66c4aad5cf8b01fb0dd54c3fc791",
+            "size": 13670304
+          }
+        }
+      },
+      "python": {
+        "filename": "cpython-3.13.6+20250807-aarch64-apple-darwin-install_only_stripped.tar.gz",
+        "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20250807/cpython-3.13.6+20250807-aarch64-apple-darwin-install_only_stripped.tar.gz",
+        "sha256": "c57e48145722a87e34a50a2c31d6b11f0830e62e26d759c11b6606a6a80e6243"
+      },
+      "cxx": {
+        "compiler_type": "clang",
+        "cc_candidates": [
+          "clang"
+        ],
+        "cxx_candidates": [
+          "clang++"
+        ],
+        "archiver_candidates": [
+          "llvm-ar",
+          "ar"
+        ],
+        "linker_candidates": [
+          "clang"
+        ]
+      },
+      "openssl": {
+        "version": "3.6.3",
+        "bottle_tag": "3.6.3.arm64_tahoe",
+        "filename": "openssl-3.6.3-macos-aarch64.bottle.tar.gz",
+        "url": "https://ghcr.io/v2/homebrew/core/openssl/3/blobs/sha256:235c30e706c96896ce2be9a38032bf54f46b2aaa1e7193d3cdd73446124fc7be",
+        "sha256": "235c30e706c96896ce2be9a38032bf54f46b2aaa1e7193d3cdd73446124fc7be",
+        "size": 10916109,
+        "static_libraries": {
+          "ssl": {
+            "filename": "libssl.a",
+            "archive_path": "openssl@3/3.6.3/lib/libssl.a",
+            "sha256": "a27512485965c2f09089f477ec4046dc5c73dc26a2164e1a6279338948e54a41",
+            "size": 1464624
+          },
+          "crypto": {
+            "filename": "libcrypto.a",
+            "archive_path": "openssl@3/3.6.3/lib/libcrypto.a",
+            "sha256": "98364074866ff1af72a538d41757b03677befa2b91f075962f921a76beef32d3",
+            "size": 8575136
+          }
+        }
+      }
+    },
+    "macos-x86_64": {
+      "target_triple": "x86_64-apple-darwin",
+      "buck2": {
+        "filename": "buck2-x86_64-apple-darwin.zst",
+        "url": "https://github.com/facebook/buck2/releases/download/2026-06-15/buck2-x86_64-apple-darwin.zst",
+        "sha256": "59a31f4af93f91c2d8d3586f36891b0355fe3c4e21383838e6ebf98e7c06c6a7",
+        "binary_sha256": "f81e173818eb9902bfeaa5d369abea66bb84c84054754fcfdce54e5ea373ff07",
+        "binary_size": 122514032
+      },
+      "rust": {
+        "filename": "rust-1.96.0-x86_64-apple-darwin.tar.xz",
+        "url": "https://static.rust-lang.org/dist/2026-05-28/rust-1.96.0-x86_64-apple-darwin.tar.xz",
+        "sha256": "63a6d717a5e5392ac43f0a1593e7aabe6128c8685d318cb890603b1688cb3339",
+        "executables": {
+          "rustc": {
+            "sha256": "6859de89ddecec2ebaaec50d25c9c471d47f33677a96f7c81666247be062d499",
+            "size": 401528
+          },
+          "rustdoc": {
+            "sha256": "babd01d50449da116399d7f59ac8bcc1c68adce059f14c563cce5b6d4866ca45",
+            "size": 12335008
+          },
+          "clippy-driver": {
+            "sha256": "6863d97a19fa9ec53da799f1b24fb80373a5a8ffac8bd31a46beb4503b301b80",
+            "size": 14290592
+          }
+        }
+      },
+      "python": {
+        "filename": "cpython-3.13.6+20250807-x86_64-apple-darwin-install_only_stripped.tar.gz",
+        "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20250807/cpython-3.13.6+20250807-x86_64-apple-darwin-install_only_stripped.tar.gz",
+        "sha256": "7caed8ea779dcc5d091955628455823cb0e91587703d8b6f7dd285fb2b44d1e0"
+      },
+      "cxx": {
+        "compiler_type": "clang",
+        "cc_candidates": [
+          "clang"
+        ],
+        "cxx_candidates": [
+          "clang++"
+        ],
+        "archiver_candidates": [
+          "llvm-ar",
+          "ar"
+        ],
+        "linker_candidates": [
+          "clang"
+        ]
+      },
+      "openssl": {
+        "version": "3.6.3",
+        "bottle_tag": "3.6.3.tahoe",
+        "filename": "openssl-3.6.3-macos-x86_64.bottle.tar.gz",
+        "url": "https://ghcr.io/v2/homebrew/core/openssl/3/blobs/sha256:993f3d2010d96601e842bcb2691cd02bea288993c7a48e785ff8649da8e00d07",
+        "sha256": "993f3d2010d96601e842bcb2691cd02bea288993c7a48e785ff8649da8e00d07",
+        "size": 10118621,
+        "static_libraries": {
+          "ssl": {
+            "filename": "libssl.a",
+            "archive_path": "openssl@3/3.6.3/lib/libssl.a",
+            "sha256": "72c256ad838c50005a0457113c1695ec74dfaa49a8740c53feedbcd8447353b7",
+            "size": 1430048
+          },
+          "crypto": {
+            "filename": "libcrypto.a",
+            "archive_path": "openssl@3/3.6.3/lib/libcrypto.a",
+            "sha256": "2708f869be781c9e868c7882df05a5b1d3335560bd37edf156c3a0abea41c2aa",
+            "size": 8792008
+          }
+        }
+      }
+    },
+    "linux-aarch64": {
+      "target_triple": "aarch64-unknown-linux-gnu",
+      "buck2": {
+        "filename": "buck2-aarch64-unknown-linux-gnu.zst",
+        "url": "https://github.com/facebook/buck2/releases/download/2026-06-15/buck2-aarch64-unknown-linux-gnu.zst",
+        "sha256": "7556fcdbe04eb9aa445122a8944a445296ff5363d29c31aa8eac284c48773496",
+        "binary_sha256": "c63a113028d3fc198857726c471e5d3aee1df17f6c2107934aadb0baac9dd8e1",
+        "binary_size": 128419768
+      },
+      "rust": {
+        "filename": "rust-1.96.0-aarch64-unknown-linux-gnu.tar.xz",
+        "url": "https://static.rust-lang.org/dist/2026-05-28/rust-1.96.0-aarch64-unknown-linux-gnu.tar.xz",
+        "sha256": "371eadcca97062219cbd8593628eb5d2802bc370515d085fedce1b56b2baed57",
+        "executables": {
+          "rustc": {
+            "sha256": "2425682b7dd432769e2600eb2b3ea5113a00d37f41a754598f2af2e56e4fa2fe",
+            "size": 2333520
+          },
+          "rustdoc": {
+            "sha256": "4893fb7f53b1185e4ea6ac451246668678e7cb21db95a9463797d28baf069a98",
+            "size": 16743592
+          },
+          "clippy-driver": {
+            "sha256": "79d6a1cdbed0ceeeb35e579470806722d9dd3a5cf8aff29a1a075597b8f58212",
+            "size": 17512592
+          }
+        }
+      },
+      "python": {
+        "filename": "cpython-3.13.6+20250807-aarch64-unknown-linux-gnu-install_only_stripped.tar.gz",
+        "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20250807/cpython-3.13.6+20250807-aarch64-unknown-linux-gnu-install_only_stripped.tar.gz",
+        "sha256": "829d615905b5ae8c50353f2ceb3d6665793442d4cbc64503bc9b27b5b9f6fb8a"
+      },
+      "cxx": {
+        "compiler_type": "clang",
+        "cc_candidates": [
+          "clang",
+          "gcc"
+        ],
+        "cxx_candidates": [
+          "clang++",
+          "g++"
+        ],
+        "archiver_candidates": [
+          "llvm-ar",
+          "ar"
+        ],
+        "linker_candidates": [
+          "clang",
+          "gcc"
+        ]
+      },
+      "openssl": {
+        "version": "3.6.3",
+        "bottle_tag": "3.6.3.arm64_linux",
+        "filename": "openssl-3.6.3-linux-aarch64.bottle.tar.gz",
+        "url": "https://ghcr.io/v2/homebrew/core/openssl/3/blobs/sha256:26d8dbc4880e3e4c95639d72c194b03eeb91b302b847680cdbb2f5c66e42e79a",
+        "sha256": "26d8dbc4880e3e4c95639d72c194b03eeb91b302b847680cdbb2f5c66e42e79a",
+        "size": 12045709,
+        "static_libraries": {
+          "ssl": {
+            "filename": "libssl.a",
+            "archive_path": "openssl@3/3.6.3/lib/libssl.a",
+            "sha256": "8a4e05c5c99a96945ff7733eb4c216aa67257f1e5ca9f0fcf12ddbb2ba499958",
+            "size": 2170846
+          },
+          "crypto": {
+            "filename": "libcrypto.a",
+            "archive_path": "openssl@3/3.6.3/lib/libcrypto.a",
+            "sha256": "b3406de4db99e2d3b6a084e6351be37ad9380cbe2ea8250c01b0e56bd0ca3e8a",
+            "size": 12392022
+          }
+        }
+      }
+    },
+    "linux-x86_64": {
+      "target_triple": "x86_64-unknown-linux-gnu",
+      "buck2": {
+        "filename": "buck2-x86_64-unknown-linux-gnu.zst",
+        "url": "https://github.com/facebook/buck2/releases/download/2026-06-15/buck2-x86_64-unknown-linux-gnu.zst",
+        "sha256": "1304d8e4cee8066df825ecb4e286e4daee61a4adc7d3b187549c662636eef68b",
+        "binary_sha256": "996963f12e000341ea3b3f51ff86f68d92b2e31370b630e50bd596301d394677",
+        "binary_size": 132350640
+      },
+      "rust": {
+        "filename": "rust-1.96.0-x86_64-unknown-linux-gnu.tar.xz",
+        "url": "https://static.rust-lang.org/dist/2026-05-28/rust-1.96.0-x86_64-unknown-linux-gnu.tar.xz",
+        "sha256": "c295047583a56238ea06b43f849f4b877fa12bfd4c7103f8d9a74c94c9c4e108",
+        "executables": {
+          "rustc": {
+            "sha256": "ba4b837efb6612dfa8d941c5a72b8a50d1d03a0f36216743b173949aa8d9eb75",
+            "size": 646032
+          },
+          "rustdoc": {
+            "sha256": "ead78a0e00004d88ef7a3209a20552ba805cc9cb7cde7b061093a1b2dfb037c0",
+            "size": 13355512
+          },
+          "clippy-driver": {
+            "sha256": "a257170cec8a94b74792022936c574fc602330ce1c53b041074666f3f8977de2",
+            "size": 20956416
+          }
+        }
+      },
+      "python": {
+        "filename": "cpython-3.13.6+20250807-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz",
+        "url": "https://github.com/astral-sh/python-build-standalone/releases/download/20250807/cpython-3.13.6+20250807-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz",
+        "sha256": "e3e280d4b1ead63de6ebc9816de71792fc8c71b7a6a999ea82f937047beba037"
+      },
+      "cxx": {
+        "compiler_type": "clang",
+        "cc_candidates": [
+          "clang",
+          "gcc"
+        ],
+        "cxx_candidates": [
+          "clang++",
+          "g++"
+        ],
+        "archiver_candidates": [
+          "llvm-ar",
+          "ar"
+        ],
+        "linker_candidates": [
+          "clang",
+          "gcc"
+        ]
+      },
+      "openssl": {
+        "version": "3.6.3",
+        "bottle_tag": "3.6.3.x86_64_linux",
+        "filename": "openssl-3.6.3-linux-x86_64.bottle.tar.gz",
+        "url": "https://ghcr.io/v2/homebrew/core/openssl/3/blobs/sha256:2f71820c8bec00c0e957dc5f20e3b0a651ec07b9c0540d08397b69df2478e3d5",
+        "sha256": "2f71820c8bec00c0e957dc5f20e3b0a651ec07b9c0540d08397b69df2478e3d5",
+        "size": 11110976,
+        "static_libraries": {
+          "ssl": {
+            "filename": "libssl.a",
+            "archive_path": "openssl@3/3.6.3/lib/libssl.a",
+            "sha256": "2ee2a28ac3dd5591fc98f72fc24f77bbb1fb632a2cf7f8114842028f9f6079f8",
+            "size": 2049870
+          },
+          "crypto": {
+            "filename": "libcrypto.a",
+            "archive_path": "openssl@3/3.6.3/lib/libcrypto.a",
+            "sha256": "8593fa476277876b5f681a12e67f21932b1a98b97dbd65acfdee6cd65f3616e2",
+            "size": 11995378
+          }
+        }
+      }
+    }
+  }
+}

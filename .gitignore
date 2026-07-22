@@ -3,6 +3,9 @@
 backend/target/
 **/*.rs.bk
 
+# Buck2 materializes this repository-local output link/directory during normal use.
+/buck-out
+
 # Node
 node_modules/
 dist/

@@ -40,7 +40,10 @@ use chrono::TimeZone;
 use mnt_kernel_core::{KernelError, OrgId, TraceContext};
 use mnt_platform_request_context::scope_org;
 use mnt_workflow_domain::TriggerType;
-use mnt_workflow_runtime::{AuditContext, StartRunRequest, TriggeredStart, start_bound_run};
+use mnt_workflow_runtime::AuditContext;
+use mnt_workflow_runtime::trigger::{
+    StartIdempotentBoundRunRequest, TriggeredStart, start_idempotent_bound_run,
+};
 use mnt_workflow_runtime_adapter_postgres::{DueScheduleRow, PgWorkflowRuntimeStore};
 use serde_json::json;
 use time::OffsetDateTime;
@@ -202,9 +205,10 @@ async fn run_tick(pool: &sqlx::PgPool, store: &PgWorkflowRuntimeStore) {
 
 /// Poll one tenant's due schedules as of `now`: start one idempotent run per
 /// due fire, then advance the schedule. Returns the number of NEW runs
-/// started. Per-schedule failures record `last_status = FAILED` and STILL
-/// advance `next_run_at` (a broken definition must not hot-loop every tick);
-/// they never abort the rest of the batch.
+/// started. A claim with neither an existing run nor an ACTIVE executable is
+/// not a consumed fire: it writes no run/audit and deliberately remains due.
+/// Other per-schedule failures record `last_status = FAILED` and advance
+/// `next_run_at`; no single schedule aborts the rest of the batch.
 pub async fn poll_org(
     store: &PgWorkflowRuntimeStore,
     org: OrgId,
@@ -242,6 +246,14 @@ async fn fire_schedule(
     let (last_status, started) = match &outcome {
         Ok(TriggeredStart::Started { .. }) => ("STARTED", true),
         Ok(TriggeredStart::AlreadyStarted) => ("SKIPPED", false),
+        Ok(TriggeredStart::Unavailable) => {
+            tracing::warn!(
+                org = %org,
+                schedule_id = %schedule.id,
+                "workflow schedules: no durable run or ACTIVE executable at atomic claim; leaving fire due"
+            );
+            return Ok(false);
+        }
         Err(err) => {
             tracing::warn!(
                 org = %org,
@@ -301,34 +313,25 @@ async fn start_scheduled_run(
     schedule: &DueScheduleRow,
     fire: OffsetDateTime,
 ) -> Result<TriggeredStart, KernelError> {
-    let Some((version, definition)) = store
-        .resolve_active_exec_definition(org, schedule.definition_id)
-        .await?
-    else {
-        return Err(KernelError::conflict(
-            "schedule definition is not an ACTIVE wf.exec.v1 definition",
-        ));
-    };
-
+    let idempotency_key = format!("schedule:{}:{}", schedule.id, fire.unix_timestamp());
     let audit = AuditContext {
         actor: None, // system fire — the authoring act carried the authority
         trace: TraceContext::generate(),
         occurred_at: OffsetDateTime::now_utc(),
     };
     let run_id = Uuid::new_v4();
-    start_bound_run(
+    start_idempotent_bound_run(
         store,
-        StartRunRequest {
+        StartIdempotentBoundRunRequest {
             run_id,
             org_id: org,
             definition_id: schedule.definition_id,
-            definition_version: version,
             trigger_type: TriggerType::Schedule,
             object_type: None,
             object_id: None,
             // Deterministic per (schedule, fire): a concurrent double-poll or a
             // crash-replay of the same fire starts exactly one run.
-            idempotency_key: format!("schedule:{}:{}", schedule.id, fire.unix_timestamp()),
+            idempotency_key,
             correlation_id: format!("schedule:{}:{}", schedule.id, fire.unix_timestamp()),
             trace_id: None,
             input_payload: json!({
@@ -340,7 +343,6 @@ async fn start_scheduled_run(
             initiated_by: None,
             schedule_id: Some(schedule.id),
         },
-        &definition,
         &audit,
     )
     .await

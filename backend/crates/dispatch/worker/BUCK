@@ -1,0 +1,30 @@
+# Hand-maintained Buck2 Rust targets for the current backend workspace.
+# Cargo.toml and Cargo.lock are dependency inputs; these checked-in labels are build authority.
+
+rust_library(
+    name = "mnt-dispatch-worker",
+    srcs = glob(["src/**/*.rs"]),
+    crate = "mnt_dispatch_worker",
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    visibility = ["PUBLIC"],
+    env = {
+        "CARGO_PKG_NAME": "mnt-dispatch-worker",
+        "CARGO_PKG_VERSION": "0.1.0",
+        "CARGO_PKG_VERSION_MAJOR": "0",
+        "CARGO_PKG_VERSION_MINOR": "1",
+        "CARGO_PKG_VERSION_PATCH": "0",
+        "CARGO_PKG_VERSION_PRE": "",
+    },
+    deps = [
+        "//backend/crates/dispatch/adapter-postgres:mnt-dispatch-adapter-postgres",
+        "//backend/crates/dispatch/application:mnt-dispatch-application",
+        "//backend/crates/kernel/core:mnt-kernel-core",
+        "//backend/crates/platform/jobs:mnt-platform-jobs",
+        "//backend/crates/platform/push:mnt-platform-push",
+        "//backend/crates/platform/request-context:mnt-platform-request-context",
+        "//backend:thiserror",
+        "//backend:time",
+        "//backend:tracing",
+    ],
+)

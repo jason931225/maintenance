@@ -1,0 +1,25 @@
+# Reindeer config for the Rust current-lock dependency closure of the backend workspace.
+# Single source of truth stays backend/Cargo.toml + Cargo.lock (no drift):
+# reindeer is pointed at the real workspace manifest via the CLI.
+#
+# Non-vendored: buckify emits http_archive rules that fetch crates from
+# crates.io at build time (no giant vendor/ dir committed).
+
+# Provide the standard Cargo env (CARGO_PKG_NAME/VERSION/…) to EVERY crate's
+# compile by default — a large number of crates use env!("CARGO_PKG_*") at
+# compile time. This replaces a per-crate cargo_env fixup for each; crate-
+# specific fixups still override. (Top-level reindeer field.)
+cargo_env = true
+
+[buck]
+file_name = "BUCK"
+# Generated rules must call the prelude's cargo_package wrappers
+# (cargo.rust_library/…), which consume reindeer's `platform`, `named_deps`,
+# and buildscript plumbing. The bare prelude rust_library rejects `platform`.
+buckfile_imports = """
+load("@prelude//rust:cargo_package.bzl", "cargo")
+load("@prelude//rust:cargo_buildscript.bzl", "buildscript_run")
+"""
+rust_library = "cargo.rust_library"
+rust_binary = "cargo.rust_binary"
+buildscript_genrule = "buildscript_run"

@@ -1,0 +1,86 @@
+# Hand-maintained Buck2 Rust targets for the current backend workspace.
+# Cargo.toml and Cargo.lock are dependency inputs; these checked-in labels are build authority.
+
+load("@prelude//rust:sources.bzl", "rust_filegroup")
+load("//backend/crates/platform/db:sqlx_migration_sources.bzl", "with_canonical_sqlx_migrations")
+
+rust_filegroup(
+    name = "mnt-finance-gl-adapter-postgres-mapper-test-sources",
+    mapped_srcs = with_canonical_sqlx_migrations({
+        "tests/voucher_rls_and_fsm_as_runtime_role.rs": "backend/crates/finance-gl/adapter-postgres/tests/voucher_rls_and_fsm_as_runtime_role.rs",
+    }),
+    visibility = ["PUBLIC"],
+)
+
+rust_library(
+    name = "mnt-finance-gl-adapter-postgres",
+    srcs = glob(["src/**/*.rs"]),
+    crate = "mnt_finance_gl_adapter_postgres",
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    visibility = ["PUBLIC"],
+    env = {
+        "CARGO_PKG_NAME": "mnt-finance-gl-adapter-postgres",
+        "CARGO_PKG_VERSION": "0.0.0",
+        "CARGO_PKG_VERSION_MAJOR": "0",
+        "CARGO_PKG_VERSION_MINOR": "0",
+        "CARGO_PKG_VERSION_PATCH": "0",
+        "CARGO_PKG_VERSION_PRE": "",
+    },
+    deps = [
+        "//backend/crates/finance-gl/application:mnt-finance-gl-application",
+        "//backend/crates/finance-gl/domain:mnt-finance-gl-domain",
+        "//backend/crates/kernel/core:mnt-kernel-core",
+        "//backend/crates/platform/db:mnt-platform-db",
+        "//backend/crates/platform/request-context:mnt-platform-request-context",
+        "//backend:sqlx",
+        "//backend:thiserror",
+        "//backend:time",
+        "//backend:uuid",
+    ],
+)
+
+rust_test(
+    name = "mnt-finance-gl-adapter-postgres-buck2-lazy-store-contract",
+    srcs = ["buck2_contract_tests/lazy_store.rs"],
+    crate = "mnt_finance_gl_adapter_postgres_buck2_lazy_store_contract",
+    crate_root = "buck2_contract_tests/lazy_store.rs",
+    edition = "2024",
+    visibility = ["PUBLIC"],
+    deps = [
+        "//backend:sqlx",
+        "//backend:tokio",
+        ":mnt-finance-gl-adapter-postgres",
+    ],
+)
+
+rust_test(
+    name = "mnt-finance-gl-adapter-postgres-voucher-rls-and-fsm-as-runtime-role",
+    srcs_filegroup = ":mnt-finance-gl-adapter-postgres-mapper-test-sources",
+    crate = "voucher_rls_and_fsm_as_runtime_role",
+    crate_root = "backend/crates/finance-gl/adapter-postgres/tests/voucher_rls_and_fsm_as_runtime_role.rs",
+    edition = "2024",
+    visibility = ["PUBLIC"],
+    labels = ["needs-postgres"],
+    env = {
+        "CARGO_MANIFEST_DIR": "backend/crates/finance-gl/adapter-postgres",
+        "CARGO_PKG_NAME": "mnt-finance-gl-adapter-postgres",
+        "CARGO_PKG_VERSION": "0.0.0",
+        "CARGO_PKG_VERSION_MAJOR": "0",
+        "CARGO_PKG_VERSION_MINOR": "0",
+        "CARGO_PKG_VERSION_PATCH": "0",
+        "CARGO_PKG_VERSION_PRE": "",
+        "SQLX_OFFLINE": "true",
+    },
+    deps = [
+        "//backend/crates/finance-gl/application:mnt-finance-gl-application",
+        "//backend/crates/finance-gl/domain:mnt-finance-gl-domain",
+        "//backend/crates/kernel/core:mnt-kernel-core",
+        "//backend/crates/platform/request-context:mnt-platform-request-context",
+        "//backend:sqlx",
+        "//backend:time",
+        "//backend:tokio",
+        "//backend:uuid",
+        ":mnt-finance-gl-adapter-postgres",
+    ],
+)

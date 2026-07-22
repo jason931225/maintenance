@@ -1,0 +1,6 @@
+# Canonical governance artifacts exported without package-local duplication.
+export_file(
+    name = "cedar-pbac-coexistence-map",
+    src = "cedar-pbac-coexistence-map.json",
+    visibility = ["PUBLIC"],
+)

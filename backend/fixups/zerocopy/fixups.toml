@@ -1,0 +1,6 @@
+# Build script: run it (captures cfgs / generated srcs) and pass the cargo
+# package env (some read CARGO_PKG_*).
+cargo_env = true
+
+[buildscript]
+run = true

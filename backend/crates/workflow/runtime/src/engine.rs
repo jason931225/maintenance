@@ -81,19 +81,30 @@ pub struct NodeStepOutcome {
     pub run_status: RunStatus,
 }
 
-/// Start a run: INSERT `workflow_runs` STARTING, then advance STARTING→RUNNING.
-/// Both writes are audited by the port. Returns the run id.
-pub async fn start_run<P: WorkflowRuntimePort + ?Sized>(
+/// Commit the ownership boundary for a new run by inserting its audited
+/// `workflow_runs` row in STARTING. Callers that need to distinguish a duplicate
+/// insert from a later optimistic-concurrency conflict must use this phase before
+/// [`activate_starting_run`].
+pub(crate) async fn insert_starting_run<P: WorkflowRuntimePort + ?Sized>(
     port: &P,
     request: StartRunRequest,
     audit: &AuditContext,
 ) -> Result<Uuid, KernelError> {
-    // A run is born STARTING and immediately advances to RUNNING; validate the
-    // edge up front so an illegal FSM table never reaches the DB.
+    // Validate the next edge before creating the row so an illegal FSM table
+    // never leaves a durable STARTING run.
     validate_run_transition(RunStatus::Starting, RunStatus::Running)?;
 
     let run_id = request.run_id;
     let org = request.org_id;
+    if request
+        .trace_id
+        .as_deref()
+        .is_some_and(|trace_id| trace_id != audit.trace.trace_id())
+    {
+        return Err(KernelError::validation(
+            "workflow run trace_id must match the audited start trace",
+        ));
+    }
     let new_run = NewRun {
         id: run_id,
         org_id: org,
@@ -104,7 +115,10 @@ pub async fn start_run<P: WorkflowRuntimePort + ?Sized>(
         object_id: request.object_id,
         idempotency_key: request.idempotency_key,
         correlation_id: request.correlation_id,
-        trace_id: request.trace_id,
+        // All newly created runs persist the audit trace. Recovery never falls
+        // back to a retry caller's fresh trace, and legacy/malformed rows fail
+        // closed before another durable effect is attempted.
+        trace_id: Some(audit.trace.trace_id().to_owned()),
         input_payload: request.input_payload,
         context_payload: request.context_payload,
         initiated_by: request.initiated_by,
@@ -120,6 +134,20 @@ pub async fn start_run<P: WorkflowRuntimePort + ?Sized>(
         Some(json!({ "status": RunStatus::Starting.as_db_str() })),
     )?;
     port.insert_run(new_run, insert_audit).await?;
+
+    Ok(run_id)
+}
+
+/// Advance an insert-owned STARTING run to RUNNING. This separate phase lets a
+/// system-trigger caller preserve insert ownership when a crash-recovery
+/// contender wins the optimistic transition first.
+pub(crate) async fn activate_starting_run<P: WorkflowRuntimePort + ?Sized>(
+    port: &P,
+    org: OrgId,
+    run_id: Uuid,
+    audit: &AuditContext,
+) -> Result<(), KernelError> {
+    validate_run_transition(RunStatus::Starting, RunStatus::Running)?;
 
     let transition = RunTransition {
         run_id,
@@ -138,6 +166,22 @@ pub async fn start_run<P: WorkflowRuntimePort + ?Sized>(
     )?;
     port.transition_run(org, transition, transition_audit)
         .await?;
+
+    Ok(())
+}
+
+/// Start a run: INSERT `workflow_runs` STARTING, then advance STARTING→RUNNING.
+/// Both writes are audited by the port. Returns the run id. System-triggered
+/// callers use the two explicit phases above to retain insert ownership across
+/// post-insert optimistic conflicts; other callers keep this compact API.
+pub async fn start_run<P: WorkflowRuntimePort + ?Sized>(
+    port: &P,
+    request: StartRunRequest,
+    audit: &AuditContext,
+) -> Result<Uuid, KernelError> {
+    let org = request.org_id;
+    let run_id = insert_starting_run(port, request, audit).await?;
+    activate_starting_run(port, org, run_id, audit).await?;
 
     Ok(run_id)
 }
@@ -394,6 +438,15 @@ mod tests {
             _org: OrgId,
             _idempotency_key: String,
         ) -> PortFuture<'a, Option<RunRecord>> {
+            Box::pin(async { Ok(None) })
+        }
+
+        fn load_exec_definition_version<'a>(
+            &'a self,
+            _org: OrgId,
+            _definition_id: Uuid,
+            _definition_version: i32,
+        ) -> PortFuture<'a, Option<Value>> {
             Box::pin(async { Ok(None) })
         }
 

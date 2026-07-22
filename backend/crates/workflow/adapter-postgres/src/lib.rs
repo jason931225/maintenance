@@ -16,10 +16,10 @@ use mnt_notifications_application::{EmitNotificationCommand, NotificationSink};
 use mnt_notifications_domain::NotificationLink;
 use mnt_platform_db::{DbError, with_audit, with_audits, with_org_conn};
 use mnt_workflow_domain::{
-    FinalizeWaitingTaskCommand, FinalizeWaitingTaskContext, FinalizedWaitingTask, NewRun,
-    NodeStepCommit, PortFuture, PostFinalizationRejection, PostFinalizationRejectionCommand,
-    RunRecord, RunStatus, RunTerminalTimestamp, RunTransition, WaitingTaskStatus,
-    WorkflowRuntimePort,
+    BoundRunClaim, FinalizeWaitingTaskCommand, FinalizeWaitingTaskContext, FinalizedWaitingTask,
+    IdempotentBoundRunPort, NewBoundRun, NewRun, NodeStatus, NodeStepCommit, PortFuture,
+    PostFinalizationRejection, PostFinalizationRejectionCommand, RunRecord, RunStatus,
+    RunTerminalTimestamp, RunTransition, WaitingTaskStatus, WorkflowRuntimePort,
 };
 use sqlx::{PgPool, Row};
 use uuid::Uuid;
@@ -493,7 +493,8 @@ impl PgWorkflowRuntimeStore {
             Box::pin(async move {
                 let row = sqlx::query(
                     "SELECT id, org_id, status, definition_id, definition_version, \
-                            object_type, object_id \
+                            trigger_type, object_type, object_id, correlation_id, trace_id, \
+                            input_payload, context_payload, initiated_by, schedule_id \
                      FROM workflow_runs WHERE idempotency_key = $1",
                 )
                 .bind(idempotency_key)
@@ -509,16 +510,30 @@ impl PgWorkflowRuntimeStore {
                 let org_uuid: Uuid = row.try_get("org_id")?;
                 let definition_id: Uuid = row.try_get("definition_id")?;
                 let definition_version: i32 = row.try_get("definition_version")?;
+                let trigger_type: String = row.try_get("trigger_type")?;
                 let object_type: Option<String> = row.try_get("object_type")?;
                 let object_id: Option<Uuid> = row.try_get("object_id")?;
+                let correlation_id: String = row.try_get("correlation_id")?;
+                let trace_id: Option<String> = row.try_get("trace_id")?;
+                let input_payload: serde_json::Value = row.try_get("input_payload")?;
+                let context_payload: serde_json::Value = row.try_get("context_payload")?;
+                let initiated_by: Option<Uuid> = row.try_get("initiated_by")?;
+                let schedule_id: Option<Uuid> = row.try_get("schedule_id")?;
                 Ok(Some(RunRecord {
                     id,
                     org_id: OrgId::from_uuid(org_uuid),
                     status: RunStatus::from_db_str(&status_str)?,
                     definition_id,
                     definition_version,
+                    trigger_type: mnt_workflow_domain::TriggerType::from_db_str(&trigger_type)?,
                     object_type,
                     object_id,
+                    correlation_id,
+                    trace_id,
+                    input_payload,
+                    context_payload,
+                    initiated_by: initiated_by.map(mnt_kernel_core::UserId::from_uuid),
+                    schedule_id,
                 }))
             })
         })
@@ -572,43 +587,35 @@ impl PgWorkflowRuntimeStore {
         .map_err(KernelError::from)
     }
 
-    /// Resolve a definition's ACTIVE executable (`wf.exec.v1`) version:
-    /// `(active_version, definition JSON)`. `None` when the definition does not
-    /// exist, is not ACTIVE, has no active version, or its active version is not
-    /// `wf.exec.v1` — the trigger/schedule caller SKIPS (fail-safe) rather than
-    /// guessing a version. Read as `mnt_rt` under the armed `app.current_org`.
-    pub async fn resolve_active_exec_definition(
+    /// Resolve one exact immutable executable version without consulting the
+    /// mutable definition status/active pointer. Only an already-persisted run
+    /// may select this path; new system starts serialize the deterministic key
+    /// and select the ACTIVE immutable version/graph pair inside
+    /// [`IdempotentBoundRunPort::claim_bound_run`].
+    pub async fn resolve_exec_definition_version(
         &self,
         org: OrgId,
         definition_id: Uuid,
-    ) -> Result<Option<(i32, serde_json::Value)>, KernelError> {
-        with_org_conn::<_, Option<(i32, serde_json::Value)>, PgWorkflowRuntimeError>(
+        definition_version: i32,
+    ) -> Result<Option<serde_json::Value>, KernelError> {
+        with_org_conn::<_, Option<serde_json::Value>, PgWorkflowRuntimeError>(
             &self.pool,
             org,
             move |tx| {
                 Box::pin(async move {
-                    let row = sqlx::query(
-                        "SELECT d.active_version, v.definition \
+                    sqlx::query_scalar(
+                        "SELECT v.definition \
                          FROM workflow_definitions d \
                          JOIN workflow_definition_versions v \
                            ON v.definition_id = d.id AND v.org_id = d.org_id \
-                          AND v.version = d.active_version \
-                         WHERE d.id = $1 \
-                           AND d.status = 'ACTIVE' \
-                           AND d.active_version IS NOT NULL \
+                         WHERE d.id = $1 AND v.version = $2 \
                            AND v.definition->>'schema_version' = 'wf.exec.v1'",
                     )
                     .bind(definition_id)
+                    .bind(definition_version)
                     .fetch_optional(tx.as_mut())
                     .await
-                    .map_err(PgWorkflowRuntimeError::from)?;
-                    let Some(row) = row else {
-                        return Ok(None);
-                    };
-                    Ok(Some((
-                        row.try_get("active_version")?,
-                        row.try_get("definition")?,
-                    )))
+                    .map_err(PgWorkflowRuntimeError::from)
                 })
             },
         )
@@ -1975,6 +1982,262 @@ fn run_transition_sql(to: RunStatus) -> &'static str {
     }
 }
 
+impl IdempotentBoundRunPort for PgWorkflowRuntimeStore {
+    // mnt-gate: state-changing-handler
+    fn claim_bound_run<'a>(
+        &'a self,
+        run: NewBoundRun,
+        start_audit: AuditEvent,
+        validate_definition: fn(&serde_json::Value) -> Result<(), KernelError>,
+    ) -> PortFuture<'a, Option<BoundRunClaim>> {
+        Box::pin(async move {
+            let org = run.org_id;
+            with_audits::<_, Option<BoundRunClaim>, PgWorkflowRuntimeError>(
+                &self.pool,
+                org,
+                move |tx| {
+                    Box::pin(async move {
+                        // This lock is the linearization boundary for every
+                        // event/schedule claimant. It is acquired before either
+                        // mutable ACTIVE state or a durable run is observed and
+                        // is held until the claim transaction commits. A hash
+                        // collision can only over-serialize unrelated keys;
+                        // exact row identity is still selected and validated by
+                        // org + idempotency_key below.
+                        let lock_key = format!("{}:{}", run.org_id, run.idempotency_key);
+                        sqlx::query(
+                            "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+                        )
+                        .bind(lock_key)
+                        .execute(tx.as_mut())
+                        .await
+                        .map_err(PgWorkflowRuntimeError::from)?;
+
+                        let existing_row = sqlx::query(
+                            "SELECT id, org_id, status, definition_id, definition_version, \
+                                    trigger_type, object_type, object_id, correlation_id, trace_id, \
+                                    input_payload, context_payload, initiated_by, schedule_id \
+                             FROM workflow_runs WHERE idempotency_key = $1 FOR UPDATE",
+                        )
+                        .bind(&run.idempotency_key)
+                        .fetch_optional(tx.as_mut())
+                        .await
+                        .map_err(PgWorkflowRuntimeError::from)?;
+
+                        if let Some(row) = existing_row {
+                            let existing = decode_run_record(&row)?;
+                            let definition: Option<serde_json::Value> = sqlx::query_scalar(
+                                "SELECT v.definition \
+                                 FROM workflow_definition_versions v \
+                                 WHERE v.definition_id = $1 AND v.version = $2 \
+                                   AND v.definition->>'schema_version' = 'wf.exec.v1'",
+                            )
+                            .bind(existing.definition_id)
+                            .bind(existing.definition_version)
+                            .fetch_optional(tx.as_mut())
+                            .await
+                            .map_err(PgWorkflowRuntimeError::from)?;
+                            let definition = definition.ok_or_else(|| {
+                                PgWorkflowRuntimeError::from(KernelError::conflict(
+                                    "persisted workflow run definition version is unavailable or not executable",
+                                ))
+                            })?;
+                            validate_definition(&definition)
+                                .map_err(PgWorkflowRuntimeError::from)?;
+                            return Ok((
+                                Some(BoundRunClaim::Existing {
+                                    run: existing,
+                                    definition,
+                                }),
+                                Vec::new(),
+                            ));
+                        }
+
+                        // This statement snapshot is the version/graph
+                        // selection point. The selected version row is
+                        // append-only, and its exact version + graph are carried
+                        // into the STARTING insert/claim result in this same
+                        // transaction. A later publisher pointer change cannot
+                        // rewrite that selected immutable pair; no row-locking
+                        // privilege is required on definition-version rows.
+                        let definition_row = sqlx::query(
+                            "SELECT d.status AS definition_status, d.active_version, v.definition \
+                             FROM workflow_definitions d \
+                             LEFT JOIN workflow_definition_versions v \
+                               ON v.definition_id = d.id AND v.org_id = d.org_id \
+                              AND v.version = d.active_version \
+                             WHERE d.id = $1",
+                        )
+                        .bind(run.definition_id)
+                        .fetch_optional(tx.as_mut())
+                        .await
+                        .map_err(PgWorkflowRuntimeError::from)?;
+                        let Some(definition_row) = definition_row else {
+                            return Ok((None, Vec::new()));
+                        };
+                        let definition_status: String =
+                            definition_row.try_get("definition_status")?;
+                        if definition_status != "ACTIVE" {
+                            return Ok((None, Vec::new()));
+                        }
+                        let definition_version: Option<i32> =
+                            definition_row.try_get("active_version")?;
+                        let definition_version = definition_version.ok_or_else(|| {
+                            PgWorkflowRuntimeError::from(KernelError::conflict(
+                                "ACTIVE workflow definition has no active version",
+                            ))
+                        })?;
+                        let definition: Option<serde_json::Value> =
+                            definition_row.try_get("definition")?;
+                        let definition = definition.ok_or_else(|| {
+                            PgWorkflowRuntimeError::from(KernelError::conflict(
+                                "ACTIVE workflow definition version is unavailable",
+                            ))
+                        })?;
+                        // Full graph validation runs under the same claim lock
+                        // and transaction, before a new STARTING row or audit
+                        // can commit. Existing runs bypass mutable ACTIVE and
+                        // validate only their exact immutable graph above.
+                        // Every corrupt ACTIVE state (missing pointer, missing
+                        // pointed version, incompatible schema, or invalid
+                        // graph) is a failure, not absence. Roll the claim back
+                        // before any STARTING row/audit; schedule policy records
+                        // FAILED and advances instead of hot-looping this fire.
+                        validate_definition(&definition).map_err(PgWorkflowRuntimeError::from)?;
+
+                        // The advisory lock serializes cooperating system
+                        // claimants. ON CONFLICT additionally covers a caller on
+                        // an older/bypass path: wait for its row, then treat the
+                        // exact durable row as authority without writing a
+                        // duplicate start audit.
+                        let inserted: Option<Uuid> = sqlx::query_scalar(
+                            "INSERT INTO workflow_runs \
+                                 (id, org_id, definition_id, definition_version, status, \
+                                  trigger_type, object_type, object_id, idempotency_key, \
+                                  correlation_id, trace_id, input_payload, context_payload, \
+                                  initiated_by, schedule_id) \
+                             VALUES ($1, $2, $3, $4, 'STARTING', $5, $6, $7, $8, $9, $10, \
+                                     $11, $12, $13, $14) \
+                             ON CONFLICT (org_id, idempotency_key) DO NOTHING \
+                             RETURNING id",
+                        )
+                        .bind(run.id)
+                        .bind(*run.org_id.as_uuid())
+                        .bind(run.definition_id)
+                        .bind(definition_version)
+                        .bind(run.trigger_type.as_db_str())
+                        .bind(&run.object_type)
+                        .bind(run.object_id)
+                        .bind(&run.idempotency_key)
+                        .bind(&run.correlation_id)
+                        .bind(&run.trace_id)
+                        .bind(&run.input_payload)
+                        .bind(&run.context_payload)
+                        .bind(run.initiated_by.map(|user| *user.as_uuid()))
+                        .bind(run.schedule_id)
+                        .fetch_optional(tx.as_mut())
+                        .await
+                        .map_err(PgWorkflowRuntimeError::from)?;
+
+                        if inserted.is_none() {
+                            let row = sqlx::query(
+                                "SELECT id, org_id, status, definition_id, definition_version, \
+                                        trigger_type, object_type, object_id, correlation_id, trace_id, \
+                                        input_payload, context_payload, initiated_by, schedule_id \
+                                 FROM workflow_runs WHERE idempotency_key = $1 FOR UPDATE",
+                            )
+                            .bind(&run.idempotency_key)
+                            .fetch_optional(tx.as_mut())
+                            .await
+                            .map_err(PgWorkflowRuntimeError::from)?
+                            .ok_or_else(|| {
+                                PgWorkflowRuntimeError::from(KernelError::conflict(
+                                    "workflow run idempotency conflict but existing run was not found",
+                                ))
+                            })?;
+                            let existing = decode_run_record(&row)?;
+                            let persisted_definition: Option<serde_json::Value> =
+                                sqlx::query_scalar(
+                                    "SELECT v.definition \
+                                     FROM workflow_definition_versions v \
+                                     WHERE v.definition_id = $1 AND v.version = $2 \
+                                       AND v.definition->>'schema_version' = 'wf.exec.v1'",
+                                )
+                                .bind(existing.definition_id)
+                                .bind(existing.definition_version)
+                                .fetch_optional(tx.as_mut())
+                                .await
+                                .map_err(PgWorkflowRuntimeError::from)?;
+                            let persisted_definition = persisted_definition.ok_or_else(|| {
+                                PgWorkflowRuntimeError::from(KernelError::conflict(
+                                    "persisted workflow run definition version is unavailable or not executable",
+                                ))
+                            })?;
+                            validate_definition(&persisted_definition)
+                                .map_err(PgWorkflowRuntimeError::from)?;
+                            return Ok((
+                                Some(BoundRunClaim::Existing {
+                                    run: existing,
+                                    definition: persisted_definition,
+                                }),
+                                Vec::new(),
+                            ));
+                        }
+
+                        let created = RunRecord {
+                            id: run.id,
+                            org_id: run.org_id,
+                            status: RunStatus::Starting,
+                            definition_id: run.definition_id,
+                            definition_version,
+                            trigger_type: run.trigger_type,
+                            object_type: run.object_type,
+                            object_id: run.object_id,
+                            correlation_id: run.correlation_id,
+                            trace_id: Some(run.trace_id),
+                            input_payload: run.input_payload,
+                            context_payload: run.context_payload,
+                            initiated_by: run.initiated_by,
+                            schedule_id: run.schedule_id,
+                        };
+                        Ok((
+                            Some(BoundRunClaim::Created {
+                                run: created,
+                                definition,
+                            }),
+                            vec![start_audit],
+                        ))
+                    })
+                },
+            )
+            .await
+            .map_err(KernelError::from)
+        })
+    }
+}
+
+fn decode_run_record(row: &sqlx::postgres::PgRow) -> Result<RunRecord, PgWorkflowRuntimeError> {
+    let status: String = row.try_get("status")?;
+    let trigger_type: String = row.try_get("trigger_type")?;
+    let initiated_by: Option<Uuid> = row.try_get("initiated_by")?;
+    Ok(RunRecord {
+        id: row.try_get("id")?,
+        org_id: OrgId::from_uuid(row.try_get("org_id")?),
+        status: RunStatus::from_db_str(&status)?,
+        definition_id: row.try_get("definition_id")?,
+        definition_version: row.try_get("definition_version")?,
+        trigger_type: mnt_workflow_domain::TriggerType::from_db_str(&trigger_type)?,
+        object_type: row.try_get("object_type")?,
+        object_id: row.try_get("object_id")?,
+        correlation_id: row.try_get("correlation_id")?,
+        trace_id: row.try_get("trace_id")?,
+        input_payload: row.try_get("input_payload")?,
+        context_payload: row.try_get("context_payload")?,
+        initiated_by: initiated_by.map(UserId::from_uuid),
+        schedule_id: row.try_get("schedule_id")?,
+    })
+}
+
 impl WorkflowRuntimePort for PgWorkflowRuntimeStore {
     // mnt-gate: state-changing-handler
     fn insert_run<'a>(&'a self, run: NewRun, audit: AuditEvent) -> PortFuture<'a, ()> {
@@ -2024,7 +2287,8 @@ impl WorkflowRuntimePort for PgWorkflowRuntimeStore {
                     Box::pin(async move {
                         let row = sqlx::query(
                             "SELECT id, org_id, status, definition_id, definition_version, \
-                                    object_type, object_id \
+                                    trigger_type, object_type, object_id, correlation_id, trace_id, \
+                                    input_payload, context_payload, initiated_by, schedule_id \
                              FROM workflow_runs WHERE id = $1",
                         )
                         .bind(run_id)
@@ -2040,16 +2304,32 @@ impl WorkflowRuntimePort for PgWorkflowRuntimeStore {
                         let org_uuid: Uuid = row.try_get("org_id")?;
                         let definition_id: Uuid = row.try_get("definition_id")?;
                         let definition_version: i32 = row.try_get("definition_version")?;
+                        let trigger_type: String = row.try_get("trigger_type")?;
                         let object_type: Option<String> = row.try_get("object_type")?;
                         let object_id: Option<Uuid> = row.try_get("object_id")?;
+                        let correlation_id: String = row.try_get("correlation_id")?;
+                        let trace_id: Option<String> = row.try_get("trace_id")?;
+                        let input_payload: serde_json::Value = row.try_get("input_payload")?;
+                        let context_payload: serde_json::Value = row.try_get("context_payload")?;
+                        let initiated_by: Option<Uuid> = row.try_get("initiated_by")?;
+                        let schedule_id: Option<Uuid> = row.try_get("schedule_id")?;
                         Ok(Some(RunRecord {
                             id,
                             org_id: OrgId::from_uuid(org_uuid),
                             status: RunStatus::from_db_str(&status_str)?,
                             definition_id,
                             definition_version,
+                            trigger_type: mnt_workflow_domain::TriggerType::from_db_str(
+                                &trigger_type,
+                            )?,
                             object_type,
                             object_id,
+                            correlation_id,
+                            trace_id,
+                            input_payload,
+                            context_payload,
+                            initiated_by: initiated_by.map(mnt_kernel_core::UserId::from_uuid),
+                            schedule_id,
                         }))
                     })
                 },
@@ -2066,6 +2346,23 @@ impl WorkflowRuntimePort for PgWorkflowRuntimeStore {
     ) -> PortFuture<'a, Option<RunRecord>> {
         Box::pin(async move {
             PgWorkflowRuntimeStore::load_run_by_idempotency_key(self, org, idempotency_key).await
+        })
+    }
+
+    fn load_exec_definition_version<'a>(
+        &'a self,
+        org: OrgId,
+        definition_id: Uuid,
+        definition_version: i32,
+    ) -> PortFuture<'a, Option<serde_json::Value>> {
+        Box::pin(async move {
+            PgWorkflowRuntimeStore::resolve_exec_definition_version(
+                self,
+                org,
+                definition_id,
+                definition_version,
+            )
+            .await
         })
     }
 
@@ -2119,34 +2416,81 @@ impl WorkflowRuntimePort for PgWorkflowRuntimeStore {
                     } = commit;
                     let org_uuid = *org.as_uuid();
 
-                    // 1. Insert the node run PENDING. ON CONFLICT DO NOTHING on the
-                    //    reused UNIQUE(org_id, idempotency_key) (0077:69) so a RESUMED
-                    //    completion tail (a reconciler re-drive after a crash) does not
-                    //    23505-abort on a node it already recorded — the node key is
-                    //    deterministic (node:{run_id}:{node_key}:{attempt}), so a re-run
-                    //    of the same node is a no-op and the subsequent status UPDATEs
-                    //    (guarded on the fresh node id) simply match zero rows.
-                    sqlx::query(
+                    // 1. Claim this deterministic node attempt by inserting its
+                    //    PENDING row. PostgreSQL waits for a concurrent conflicting
+                    //    transaction before `DO NOTHING` resolves, so a missing
+                    //    RETURNING row means another transaction committed the same
+                    //    node attempt and all of its atomic side effects. Verify the
+                    //    exact persisted identity/status, then return before emitting
+                    //    any duplicate node/outbox/waiting/run/audit effects.
+                    let inserted_node_id: Option<Uuid> = sqlx::query_scalar(
                         "INSERT INTO workflow_node_runs \
                              (id, org_id, run_id, node_key, node_type, status, attempt, \
                               idempotency_key, input_payload) \
                          VALUES ($1, $2, $3, $4, $5, 'PENDING', $6, $7, $8) \
-                         ON CONFLICT (org_id, idempotency_key) DO NOTHING",
+                         ON CONFLICT (org_id, idempotency_key) DO NOTHING \
+                         RETURNING id",
                     )
                     .bind(new_node.id)
                     .bind(org_uuid)
                     .bind(new_node.run_id)
-                    .bind(new_node.node_key)
-                    .bind(new_node.node_type)
+                    .bind(new_node.node_key.as_str())
+                    .bind(new_node.node_type.as_str())
                     .bind(new_node.attempt)
-                    .bind(new_node.idempotency_key)
-                    .bind(new_node.input_payload)
-                    .execute(tx.as_mut())
+                    .bind(new_node.idempotency_key.as_str())
+                    .bind(&new_node.input_payload)
+                    .fetch_optional(tx.as_mut())
                     .await
                     .map_err(PgWorkflowRuntimeError::from)?;
 
+                    if inserted_node_id.is_none() {
+                        let existing = sqlx::query(
+                            "SELECT id, run_id, node_key, node_type, status, attempt, \
+                                    input_payload \
+                             FROM workflow_node_runs \
+                             WHERE org_id = $1 AND idempotency_key = $2",
+                        )
+                        .bind(org_uuid)
+                        .bind(new_node.idempotency_key.as_str())
+                        .fetch_optional(tx.as_mut())
+                        .await
+                        .map_err(PgWorkflowRuntimeError::from)?
+                        .ok_or_else(|| {
+                            PgWorkflowRuntimeError::from(KernelError::conflict(
+                                "workflow node idempotency conflict without persisted owner",
+                            ))
+                        })?;
+                        let existing_status: String = existing.try_get("status")?;
+                        let existing_status = NodeStatus::from_db_str(&existing_status)
+                            .map_err(PgWorkflowRuntimeError::from)?;
+                        let status_covers_commit = existing_status == node_final_status
+                            || matches!(
+                                (node_final_status, existing_status),
+                                (
+                                    NodeStatus::Waiting,
+                                    NodeStatus::Succeeded
+                                        | NodeStatus::Failed
+                                        | NodeStatus::Cancelled
+                                )
+                            );
+                        let identity_matches = existing.try_get::<Uuid, _>("run_id")?
+                            == new_node.run_id
+                            && existing.try_get::<String, _>("node_key")? == new_node.node_key
+                            && existing.try_get::<String, _>("node_type")? == new_node.node_type
+                            && existing.try_get::<i32, _>("attempt")? == new_node.attempt
+                            && existing.try_get::<serde_json::Value, _>("input_payload")?
+                                == new_node.input_payload;
+                        if !identity_matches || !status_covers_commit {
+                            return Err(PgWorkflowRuntimeError::from(KernelError::conflict(
+                                "workflow node idempotency key belongs to a different or incomplete commit",
+                            )));
+                        }
+
+                        return Ok(((), Vec::new()));
+                    }
+
                     // 2. Node PENDING -> RUNNING.
-                    sqlx::query(
+                    let result = sqlx::query(
                         "UPDATE workflow_node_runs \
                          SET status = 'RUNNING', started_at = now(), updated_at = now() \
                          WHERE id = $1 AND status = 'PENDING'",
@@ -2155,18 +2499,21 @@ impl WorkflowRuntimePort for PgWorkflowRuntimeStore {
                     .execute(tx.as_mut())
                     .await
                     .map_err(PgWorkflowRuntimeError::from)?;
+                    if result.rows_affected() != 1 {
+                        return Err(PgWorkflowRuntimeError::from(KernelError::conflict(
+                            "workflow node owner lost PENDING to RUNNING transition",
+                        )));
+                    }
 
-                    // 3. Transactional-outbox emissions. ON CONFLICT DO NOTHING on the
-                    //    reused UNIQUE(org_id, idempotency_key) (0077:149) so re-running
-                    //    a node whose emission was already enqueued (a resumed tail)
-                    //    never duplicates the outbox row nor 23505-aborts.
+                    // 3. Transactional-outbox emissions. Only the node-insert owner
+                    //    reaches this branch. A conflicting emission key is therefore
+                    //    identity drift/corruption and must roll the whole commit back.
                     for emission in emissions {
-                        sqlx::query(
+                        let result = sqlx::query(
                             "INSERT INTO workflow_outbox_events \
                                  (org_id, run_id, node_run_id, channel, destination_ref, \
                                   idempotency_key, status, payload) \
-                             VALUES ($1, $2, $3, $4, $5, $6, 'PENDING', $7) \
-                             ON CONFLICT (org_id, idempotency_key) DO NOTHING",
+                             VALUES ($1, $2, $3, $4, $5, $6, 'PENDING', $7)",
                         )
                         .bind(org_uuid)
                         .bind(new_node.run_id)
@@ -2178,11 +2525,16 @@ impl WorkflowRuntimePort for PgWorkflowRuntimeStore {
                         .execute(tx.as_mut())
                         .await
                         .map_err(PgWorkflowRuntimeError::from)?;
+                        if result.rows_affected() != 1 {
+                            return Err(PgWorkflowRuntimeError::from(KernelError::conflict(
+                                "workflow node owner did not insert exactly one outbox emission",
+                            )));
+                        }
                     }
 
                     // 4. Optional waiting task (run parks on it).
                     if let Some(task) = waiting_task {
-                        sqlx::query(
+                        let result = sqlx::query(
                             "INSERT INTO workflow_waiting_tasks \
                                  (org_id, run_id, node_run_id, waiting_key, title, status, \
                                   assignee_role_key, required_policy, form_payload, due_at) \
@@ -2200,6 +2552,11 @@ impl WorkflowRuntimePort for PgWorkflowRuntimeStore {
                         .execute(tx.as_mut())
                         .await
                         .map_err(PgWorkflowRuntimeError::from)?;
+                        if result.rows_affected() != 1 {
+                            return Err(PgWorkflowRuntimeError::from(KernelError::conflict(
+                                "workflow node owner did not insert exactly one waiting task",
+                            )));
+                        }
                     }
 
                     // 5. Node RUNNING -> final. Terminal statuses stamp finished_at.
@@ -2214,7 +2571,7 @@ impl WorkflowRuntimePort for PgWorkflowRuntimeStore {
                              output_payload = $3, error_payload = $4 \
                          WHERE id = $1 AND status = 'RUNNING'"
                     };
-                    sqlx::query(node_sql)
+                    let result = sqlx::query(node_sql)
                         .bind(new_node.id)
                         .bind(node_final_status.as_db_str())
                         .bind(node_output)
@@ -2222,18 +2579,28 @@ impl WorkflowRuntimePort for PgWorkflowRuntimeStore {
                         .execute(tx.as_mut())
                         .await
                         .map_err(PgWorkflowRuntimeError::from)?;
+                    if result.rows_affected() != 1 {
+                        return Err(PgWorkflowRuntimeError::from(KernelError::conflict(
+                            "workflow node owner lost RUNNING to final transition",
+                        )));
+                    }
 
                     // 6. Optional run transition (e.g. RUNNING -> WAITING on a gate).
                     if let Some(transition) = run_transition {
-                        sqlx::query(run_transition_sql(transition.to))
+                        let result = sqlx::query(run_transition_sql(transition.to))
                             .bind(transition.run_id)
                             .bind(transition.to.as_db_str())
                             .bind(transition.from.as_db_str())
                             .bind(transition.output_payload)
                             .bind(transition.error_payload)
-                            .execute(tx.as_mut())
-                            .await
-                            .map_err(PgWorkflowRuntimeError::from)?;
+                        .execute(tx.as_mut())
+                        .await
+                        .map_err(PgWorkflowRuntimeError::from)?;
+                        if result.rows_affected() != 1 {
+                            return Err(PgWorkflowRuntimeError::from(KernelError::conflict(
+                                "workflow node owner lost run status transition",
+                            )));
+                        }
                     }
 
                     Ok(((), audit_events))

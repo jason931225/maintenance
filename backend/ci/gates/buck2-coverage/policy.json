@@ -1,0 +1,572 @@
+{
+  "declared_targets": {
+    "backend/app/Cargo.toml": {
+      "label": "//backend/app:mnt-app-lib",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/ci/gates/audit-coverage/Cargo.toml": {
+      "label": "//backend/ci/gates/audit-coverage:mnt-gate-audit-coverage-lib",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/ci/gates/dev-auth-absence/Cargo.toml": {
+      "label": "//backend/ci/gates/dev-auth-absence:mnt-gate-dev-auth-absence-lib",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/ci/gates/iac-tier/Cargo.toml": {
+      "label": "//backend/ci/gates/iac-tier:mnt-gate-iac-tier-lib",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/ci/gates/layer-boundary/Cargo.toml": {
+      "label": "//backend/ci/gates/layer-boundary:mnt-gate-layer-boundary-lib",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/ci/gates/migration-safety/Cargo.toml": {
+      "label": "//backend/ci/gates/migration-safety:mnt-gate-migration-safety-lib",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/ci/gates/pii-no-logs/Cargo.toml": {
+      "label": "//backend/ci/gates/pii-no-logs:mnt-gate-pii-no-logs-lib",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/ci/gates/rls-arming/Cargo.toml": {
+      "label": "//backend/ci/gates/rls-arming:mnt-gate-rls-arming-lib",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/ci/gates/tenant-isolation/Cargo.toml": {
+      "label": "//backend/ci/gates/tenant-isolation:mnt-gate-tenant-isolation-lib",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/ci/gates/vendor-lockin/Cargo.toml": {
+      "label": "//backend/ci/gates/vendor-lockin:mnt-gate-vendor-lockin-lib",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/analytics-quant/rest/Cargo.toml": {
+      "label": "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/analytics-quant/service/Cargo.toml": {
+      "label": "//backend/crates/analytics-quant/service:mnt-analytics-quant-service",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/benefit/adapter-postgres/Cargo.toml": {
+      "label": "//backend/crates/benefit/adapter-postgres:mnt-benefit-adapter-postgres",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/benefit/application/Cargo.toml": {
+      "label": "//backend/crates/benefit/application:mnt-benefit-application",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/benefit/domain/Cargo.toml": {
+      "label": "//backend/crates/benefit/domain:mnt-benefit-domain",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/comms/adapter-imap/Cargo.toml": {
+      "label": "//backend/crates/comms/adapter-imap:mnt-comms-adapter-imap",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/comms/adapter-mox/Cargo.toml": {
+      "label": "//backend/crates/comms/adapter-mox:mnt-comms-adapter-mox",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/comms/adapter-postgres/Cargo.toml": {
+      "label": "//backend/crates/comms/adapter-postgres:mnt-comms-adapter-postgres",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/comms/adapter-smtp/Cargo.toml": {
+      "label": "//backend/crates/comms/adapter-smtp:mnt-comms-adapter-smtp",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/comms/application/Cargo.toml": {
+      "label": "//backend/crates/comms/application:mnt-comms-application",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/comms/credential-cipher/Cargo.toml": {
+      "label": "//backend/crates/comms/credential-cipher:mnt-comms-credential-cipher",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/comms/domain/Cargo.toml": {
+      "label": "//backend/crates/comms/domain:mnt-comms-domain",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/comms/mailbox/Cargo.toml": {
+      "label": "//backend/crates/comms/mailbox:mnt-comms-mailbox",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/comms/rest/Cargo.toml": {
+      "label": "//backend/crates/comms/rest:mnt-comms-rest",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/compliance/adapter-postgres/Cargo.toml": {
+      "label": "//backend/crates/compliance/adapter-postgres:mnt-compliance-adapter-postgres",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/compliance/application/Cargo.toml": {
+      "label": "//backend/crates/compliance/application:mnt-compliance-application",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/compliance/domain/Cargo.toml": {
+      "label": "//backend/crates/compliance/domain:mnt-compliance-domain",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/compliance/integrity/Cargo.toml": {
+      "label": "//backend/crates/compliance/integrity:mnt-integrity",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/compliance/rest/Cargo.toml": {
+      "label": "//backend/crates/compliance/rest:mnt-compliance-rest",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/dispatch/adapter-postgres/Cargo.toml": {
+      "label": "//backend/crates/dispatch/adapter-postgres:mnt-dispatch-adapter-postgres",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/dispatch/application/Cargo.toml": {
+      "label": "//backend/crates/dispatch/application:mnt-dispatch-application",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/dispatch/domain/Cargo.toml": {
+      "label": "//backend/crates/dispatch/domain:mnt-dispatch-domain",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/dispatch/rest/Cargo.toml": {
+      "label": "//backend/crates/dispatch/rest:mnt-dispatch-rest",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/dispatch/worker/Cargo.toml": {
+      "label": "//backend/crates/dispatch/worker:mnt-dispatch-worker",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/docs/adapter-postgres/Cargo.toml": {
+      "label": "//backend/crates/docs/adapter-postgres:mnt-docs-adapter-postgres",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/docs/application/Cargo.toml": {
+      "label": "//backend/crates/docs/application:mnt-docs-application",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/docs/domain/Cargo.toml": {
+      "label": "//backend/crates/docs/domain:mnt-docs-domain",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/docs/rest/Cargo.toml": {
+      "label": "//backend/crates/docs/rest:mnt-docs-rest",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/erp/domain/Cargo.toml": {
+      "label": "//backend/crates/erp/domain:mnt-erp-domain",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/finance-gl/adapter-postgres/Cargo.toml": {
+      "label": "//backend/crates/finance-gl/adapter-postgres:mnt-finance-gl-adapter-postgres",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/finance-gl/application/Cargo.toml": {
+      "label": "//backend/crates/finance-gl/application:mnt-finance-gl-application",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/finance-gl/domain/Cargo.toml": {
+      "label": "//backend/crates/finance-gl/domain:mnt-finance-gl-domain",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/finance-gl/rest/Cargo.toml": {
+      "label": "//backend/crates/finance-gl/rest:mnt-finance-gl-rest",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/financial/adapter-postgres/Cargo.toml": {
+      "label": "//backend/crates/financial/adapter-postgres:mnt-financial-adapter-postgres",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/financial/application/Cargo.toml": {
+      "label": "//backend/crates/financial/application:mnt-financial-application",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/financial/domain/Cargo.toml": {
+      "label": "//backend/crates/financial/domain:mnt-financial-domain",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/financial/rest/Cargo.toml": {
+      "label": "//backend/crates/financial/rest:mnt-financial-rest",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/governance/adapter-postgres/Cargo.toml": {
+      "label": "//backend/crates/governance/adapter-postgres:mnt-governance-adapter-postgres",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/governance/application/Cargo.toml": {
+      "label": "//backend/crates/governance/application:mnt-governance-application",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/governance/domain/Cargo.toml": {
+      "label": "//backend/crates/governance/domain:mnt-governance-domain",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/governance/rest/Cargo.toml": {
+      "label": "//backend/crates/governance/rest:mnt-governance-rest",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/identity/adapter-postgres/Cargo.toml": {
+      "label": "//backend/crates/identity/adapter-postgres:mnt-identity-adapter-postgres",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/identity/application/Cargo.toml": {
+      "label": "//backend/crates/identity/application:mnt-identity-application",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/identity/domain/Cargo.toml": {
+      "label": "//backend/crates/identity/domain:mnt-identity-domain",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/identity/rest/Cargo.toml": {
+      "label": "//backend/crates/identity/rest:mnt-identity-rest",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/inbox/adapter-postgres/Cargo.toml": {
+      "label": "//backend/crates/inbox/adapter-postgres:mnt-inbox-adapter-postgres",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/inbox/application/Cargo.toml": {
+      "label": "//backend/crates/inbox/application:mnt-inbox-application",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/inbox/domain/Cargo.toml": {
+      "label": "//backend/crates/inbox/domain:mnt-inbox-domain",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/inbox/rest/Cargo.toml": {
+      "label": "//backend/crates/inbox/rest:mnt-inbox-rest",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/inspection/adapter-postgres/Cargo.toml": {
+      "label": "//backend/crates/inspection/adapter-postgres:mnt-inspection-adapter-postgres",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/inspection/application/Cargo.toml": {
+      "label": "//backend/crates/inspection/application:mnt-inspection-application",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/inspection/domain/Cargo.toml": {
+      "label": "//backend/crates/inspection/domain:mnt-inspection-domain",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/inspection/rest/Cargo.toml": {
+      "label": "//backend/crates/inspection/rest:mnt-inspection-rest",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/inventory/adapter-postgres/Cargo.toml": {
+      "label": "//backend/crates/inventory/adapter-postgres:mnt-inventory-adapter-postgres",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/inventory/application/Cargo.toml": {
+      "label": "//backend/crates/inventory/application:mnt-inventory-application",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/inventory/domain/Cargo.toml": {
+      "label": "//backend/crates/inventory/domain:mnt-inventory-domain",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/kernel/core/Cargo.toml": {
+      "label": "//backend/crates/kernel/core:mnt-kernel-core",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/leave/adapter-postgres/Cargo.toml": {
+      "label": "//backend/crates/leave/adapter-postgres:mnt-leave-adapter-postgres",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/leave/application/Cargo.toml": {
+      "label": "//backend/crates/leave/application:mnt-leave-application",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/leave/domain/Cargo.toml": {
+      "label": "//backend/crates/leave/domain:mnt-leave-domain",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/leave/rest/Cargo.toml": {
+      "label": "//backend/crates/leave/rest:mnt-leave-rest",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/messenger/adapter-postgres/Cargo.toml": {
+      "label": "//backend/crates/messenger/adapter-postgres:mnt-messenger-adapter-postgres",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/messenger/application/Cargo.toml": {
+      "label": "//backend/crates/messenger/application:mnt-messenger-application",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/messenger/domain/Cargo.toml": {
+      "label": "//backend/crates/messenger/domain:mnt-messenger-domain",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/messenger/rest/Cargo.toml": {
+      "label": "//backend/crates/messenger/rest:mnt-messenger-rest",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/notices/adapter-postgres/Cargo.toml": {
+      "label": "//backend/crates/notices/adapter-postgres:mnt-notices-adapter-postgres",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/notices/application/Cargo.toml": {
+      "label": "//backend/crates/notices/application:mnt-notices-application",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/notices/domain/Cargo.toml": {
+      "label": "//backend/crates/notices/domain:mnt-notices-domain",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/notices/rest/Cargo.toml": {
+      "label": "//backend/crates/notices/rest:mnt-notices-rest",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/notifications/adapter-postgres/Cargo.toml": {
+      "label": "//backend/crates/notifications/adapter-postgres:mnt-notifications-adapter-postgres",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/notifications/application/Cargo.toml": {
+      "label": "//backend/crates/notifications/application:mnt-notifications-application",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/notifications/domain/Cargo.toml": {
+      "label": "//backend/crates/notifications/domain:mnt-notifications-domain",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/notifications/rest/Cargo.toml": {
+      "label": "//backend/crates/notifications/rest:mnt-notifications-rest",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/ontology/adapter-postgres/Cargo.toml": {
+      "label": "//backend/crates/ontology/adapter-postgres:mnt-ontology-adapter-postgres",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/ontology/application/Cargo.toml": {
+      "label": "//backend/crates/ontology/application:mnt-ontology-application",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/ontology/domain/Cargo.toml": {
+      "label": "//backend/crates/ontology/domain:mnt-ontology-domain",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/ontology/rest/Cargo.toml": {
+      "label": "//backend/crates/ontology/rest:mnt-ontology-rest",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/payroll/adapter-postgres/Cargo.toml": {
+      "label": "//backend/crates/payroll/adapter-postgres:mnt-payroll-adapter-postgres",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/payroll/domain/Cargo.toml": {
+      "label": "//backend/crates/payroll/domain:mnt-payroll-domain",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/payroll/rest/Cargo.toml": {
+      "label": "//backend/crates/payroll/rest:mnt-payroll-rest",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/platform/audit-chain/Cargo.toml": {
+      "label": "//backend/crates/platform/audit-chain:mnt-platform-audit-chain",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/platform/auth-rest/Cargo.toml": {
+      "label": "//backend/crates/platform/auth-rest:mnt-platform-auth-rest",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/platform/auth/Cargo.toml": {
+      "label": "//backend/crates/platform/auth:mnt-platform-auth",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/platform/authz-rest/Cargo.toml": {
+      "label": "//backend/crates/platform/authz-rest:mnt-platform-authz-rest",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/platform/authz/Cargo.toml": {
+      "label": "//backend/crates/platform/authz:mnt-platform-authz",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/platform/db/Cargo.toml": {
+      "label": "//backend/crates/platform/db:mnt-platform-db",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/platform/email/Cargo.toml": {
+      "label": "//backend/crates/platform/email:mnt-platform-email",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/platform/excel/Cargo.toml": {
+      "label": "//backend/crates/platform/excel:mnt-platform-excel",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/platform/group/Cargo.toml": {
+      "label": "//backend/crates/platform/group:mnt-platform-group",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/platform/jobs/Cargo.toml": {
+      "label": "//backend/crates/platform/jobs:mnt-platform-jobs",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/platform/platform-rest/Cargo.toml": {
+      "label": "//backend/crates/platform/platform-rest:mnt-platform-rest",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/platform/provisioning/Cargo.toml": {
+      "label": "//backend/crates/platform/provisioning:mnt-platform-provisioning",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/platform/push/Cargo.toml": {
+      "label": "//backend/crates/platform/push:mnt-platform-push",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/platform/realtime/Cargo.toml": {
+      "label": "//backend/crates/platform/realtime:mnt-platform-realtime",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/platform/request-context/Cargo.toml": {
+      "label": "//backend/crates/platform/request-context:mnt-platform-request-context",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/platform/storage/Cargo.toml": {
+      "label": "//backend/crates/platform/storage:mnt-platform-storage",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/platform/test-support/Cargo.toml": {
+      "label": "//backend/crates/platform/test-support:mnt-platform-test-support",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/policy/adapter-postgres/Cargo.toml": {
+      "label": "//backend/crates/policy/adapter-postgres:mnt-policy-adapter-postgres",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/policy/application/Cargo.toml": {
+      "label": "//backend/crates/policy/application:mnt-policy-application",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/policy/domain/Cargo.toml": {
+      "label": "//backend/crates/policy/domain:mnt-policy-domain",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/registry/adapter-postgres/Cargo.toml": {
+      "label": "//backend/crates/registry/adapter-postgres:mnt-registry-adapter-postgres",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/registry/application/Cargo.toml": {
+      "label": "//backend/crates/registry/application:mnt-registry-application",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/registry/domain/Cargo.toml": {
+      "label": "//backend/crates/registry/domain:mnt-registry-domain",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/registry/rest/Cargo.toml": {
+      "label": "//backend/crates/registry/rest:mnt-registry-rest",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/reporting/adapter-postgres/Cargo.toml": {
+      "label": "//backend/crates/reporting/adapter-postgres:mnt-reporting-adapter-postgres",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/reporting/application/Cargo.toml": {
+      "label": "//backend/crates/reporting/application:mnt-reporting-application",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/reporting/domain/Cargo.toml": {
+      "label": "//backend/crates/reporting/domain:mnt-reporting-domain",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/reporting/rest/Cargo.toml": {
+      "label": "//backend/crates/reporting/rest:mnt-reporting-rest",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/sales/adapter-postgres/Cargo.toml": {
+      "label": "//backend/crates/sales/adapter-postgres:mnt-sales-adapter-postgres",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/sales/application/Cargo.toml": {
+      "label": "//backend/crates/sales/application:mnt-sales-application",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/sales/domain/Cargo.toml": {
+      "label": "//backend/crates/sales/domain:mnt-sales-domain",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/sales/rest/Cargo.toml": {
+      "label": "//backend/crates/sales/rest:mnt-sales-rest",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/support/adapter-postgres/Cargo.toml": {
+      "label": "//backend/crates/support/adapter-postgres:mnt-support-adapter-postgres",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/support/application/Cargo.toml": {
+      "label": "//backend/crates/support/application:mnt-support-application",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/support/domain/Cargo.toml": {
+      "label": "//backend/crates/support/domain:mnt-support-domain",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/support/rest/Cargo.toml": {
+      "label": "//backend/crates/support/rest:mnt-support-rest",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/todos/adapter-postgres/Cargo.toml": {
+      "label": "//backend/crates/todos/adapter-postgres:mnt-todos-adapter-postgres",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/todos/application/Cargo.toml": {
+      "label": "//backend/crates/todos/application:mnt-todos-application",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/todos/domain/Cargo.toml": {
+      "label": "//backend/crates/todos/domain:mnt-todos-domain",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/todos/rest/Cargo.toml": {
+      "label": "//backend/crates/todos/rest:mnt-todos-rest",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/workflow/adapter-postgres/Cargo.toml": {
+      "label": "//backend/crates/workflow/adapter-postgres:mnt-workflow-runtime-adapter-postgres",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/workflow/domain/Cargo.toml": {
+      "label": "//backend/crates/workflow/domain:mnt-workflow-domain",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/workflow/runtime/Cargo.toml": {
+      "label": "//backend/crates/workflow/runtime:mnt-workflow-runtime",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/workorder/adapter-postgres/Cargo.toml": {
+      "label": "//backend/crates/workorder/adapter-postgres:mnt-workorder-adapter-postgres",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/workorder/application/Cargo.toml": {
+      "label": "//backend/crates/workorder/application:mnt-workorder-application",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/workorder/domain/Cargo.toml": {
+      "label": "//backend/crates/workorder/domain:mnt-workorder-domain",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/crates/workorder/rest/Cargo.toml": {
+      "label": "//backend/crates/workorder/rest:mnt-workorder-rest",
+      "reason": "This package has a checked-in, source-compiling Buck2 Rust target derived from the current Cargo.lock graph and owned by this package."
+    },
+    "backend/vendor/calamine-0.35.0-quickxml41/Cargo.toml": {
+      "label": "//backend/vendor/calamine-0.35.0-quickxml41:calamine-0.35",
+      "reason": "This checked-in patched dependency is compiled by its contained, lock-derived Buck2 Rust library target."
+    },
+    "backend/vendor/quick-xml-0.41.0-compat/Cargo.toml": {
+      "label": "//backend/vendor/quick-xml-0.41.0-compat:quick-xml-0.41",
+      "reason": "This checked-in patched dependency is compiled by its contained, lock-derived Buck2 Rust library target."
+    },
+    "backend/vendor/umya-spreadsheet-3.0.0-quickxml41/Cargo.toml": {
+      "label": "//backend/vendor/umya-spreadsheet-3.0.0-quickxml41:umya-spreadsheet-3",
+      "reason": "This checked-in patched dependency is compiled by its contained, lock-derived Buck2 Rust library target."
+    }
+  },
+  "exemptions": {
+    "backend/Cargo.toml": {
+      "reason": "This virtual workspace manifest aggregates members and does not define a Rust build unit of its own.",
+      "reason_code": "workspace-aggregate-manifest"
+    }
+  },
+  "generated_target_name": "cargo-manifest-ownership",
+  "schema_version": 1
+}

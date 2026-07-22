@@ -1,0 +1,16 @@
+load("@toolchains//:config.bzl", "required_toolchain_config")
+
+_repo_root = required_toolchain_config("repo_root", "toolchain.repo_root")
+
+python_test(
+    name = "current-lock-rust-graph-contract",
+    srcs = ["test_current_lock_rust_graph.py"],
+    env = {"MAINTENANCE_REPO_ROOT": _repo_root},
+)
+
+python_test(
+    name = "current-lock-rust-graph-validator",
+    srcs = ["test_current_lock_rust_graph_validator.py"],
+    deps = ["//tools/buck:current-lock-rust-graph-lib"],
+    env = {"MAINTENANCE_REPO_ROOT": _repo_root},
+)

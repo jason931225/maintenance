@@ -1,0 +1,52 @@
+# Hand-maintained Buck2 Rust targets for the current backend workspace.
+# Cargo.toml and Cargo.lock are dependency inputs; these checked-in labels are build authority.
+
+rust_library(
+    name = "mnt-inbox-application",
+    srcs = glob(["src/**/*.rs"]),
+    crate = "mnt_inbox_application",
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    visibility = ["PUBLIC"],
+    env = {
+        "CARGO_PKG_NAME": "mnt-inbox-application",
+        "CARGO_PKG_VERSION": "0.1.0",
+        "CARGO_PKG_VERSION_MAJOR": "0",
+        "CARGO_PKG_VERSION_MINOR": "1",
+        "CARGO_PKG_VERSION_PATCH": "0",
+        "CARGO_PKG_VERSION_PRE": "",
+    },
+    deps = [
+        "//backend/crates/inbox/domain:mnt-inbox-domain",
+        "//backend/crates/kernel/core:mnt-kernel-core",
+        "//backend:serde",
+        "//backend:serde_json",
+        "//backend:time",
+        "//backend:uuid",
+    ],
+)
+
+rust_test(
+    name = "mnt-inbox-application-unit",
+    srcs = glob(["src/**/*.rs"], exclude = []),
+    crate = "mnt_inbox_application",
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    visibility = ["PUBLIC"],
+    env = {
+        "CARGO_PKG_NAME": "mnt-inbox-application",
+        "CARGO_PKG_VERSION": "0.1.0",
+        "CARGO_PKG_VERSION_MAJOR": "0",
+        "CARGO_PKG_VERSION_MINOR": "1",
+        "CARGO_PKG_VERSION_PATCH": "0",
+        "CARGO_PKG_VERSION_PRE": "",
+    },
+    deps = [
+        "//backend/crates/inbox/domain:mnt-inbox-domain",
+        "//backend/crates/kernel/core:mnt-kernel-core",
+        "//backend:serde",
+        "//backend:serde_json",
+        "//backend:time",
+        "//backend:uuid",
+    ],
+)

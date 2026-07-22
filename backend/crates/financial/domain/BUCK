@@ -1,0 +1,44 @@
+# Hand-maintained Buck2 Rust targets for the current backend workspace.
+# Cargo.toml and Cargo.lock are dependency inputs; these checked-in labels are build authority.
+
+rust_library(
+    name = "mnt-financial-domain",
+    srcs = glob(["src/**/*.rs"]),
+    crate = "mnt_financial_domain",
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    visibility = ["PUBLIC"],
+    env = {
+        "CARGO_PKG_NAME": "mnt-financial-domain",
+        "CARGO_PKG_VERSION": "0.0.0",
+        "CARGO_PKG_VERSION_MAJOR": "0",
+        "CARGO_PKG_VERSION_MINOR": "0",
+        "CARGO_PKG_VERSION_PATCH": "0",
+        "CARGO_PKG_VERSION_PRE": "",
+    },
+    deps = [
+        "//backend/crates/kernel/core:mnt-kernel-core",
+        "//backend:serde",
+    ],
+)
+
+rust_test(
+    name = "mnt-financial-domain-unit",
+    srcs = glob(["src/**/*.rs"], exclude = []),
+    crate = "mnt_financial_domain",
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    visibility = ["PUBLIC"],
+    env = {
+        "CARGO_PKG_NAME": "mnt-financial-domain",
+        "CARGO_PKG_VERSION": "0.0.0",
+        "CARGO_PKG_VERSION_MAJOR": "0",
+        "CARGO_PKG_VERSION_MINOR": "0",
+        "CARGO_PKG_VERSION_PATCH": "0",
+        "CARGO_PKG_VERSION_PRE": "",
+    },
+    deps = [
+        "//backend/crates/kernel/core:mnt-kernel-core",
+        "//backend:serde",
+    ],
+)

@@ -101,6 +101,23 @@ The engine model is:
    - The runtime must be crash-safe and replay-aware: every external side effect goes through an
      outbox/idempotency boundary, waiting human tasks are durable, and retries never duplicate
      approvals, mail, payroll notices, ownership changes, or audit events.
+   - Once a deterministic start key creates a durable run, that run is the recovery authority:
+     retries load its complete trigger identity, initiator, correlation/trace provenance, inputs,
+     context, schedule, and exact immutable definition version. A later caller or mutable
+     active-version/status change cannot rewrite those facts; missing or malformed persisted
+     provenance fails closed before transition, node, outbox, waiting-task, or audit effects.
+   - Event and schedule starts serialize on `(org_id, idempotency_key)` before reading either a
+     run or mutable ACTIVE state. One transaction then returns the existing run plus its exact
+     immutable graph, or selects the ACTIVE immutable version/graph pair in one statement snapshot
+     and inserts STARTING plus the start audit before returning created ownership and that exact
+     graph. Callers never parse a mutable graph before this claim. If neither an existing run nor
+     an ACTIVE definition exists at that point, the claim writes no row/audit; a due schedule
+     remains due rather than falsely consuming the fire. A present but corrupt ACTIVE definition
+     is never classified as absence: a missing active-version pointer, missing pointed immutable
+     version, incompatible or missing executable schema, or graph-validation failure rolls the
+     claim back without a row/audit, and schedule policy records FAILED and advances the fire so
+     corrupted publication cannot hot-loop every poll tick. Immutable versions remain executable
+     for already-bound or currently selected runs regardless of later version lifecycle labels.
    - Execution history must preserve enough redacted metadata to debug failures and prove compliance
      without leaking HR/payroll/location/personal data into generic logs.
 

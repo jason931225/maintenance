@@ -1,0 +1,50 @@
+# Hand-maintained Buck2 Rust targets for the current backend workspace.
+# Cargo.toml and Cargo.lock are dependency inputs; these checked-in labels are build authority.
+
+rust_library(
+    name = "mnt-kernel-core",
+    srcs = glob(["src/**/*.rs"]),
+    crate = "mnt_kernel_core",
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    visibility = ["PUBLIC"],
+    env = {
+        "CARGO_PKG_NAME": "mnt-kernel-core",
+        "CARGO_PKG_VERSION": "0.1.0",
+        "CARGO_PKG_VERSION_MAJOR": "0",
+        "CARGO_PKG_VERSION_MINOR": "1",
+        "CARGO_PKG_VERSION_PATCH": "0",
+        "CARGO_PKG_VERSION_PRE": "",
+    },
+    deps = [
+        "//backend:serde",
+        "//backend:serde_json",
+        "//backend:thiserror",
+        "//backend:time",
+        "//backend:uuid",
+    ],
+)
+
+rust_test(
+    name = "mnt-kernel-core-unit",
+    srcs = glob(["src/**/*.rs"], exclude = []),
+    crate = "mnt_kernel_core",
+    crate_root = "src/lib.rs",
+    edition = "2024",
+    visibility = ["PUBLIC"],
+    env = {
+        "CARGO_PKG_NAME": "mnt-kernel-core",
+        "CARGO_PKG_VERSION": "0.1.0",
+        "CARGO_PKG_VERSION_MAJOR": "0",
+        "CARGO_PKG_VERSION_MINOR": "1",
+        "CARGO_PKG_VERSION_PATCH": "0",
+        "CARGO_PKG_VERSION_PRE": "",
+    },
+    deps = [
+        "//backend:serde",
+        "//backend:serde_json",
+        "//backend:thiserror",
+        "//backend:time",
+        "//backend:uuid",
+    ],
+)

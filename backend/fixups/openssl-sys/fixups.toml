@@ -1,0 +1,19 @@
+# The wrapper extracts digest- and size-verified static libraries from the
+# platform's pinned Homebrew OpenSSL 3.6.3 bottle and serves them only over
+# exact loopback routes to Buck2. The cfg matrix below is the deterministic
+# result of openssl-sys 0.9.116's cfgs.rs for OpenSSL 3.6.3 plus the one
+# expando.c configuration value present in every pinned platform bottle.
+# Native linkage is an explicit Buck dependency rather than ambient host
+# discovery, search paths, or cargo-emitted `-l` flags.
+cfgs = [
+    "openssl",
+    "ossl101", "ossl102", "ossl102f", "ossl102h",
+    "ossl110", "ossl110f", "ossl110g", "ossl110h",
+    "ossl111", "ossl111b", "ossl111c", "ossl111d",
+    "ossl300", "ossl320", "ossl330", "ossl340", "ossl350",
+    'osslconf="OPENSSL_NO_SSL3_METHOD"',
+]
+extra_deps = ["toolchains//:openssl-static"]
+
+[buildscript]
+run = false

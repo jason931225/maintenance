@@ -7,6 +7,13 @@
 > `{domain,application,adapter-postgres,rest}` shape, glob workspace members (kills the #1 merge
 > conflict), 6 CI gates, `deny.toml`, `crates/kernel/core`, openapi-first, ultragoal — so the substrate
 > is ~60% in place; S0–S5 closes the gap, then the lanes fan out.
+>
+> **2026-07-17 build-authority supersession:** historical Cargo coordination advice below remains as
+> chronology only. Buck2 is now the sole backend Rust query/build/test authority. The exact admission
+> contract is 22 query labels, 22 build labels, and 20 test labels through the authenticated loopback
+> wrapper, plus exact 583/583 current-lock registry request-route evidence. Cargo manifests/lock remain
+> dependency inputs; Cargo commands are not completion evidence. This supersedes §1(d)'s Cargo
+> serialize-point guidance and §5's "do NOT migrate" decision without rewriting that history.
 
 ## 1. Parallelization architecture (four invariants; 3 already in place)
 

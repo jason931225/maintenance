@@ -1,0 +1,15 @@
+load(":semantic_spoof_rule.bzl", "rust_library_spoof")
+
+python_test(
+    name = "backend-manifest-coverage-unit",
+    srcs = ["test_backend_manifest_coverage.py"],
+    deps = [
+        "//tools/buck:backend-manifest-coverage-lib",
+    ],
+)
+
+# Negative semantic-proof fixture: the rule kind intentionally contains the
+# allowed `rust_library` text without being a Rust rule.
+rust_library_spoof(
+    name = "rust-library-spoof-fixture",
+)
