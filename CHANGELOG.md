@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.65](https://github.com/jason931225/maintenance/compare/v0.1.64...v0.1.65) (2026-07-22)
+
+
+### Bug Fixes
+
+* **ci:** make Android post-login E2E hermetic ([#481](https://github.com/jason931225/maintenance/issues/481)) ([0b70738](https://github.com/jason931225/maintenance/commit/0b70738a26d4643f6d083a47ecc70c543b0d869d))
+
 ## [0.1.64](https://github.com/jason931225/maintenance/compare/v0.1.63...v0.1.64) (2026-07-21)
 
 
