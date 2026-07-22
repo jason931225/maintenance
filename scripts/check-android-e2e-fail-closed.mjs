@@ -14,6 +14,10 @@ function includes(text, needle) {
   return text.includes(needle);
 }
 
+function jobSteps(job) {
+  return job.split(/(?=^[ ]{6}- )/m).filter((step) => /^[ ]{6}- /.test(step));
+}
+
 function hasShaVerificationBeforeBuild(job) {
   const shaCheck = job.search(/git\s+rev-parse\s+HEAD[\s\S]{0,240}GITHUB_SHA|GITHUB_SHA[\s\S]{0,240}git\s+rev-parse\s+HEAD/);
   const build = job.search(/cargo\s+build\b[\s\S]{0,100}(?:-p|--package)\s+mnt-app/);
@@ -46,10 +50,18 @@ function hasRequiredResultGate(job) {
 }
 
 function hasAlwaysCleanup(job) {
-  const steps = job.split(/(?=^[ ]{6}- )/m);
-  return steps.some((step) => /if:\s*always\(\)/.test(step)
+  return jobSteps(job).some((step) => /if:\s*always\(\)/.test(step)
     && /(?:rm\s+-rf|rm\s+-f)/.test(step)
     && /\b(?:kill|pkill)\b/.test(step));
+}
+
+function hasRunnerTempAndroidSdkSetup(job) {
+  const steps = jobSteps(job);
+  const diskCleanupIndex = steps.findIndex((step) => includes(step, "uses: ./.github/actions/free-runner-disk"));
+  const sdkSetupIndex = steps.findIndex((step) => includes(step, "uses: android-actions/setup-android@")
+    && includes(step, "ANDROID_HOME: ${{ runner.temp }}/android-sdk")
+    && includes(step, "ANDROID_SDK_ROOT: ${{ runner.temp }}/android-sdk"));
+  return diskCleanupIndex !== -1 && sdkSetupIndex > diskCleanupIndex;
 }
 
 function hasDebugOnlyLoopbackCleartext(files) {
@@ -134,8 +146,7 @@ export function evaluateAndroidE2eFailClosedChecks(files) {
       "android-instrumented must provision a local postgres:18.4 service",
     ],
     [
-      includes(job, "ANDROID_HOME: ${{ runner.temp }}/android-sdk")
-        && includes(job, "ANDROID_SDK_ROOT: ${{ runner.temp }}/android-sdk"),
+      hasRunnerTempAndroidSdkSetup(job),
       "android-instrumented must isolate its replacement Android SDK under runner.temp after disk cleanup",
     ],
     [

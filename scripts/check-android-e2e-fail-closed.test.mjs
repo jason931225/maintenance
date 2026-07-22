@@ -10,6 +10,7 @@ jobs:
       postgres:
         image: postgres:18.4
     steps:
+      - uses: ./.github/actions/free-runner-disk
       - uses: android-actions/setup-android@pinned
         env:
           ANDROID_HOME: \${{ runner.temp }}/android-sdk
@@ -94,6 +95,32 @@ describe("Android hermetic E2E CI contract", () => {
     expectsFailure(evaluate(validWorkflow
       .replace('          ANDROID_HOME: ${{ runner.temp }}/android-sdk\n', '')
       .replace('          ANDROID_SDK_ROOT: ${{ runner.temp }}/android-sdk\n', '')), "isolate its replacement Android SDK");
+  });
+
+  it("rejects runner-temp SDK variables relocated away from setup-android", () => {
+    const relocated = validWorkflow
+      .replace(`        env:
+          ANDROID_HOME: \${{ runner.temp }}/android-sdk
+          ANDROID_SDK_ROOT: \${{ runner.temp }}/android-sdk
+`, '')
+      .replace(`      - run: |
+          bootstrap_otp=`, `      - env:
+          ANDROID_HOME: \${{ runner.temp }}/android-sdk
+          ANDROID_SDK_ROOT: \${{ runner.temp }}/android-sdk
+        run: |
+          bootstrap_otp=`);
+    expectsFailure(evaluate(relocated), "isolate its replacement Android SDK");
+  });
+
+  it("rejects setup-android before free-runner-disk cleanup", () => {
+    const diskCleanup = '      - uses: ./.github/actions/free-runner-disk\n';
+    const sdkSetup = `      - uses: android-actions/setup-android@pinned
+        env:
+          ANDROID_HOME: \${{ runner.temp }}/android-sdk
+          ANDROID_SDK_ROOT: \${{ runner.temp }}/android-sdk
+`;
+    expectsFailure(evaluate(validWorkflow
+      .replace(`${diskCleanup}${sdkSetup}`, `${sdkSetup}${diskCleanup}`)), "isolate its replacement Android SDK");
   });
 
   it("rejects a candidate backend build without exact-SHA verification", () => {
