@@ -1,275 +1,231 @@
 #!/usr/bin/env node
-import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const failures = [];
-const passes = [];
 
-function pathOf(path) {
-  return resolve(root, path);
+function jobBlock(workflow) {
+  const match = workflow.match(/^[ ]{2}android-instrumented:\s*$(.*?)(?=^[ ]{2}[A-Za-z0-9_-]+:\s*$|(?![\s\S]))/ms);
+  return match?.[0] ?? "";
 }
 
-function read(path) {
-  const abs = pathOf(path);
-  if (!existsSync(abs)) {
-    failures.push(`${path}: missing`);
-    return "";
+function includes(text, needle) {
+  return text.includes(needle);
+}
+
+function hasShaVerificationBeforeBuild(job) {
+  const shaCheck = job.search(/git\s+rev-parse\s+HEAD[\s\S]{0,240}GITHUB_SHA|GITHUB_SHA[\s\S]{0,240}git\s+rev-parse\s+HEAD/);
+  const build = job.search(/cargo\s+build\b[\s\S]{0,100}(?:-p|--package)\s+mnt-app/);
+  return shaCheck !== -1 && build !== -1 && shaCheck < build;
+}
+
+function hasRandomOtp(job) {
+  return /(?:openssl\s+rand|\/dev\/urandom|uuidgen)/.test(job)
+    && /otp/i.test(job)
+    && /sha256|sha-?256/i.test(job);
+}
+
+function hasSafeOtpRedeem(job) {
+  return /jq\s+-Rsc\s+['"]\{otp:\.\}['"]/.test(job)
+    && /auth\/otp\/redeem/.test(job)
+    && /--data-binary\s+@-/.test(job);
+}
+
+function hasMode600RunnerTempAsset(job) {
+  return /RUNNER_TEMP/.test(job)
+    && /chmod\s+600\b/.test(job)
+    && /field-e2e-session\.properties/.test(job);
+}
+
+function hasRequiredResultGate(job) {
+  return /WorkOrderFlowTest/.test(job)
+    && /(?:junit|test-results|results\.xml|TEST-.*\.xml)/i.test(job)
+    && /(?:skipped|skip)/i.test(job)
+    && /(?:fail|exit 1)/i.test(job);
+}
+
+function hasAlwaysCleanup(job) {
+  return /if:\s*always\(\)/.test(job)
+    && /(?:rm\s+-rf|rm\s+-f)/.test(job)
+    && /(?:kill|pkill|boot-backend)/.test(job);
+}
+
+function hasDebugOnlyLoopbackCleartext(files) {
+  const debugManifest = files["android/app/src/debug/AndroidManifest.xml"] ?? "";
+  const debugNetworkConfig = files["android/app/src/debug/res/xml/network_security_config.xml"] ?? "";
+  const mainManifest = files["android/app/src/main/AndroidManifest.xml"] ?? "";
+  const gradle = files["android/app/build.gradle.kts"] ?? "";
+
+  const allowedDomains = [...debugNetworkConfig.matchAll(/<domain\b[^>]*>([^<]+)<\/domain>/g)]
+    .map((match) => match[1].trim());
+
+  return includes(debugManifest, "networkSecurityConfig")
+    && /<base-config\b[^>]*cleartextTrafficPermitted\s*=\s*["']false["']/.test(debugNetworkConfig)
+    && allowedDomains.length === 1
+    && allowedDomains[0] === "10.0.2.2"
+    && /cleartextTrafficPermitted\s*=\s*["']true["']/.test(debugNetworkConfig)
+    && !/usesCleartextTraffic\s*=\s*["']true["']/.test(debugManifest)
+    && !/usesCleartextTraffic\s*=\s*["']true["']/.test(mainManifest)
+    && /https:\/\//.test(gradle)
+    && /10\.0\.2\.2/.test(gradle);
+}
+
+function hasRunnerTempAuthDirectorySeam(files) {
+  const genKeys = files["e2e/harness/gen-keys.sh"] ?? "";
+  const bootBackend = files["e2e/harness/boot-backend.sh"] ?? "";
+  const runHarness = files["e2e/run.sh"] ?? "";
+  return /AUTH_DIR=.*E2E_AUTH_DIR:-/.test(genKeys)
+    && /AUTH_DIR=.*E2E_AUTH_DIR:-/.test(bootBackend)
+    && /AUTH_DIR=.*E2E_AUTH_DIR:-/.test(runHarness)
+    && /install\s+-d\s+-m\s+700\s+"?\$\{AUTH_DIR\}"?/.test(genKeys)
+    && /install\s+-d\s+-m\s+700\s+"?\$\{AUTH_DIR\}"?/.test(bootBackend)
+    && /PID_FILE=.*AUTH_DIR/.test(bootBackend)
+    && /PID_FILE=.*AUTH_DIR/.test(runHarness);
+}
+
+function hasSafeMobileCredentialSeed(files) {
+  const seed = files["e2e/harness/seed-mobile-ci.sql"] ?? "";
+  return /:\{\?otp_hash\}/.test(seed)
+    && /\^\[0-9a-f\]\{64\}\$/.test(seed)
+    && /00000000-0000-0000-0000-0000000d0002/.test(seed)
+    && /decode\(:'otp_hash',\s*'hex'\)/.test(seed)
+    && /interval\s+'15 minutes'/.test(seed)
+    && !/e2e-tenant-otp|bootstrap_otp\s*=\s*['"][^$]/.test(seed);
+}
+
+function hasFailClosedAuthenticatedUiAssertion(files) {
+  const test = files["android/app/src/androidTest/kotlin/com/maintenance/field/WorkOrderFlowTest.kt"] ?? "";
+  const seededWorkOrderUiAssertions = test.match(/onNodeWithText\(seededWorkOrder\.requestNo\)\.assertIsDisplayed\(\)/g) ?? [];
+  return /listTodayWorkOrders\(\)/.test(test)
+    && /00000000-0000-0000-0000-000000f00003/.test(test)
+    && /field-e2e-session\.properties fixture is missing or unreadable/.test(test)
+    && /createAndroidComposeRule<MainActivity>\(\)/.test(test)
+    && /onNodeWithText\("오늘 작업"\)\.assertIsDisplayed\(\)/.test(test)
+    && /onAllNodesWithText\("패스키 로그인"\)\.assertCountEquals\(0\)/.test(test)
+    && /waitUntil\(timeoutMillis\s*=\s*UI_RENDER_TIMEOUT_MILLIS\)/.test(test)
+    && seededWorkOrderUiAssertions.length >= 2
+    && /onNodeWithText\(seededWorkOrder\.requestNo\)\.assertIsDisplayed\(\)/.test(test)
+    && !/\bAssume\b|assumeTrue|assumeFalse/.test(test);
+}
+
+/**
+ * Pure evaluator deliberately kept independent from filesystem I/O so mutation
+ * coverage can prove each mobile-CI safety property fails independently.
+ */
+export function evaluateAndroidE2eFailClosedChecks(files) {
+  const failures = [];
+  const workflow = files[".github/workflows/ci.yml"] ?? "";
+  const job = jobBlock(workflow);
+
+  if (!job) {
+    failures.push(".github/workflows/ci.yml must define android-instrumented job");
+    return { failures, passes: [] };
   }
-  return readFileSync(abs, "utf8");
-}
 
-function pass(label) {
-  passes.push(label);
-}
+  const checks = [
+    [
+      !/FIELD_E2E_BASE_URL|FIELD_E2E_SEED_REFRESH_TOKEN/.test(job),
+      "android-instrumented must not depend on external FIELD_E2E_BASE_URL or FIELD_E2E_SEED_REFRESH_TOKEN secrets",
+    ],
+    [
+      /services:\s*[\s\S]{0,240}postgres:[\s\S]{0,240}image:\s*postgres:18\.4\b/.test(job),
+      "android-instrumented must provision a local postgres:18.4 service",
+    ],
+    [
+      hasShaVerificationBeforeBuild(job),
+      "android-instrumented must verify git rev-parse HEAD against GITHUB_SHA before building candidate mnt-app",
+    ],
+    [
+      /e2e\/harness\/db\.sh/.test(job) && hasRandomOtp(job),
+      "android-instrumented must seed a randomly generated SHA-256-backed mechanic bootstrap OTP into the ephemeral database",
+    ],
+    [
+      /e2e\/harness\/boot-backend\.sh/.test(job)
+        && /(?:127\.0\.0\.1|localhost|10\.0\.2\.2)/.test(job)
+        && hasSafeOtpRedeem(job),
+      "android-instrumented must boot the candidate backend on loopback and JSON-encode the OTP redeem body safely",
+    ],
+    [
+      hasMode600RunnerTempAsset(job),
+      "android-instrumented must mint session tokens only into a mode-0600 RUNNER_TEMP field-e2e-session.properties asset",
+    ],
+    [
+      !/GITHUB_(?:ENV|OUTPUT)[^\n]*(?:ACCESS_TOKEN|REFRESH_TOKEN|BOOTSTRAP_OTP)|(?:ACCESS_TOKEN|REFRESH_TOKEN|BOOTSTRAP_OTP)[^\n]*>>\s*"?\$GITHUB_(?:ENV|OUTPUT)/.test(job),
+      "android-instrumented must not leak credentials through GITHUB_ENV or GITHUB_OUTPUT",
+    ],
+    [
+      !/android\.testInstrumentationRunnerArguments\.FIELD_E2E_/.test(job),
+      "android-instrumented must not pass raw credentials through Gradle instrumentation arguments",
+    ],
+    [
+      /\.\/gradlew\s+fieldApi34DebugAndroidTest/.test(job),
+      "android-instrumented must execute fieldApi34DebugAndroidTest",
+    ],
+    [
+      hasRequiredResultGate(job),
+      "android-instrumented must fail when WorkOrderFlowTest is missing, skipped, or unsuccessful in JUnit results",
+    ],
+    [
+      hasAlwaysCleanup(job),
+      "android-instrumented must always remove the session asset and stop the candidate backend",
+    ],
+    [
+      hasRunnerTempAuthDirectorySeam(files),
+      "E2E harness runtime keys, logs, and backend PID must honor the runner-temp E2E_AUTH_DIR seam",
+    ],
+    [
+      hasSafeMobileCredentialSeed(files),
+      "mobile CI seed must accept only a caller-supplied SHA-256 mechanic OTP hash with a short expiry",
+    ],
+    [
+      hasFailClosedAuthenticatedUiAssertion(files),
+      "WorkOrderFlowTest must fail without its fixture, assert the seeded work order through a protected API call, and render it in authenticated Compose UI",
+    ],
+    [
+      hasDebugOnlyLoopbackCleartext(files),
+      "Android cleartext access must be debug-only and limited to 10.0.2.2 while release retains HTTPS",
+    ],
+  ];
 
-function assert(condition, passLabel, failureLabel) {
-  if (condition) pass(passLabel);
-  else failures.push(failureLabel);
-}
-
-function requireIncludes(text, needle, label, source = ".github/workflows/ci.yml") {
-  assert(text.includes(needle), label, `${source} must include ${JSON.stringify(needle)}`);
-}
-
-function requireNotIncludes(text, needle, label, source = ".github/workflows/ci.yml") {
-  assert(!text.includes(needle), label, `${source} must not include ${JSON.stringify(needle)}`);
-}
-
-function requireOrder(text, first, second, label, source = ".github/workflows/ci.yml") {
-  const firstIndex = text.indexOf(first);
-  const secondIndex = text.indexOf(second);
-  assert(
-    firstIndex !== -1 && secondIndex !== -1 && firstIndex < secondIndex,
-    label,
-    `${source} must place ${JSON.stringify(first)} before ${JSON.stringify(second)}`,
-  );
-}
-
-function stripCommonIndent(block) {
-  const lines = block.split(/\r?\n/);
-  const indents = lines
-    .filter((line) => line.trim().length > 0)
-    .map((line) => line.match(/^\s*/)?.[0].length ?? 0);
-  const indent = indents.length > 0 ? Math.min(...indents) : 0;
-  return lines.map((line) => line.slice(Math.min(indent, line.length))).join("\n");
-}
-
-function extractLineRange(text, startNeedle, endNeedle, label, source = ".github/workflows/ci.yml") {
-  const lines = text.split(/\r?\n/);
-  const start = lines.findIndex((line) => line.includes(startNeedle));
-  const end = lines.findIndex((line, index) => index > start && line.includes(endNeedle));
-
-  if (start === -1 || end === -1 || start >= end) {
-    failures.push(`${source} must include ${label} from ${JSON.stringify(startNeedle)} before ${JSON.stringify(endNeedle)}`);
-    return "";
+  const passes = [];
+  for (const [condition, message] of checks) {
+    if (condition) passes.push(message);
+    else failures.push(message);
   }
-
-  pass(`${label} can be extracted for dry-run coverage`);
-  return stripCommonIndent(lines.slice(start, end).join("\n"));
+  return { failures, passes };
 }
 
-function runGuardCase(name, shellBlock, env, expectation) {
-  if (shellBlock.length === 0) return;
+function read(relativePath) {
+  const absolutePath = resolve(root, relativePath);
+  return existsSync(absolutePath) ? readFileSync(absolutePath, "utf8") : "";
+}
 
-  const tmp = mkdtempSync(join(tmpdir(), "mnt-android-e2e-guard-"));
-  const githubEnv = join(tmp, "github-env");
-  const stepSummary = join(tmp, "step-summary");
+function main() {
+  const paths = [
+    ".github/workflows/ci.yml",
+    "android/app/src/debug/AndroidManifest.xml",
+    "android/app/src/debug/res/xml/network_security_config.xml",
+    "android/app/src/main/AndroidManifest.xml",
+    "android/app/build.gradle.kts",
+    "android/app/src/androidTest/kotlin/com/maintenance/field/WorkOrderFlowTest.kt",
+    "e2e/harness/gen-keys.sh",
+    "e2e/harness/boot-backend.sh",
+    "e2e/harness/seed-mobile-ci.sql",
+    "e2e/run.sh",
+  ];
+  const files = Object.fromEntries(paths.map((path) => [path, read(path)]));
+  const { failures, passes } = evaluateAndroidE2eFailClosedChecks(files);
 
-  try {
-    const result = spawnSync("/bin/bash", ["-e", "-o", "pipefail", "-c", shellBlock], {
-      cwd: root,
-      encoding: "utf8",
-      env: {
-        PATH: process.env.PATH ?? "/usr/bin:/bin",
-        HOME: process.env.HOME ?? root,
-        TMPDIR: process.env.TMPDIR ?? tmpdir(),
-        GITHUB_ENV: githubEnv,
-        GITHUB_STEP_SUMMARY: stepSummary,
-        FIELD_E2E_REQUIRE_REAL_SESSION: "0",
-        FIELD_E2E_BASE_URL: "",
-        FIELD_E2E_SEED_REFRESH_TOKEN: "",
-        ...env,
-      },
-    });
-
-    if (result.error) {
-      failures.push(`${name}: failed to start bash dry-run: ${result.error.message}`);
-      return;
-    }
-
-    const output = `${result.stdout ?? ""}${result.stderr ?? ""}`;
-    const envOutput = existsSync(githubEnv) ? readFileSync(githubEnv, "utf8") : "";
-    const summaryOutput = existsSync(stepSummary) ? readFileSync(stepSummary, "utf8") : "";
-
-    if (result.status === expectation.exitCode) {
-      pass(`${name}: exit ${expectation.exitCode}`);
-    } else {
-      failures.push(`${name}: expected exit ${expectation.exitCode}, got ${result.status}; output:\n${output.trim()}`);
-    }
-
-    for (const needle of expectation.includes ?? []) {
-      assert(output.includes(needle), `${name}: output includes ${needle}`, `${name}: output must include ${JSON.stringify(needle)}; output:\n${output.trim()}`);
-    }
-    for (const needle of expectation.excludes ?? []) {
-      assert(!output.includes(needle), `${name}: output excludes ${needle}`, `${name}: output must not include ${JSON.stringify(needle)}; output:\n${output.trim()}`);
-    }
-    for (const needle of expectation.envIncludes ?? []) {
-      assert(envOutput.includes(needle), `${name}: GITHUB_ENV includes ${needle}`, `${name}: GITHUB_ENV must include ${JSON.stringify(needle)}; contents:\n${envOutput.trim()}`);
-    }
-    for (const needle of expectation.summaryIncludes ?? []) {
-      assert(summaryOutput.includes(needle), `${name}: summary includes ${needle}`, `${name}: GITHUB_STEP_SUMMARY must include ${JSON.stringify(needle)}; contents:\n${summaryOutput.trim()}`);
-    }
-  } finally {
-    rmSync(tmp, { recursive: true, force: true });
+  for (const pass of passes) console.log(`PASS ${pass}`);
+  if (failures.length > 0) {
+    console.error("\nAndroid E2E hermetic workflow guard failed:");
+    for (const failure of failures) console.error(`- ${failure}`);
+    process.exitCode = 1;
+    return;
   }
+  console.log(`\nAndroid E2E hermetic workflow guard passed (${passes.length} checks).`);
 }
 
-const workflowPath = ".github/workflows/ci.yml";
-const workflow = read(workflowPath);
-const packageJsonText = read("package.json");
-let packageJson = {};
-try {
-  packageJson = JSON.parse(packageJsonText);
-} catch (error) {
-  failures.push(`package.json: invalid JSON: ${error.message}`);
-}
-
-const requireRealAssignment = workflow.match(/FIELD_E2E_REQUIRE_REAL_SESSION:\s*\$\{\{([^\n]+)\}\}/);
-assert(Boolean(requireRealAssignment), "FIELD_E2E_REQUIRE_REAL_SESSION assignment present", `${workflowPath}: missing FIELD_E2E_REQUIRE_REAL_SESSION assignment`);
-const requireRealExpression = requireRealAssignment?.[1] ?? "";
-assert(
-  /github\.event_name\s*==\s*'push'/.test(requireRealExpression),
-  "push runs can require the real Android E2E gate",
-  `${workflowPath}: FIELD_E2E_REQUIRE_REAL_SESSION must be enabled for protected push runs`,
-);
-assert(
-  /github\.ref_type\s*==\s*'branch'/.test(requireRealExpression),
-  "branch refs are distinguished from tag/manual contexts",
-  `${workflowPath}: FIELD_E2E_REQUIRE_REAL_SESSION must account for github.ref_type == 'branch'`,
-);
-assert(
-  /github\.ref_protected/.test(requireRealExpression),
-  "protected refs require the real Android E2E gate",
-  `${workflowPath}: FIELD_E2E_REQUIRE_REAL_SESSION must account for github.ref_protected`,
-);
-assert(
-  !/secrets\.FIELD_E2E_BASE_URL|secrets\.FIELD_E2E_SEED_REFRESH_TOKEN/.test(requireRealExpression),
-  "required context does not depend on secret presence",
-  `${workflowPath}: FIELD_E2E_REQUIRE_REAL_SESSION must not be conditioned on secrets being present`,
-);
-
-requireIncludes(workflow, "::error title=Required Android E2E real-session inputs are missing::", "required missing inputs emit a GitHub Actions error");
-requireIncludes(workflow, "::notice title=Optional Android E2E real-session gate skipped::", "optional missing inputs emit a truthful skip notice");
-requireIncludes(workflow, "GITHUB_STEP_SUMMARY", "required/optional gate disposition is written to the job summary");
-requireIncludes(workflow, "FIELD_E2E_SESSION_ASSETS_DIR=", "optional skip clears the session fixture path");
-requireIncludes(workflow, "./gradlew fieldApi34DebugAndroidTest", "workflow still runs the Android instrumented E2E command");
-requireNotIncludes(workflow, "GITHUB_OUTPUT", "workflow avoids empty token step outputs");
-requireNotIncludes(workflow, "steps.session.outputs", "workflow avoids session output token handoff");
-requireNotIncludes(
-  workflow,
-  "android.testInstrumentationRunnerArguments.FIELD_E2E_",
-  "workflow avoids raw token Gradle instrumentation arguments",
-);
-requireOrder(
-  workflow,
-  "::error title=Required Android E2E real-session inputs are missing::",
-  "./gradlew fieldApi34DebugAndroidTest",
-  "required fail-closed guard runs before Gradle Managed Device execution",
-);
-requireOrder(
-  workflow,
-  "::notice title=Optional Android E2E real-session gate skipped::",
-  "./gradlew fieldApi34DebugAndroidTest",
-  "optional skip decision is logged before Gradle Managed Device execution",
-);
-
-const guardShellBlock = extractLineRange(
-  workflow,
-  'if [ -z "${FIELD_E2E_BASE_URL:-}" ] || [ -z "${FIELD_E2E_SEED_REFRESH_TOKEN:-}" ]; then',
-  "printf '::add-mask::%s\\n' \"$FIELD_E2E_SEED_REFRESH_TOKEN\"",
-  "Android real-session missing-input guard shell block",
-);
-const mintShellBlock = extractLineRange(
-  workflow,
-  "printf '::add-mask::%s\\n' \"$FIELD_E2E_SEED_REFRESH_TOKEN\"",
-  "if ! access_token=",
-  "Android real-session mint shell block",
-);
-requireIncludes(
-  mintShellBlock,
-  "$FIELD_E2E_BASE_URL/api/v1/auth/token/refresh",
-  "session mint uses the backend's canonical refresh route",
-  "Android real-session mint shell block",
-);
-requireNotIncludes(
-  mintShellBlock,
-  "$FIELD_E2E_BASE_URL/api/v1/auth/refresh",
-  "session mint does not call the removed non-canonical refresh route",
-  "Android real-session mint shell block",
-);
-
-runGuardCase(
-  "protected branch push context with missing inputs fails closed",
-  guardShellBlock,
-  { FIELD_E2E_REQUIRE_REAL_SESSION: "1" },
-  {
-    exitCode: 1,
-    includes: ["::error title=Required Android E2E real-session inputs are missing::"],
-    excludes: ["::notice title=Optional Android E2E real-session gate skipped::"],
-    summaryIncludes: ["Result: failed closed before Gradle Managed Device execution"],
-  },
-);
-runGuardCase(
-  "optional/fork PR context with missing inputs skips truthfully",
-  guardShellBlock,
-  { FIELD_E2E_REQUIRE_REAL_SESSION: "0" },
-  {
-    exitCode: 0,
-    includes: ["::notice title=Optional Android E2E real-session gate skipped::"],
-    excludes: ["::error title=Required Android E2E real-session inputs are missing::"],
-    envIncludes: ["FIELD_E2E_SESSION_ASSETS_DIR="],
-    summaryIncludes: ["Gate: optional/skipped"],
-  },
-);
-runGuardCase(
-  "required context with both session inputs proceeds to minting",
-  guardShellBlock,
-  {
-    FIELD_E2E_REQUIRE_REAL_SESSION: "1",
-    FIELD_E2E_BASE_URL: "https://maintenance.example.test",
-    FIELD_E2E_SEED_REFRESH_TOKEN: "seed-refresh-token",
-  },
-  {
-    exitCode: 0,
-    excludes: ["::error title=Required Android E2E real-session inputs are missing::", "::notice title=Optional Android E2E real-session gate skipped::"],
-  },
-);
-
-assert(
-  packageJson.scripts?.["check:android-e2e-fail-closed"] === "node scripts/check-android-e2e-fail-closed.mjs",
-  "package script check:android-e2e-fail-closed",
-  "package.json must define check:android-e2e-fail-closed",
-);
-assert(
-  workflow.includes("npm run check:android-e2e-fail-closed"),
-  "CI runs Android E2E fail-closed workflow guard",
-  `${workflowPath} must run npm run check:android-e2e-fail-closed`,
-);
-
-for (const label of passes) {
-  console.log(`PASS ${label}`);
-}
-
-if (failures.length > 0) {
-  console.error("\nAndroid E2E fail-closed workflow guard failed:");
-  for (const failure of failures) {
-    console.error(`- ${failure}`);
-  }
-  process.exit(1);
-}
-
-console.log(`\nAndroid E2E fail-closed workflow guard passed (${passes.length} checks).`);
+const invokedPath = process.argv[1] ? resolve(process.argv[1]) : "";
+if (invokedPath === fileURLToPath(import.meta.url)) main();

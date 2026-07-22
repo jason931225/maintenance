@@ -22,7 +22,7 @@ Each ADR-0009 release must attach evidence for every applicable row below. Local
 | iOS Simulator UI and accessibility | XcodeGen project builds, XCUITest launches the real app, post-login tests use a real backend session source when configured, and accessibility-audit findings are attached | `ios/**` UI changes, mobile-visible workflow changes, or release candidates requiring iOS UI evidence | `.github/workflows/ios-ui-tests.yml` (`iOS — XCUITest + accessibility audit (Simulator)`) |
 | iOS secure passkey ceremony | Real device Face ID/Touch ID + iCloud Keychain passkey create/assert/persistence/negative-path sign-off | Native passkey/auth changes, release candidates requiring secure-system UI proof, or when real ceremony evidence is stale for the release | `ios/E2E-MANUAL-SMOKE.md` |
 | Android Gradle build/unit/UI/screenshot | Android release/debug build gate, Robolectric Compose UI/accessibility tests, and Roborazzi screenshot regression all pass | Every release with Android or shared mobile capability impact | `cd android && ./gradlew build -x testReleaseUnitTest -x testDebugUnitTest`; `cd android && ./gradlew testDebugUnitTest`; `cd android && ./gradlew verifyRoborazziDebug` |
-| Android instrumented post-login E2E | Gradle Managed Device restores a real backend session and exercises post-login critical flow; absent real tokens are recorded as an honest self-skip | Android post-login flows, release candidates requiring Android end-to-end evidence, or token/session transport changes | `cd android && ./gradlew fieldApi34DebugAndroidTest` |
+| Android instrumented post-login E2E | Gradle Managed Device uses an isolated PostgreSQL 18.4 database and exact-candidate backend, then proves a random-OTP mechanic session can call the protected work-order API; missing or skipped evidence fails | Android post-login flows, release candidates requiring Android end-to-end evidence, or token/session transport changes | CI `android-instrumented`; local `cd android && ./gradlew fieldApi34DebugAndroidTest` after equivalent harness setup |
 | Android secure passkey ceremony | Real device Credential Manager create/assert/negative-path sign-off, including RP-origin confirmation and refresh-token persistence hand-off | Native passkey/auth changes, release candidates requiring secure-system UI proof, or when real ceremony evidence is stale for the release | `android/E2E-MANUAL-SMOKE.md` |
 | Browser enrollment/admin prerequisites | Web console enrollment/admin/passkey create story works through the real browser harness before native login evidence depends on it | Mobile user story depends on web enrollment, admin provisioning, passkey create, or console-managed setup | `bash e2e/run.sh`; relevant web lint/test/build evidence from CI |
 | MaintenanceField-only boundary | Evidence does not rely on COSS RN public-site artifacts or public-site native hosts | Every release | `coss-rn/**` remains out of scope unless a separate authorization card/ADR says otherwise |
@@ -89,16 +89,15 @@ Each ADR-0009 release must attach evidence for every applicable row below. Local
   post-login parity evidence.
 - **Android Gradle Managed Device post-login E2E:** `.github/workflows/ci.yml`
   runs the `android-instrumented` job on Linux/KVM and executes
-  `./gradlew fieldApi34DebugAndroidTest`. Required real-session contexts need
-  `FIELD_E2E_BASE_URL` plus `FIELD_E2E_SEED_REFRESH_TOKEN`; CI exchanges the
-  seed refresh token for a fresh access/refresh pair, masks the values, and
+  `./gradlew fieldApi34DebugAndroidTest`. CI starts PostgreSQL 18.4, verifies
+  and builds the exact candidate SHA, seeds the deterministic mechanic/work-order
+  fixtures, redeems a random short-lived OTP, masks the resulting tokens, and
   hands them to `WorkOrderFlowTest` through the runner-local
   `FIELD_E2E_SESSION_ASSETS_DIR` androidTest asset fixture rather than GitHub
-  outputs or raw Gradle CLI arguments. Protected branch/required push contexts
-  must fail closed when those inputs or the refresh/fixture handoff are missing.
-  Fork PRs or explicitly optional runs may skip via JUnit `Assume` only with
-  truthful optional/skipped output and must not be cited as real Android
-  post-login parity evidence.
+  outputs or raw Gradle CLI arguments. The test calls the protected work-order
+  API and requires the assigned seeded work order; JUnit parsing fails on a
+  missing, skipped, failed, or errored `WorkOrderFlowTest`. Debug cleartext is
+  limited to emulator host `10.0.2.2`, while release remains HTTPS.
 - **Signing/capability validation:** `ios/Config/App.xcconfig` defaults the app
   identity to `com.maintenance.field` under Team `98Q89GFZWP` and ad-hoc signs
   the Simulator build so keychain-sharing entitlements can be exercised in tests.

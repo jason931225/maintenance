@@ -113,12 +113,11 @@ their prerequisites are available:
 - `bash e2e/run.sh` for the full browser user-story suite after Postgres, Python
   helpers, Rust backend, Node dependencies, and Playwright Chromium are ready.
 - `./gradlew fieldApi34DebugAndroidTest` for Android instrumented E2E after
-  KVM/Gradle Managed Device setup. Protected branch push contexts require
-  `FIELD_E2E_BASE_URL` and `FIELD_E2E_SEED_REFRESH_TOKEN` and fail closed before
-  Gradle execution when they are unavailable or cannot mint a session. Fork PRs
-  or explicitly optional runs may omit them only with truthful optional/skipped
-  gate output; a protected branch push mobile gate must not false-green from an
-  all-skip run.
+  KVM/Gradle Managed Device setup. CI provisions PostgreSQL 18.4, migrates and
+  seeds an isolated database, boots the backend built from the exact candidate
+  SHA, and mints a job-local mechanic session through a random short-lived OTP.
+  The required `WorkOrderFlowTest` must execute with zero skips, failures, or
+  errors; no external backend or long-lived refresh-token secret is required.
 - `.github/workflows/ios-ui-tests.yml` for Simulator-bound XCUITest/accessibility
   audit on macOS/Xcode. Required real-session contexts need
   `MNT_UITEST_BASE_URL` plus either `MNT_UITEST_REFRESH_TOKEN` or
@@ -248,12 +247,11 @@ names only, not incidental workflow prose or runner setup text.
   testDebugUnitTest`, `./gradlew testDebugUnitTest`, and
   `./gradlew verifyRoborazziDebug` from `android/`.
 - **Android app — instrumented post-login E2E (emulator)**:
-  `./gradlew fieldApi34DebugAndroidTest` with Gradle Managed Device/KVM setup.
-  Protected branch push contexts need `FIELD_E2E_BASE_URL` and
-  `FIELD_E2E_SEED_REFRESH_TOKEN`; CI fails closed before Gradle execution when
-  they are missing or the backend exchange cannot mint fresh tokens. Fork/optional
-  runs may skip only with clear optional-gate messaging; protected branch push gates must fail
-  closed rather than treating missing secrets as post-login evidence.
+  `./gradlew fieldApi34DebugAndroidTest` with Gradle Managed Device/KVM setup,
+  a job-local PostgreSQL 18.4 database, and the backend built from the exact
+  checked-out SHA. CI redeems a random short-lived mechanic OTP, supplies the
+  resulting tokens through a mode-0600 runner-temp androidTest asset, and parses
+  JUnit output to require `WorkOrderFlowTest` with zero skips/failures/errors.
 - **iOS app — Swift build and behavior tests**: `swift build`, `swift test`, and
   `swift run MaintenanceFieldCoreBehaviorTests` from `ios/` on macOS.
 - **iOS UI tests — XCUITest/accessibility audit (Simulator)**:
@@ -687,49 +685,39 @@ tests, and the third verifies committed Roborazzi screenshot goldens.
 ### Android instrumented E2E — emulator-backed post-login workflow
 
 The `android-instrumented` job in `.github/workflows/ci.yml` runs on a Linux
-runner with KVM and Gradle Managed Device setup, mints and masks a fresh backend
-session, stores the token pair in a permission-restricted temporary androidTest
-asset fixture, and then executes `./gradlew fieldApi34DebugAndroidTest`. The
-workflow deliberately avoids GitHub step outputs and raw Gradle CLI arguments for
-token values. Local reproduction is possible with the same emulator/device setup,
-but it is not part of the lightweight fresh-session loop.
+runner with KVM and Gradle Managed Device setup. It starts PostgreSQL 18.4,
+verifies the checkout equals `GITHUB_SHA`, builds that candidate's `mnt-app`,
+migrates and seeds an isolated database, boots the API on loopback, and redeems a
+random short-lived mechanic OTP. The fresh token pair is stored in a mode-0600
+runner-temp androidTest asset before `./gradlew fieldApi34DebugAndroidTest` runs.
+The workflow deliberately avoids external backend/session secrets, GitHub step
+outputs, and raw Gradle CLI arguments for token values.
 
 `npm run check:android-e2e-fail-closed` is the lightweight regression guard for
-issue #359: it statically inspects this workflow, dry-runs the missing-input shell
-branch for required and optional contexts, and fails if the old protected-branch
-self-skip/empty-output path can return success before Gradle starts. It does not
-start a GitHub runner, evaluate branch protection live, boot the Gradle Managed
-Device, or contact the real backend; use the `android-instrumented` CI job with
-real `FIELD_E2E_*` secrets for full post-login Android evidence.
+issue #359: it statically inspects the workflow and Android debug/release network
+boundaries, while its mutation suite proves that external secrets, a non-PG18
+database, missing exact-SHA verification, deterministic/unhashed OTPs, credential
+leaks, skip-permitting result gates, and release cleartext regressions fail. It
+does not start a GitHub runner or boot the Gradle Managed Device; the live
+`android-instrumented` job is the full post-login evidence.
 
-Required real-session inputs are:
+Runner-local inputs and artifacts are:
 
-- `FIELD_E2E_BASE_URL` GitHub secret: the real backend base URL used to refresh
-  the seeded test session before the emulator starts.
-- `FIELD_E2E_SEED_REFRESH_TOKEN` GitHub secret: the long-lived refresh token for
-  the dedicated Android E2E test technician. CI exchanges it through
-  `POST /api/v1/auth/token/refresh`, masks the seed token plus the fresh
-  access/refresh pair immediately, and writes only the fresh pair to the
-  temporary fixture.
-- `FIELD_E2E_SESSION_ASSETS_DIR` is a runner-local environment handoff, not a
-  repository secret. When set, Gradle wires that directory into the
+- `FIELD_E2E_SESSION_ASSETS_DIR` is an in-step runner-local handoff, not a
+  repository secret. Gradle wires that directory into the
   `androidTest` assets and `WorkOrderFlowTest` reads
   `field-e2e-session.properties` for `FIELD_E2E_ACCESS_TOKEN` and
   `FIELD_E2E_REFRESH_TOKEN`. The workflow removes the source fixture, generated
   copies, and androidTest APKs after the run.
+- `E2E_AUTH_DIR`, database/role passwords, the plaintext OTP, and JWT keys exist
+  only under the job process or `$RUNNER_TEMP`. The OTP and minted tokens are
+  masked; only the token asset path reaches Gradle.
+- Debug permits cleartext only to the emulator host alias `10.0.2.2`; the base
+  policy denies other cleartext destinations and release retains its HTTPS API.
 
-Expected behavior by context:
-
-- **Protected branch push runs:** configure both GitHub
-  secrets and treat absence, refresh failure, fixture creation failure, or an
-  all-skipped `WorkOrderFlowTest` as fail-closed. A green protected branch push
-  mobile gate must prove real post-login Android coverage, not merely an emulator
-  boot with no session.
-- **Fork PRs and explicitly optional runs:** may omit repository secrets. The
-  workflow's absent-secret path leaves `FIELD_E2E_SESSION_ASSETS_DIR` empty and
-  `WorkOrderFlowTest` skips via JUnit `Assume`; that is acceptable only when the
-  job output/summary makes the gate's optional/skipped disposition clear. Do not
-  cite such a run as real post-login parity evidence.
+Every context runs the same required hermetic gate. A missing fixture, failed OTP
+exchange, unreachable protected API, absent `WorkOrderFlowTest` result, skipped
+case, failure, or error fails the job; there is no optional self-skip path.
 
 ---
 

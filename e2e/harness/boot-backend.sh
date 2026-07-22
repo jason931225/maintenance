@@ -8,15 +8,15 @@
 # explicitly enables the OTP-logging email stub used by signup specs. The
 # cold-start OTP seeds the PLATFORM admin so AUTH-01 can redeem it.
 #
-# Writes the child PID to e2e/.auth/backend.pid for teardown. Idempotent keys via
-# gen-keys.sh. Sourcing is not required; run directly.
+# Writes the child PID under E2E_AUTH_DIR (default: e2e/.auth/) for teardown.
+# Idempotent keys come from gen-keys.sh. Sourcing is not required; run directly.
 set -euo pipefail
 
 E2E_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 REPO_ROOT="$(cd "${E2E_DIR}/.." && pwd)"
 BACKEND_DIR="${REPO_ROOT}/backend"
 MIGRATIONS_DIR="${BACKEND_DIR}/crates/platform/db/migrations"
-AUTH_DIR="${E2E_DIR}/.auth"
+AUTH_DIR="${E2E_AUTH_DIR:-${E2E_DIR}/.auth}"
 PID_FILE="${AUTH_DIR}/backend.pid"
 LOG_FILE="${AUTH_DIR}/backend.log"
 MNT_APP_BIN="${MNT_APP_BIN:-}"
@@ -31,7 +31,7 @@ run_source_app() {
     SQLX_OFFLINE=true cargo run -q -p mnt-app >"${LOG_FILE}" 2>&1 ) &
 }
 
-mkdir -p "${AUTH_DIR}"
+install -d -m 700 "${AUTH_DIR}"
 
 HTTP_ADDR="${E2E_HTTP_ADDR:-127.0.0.1:8080}"
 HTTP_PORT="${HTTP_ADDR##*:}"

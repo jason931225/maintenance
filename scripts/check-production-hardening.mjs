@@ -1423,18 +1423,8 @@ export function evaluateAndroidE2eTokenHandoffChecks(readText) {
   const gradlePath = "android/app/build.gradle.kts";
   const testPath =
     "android/app/src/androidTest/kotlin/com/maintenance/field/WorkOrderFlowTest.kt";
-  const ciWorkflow = requirePresentText(
-    result,
-    readText,
-    ciPath,
-    "CI workflow",
-  );
-  const gradleFile = requirePresentText(
-    result,
-    readText,
-    gradlePath,
-    "Android app Gradle file",
-  );
+  const ciWorkflow = requirePresentText(result, readText, ciPath, "CI workflow");
+  const gradleFile = requirePresentText(result, readText, gradlePath, "Android app Gradle file");
   const workOrderFlowTest = requirePresentText(
     result,
     readText,
@@ -1442,193 +1432,199 @@ export function evaluateAndroidE2eTokenHandoffChecks(readText) {
     "Android instrumented WorkOrderFlowTest",
   );
   const activeCiWorkflow = stripHashComments(ciWorkflow);
-
-  const mintBlock = findWorkflowRunBlock(ciWorkflow, [
-    /FIELD_E2E_SEED_REFRESH_TOKEN/,
-    /FIELD_E2E_SESSION_ASSETS_DIR|field-e2e-session\.properties/,
+  const androidJobMatch = activeCiWorkflow.match(
+    /^  android-instrumented:\s*$([\s\S]*?)(?=^  [A-Za-z0-9_-]+:\s*$|(?![\s\S]))/m,
+  );
+  const androidWorkflow = androidJobMatch?.[1] ?? "";
+  const sessionBlock = findWorkflowRunBlock(androidWorkflow, [
+    /field-e2e-session\.properties/,
+    /auth\/otp\/redeem/,
   ]);
-  const activeMintBlock = stripHashComments(mintBlock);
-  const gradleBlock = findWorkflowRunBlock(ciWorkflow, [
+  const gradleBlock = findWorkflowRunBlock(androidWorkflow, [
     /\.\/gradlew\s+fieldApi34DebugAndroidTest/,
   ]);
+  const gradleCommandLine =
+    gradleBlock.match(/^.*\.\/gradlew\s+fieldApi34DebugAndroidTest.*$/m)?.[0] ?? "";
 
   requirement(
     result,
-    patternsAppearInOrder(activeMintBlock, [
-      /::add-mask::.*?FIELD_E2E_SEED_REFRESH_TOKEN/,
-      /\bcurl\b.*\/api\/v1\/auth\/token\/refresh/,
-    ]),
-    "Android E2E seed token is masked before backend refresh",
-    "Android E2E token mint step must mask the seed token before refreshing",
+    /install\s+-d\s+-m\s+700\s+"?\$session_assets_dir"?/.test(androidWorkflow) &&
+      /\bumask\s+077\b/.test(androidWorkflow) &&
+      /chmod\s+600\s+"?\$session_file"?/.test(androidWorkflow) &&
+      /\$\{?RUNNER_TEMP\}?\/android-e2e-session-assets/.test(androidWorkflow) &&
+      (/(?:export\s+FIELD_E2E_SESSION_ASSETS_DIR=|FIELD_E2E_SESSION_ASSETS_DIR=.*GITHUB_ENV)/.test(
+        androidWorkflow,
+      )),
+    "Android E2E session asset fixture is runner-temp chmod-restricted and path-addressed",
+    "Android E2E session asset fixture must be under RUNNER_TEMP with directory 700, file 600, and be exposed only as a path (same-step export or GITHUB_ENV)",
   );
   requirement(
     result,
-    patternsAppearInOrder(activeCiWorkflow, [
-      /access_token=.*jq\s+-er\s+['"]\.access_token['"]/,
-      /refresh_token=.*jq\s+-er\s+['"]\.refresh_token['"]/,
-      /::add-mask::.*access_token/,
-      /::add-mask::.*refresh_token/,
-      /FIELD_E2E_ACCESS_TOKEN=.*access_token/,
-      /FIELD_E2E_REFRESH_TOKEN=.*refresh_token/,
-    ]),
-    "Android E2E minted access/refresh tokens are masked before fixture write",
-    "Android E2E token mint step must mask minted access/refresh tokens before any fixture/log path",
+    /::add-mask::.*(?:bootstrap_otp|\$otp)/.test(sessionBlock) &&
+      /auth\/otp\/redeem/.test(sessionBlock) &&
+      /::add-mask::.*access_token/.test(sessionBlock) &&
+      /::add-mask::.*refresh_token/.test(sessionBlock),
+    "Android E2E OTP and minted tokens are masked before fixture write",
+    "Android E2E must mask its random OTP and minted tokens before redeeming or writing the session fixture",
   );
   requirement(
     result,
-    /install\s+-d\s+-m\s+700\s+"?\$session_assets_dir"?/.test(
-      activeCiWorkflow,
-    ) &&
-      /\bumask\s+077\b/.test(activeCiWorkflow) &&
-      /chmod\s+600\s+"?\$session_file"?/.test(activeCiWorkflow) &&
-      /FIELD_E2E_SESSION_ASSETS_DIR=.*GITHUB_ENV/.test(activeCiWorkflow),
-    "Android E2E session asset fixture is chmod-restricted and env-addressed",
-    "Android E2E session asset fixture must be created under mode 700, written under umask 077/chmod 600, and exposed only via FIELD_E2E_SESSION_ASSETS_DIR",
-  );
-  requirement(
-    result,
-    !/\bGITHUB_OUTPUT\b/.test(activeCiWorkflow) &&
-      !/steps\.session\.outputs\.(?:access|refresh)\b/.test(activeCiWorkflow),
-    "Android E2E token handoff avoids GitHub step outputs",
-    "Android E2E token handoff must not write access/refresh tokens to GITHUB_OUTPUT",
-  );
-  requirement(
-    result,
-    Boolean(gradleBlock) &&
+    !/\bGITHUB_OUTPUT\b/.test(androidWorkflow) &&
+      !/steps\.session\.outputs\.(?:access|refresh)\b/.test(androidWorkflow) &&
       !/android\.testInstrumentationRunnerArguments\.FIELD_E2E_(?:ACCESS|REFRESH)_TOKEN/.test(
-        gradleBlock,
-      ) &&
-      !/FIELD_E2E_(?:ACCESS|REFRESH)_TOKEN/.test(gradleBlock) &&
-      !/steps\.session\.outputs\.(?:access|refresh)\b/.test(gradleBlock),
-    "Android E2E Gradle invocation avoids raw token arguments",
-    "Android E2E Gradle invocation must not pass access/refresh tokens as instrumentation arguments",
+        gradleCommandLine,
+      ),
+    "Android E2E credentials avoid GitHub outputs and Gradle arguments",
+    "Android E2E credentials must not be written to GITHUB_OUTPUT or passed as Gradle instrumentation arguments",
   );
-
   requirement(
     result,
-    /providers\.environmentVariable\("FIELD_E2E_SESSION_ASSETS_DIR"\)/.test(
-      gradleFile,
-    ) &&
-      /sourceSets\s*\{[\s\S]*getByName\("androidTest"\)[\s\S]*assets\.srcDir/.test(
-        gradleFile,
-      ),
-    "Android Gradle exposes FIELD_E2E_SESSION_ASSETS_DIR as androidTest assets",
+    /providers\.environmentVariable\("FIELD_E2E_SESSION_ASSETS_DIR"\)/.test(gradleFile) &&
+      /sourceSets\s*\{[\s\S]*getByName\("androidTest"\)[\s\S]*assets\.srcDir/.test(gradleFile),
+    "Android Gradle exposes runner-temp session fixture as androidTest assets",
     "Android Gradle must expose FIELD_E2E_SESSION_ASSETS_DIR as androidTest assets",
   );
-
   requirement(
     result,
     /InstrumentationRegistry\.getInstrumentation\(\)[\s\S]*\.context[\s\S]*\.assets[\s\S]*\.open\("field-e2e-session\.properties"\)/.test(
       workOrderFlowTest,
     ) &&
-      /\bProperties\s*\(\s*\)/.test(workOrderFlowTest) &&
       /FIELD_E2E_ACCESS_TOKEN/.test(workOrderFlowTest) &&
       /FIELD_E2E_REFRESH_TOKEN/.test(workOrderFlowTest) &&
       /SessionTokenStore/.test(workOrderFlowTest) &&
       !/getArguments\s*\(\s*\)/.test(workOrderFlowTest),
-    "WorkOrderFlowTest reads real tokens from androidTest asset fixture before seeding SessionTokenStore",
-    "WorkOrderFlowTest must read FIELD_E2E tokens from the androidTest asset fixture",
+    "WorkOrderFlowTest reads the credential fixture rather than instrumentation arguments",
+    "WorkOrderFlowTest must load the session tokens from the androidTest asset fixture",
   );
-
   return result;
 }
 
 export function evaluateAndroidE2eFailClosedChecks(readText) {
   const result = createResult();
   const ciPath = ".github/workflows/ci.yml";
-  const ciWorkflow = requirePresentText(
+  const debugManifestPath = "android/app/src/debug/AndroidManifest.xml";
+  const debugNetworkConfigPath =
+    "android/app/src/debug/res/xml/network_security_config.xml";
+  const ciWorkflow = requirePresentText(result, readText, ciPath, "CI workflow");
+  const debugManifest = requirePresentText(
     result,
     readText,
-    ciPath,
-    "CI workflow",
+    debugManifestPath,
+    "Android debug manifest",
+  );
+  const debugNetworkConfig = requirePresentText(
+    result,
+    readText,
+    debugNetworkConfigPath,
+    "Android debug network security config",
+  );
+  const gradleFile = requirePresentText(
+    result,
+    readText,
+    "android/app/build.gradle.kts",
+    "Android app Gradle file",
   );
   const activeCiWorkflow = stripHashComments(ciWorkflow);
+  const androidJobMatch = activeCiWorkflow.match(
+    /^  android-instrumented:\s*$([\s\S]*?)(?=^  [A-Za-z0-9_-]+:\s*$|(?![\s\S]))/m,
+  );
+  const androidWorkflow = androidJobMatch?.[1] ?? "";
+
+  requirement(
+    result,
+    Boolean(androidJobMatch),
+    "Android E2E workflow job present",
+    `${ciPath} must contain an android-instrumented job`,
+  );
 
   requirePackageScript(result, readText, "check:android-e2e-fail-closed");
   requirement(
     result,
-    workflowHasRun(ciWorkflow, [
-      /\bnpm\s+run\s+check:android-e2e-fail-closed\b/,
-    ]),
+    workflowHasRun(ciWorkflow, [/\bnpm\s+run\s+check:android-e2e-fail-closed\b/]),
     "CI runs Android E2E fail-closed workflow guard",
     `${ciPath} must actively run npm run check:android-e2e-fail-closed`,
   );
-
-  const requireRealAssignment = ciWorkflow.match(
-    /FIELD_E2E_REQUIRE_REAL_SESSION:\s*\$\{\{([^\n]+)\}\}/,
-  );
-  const requireRealExpression = requireRealAssignment?.[1] ?? "";
   requirement(
     result,
-    Boolean(requireRealAssignment),
-    "Android E2E protected-context require-real assignment present",
-    `${ciPath} must set FIELD_E2E_REQUIRE_REAL_SESSION from protected branch context`,
+    /image:\s*postgres:18\.4\b/.test(androidWorkflow),
+    "Android E2E uses local PostgreSQL 18.4",
+    `${ciPath} android-instrumented must start PostgreSQL 18.4 locally`,
   );
   requirement(
     result,
-    /github\.event_name\s*==\s*'push'/.test(requireRealExpression) &&
-      /github\.ref_type\s*==\s*'branch'/.test(requireRealExpression) &&
-      /github\.ref_protected/.test(requireRealExpression),
-    "Android E2E required context is protected branch push",
-    `${ciPath} FIELD_E2E_REQUIRE_REAL_SESSION must be enabled for protected branch pushes`,
-  );
-  requirement(
-    result,
-    !/secrets\.FIELD_E2E_BASE_URL|secrets\.FIELD_E2E_SEED_REFRESH_TOKEN/.test(
-      requireRealExpression,
-    ),
-    "Android E2E required context is independent of secret presence",
-    `${ciPath} FIELD_E2E_REQUIRE_REAL_SESSION must not be conditioned on FIELD_E2E secret presence`,
-  );
-
-  const guardBlock = findWorkflowRunBlock(ciWorkflow, [
-    /FIELD_E2E_REQUIRE_REAL_SESSION/,
-    /Required Android E2E real-session inputs are missing/,
-  ]);
-  requirement(
-    result,
-    Boolean(guardBlock),
-    "Android E2E missing-input guard block present",
-    `${ciPath} must include an Android E2E missing-input guard in the session mint step`,
-  );
-  requirement(
-    result,
-    patternsAppearInOrder(guardBlock, [
-      /FIELD_E2E_REQUIRE_REAL_SESSION/,
-      /::error title=Required Android E2E real-session inputs are missing::/,
-      /exit\s+1/,
+    patternsAppearInOrder(androidWorkflow, [
+      /git\s+rev-parse\s+HEAD/,
+      /GITHUB_SHA/,
+      /cargo\s+build[\s\S]*mnt-app|cargo\s+build[\s\S]*--bin\s+mnt-app/,
     ]),
-    "Android E2E required missing inputs fail closed before minting",
-    `${ciPath} must exit 1 for missing FIELD_E2E inputs when FIELD_E2E_REQUIRE_REAL_SESSION=1`,
+    "Android E2E verifies exact candidate SHA before backend build",
+    `${ciPath} must verify git HEAD against GITHUB_SHA before building the E2E backend`,
   );
   requirement(
     result,
-    /::notice title=Optional Android E2E real-session gate skipped::/.test(
-      guardBlock,
-    ) &&
-      /FIELD_E2E_SESSION_ASSETS_DIR=.*GITHUB_ENV/.test(guardBlock) &&
-      /exit\s+0/.test(guardBlock),
-    "Android E2E optional missing inputs skip truthfully",
-    `${ciPath} optional/fork Android E2E contexts must emit an optional-skip notice and clear FIELD_E2E_SESSION_ASSETS_DIR`,
+    /e2e\/harness\/db\.sh/.test(androidWorkflow) &&
+      /seed-mobile-ci\.sql/.test(androidWorkflow) &&
+      /openssl\s+rand/.test(androidWorkflow) &&
+      /sha256sum/.test(androidWorkflow) &&
+      /e2e\/harness\/boot-backend\.sh/.test(androidWorkflow) &&
+      /E2E_HTTP_ADDR:\s*127\.0\.0\.1:8080/.test(androidWorkflow) &&
+      /backend_url="http:\/\/127\.0\.0\.1:8080"/.test(androidWorkflow) &&
+      /printf\s+'%s'\s+"\$bootstrap_otp"\s*\|\s*jq\s+-Rsc\s+'\{otp:\.\}'\s*\|\s*curl[\s\S]*\$backend_url\/api\/v1\/auth\/otp\/redeem/.test(
+        androidWorkflow,
+      ) &&
+      /--data-binary\s+@-/.test(androidWorkflow),
+    "Android E2E boots a self-hosted candidate backend with a random SHA256 mechanic OTP",
+    `${ciPath} must migrate/seed local PostgreSQL, SHA256-hash a random mechanic OTP, boot the candidate backend on loopback, and JSON-encode the OTP with jq before redeeming it locally`,
   );
   requirement(
     result,
-    patternsAppearInOrder(activeCiWorkflow, [
-      /::error title=Required Android E2E real-session inputs are missing::/,
+    !/secrets\.FIELD_E2E_|FIELD_E2E_BASE_URL|FIELD_E2E_SEED_REFRESH_TOKEN|FIELD_E2E_REQUIRE_REAL_SESSION/.test(
+      androidWorkflow,
+    ),
+    "Android E2E has no external backend or long-lived session secret dependency",
+    `${ciPath} must not depend on FIELD_E2E external backend/session secrets or optional protected-context skipping`,
+  );
+  requirement(
+    result,
+    /rglob\("TEST-\*\.xml"\)/.test(androidWorkflow) &&
+      /endswith\("\.WorkOrderFlowTest"\)/.test(androidWorkflow) &&
+      /case\.find\("skipped"\)/.test(androidWorkflow) &&
+      /case\.find\("failure"\)/.test(androidWorkflow) &&
+      /case\.find\("error"\)/.test(androidWorkflow) &&
+      /if not cases:/.test(androidWorkflow),
+    "Android E2E requires executed WorkOrderFlowTest JUnit evidence with no skip/failure/error",
+    `${ciPath} must parse WorkOrderFlowTest JUnit XML and fail unless it executed with zero skipped, failures, and errors`,
+  );
+  requirement(
+    result,
+    /if:\s*always\(\)/.test(androidWorkflow) &&
+      /rm\s+-rf\s+"?\$session_assets_dir"?|rm\s+-rf\s+"?\$\{RUNNER_TEMP\}/.test(
+        androidWorkflow,
+      ) &&
+      /kill\s+"?\$.*(?:backend|pid)/i.test(androidWorkflow),
+    "Android E2E always cleans session fixtures and the candidate backend",
+    `${ciPath} must run an always cleanup step that removes runner-temp session fixtures and terminates the candidate backend`,
+  );
+  requirement(
+    result,
+    /networkSecurityConfig="@xml\/network_security_config"/.test(debugManifest) &&
+      /<domain[^>]*>10\.0\.2\.2<\/domain>/.test(debugNetworkConfig) &&
+      /cleartextTrafficPermitted="true"/.test(debugNetworkConfig) &&
+      !/usesCleartextTraffic="true"/.test(debugManifest) &&
+      /https:\/\//.test(gradleFile),
+    "Android cleartext is debug-only for emulator loopback while release remains HTTPS",
+    "Android must permit cleartext only through the debug 10.0.2.2 network config and preserve an HTTPS release API URL",
+  );
+  requirement(
+    result,
+    patternsAppearInOrder(androidWorkflow, [
+      /e2e\/harness\/db\.sh/,
+      /e2e\/harness\/boot-backend\.sh/,
       /\.\/gradlew\s+fieldApi34DebugAndroidTest/,
     ]),
-    "Android E2E fail-closed guard runs before Gradle Managed Device execution",
-    `${ciPath} must run the missing-input fail-closed guard before ./gradlew fieldApi34DebugAndroidTest`,
+    "Android E2E boots its isolated backend before Gradle Managed Device execution",
+    `${ciPath} must complete local database/backend setup before Gradle Managed Device execution`,
   );
-  requirement(
-    result,
-    !/No backend E2E secrets configured; instrumented test will self-skip\./.test(
-      activeCiWorkflow,
-    ),
-    "Android E2E legacy empty-token self-skip message absent",
-    `${ciPath} must not use the old missing-secret path that minted empty token outputs and continued`,
-  );
-
   return result;
 }
 
