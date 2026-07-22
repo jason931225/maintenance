@@ -1,6 +1,6 @@
 {
   "name": "@console/web",
-  "version": "0.1.65",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "scripts": {
