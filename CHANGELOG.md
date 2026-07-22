@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.2.0](https://github.com/jason931225/maintenance/compare/v0.1.65...v0.2.0) (2026-07-22)
+
+
+### ⚠ BREAKING CHANGES
+
+* **coss:** The shipped coss-rn standalone public site and its npm workspace are removed without an in-repository replacement.
+
+### Features
+
+* **coss:** retire standalone public-site surface ([87241f3](https://github.com/jason931225/maintenance/commit/87241f30ef40b35ba188330a6b5db726b9f718b5))
+
+
+### Bug Fixes
+
+* **web:** patch curl CVEs in runtime image ([#483](https://github.com/jason931225/maintenance/issues/483)) ([5fd4993](https://github.com/jason931225/maintenance/commit/5fd49930405bb8d2457dbfc606e116710a3b2f58))
+
 ## [0.1.65](https://github.com/jason931225/maintenance/compare/v0.1.64...v0.1.65) (2026-07-22)
 
 
