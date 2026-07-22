@@ -10,6 +10,7 @@ use p256::elliptic_curve::rand_core::OsRng;
 use p256::pkcs8::{EncodePrivateKey, EncodePublicKey, LineEnding};
 use serde_json::{Value, json};
 use sqlx::PgPool;
+use time::format_description::well_known::Rfc3339;
 use time::{Duration, OffsetDateTime};
 use tower::ServiceExt;
 
@@ -101,7 +102,7 @@ async fn ping_ingestion_rejects_without_granted_consent(pool: PgPool) {
             "latitude": 37.5665,
             "longitude": 126.9780,
             "accuracy_m": 12.5,
-            "recorded_at": OffsetDateTime::now_utc(),
+            "recorded_at": OffsetDateTime::now_utc().format(&Rfc3339).unwrap(),
             "on_duty": true
         }),
     )
@@ -137,7 +138,7 @@ async fn withdrawal_route_destroys_location_pings_and_logs(pool: PgPool) {
             "latitude": 37.5665,
             "longitude": 126.9780,
             "accuracy_m": 12.5,
-            "recorded_at": OffsetDateTime::now_utc(),
+            "recorded_at": OffsetDateTime::now_utc().format(&Rfc3339).unwrap(),
             "on_duty": true
         }),
     )
