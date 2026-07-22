@@ -35,8 +35,11 @@ jobs:
           if grep -Eq 'skipped|failures="[1-9]|errors="[1-9]' android/app/build/test-results/connected/TEST-com.maintenance.field.WorkOrderFlowTest.xml; then exit 1; fi
       - if: always()
         run: |
-          rm -rf "$RUNNER_TEMP/android-e2e-session-assets"
-          kill "\${MNT_E2E_BACKEND_PID:-}" || true
+          auth_dir="\${RUNNER_TEMP}/android-e2e-auth"
+          if [ -s "\${auth_dir}/backend.pid" ]; then
+            kill "$(cat "\${auth_dir}/backend.pid")" 2>/dev/null || true
+          fi
+          rm -rf "$RUNNER_TEMP/android-e2e-session-assets" "$auth_dir"
   ios-app:
     runs-on: macos-latest
 `;
@@ -145,9 +148,57 @@ describe("Android hermetic E2E CI contract", () => {
 
   it("rejects an always cleanup step that does not terminate the backend", () => {
     expectsFailure(evaluate(validWorkflow.replace(
-      '          kill "${MNT_E2E_BACKEND_PID:-}" || true',
-      '          echo boot-backend',
+      '            kill "$(cat "${auth_dir}/backend.pid")" 2>/dev/null || true',
+      '            echo boot-backend',
     )), "always remove the session asset and stop the candidate backend");
+  });
+
+  it("rejects signal-zero kill and pkill probes as backend termination", () => {
+    for (const probe of [
+      'kill -0 "$(cat "${auth_dir}/backend.pid")" 2>/dev/null || true',
+      'kill -s 0 "$(cat "${auth_dir}/backend.pid")" 2>/dev/null || true',
+      'kill --signal=0 "$(cat "${auth_dir}/backend.pid")" 2>/dev/null || true',
+      'pkill -0 mnt-app || true',
+      'pkill -s 0 mnt-app || true',
+      'pkill --signal=0 mnt-app || true',
+    ]) {
+      expectsFailure(evaluate(validWorkflow.replace(
+        'kill "$(cat "${auth_dir}/backend.pid")" 2>/dev/null || true',
+        probe,
+      )), "always remove the session asset and stop the candidate backend");
+    }
+  });
+
+  it("rejects kill inspection commands as backend termination", () => {
+    for (const inspection of [
+      "kill -l 0 || true",
+      "kill --list 0 || true",
+      "kill -L 0 || true",
+      "kill --help || true",
+      "kill --version || true",
+    ]) {
+      expectsFailure(evaluate(validWorkflow.replace(
+        'kill "$(cat "${auth_dir}/backend.pid")" 2>/dev/null || true',
+        inspection,
+      )), "always remove the session asset and stop the candidate backend");
+    }
+  });
+
+  it("rejects termination commands that do not target the owned backend PID", () => {
+    for (const unownedTermination of [
+      "kill -TERM 12345 || true",
+      "pkill -TERM -f mnt-app || true",
+    ]) {
+      expectsFailure(evaluate(validWorkflow.replace(
+        'kill "$(cat "${auth_dir}/backend.pid")" 2>/dev/null || true',
+        unownedTermination,
+      )), "always remove the session asset and stop the candidate backend");
+    }
+  });
+
+  it("rejects a backend PID file cleanup outside runner temp", () => {
+    const unownedPidFile = validWorkflow.replace('auth_dir="${RUNNER_TEMP}/android-e2e-auth"', 'auth_dir="/tmp/android-e2e-auth"');
+    expectsFailure(evaluate(unownedPidFile), "always remove the session asset and stop the candidate backend");
   });
 
   it("rejects release cleartext enablement", () => {

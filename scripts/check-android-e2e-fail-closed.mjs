@@ -49,10 +49,16 @@ function hasRequiredResultGate(job) {
     && /(?:fail|exit 1)/i.test(job);
 }
 
+function hasOwnedBackendTermination(step) {
+  return /^\s*auth_dir="\$\{RUNNER_TEMP\}\/android-e2e-auth"\s*$/m.test(step)
+    && /^\s*if \[ -s "\$\{auth_dir\}\/backend\.pid" \]; then\s*$/m.test(step)
+    && /^\s*kill "\$\(cat "\$\{auth_dir\}\/backend\.pid"\)" 2>\/dev\/null \|\| true\s*$/m.test(step);
+}
+
 function hasAlwaysCleanup(job) {
   return jobSteps(job).some((step) => /if:\s*always\(\)/.test(step)
     && /(?:rm\s+-rf|rm\s+-f)/.test(step)
-    && /\b(?:kill|pkill)\b/.test(step));
+    && hasOwnedBackendTermination(step));
 }
 
 function hasRunnerTempAndroidSdkSetup(job) {
