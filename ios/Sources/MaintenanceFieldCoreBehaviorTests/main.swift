@@ -2,6 +2,7 @@ import Foundation
 import MaintenanceAPIClient
 import MaintenanceFieldCore
 import OpenAPIRuntime
+import HTTPTypes
 
 @main
 struct MaintenanceFieldCoreBehaviorTests {
@@ -16,6 +17,22 @@ struct MaintenanceFieldCoreBehaviorTests {
         try await passkeyLoginRegistrationFailurePreservesSessionAndReturnsRetryPendingState()
         try await passkeyLoginAuthFailureClearsSessionAndReturnsLoginFailed()
         try await passkeyLoginMissingRefreshTokenClearsSessionAndReturnsLoginFailed()
+        try await rotatingRefreshPersistsTheReplacementPairAndSharesOneFlight()
+        try await rotatingRefreshInvalidatesTheLocalSession()
+        try await rotatingRefreshConsumesTokensBeforeNetworkAndClearsOnAnyFailure()
+        try await rotatingRefreshClearsProviderWhenNoSessionExists()
+        try await keychainSaveFailureDoesNotUpdateAccessProvider()
+        try await refreshingMiddlewareRetriesOnceAndClearsOnSecond401()
+        try await refreshingMiddlewareRejectsSingleIterationBodies()
+        try await refreshingMiddlewareRetriesStale401WithoutAnotherRotation()
+        try await rotatingRefreshClearsSessionWhenReplacementPersistenceFails()
+        try await rotatingRefreshHonorsJWTExpiryLeeway()
+        try await passkeyBootstrapRequestsBypassBearerRefreshAndRetry()
+        try await concurrent401sDuringTokenConsumptionShareOneRefresh()
+        try await refreshDeletionFailurePreventsNetworkAndClearsProvider()
+        try await legacyRefreshDeletionFailurePreventsNetworkAndClearsProvider()
+        try await logoutDeletionFailureDoesNotClaimSignedOut()
+        try await loginInvalidationFailurePreservesRestorableSession()
         try locationConsentStateMachineMirrorsAndroidGpsGate()
         try workOrderMappersMirrorAndroidModels()
         try reportDraftTrimsGeneratedRequestFields()
@@ -264,6 +281,347 @@ struct MaintenanceFieldCoreBehaviorTests {
         try expectEqual(await sessionStore.load(), nil)
         try expectEqual(await sessionStore.clearCalls(), 1)
         try expectEqual(gateway.registrationAttempts, [])
+    }
+
+    private static func rotatingRefreshPersistsTheReplacementPairAndSharesOneFlight() async throws {
+        let tokenProvider = CurrentTokenProvider(accessToken: "expired-access")
+        let sessionStore = InMemorySessionTokenStore(
+            tokens: AuthTokens(accessToken: "expired-access", refreshToken: "refresh-a")
+        )
+        let gateway = DelayedRefreshGateway(
+            result: .success(AuthTokens(accessToken: "fresh-access", refreshToken: "refresh-b"))
+        )
+        let refresher = RotatingTokenRefresher(
+            gateway: gateway,
+            sessionStore: sessionStore,
+            tokenProvider: tokenProvider
+        )
+
+        async let first = refresher.refresh()
+        async let second = refresher.refresh()
+        let refreshed = try await [first, second]
+
+        try expectEqual(refreshed, [
+            AuthTokens(accessToken: "fresh-access", refreshToken: "refresh-b"),
+            AuthTokens(accessToken: "fresh-access", refreshToken: "refresh-b"),
+        ])
+        try expectEqual(await gateway.refreshCalls(), ["refresh-a"])
+        try expectEqual(await sessionStore.load(), AuthTokens(accessToken: "fresh-access", refreshToken: "refresh-b"))
+        try expectEqual(tokenProvider.get(), "fresh-access")
+    }
+
+    private static func rotatingRefreshInvalidatesTheLocalSession() async throws {
+        let tokenProvider = CurrentTokenProvider(accessToken: "expired-access")
+        let sessionStore = InMemorySessionTokenStore(
+            tokens: AuthTokens(accessToken: "expired-access", refreshToken: "reused-refresh")
+        )
+        let refresher = RotatingTokenRefresher(
+            gateway: DelayedRefreshGateway(result: .failure(SessionRefreshError.invalidSession)),
+            sessionStore: sessionStore,
+            tokenProvider: tokenProvider
+        )
+
+        do {
+            _ = try await refresher.refresh()
+            throw BehaviorTestFailure("refresh with an invalid token unexpectedly succeeded")
+        } catch SessionRefreshError.invalidSession {
+            // Expected: a reused or otherwise invalid refresh token must sign out locally.
+        }
+
+        try expectEqual(await sessionStore.load(), nil)
+        try expectEqual(await sessionStore.clearCalls(), 1)
+        try expectEqual(tokenProvider.get(), nil)
+    }
+
+    private static func rotatingRefreshConsumesTokensBeforeNetworkAndClearsOnAnyFailure() async throws {
+        let tokenProvider = CurrentTokenProvider(accessToken: "expired-access")
+        let sessionStore = InMemorySessionTokenStore(
+            tokens: AuthTokens(accessToken: "expired-access", refreshToken: "refresh-a")
+        )
+        let gateway = ObservingRefreshGateway(sessionStore: sessionStore, result: .failure(URLError(.notConnectedToInternet)))
+        let refresher = RotatingTokenRefresher(gateway: gateway, sessionStore: sessionStore, tokenProvider: tokenProvider)
+
+        do {
+            _ = try await refresher.refresh()
+            throw BehaviorTestFailure("transport refresh failure unexpectedly succeeded")
+        } catch is URLError {}
+
+        let wasConsumed = await gateway.wasSessionConsumedBeforeNetwork()
+        try expect(wasConsumed, "refresh token pair must be removed before the network request")
+        try expectEqual(await sessionStore.load(), nil)
+        try expectEqual(tokenProvider.get(), nil)
+    }
+
+    private static func rotatingRefreshClearsProviderWhenNoSessionExists() async throws {
+        let tokenProvider = CurrentTokenProvider(accessToken: "stale-access")
+        let sessionStore = InMemorySessionTokenStore()
+        let refresher = RotatingTokenRefresher(
+            gateway: DelayedRefreshGateway(result: .success(AuthTokens(accessToken: "unused", refreshToken: "unused"))),
+            sessionStore: sessionStore,
+            tokenProvider: tokenProvider
+        )
+
+        _ = try await expectAsyncThrows { try await refresher.refresh() }
+
+        try expectEqual(tokenProvider.get(), nil)
+        try expectEqual(await sessionStore.clearCalls(), 1)
+    }
+
+    private static func keychainSaveFailureDoesNotUpdateAccessProvider() async throws {
+        let keychain = InMemoryKeychainAccess()
+        keychain.failWrites = true
+        let provider = CurrentTokenProvider(accessToken: "old-access")
+        let store = KeychainSessionTokenStore(tokenProvider: provider, keychain: keychain)
+        provider.set("old-access")
+
+        _ = try await expectAsyncThrows {
+            try await store.save(AuthTokens(accessToken: "new-access", refreshToken: "new-refresh"))
+        }
+
+        try expectEqual(provider.get(), "old-access")
+        try expectEqual(await store.load(), nil)
+    }
+
+    private static func refreshingMiddlewareRetriesOnceAndClearsOnSecond401() async throws {
+        let provider = CurrentTokenProvider(accessToken: "expired-access")
+        let store = InMemorySessionTokenStore(tokens: AuthTokens(accessToken: "expired-access", refreshToken: "refresh-a"))
+        let refresher = RotatingTokenRefresher(
+            gateway: DelayedRefreshGateway(result: .success(AuthTokens(accessToken: "fresh-access", refreshToken: "refresh-b"))),
+            sessionStore: store,
+            tokenProvider: provider
+        )
+        let middleware = RefreshingAuthMiddleware(tokenProvider: provider, refresher: refresher)
+        var request = HTTPRequest(method: .get, url: URL(string: "https://example.com/protected")!)
+        request.headerFields[HTTPField.Name.authorization] = "Bearer expired-access"
+        let transport = ResponseSequence(statuses: [.unauthorized, .unauthorized])
+
+        let response = try await middleware.intercept(request, body: nil, baseURL: URL(string: "https://example.com")!, operationID: "protected") {
+            request, _, _ in await transport.send(request)
+        }
+
+        try expectEqual(response.0.status.code, 401)
+        try expectEqual(await transport.authorizations(), ["Bearer expired-access", "Bearer fresh-access"])
+        try expectEqual(await store.load(), nil)
+        try expectEqual(provider.get(), nil)
+    }
+
+    private static func refreshingMiddlewareRejectsSingleIterationBodies() async throws {
+        let provider = CurrentTokenProvider(accessToken: "expired-access")
+        let store = InMemorySessionTokenStore(tokens: AuthTokens(accessToken: "expired-access", refreshToken: "refresh-a"))
+        let refreshGateway = DelayedRefreshGateway(result: .success(AuthTokens(accessToken: "fresh-access", refreshToken: "refresh-b")))
+        let middleware = RefreshingAuthMiddleware(
+            tokenProvider: provider,
+            refresher: RotatingTokenRefresher(gateway: refreshGateway, sessionStore: store, tokenProvider: provider)
+        )
+        var request = HTTPRequest(method: .post, url: URL(string: "https://example.com/protected")!)
+        request.headerFields[HTTPField.Name.authorization] = "Bearer expired-access"
+        let body = HTTPBody(AsyncStream { continuation in
+            continuation.yield(ArraySlice("body".utf8))
+            continuation.finish()
+        }, length: .known(4))
+        let transport = ResponseSequence(statuses: [.unauthorized])
+
+        _ = try await middleware.intercept(request, body: body, baseURL: URL(string: "https://example.com")!, operationID: "protected") {
+            request, _, _ in await transport.send(request)
+        }
+
+        try expectEqual(await transport.callCount(), 1)
+        try expectEqual(await refreshGateway.refreshCalls(), [])
+        try expectEqual(await store.load(), AuthTokens(accessToken: "expired-access", refreshToken: "refresh-a"))
+    }
+
+    private static func refreshingMiddlewareRetriesStale401WithoutAnotherRotation() async throws {
+        let provider = CurrentTokenProvider(accessToken: "fresh-access")
+        let store = InMemorySessionTokenStore(tokens: AuthTokens(accessToken: "fresh-access", refreshToken: "refresh-b"))
+        let refreshGateway = DelayedRefreshGateway(result: .success(AuthTokens(accessToken: "unused", refreshToken: "unused")))
+        let middleware = RefreshingAuthMiddleware(
+            tokenProvider: provider,
+            refresher: RotatingTokenRefresher(gateway: refreshGateway, sessionStore: store, tokenProvider: provider)
+        )
+        var request = HTTPRequest(method: .get, url: URL(string: "https://example.com/protected")!)
+        request.headerFields[HTTPField.Name.authorization] = "Bearer expired-access"
+        let transport = ResponseSequence(statuses: [.unauthorized, .ok])
+
+        let response = try await middleware.intercept(request, body: nil, baseURL: URL(string: "https://example.com")!, operationID: "protected") {
+            request, _, _ in await transport.send(request)
+        }
+
+        try expectEqual(response.0.status.code, 200)
+        try expectEqual(await refreshGateway.refreshCalls(), [])
+        try expectEqual(await transport.authorizations(), ["Bearer expired-access", "Bearer fresh-access"])
+    }
+
+    private static func rotatingRefreshClearsSessionWhenReplacementPersistenceFails() async throws {
+        let provider = CurrentTokenProvider(accessToken: "expired-access")
+        let store = InMemorySessionTokenStore(tokens: AuthTokens(accessToken: "expired-access", refreshToken: "refresh-a"))
+        await store.setSaveFailure(true)
+        let refresher = RotatingTokenRefresher(
+            gateway: DelayedRefreshGateway(result: .success(AuthTokens(accessToken: "fresh-access", refreshToken: "refresh-b"))),
+            sessionStore: store,
+            tokenProvider: provider
+        )
+
+        _ = try await expectAsyncThrows { try await refresher.refresh() }
+
+        try expectEqual(await store.load(), nil)
+        try expectEqual(provider.get(), nil)
+    }
+
+    private static func rotatingRefreshHonorsJWTExpiryLeeway() async throws {
+        let clock = FixedClock(date: isoDate("2026-06-12T09:00:00Z"))
+        let refresher = RotatingTokenRefresher(
+            gateway: DelayedRefreshGateway(result: .success(AuthTokens(accessToken: "unused", refreshToken: "unused"))),
+            sessionStore: InMemorySessionTokenStore(),
+            tokenProvider: CurrentTokenProvider(),
+            clock: clock
+        )
+
+        let refreshSoon = await refresher.requiresProactiveRefresh(accessToken: jwt(expiration: 1_781_254_850))
+        let refreshLater = await refresher.requiresProactiveRefresh(accessToken: jwt(expiration: 1_781_254_900))
+        try expect(refreshSoon, "tokens expiring within 60 seconds must refresh proactively")
+        try expect(!refreshLater, "tokens outside the 60-second leeway must not refresh")
+    }
+
+    private static func passkeyBootstrapRequestsBypassBearerRefreshAndRetry() async throws {
+        let transport = RecordingFailureTransport()
+        let gateway = GeneratedMaintenanceAPIGateway(
+            serverURL: URL(string: "https://example.com")!,
+            tokenProvider: CurrentTokenProvider(accessToken: "existing-access"),
+            sessionStore: InMemorySessionTokenStore(tokens: AuthTokens(accessToken: "existing-access", refreshToken: "refresh-a")),
+            transport: transport
+        )
+
+        _ = try await expectAsyncThrows { try await gateway.startPasskeyLogin() }
+        _ = try await expectAsyncThrows {
+            try await gateway.finishPasskeyLogin(
+                ceremonyID: "00000000-0000-0000-0000-000000000902",
+                credential: Components.Schemas.PasskeyLoginFinishRequest.CredentialPayload()
+            )
+        }
+
+        try expectEqual(await transport.operationIDs(), [
+            "post/api/v1/auth/passkey/login/start",
+            "post/api/v1/auth/passkey/login/finish",
+        ])
+        try expectEqual(await transport.authorizations(), [nil, nil])
+    }
+
+    private static func concurrent401sDuringTokenConsumptionShareOneRefresh() async throws {
+        let provider = CurrentTokenProvider(accessToken: "expired-access")
+        let store = InMemorySessionTokenStore(tokens: AuthTokens(accessToken: "expired-access", refreshToken: "refresh-a"))
+        let refreshGateway = DelayedRefreshGateway(result: .success(AuthTokens(accessToken: "fresh-access", refreshToken: "refresh-b")))
+        let refresher = RotatingTokenRefresher(gateway: refreshGateway, sessionStore: store, tokenProvider: provider)
+        let middleware = RefreshingAuthMiddleware(tokenProvider: provider, refresher: refresher)
+        let firstTransport = ResponseSequence(statuses: [.unauthorized, .ok])
+        let secondTransport = ResponseSequence(statuses: [.unauthorized, .ok])
+        let request = HTTPRequest(method: .get, url: URL(string: "https://example.com/protected")!, headerFields: [.authorization: "Bearer expired-access"])
+
+        async let first: (HTTPResponse, HTTPBody?) = middleware.intercept(request, body: nil, baseURL: URL(string: "https://example.com")!, operationID: "first") {
+            request, _, _ in await firstTransport.send(request)
+        }
+        async let second: (HTTPResponse, HTTPBody?) = middleware.intercept(request, body: nil, baseURL: URL(string: "https://example.com")!, operationID: "second") {
+            request, _, _ in await secondTransport.send(request)
+        }
+        let responses = try await [first, second]
+
+        try expectEqual(responses.map { $0.0.status.code }, [200, 200])
+        try expectEqual(await refreshGateway.refreshCalls(), ["refresh-a"])
+        try expectEqual(await firstTransport.authorizations(), ["Bearer expired-access", "Bearer fresh-access"])
+        try expectEqual(await secondTransport.authorizations(), ["Bearer expired-access", "Bearer fresh-access"])
+    }
+
+    private static func refreshDeletionFailurePreventsNetworkAndClearsProvider() async throws {
+        let keychain = InMemoryKeychainAccess()
+        let provider = CurrentTokenProvider()
+        let store = KeychainSessionTokenStore(tokenProvider: provider, keychain: keychain)
+        try await store.save(AuthTokens(accessToken: "expired-access", refreshToken: "refresh-a"))
+        keychain.failDeletes = true
+        let gateway = DelayedRefreshGateway(result: .success(AuthTokens(accessToken: "fresh-access", refreshToken: "refresh-b")))
+        let refresher = RotatingTokenRefresher(gateway: gateway, sessionStore: store, tokenProvider: provider)
+
+        _ = try await expectAsyncThrows { try await refresher.refresh() }
+
+        try expectEqual(await gateway.refreshCalls(), [])
+        try expectEqual(provider.get(), nil)
+    }
+
+    private static func legacyRefreshDeletionFailurePreventsNetworkAndClearsProvider() async throws {
+        let primary = InMemoryKeychainAccess()
+        let legacy = InMemoryKeychainAccess()
+        let provider = CurrentTokenProvider()
+        let store = KeychainSessionTokenStore(tokenProvider: provider, keychain: primary, legacyKeychain: legacy)
+        let tokens = AuthTokens(accessToken: "expired-access", refreshToken: "refresh-a")
+        let encoded = try JSONEncoder().encode(tokens)
+        try await store.save(tokens)
+        try legacy.write(encoded, service: "maintenance.field", account: "maintenance.field.session")
+        legacy.failDeletes = true
+        let gateway = DelayedRefreshGateway(result: .success(AuthTokens(accessToken: "fresh-access", refreshToken: "refresh-b")))
+        let refresher = RotatingTokenRefresher(gateway: gateway, sessionStore: store, tokenProvider: provider)
+
+        _ = try await expectAsyncThrows { try await refresher.refresh() }
+
+        try expectEqual(await gateway.refreshCalls(), [])
+        try expectEqual(provider.get(), nil)
+        try expect(primary.allStoredStrings().contains { $0.contains("refresh-a") }, "primary session must be restored after legacy deletion failure")
+        try expect(legacy.allStoredStrings().contains { $0.contains("refresh-a") }, "legacy session must remain after its deletion failure")
+    }
+
+    private static func logoutDeletionFailureDoesNotClaimSignedOut() async throws {
+        let primary = InMemoryKeychainAccess()
+        let legacy = InMemoryKeychainAccess()
+        let provider = CurrentTokenProvider()
+        let store = KeychainSessionTokenStore(tokenProvider: provider, keychain: primary, legacyKeychain: legacy)
+        let tokens = AuthTokens(accessToken: "existing-access", refreshToken: "existing-refresh")
+        try await store.save(tokens)
+        try legacy.write(try JSONEncoder().encode(tokens), service: "maintenance.field", account: "maintenance.field.session")
+        legacy.failDeletes = true
+        let repository = PasskeyAuthRepository(
+            gateway: RecordingPasskeyAuthGateway(
+                challenge: generatedPasskeyChallenge(),
+                tokens: generatedTokenPair(refreshToken: "unused"),
+                registeredDevice: generatedDevice(pushToken: nil)
+            ),
+            credentialProvider: StaticPasskeyCredentialProvider(),
+            sessionStore: store,
+            deviceIDStore: FixedDeviceIDStore(deviceID: "ios-device-a"),
+            appVersion: "0.1.0"
+        )
+
+        _ = try await expectAsyncThrows { try await repository.logout() }
+
+        try expectEqual(provider.get(), "existing-access")
+        try expectEqual(await store.load(), tokens)
+    }
+
+    private static func loginInvalidationFailurePreservesRestorableSession() async throws {
+        let gateway = RecordingPasskeyAuthGateway(
+            challenge: generatedPasskeyChallenge(),
+            tokens: generatedTokenPair(refreshToken: "unused"),
+            registeredDevice: generatedDevice(pushToken: nil)
+        )
+        gateway.finishError = URLError(.userAuthenticationRequired)
+        let store = InMemorySessionTokenStore(tokens: AuthTokens(accessToken: "existing-access", refreshToken: "existing-refresh"))
+        await store.setClearFailure(true)
+        let repository = PasskeyAuthRepository(
+            gateway: gateway,
+            credentialProvider: StaticPasskeyCredentialProvider(),
+            sessionStore: store,
+            deviceIDStore: FixedDeviceIDStore(deviceID: "ios-device-a"),
+            appVersion: "0.1.0"
+        )
+
+        let state = await repository.login(userID: "00000000-0000-0000-0000-000000000901")
+
+        let existingTokens = AuthTokens(accessToken: "existing-access", refreshToken: "existing-refresh")
+        try expectEqual(
+            state,
+            .authenticated(
+                accessToken: existingTokens.accessToken,
+                refreshToken: existingTokens.refreshToken,
+                messageKey: "session_invalidation_failed"
+            )
+        )
+        try expectEqual(await store.load(), existingTokens)
     }
 
     private static func locationConsentStateMachineMirrorsAndroidGpsGate() throws {
@@ -1463,7 +1821,7 @@ struct MaintenanceFieldCoreBehaviorTests {
         try expectEqual(await store.load(), nil)
 
         let tokens = AuthTokens(accessToken: "access.jwt", refreshToken: "refresh-token-30d")
-        await store.save(tokens)
+        try await store.save(tokens)
 
         try expectEqual(provider.get(), "access.jwt")
         try expectEqual(await store.load(), tokens)
@@ -1475,7 +1833,7 @@ struct MaintenanceFieldCoreBehaviorTests {
             "tokens should be persisted through the keychain"
         )
 
-        await store.clear()
+        try await store.clear()
         try expectEqual(await store.load(), nil)
         try expectEqual(provider.get(), nil)
         try expect(keychain.isEmpty(), "clear should remove the keychain item")
@@ -1489,7 +1847,7 @@ struct MaintenanceFieldCoreBehaviorTests {
         let primary = InMemoryKeychainAccess()
         let legacy = InMemoryKeychainAccess()
         let legacyTokens = AuthTokens(accessToken: "legacy.access", refreshToken: "legacy-refresh")
-        legacy.write(try JSONEncoder().encode(legacyTokens), service: "maintenance.field", account: "maintenance.field.session")
+        try legacy.write(try JSONEncoder().encode(legacyTokens), service: "maintenance.field", account: "maintenance.field.session")
 
         let provider = CurrentTokenProvider()
         let store = KeychainSessionTokenStore(
@@ -1842,6 +2200,14 @@ struct MaintenanceFieldCoreBehaviorTests {
 
     private static func isoDate(_ value: String) -> Date {
         ISO8601DateFormatter().date(from: value)!
+    }
+
+    private static func jwt(expiration: TimeInterval) -> String {
+        let header = Data(#"{"alg":"none"}"#.utf8).base64EncodedString().replacingOccurrences(of: "=", with: "")
+        let payload = try! JSONSerialization.data(withJSONObject: ["exp": expiration])
+            .base64EncodedString()
+            .replacingOccurrences(of: "=", with: "")
+        return "\(header).\(payload).signature"
     }
 
     private static func temporaryMobileOperationsStoreRoot() throws -> URL {
@@ -2402,6 +2768,8 @@ private final class RecordingMessengerGateway: MessengerGateway, @unchecked Send
 private final class InMemoryKeychainAccess: KeychainAccess, @unchecked Sendable {
     private let lock = NSLock()
     private var storage: [String: Data] = [:]
+    var failWrites = false
+    var failDeletes = false
 
     func read(service: String, account: String) -> Data? {
         lock.lock()
@@ -2409,14 +2777,21 @@ private final class InMemoryKeychainAccess: KeychainAccess, @unchecked Sendable 
         return storage["\(service).\(account)"]
     }
 
-    func write(_ data: Data, service: String, account: String) {
+    func write(_ data: Data, service: String, account: String) throws {
         lock.lock()
+        defer { lock.unlock() }
+        if failWrites {
+            throw BehaviorTestFailure("injected keychain write failure")
+        }
         storage["\(service).\(account)"] = data
-        lock.unlock()
     }
 
-    func delete(service: String, account: String) {
+    func delete(service: String, account: String) throws {
         lock.lock()
+        if failDeletes {
+            lock.unlock()
+            throw BehaviorTestFailure("injected keychain delete failure")
+        }
         storage["\(service).\(account)"] = nil
         lock.unlock()
     }
@@ -2507,6 +2882,8 @@ private struct StaticPasskeyCredentialProvider: PasskeyCredentialProvider {
 private actor InMemorySessionTokenStore: SessionTokenStore {
     private var tokens: AuthTokens?
     private var clears = 0
+    private var saveFailure = false
+    private var clearFailure = false
 
     init(tokens: AuthTokens? = nil) {
         self.tokens = tokens
@@ -2516,17 +2893,121 @@ private actor InMemorySessionTokenStore: SessionTokenStore {
         tokens
     }
 
-    func save(_ tokens: AuthTokens) {
+    func consumeForRefresh() throws -> AuthTokens? {
+        defer { tokens = nil }
+        return tokens
+    }
+
+    func save(_ tokens: AuthTokens) throws {
+        if saveFailure {
+            throw BehaviorTestFailure("injected session save failure")
+        }
         self.tokens = tokens
     }
 
-    func clear() {
+    func clear() throws {
+        if clearFailure {
+            throw BehaviorTestFailure("injected session clear failure")
+        }
         tokens = nil
         clears += 1
     }
 
     func clearCalls() -> Int {
         clears
+    }
+
+    func setSaveFailure(_ enabled: Bool) {
+        saveFailure = enabled
+    }
+
+    func setClearFailure(_ enabled: Bool) {
+        clearFailure = enabled
+    }
+}
+
+private actor DelayedRefreshGateway: TokenRefreshGateway {
+    private let result: Result<AuthTokens, any Error>
+    private var calls: [String] = []
+
+    init(result: Result<AuthTokens, any Error>) {
+        self.result = result
+    }
+
+    func refresh(using refreshToken: String) async throws -> AuthTokens {
+        calls.append(refreshToken)
+        try await Task.sleep(for: .milliseconds(50))
+        return try result.get()
+    }
+
+    func refreshCalls() -> [String] {
+        calls
+    }
+}
+
+private actor ObservingRefreshGateway: TokenRefreshGateway {
+    private let sessionStore: InMemorySessionTokenStore
+    private let result: Result<AuthTokens, any Error>
+    private var sessionWasConsumed = false
+
+    init(sessionStore: InMemorySessionTokenStore, result: Result<AuthTokens, any Error>) {
+        self.sessionStore = sessionStore
+        self.result = result
+    }
+
+    func refresh(using refreshToken: String) async throws -> AuthTokens {
+        sessionWasConsumed = await sessionStore.load() == nil
+        return try result.get()
+    }
+
+    func wasSessionConsumedBeforeNetwork() -> Bool {
+        sessionWasConsumed
+    }
+}
+
+private actor ResponseSequence {
+    private var statuses: [HTTPResponse.Status]
+    private var requests: [HTTPRequest] = []
+
+    init(statuses: [HTTPResponse.Status]) {
+        self.statuses = statuses
+    }
+
+    func send(_ request: HTTPRequest) -> (HTTPResponse, HTTPBody?) {
+        requests.append(request)
+        return (HTTPResponse(status: statuses.removeFirst()), nil)
+    }
+
+    func authorizations() -> [String?] {
+        requests.map { $0.headerFields[.authorization] }
+    }
+
+    func callCount() -> Int {
+        requests.count
+    }
+}
+
+private actor RecordingFailureTransport: ClientTransport {
+    private var requests: [HTTPRequest] = []
+    private var operations: [String] = []
+
+    func send(
+        _ request: HTTPRequest,
+        body: HTTPBody?,
+        baseURL: URL,
+        operationID: String
+    ) async throws -> (HTTPResponse, HTTPBody?) {
+        requests.append(request)
+        operations.append(operationID)
+        return (HTTPResponse(status: .internalServerError), nil)
+    }
+
+    func operationIDs() -> [String] {
+        operations
+    }
+
+    func authorizations() -> [String?] {
+        requests.map { $0.headerFields[.authorization] }
     }
 }
 

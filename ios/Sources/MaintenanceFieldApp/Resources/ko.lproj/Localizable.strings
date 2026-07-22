@@ -47,6 +47,7 @@
 "back" = "뒤로";
 "loading" = "처리 중";
 "login_failed" = "로그인에 실패했습니다.";
+"session_invalidation_failed" = "세션을 안전하게 종료하지 못했습니다. 다시 시도해 주세요.";
 "device_registration_retry_pending" = "로그인은 완료되었습니다. 네트워크 복구 후 기기 등록을 다시 시도합니다.";
 "operation_failed" = "처리에 실패했습니다.";
 "offline_queued" = "오프라인 작업으로 저장되었습니다.";

@@ -37,7 +37,11 @@ struct FieldAppContainer {
         }
         let deviceIDStore = UserDefaultsDeviceIDStore()
         let serverURL = Self.resolveServerURL()
-        let gateway = GeneratedMaintenanceAPIGateway(serverURL: serverURL, tokenProvider: tokenProvider)
+        let gateway = GeneratedMaintenanceAPIGateway(
+            serverURL: serverURL,
+            tokenProvider: tokenProvider,
+            sessionStore: sessionStore
+        )
         let mutationStore: any MutationQueueStore
         do {
             mutationStore = try CoreDataMutationQueueStore(storeURL: CoreDataMutationQueueStore.defaultStoreURL())

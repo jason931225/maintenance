@@ -39,6 +39,143 @@ public protocol PasskeyAuthGateway: Sendable {
     func registerDevice(deviceID: String, appVersion: String) async throws -> Components.Schemas.DeviceRegistrationResponse
 }
 
+/// Performs a refresh request without passing through authenticated middleware.
+public protocol TokenRefreshGateway: Sendable {
+    func refresh(using refreshToken: String) async throws -> AuthTokens
+}
+
+public enum SessionRefreshError: Error, Sendable, Equatable {
+    /// The refresh token was rejected, reused, or the server omitted its rotated replacement.
+    case invalidSession
+}
+
+/// Serializes token rotation so concurrent 401 responses never reuse a refresh token.
+public actor RotatingTokenRefresher {
+    private let gateway: any TokenRefreshGateway
+    private let sessionStore: any SessionTokenStore
+    private let tokenProvider: CurrentTokenProvider
+    private let clock: any FieldClock
+    private let refreshLeeway: TimeInterval
+    private var inFlight: Task<AuthTokens, Error>?
+
+    public init(
+        gateway: any TokenRefreshGateway,
+        sessionStore: any SessionTokenStore,
+        tokenProvider: CurrentTokenProvider,
+        clock: any FieldClock = SystemFieldClock(),
+        refreshLeeway: TimeInterval = 60
+    ) {
+        self.gateway = gateway
+        self.sessionStore = sessionStore
+        self.tokenProvider = tokenProvider
+        self.clock = clock
+        self.refreshLeeway = refreshLeeway
+    }
+
+    public func refresh() async throws -> AuthTokens {
+        if let inFlight {
+            return try await inFlight.value
+        }
+
+        let gateway = self.gateway
+        let sessionStore = self.sessionStore
+        let tokenProvider = self.tokenProvider
+        let task = Task {
+            guard let current = try await sessionStore.consumeForRefresh() else {
+                try await sessionStore.clear()
+                tokenProvider.set(nil)
+                throw SessionRefreshError.invalidSession
+            }
+            do {
+                let rotated = try await gateway.refresh(using: current.refreshToken)
+                try await sessionStore.save(rotated)
+                tokenProvider.set(rotated.accessToken)
+                return rotated
+            } catch {
+                try await sessionStore.clear()
+                tokenProvider.set(nil)
+                throw error
+            }
+        }
+        inFlight = task
+        defer { inFlight = nil }
+        return try await task.value
+    }
+
+    /// Arbitrates a 401 using the actor's current rotation state. A request that
+    /// raced with token consumption waits for the same rotation rather than
+    /// treating the temporarily-cleared provider as a terminal signed-out state.
+    public func recover(afterRejectedAccessToken rejectedAccessToken: String?) async throws -> String? {
+        if let inFlight {
+            return try await inFlight.value.accessToken
+        }
+        guard let currentAccessToken = tokenProvider.get(), !currentAccessToken.isEmpty else {
+            return nil
+        }
+        if rejectedAccessToken != currentAccessToken {
+            return currentAccessToken
+        }
+        return (try await refresh()).accessToken
+    }
+
+    public func requiresProactiveRefresh(accessToken: String) -> Bool {
+        guard let expiration = Self.jwtExpiration(accessToken) else { return false }
+        return expiration.timeIntervalSince(clock.now()) <= refreshLeeway
+    }
+
+    public func clearSession() async throws {
+        try await sessionStore.clear()
+        tokenProvider.set(nil)
+    }
+
+    private static func jwtExpiration(_ accessToken: String) -> Date? {
+        let segments = accessToken.split(separator: ".", omittingEmptySubsequences: false)
+        guard segments.count == 3 else { return nil }
+        var encodedPayload = String(segments[1])
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        encodedPayload.append(contentsOf: String(repeating: "=", count: (4 - encodedPayload.count % 4) % 4))
+        guard
+            let data = Data(base64Encoded: encodedPayload),
+            let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let expiration = payload["exp"] as? NSNumber
+        else {
+            return nil
+        }
+        return Date(timeIntervalSince1970: expiration.doubleValue)
+    }
+}
+
+public struct GeneratedTokenRefreshGateway: TokenRefreshGateway {
+    private let client: any APIProtocol
+
+    public init(client: any APIProtocol) {
+        self.client = client
+    }
+
+    public func refresh(using refreshToken: String) async throws -> AuthTokens {
+        let output = try await client.postApiV1AuthTokenRefresh(
+            body: .json(Components.Schemas.RefreshTokenRequest(refreshToken: refreshToken))
+        )
+        switch output {
+        case let .ok(response):
+            let tokens = try response.body.json
+            guard let refreshToken = tokens.refreshToken, !refreshToken.isEmpty else {
+                throw SessionRefreshError.invalidSession
+            }
+            return AuthTokens(accessToken: tokens.accessToken, refreshToken: refreshToken)
+        case .unauthorized:
+            throw SessionRefreshError.invalidSession
+        case let .undocumented(statusCode, _) where statusCode == 401:
+            throw SessionRefreshError.invalidSession
+        case let .undocumented(statusCode, _):
+            throw MaintenanceGatewayError.apiResponse(operation: "refreshToken", statusCode: statusCode)
+        case .tooManyRequests:
+            throw MaintenanceGatewayError.apiResponse(operation: "refreshToken", statusCode: 429)
+        }
+    }
+}
+
 public protocol PasskeyStepUpGateway: Sendable {
     func startMobilePasskeyStepUp(
         binding: Components.Schemas.MobilePasskeyStepUpBinding
@@ -62,17 +199,47 @@ public protocol MaintenanceAPIGateway: SyncGateway, MessengerGateway, MobileOper
 
 public struct GeneratedMaintenanceAPIGateway: MaintenanceAPIGateway, PasskeyAuthGateway {
     private let client: any APIProtocol
+    private let bootstrapClient: (any APIProtocol)?
 
     public init(client: any APIProtocol) {
         self.client = client
+        self.bootstrapClient = nil
     }
 
     public init(serverURL: URL, tokenProvider: CurrentTokenProvider) {
+        self.init(
+            serverURL: serverURL,
+            tokenProvider: tokenProvider,
+            sessionStore: KeychainSessionTokenStore(tokenProvider: tokenProvider)
+        )
+    }
+
+    public init(
+        serverURL: URL,
+        tokenProvider: CurrentTokenProvider,
+        sessionStore: any SessionTokenStore,
+        transport: any ClientTransport = URLSessionTransport(),
+        clock: any FieldClock = SystemFieldClock()
+    ) {
+        let refreshClient = Client(
+            serverURL: serverURL,
+            transport: transport
+        )
+        let refresher = RotatingTokenRefresher(
+            gateway: GeneratedTokenRefreshGateway(client: refreshClient),
+            sessionStore: sessionStore,
+            tokenProvider: tokenProvider,
+            clock: clock
+        )
         self.client = Client(
             serverURL: serverURL,
-            transport: URLSessionTransport(),
-            middlewares: [BearerAuthMiddleware(tokenProvider: tokenProvider)]
+            transport: transport,
+            middlewares: [
+                BearerAuthMiddleware(tokenProvider: tokenProvider),
+                RefreshingAuthMiddleware(tokenProvider: tokenProvider, refresher: refresher),
+            ]
         )
+        self.bootstrapClient = refreshClient
     }
 
     public func listTodayWorkOrders() async throws -> [TechnicianWorkOrder] {
@@ -136,7 +303,7 @@ public struct GeneratedMaintenanceAPIGateway: MaintenanceAPIGateway, PasskeyAuth
     // Usernameless (discoverable) login: the spec's POST /api/v1/auth/passkey/login/start
     // takes no request body — the user is resolved from the asserted credential at finish.
     public func startPasskeyLogin() async throws -> Components.Schemas.PasskeyLoginStartResponse {
-        let output = try await client.postApiV1AuthPasskeyLoginStart()
+        let output = try await (bootstrapClient ?? client).postApiV1AuthPasskeyLoginStart()
         return try output.ok.body.json
     }
 
@@ -144,7 +311,7 @@ public struct GeneratedMaintenanceAPIGateway: MaintenanceAPIGateway, PasskeyAuth
         ceremonyID: Components.Schemas.Uuid,
         credential: Components.Schemas.PasskeyLoginFinishRequest.CredentialPayload
     ) async throws -> Components.Schemas.TokenPairResponse {
-        let output = try await client.postApiV1AuthPasskeyLoginFinish(
+        let output = try await (bootstrapClient ?? client).postApiV1AuthPasskeyLoginFinish(
             body: .json(Components.Schemas.PasskeyLoginFinishRequest(ceremonyId: ceremonyID, credential: credential))
         )
         return try output.ok.body.json
@@ -416,5 +583,58 @@ public struct BearerAuthMiddleware: ClientMiddleware {
             request.headerFields[.authorization] = "Bearer \(accessToken)"
         }
         return try await next(request, body, baseURL)
+    }
+}
+
+/// Retries a failed authenticated request once after the shared token rotation completes.
+public struct RefreshingAuthMiddleware: ClientMiddleware {
+    private let tokenProvider: CurrentTokenProvider
+    private let refresher: RotatingTokenRefresher
+
+    public init(tokenProvider: CurrentTokenProvider, refresher: RotatingTokenRefresher) {
+        self.tokenProvider = tokenProvider
+        self.refresher = refresher
+    }
+
+    public func intercept(
+        _ request: HTTPRequest,
+        body: HTTPBody?,
+        baseURL: URL,
+        operationID: String,
+        next: @Sendable (HTTPRequest, HTTPBody?, URL) async throws -> (HTTPResponse, HTTPBody?)
+    ) async throws -> (HTTPResponse, HTTPBody?) {
+        var request = request
+        if let accessToken = tokenProvider.get(), await refresher.requiresProactiveRefresh(accessToken: accessToken) {
+            _ = try await refresher.refresh()
+            if let freshAccessToken = tokenProvider.get(), !freshAccessToken.isEmpty {
+                request.headerFields[.authorization] = "Bearer \(freshAccessToken)"
+            }
+        }
+
+        let response = try await next(request, body, baseURL)
+        guard response.0.status.code == 401 else {
+            return response
+        }
+
+        guard body?.iterationBehavior != .single else {
+            return response
+        }
+
+        let rejectedAccessToken = Self.accessToken(from: request.headerFields[.authorization])
+        guard let retryAccessToken = try await refresher.recover(afterRejectedAccessToken: rejectedAccessToken) else {
+            return response
+        }
+        var retry = request
+        retry.headerFields[.authorization] = "Bearer \(retryAccessToken)"
+        let retried = try await next(retry, body, baseURL)
+        if retried.0.status.code == 401 {
+            try await refresher.clearSession()
+        }
+        return retried
+    }
+
+    private static func accessToken(from authorization: String?) -> String? {
+        guard let authorization, authorization.hasPrefix("Bearer ") else { return nil }
+        return String(authorization.dropFirst("Bearer ".count))
     }
 }

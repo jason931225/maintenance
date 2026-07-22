@@ -62,8 +62,7 @@ public struct PasskeyAuthRepository: Sendable {
                 // refresh token (refresh_token is only null on the web cookie
                 // transport). A nil here is a server contract violation — fail
                 // the login gracefully instead of crashing.
-                await sessionStore.clear()
-                return stateMachine.reduce(state, .failed(messageKey: "login_failed"))
+                return await failedLoginState()
             }
             deviceID = await deviceIDStore.loadOrCreate()
             state = stateMachine.reduce(
@@ -76,10 +75,9 @@ public struct PasskeyAuthRepository: Sendable {
                 )
             )
 
-            await sessionStore.save(AuthTokens(accessToken: tokens.accessToken, refreshToken: refreshToken))
+            try await sessionStore.save(AuthTokens(accessToken: tokens.accessToken, refreshToken: refreshToken))
         } catch {
-            await sessionStore.clear()
-            return stateMachine.reduce(state, .failed(messageKey: "login_failed"))
+            return await failedLoginState()
         }
 
         do {
@@ -96,9 +94,28 @@ public struct PasskeyAuthRepository: Sendable {
         }
     }
 
-    public func logout() async -> LoginState {
-        await sessionStore.clear()
+    public func logout() async throws -> LoginState {
+        try await sessionStore.clear()
         return .signedOut()
+    }
+
+    private func failedLoginState() async -> LoginState {
+        do {
+            try await sessionStore.clear()
+            return .signedOut(messageKey: "login_failed")
+        } catch {
+            // Keychain deletion was not proven. If credentials remain readable,
+            // retain their authenticated UI state rather than rendering a login
+            // screen that would contradict the restorable session.
+            if let tokens = await sessionStore.load() {
+                return .authenticated(
+                    accessToken: tokens.accessToken,
+                    refreshToken: tokens.refreshToken,
+                    messageKey: "session_invalidation_failed"
+                )
+            }
+            return .signedOut(messageKey: "session_invalidation_failed")
+        }
     }
 
     private static func sanitizedErrorClass(_ error: any Error) -> String {

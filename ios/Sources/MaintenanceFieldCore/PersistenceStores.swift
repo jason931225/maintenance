@@ -36,8 +36,10 @@ public struct AuthTokens: Codable, Hashable, Sendable {
 
 public protocol SessionTokenStore: Sendable {
     func load() async -> AuthTokens?
-    func save(_ tokens: AuthTokens) async
-    func clear() async
+    /// Removes the current pair before a rotating refresh request is sent.
+    func consumeForRefresh() async throws -> AuthTokens?
+    func save(_ tokens: AuthTokens) async throws
+    func clear() async throws
 }
 
 /// Stores the access/refresh token pair in the Keychain rather than UserDefaults.
@@ -82,8 +84,9 @@ public actor KeychainSessionTokenStore: SessionTokenStore {
         if let legacyKeychain,
            let legacyData = legacyKeychain.read(service: service, account: account),
            let tokens = Self.decode(legacyData) {
-            keychain.write(legacyData, service: service, account: account)
-            legacyKeychain.delete(service: service, account: account)
+            if (try? keychain.write(legacyData, service: service, account: account)) != nil {
+                try? legacyKeychain.delete(service: service, account: account)
+            }
             tokenProvider.set(tokens.accessToken)
             return tokens
         }
@@ -91,17 +94,52 @@ public actor KeychainSessionTokenStore: SessionTokenStore {
         return nil
     }
 
-    public func save(_ tokens: AuthTokens) {
-        if let data = try? JSONEncoder().encode(tokens) {
-            keychain.write(data, service: service, account: account)
+    public func consumeForRefresh() throws -> AuthTokens? {
+        let primaryData = keychain.read(service: service, account: account)
+        let legacyData = legacyKeychain?.read(service: service, account: account)
+        let tokens = Self.decode(primaryData ?? legacyData)
+        tokenProvider.set(nil)
+        do {
+            try keychain.delete(service: service, account: account)
+            try legacyKeychain?.delete(service: service, account: account)
+            return tokens
+        } catch {
+            Self.restore(
+                primaryData: primaryData,
+                legacyData: legacyData,
+                keychain: keychain,
+                legacyKeychain: legacyKeychain,
+                service: service,
+                account: account
+            )
+            throw error
         }
+    }
+
+    public func save(_ tokens: AuthTokens) throws {
+        let data = try JSONEncoder().encode(tokens)
+        try keychain.write(data, service: service, account: account)
         tokenProvider.set(tokens.accessToken)
     }
 
-    public func clear() {
-        keychain.delete(service: service, account: account)
-        legacyKeychain?.delete(service: service, account: account)
-        tokenProvider.set(nil)
+    public func clear() throws {
+        let primaryData = keychain.read(service: service, account: account)
+        let legacyData = legacyKeychain?.read(service: service, account: account)
+        do {
+            try keychain.delete(service: service, account: account)
+            try legacyKeychain?.delete(service: service, account: account)
+            tokenProvider.set(nil)
+        } catch {
+            Self.restore(
+                primaryData: primaryData,
+                legacyData: legacyData,
+                keychain: keychain,
+                legacyKeychain: legacyKeychain,
+                service: service,
+                account: account
+            )
+            throw error
+        }
     }
 
     /// Read the token blob, preferring the primary store and falling back to the
@@ -121,14 +159,26 @@ public actor KeychainSessionTokenStore: SessionTokenStore {
         guard let data else { return nil }
         return try? JSONDecoder().decode(AuthTokens.self, from: data)
     }
+
+    private static func restore(
+        primaryData: Data?,
+        legacyData: Data?,
+        keychain: any KeychainAccess,
+        legacyKeychain: (any KeychainAccess)?,
+        service: String,
+        account: String
+    ) {
+        if let primaryData { try? keychain.write(primaryData, service: service, account: account) }
+        if let legacyData { try? legacyKeychain?.write(legacyData, service: service, account: account) }
+    }
 }
 
 /// Abstraction over the Keychain so the session store is unit-testable without a
 /// provisioned Keychain (the real `SecItem` APIs fail outside a signed app bundle).
 public protocol KeychainAccess: Sendable {
     func read(service: String, account: String) -> Data?
-    func write(_ data: Data, service: String, account: String)
-    func delete(service: String, account: String)
+    func write(_ data: Data, service: String, account: String) throws
+    func delete(service: String, account: String) throws
 }
 
 public struct SecKeychainAccess: KeychainAccess {
@@ -163,7 +213,7 @@ public struct SecKeychainAccess: KeychainAccess {
         return result as? Data
     }
 
-    public func write(_ data: Data, service: String, account: String) {
+    public func write(_ data: Data, service: String, account: String) throws {
         var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -180,11 +230,16 @@ public struct SecKeychainAccess: KeychainAccess {
         if status == errSecItemNotFound {
             var insert = query
             insert.merge(attributes) { _, new in new }
-            SecItemAdd(insert as CFDictionary, nil)
+            let addStatus = SecItemAdd(insert as CFDictionary, nil)
+            guard addStatus == errSecSuccess else {
+                throw PersistenceStoreError.writeFailed("session", "keychain status \(addStatus)")
+            }
+        } else if status != errSecSuccess {
+            throw PersistenceStoreError.writeFailed("session", "keychain status \(status)")
         }
     }
 
-    public func delete(service: String, account: String) {
+    public func delete(service: String, account: String) throws {
         var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
@@ -193,7 +248,10 @@ public struct SecKeychainAccess: KeychainAccess {
         if let accessGroup {
             query[kSecAttrAccessGroup as String] = accessGroup
         }
-        SecItemDelete(query as CFDictionary)
+        let status = SecItemDelete(query as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw PersistenceStoreError.writeFailed("session", "keychain delete status \(status)")
+        }
     }
 }
 
