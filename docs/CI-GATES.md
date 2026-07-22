@@ -678,10 +678,13 @@ The database, backend, build, and session boundary is job-local:
    before building it. The mode-`0700` cluster and candidate `mnt-app` backend
    use separate random loopback ports.
 3. It applies migrations and deterministic UI fixtures. Before each test-class
-   shard, it generates a new random one-use OTP, stores only its SHA-256 digest,
-   redeems it once, masks the OTP/access/refresh values, and patches the
-   mode-`0600` `.xctestrun` in place. The file remains below job-local DerivedData
-   so `__TESTROOT__` continues to resolve the built products.
+   shard, it generates a new random one-use OTP and stores only its SHA-256
+   digest in the database. The plaintext OTP and minted access/refresh tokens
+   briefly reside in runner-local mode-`0700` job files (and the mode-`0600`
+   `.xctestrun`), are GitHub-masked, are checked by the artifact secret scan,
+   and are deleted with the owned job root. The `.xctestrun` remains below
+   job-local DerivedData so `__TESTROOT__` continues to resolve the built
+   products.
 4. Each shard has a 720-second (12-minute) hard bound, below the backend's
    15-minute access-token TTL. The production iOS client implements serialized,
    rotating refresh with proactive expiry handling, verified Keychain
