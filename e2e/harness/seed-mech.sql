@@ -8,6 +8,7 @@
 --   - A RECEIVED work order with a BROADCASTING P1 dispatch (e2e-wo-p1) for MECH-03/04
 --   - An ASSIGNED work order (e2e-wo-start) for MECH-05 start
 --   - An IN_PROGRESS work order (e2e-wo-report) for MECH-06 report
+--   - An IN_PROGRESS work order (e2e-wo-report-success) for the isolated iOS report mutation
 --   - A RECEIVED work order for MECH-08 intake verifying the 호기 autopull
 --   - A support ticket (OPEN, INTERNAL) for MECH-12
 --   - A messenger group thread with the mechanic + admin for MECH-11
@@ -206,6 +207,38 @@ INSERT INTO work_order_assignments (id, work_order_id, mechanic_id, role, assign
 VALUES (
   '00000000-0000-0000-0000-000000a00002',
   '00000000-0000-0000-0000-000000f00004',
+  :'mech_id',
+  'PRIMARY',
+  now(),
+  :'org_id'
+)
+ON CONFLICT (id) DO NOTHING;
+
+-- Isolated iOS report-success fixture: the successful mutation must not consume
+-- the empty-report validation fixture above.
+INSERT INTO work_orders (
+  id, request_no, branch_id, equipment_id, customer_id, site_id,
+  requested_by, status, priority, symptom, org_id
+)
+VALUES (
+  '00000000-0000-0000-0000-000000f00005',
+  to_char(CURRENT_DATE, 'YYYYMMDD') || '-015',
+  :'branch_id',
+  '00000000-0000-0000-0000-000000ee0003',
+  '00000000-0000-0000-0000-000000ee0001',
+  '00000000-0000-0000-0000-000000ee0002',
+  :'mech_id',
+  'IN_PROGRESS',
+  'P3',
+  '유압 호스 점검 필요 (iOS 보고 성공)',
+  :'org_id'
+)
+ON CONFLICT (id) DO NOTHING;
+
+INSERT INTO work_order_assignments (id, work_order_id, mechanic_id, role, assigned_at, org_id)
+VALUES (
+  '00000000-0000-0000-0000-000000a00003',
+  '00000000-0000-0000-0000-000000f00005',
   :'mech_id',
   'PRIMARY',
   now(),
