@@ -41,14 +41,21 @@ final class PreflightUITests: XCTestCase {
         defer { restoredApp.terminate() }
 
         XCTAssertTrue(
-            restoredApp.staticTexts[KO.todayTitle].waitForExistence(timeout: 20)
-                || restoredApp.tabBars.buttons[KO.todayTitle].waitForExistence(timeout: 1)
-                || restoredApp.collectionViews[AID.todayList].waitForExistence(timeout: 1),
+            restoredApp.tabBars.buttons[KO.todayTitle].waitForExistence(timeout: 20),
             "The unmodified main app must restore the session written by the app-owned seeder."
         )
         XCTAssertFalse(
             restoredApp.textFields[AID.loginUserIDField].exists,
             "A seeded session must not leave the main app on the login form."
+        )
+        XCTAssertTrue(
+            restoredApp.collectionViews[AID.todayList].waitForExistence(timeout: 20),
+            "An authenticated shell without the Today list is not a successful API restore."
+        )
+        let detailWorkOrderID = try UITestFixture.requiredID(UITestFixture.detailWorkOrderID)
+        XCTAssertTrue(
+            scrollToWorkOrderRow(in: restoredApp, id: detailWorkOrderID, timeout: 20) != nil,
+            "The restored app must decode and render the deterministic Today fixture; an HTTP 200 with an undecodable work-order response is a preflight failure."
         )
 
         restoredApp.terminate()

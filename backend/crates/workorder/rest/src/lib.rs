@@ -315,6 +315,7 @@ struct CreateWorkOrderRequest {
     management_no: String,
     symptom: String,
     customer_request: Option<String>,
+    #[serde(with = "time::serde::rfc3339::option")]
     target_due_at: Option<time::OffsetDateTime>,
 }
 
@@ -462,7 +463,9 @@ struct ApprovalItem {
     status: String,
     title: String,
     summary: String,
+    #[serde(with = "time::serde::rfc3339::option")]
     requested_at: Option<time::OffsetDateTime>,
+    #[serde(with = "time::serde::rfc3339::option")]
     due_at: Option<time::OffsetDateTime>,
     href: String,
     action_href: String,
@@ -593,16 +596,20 @@ struct WorkOrderDetail {
     result_type: String,
     symptom: String,
     customer_request: Option<String>,
+    #[serde(with = "time::serde::rfc3339::option")]
     target_due_at: Option<time::OffsetDateTime>,
     delay_reason: Option<String>,
     delay_note: Option<String>,
     diagnosis: Option<String>,
     action_taken: Option<String>,
     report_submitted_by: Option<UserId>,
+    #[serde(with = "time::serde::rfc3339::option")]
     report_submitted_at: Option<time::OffsetDateTime>,
     kpi_excluded: bool,
     evidence_verified: bool,
+    #[serde(with = "time::serde::rfc3339")]
     created_at: time::OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
     updated_at: time::OffsetDateTime,
     equipment: EquipmentSummary,
     customer: NamedEntity,
@@ -722,7 +729,9 @@ struct ApprovalStepSummary {
     approver_id: Option<UserId>,
     approver_name: Option<String>,
     status: String,
+    #[serde(with = "time::serde::rfc3339::option")]
     requested_at: Option<time::OffsetDateTime>,
+    #[serde(with = "time::serde::rfc3339::option")]
     approved_at: Option<time::OffsetDateTime>,
     approved_by_id: Option<UserId>,
     approved_by_name: Option<String>,
@@ -736,6 +745,7 @@ struct StatusHistorySummary {
     action: String,
     from_status: Option<String>,
     to_status: String,
+    #[serde(with = "time::serde::rfc3339")]
     occurred_at: time::OffsetDateTime,
 }
 
@@ -748,7 +758,9 @@ struct EvidenceSummary {
     uploaded_by: UserId,
     worm_replica_status: String,
     retry_count: i32,
+    #[serde(with = "time::serde::rfc3339::option")]
     verified_at: Option<time::OffsetDateTime>,
+    #[serde(with = "time::serde::rfc3339")]
     created_at: time::OffsetDateTime,
 }
 
@@ -785,6 +797,7 @@ struct SyncBatchRequest {
 struct SyncOperationRequest {
     request_id: String,
     operation: SyncOperationKind,
+    #[serde(with = "time::serde::rfc3339")]
     created_at: time::OffsetDateTime,
     payload: serde_json::Value,
 }
@@ -898,6 +911,7 @@ struct DeviceRegistrationResponse {
     platform: DevicePlatform,
     push_token: Option<String>,
     app_version: String,
+    #[serde(with = "time::serde::rfc3339")]
     last_registered_at: time::OffsetDateTime,
 }
 
@@ -965,6 +979,7 @@ struct EvidenceStatusResponse {
     /// internal object key; the client renders this URL directly.
     thumbnail_url: Option<String>,
     processing_error: Option<String>,
+    #[serde(with = "time::serde::rfc3339::option")]
     processed_at: Option<time::OffsetDateTime>,
 }
 
@@ -4824,10 +4839,15 @@ fn status_for_error_kind(kind: ErrorKind) -> StatusCode {
 #[cfg(test)]
 mod tests {
     use super::{
-        AssignmentSummary, EquipmentSummary, NamedEntity, WorkOrderListItem,
+        ApprovalItem, ApprovalOntologyContext, ApprovalPolicyContext, ApprovalStepSummary,
+        ApprovalWorkflowContext, AssignmentSummary, CreateWorkOrderRequest, DevicePlatform,
+        DeviceRegistrationResponse, EquipmentSummary, EvidenceStatusResponse, EvidenceSummary,
+        NamedEntity, StatusHistorySummary, SyncBatchRequest, WorkOrderDetail, WorkOrderListItem,
         normalize_management_no,
     };
-    use mnt_kernel_core::{BranchId, UserId, WorkOrderId};
+    use mnt_kernel_core::{BranchId, DeviceId, EvidenceId, OrgId, UserId, WorkOrderId};
+    use mnt_platform_storage::ProcessingStatus;
+    use mnt_workorder_domain::AttachmentStage;
 
     #[test]
     fn work_order_list_item_serializes_timestamps_as_rfc3339_strings() {
@@ -4889,6 +4909,247 @@ mod tests {
             json.pointer("/target_due_at"),
             Some(&serde_json::Value::Null),
             "an absent target due date must remain JSON null"
+        );
+    }
+
+    #[test]
+    fn work_order_requests_deserialize_rfc3339_timestamps() {
+        let create: CreateWorkOrderRequest = serde_json::from_str(
+            r#"{
+                "branch_id": "00000000-0000-0000-0000-000000000001",
+                "management_no": "EQ-001",
+                "symptom": "Test symptom",
+                "target_due_at": "2026-07-22T12:34:56.123456789Z"
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(
+            create
+                .target_due_at
+                .expect("target_due_at must decode")
+                .nanosecond(),
+            123_456_789
+        );
+
+        let sync: SyncBatchRequest = serde_json::from_str(
+            r#"{
+                "sync_id": "sync-1",
+                "operations": [{
+                    "request_id": "request-1",
+                    "operation": "WORK_ORDER_START",
+                    "created_at": "2026-07-22T12:34:56.987654321Z",
+                    "payload": {}
+                }]
+            }"#,
+        )
+        .unwrap();
+        assert_eq!(sync.operations.len(), 1);
+        assert_eq!(sync.operations[0].created_at.nanosecond(), 987_654_321);
+    }
+
+    #[test]
+    fn approval_item_serializes_optional_timestamps_as_rfc3339_strings_or_null() {
+        let timestamp = time::OffsetDateTime::from_unix_timestamp(0)
+            .unwrap()
+            .replace_nanosecond(123_456_789)
+            .unwrap();
+        let mut item = ApprovalItem {
+            id: "work_order:00000000-0000-0000-0000-000000000001".to_owned(),
+            source: "work_order".to_owned(),
+            source_id: uuid::Uuid::nil(),
+            branch_id: BranchId::from_uuid(uuid::Uuid::nil()),
+            status: "PENDING".to_owned(),
+            title: "Test approval".to_owned(),
+            summary: "Test summary".to_owned(),
+            requested_at: Some(timestamp),
+            due_at: Some(timestamp),
+            href: "/approvals/1".to_owned(),
+            action_href: "/approvals/1/approve".to_owned(),
+            ontology: ApprovalOntologyContext {
+                object_type: "WORK_ORDER".to_owned(),
+                object_id: uuid::Uuid::nil(),
+                tenant_id: OrgId::from_uuid(uuid::Uuid::nil()),
+                branch_id: BranchId::from_uuid(uuid::Uuid::nil()),
+            },
+            workflow: ApprovalWorkflowContext {
+                workflow_key: "work_order".to_owned(),
+                action_key: "approve".to_owned(),
+            },
+            policy: ApprovalPolicyContext {
+                decision: "ALLOW",
+                enforcement: "ENFORCED",
+                required_features: Vec::new(),
+                scope_kind: "BRANCH",
+                scope_id: uuid::Uuid::nil(),
+            },
+            work_order: None,
+            daily_plan: None,
+            target_change: None,
+        };
+
+        let json = serde_json::to_value(&item).unwrap();
+        for pointer in ["/requested_at", "/due_at"] {
+            assert_eq!(
+                json.pointer(pointer).and_then(serde_json::Value::as_str),
+                Some("1970-01-01T00:00:00.123456789Z"),
+                "{pointer} must honor the OpenAPI string/date-time contract"
+            );
+        }
+
+        item.requested_at = None;
+        item.due_at = None;
+        let json = serde_json::to_value(item).unwrap();
+        for pointer in ["/requested_at", "/due_at"] {
+            assert_eq!(json.pointer(pointer), Some(&serde_json::Value::Null));
+        }
+    }
+
+    #[test]
+    fn work_order_detail_serializes_all_timestamps_as_rfc3339_strings() {
+        let timestamp = time::OffsetDateTime::from_unix_timestamp(0)
+            .unwrap()
+            .replace_nanosecond(123_456_789)
+            .unwrap();
+        let expected = "1970-01-01T00:00:00.123456789Z";
+        let detail = WorkOrderDetail {
+            id: WorkOrderId::from_uuid(uuid::Uuid::nil()),
+            request_no: "20260722-001".to_owned(),
+            branch_id: BranchId::from_uuid(uuid::Uuid::nil()),
+            status: "ASSIGNED".to_owned(),
+            priority: "P2".to_owned(),
+            result_type: "REPAIR".to_owned(),
+            symptom: "Test symptom".to_owned(),
+            customer_request: None,
+            target_due_at: Some(timestamp),
+            delay_reason: None,
+            delay_note: None,
+            diagnosis: None,
+            action_taken: None,
+            report_submitted_by: Some(UserId::from_uuid(uuid::Uuid::nil())),
+            report_submitted_at: Some(timestamp),
+            kpi_excluded: false,
+            evidence_verified: true,
+            created_at: timestamp,
+            updated_at: timestamp,
+            equipment: EquipmentSummary {
+                id: uuid::Uuid::nil(),
+                equipment_no: "EQ-001".to_owned(),
+                management_no: Some("001".to_owned()),
+                model: Some("TEST".to_owned()),
+                status: "ACTIVE".to_owned(),
+                specification: "TEST".to_owned(),
+                ton_text: "1T".to_owned(),
+            },
+            customer: NamedEntity {
+                id: uuid::Uuid::nil(),
+                name: "Test customer".to_owned(),
+            },
+            site: NamedEntity {
+                id: uuid::Uuid::nil(),
+                name: "Test site".to_owned(),
+            },
+            site_contact: None,
+            assignments: vec![AssignmentSummary {
+                id: uuid::Uuid::nil(),
+                mechanic_id: UserId::from_uuid(uuid::Uuid::nil()),
+                mechanic_name: "Test mechanic".to_owned(),
+                role: "PRIMARY".to_owned(),
+                assigned_at: timestamp,
+            }],
+            approval_line: vec![ApprovalStepSummary {
+                id: uuid::Uuid::nil(),
+                step_order: 1,
+                role: "ADMIN".to_owned(),
+                approver_id: Some(UserId::from_uuid(uuid::Uuid::nil())),
+                approver_name: Some("Test approver".to_owned()),
+                status: "APPROVED".to_owned(),
+                requested_at: Some(timestamp),
+                approved_at: Some(timestamp),
+                approved_by_id: Some(UserId::from_uuid(uuid::Uuid::nil())),
+                approved_by_name: Some("Test approver".to_owned()),
+                decision_comment: None,
+            }],
+            status_history: vec![StatusHistorySummary {
+                id: uuid::Uuid::nil(),
+                actor: Some(UserId::from_uuid(uuid::Uuid::nil())),
+                action: "ASSIGN".to_owned(),
+                from_status: Some("OPEN".to_owned()),
+                to_status: "ASSIGNED".to_owned(),
+                occurred_at: timestamp,
+            }],
+            evidence: vec![EvidenceSummary {
+                id: EvidenceId::from_uuid(uuid::Uuid::nil()),
+                stage: "READY".to_owned(),
+                content_type: "image/jpeg".to_owned(),
+                size_bytes: 1,
+                uploaded_by: UserId::from_uuid(uuid::Uuid::nil()),
+                worm_replica_status: "VERIFIED".to_owned(),
+                retry_count: 0,
+                verified_at: Some(timestamp),
+                created_at: timestamp,
+            }],
+        };
+
+        let json = serde_json::to_value(detail).unwrap();
+        for pointer in [
+            "/target_due_at",
+            "/report_submitted_at",
+            "/created_at",
+            "/updated_at",
+            "/assignments/0/assigned_at",
+            "/approval_line/0/requested_at",
+            "/approval_line/0/approved_at",
+            "/status_history/0/occurred_at",
+            "/evidence/0/verified_at",
+            "/evidence/0/created_at",
+        ] {
+            assert_eq!(
+                json.pointer(pointer).and_then(serde_json::Value::as_str),
+                Some(expected),
+                "{pointer} must honor the OpenAPI string/date-time contract"
+            );
+        }
+    }
+
+    #[test]
+    fn mobile_timestamp_responses_serialize_fractional_rfc3339_strings() {
+        let timestamp = time::OffsetDateTime::from_unix_timestamp(0)
+            .unwrap()
+            .replace_nanosecond(123_456_789)
+            .unwrap();
+        let device = DeviceRegistrationResponse {
+            id: DeviceId::from_uuid(uuid::Uuid::nil()),
+            user_id: UserId::from_uuid(uuid::Uuid::nil()),
+            device_hash: "a".repeat(64),
+            platform: DevicePlatform::Ios,
+            push_token: None,
+            app_version: "1.0.0".to_owned(),
+            last_registered_at: timestamp,
+        };
+        let evidence = EvidenceStatusResponse {
+            id: EvidenceId::from_uuid(uuid::Uuid::nil()),
+            work_order_id: WorkOrderId::from_uuid(uuid::Uuid::nil()),
+            stage: AttachmentStage::After,
+            processing_status: ProcessingStatus::Ready,
+            content_type: "image/jpeg".to_owned(),
+            thumbnail_url: None,
+            processing_error: None,
+            processed_at: Some(timestamp),
+        };
+
+        assert_eq!(
+            serde_json::to_value(device)
+                .unwrap()
+                .pointer("/last_registered_at")
+                .and_then(serde_json::Value::as_str),
+            Some("1970-01-01T00:00:00.123456789Z")
+        );
+        assert_eq!(
+            serde_json::to_value(evidence)
+                .unwrap()
+                .pointer("/processed_at")
+                .and_then(serde_json::Value::as_str),
+            Some("1970-01-01T00:00:00.123456789Z")
         );
     }
 

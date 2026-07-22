@@ -13,7 +13,7 @@ const validFiles = {
   "ios/Sources/MaintenanceFieldCore/PersistenceStores.swift": readFileSync(new URL("../ios/Sources/MaintenanceFieldCore/PersistenceStores.swift", import.meta.url), "utf8"),
   "ios/Sources/MaintenanceFieldApp/FieldAccessibilityID.swift": `public enum FieldAccessibilityID { public static let staticID = "static.id"; public static func dynamicID(_ id: String) -> String { "dynamic.\\(id)" } }`,
   "ios/Sources/MaintenanceFieldApp/FieldViews.swift": `ForEach(viewModel.messengerState.searchResults) { message in FieldAccessibilityID.messengerSearchResultRow(message.id) }\nForEach(messages) { message in FieldAccessibilityID.messengerMessageRow(message.id) }`,
-  "ios/UITests/Support/FieldUITestCase.swift": `enum AID { static let staticID = "static.id"; static func dynamicID(_ id: String) -> String { "dynamic.\\(id)" } }\nstatic func requiredID(_ key: String) throws -> String { guard let value = ProcessInfo.processInfo.environment[key], UUID(uuidString: value) != nil else { throw Error.missing(key) }; return value }\ntry app.performAccessibilityAudit(for: .all)\n@MainActor\nclass FieldUITestCase: XCTestCase {\n  override func setUpWithError() throws {\n    try super.setUpWithError()\n    let tokens = try RealBackendSession.tokens()\n    try RealSessionSeed.seed(tokens)\n  }\n  override func tearDownWithError() throws {\n    try RealSessionSeed.clear()\n    try super.tearDownWithError()\n  }\n}`,
+  "ios/UITests/Support/FieldUITestCase.swift": `enum AID { static let staticID = "static.id"; static func dynamicID(_ id: String) -> String { "dynamic.\\(id)" } }\nstatic func requiredID(_ key: String) throws -> String { guard let value = ProcessInfo.processInfo.environment[key], UUID(uuidString: value) != nil else { throw Error.missing(key) }; return value }\ntry app.performAccessibilityAudit(for: .all)\n@MainActor\nfunc scrollToWorkOrderRow(in app: XCUIApplication, id: String, timeout: TimeInterval = 15, maxSwipes: Int = 12) -> XCUIElement? {\n  let row = app.buttons[AID.workOrderRow(id)]\n  if row.waitForExistence(timeout: timeout), row.isHittable { return row }\n  let list = app.collectionViews[AID.todayList]\n  guard list.waitForExistence(timeout: timeout) else { return nil }\n  for _ in 0..<maxSwipes {\n    list.swipeUp()\n    if row.waitForExistence(timeout: timeout), row.isHittable { return row }\n  }\n  return nil\n}\n@MainActor\nclass FieldUITestCase: XCTestCase {\n  override func setUpWithError() throws {\n    try super.setUpWithError()\n    let tokens = try RealBackendSession.tokens()\n    try RealSessionSeed.seed(tokens)\n  }\n  override func tearDownWithError() throws {\n    try RealSessionSeed.clear()\n    try super.tearDownWithError()\n  }\n}`,
   "ios/UITests/Support/RealSessionSeed.swift": readFileSync(new URL("../ios/UITests/Support/RealSessionSeed.swift", import.meta.url), "utf8"),
   "ios/Sources/MaintenanceFieldUITestSeeder/UITestSeederApp.swift": readFileSync(new URL("../ios/Sources/MaintenanceFieldUITestSeeder/UITestSeederApp.swift", import.meta.url), "utf8"),
   "ios/Config/App.xcconfig": readFileSync(new URL("../ios/Config/App.xcconfig", import.meta.url), "utf8"),
@@ -23,7 +23,15 @@ const validFiles = {
   "ios/UITests/FieldCriticalPathUITests.swift": `startWork.tap()\nlet detailStatus = app.descendants(matching: .any)[AID.detailStatus]\nXCTAssertEqual(detailStatus.label, KO.inProgress)\ngrant.tap()\napp.terminate()\n// A fresh app launch must read the granted state back\nreloadedWithdraw.tap()\napp.terminate()\n// A fresh app launch must read the withdrawn terminal state back`,
   "ios/UITests/MessengerUITests.swift": `app.buttons[AID.messengerSendButton].tap()\napp.terminate()\ntry await openSeededThread()\nXCTAssertTrue(app.staticTexts[sentMessageBody].exists)`,
   "ios/UITests/CameraCaptureUITests.swift": `if previewIsUsable { reachedTerminalState = true }\ncancel.tap()`,
-  "ios/UITests/PreflightUITests.swift": `@MainActor\nfinal class PreflightUITests: XCTestCase {}`,
+  "ios/UITests/PreflightUITests.swift": `@MainActor
+final class PreflightUITests: XCTestCase {
+  func testSeederRestoresThenClearsRealSession() throws {
+    XCTAssertTrue(restoredApp.tabBars.buttons[KO.todayTitle].waitForExistence(timeout: 20))
+    XCTAssertTrue(restoredApp.collectionViews[AID.todayList].waitForExistence(timeout: 20))
+    let detailWorkOrderID = try UITestFixture.requiredID(UITestFixture.detailWorkOrderID)
+    XCTAssertTrue(scrollToWorkOrderRow(in: restoredApp, id: detailWorkOrderID, timeout: 20) != nil)
+  }
+}`,
   "ios/UITests/LoginValidationUITests.swift": `@MainActor\nfinal class LoginValidationUITests: XCTestCase {\nXCTAssertEqual(loginError.label, KO.errorInvalidUserID)\n}`,
 };
 const evaluate = (overrides = {}) => evaluateIosUiTestFailClosedChecks({ ...validFiles, ...overrides });
@@ -83,7 +91,7 @@ describe("iOS hermetic UI CI contract", () => {
   });
   it("rejects mutable XcodeGen and unsafe PGDATA", () => {
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806", "dynamic") }), "checksum-pinned XcodeGen");
-    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow('install -d -m 700 "$D" "$AUTH_DIR" "$PGDATA" "$ARTIFACTS"', 'mkdir -p /tmp/pg') }), "mode-0700 job-root PGDATA");
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow('install -d -m 700 "$D" "$AUTH_DIR" "$PGDATA" "$RAW_RESULTS" "$ARTIFACTS"', 'mkdir -p /tmp/pg') }), "mode-0700 job-root PGDATA");
   });
   it("rejects PostgreSQL builds that omit or cannot load the complete extension set", () => {
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow(" --with-ssl=openssl", "") }), "pgcrypto");
@@ -150,7 +158,7 @@ describe("iOS hermetic UI CI contract", () => {
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": postPidAlternateShellLauncher }), "WebAuthn");
   });
   it("rejects missing per-shard session controls and fixtures", () => {
-    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow('for test_class in "\${TEST_CLASSES[@]}"; do mint_class_session', 'for test_class in "\${TEST_CLASSES[@]}"; do true') }), "mint and mask");
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("for test_class in \"${TEST_CLASSES[@]}\"; do\n            mint_class_session", "for test_class in \"${TEST_CLASSES[@]}\"; do\n            true") }), "mint and mask");
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("sleep 720", "sleep 900") }), "mint and mask");
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("00000000-0000-0000-0000-000000c20001", "c20001") }), "mint and mask");
   });
@@ -284,9 +292,13 @@ class FieldUITestCase: XCTestCase {
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow('VERIFY_ARGS+=(--summary "$summary" --tests "$tests")', "") }), "aggregate repeated");
   });
   it("rejects raw artifact session material and cleanup proof regression", () => {
-    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("id: artifact-scan\n        if: always()", "id: artifact-scan") }), "raw OTP");
-    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("[[ -s \"$SECRETS_FILE\" ]] ||", "true ||") }), "raw OTP");
-    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflowAll("test artifact contains raw session material", "ignored") }), "raw OTP");
+    const artifactGate = "scan-clean derived diagnostics";
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("id: artifact-scan\n        if: always()", "id: artifact-scan") }), artifactGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("[[ -s \"$SECRETS_FILE\" ]] ||", "true ||") }), artifactGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflowAll("test artifact contains raw session material", "ignored") }), artifactGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow('result="$RAW_RESULTS/$test_class.xcresult"', 'result="$ARTIFACTS/$test_class.xcresult"') }), artifactGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("raw xcresult bundle entered upload tree", "raw xcresult bundle allowed") }), artifactGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("symlink entered upload tree", "symlink allowed") }), artifactGate);
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("- name: Scan result artifacts for raw session material", "- name: Upload test results\n        if: always() && steps.artifact-scan.outcome == 'success'\n        uses: actions/upload-artifact@pinned\n      - name: Scan result artifacts for raw session material") }), "upload before final");
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("steps.artifact-scan.outcome == 'success'", "true") }), "upload before final");
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("actions/upload-artifact", "actions/not-upload-artifact") }), "upload before final");
@@ -296,6 +308,17 @@ class FieldUITestCase: XCTestCase {
   it("rejects fail-open support and accessibility parity drift", () => {
     expectsFailure(evaluate({ "ios/UITests/Support/FieldUITestCase.swift": "throw XCTSkip()" }), "must not include skip-testing");
     expectsFailure(evaluate({ "ios/Sources/MaintenanceFieldApp/FieldAccessibilityID.swift": `public enum FieldAccessibilityID { public static let onlyProduction = "x" }` }), "mirror every FieldAccessibilityID");
+  });
+  it("rejects a preflight that proves only an authenticated shell", () => {
+    expectsFailure(evaluate({
+      "ios/UITests/PreflightUITests.swift": validFiles["ios/UITests/PreflightUITests.swift"].replace(
+        "scrollToWorkOrderRow(in: restoredApp, id: detailWorkOrderID, timeout: 20) != nil",
+        "restoredApp.buttons[AID.workOrderRow(detailWorkOrderID)].exists",
+      ),
+    }), "decodes and renders the exact deterministic Today work order");
+    expectsFailure(evaluate({
+      "ios/UITests/Support/FieldUITestCase.swift": validFiles["ios/UITests/Support/FieldUITestCase.swift"].replace("list.swipeUp()", ""),
+    }), "decodes and renders the exact deterministic Today work order");
   });
   it("rejects messenger rows that share a cross-section message identifier", () => {
     expectsFailure(evaluate({ "ios/Sources/MaintenanceFieldApp/FieldViews.swift": validFiles["ios/Sources/MaintenanceFieldApp/FieldViews.swift"].replace("messengerSearchResultRow", "messengerMessageRow") }), "section-scoped dynamic accessibility IDs");

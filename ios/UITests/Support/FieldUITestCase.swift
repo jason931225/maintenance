@@ -12,7 +12,6 @@ enum AID {
     static let loginErrorMessage = "login.errorMessage"
 
     static let authenticatedTabs = "shell.authenticatedTabs"
-    static let todayTab = "shell.todayTab"
     static let workHubTab = "shell.workHubTab"
     static let messengerTab = "shell.messengerTab"
     static let operationsTab = "shell.operationsTab"
@@ -190,6 +189,37 @@ enum UITestFixture {
     }
 }
 
+/// Finds one exact deterministic work-order row without assuming SwiftUI has
+/// materialized off-screen List content. The location-consent section can fill
+/// the initial viewport (especially at larger Dynamic Type sizes), so a direct
+/// `waitForExistence` is not evidence that the API response was empty.
+@MainActor
+func scrollToWorkOrderRow(
+    in app: XCUIApplication,
+    id: String,
+    timeout: TimeInterval = 15,
+    maxSwipes: Int = 12
+) -> XCUIElement? {
+    let row = app.buttons[AID.workOrderRow(id)]
+    let initialProbe = min(timeout, 2)
+    if row.waitForExistence(timeout: initialProbe), row.isHittable {
+        return row
+    }
+
+    let list = app.collectionViews[AID.todayList]
+    guard list.waitForExistence(timeout: initialProbe) else { return nil }
+
+    let remainingProbe = max(timeout - initialProbe, 0)
+    let perSwipeProbe = maxSwipes > 0 ? remainingProbe / Double(maxSwipes) : 0
+    for _ in 0..<maxSwipes {
+        list.swipeUp()
+        if row.waitForExistence(timeout: perSwipeProbe), row.isHittable {
+            return row
+        }
+    }
+    return nil
+}
+
 /// Base case: real session seeding + launch helpers shared by every spec.
 ///
 /// Before each test-class shard, the workflow injects a fresh server-minted
@@ -253,8 +283,7 @@ class FieldUITestCase: XCTestCase {
         timeout: TimeInterval = 15
     ) throws {
         let id = try UITestFixture.requiredID(fixtureKey)
-        let row = app.buttons[AID.workOrderRow(id)]
-        guard row.waitForExistence(timeout: timeout) else {
+        guard let row = scrollToWorkOrderRow(in: app, id: id, timeout: timeout) else {
             throw UITestFixture.Error.missing("\(fixtureKey) (seeded ID \(id) was not rendered in Today)")
         }
         row.tap()
@@ -265,10 +294,8 @@ class FieldUITestCase: XCTestCase {
 
     @discardableResult
     func waitForAuthenticatedShell(timeout: TimeInterval = 20) -> XCUIApplication {
-        let todayTitle = app.staticTexts[KO.todayTitle]
         let todayTab = app.tabBars.buttons[KO.todayTitle]
-        let appeared = todayTitle.waitForExistence(timeout: timeout)
-            || todayTab.waitForExistence(timeout: 1)
+        let appeared = todayTab.waitForExistence(timeout: timeout)
             || app.collectionViews[AID.todayList].waitForExistence(timeout: 1)
         XCTAssertTrue(
             appeared,

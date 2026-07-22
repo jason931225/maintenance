@@ -76,8 +76,8 @@ jobs:
           readonly MNT_IOS_NODE_BIN="$RUNNER_TOOL_CACHE/node/24.16.0/$NODE_ARCH/bin/node"
           test -x "$MNT_IOS_NODE_BIN"; test ! -L "$MNT_IOS_NODE_BIN"; test "$("$MNT_IOS_NODE_BIN" --version)" = v24.16.0
           (cd "$GITHUB_WORKSPACE" && "$MNT_IOS_NODE_BIN" --test scripts/boot-backend-port-conflict.test.mjs scripts/boot-ios-ui-backend.test.mjs scripts/check-ios-ui-test-fail-closed.test.mjs scripts/verify-xcresult-test-results.test.mjs && "$MNT_IOS_NODE_BIN" scripts/check-ios-ui-test-fail-closed.mjs)
-          ROOT="$GITHUB_WORKSPACE"; D="$MNT_IOS_JOB_ROOT"; AUTH_DIR="$D/auth"; PGDATA="$D/postgres-data"; PG_PREFIX="$D/postgres-18.4"; DERIVED="$D/derived-data"; ARTIFACTS="$D/artifacts"; PROJECT="$PWD/MaintenanceField.xcodeproj"; CI_PLIST="$D/Info.ci.plist"; CI_PROJECT_SPEC="$PWD/project.ci.yml"; STATE="$D/state"; UUID=""; BACKEND_PID_FILE="$AUTH_DIR/backend.pid"; BACKEND_COMMAND_FILE="$AUTH_DIR/backend.command"
-          install -d -m 700 "$D" "$AUTH_DIR" "$PGDATA" "$ARTIFACTS"; umask 077; test ! -e "$PROJECT"
+          ROOT="$GITHUB_WORKSPACE"; D="$MNT_IOS_JOB_ROOT"; AUTH_DIR="$D/auth"; PGDATA="$D/postgres-data"; PG_PREFIX="$D/postgres-18.4"; DERIVED="$D/derived-data"; RAW_RESULTS="$D/raw-xcresults"; ARTIFACTS="$D/artifacts"; PROJECT="$PWD/MaintenanceField.xcodeproj"; CI_PLIST="$D/Info.ci.plist"; CI_PROJECT_SPEC="$PWD/project.ci.yml"; STATE="$D/state"; UUID=""; BACKEND_PID_FILE="$AUTH_DIR/backend.pid"; BACKEND_COMMAND_FILE="$AUTH_DIR/backend.command"
+          install -d -m 700 "$D" "$AUTH_DIR" "$PGDATA" "$RAW_RESULTS" "$ARTIFACTS"; umask 077; test ! -e "$PROJECT"
           write_state() { cat > "$STATE" <<STATE
           D='$D'
           AUTH_DIR='$AUTH_DIR'
@@ -201,23 +201,45 @@ jobs:
           PY
           curl --fail --silent --show-error -X POST "$URL/api/v1/auth/otp/redeem" -H 'content-type: application/json' -H 'x-maintenance-client: mobile' --data-binary @- < "$AUTH_DIR/otp.json" > "$AUTH_DIR/tokens.json"; rm -f "$AUTH_DIR/otp.json"; MNT_UITEST_ACCESS_TOKEN="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["access_token"])' "$AUTH_DIR/tokens.json")"; MNT_UITEST_REFRESH_TOKEN="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["refresh_token"])' "$AUTH_DIR/tokens.json")"; export MNT_UITEST_ACCESS_TOKEN MNT_UITEST_REFRESH_TOKEN; echo "::add-mask::$MNT_UITEST_ACCESS_TOKEN"; echo "::add-mask::$MNT_UITEST_REFRESH_TOKEN"; printf '%s\n' "$otp" "$MNT_UITEST_ACCESS_TOKEN" "$MNT_UITEST_REFRESH_TOKEN" >> "$SECRETS_FILE"; rm -f "$AUTH_DIR/tokens.json"; (cd "$ROOT" && python3 scripts/patch-ios-xctestrun.py "$XCTESTRUN" --target MaintenanceFieldUITests --ui-target-app-path '__TESTROOT__/Debug-iphonesimulator/MaintenanceFieldApp.app' --env MNT_UITEST_BASE_URL --env MNT_UITEST_ACCESS_TOKEN --env MNT_UITEST_REFRESH_TOKEN --env MNT_UITEST_WORK_ORDER_ID_DETAIL --env MNT_UITEST_WORK_ORDER_ID_START --env MNT_UITEST_WORK_ORDER_ID_REPORT --env MNT_UITEST_WORK_ORDER_ID_REPORT_SUCCESS --env MNT_UITEST_WORK_ORDER_ID_CAMERA --env MNT_UITEST_MESSENGER_THREAD_ID --env MNT_UITEST_MESSENGER_INITIAL_MESSAGE_ID); }
           run_xcode_with_timeout() { local test_class="$1" result="$2" test_pid watchdog_pid status=0; xcodebuild test-without-building -parallel-testing-enabled NO -only-testing:"MaintenanceFieldUITests/$test_class" -xctestrun "$XCTESTRUN" -destination "platform=iOS Simulator,id=$UUID" -resultBundlePath "$result" & test_pid=$!; (sleep 720; if kill -0 "$test_pid" 2>/dev/null; then echo "$test_class exceeded the 12-minute access-token-safe shard budget" >&2; kill -TERM "$test_pid" 2>/dev/null || true; sleep 10; kill -KILL "$test_pid" 2>/dev/null || true; fi) & watchdog_pid=$!; wait "$test_pid" || status=$?; kill "$watchdog_pid" 2>/dev/null || true; wait "$watchdog_pid" 2>/dev/null || true; return "$status"; }
-          TEST_CLASSES=(PreflightUITests LoginValidationUITests FieldAccessibilityIDParityTests FieldCriticalPathUITests MessengerUITests CameraCaptureUITests AccessibilityAuditUITests); VERIFY_ARGS=()
-          for test_class in "${TEST_CLASSES[@]}"; do mint_class_session; if [[ "$test_class" == CameraCaptureUITests ]]; then xcrun simctl privacy "$UUID" reset camera; fi; result="$ARTIFACTS/$test_class.xcresult"; run_xcode_with_timeout "$test_class" "$result"; summary="$ARTIFACTS/$test_class-summary.json"; tests="$ARTIFACTS/$test_class-tests.json"; xcrun xcresulttool get test-results summary --path "$result" --format json > "$summary"; xcrun xcresulttool get test-results tests --path "$result" --format json > "$tests"; VERIFY_ARGS+=(--summary "$summary" --tests "$tests"); done
-          "$MNT_IOS_NODE_BIN" "$ROOT/scripts/verify-xcresult-test-results.mjs" "${VERIFY_ARGS[@]}" --swift-tests "$ROOT/ios/UITests"
+          TEST_CLASSES=(PreflightUITests LoginValidationUITests FieldAccessibilityIDParityTests FieldCriticalPathUITests MessengerUITests CameraCaptureUITests AccessibilityAuditUITests); VERIFY_ARGS=(); TEST_STATUS=0
+          for test_class in "${TEST_CLASSES[@]}"; do
+            mint_class_session
+            if [[ "$test_class" == CameraCaptureUITests ]]; then xcrun simctl privacy "$UUID" reset camera; fi
+            result="$RAW_RESULTS/$test_class.xcresult"; summary="$ARTIFACTS/$test_class-summary.json"; tests="$ARTIFACTS/$test_class-tests.json"
+            run_xcode_with_timeout "$test_class" "$result" || TEST_STATUS=1
+            xcrun xcresulttool get test-results summary --path "$result" --format json > "$summary" || TEST_STATUS=1
+            xcrun xcresulttool get test-results tests --path "$result" --format json > "$tests" || TEST_STATUS=1
+            VERIFY_ARGS+=(--summary "$summary" --tests "$tests")
+          done
+          "$MNT_IOS_NODE_BIN" "$ROOT/scripts/verify-xcresult-test-results.mjs" "${VERIFY_ARGS[@]}" --swift-tests "$ROOT/ios/UITests" || TEST_STATUS=1
           clean_runtime; trap - EXIT INT TERM
+          exit "$TEST_STATUS"
       - name: Scan result artifacts for raw session material
         id: artifact-scan
         if: always()
         shell: bash
         run: |
           set -euo pipefail
-          D="${MNT_IOS_JOB_ROOT:-$RUNNER_TEMP/ios-ui-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}}"; ARTIFACTS="$D/artifacts"; SECRETS_FILE="$D/auth/artifact-secret-values"
-          [[ -d "$ARTIFACTS" ]] || exit 0
-          if find "$ARTIFACTS" -mindepth 1 -print -quit | grep -q .; then
+          D="${MNT_IOS_JOB_ROOT:-$RUNNER_TEMP/ios-ui-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}}"; UPLOAD_DIR="$D/artifacts"; RAW_RESULTS="$D/raw-xcresults"; SECRETS_FILE="$D/auth/artifact-secret-values"
+          [[ -d "$UPLOAD_DIR" ]] || exit 0
+          # xctestrun receives renewable session material. xcresult bundles can
+          # retain that runner environment in compressed diagnostics, so they
+          # stay in a sibling private directory and are never upload candidates.
+          [[ ! -e "$UPLOAD_DIR"/raw-xcresults ]] || { echo 'raw xcresult directory entered upload tree' >&2; exit 1; }
+          if find "$UPLOAD_DIR" -name '*.xcresult' -print -quit | grep -q .; then
+            echo 'raw xcresult bundle entered upload tree' >&2
+            exit 1
+          fi
+          if find "$UPLOAD_DIR" -type l -print -quit | grep -q .; then
+            echo 'symlink entered upload tree' >&2
+            exit 1
+          fi
+          [[ -d "$RAW_RESULTS" ]] || { echo 'missing private raw xcresult directory' >&2; exit 1; }
+          if find "$UPLOAD_DIR" -mindepth 1 -print -quit | grep -q .; then
             [[ -s "$SECRETS_FILE" ]] || { echo 'artifacts exist without the owned raw-session scan source' >&2; exit 1; }
             while IFS= read -r secret_value; do
               [[ -n "$secret_value" ]] || continue
-              if LC_ALL=C grep -R -a -F -q -- "$secret_value" "$ARTIFACTS"; then
+              if LC_ALL=C grep -R -a -F -q -- "$secret_value" "$UPLOAD_DIR"; then
                 echo 'test artifact contains raw session material' >&2
                 exit 1
               fi

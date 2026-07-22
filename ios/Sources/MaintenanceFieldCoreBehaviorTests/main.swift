@@ -35,6 +35,7 @@ struct MaintenanceFieldCoreBehaviorTests {
         try await loginInvalidationFailurePreservesRestorableSession()
         try locationConsentStateMachineMirrorsAndroidGpsGate()
         try workOrderMappersMirrorAndroidModels()
+        try await generatedGatewayDecodesMixedRFC3339WorkOrderTimestamps()
         try reportDraftTrimsGeneratedRequestFields()
         try workHubCollaborationActionsCaptureMobileOperationalState()
         try await mobileOperationsRepositoryCachesAndMutatesProductionSeams()
@@ -655,6 +656,36 @@ struct MaintenanceFieldCoreBehaviorTests {
         try expectEqual(mapped.status, .assigned)
         try expectEqual(mapped.syncState, .pending)
         try expectEqual(mapped.assigneeNames, ["김정비"])
+    }
+
+    private static func generatedGatewayDecodesMixedRFC3339WorkOrderTimestamps() async throws {
+        let page = Components.Schemas.WorkOrderListPage(
+            items: [generatedWorkOrder(priority: .p2, status: .assigned)],
+            limit: 100,
+            offset: 0,
+            total: 1
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let encoded = try encoder.encode(page)
+        let mixedTimestampBody = String(decoding: encoded, as: UTF8.self)
+            .replacingOccurrences(of: "2026-06-12T08:00:00Z", with: "2026-06-12T08:00:00.123Z")
+            .replacingOccurrences(of: "2026-06-12T08:05:00Z", with: "2026-06-12T08:05:00.456Z")
+
+        let gateway = GeneratedMaintenanceAPIGateway(
+            serverURL: URL(string: "https://api.example.com")!,
+            tokenProvider: CurrentTokenProvider(accessToken: "access-token"),
+            sessionStore: InMemorySessionTokenStore(tokens: AuthTokens(accessToken: "access-token", refreshToken: "refresh-token")),
+            transport: JSONResponseTransport(body: mixedTimestampBody)
+        )
+
+        let workOrders = try await gateway.listTodayWorkOrders()
+
+        try expectEqual(workOrders.count, 1)
+        try expectEqual(workOrders[0].id, "00000000-0000-0000-0000-000000000111")
+        try expectEqual(workOrders[0].createdAt, fractionalISODate("2026-06-12T08:00:00.123Z"))
+        try expectEqual(workOrders[0].updatedAt, fractionalISODate("2026-06-12T08:05:00.456Z"))
+        try expectEqual(workOrders[0].targetDueAt, isoDate("2026-06-12T13:00:00Z"))
     }
 
     private static func reportDraftTrimsGeneratedRequestFields() throws {
@@ -2202,6 +2233,12 @@ struct MaintenanceFieldCoreBehaviorTests {
         ISO8601DateFormatter().date(from: value)!
     }
 
+    private static func fractionalISODate(_ value: String) -> Date {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter.date(from: value)!
+    }
+
     private static func jwt(expiration: TimeInterval) throws -> String {
         let header = Data(#"{"alg":"none"}"#.utf8).base64EncodedString().replacingOccurrences(of: "=", with: "")
         let payload = try JSONSerialization.data(withJSONObject: ["exp": expiration])
@@ -3008,6 +3045,27 @@ private actor RecordingFailureTransport: ClientTransport {
 
     func authorizations() -> [String?] {
         requests.map { $0.headerFields[.authorization] }
+    }
+}
+
+private struct JSONResponseTransport: ClientTransport {
+    let body: String
+
+    func send(
+        _ request: HTTPRequest,
+        body: HTTPBody?,
+        baseURL: URL,
+        operationID: String
+    ) async throws -> (HTTPResponse, HTTPBody?) {
+        let bytes = Array(self.body.utf8)
+        let responseBody = HTTPBody(AsyncStream { continuation in
+            continuation.yield(bytes[...])
+            continuation.finish()
+        }, length: .known(Int64(bytes.count)))
+        return (
+            HTTPResponse(status: .ok, headerFields: [.contentType: "application/json"]),
+            responseBody
+        )
     }
 }
 

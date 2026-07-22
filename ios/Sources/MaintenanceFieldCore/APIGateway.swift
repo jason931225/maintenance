@@ -33,6 +33,27 @@ public enum MaintenanceGatewayError: Error, Sendable, CustomStringConvertible {
     }
 }
 
+/// Accepts both RFC 3339 forms emitted by the API while keeping request dates
+/// canonical. Foundation's fractional-seconds parser intentionally rejects the
+/// otherwise-valid whole-second form, so a single generated-client default is
+/// not sufficient for the mixed timestamp representation returned by Postgres.
+private struct TolerantRFC3339DateTranscoder: DateTranscoder {
+    private let fractionalSeconds: any DateTranscoder = .iso8601WithFractionalSeconds
+    private let wholeSeconds: any DateTranscoder = .iso8601
+
+    func encode(_ date: Date) throws -> String {
+        try fractionalSeconds.encode(date)
+    }
+
+    func decode(_ dateString: String) throws -> Date {
+        do {
+            return try fractionalSeconds.decode(dateString)
+        } catch {
+            return try wholeSeconds.decode(dateString)
+        }
+    }
+}
+
 public protocol PasskeyAuthGateway: Sendable {
     func startPasskeyLogin() async throws -> Components.Schemas.PasskeyLoginStartResponse
     func finishPasskeyLogin(ceremonyID: Components.Schemas.Uuid, credential: Components.Schemas.PasskeyLoginFinishRequest.CredentialPayload) async throws -> Components.Schemas.TokenPairResponse
@@ -221,8 +242,10 @@ public struct GeneratedMaintenanceAPIGateway: MaintenanceAPIGateway, PasskeyAuth
         transport: any ClientTransport = URLSessionTransport(),
         clock: any FieldClock = SystemFieldClock()
     ) {
+        let configuration = Configuration(dateTranscoder: TolerantRFC3339DateTranscoder())
         let refreshClient = Client(
             serverURL: serverURL,
+            configuration: configuration,
             transport: transport
         )
         let refresher = RotatingTokenRefresher(
@@ -233,6 +256,7 @@ public struct GeneratedMaintenanceAPIGateway: MaintenanceAPIGateway, PasskeyAuth
         )
         self.client = Client(
             serverURL: serverURL,
+            configuration: configuration,
             transport: transport,
             middlewares: [
                 BearerAuthMiddleware(tokenProvider: tokenProvider),

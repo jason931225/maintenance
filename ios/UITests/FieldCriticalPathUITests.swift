@@ -6,7 +6,7 @@ final class FieldCriticalPathUITests: FieldUITestCase {
     func testAuthenticatedLaunchShowsTodayTabInKorean() async throws {
         _ = try await launchApp()
         waitForAuthenticatedShell()
-        XCTAssertTrue(app.staticTexts[KO.todayTitle].waitForExistence(timeout: 10), "Today tab title 오늘 작업 should be visible after real-session restore.")
+        XCTAssertTrue(app.tabBars.buttons[KO.todayTitle].waitForExistence(timeout: 10), "Today tab button 오늘 작업 should be visible after real-session restore.")
         XCTAssertFalse(app.textFields[AID.loginUserIDField].exists, "Login field must not be present once the real session is restored.")
     }
 
@@ -15,8 +15,10 @@ final class FieldCriticalPathUITests: FieldUITestCase {
         waitForAuthenticatedShell()
         XCTAssertTrue(app.collectionViews[AID.todayList].waitForExistence(timeout: 15), "Dispatch list should render.")
         let fixtureID = try UITestFixture.requiredID(UITestFixture.detailWorkOrderID)
-        let fixtureRow = app.buttons[AID.workOrderRow(fixtureID)]
-        XCTAssertTrue(fixtureRow.waitForExistence(timeout: 15), "Dispatch tab must render the deterministic mechanic fixture; an empty state is a failed seed or API result, not a valid CI outcome.")
+        XCTAssertNotNil(
+            scrollToWorkOrderRow(in: app, id: fixtureID, timeout: 15),
+            "Dispatch tab must render the deterministic mechanic fixture; an empty state is a failed seed or API result, not a valid CI outcome."
+        )
     }
 
     func testOpenWorkOrderDetailAndAdvance() async throws {

@@ -288,7 +288,9 @@ pub struct ReadReceiptSummary {
     pub thread_id: ThreadId,
     pub user_id: UserId,
     pub last_read_message_id: MessageId,
+    #[serde(with = "time::serde::rfc3339")]
     pub read_at: Timestamp,
+    #[serde(with = "time::serde::rfc3339")]
     pub updated_at: Timestamp,
 }
 
@@ -310,4 +312,34 @@ pub fn messenger_audit_event(
         occurred_at,
     )
     .with_branch(branch_id))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ReadReceiptSummary;
+    use mnt_kernel_core::{MessageId, ThreadId, UserId};
+
+    #[test]
+    fn read_receipt_serializes_fractional_timestamps_as_rfc3339_strings() {
+        let timestamp = time::OffsetDateTime::from_unix_timestamp(0)
+            .unwrap()
+            .replace_nanosecond(123_456_789)
+            .unwrap();
+        let receipt = ReadReceiptSummary {
+            thread_id: ThreadId::from_uuid(uuid::Uuid::nil()),
+            user_id: UserId::from_uuid(uuid::Uuid::nil()),
+            last_read_message_id: MessageId::from_uuid(uuid::Uuid::nil()),
+            read_at: timestamp,
+            updated_at: timestamp,
+        };
+
+        let json = serde_json::to_value(receipt).unwrap();
+        for pointer in ["/read_at", "/updated_at"] {
+            assert_eq!(
+                json.pointer(pointer).and_then(serde_json::Value::as_str),
+                Some("1970-01-01T00:00:00.123456789Z"),
+                "{pointer} must honor the OpenAPI string/date-time contract"
+            );
+        }
+    }
 }

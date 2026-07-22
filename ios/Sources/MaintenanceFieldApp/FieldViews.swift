@@ -45,7 +45,6 @@ struct FieldAuthenticatedTabs: View {
                 .tabItem {
                     Label("today_title", systemImage: "list.bullet")
                 }
-                .accessibilityIdentifier(FieldAccessibilityID.todayTab)
             WorkHubTabView(viewModel: viewModel)
                 .tabItem {
                     Label("work_hub_title", systemImage: "square.grid.2x2")

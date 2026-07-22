@@ -3127,6 +3127,7 @@ dependencies = [
  "mnt-platform-db",
  "mnt-platform-request-context",
  "serde",
+ "serde_json",
  "time",
 ]
 
@@ -3873,6 +3874,7 @@ dependencies = [
  "mnt-kernel-core",
  "mnt-messenger-domain",
  "serde",
+ "serde_json",
  "time",
  "uuid",
 ]

@@ -21,7 +21,6 @@ public enum FieldAccessibilityID {
 
     // Authenticated shell
     public static let authenticatedTabs = "shell.authenticatedTabs"
-    public static let todayTab = "shell.todayTab"
     public static let workHubTab = "shell.workHubTab"
     public static let messengerTab = "shell.messengerTab"
     public static let operationsTab = "shell.operationsTab"
@@ -105,7 +104,6 @@ public enum FieldAccessibilityID {
         loginButton,
         loginErrorMessage,
         authenticatedTabs,
-        todayTab,
         workHubTab,
         messengerTab,
         operationsTab,

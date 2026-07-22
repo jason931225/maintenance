@@ -206,7 +206,7 @@ function hasValidLoopbackWebauthnPolicy(job, launcher) {
   const launch = matches[0]?.index ?? -1;
   const pidRead = activeJob.indexOf('BACKEND_PID="$(cat "$BACKEND_PID_FILE")"');
   const forbiddenLowLevelControls = /\b(?:E2E_AUTH_DIR|E2E_HTTP_ADDR|E2E_PORT_CONFLICT_MODE|E2E_COLDSTART_OTP|E2E_RP_ORIGIN|E2E_RP_ID)\b|e2e\/harness\/boot-backend\.sh/;
-  const approvedBackendStepSha256 = "ad06633cbde470e1e518b3448d42fcb91e89e727d55b8ac9d5b101dcd8f549f5";
+  const approvedBackendStepSha256 = "ee9870e3f0b86ac5dc793843d9baff5b0782bba082fba477a967268ff9821795";
   const approvedLauncherSha256 = "a153fab32c9f4ca597605ec126d40e3bfc106c0ce17c368078e22c265ca9f1ad";
   const backendStepSha256 = createHash("sha256").update(backendStep).digest("hex");
   const launcherSha256 = createHash("sha256").update(launcher).digest("hex");
@@ -288,11 +288,21 @@ function hasStructuredResultVerification(job) {
 function hasArtifactSecretScan(job) {
   const scan = /name:\s*Scan result artifacts for raw session material[\s\S]{0,180}id:\s*artifact-scan[\s\S]{0,180}if:\s*always\(\)[\s\S]{0,2200}/.exec(job)?.[0] ?? "";
   return scan.length > 0
-    && /\[\[\s+-d\s+"\$ARTIFACTS"\s+\]\]\s+\|\|\s+exit\s+0/.test(scan)
-    && /if\s+find\s+"\$ARTIFACTS"\s+-mindepth\s+1\s+-print\s+-quit\s+\|\s+grep\s+-q\s+\.\s*;\s*then/.test(scan)
+    && /RAW_RESULTS="\$D\/raw-xcresults"; ARTIFACTS="\$D\/artifacts"/.test(job)
+    && /install\s+-d\s+-m\s+700\s+"\$D"\s+"\$AUTH_DIR"\s+"\$PGDATA"\s+"\$RAW_RESULTS"\s+"\$ARTIFACTS"/.test(job)
+    && /result="\$RAW_RESULTS\/\$test_class\.xcresult"/.test(job)
+    && !/result="\$ARTIFACTS\/\$test_class\.xcresult"/.test(job)
+    && /\[\[\s+-d\s+"\$UPLOAD_DIR"\s+\]\]\s+\|\|\s+exit\s+0/.test(scan)
+    && /\[\[\s+!\s+-e\s+"\$UPLOAD_DIR"\/raw-xcresults\s+\]\]/.test(scan)
+    && /find\s+"\$UPLOAD_DIR"\s+-name\s+'\*\.xcresult'\s+-print\s+-quit\s+\|\s+grep\s+-q\s+\./.test(scan)
+    && /raw xcresult bundle entered upload tree/.test(scan)
+    && /find\s+"\$UPLOAD_DIR"\s+-type\s+l\s+-print\s+-quit\s+\|\s+grep\s+-q\s+\./.test(scan)
+    && /symlink entered upload tree/.test(scan)
+    && /\[\[\s+-d\s+"\$RAW_RESULTS"\s+\]\]\s+\|\|\s+\{\s*echo\s+'missing private raw xcresult directory'/.test(scan)
+    && /if\s+find\s+"\$UPLOAD_DIR"\s+-mindepth\s+1\s+-print\s+-quit\s+\|\s+grep\s+-q\s+\.\s*;\s*then/.test(scan)
     && /\[\[\s+-s\s+"\$SECRETS_FILE"\s+\]\]\s+\|\|\s+\{\s*echo\s+'artifacts exist without the owned raw-session scan source'/.test(scan)
     && /\[\[\s+-n\s+"\$secret_value"\s+\]\]\s+\|\|\s+continue/.test(scan)
-    && /grep\s+-R\s+-a\s+-F\s+-q\s+--\s+"\$secret_value"\s+"\$ARTIFACTS"/.test(scan)
+    && /grep\s+-R\s+-a\s+-F\s+-q\s+--\s+"\$secret_value"\s+"\$UPLOAD_DIR"/.test(scan)
     && /test artifact contains raw session material/.test(scan);
 }
 
@@ -548,6 +558,36 @@ function hasMainActorUiAutomationContract(files) {
     && /@MainActor\s+final\s+class\s+LoginValidationUITests\s*:\s*XCTestCase\b/.test(login);
 }
 
+function hasBoundedExactWorkOrderScroll(files) {
+  const field = stripSwiftCommentsAndStrings(files["ios/UITests/Support/FieldUITestCase.swift"] ?? "");
+  const helper = extractFunctionBody(
+    field,
+    /@MainActor\s+func\s+scrollToWorkOrderRow\s*\(\s*in\s+app:\s*XCUIApplication,\s*id:\s*String,\s*timeout:\s*TimeInterval\s*=\s*15,\s*maxSwipes:\s*Int\s*=\s*12\s*\)\s*->\s*XCUIElement\?/,
+  );
+  if (helper === null) return false;
+
+  return /let\s+row\s*=\s*app\.buttons\[AID\.workOrderRow\s*\(\s*id\s*\)\]/.test(helper)
+    && /let\s+list\s*=\s*app\.collectionViews\[AID\.todayList\]/.test(helper)
+    && /guard\s+list\.waitForExistence\s*\(/.test(helper)
+    && /for\s+_\s+in\s+0\s*\.\.<\s*maxSwipes/.test(helper)
+    && /list\.swipeUp\s*\(\s*\)/.test(helper)
+    && /row\.waitForExistence\s*\(/.test(helper)
+    && /row\.isHittable/.test(helper);
+}
+
+function hasDecodedTodayPreflight(files) {
+  const preflight = stripSwiftCommentsAndStrings(files["ios/UITests/PreflightUITests.swift"] ?? "");
+  const restoreProof = extractFunctionBody(preflight, /func\s+testSeederRestoresThenClearsRealSession\s*\(\s*\)\s+throws\b/);
+  if (restoreProof === null) return false;
+
+  return /restoredApp\.tabBars\.buttons\[KO\.todayTitle\]\.waitForExistence\s*\(\s*timeout:\s*20\s*\)/.test(restoreProof)
+    && /restoredApp\.collectionViews\[AID\.todayList\]\.waitForExistence\s*\(\s*timeout:\s*20\s*\)/.test(restoreProof)
+    && /let\s+detailWorkOrderID\s*=\s*try\s+UITestFixture\.requiredID\s*\(\s*UITestFixture\.detailWorkOrderID\s*\)/.test(restoreProof)
+    && /scrollToWorkOrderRow\s*\(\s*in:\s*restoredApp,\s*id:\s*detailWorkOrderID,\s*timeout:\s*20\s*\)\s*!=\s*nil/.test(restoreProof)
+    && hasBoundedExactWorkOrderScroll(files)
+    && !/restoredApp\.staticTexts\[KO\.todayTitle\]/.test(restoreProof);
+}
+
 function hasEntitledSimulatorSeederContract(job) {
   const activeJob = stripInertShellData(job);
   const rawJob = stripShellComments(job);
@@ -724,6 +764,7 @@ export function evaluateIosUiTestFailClosedChecks(files) {
   checks.push([hasSharedKeychainEntitlementContract(files), "iOS app and dedicated UI-test seeder target must share one identically signed default keychain access group"]);
   checks.push([hasDefaultSharedKeychainResolution(files), "iOS app and UI-test seeder must resolve the fully qualified shared keychain group through the system-granted default group"]);
   checks.push([hasMainActorUiAutomationContract(files), "iOS UI test automation must confine XCUIApplication and its entitled session seeder to the main actor with synchronous throwing base lifecycle hooks"]);
+  checks.push([hasDecodedTodayPreflight(files), "iOS preflight must prove the restored session decodes and renders the exact deterministic Today work order, not only an authenticated shell"]);
   checks.push([hasEntitledSimulatorSeederContract(job), "iOS UI CI must preserve the Xcode-created Simulator Runner and prove matching app/seeder Mach-O keychain entitlements before test execution"]);
   checks.push([hasMode600Xctestrun(job), "iOS UI CI must inject session material through a mode-0600 job-root xctestrun before patch/use"]);
   checks.push([!/-skip-testing|XCTSkip|optional\/skipped|HAS_REAL_SESSION_SOURCE/.test(workflow + (files["ios/UITests/Support/FieldUITestCase.swift"] ?? "") + (files["ios/UITests/Support/RealSessionSeed.swift"] ?? "")), "iOS UI CI and its test support must not include skip-testing, XCTSkip, or fail-open session branches"]);
@@ -734,7 +775,7 @@ export function evaluateIosUiTestFailClosedChecks(files) {
   checks.push([hasCiOnlyLocalAts(files), "iOS UI CI must confine local ATS to CI-only job-root loopback configuration while production Info.plist remains unchanged"]);
   checks.push([hasStructuredResultVerification(job), "iOS UI CI must aggregate repeated structured xcresulttool summaries and tests through the reusable verifier"]);
   checks.push([hasDurableCriticalPathEvidence(files), "iOS UI tests must prove scoped mutations, backend readback after relaunch, camera dismissal, and UUID fixtures without local-state false greens"]);
-  checks.push([hasArtifactSecretScan(job), "iOS UI CI must fail if retained artifacts contain raw OTP, access, or refresh session material"]);
+  checks.push([hasArtifactSecretScan(job), "iOS UI CI must upload only scan-clean derived diagnostics, never raw xcresult bundles containing OTP, access, or refresh session material"]);
   checks.push([hasOwnedCleanup(job), "iOS UI CI must upload before final always-cleanup and prove identity-aware backend, PostgreSQL, Simulator, and job-root cleanup"]);
 
   const passes = [];
