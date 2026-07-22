@@ -476,8 +476,8 @@ struct MaintenanceFieldCoreBehaviorTests {
             clock: clock
         )
 
-        let refreshSoon = await refresher.requiresProactiveRefresh(accessToken: jwt(expiration: 1_781_254_850))
-        let refreshLater = await refresher.requiresProactiveRefresh(accessToken: jwt(expiration: 1_781_254_900))
+        let refreshSoon = await refresher.requiresProactiveRefresh(accessToken: try jwt(expiration: 1_781_254_850))
+        let refreshLater = await refresher.requiresProactiveRefresh(accessToken: try jwt(expiration: 1_781_254_900))
         try expect(refreshSoon, "tokens expiring within 60 seconds must refresh proactively")
         try expect(!refreshLater, "tokens outside the 60-second leeway must not refresh")
     }
@@ -2202,9 +2202,9 @@ struct MaintenanceFieldCoreBehaviorTests {
         ISO8601DateFormatter().date(from: value)!
     }
 
-    private static func jwt(expiration: TimeInterval) -> String {
+    private static func jwt(expiration: TimeInterval) throws -> String {
         let header = Data(#"{"alg":"none"}"#.utf8).base64EncodedString().replacingOccurrences(of: "=", with: "")
-        let payload = try! JSONSerialization.data(withJSONObject: ["exp": expiration])
+        let payload = try JSONSerialization.data(withJSONObject: ["exp": expiration])
             .base64EncodedString()
             .replacingOccurrences(of: "=", with: "")
         return "\(header).\(payload).signature"
