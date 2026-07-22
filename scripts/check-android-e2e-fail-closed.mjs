@@ -114,7 +114,7 @@ function hasFailClosedAuthenticatedUiAssertion(files) {
     && /00000000-0000-0000-0000-000000f00003/.test(test)
     && /field-e2e-session\.properties fixture is missing or unreadable/.test(test)
     && /createAndroidComposeRule<MainActivity>\(\)/.test(test)
-    && /onNodeWithText\("오늘 작업"\)\.assertIsDisplayed\(\)/.test(test)
+    && /onNode\(hasText\("오늘 작업"\)\s+and\s+hasNoClickAction\(\)\)\.assertIsDisplayed\(\)/.test(test)
     && /onAllNodesWithText\("패스키 로그인"\)\.assertCountEquals\(0\)/.test(test)
     && /waitUntil\(timeoutMillis\s*=\s*UI_RENDER_TIMEOUT_MILLIS\)/.test(test)
     && seededWorkOrderUiAssertions.length >= 2

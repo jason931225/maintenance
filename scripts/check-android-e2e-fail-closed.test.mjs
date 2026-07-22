@@ -52,7 +52,7 @@ const validFiles = {
     val id = "00000000-0000-0000-0000-000000f00003"
     apiGateway.listTodayWorkOrders()
     createAndroidComposeRule<MainActivity>()
-    onNodeWithText("오늘 작업").assertIsDisplayed()
+    onNode(hasText("오늘 작업") and hasNoClickAction()).assertIsDisplayed()
     onAllNodesWithText("패스키 로그인").assertCountEquals(0)
     waitUntil(timeoutMillis = UI_RENDER_TIMEOUT_MILLIS) {
       onNodeWithText(seededWorkOrder.requestNo).assertIsDisplayed()
@@ -191,6 +191,13 @@ describe("Android hermetic E2E CI contract", () => {
     expectsFailure(evaluate(validWorkflow, {
       "android/app/src/androidTest/kotlin/com/maintenance/field/WorkOrderFlowTest.kt": validFiles["android/app/src/androidTest/kotlin/com/maintenance/field/WorkOrderFlowTest.kt"]
         .replace('onAllNodesWithText("패스키 로그인").assertCountEquals(0)', ''),
+    }), "render it in authenticated Compose UI");
+  });
+
+  it("rejects the ambiguous single-node Today selector exposed by the full app tree", () => {
+    expectsFailure(evaluate(validWorkflow, {
+      "android/app/src/androidTest/kotlin/com/maintenance/field/WorkOrderFlowTest.kt": validFiles["android/app/src/androidTest/kotlin/com/maintenance/field/WorkOrderFlowTest.kt"]
+        .replace('onNode(hasText("오늘 작업") and hasNoClickAction()).assertIsDisplayed()', 'onNodeWithText("오늘 작업").assertIsDisplayed()'),
     }), "render it in authenticated Compose UI");
   });
 });

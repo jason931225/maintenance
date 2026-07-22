@@ -1,7 +1,9 @@
 package com.maintenance.field
 
-import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasNoClickAction
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
@@ -83,7 +85,7 @@ class WorkOrderFlowTest {
 
         // This is the actual Compose tree, not a gateway-only assertion: it proves the app
         // left the login screen and rendered the precise f00003 work-order row from the API.
-        composeRule.onNodeWithText("오늘 작업").assertIsDisplayed()
+        composeRule.onNode(hasText("오늘 작업") and hasNoClickAction()).assertIsDisplayed()
         composeRule.onAllNodesWithText("패스키 로그인").assertCountEquals(0)
         composeRule.waitUntil(timeoutMillis = UI_RENDER_TIMEOUT_MILLIS) {
             runCatching {
