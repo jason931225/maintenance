@@ -133,6 +133,11 @@ export function evaluateAndroidE2eFailClosedChecks(files) {
       "android-instrumented must provision a local postgres:18.4 service",
     ],
     [
+      includes(job, "ANDROID_HOME: ${{ runner.temp }}/android-sdk")
+        && includes(job, "ANDROID_SDK_ROOT: ${{ runner.temp }}/android-sdk"),
+      "android-instrumented must isolate its replacement Android SDK under runner.temp after disk cleanup",
+    ],
+    [
       hasShaVerificationBeforeBuild(job),
       "android-instrumented must verify git rev-parse HEAD against GITHUB_SHA before building candidate mnt-app",
     ],

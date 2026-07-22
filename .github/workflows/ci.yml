@@ -875,6 +875,11 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+        env:
+          # free-runner-disk removes the preinstalled root-owned SDK tree. Keep
+          # this job's replacement SDK writable, isolated, and runner-local.
+          ANDROID_HOME: ${{ runner.temp }}/android-sdk
+          ANDROID_SDK_ROOT: ${{ runner.temp }}/android-sdk
 
       - name: Install Android SDK packages
         run: |

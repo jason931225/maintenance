@@ -10,6 +10,10 @@ jobs:
       postgres:
         image: postgres:18.4
     steps:
+      - uses: android-actions/setup-android@pinned
+        env:
+          ANDROID_HOME: \${{ runner.temp }}/android-sdk
+          ANDROID_SDK_ROOT: \${{ runner.temp }}/android-sdk
       - run: |
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           cargo build --locked -p mnt-app
@@ -84,6 +88,12 @@ describe("Android hermetic E2E CI contract", () => {
 
   it("rejects a non-18.4 PostgreSQL service", () => {
     expectsFailure(evaluate(validWorkflow.replace('postgres:18.4', 'postgres:17')), "postgres:18.4");
+  });
+
+  it("rejects an Android SDK replacement outside runner temp", () => {
+    expectsFailure(evaluate(validWorkflow
+      .replace('          ANDROID_HOME: ${{ runner.temp }}/android-sdk\n', '')
+      .replace('          ANDROID_SDK_ROOT: ${{ runner.temp }}/android-sdk\n', '')), "isolate its replacement Android SDK");
   });
 
   it("rejects a candidate backend build without exact-SHA verification", () => {
