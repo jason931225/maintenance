@@ -121,10 +121,14 @@ their prerequisites are available:
   The required `WorkOrderFlowTest` must execute with zero skips, failures, or
   errors; no external backend or long-lived refresh-token secret is required.
 - `.github/workflows/ios-ui-tests.yml` for Simulator-bound XCUITest/accessibility
-  audit on macOS/Xcode. Required real-session contexts need
-  `MNT_UITEST_BASE_URL` plus either `MNT_UITEST_REFRESH_TOKEN` or
-  `MNT_UITEST_OTP`; optional/fork contexts may skip the session-dependent tests
-  only with truthful optional-gate output.
+  audit on one GitHub-hosted `macos-15` VM. CI verifies Xcode 16.4 build `16F6`
+  and the iOS 18.5 runtime, builds checksum-pinned PostgreSQL 18.4 and the exact
+  candidate Rust backend under a job-local root, and mints a fresh random
+  one-use-OTP session for each test-class shard. Every shard has a 12-minute hard
+  bound under the 15-minute access-token TTL. Structured results across all
+  shards must match the source-discovered test set exactly with zero skips,
+  failures, or errors; no external backend/session secret or fork skip path is
+  permitted.
 - Swift client and iOS app gates require macOS/Swift; Linux developers should use
   CI or a macOS runner for those surfaces.
 
@@ -260,13 +264,16 @@ names only, not incidental workflow prose or runner setup text.
 - **iOS app — Swift build and behavior tests**: `swift build`, `swift test`, and
   `swift run MaintenanceFieldCoreBehaviorTests` from `ios/` on macOS.
 - **iOS UI tests — XCUITest/accessibility audit (Simulator)**:
-  `.github/workflows/ios-ui-tests.yml` generates the Xcode project with XcodeGen,
-  resolves Swift packages, and runs the UI-test bundle against an iPhone
-  Simulator. Real post-login coverage requires `MNT_UITEST_BASE_URL` and either
-  `MNT_UITEST_REFRESH_TOKEN` or `MNT_UITEST_OTP`; protected/push contexts must
-  fail closed when those inputs or the shared keychain entitlement are missing,
-  while fork PR/explicitly optional contexts may skip with explicit optional
-  output.
+  `.github/workflows/ios-ui-tests.yml` runs on a GitHub-hosted `macos-15` VM,
+  verifies Xcode 16.4 build `16F6` and the iOS 18.5 runtime, generates the Xcode
+  project with XcodeGen, and executes one test-class shard at a time against an
+  exact-SHA backend and checksum-pinned PostgreSQL 18.4. Each shard gets a fresh
+  random one-use-OTP session and a 12-minute hard timeout. The mode-`0600`
+  `.xctestrun`, Cargo/Rust homes and target, PostgreSQL, backend state,
+  DerivedData, and results remain under the job-local runner-temporary root.
+  Missing inputs, entitlements, fixtures, expected tests, secret-scan evidence,
+  or cleanup proof fail; there is no external session secret, `XCTSkip`, or
+  fork-reduced test path.
 - **Browser E2E — Playwright (all user stories)**: backend `mnt-app` build,
   Postgres/psql/Python helper setup, `npx playwright install --with-deps
   chromium`, and `bash e2e/run.sh`.
@@ -641,43 +648,73 @@ shared domain logic (consent state machine, messenger reducer, sync, etc.). Thes
 gates are local on macOS with a compatible Swift toolchain and otherwise rely on
 the macOS CI runner.
 
-### iOS UI tests — real-session XCUITest/accessibility gate
+### iOS UI tests — hermetic real-session XCUITest/accessibility gate
 
 The standalone `.github/workflows/ios-ui-tests.yml` workflow is the CI-only
 Simulator gate for SwiftUI post-login flows and accessibility audit coverage. It
-installs XcodeGen, generates `ios/MaintenanceField.xcodeproj` from
-`ios/project.yml`, resolves Swift packages, builds for testing, patches the
-`.xctestrun` file, and then runs the UI-test bundle. This is not a TestFlight or
-archive-signing gate; release signing remains governed by the mobile release
-workflow and go-live checklist.
+runs every triggered push/tag or untrusted/public pull-request gate on one
+job-local GitHub-hosted `macos-15` VM. Public pull-request code does not run on a reusable
+self-hosted macOS runner. Any future self-hosted CI lane must use a separately
+governed ephemeral/JIT runner group with teardown attestation; that lane is not
+implemented or evidenced by the current workflow.
 
-Required real-session inputs for post-login coverage are:
+The job sets `DEVELOPER_DIR` to Xcode 16.4 and fails unless `xcodebuild -version`
+returns build `16F6`. It also fails unless the exact iOS 18.5 Simulator runtime
+identifier is available. XcodeGen 2.46.0 is downloaded into the job root and
+verified against the repository-pinned SHA-256. This generates
+`ios/MaintenanceField.xcodeproj` from `ios/project.yml`; it is a test artifact,
+not a committed archive-capable project, TestFlight proof, or release-signing
+gate.
 
-- `MNT_UITEST_BASE_URL` GitHub secret: the real backend base URL used by the
-  UI-test runner.
-- One of `MNT_UITEST_REFRESH_TOKEN` or `MNT_UITEST_OTP` GitHub secrets: a real
-  dedicated UI-test mechanic session source. The refresh-token path exchanges a
-  seeded long-lived refresh token through `/api/v1/auth/token/refresh`; the OTP
-  path redeems an out-of-band code through `/api/v1/auth/otp/redeem`.
-- A granted shared keychain access-group entitlement for the Simulator build so
-  the test runner can seed the real session into the same Keychain group the app
-  reads. `MNT_IOS_KEYCHAIN_GROUP` is an optional repository variable override;
-  when unset, the test probes the granted `com.maintenance.field.shared` group.
-- `MNT_UITEST_REQUIRE_REAL=1` is the enforcement flag, not a credential. Required
-  branch/push contexts must enable it; optional contexts may leave it disabled.
+The database, backend, build, and session boundary is job-local:
 
-Expected behavior by context:
+1. The workflow creates one mode-`0700` directory below `$RUNNER_TEMP` and puts
+   `CARGO_HOME`, `RUSTUP_HOME`, `CARGO_TARGET_DIR`, the XcodeGen tool, PostgreSQL,
+   backend identity/session state, DerivedData, `.xctestrun`, and test artifacts
+   under that owned root.
+2. It verifies `git rev-parse HEAD` against `GITHUB_SHA`, downloads PostgreSQL
+   18.4 from the official source location, and verifies SHA-256
+   `81a81ec695fb0c7901407defaa1d2f7973617154cf27ba74e3a7ab8e64436094`
+   before building it. The mode-`0700` cluster and candidate `mnt-app` backend
+   use separate random loopback ports.
+3. It applies migrations and deterministic UI fixtures. Before each test-class
+   shard, it generates a new random one-use OTP, stores only its SHA-256 digest,
+   redeems it once, masks the OTP/access/refresh values, and patches the
+   mode-`0600` `.xctestrun` in place. The file remains below job-local DerivedData
+   so `__TESTROOT__` continues to resolve the built products.
+4. Each shard has a 720-second (12-minute) hard bound, below the backend's
+   15-minute access-token TTL. The production iOS client implements serialized,
+   rotating refresh with proactive expiry handling, verified Keychain
+   delete-before-use semantics, and one reactive retry. Failed deletion blocks
+   network use and cannot falsely report logout. Fresh per-shard sessions keep
+   this CI gate independent of refresh success and prevent suite duration from
+   becoming an authentication dependency.
+5. Every shard writes its own `.xcresult`, summary JSON, and test-tree JSON.
+   `scripts/verify-xcresult-test-results.mjs` aggregates those files and requires
+   the exact union of XCTest methods discovered from `ios/UITests`, with no
+   duplicate, missing, skipped, failed, or errored case.
+6. Before upload, the workflow scans the artifact tree for every raw OTP, access
+   token, and refresh token minted during the job and fails on any match. The
+   artifact upload step then copies the diagnostic results with seven-day
+   retention.
+7. After the upload attempt, an unconditional cleanup step compares the backend
+   PID with its recorded command before signaling it, proves the backend stopped,
+   stops PostgreSQL and proves `pg_ctl status` is inactive, deletes the exact
+   Simulator and proves its UUID is absent, removes generated CI files, deletes
+   the complete owned job root, and proves that root no longer exists.
 
-- **Protected branch or required push runs:** fail closed when the base URL is
-  absent, neither session source is present, the backend exchange fails, or the
-  shared keychain entitlement cannot be granted. `PreflightUITests` must fail in
-  those cases; an all-skip post-login run is not valid evidence for a protected
-  branch.
-- **Fork PRs and explicitly optional runs:** may run without repository secrets.
-  Session-dependent UI tests may `XCTSkip` with the no-real-session message and
-  the workflow output must make the gate's optional/skipped status clear. A green
-  optional run is build/accessibility smoke only and must not be cited as real
-  post-login coverage.
+Missing configuration, fixtures, keychain entitlement, session material,
+expected-test evidence, secret-scan evidence, or cleanup proof fails the gate.
+No `-skip-testing`, `XCTSkip`, optional-session branch, external backend/session
+secret, or fork-specific reduced suite is valid.
+
+The job-local backend uses a CI-only loopback ATS allowance. Production
+`ios/Sources/MaintenanceFieldApp/Info.plist`, TestFlight/archive settings, and
+release networking policy remain unchanged. The shared keychain entitlement is
+still required so the test process can seed the same production Keychain layout
+that the app restores. The test resolves the granted group directly; a locally
+supplied `MNT_IOS_KEYCHAIN_GROUP` remains a diagnostic override, not a CI input
+or session credential.
 
 ### Android app — build, unit/accessibility, and screenshots
 
