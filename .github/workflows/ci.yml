@@ -806,10 +806,48 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     needs: android-app
+    services:
+      postgres:
+        image: postgres:18.4@sha256:4aabea78cf39b90e834caf3af7d602a18565f6fe2508705c8d01aa63245c2e20
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_DB: postgres
+          POSTGRES_PASSWORD: android-${{ github.run_id }}-${{ github.run_attempt }}-admin
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      CI: "true"
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      E2E_PG_SUPERUSER: postgres
+      E2E_PG_SUPERUSER_PASSWORD: android-${{ github.run_id }}-${{ github.run_attempt }}-admin
+      E2E_PG_HOST: localhost
+      E2E_PG_PORT: "5432"
+      E2E_DB_NAME: mnt_android_${{ github.run_id }}_${{ github.run_attempt }}
+      E2E_HTTP_ADDR: 127.0.0.1:8080
 
     steps:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+
+      - name: Verify exact candidate SHA before build
+        run: |
+          set -euo pipefail
+          actual_sha="$(git rev-parse HEAD)"
+          if [ "$actual_sha" != "$GITHUB_SHA" ]; then
+            echo "::error title=Android E2E candidate mismatch::Checked-out HEAD $actual_sha does not match GITHUB_SHA $GITHUB_SHA."
+            exit 1
+          fi
+
+      - name: Free runner disk for Rust backend and emulator
+        uses: ./.github/actions/free-runner-disk
 
       - name: Enable KVM for hardware-accelerated emulator
         run: |
@@ -817,6 +855,16 @@ jobs:
             | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
+
+      - name: Install Rust toolchain (pinned via rust-toolchain.toml)
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          toolchain: "1.96.0"
+
+      - name: Cache Rust dependencies + build artifacts
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with:
+          workspaces: backend
 
       - name: Set up Java
         uses: actions/setup-java@1bcf9fb12cf4aa7d266a90ae39939e61372fe520 # v5.4.0
@@ -827,98 +875,167 @@ jobs:
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@40fd30fb8d7440372e1316f5d1809ec01dcd3699 # v4.0.1
+        env:
+          # free-runner-disk removes the preinstalled root-owned SDK tree. Keep
+          # this job's replacement SDK writable, isolated, and runner-local.
+          ANDROID_HOME: ${{ runner.temp }}/android-sdk
+          ANDROID_SDK_ROOT: ${{ runner.temp }}/android-sdk
 
       - name: Install Android SDK packages
         run: |
           yes | sdkmanager --licenses >/dev/null
           sdkmanager --install "platform-tools" "platforms;android-36" "build-tools;36.1.0"
 
-      - name: Mint a real backend session for the test user
-        # No fakes: obtain a REAL session from the REAL backend. The test user's passkey
-        # was registered through the automatable web ceremony; here we refresh its token at
-        # run start and hand the fresh access+refresh pair to the instrumented test via a
-        # permission-restricted temporary androidTest asset fixture (never step outputs or
-        # raw Gradle CLI arguments).
-        # Protected branch push runs require a real session. Fork PRs/manual optional
-        # contexts may still run without secrets, but must log an explicit optional skip.
-        env:
-          FIELD_E2E_BASE_URL: ${{ secrets.FIELD_E2E_BASE_URL }}
-          FIELD_E2E_SEED_REFRESH_TOKEN: ${{ secrets.FIELD_E2E_SEED_REFRESH_TOKEN }}
-          # Trust-context decision, not a function of whether secrets are present:
-          # missing required inputs must fail closed before Gradle can false-green.
-          FIELD_E2E_REQUIRE_REAL_SESSION: ${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && '1' || '0' }}
+      - name: Install PostgreSQL client for the hermetic harness
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends postgresql-client
+
+      - name: Build exact candidate backend
+        working-directory: backend
+        run: SQLX_OFFLINE=true cargo build --locked -q -p mnt-app
+
+      - name: Run hermetic post-login E2E on Gradle Managed Device
+        # Candidate source, PostgreSQL, database fixtures, backend, OTP, session,
+        # emulator, and assertions all live in this job. No external backend or
+        # long-lived refresh-token secret can drift from the tested SHA.
         run: |
           set -euo pipefail
-          if [ -z "${FIELD_E2E_BASE_URL:-}" ] || [ -z "${FIELD_E2E_SEED_REFRESH_TOKEN:-}" ]; then
-            if [ "${FIELD_E2E_REQUIRE_REAL_SESSION:-0}" = "1" ]; then
-              echo "::error title=Required Android E2E real-session inputs are missing::Protected branch push runs require FIELD_E2E_BASE_URL and FIELD_E2E_SEED_REFRESH_TOKEN; refusing a false-green post-login gate."
-              if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
-                {
-                  echo "### Android instrumented E2E real-session gate"
-                  echo "- Gate: required"
-                  echo "- Result: failed closed before Gradle Managed Device execution"
-                  echo "- Required inputs: FIELD_E2E_BASE_URL and FIELD_E2E_SEED_REFRESH_TOKEN"
-                } >> "$GITHUB_STEP_SUMMARY"
-              fi
-              exit 1
-            fi
-            echo "::notice title=Optional Android E2E real-session gate skipped::FIELD_E2E_BASE_URL or FIELD_E2E_SEED_REFRESH_TOKEN is unavailable in this optional context; session-dependent instrumented tests may self-skip and this run is not protected-branch post-login evidence."
-            if [ -n "${GITHUB_STEP_SUMMARY:-}" ]; then
-              {
-                echo "### Android instrumented E2E real-session gate"
-                echo "- Gate: optional/skipped"
-                echo "- Reason: FIELD_E2E_BASE_URL or FIELD_E2E_SEED_REFRESH_TOKEN was not available in this non-required context"
-                echo "- Required protected branch push contexts fail closed before Gradle execution"
-              } >> "$GITHUB_STEP_SUMMARY"
-            fi
-            echo "FIELD_E2E_SESSION_ASSETS_DIR=" >> "$GITHUB_ENV"
-            exit 0
-          fi
-          printf '::add-mask::%s\n' "$FIELD_E2E_SEED_REFRESH_TOKEN"
           session_assets_dir="${RUNNER_TEMP}/android-e2e-session-assets"
           session_file="${session_assets_dir}/field-e2e-session.properties"
-          rm -rf "$session_assets_dir"
-          install -d -m 700 "$session_assets_dir"
-          if ! resp=$(curl -fsS -X POST "$FIELD_E2E_BASE_URL/api/v1/auth/token/refresh" \
+          export E2E_AUTH_DIR="${RUNNER_TEMP}/android-e2e-auth"
+          export MNT_APP_BIN="${GITHUB_WORKSPACE}/backend/target/debug/mnt-app"
+
+          cleanup_android_e2e() {
+            if [ -s "${E2E_AUTH_DIR}/backend.pid" ]; then
+              backend_pid="$(cat "${E2E_AUTH_DIR}/backend.pid")"
+              kill "$backend_pid" 2>/dev/null || true
+            fi
+            rm -rf "$session_assets_dir" "$E2E_AUTH_DIR"
+            find android/app/build -type f -name 'field-e2e-session.properties' -delete 2>/dev/null || true
+            find android/app/build -type f -name '*androidTest*.apk' -delete 2>/dev/null || true
+          }
+          trap cleanup_android_e2e EXIT
+          cleanup_android_e2e
+
+          printf '::add-mask::%s\n' "$E2E_PG_SUPERUSER_PASSWORD"
+          for role_password_var in \
+            E2E_MNT_APP_POSTGRES_PASSWORD \
+            E2E_MNT_RT_POSTGRES_PASSWORD \
+            E2E_MNT_LEAVE_COMMAND_POSTGRES_PASSWORD \
+            E2E_MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD
+          do
+            role_password="$(openssl rand -hex 32)"
+            printf '::add-mask::%s\n' "$role_password"
+            export "$role_password_var=$role_password"
+          done
+          unset role_password
+
+          bootstrap_otp="$(openssl rand -hex 24)"
+          printf '::add-mask::%s\n' "$bootstrap_otp"
+          otp_hash="$(printf '%s' "$bootstrap_otp" | sha256sum | awk '{print $1}')"
+
+          bash e2e/harness/db.sh
+          PGPASSWORD="$E2E_MNT_APP_POSTGRES_PASSWORD" psql \
+            --host "$E2E_PG_HOST" \
+            --port "$E2E_PG_PORT" \
+            --username mnt_app \
+            --dbname "$E2E_DB_NAME" \
+            --set ON_ERROR_STOP=1 \
+            --set "otp_hash=$otp_hash" \
+            --file e2e/harness/seed-mobile-ci.sql
+
+          bash e2e/harness/boot-backend.sh
+          backend_url="http://127.0.0.1:8080"
+          if ! resp="$(printf '%s' "$bootstrap_otp" | jq -Rsc '{otp:.}' | curl -fsS -X POST "$backend_url/api/v1/auth/otp/redeem" \
             -H 'Content-Type: application/json' \
-            -d "{\"refresh_token\":\"$FIELD_E2E_SEED_REFRESH_TOKEN\"}"); then
-            echo "::error title=Android E2E real-session mint failed::The backend refresh-token exchange failed; refusing a false-green post-login gate."
+            --data-binary @-)"; then
+            echo "::error title=Android E2E session mint failed::The job-local OTP exchange failed."
             exit 1
           fi
           if ! access_token=$(printf '%s' "$resp" | jq -er '.access_token'); then
-            echo "::error title=Android E2E real-session mint failed::The backend response did not contain access_token; refusing a false-green post-login gate."
+            echo "::error title=Android E2E session mint failed::The backend response omitted access_token."
             exit 1
           fi
           if ! refresh_token=$(printf '%s' "$resp" | jq -er '.refresh_token'); then
-            echo "::error title=Android E2E real-session mint failed::The backend response did not contain refresh_token; refusing a false-green post-login gate."
+            echo "::error title=Android E2E session mint failed::The backend response omitted refresh_token."
             exit 1
           fi
           printf '::add-mask::%s\n' "$access_token"
           printf '::add-mask::%s\n' "$refresh_token"
+          unset bootstrap_otp otp_hash resp
+
+          install -d -m 700 "$session_assets_dir"
           umask 077
           {
             printf 'FIELD_E2E_ACCESS_TOKEN=%s\n' "$access_token"
             printf 'FIELD_E2E_REFRESH_TOKEN=%s\n' "$refresh_token"
           } > "$session_file"
           chmod 600 "$session_file"
-          echo "FIELD_E2E_SESSION_ASSETS_DIR=$session_assets_dir" >> "$GITHUB_ENV"
+          export FIELD_E2E_SESSION_ASSETS_DIR="$session_assets_dir"
 
-      - name: Instrumented post-login E2E on Gradle Managed Device
-        working-directory: android
-        # Gradle Managed Device: API 34, google_apis_playstore, swiftshader_indirect.
-        # The device is declared in app/build.gradle.kts (fieldApi34 GMD).
-        env:
-          FIELD_E2E_SESSION_ASSETS_DIR: ${{ env.FIELD_E2E_SESSION_ASSETS_DIR }}
+          (
+            cd android
+            ./gradlew fieldApi34DebugAndroidTest
+          )
+
+          # JUnit evidence is mandatory: WorkOrderFlowTest must be present and
+          # must have no skipped, failed, or errored test cases.
+          python3 - <<'PY'
+          import pathlib
+          import sys
+          import xml.etree.ElementTree as ET
+
+          result_files = pathlib.Path("android/app/build").rglob("TEST-*.xml")
+          cases = []
+          for result_file in result_files:
+              try:
+                  root = ET.parse(result_file).getroot()
+              except ET.ParseError as error:
+                  raise SystemExit(f"invalid Android JUnit XML {result_file}: {error}")
+              for case in root.iter("testcase"):
+                  if case.attrib.get("classname", "").endswith(".WorkOrderFlowTest"):
+                      cases.append((result_file, case))
+
+          if not cases:
+              raise SystemExit("WorkOrderFlowTest is missing from Android JUnit test-results")
+          for result_file, case in cases:
+              if case.find("skipped") is not None:
+                  raise SystemExit(f"WorkOrderFlowTest was skipped in {result_file}")
+              failure = case.find("failure")
+              error = case.find("error")
+              if failure is not None or error is not None:
+                  raise SystemExit(f"WorkOrderFlowTest failed or errored in {result_file}")
+          print(f"verified {len(cases)} WorkOrderFlowTest JUnit case(s): executed, zero skipped/failures/errors")
+          PY
+
+          {
+            echo "### Android instrumented post-login E2E"
+            echo "- Candidate SHA: \`$GITHUB_SHA\`"
+            echo "- Backend: checked-out candidate on job-local loopback"
+            echo "- Database: job-local PostgreSQL 18.4"
+            echo "- Result: WorkOrderFlowTest executed with zero skips/failures/errors"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload hermetic Android instrumented reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: android-instrumented-test-reports
+          path: |
+            android/app/build/outputs/androidTest-results/**
+            android/app/build/reports/androidTests/**
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Remove hermetic Android session and backend
+        if: always()
         run: |
-          cleanup_session_fixture() {
-            if [ -n "${FIELD_E2E_SESSION_ASSETS_DIR:-}" ]; then
-              rm -rf "$FIELD_E2E_SESSION_ASSETS_DIR"
-              find app/build -type f -name 'field-e2e-session.properties' -delete 2>/dev/null || true
-              find app/build -type f -name '*androidTest*.apk' -delete 2>/dev/null || true
-            fi
-          }
-          trap cleanup_session_fixture EXIT
-          ./gradlew fieldApi34DebugAndroidTest
+          auth_dir="${RUNNER_TEMP}/android-e2e-auth"
+          if [ -s "${auth_dir}/backend.pid" ]; then
+            kill "$(cat "${auth_dir}/backend.pid")" 2>/dev/null || true
+          fi
+          rm -rf "${RUNNER_TEMP}/android-e2e-session-assets" "$auth_dir"
+          find android/app/build -type f -name 'field-e2e-session.properties' -delete 2>/dev/null || true
+          find android/app/build -type f -name '*androidTest*.apk' -delete 2>/dev/null || true
 
   ios-app:
     name: iOS app — Swift build and behavior tests

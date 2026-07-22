@@ -12,7 +12,8 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 HARNESS="${REPO_ROOT}/e2e/harness"
-PID_FILE="${REPO_ROOT}/e2e/.auth/backend.pid"
+AUTH_DIR="${E2E_AUTH_DIR:-${REPO_ROOT}/e2e/.auth}"
+PID_FILE="${AUTH_DIR}/backend.pid"
 
 cleanup() {
   if [[ -s "${PID_FILE}" ]]; then

@@ -22,7 +22,7 @@
     "check:swift": "swift build --package-path clients/swift",
     "test:api-client-contract:swift": "swift run --package-path clients/swift MaintenanceAPIClientContractTests",
     "check:ios-ui-test-fail-closed": "node scripts/check-ios-ui-test-fail-closed.mjs",
-    "check:android-e2e-fail-closed": "node scripts/check-android-e2e-fail-closed.mjs",
+    "check:android-e2e-fail-closed": "node --test scripts/check-android-e2e-fail-closed.test.mjs && node scripts/check-android-e2e-fail-closed.mjs",
     "check:openapi-app": "node scripts/check-openapi-app.mjs",
     "check:k8s:render": "tmpdir=\"${RUNNER_TEMP:-/tmp}/maintenance-rendered-k8s\" && scripts/render-k8s-manifests.sh \"$tmpdir\"",
     "check:k8s:networkpolicy": "scripts/check-networkpolicy-enforcement.sh",

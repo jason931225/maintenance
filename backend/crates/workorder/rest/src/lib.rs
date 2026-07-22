@@ -568,8 +568,11 @@ struct WorkOrderListItem {
     status: String,
     priority: String,
     result_type: String,
+    #[serde(with = "time::serde::rfc3339::option")]
     target_due_at: Option<time::OffsetDateTime>,
+    #[serde(with = "time::serde::rfc3339")]
     created_at: time::OffsetDateTime,
+    #[serde(with = "time::serde::rfc3339")]
     updated_at: time::OffsetDateTime,
     equipment: EquipmentSummary,
     customer: NamedEntity,
@@ -644,6 +647,7 @@ struct AssignmentSummary {
     mechanic_id: UserId,
     mechanic_name: String,
     role: String,
+    #[serde(with = "time::serde::rfc3339")]
     assigned_at: time::OffsetDateTime,
 }
 
@@ -4819,7 +4823,74 @@ fn status_for_error_kind(kind: ErrorKind) -> StatusCode {
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_management_no;
+    use super::{
+        AssignmentSummary, EquipmentSummary, NamedEntity, WorkOrderListItem,
+        normalize_management_no,
+    };
+    use mnt_kernel_core::{BranchId, UserId, WorkOrderId};
+
+    #[test]
+    fn work_order_list_item_serializes_timestamps_as_rfc3339_strings() {
+        let timestamp = time::OffsetDateTime::from_unix_timestamp(0).unwrap();
+        let mut item = WorkOrderListItem {
+            id: WorkOrderId::from_uuid(uuid::Uuid::nil()),
+            request_no: "20260722-001".to_owned(),
+            branch_id: BranchId::from_uuid(uuid::Uuid::nil()),
+            status: "ASSIGNED".to_owned(),
+            priority: "P2".to_owned(),
+            result_type: "REPAIR".to_owned(),
+            target_due_at: Some(timestamp),
+            created_at: timestamp,
+            updated_at: timestamp,
+            equipment: EquipmentSummary {
+                id: uuid::Uuid::nil(),
+                equipment_no: "EQ-001".to_owned(),
+                management_no: Some("001".to_owned()),
+                model: Some("TEST".to_owned()),
+                status: "ACTIVE".to_owned(),
+                specification: "TEST".to_owned(),
+                ton_text: "1T".to_owned(),
+            },
+            customer: NamedEntity {
+                id: uuid::Uuid::nil(),
+                name: "Test customer".to_owned(),
+            },
+            site: NamedEntity {
+                id: uuid::Uuid::nil(),
+                name: "Test site".to_owned(),
+            },
+            site_contact: None,
+            assignments: vec![AssignmentSummary {
+                id: uuid::Uuid::nil(),
+                mechanic_id: UserId::from_uuid(uuid::Uuid::nil()),
+                mechanic_name: "Test mechanic".to_owned(),
+                role: "PRIMARY".to_owned(),
+                assigned_at: timestamp,
+            }],
+        };
+
+        let json = serde_json::to_value(&item).unwrap();
+        for pointer in [
+            "/target_due_at",
+            "/created_at",
+            "/updated_at",
+            "/assignments/0/assigned_at",
+        ] {
+            assert_eq!(
+                json.pointer(pointer).and_then(serde_json::Value::as_str),
+                Some("1970-01-01T00:00:00Z"),
+                "{pointer} must honor the OpenAPI string/date-time contract"
+            );
+        }
+
+        item.target_due_at = None;
+        let json = serde_json::to_value(item).unwrap();
+        assert_eq!(
+            json.pointer("/target_due_at"),
+            Some(&serde_json::Value::Null),
+            "an absent target due date must remain JSON null"
+        );
+    }
 
     /// The console equipment search lets a user type the 호기 the way it appears
     /// on the floor: a leading '#', a trailing '호기', or both, with stray

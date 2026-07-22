@@ -1477,349 +1477,170 @@ jobs:
   });
 });
 
-const validAndroidE2eTokenFiles = {
-  ".github/workflows/ci.yml": `name: CI
-jobs:
-  android-instrumented:
-    steps:
-      - name: Mint a real backend session for the test user
-        env:
-          FIELD_E2E_BASE_URL: fake-url
-          FIELD_E2E_SEED_REFRESH_TOKEN: fake-seed
-        run: |
-          if [ -z "$FIELD_E2E_BASE_URL" ] || [ -z "$FIELD_E2E_SEED_REFRESH_TOKEN" ]; then
-            echo "No backend E2E secrets configured; instrumented test will self-skip."
-            echo "FIELD_E2E_SESSION_ASSETS_DIR=" >> "$GITHUB_ENV"
-            exit 0
-          fi
-          printf '::add-mask::%s\\n' "$FIELD_E2E_SEED_REFRESH_TOKEN"
-          session_assets_dir="\${RUNNER_TEMP}/android-e2e-session-assets"
-          session_file="\${session_assets_dir}/field-e2e-session.properties"
-          rm -rf "$session_assets_dir"
-          install -d -m 700 "$session_assets_dir"
-          resp=$(curl -fsS -X POST "$FIELD_E2E_BASE_URL/api/v1/auth/token/refresh" \
-            -H 'Content-Type: application/json' \
-            -d "{\\"refresh_token\\":\\"$FIELD_E2E_SEED_REFRESH_TOKEN\\"}")
-          access_token=$(printf '%s' "$resp" | jq -er '.access_token')
-          refresh_token=$(printf '%s' "$resp" | jq -er '.refresh_token')
-          printf '::add-mask::%s\\n' "$access_token"
-          printf '::add-mask::%s\\n' "$refresh_token"
-          umask 077
-          {
-            printf 'FIELD_E2E_ACCESS_TOKEN=%s\\n' "$access_token"
-            printf 'FIELD_E2E_REFRESH_TOKEN=%s\\n' "$refresh_token"
-          } > "$session_file"
-          chmod 600 "$session_file"
-          echo "FIELD_E2E_SESSION_ASSETS_DIR=$session_assets_dir" >> "$GITHUB_ENV"
-      - name: Instrumented post-login E2E on Gradle Managed Device
-        working-directory: android
-        env:
-          FIELD_E2E_SESSION_ASSETS_DIR: env.FIELD_E2E_SESSION_ASSETS_DIR
-        run: |
-          cleanup_session_fixture() {
-            if [ -n "\${FIELD_E2E_SESSION_ASSETS_DIR:-}" ]; then
-              rm -rf "$FIELD_E2E_SESSION_ASSETS_DIR"
-              find app/build -type f -name 'field-e2e-session.properties' -delete 2>/dev/null || true
-              find app/build -type f -name '*androidTest*.apk' -delete 2>/dev/null || true
-            fi
-          }
-          trap cleanup_session_fixture EXIT
-          ./gradlew fieldApi34DebugAndroidTest
-`,
-  "android/app/build.gradle.kts": `val fieldE2eSessionAssetsDir = providers.environmentVariable("FIELD_E2E_SESSION_ASSETS_DIR")
-android {
-    sourceSets {
-        getByName("androidTest") {
-            fieldE2eSessionAssetsDir.orNull
-                ?.takeIf { it.isNotBlank() }
-                ?.let { assets.srcDir(it) }
-        }
-    }
-}
-`,
-  "android/app/src/androidTest/kotlin/com/maintenance/field/WorkOrderFlowTest.kt": `import androidx.test.platform.app.InstrumentationRegistry
-import com.maintenance.field.data.session.SessionTokenStore
-import java.util.Properties
-
-class WorkOrderFlowTest {
-    private val sessionStore = SessionTokenStore(ApplicationProvider.getApplicationContext())
-
-    private fun loadE2eSessionTokens(): E2eSessionTokens? {
-        val properties = Properties()
-        InstrumentationRegistry.getInstrumentation()
-            .context
-            .assets
-            .open("field-e2e-session.properties")
-            .use { properties.load(it) }
-        val access = properties.getProperty("FIELD_E2E_ACCESS_TOKEN")
-        val refresh = properties.getProperty("FIELD_E2E_REFRESH_TOKEN")
-        return E2eSessionTokens(access, refresh)
-    }
-}
-`,
-};
-
-function evaluateAndroidE2eTokenHandoff(overrides = {}) {
-  const files = { ...validAndroidE2eTokenFiles, ...overrides };
-  return evaluateAndroidE2eTokenHandoffChecks((path) => files[path] ?? "");
-}
-
-describe("production hardening Android E2E token handoff", () => {
-  it("accepts masked androidTest asset fixture handoff with no raw-token Gradle arguments", () => {
-    const result = evaluateAndroidE2eTokenHandoff();
-
-    assert.deepEqual(result.failures, []);
-    assert.match(
-      result.passes.join("\n"),
-      /Android E2E session asset fixture is chmod-restricted/,
-    );
-    assert.match(
-      result.passes.join("\n"),
-      /Android E2E Gradle invocation avoids raw token arguments/,
-    );
-  });
-
-  it("rejects a noncanonical mint route even when canonical text exists elsewhere", () => {
-    const workflow = validAndroidE2eTokenFiles[".github/workflows/ci.yml"]
-      .replace(
-        "$FIELD_E2E_BASE_URL/api/v1/auth/token/refresh",
-        "$FIELD_E2E_BASE_URL/api/v1/auth/token/rotate",
-      )
-      .replace("name: CI", "name: CI\n# $FIELD_E2E_BASE_URL/api/v1/auth/token/refresh");
-    const result = evaluateAndroidE2eTokenHandoff({
-      ".github/workflows/ci.yml": workflow,
-    });
-
-    assertHasFailure(
-      result,
-      "Android E2E token mint step must mask the seed token before refreshing",
-    );
-  });
-
-  it("rejects the old GitHub-output and Gradle instrumentation-argument token handoff", () => {
-    const result = evaluateAndroidE2eTokenHandoff({
-      ".github/workflows/ci.yml": `name: CI
-jobs:
-  android-instrumented:
-    steps:
-      - name: Mint a real backend session for the test user
-        id: session
-        run: |
-          resp=$(curl -fsS -X POST "$FIELD_E2E_BASE_URL/api/v1/auth/token/refresh" \
-            -d "{\\"refresh_token\\":\\"$FIELD_E2E_SEED_REFRESH_TOKEN\\"}")
-          echo "access=$(echo "$resp" | jq -r '.access_token')" >> "$GITHUB_OUTPUT"
-          echo "refresh=$(echo "$resp" | jq -r '.refresh_token')" >> "$GITHUB_OUTPUT"
-      - name: Instrumented post-login E2E on Gradle Managed Device
-        run: |
-          ./gradlew fieldApi34DebugAndroidTest \
-            -Pandroid.testInstrumentationRunnerArguments.FIELD_E2E_ACCESS_TOKEN="steps.session.outputs.access" \
-            -Pandroid.testInstrumentationRunnerArguments.FIELD_E2E_REFRESH_TOKEN="steps.session.outputs.refresh"
-`,
-      "android/app/build.gradle.kts": `android { }
-`,
-      "android/app/src/androidTest/kotlin/com/maintenance/field/WorkOrderFlowTest.kt": `class WorkOrderFlowTest {
-    private val arguments = InstrumentationRegistry.getArguments()
-    private val accessToken = arguments.getString("FIELD_E2E_ACCESS_TOKEN")
-    private val refreshToken = arguments.getString("FIELD_E2E_REFRESH_TOKEN")
-}
-`,
-    });
-
-    assertHasFailure(
-      result,
-      "Android E2E token mint step must mask the seed token before refreshing",
-    );
-    assertHasFailure(
-      result,
-      "Android E2E token handoff must not write access/refresh tokens to GITHUB_OUTPUT",
-    );
-    assertHasFailure(
-      result,
-      "Android E2E Gradle invocation must not pass access/refresh tokens as instrumentation arguments",
-    );
-    assertHasFailure(
-      result,
-      "Android Gradle must expose FIELD_E2E_SESSION_ASSETS_DIR as androidTest assets",
-    );
-    assertHasFailure(
-      result,
-      "WorkOrderFlowTest must read FIELD_E2E tokens from the androidTest asset fixture",
-    );
-  });
-
-  it("keeps sentinel values out of captured dry-run logs and Gradle argv while writing the valid asset fixture", () => {
-    const dir = mkdtempSync(
-      join(tmpdir(), "maintenance-android-e2e-token-test-"),
-    );
-    const accessToken = "sentinel-access-token-issue-361";
-    const refreshToken = "sentinel-refresh-token-issue-361";
-    const seedToken = "sentinel-seed-refresh-token-issue-361";
-    const masks = [];
-    const visibleLog = [];
-    const addMask = (value) => masks.push(value);
-    const emit = (line) => {
-      visibleLog.push(
-        masks.reduce(
-          (redacted, mask) => redacted.split(mask).join("***"),
-          line,
-        ),
-      );
-    };
-
-    addMask(seedToken);
-    const sessionAssetsDir = join(dir, "android-e2e-session-assets");
-    mkdirSync(sessionAssetsDir, { recursive: true, mode: 0o700 });
-    const sessionFile = join(sessionAssetsDir, "field-e2e-session.properties");
-    addMask(accessToken);
-    addMask(refreshToken);
-    writeFileSync(
-      sessionFile,
-      `FIELD_E2E_ACCESS_TOKEN=${accessToken}\nFIELD_E2E_REFRESH_TOKEN=${refreshToken}\n`,
-      { mode: 0o600 },
-    );
-    chmodSync(sessionFile, 0o600);
-    writeFileSync(
-      join(dir, "github_env"),
-      `FIELD_E2E_SESSION_ASSETS_DIR=${sessionAssetsDir}\n`,
-      "utf8",
-    );
-
-    const gradleArgv = ["./gradlew", "fieldApi34DebugAndroidTest"];
-    writeFileSync(join(dir, "gradle-argv.log"), gradleArgv.join(" "), "utf8");
-    emit("registered masks before exposing the androidTest asset fixture");
-    emit(`gradle argv: ${gradleArgv.join(" ")}`);
-    emit(`session fixture: ${sessionFile.split("/").pop()}`);
-    const combined = visibleLog.join("\n");
-
-    assert.doesNotMatch(
-      combined,
-      new RegExp(`${accessToken}|${refreshToken}|${seedToken}`),
-    );
-    const gradleArgvText = readFileSync(join(dir, "gradle-argv.log"), "utf8");
-    assert.doesNotMatch(
-      gradleArgvText,
-      new RegExp(`${accessToken}|${refreshToken}|${seedToken}`),
-    );
-    assert.doesNotMatch(
-      gradleArgvText,
-      /android\.testInstrumentationRunnerArguments\.FIELD_E2E/,
-    );
-
-    const fixture = readFileSync(sessionFile, "utf8");
-    assert.match(fixture, new RegExp(`FIELD_E2E_ACCESS_TOKEN=${accessToken}`));
-    assert.match(
-      fixture,
-      new RegExp(`FIELD_E2E_REFRESH_TOKEN=${refreshToken}`),
-    );
-  });
-});
-
-const validAndroidE2eFailClosedFiles = {
-  "package.json": JSON.stringify(
-    {
-      scripts: {
-        "check:android-e2e-fail-closed":
-          "node scripts/check-android-e2e-fail-closed.mjs",
-      },
-    },
-    null,
-    2,
-  ),
+const validAndroidE2eFiles = {
+  "package.json": JSON.stringify({ scripts: { "check:android-e2e-fail-closed": "node scripts/check-android-e2e-fail-closed.mjs" } }),
   ".github/workflows/ci.yml": `name: CI
 jobs:
   web:
     steps:
-      - name: Android E2E fail-closed workflow guard
-        run: npm run check:android-e2e-fail-closed
+      - run: npm run check:android-e2e-fail-closed
   android-instrumented:
+    env:
+      E2E_HTTP_ADDR: 127.0.0.1:8080
+    services:
+      postgres:
+        image: postgres:18.4
     steps:
-      - name: Mint a real backend session for the test user
-        env:
-          FIELD_E2E_BASE_URL: fake-url
-          FIELD_E2E_SEED_REFRESH_TOKEN: fake-seed
-          FIELD_E2E_REQUIRE_REAL_SESSION: \${{ github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && '1' || '0' }}
+      - run: |
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          cargo build --release --bin mnt-app
+      - name: Bootstrap hermetic backend and session fixture
         run: |
           set -euo pipefail
-          if [ -z "\${FIELD_E2E_BASE_URL:-}" ] || [ -z "\${FIELD_E2E_SEED_REFRESH_TOKEN:-}" ]; then
-            if [ "\${FIELD_E2E_REQUIRE_REAL_SESSION:-0}" = "1" ]; then
-              echo "::error title=Required Android E2E real-session inputs are missing::Protected branch push runs require FIELD_E2E_BASE_URL and FIELD_E2E_SEED_REFRESH_TOKEN; refusing a false-green post-login gate."
-              exit 1
-            fi
-            echo "::notice title=Optional Android E2E real-session gate skipped::FIELD_E2E_BASE_URL or FIELD_E2E_SEED_REFRESH_TOKEN is unavailable in this optional context."
-            echo "FIELD_E2E_SESSION_ASSETS_DIR=" >> "$GITHUB_ENV"
-            exit 0
-          fi
-          printf '::add-mask::%s\\n' "$FIELD_E2E_SEED_REFRESH_TOKEN"
-          resp=$(curl -fsS -X POST "$FIELD_E2E_BASE_URL/api/v1/auth/token/refresh" \
-            -H 'Content-Type: application/json' \
-            -d "{\\"refresh_token\\":\\"$FIELD_E2E_SEED_REFRESH_TOKEN\\"}")
-      - name: Instrumented post-login E2E on Gradle Managed Device
-        run: ./gradlew fieldApi34DebugAndroidTest
+          session_assets_dir="\${RUNNER_TEMP}/android-e2e-session-assets"
+          session_file="$session_assets_dir/field-e2e-session.properties"
+          bootstrap_otp="$(openssl rand -hex 32)"
+          otp_hash="$(printf '%s' "$bootstrap_otp" | sha256sum | awk '{print $1}')"
+          printf '::add-mask::%s\\n' "$bootstrap_otp"
+          E2E_PG_HOST=127.0.0.1 e2e/harness/db.sh
+          psql -v otp_hash="$otp_hash" -f e2e/harness/seed-mobile-ci.sql
+          e2e/harness/boot-backend.sh
+          backend_url="http://127.0.0.1:8080"
+          response="$(printf '%s' "$bootstrap_otp" | jq -Rsc '{otp:.}' | curl -fsS -X POST "$backend_url/api/v1/auth/otp/redeem" --data-binary @-)"
+          access_token="$(printf '%s' "$response" | jq -er '.access_token')"
+          refresh_token="$(printf '%s' "$response" | jq -er '.refresh_token')"
+          printf '::add-mask::%s\\n' "$access_token"
+          printf '::add-mask::%s\\n' "$refresh_token"
+          install -d -m 700 "$session_assets_dir"
+          umask 077
+          printf 'FIELD_E2E_ACCESS_TOKEN=%s\\nFIELD_E2E_REFRESH_TOKEN=%s\\n' "$access_token" "$refresh_token" > "$session_file"
+          chmod 600 "$session_file"
+          export FIELD_E2E_SESSION_ASSETS_DIR="$session_assets_dir"
+          (
+            cd android
+            ./gradlew fieldApi34DebugAndroidTest
+          )
+          python3 - <<'PY'
+          import pathlib
+          import xml.etree.ElementTree as ET
+          cases = []
+          for result_file in pathlib.Path("android/app/build").rglob("TEST-*.xml"):
+              root = ET.parse(result_file).getroot()
+              for case in root.iter("testcase"):
+                  if case.attrib.get("classname", "").endswith(".WorkOrderFlowTest"):
+                      cases.append(case)
+          if not cases:
+              raise SystemExit("WorkOrderFlowTest is missing")
+          for case in cases:
+              if case.find("skipped") is not None:
+                  raise SystemExit("WorkOrderFlowTest was skipped")
+              if case.find("failure") is not None or case.find("error") is not None:
+                  raise SystemExit("WorkOrderFlowTest failed")
+          PY
+      - name: Cleanup hermetic Android E2E
+        if: always()
+        run: |
+          rm -rf "\${RUNNER_TEMP}/android-e2e-session-assets"
+          kill "$(cat "\${RUNNER_TEMP}/android-e2e-auth/backend.pid")" || true
 `,
+  "android/app/build.gradle.kts": `val fieldE2eSessionAssetsDir = providers.environmentVariable("FIELD_E2E_SESSION_ASSETS_DIR")
+android {
+  buildTypes { release { buildConfigField("String", "API_BASE_URL", "\\"https://api.example.test\\"") } }
+  sourceSets { getByName("androidTest") { fieldE2eSessionAssetsDir.orNull?.let { assets.srcDir(it) } } }
+}`,
+  "android/app/src/androidTest/kotlin/com/maintenance/field/WorkOrderFlowTest.kt": `class WorkOrderFlowTest {
+  fun fixture() {
+    InstrumentationRegistry.getInstrumentation().context.assets.open("field-e2e-session.properties")
+    val access = "FIELD_E2E_ACCESS_TOKEN"
+    val refresh = "FIELD_E2E_REFRESH_TOKEN"
+    SessionTokenStore(ApplicationProvider.getApplicationContext())
+  }
+}`,
+  "android/app/src/debug/AndroidManifest.xml": `<manifest><application android:networkSecurityConfig="@xml/network_security_config" /></manifest>`,
+  "android/app/src/debug/res/xml/network_security_config.xml": `<network-security-config><base-config cleartextTrafficPermitted="false"/><domain-config cleartextTrafficPermitted="true"><domain>10.0.2.2</domain></domain-config></network-security-config>`,
 };
 
+function evaluateAndroidE2eTokenHandoff(overrides = {}) {
+  const files = { ...validAndroidE2eFiles, ...overrides };
+  return evaluateAndroidE2eTokenHandoffChecks((path) => files[path] ?? "");
+}
 function evaluateAndroidE2eFailClosed(overrides = {}) {
-  const files = { ...validAndroidE2eFailClosedFiles, ...overrides };
+  const files = { ...validAndroidE2eFiles, ...overrides };
   return evaluateAndroidE2eFailClosedChecks((path) => files[path] ?? "");
 }
 
-describe("production hardening Android E2E fail-closed guard", () => {
-  it("accepts a protected-branch fail-closed guard wired into CI", () => {
+describe("production hardening Android hermetic E2E", () => {
+  it("accepts a self-hosted PostgreSQL 18.4 candidate-SHA session harness", () => {
     const result = evaluateAndroidE2eFailClosed();
-
     assert.deepEqual(result.failures, []);
-    assert.match(
-      result.passes.join("\n"),
-      /Android E2E required missing inputs fail closed before minting/,
-    );
-    assert.match(
-      result.passes.join("\n"),
-      /Android E2E fail-closed guard runs before Gradle Managed Device execution/,
-    );
+    assert.match(result.passes.join("\\n"), /local PostgreSQL 18.4/);
+    assert.match(result.passes.join("\\n"), /exact candidate SHA/);
   });
 
-  it("rejects the old missing-secret self-skip path that could false-green protected branches", () => {
-    const result = evaluateAndroidE2eFailClosed({
-      ".github/workflows/ci.yml": `name: CI
-jobs:
-  android-instrumented:
-    steps:
-      - name: Mint a real backend session for the test user
-        run: |
-          if [ -z "$FIELD_E2E_BASE_URL" ] || [ -z "$FIELD_E2E_SEED_REFRESH_TOKEN" ]; then
-            echo "No backend E2E secrets configured; instrumented test will self-skip."
-            echo "access=" >> "$GITHUB_OUTPUT"
-            echo "refresh=" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-      - name: Instrumented post-login E2E on Gradle Managed Device
-        run: ./gradlew fieldApi34DebugAndroidTest
-`,
-    });
-
-    assertHasFailure(
-      result,
-      "must set FIELD_E2E_REQUIRE_REAL_SESSION from protected branch context",
-    );
-    assertHasFailure(result, "must include an Android E2E missing-input guard");
-    assertHasFailure(result, "must exit 1 for missing FIELD_E2E inputs");
-    assertHasFailure(result, "must not use the old missing-secret path");
+  it("accepts a masked runner-temp asset handoff without token outputs or Gradle args", () => {
+    const result = evaluateAndroidE2eTokenHandoff();
+    assert.deepEqual(result.failures, []);
+    assert.match(result.passes.join("\\n"), /runner-temp chmod-restricted/);
   });
 
-  it("rejects require-real expressions that depend on secret presence", () => {
+  it("rejects external backend secrets and optional protected-context self-skipping", () => {
     const result = evaluateAndroidE2eFailClosed({
-      ".github/workflows/ci.yml": validAndroidE2eFailClosedFiles[
-        ".github/workflows/ci.yml"
-      ].replace(
-        "github.event_name == 'push' && github.ref_type == 'branch' && github.ref_protected && '1' || '0'",
-        "github.event_name == 'push' && github.ref_protected && secrets.FIELD_E2E_BASE_URL && '1' || '0'",
+      ".github/workflows/ci.yml": validAndroidE2eFiles[".github/workflows/ci.yml"].replace(
+        "services:",
+        "env:\\n  FIELD_E2E_BASE_URL: ${{ secrets.FIELD_E2E_BASE_URL }}\\n  FIELD_E2E_REQUIRE_REAL_SESSION: '0'\\n    services:",
       ),
     });
+    assertHasFailure(result, "must not depend on FIELD_E2E external backend/session secrets");
+  });
 
-    assertHasFailure(
-      result,
-      "must not be conditioned on FIELD_E2E secret presence",
-    );
+  it("rejects a non-hermetic database version, build without exact SHA, and non-local OTP exchange", () => {
+    const result = evaluateAndroidE2eFailClosed({
+      ".github/workflows/ci.yml": validAndroidE2eFiles[".github/workflows/ci.yml"]
+        .replace("postgres:18.4", "postgres:17")
+        .replace('test "$(git rev-parse HEAD)" = "$GITHUB_SHA"\n          ', "")
+        .replace('$backend_url/api/v1/auth/otp/redeem', 'https://external.example/api/v1/auth/token/refresh'),
+    });
+    assertHasFailure(result, "must start PostgreSQL 18.4 locally");
+    assertHasFailure(result, "must verify git HEAD against GITHUB_SHA");
+    assertHasFailure(result, "must migrate/seed local PostgreSQL");
+  });
+
+  it("rejects raw or malformed OTP JSON instead of jq-encoding the bootstrap credential", () => {
+    const result = evaluateAndroidE2eFailClosed({
+      ".github/workflows/ci.yml": validAndroidE2eFiles[".github/workflows/ci.yml"]
+        .replace("jq -Rsc '{otp:.}' | ", "")
+        .replace("--data-binary @-", '-d "{\\"otp\\":\\"$bootstrap_otp\\"}"'),
+    });
+    assertHasFailure(result, "must migrate/seed local PostgreSQL, SHA256-hash a random mechanic OTP");
+  });
+
+  it("rejects credential leaks, unverified JUnit evidence, missing cleanup, and release cleartext", () => {
+    const overrides = {
+      ".github/workflows/ci.yml": validAndroidE2eFiles[".github/workflows/ci.yml"]
+        .replace('export FIELD_E2E_SESSION_ASSETS_DIR="$session_assets_dir"', 'echo "access=$access_token" >> "$GITHUB_OUTPUT"')
+        .replace('case.find("skipped")', 'case.find("not-skipped")')
+        .replace('if: always()', 'if: success()')
+        .replace('kill "$(cat "\${RUNNER_TEMP}/android-e2e-auth/backend.pid")" || true', 'true'),
+      "android/app/src/debug/AndroidManifest.xml": `<manifest><application android:usesCleartextTraffic="true" /></manifest>`,
+    };
+    const result = evaluateAndroidE2eFailClosed(overrides);
+    const tokenResult = evaluateAndroidE2eTokenHandoff(overrides);
+    assertHasFailure(tokenResult, "must not be written to GITHUB_OUTPUT");
+    assertHasFailure(result, "must parse WorkOrderFlowTest JUnit XML");
+    assertHasFailure(result, "must run an always cleanup step");
+    assertHasFailure(result, "must permit cleartext only through the debug 10.0.2.2");
+  });
+
+  it("rejects token Gradle arguments and a WorkOrderFlowTest that reads instrumentation arguments", () => {
+    const result = evaluateAndroidE2eTokenHandoff({
+      ".github/workflows/ci.yml": validAndroidE2eFiles[".github/workflows/ci.yml"].replace(
+        "./gradlew fieldApi34DebugAndroidTest",
+        "./gradlew fieldApi34DebugAndroidTest -Pandroid.testInstrumentationRunnerArguments.FIELD_E2E_ACCESS_TOKEN=$access_token",
+      ),
+      "android/app/src/androidTest/kotlin/com/maintenance/field/WorkOrderFlowTest.kt": `class WorkOrderFlowTest { fun fixture() = InstrumentationRegistry.getArguments() }`,
+    });
+    assertHasFailure(result, "must not be written to GITHUB_OUTPUT or passed as Gradle instrumentation arguments");
+    assertHasFailure(result, "must load the session tokens from the androidTest asset fixture");
   });
 });
 
