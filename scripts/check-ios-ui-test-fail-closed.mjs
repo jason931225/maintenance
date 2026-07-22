@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -27,8 +28,45 @@ function hasHostedUntrustedBoundary(job) {
     && !/\bruns-on:\s*\$\{\{/.test(job);
 }
 
-function hasPinnedToolchain(job) {
-  return /DEVELOPER_DIR:\s*\/Applications\/Xcode_16\.4\.app\/Contents\/Developer/.test(job)
+function hasPinnedToolchain(job, workflow) {
+  const jobSteps = steps(job);
+  const setupNodeStep = jobSteps.findIndex((step) => /actions\/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e/.test(step));
+  const backendStep = jobSteps.findIndex((step) => /Hermetic exact-SHA backend and UI test/.test(step));
+  const activeJob = stripInertShellData(job);
+  const activeBackendStep = backendStep === -1 ? "" : stripInertShellData(jobSteps[backendStep]);
+  const protectedStartupVariableNames = ["BASH_ENV", "ENV", "NODE_OPTIONS", "NODE_PATH", "DYLD_INSERT_LIBRARIES", "DYLD_LIBRARY_PATH", "DYLD_FRAMEWORK_PATH", "LD_PRELOAD"];
+  const protectedStartupVariables = protectedStartupVariableNames.join(" ");
+  const emptyStartupExpansion = protectedStartupVariableNames.map((name) => `\\$\\{${name}-\\}`).join("");
+  const trustedNodePrelude = new RegExp(`run:\\s*\\|\\s*\\n[ \\t]*set -euo pipefail\\s*\\n[ \\t]*unset ${protectedStartupVariables}\\s*\\n[ \\t]*test -z "${emptyStartupExpansion}"\\s*\\n[ \\t]*readonly ${protectedStartupVariables}\\s*\\n[ \\t]*case "\\$RUNNER_ARCH" in X64\\) NODE_ARCH=x64 ;; ARM64\\) NODE_ARCH=arm64 ;; \\*\\) echo "unsupported runner architecture: \\$RUNNER_ARCH" >&2; exit 1 ;; esac\\s*\\n[ \\t]*readonly RUNNER_TOOL_CACHE RUNNER_ARCH NODE_ARCH\\s*\\n[ \\t]*readonly MNT_IOS_NODE_BIN="\\$RUNNER_TOOL_CACHE/node/24\\.16\\.0/\\$NODE_ARCH/bin/node"\\s*\\n[ \\t]*test -x "\\$MNT_IOS_NODE_BIN"; test ! -L "\\$MNT_IOS_NODE_BIN"; test "\\$\\("\\$MNT_IOS_NODE_BIN" --version\\)" = v24\\.16\\.0`);
+  const nodeAssignments = activeJob.match(/^[ \t]*(?:readonly[ \t]+)?MNT_IOS_NODE_BIN=/gm) ?? [];
+  const protectedEnvironmentName = "(?:MNT_IOS_NODE_BIN|RUNNER_TOOL_CACHE|RUNNER_ARCH|BASH_ENV|ENV|NODE_OPTIONS|NODE_PATH|DYLD_INSERT_LIBRARIES|DYLD_LIBRARY_PATH|DYLD_FRAMEWORK_PATH|LD_PRELOAD)";
+  const poisonedEnvironment = new RegExp(`${protectedEnvironmentName}=[^\\n]*(?:GITHUB_ENV|GITHUB_PATH)|(?:GITHUB_ENV|GITHUB_PATH)[^\\n]*${protectedEnvironmentName}=`).test(activeJob);
+  const overriddenRunnerEnvironment = /(?:^|\n)[ \t]*(?:["'])?(?:RUNNER_TOOL_CACHE|RUNNER_ARCH)(?:["'])?[ \t]*:|[,{][ \t]*(?:["'])?(?:RUNNER_TOOL_CACHE|RUNNER_ARCH)(?:["'])?[ \t]*:/.test(workflow);
+  const injectedStartupEnvironment = /(?:^|\n)[ \t]*(?:["'])?(?:BASH_ENV|ENV|NODE_OPTIONS|NODE_PATH|DYLD_INSERT_LIBRARIES|DYLD_LIBRARY_PATH|DYLD_FRAMEWORK_PATH|LD_PRELOAD)(?:["'])?[ \t]*:|[,{][ \t]*(?:["'])?(?:BASH_ENV|ENV|NODE_OPTIONS|NODE_PATH|DYLD_INSERT_LIBRARIES|DYLD_LIBRARY_PATH|DYLD_FRAMEWORK_PATH|LD_PRELOAD)(?:["'])?[ \t]*:/.test(workflow);
+  const yamlEnvironmentSections = workflow.match(/^[ \t]*env:[^\n]*$/gm) ?? [];
+  const exactJobEnvironment = /^[ ]{4}env:\n[ ]{6}DEVELOPER_DIR: \/Applications\/Xcode_16\.4\.app\/Contents\/Developer\n(?=^[ ]{4}steps:)/m.test(job);
+  const exactBackendEnvironment = /^[ ]{8}env: \{CARGO_INCREMENTAL: "0", SQLX_OFFLINE: "true"\}$/m.test(activeBackendStep);
+  const backendShellEntries = activeBackendStep.match(/^[ ]{8}shell:[^\n]*$/gm) ?? [];
+  const exactEnvironmentFileWrite = /printf '%s\\n' "MNT_IOS_JOB_ROOT=\$D" "CARGO_HOME=\$D\/cargo-home" "RUSTUP_HOME=\$D\/rustup-home" "CARGO_TARGET_DIR=\$D\/cargo-target" >> "\$GITHUB_ENV"/.test(activeJob);
+  return setupNodeStep !== -1
+    && backendStep === setupNodeStep + 1
+    && trustedNodePrelude.test(activeBackendStep)
+    && nodeAssignments.length === 1
+    && !poisonedEnvironment
+    && !overriddenRunnerEnvironment
+    && !injectedStartupEnvironment
+    && yamlEnvironmentSections.length === 2
+    && exactJobEnvironment
+    && exactBackendEnvironment
+    && backendShellEntries.length === 1
+    && backendShellEntries[0] === "        shell: bash"
+    && exactEnvironmentFileWrite
+    && (activeJob.match(/\bGITHUB_ENV\b/g) ?? []).length === 1
+    && (activeJob.match(/\bGITHUB_PATH\b/g) ?? []).length === 1
+    && /"\$MNT_IOS_NODE_BIN"\s+--test\s+scripts\/boot-backend-port-conflict\.test\.mjs[\s\S]{0,400}"\$MNT_IOS_NODE_BIN"\s+scripts\/check-ios-ui-test-fail-closed\.mjs/.test(activeBackendStep)
+    && /actions\/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e/.test(job)
+    && /node-version:\s*"24\.16\.0"/.test(job)
+    && /DEVELOPER_DIR:\s*\/Applications\/Xcode_16\.4\.app\/Contents\/Developer/.test(job)
     && /test\s+"\$\(xcodebuild -version\)"\s*=\s*\$'Xcode 16\.4\\nBuild version 16F6'/.test(job)
     && /SIM_RUNTIME=com\.apple\.CoreSimulator\.SimRuntime\.iOS-18-5/.test(job)
     && /SIM_DEVICE_TYPE=com\.apple\.CoreSimulator\.SimDeviceType\.iPhone-16/.test(job)
@@ -73,6 +111,61 @@ function stripShellComments(source) {
   }).join("\n");
 }
 
+function nextShellQuoteState(line, initialQuote) {
+  let quote = initialQuote;
+  let escaped = false;
+  for (let index = 0; index < line.length; index += 1) {
+    const character = line[index];
+    if (quote === "'") {
+      if (character === "'") quote = null;
+      continue;
+    }
+    if (quote === '"') {
+      if (escaped) escaped = false;
+      else if (character === "\\") escaped = true;
+      else if (character === '"') quote = null;
+      continue;
+    }
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (character === "\\") escaped = true;
+    else if (character === "'" || character === '"') quote = character;
+    else if (character === "#" && (index === 0 || /\s|[;&|()]/.test(line[index - 1]))) break;
+  }
+  return quote;
+}
+
+function stripInertShellData(source) {
+  const output = [];
+  const pending = [];
+  let active = null;
+  let quote = null;
+  for (const line of source.split("\n")) {
+    if (active !== null) {
+      if (line.trim() === active) active = pending.shift() ?? null;
+      output.push("");
+      continue;
+    }
+
+    const startedInsideQuote = quote !== null;
+    quote = nextShellQuoteState(line, quote);
+    if (startedInsideQuote) {
+      output.push("");
+      continue;
+    }
+
+    const command = stripShellComments(line);
+    output.push(command);
+    for (const match of command.matchAll(/(?:^|[\s;&|()])<<-?\s*(?:'([^']+)'|"([^"]+)"|([A-Za-z_][A-Za-z0-9_]*))/g)) {
+      pending.push(match[1] ?? match[2] ?? match[3]);
+    }
+    active = pending.shift() ?? null;
+  }
+  return output.join("\n");
+}
+
 function hasRequiredPostgresExtensions(job) {
   const activeJob = stripShellComments(job);
   const opensslPrefix = activeJob.search(/OPENSSL_PREFIX="\$\(brew\s+--prefix\s+openssl@3\)"/);
@@ -101,6 +194,34 @@ function hasRequiredPostgresExtensions(job) {
     && postgresStart > pgTrgmInstall
     && extensionLoadTest > postgresStart
     && backendBuild > extensionLoadTest;
+}
+
+function hasValidLoopbackWebauthnPolicy(job, launcher) {
+  const backendStep = steps(job).find((step) => /Hermetic exact-SHA backend and UI test/.test(step)) ?? "";
+  const activeJob = stripInertShellData(job).replace(/\\\r?\n\s*/g, " ");
+  const invocation = /^[ \t]*MNT_IOS_COLDSTART_OTP="\$COLDSTART_OTP"\s+"\$MNT_IOS_NODE_BIN"\s+"\$ROOT\/scripts\/boot-ios-ui-backend\.mjs"\s+"\$ROOT"\s+"\$AUTH_DIR"\s+"\$BP"[ \t]*$/gm;
+  const matches = [...activeJob.matchAll(invocation)];
+  const dbCommand = '"$ROOT/e2e/harness/db.sh"';
+  const db = activeJob.indexOf(dbCommand);
+  const launch = matches[0]?.index ?? -1;
+  const pidRead = activeJob.indexOf('BACKEND_PID="$(cat "$BACKEND_PID_FILE")"');
+  const forbiddenLowLevelControls = /\b(?:E2E_AUTH_DIR|E2E_HTTP_ADDR|E2E_PORT_CONFLICT_MODE|E2E_COLDSTART_OTP|E2E_RP_ORIGIN|E2E_RP_ID)\b|e2e\/harness\/boot-backend\.sh/;
+  const approvedBackendStepSha256 = "b2ebe9b908a9846f0cc869795d962710ca143ab3dceaffdd8233ad6c2b23fc7b";
+  const approvedLauncherSha256 = "a153fab32c9f4ca597605ec126d40e3bfc106c0ce17c368078e22c265ca9f1ad";
+  const backendStepSha256 = createHash("sha256").update(backendStep).digest("hex");
+  const launcherSha256 = createHash("sha256").update(launcher).digest("hex");
+  const trustedNodeInvocations = activeJob.match(/"\$MNT_IOS_NODE_BIN"/g) ?? [];
+  return matches.length === 1
+    && (activeJob.match(/scripts\/boot-ios-ui-backend\.mjs/g) ?? []).length === 1
+    && trustedNodeInvocations.length === 7
+    && /"\$MNT_IOS_NODE_BIN"\s+"\$ROOT\/scripts\/verify-xcresult-test-results\.mjs"\s+"\$\{VERIFY_ARGS\[@\]\}"\s+--swift-tests\s+"\$ROOT\/ios\/UITests"/.test(activeJob)
+    && !/(?:^|[;&|(])[ \t]*node[ \t]+/m.test(activeJob)
+    && !forbiddenLowLevelControls.test(activeJob)
+    && db !== -1 && launch > db && pidRead > launch
+    && activeJob.slice(db + dbCommand.length, launch).trim() === ""
+    && activeJob.slice(launch + (matches[0]?.[0].length ?? 0), pidRead).trim() === ""
+    && backendStepSha256 === approvedBackendStepSha256
+    && launcherSha256 === approvedLauncherSha256;
 }
 
 function hasPinnedJobLocalXcodegen(job) {
@@ -378,8 +499,9 @@ export function evaluateIosUiTestFailClosedChecks(files) {
   if (!job) return { failures: ["ios-ui-tests workflow must define an ios-ui-tests job"], passes: [] };
 
   checks.push([hasHostedUntrustedBoundary(job), "iOS UI CI must isolate untrusted PR code on fixed GitHub-hosted macos-15, never a reusable self-hosted runner"]);
-  checks.push([hasPinnedToolchain(job), "iOS UI CI must pin Xcode 16.4 build 16F6, iOS 18.5, and all Rust paths under its job root"]);
+  checks.push([hasPinnedToolchain(job, workflow), "iOS UI CI must pin Xcode 16.4 build 16F6 and iOS 18.5, bind Node 24.16.0 directly from the setup-node toolcache, and keep all Rust paths under its job root"]);
   checks.push([! /\bsecrets\./.test(job) && /URL="http:\/\/127\.0\.0\.1:\$BP"/.test(job) && /MNT_UITEST_BASE_URL="\$URL"/.test(job), "iOS UI CI must not depend on GitHub secrets or an external backend session"]);
+  checks.push([hasValidLoopbackWebauthnPolicy(job, files["scripts/boot-ios-ui-backend.mjs"] ?? ""), "iOS UI CI must bind the backend to 127.0.0.1 while using localhost as the valid WebAuthn relying-party origin and ID through the exact approved backend step and structured launcher"]);
   checks.push([hasCandidateShaBeforeBackendBuild(job), "iOS UI CI must verify git rev-parse HEAD against GITHUB_SHA before building candidate mnt-app"]);
   checks.push([hasPinnedJobLocalXcodegen(job), "iOS UI CI must install checksum-pinned XcodeGen 2.46.0 under its job root without mutating Homebrew"]);
   checks.push([hasOfficialPostgres184Source(job), "iOS UI CI must build PostgreSQL 18.4 from the official source tarball after SHA-256 verification"]);

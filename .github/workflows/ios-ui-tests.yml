@@ -3,9 +3,9 @@ on:
   push:
     branches: [main]
     tags: ["v*"]
-    paths: ["backend/**", "clients/swift/**", "ios/**", "e2e/harness/**", "ops/postgres-reconcile-topology.sh", "rust-toolchain.toml", "openapitools.json", "package.json", "package-lock.json", "scripts/boot-backend-port-conflict.test.mjs", "scripts/check-ios-ui-test-fail-closed.mjs", "scripts/check-ios-ui-test-fail-closed.test.mjs", "scripts/patch-ios-xctestrun.py", "scripts/verify-xcresult-test-results.mjs", "scripts/verify-xcresult-test-results.test.mjs", ".github/workflows/ios-ui-tests.yml"]
+    paths: ["backend/**", "clients/swift/**", "ios/**", "e2e/harness/**", "ops/postgres-reconcile-topology.sh", "rust-toolchain.toml", "openapitools.json", "package.json", "package-lock.json", "scripts/boot-backend-port-conflict.test.mjs", "scripts/boot-ios-ui-backend.mjs", "scripts/boot-ios-ui-backend.test.mjs", "scripts/check-ios-ui-test-fail-closed.mjs", "scripts/check-ios-ui-test-fail-closed.test.mjs", "scripts/patch-ios-xctestrun.py", "scripts/verify-xcresult-test-results.mjs", "scripts/verify-xcresult-test-results.test.mjs", ".github/workflows/ios-ui-tests.yml"]
   pull_request:
-    paths: ["backend/**", "clients/swift/**", "ios/**", "e2e/harness/**", "ops/postgres-reconcile-topology.sh", "rust-toolchain.toml", "openapitools.json", "package.json", "package-lock.json", "scripts/boot-backend-port-conflict.test.mjs", "scripts/check-ios-ui-test-fail-closed.mjs", "scripts/check-ios-ui-test-fail-closed.test.mjs", "scripts/patch-ios-xctestrun.py", "scripts/verify-xcresult-test-results.mjs", "scripts/verify-xcresult-test-results.test.mjs", ".github/workflows/ios-ui-tests.yml"]
+    paths: ["backend/**", "clients/swift/**", "ios/**", "e2e/harness/**", "ops/postgres-reconcile-topology.sh", "rust-toolchain.toml", "openapitools.json", "package.json", "package-lock.json", "scripts/boot-backend-port-conflict.test.mjs", "scripts/boot-ios-ui-backend.mjs", "scripts/boot-ios-ui-backend.test.mjs", "scripts/check-ios-ui-test-fail-closed.mjs", "scripts/check-ios-ui-test-fail-closed.test.mjs", "scripts/patch-ios-xctestrun.py", "scripts/verify-xcresult-test-results.mjs", "scripts/verify-xcresult-test-results.test.mjs", ".github/workflows/ios-ui-tests.yml"]
 permissions: {contents: read}
 concurrency:
   group: ios-ui-tests-${{ github.workflow }}-${{ github.ref }}
@@ -62,14 +62,23 @@ jobs:
           test -d "$DIST/xcodegen/share/xcodegen/SettingPresets"
           test "$("$XCODEGEN_BIN" --version)" = 'Version: 2.46.0'
           printf '%s\n' "$DIST/xcodegen/bin" >> "$GITHUB_PATH"
-      - name: Validate hermetic iOS UI-test contract
-        run: npm run check:ios-ui-test-fail-closed
+      - name: Install pinned Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with: {node-version: "24.16.0"}
       - name: Hermetic exact-SHA backend and UI test
         working-directory: ios
         shell: bash
         env: {CARGO_INCREMENTAL: "0", SQLX_OFFLINE: "true"}
         run: |
           set -euo pipefail
+          unset BASH_ENV ENV NODE_OPTIONS NODE_PATH DYLD_INSERT_LIBRARIES DYLD_LIBRARY_PATH DYLD_FRAMEWORK_PATH LD_PRELOAD
+          test -z "${BASH_ENV-}${ENV-}${NODE_OPTIONS-}${NODE_PATH-}${DYLD_INSERT_LIBRARIES-}${DYLD_LIBRARY_PATH-}${DYLD_FRAMEWORK_PATH-}${LD_PRELOAD-}"
+          readonly BASH_ENV ENV NODE_OPTIONS NODE_PATH DYLD_INSERT_LIBRARIES DYLD_LIBRARY_PATH DYLD_FRAMEWORK_PATH LD_PRELOAD
+          case "$RUNNER_ARCH" in X64) NODE_ARCH=x64 ;; ARM64) NODE_ARCH=arm64 ;; *) echo "unsupported runner architecture: $RUNNER_ARCH" >&2; exit 1 ;; esac
+          readonly RUNNER_TOOL_CACHE RUNNER_ARCH NODE_ARCH
+          readonly MNT_IOS_NODE_BIN="$RUNNER_TOOL_CACHE/node/24.16.0/$NODE_ARCH/bin/node"
+          test -x "$MNT_IOS_NODE_BIN"; test ! -L "$MNT_IOS_NODE_BIN"; test "$("$MNT_IOS_NODE_BIN" --version)" = v24.16.0
+          (cd "$GITHUB_WORKSPACE" && "$MNT_IOS_NODE_BIN" --test scripts/boot-backend-port-conflict.test.mjs scripts/boot-ios-ui-backend.test.mjs scripts/check-ios-ui-test-fail-closed.test.mjs scripts/verify-xcresult-test-results.test.mjs && "$MNT_IOS_NODE_BIN" scripts/check-ios-ui-test-fail-closed.mjs)
           ROOT="$GITHUB_WORKSPACE"; D="$MNT_IOS_JOB_ROOT"; AUTH_DIR="$D/auth"; PGDATA="$D/postgres-data"; PG_PREFIX="$D/postgres-18.4"; DERIVED="$D/derived-data"; ARTIFACTS="$D/artifacts"; PROJECT="$PWD/MaintenanceField.xcodeproj"; CI_PLIST="$D/Info.ci.plist"; CI_PROJECT_SPEC="$PWD/project.ci.yml"; STATE="$D/state"; UUID=""; BACKEND_PID_FILE="$AUTH_DIR/backend.pid"; BACKEND_COMMAND_FILE="$AUTH_DIR/backend.command"
           install -d -m 700 "$D" "$AUTH_DIR" "$PGDATA" "$ARTIFACTS"; umask 077; test ! -e "$PROJECT"
           write_state() { cat > "$STATE" <<STATE
@@ -101,7 +110,7 @@ jobs:
           PGPASSWORD="$UP" "$PG_PREFIX/bin/psql" -h 127.0.0.1 -p "$PP" -U "$PG_SUPERUSER" -d postgres -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION pgcrypto;' -c 'CREATE EXTENSION pg_trgm;' -c 'DROP EXTENSION pg_trgm;' -c 'DROP EXTENSION pgcrypto;'
           export PATH="$PG_PREFIX/bin:$PATH" E2E_PG_HOST=127.0.0.1 E2E_PG_PORT="$PP" E2E_PG_SUPERUSER="$PG_SUPERUSER" E2E_PG_SUPERUSER_PASSWORD="$UP" E2E_DB_NAME=mnt_ios_ui E2E_MNT_APP_POSTGRES_PASSWORD="$AP" E2E_MNT_RT_POSTGRES_PASSWORD="$RP" E2E_MNT_LEAVE_COMMAND_POSTGRES_PASSWORD="$LP" E2E_MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD="$OP"
           (cd "$ROOT/backend" && cargo build --locked --release -p mnt-app); export MNT_APP_BIN="$CARGO_TARGET_DIR/release/mnt-app"; "$ROOT/e2e/harness/db.sh"
-          export E2E_AUTH_DIR="$AUTH_DIR" E2E_HTTP_ADDR="127.0.0.1:$BP" E2E_PORT_CONFLICT_MODE=fail E2E_COLDSTART_OTP="$COLDSTART_OTP" E2E_RP_ORIGIN="$URL" E2E_RP_ID=127.0.0.1; "$ROOT/e2e/harness/boot-backend.sh"
+          MNT_IOS_COLDSTART_OTP="$COLDSTART_OTP" "$MNT_IOS_NODE_BIN" "$ROOT/scripts/boot-ios-ui-backend.mjs" "$ROOT" "$AUTH_DIR" "$BP"
           BACKEND_PID="$(cat "$BACKEND_PID_FILE")"; kill -0 "$BACKEND_PID"; ps -p "$BACKEND_PID" -o command= > "$BACKEND_COMMAND_FILE"; chmod 600 "$BACKEND_COMMAND_FILE"; grep -F -- "$MNT_APP_BIN" "$BACKEND_COMMAND_FILE" >/dev/null
           if /usr/libexec/PlistBuddy -c 'Print :NSAppTransportSecurity' Sources/MaintenanceFieldApp/Info.plist >/dev/null 2>&1; then echo 'production Info.plist must remain ATS-free' >&2; exit 1; fi
           cp Sources/MaintenanceFieldApp/Info.plist "$CI_PLIST"; /usr/libexec/PlistBuddy -c 'Add :NSAppTransportSecurity dict' "$CI_PLIST"; /usr/libexec/PlistBuddy -c 'Add :NSAppTransportSecurity:NSAllowsLocalNetworking bool true' "$CI_PLIST"; plutil -lint "$CI_PLIST"
@@ -136,7 +145,7 @@ jobs:
           run_xcode_with_timeout() { local test_class="$1" result="$2" test_pid watchdog_pid status=0; xcodebuild test-without-building -parallel-testing-enabled NO -only-testing:"MaintenanceFieldUITests/$test_class" -xctestrun "$XCTESTRUN" -destination "platform=iOS Simulator,id=$UUID" -resultBundlePath "$result" & test_pid=$!; (sleep 720; if kill -0 "$test_pid" 2>/dev/null; then echo "$test_class exceeded the 12-minute access-token-safe shard budget" >&2; kill -TERM "$test_pid" 2>/dev/null || true; sleep 10; kill -KILL "$test_pid" 2>/dev/null || true; fi) & watchdog_pid=$!; wait "$test_pid" || status=$?; kill "$watchdog_pid" 2>/dev/null || true; wait "$watchdog_pid" 2>/dev/null || true; return "$status"; }
           TEST_CLASSES=(PreflightUITests LoginValidationUITests FieldAccessibilityIDParityTests FieldCriticalPathUITests MessengerUITests CameraCaptureUITests AccessibilityAuditUITests); VERIFY_ARGS=()
           for test_class in "${TEST_CLASSES[@]}"; do mint_class_session; if [[ "$test_class" == CameraCaptureUITests ]]; then xcrun simctl privacy "$UUID" reset camera; fi; result="$ARTIFACTS/$test_class.xcresult"; run_xcode_with_timeout "$test_class" "$result"; summary="$ARTIFACTS/$test_class-summary.json"; tests="$ARTIFACTS/$test_class-tests.json"; xcrun xcresulttool get test-results summary --path "$result" --format json > "$summary"; xcrun xcresulttool get test-results tests --path "$result" --format json > "$tests"; VERIFY_ARGS+=(--summary "$summary" --tests "$tests"); done
-          node "$ROOT/scripts/verify-xcresult-test-results.mjs" "${VERIFY_ARGS[@]}" --swift-tests "$ROOT/ios/UITests"
+          "$MNT_IOS_NODE_BIN" "$ROOT/scripts/verify-xcresult-test-results.mjs" "${VERIFY_ARGS[@]}" --swift-tests "$ROOT/ios/UITests"
           clean_runtime; trap - EXIT INT TERM
       - name: Scan result artifacts for raw session material
         id: artifact-scan
