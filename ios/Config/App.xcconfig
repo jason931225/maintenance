@@ -1,11 +1,10 @@
 // Build settings for the MaintenanceFieldApp host target (Xcode app wrapper used
 // only by CI's `xcodebuild test`; the day-to-day build is `swift build`).
 //
-// The bundle id is NOT hardcoded to a guessed value. CI populates
-// `MNT_IOS_BUNDLE_ID` (and `MNT_IOS_TEAM_ID`) from a repository variable/secret
-// that mirrors the registered app id behind `MNT_IOS_APP_IDS` in
-// deploy/apps/maintenance/base/configmap.yaml (Team ID 98Q89GFZWP). See
-// ios/Config/README.md for how CI generates the concrete values.
+// The hermetic Simulator gate uses the repository defaults below and does not
+// require an Apple identity secret. Signed device/distribution builds may
+// override `MNT_IOS_BUNDLE_ID` and `MNT_IOS_TEAM_ID` with their registered App
+// ID and Team ID. See ios/Config/README.md for the separate release boundary.
 //
 // Local fallbacks below let `xcodebuild` resolve the project when a developer
 // opens it without the CI variables. They are repo defaults for the CI/test
@@ -18,7 +17,7 @@
 // This is the App ID to register under Team 98Q89GFZWP in the Apple Developer
 // portal WITH the Associated Domains capability enabled (or let Xcode automatic
 // signing create it on first build). Overridable via the MNT_IOS_BUNDLE_ID /
-// MNT_IOS_TEAM_ID CI variables if a different identity is ever needed.
+// MNT_IOS_TEAM_ID build settings if a different identity is ever needed.
 MNT_IOS_BUNDLE_ID = $(MNT_IOS_BUNDLE_ID:default=com.maintenance.field)
 MNT_IOS_TEAM_ID = $(MNT_IOS_TEAM_ID:default=98Q89GFZWP)
 
@@ -47,8 +46,8 @@ MNT_IOS_KEYCHAIN_GROUP = $(MNT_IOS_TEAM_ID).com.maintenance.field.shared
 // errSecMissingEntitlement (-34018). The iOS Simulator honors ad-hoc signing
 // ("-") with entitlements, which is enough for cross-process keychain sharing
 // there — no real provisioning profile or registered bundle id needed. The
-// RealSessionSeed path skips honestly (XCTSkip) if the entitlement is still
-// absent, so this never produces a false green.
+// RealSessionSeed fails the suite if the shared group is absent or cannot be
+// read back, so an entitlement/signing regression cannot produce a false green.
 CODE_SIGN_STYLE = Manual
 CODE_SIGNING_REQUIRED = YES
 CODE_SIGNING_ALLOWED = YES

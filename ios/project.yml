@@ -10,10 +10,10 @@
 # The app target reuses the SAME source + resources as the SwiftPM app target, so
 # the UI under test is the real app, not a copy.
 #
-# Bundle id is NOT hardcoded: settings come from Config/App.xcconfig, whose
-# MNT_IOS_BUNDLE_ID / MNT_IOS_TEAM_ID are populated by CI from repo variables that
-# mirror MNT_IOS_APP_IDS in deploy/apps/maintenance/base/configmap.yaml. See
-# Config/README.md.
+# Identity settings come from Config/App.xcconfig. The hermetic Simulator job uses
+# its repository defaults; a separately governed distribution build may override
+# MNT_IOS_BUNDLE_ID / MNT_IOS_TEAM_ID only after proving its registered identity.
+# See Config/README.md.
 
 name: MaintenanceField
 options:
@@ -30,8 +30,8 @@ settings:
   base:
     SWIFT_VERSION: "6.1"
     # Identity + signing are sourced from Config/App.xcconfig (xcconfig wins for
-    # values it sets); CI exports MNT_IOS_BUNDLE_ID / MNT_IOS_TEAM_ID into the
-    # environment which the xcconfig reads. No literal bundle id here.
+    # values it sets). Hermetic CI uses the xcconfig defaults; no workflow secret
+    # or repository variable is required for the Simulator wrapper.
 
 packages:
   MaintenanceField:

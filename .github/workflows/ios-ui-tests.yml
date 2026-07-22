@@ -1,214 +1,180 @@
 name: iOS UI tests
-
-# CI-ONLY XCUITest run for the SwiftUI field app. The SwiftPM build/unit tests
-# live in the main `ci.yml` `ios-app` job (`swift build` / `swift test`); this
-# workflow adds the Simulator-bound UI + accessibility-audit suite, which cannot
-# run without Xcode + a Simulator and therefore is not runnable on a
-# Command-Line-Tools-only machine.
-
 on:
   push:
-    branches:
-      - main
-    tags:
-      - "v*"
-    # GitHub does not evaluate `paths` for tag pushes, so v* release tags run
-    # this simulator gate even when the tag itself has no file diff. Branch/PR
-    # paths stay narrow: iOS UI changes, generated Swift client drift, or the
-    # OpenAPI contract that feeds that client.
-    paths:
-      - "backend/openapi/**"
-      - "clients/swift/**"
-      - "ios/**"
-      - "openapitools.json"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/ios-ui-tests.yml"
+    branches: [main]
+    tags: ["v*"]
+    paths: ["backend/**", "clients/swift/**", "ios/**", "e2e/harness/**", "ops/postgres-reconcile-topology.sh", "rust-toolchain.toml", "openapitools.json", "package.json", "package-lock.json", "scripts/boot-backend-port-conflict.test.mjs", "scripts/check-ios-ui-test-fail-closed.mjs", "scripts/check-ios-ui-test-fail-closed.test.mjs", "scripts/patch-ios-xctestrun.py", "scripts/verify-xcresult-test-results.mjs", "scripts/verify-xcresult-test-results.test.mjs", ".github/workflows/ios-ui-tests.yml"]
   pull_request:
-    paths:
-      - "backend/openapi/**"
-      - "clients/swift/**"
-      - "ios/**"
-      - "openapitools.json"
-      - "package.json"
-      - "package-lock.json"
-      - ".github/workflows/ios-ui-tests.yml"
-
-permissions:
-  contents: read
-
-# A UI run is expensive; cancel superseded runs on the same ref.
+    paths: ["backend/**", "clients/swift/**", "ios/**", "e2e/harness/**", "ops/postgres-reconcile-topology.sh", "rust-toolchain.toml", "openapitools.json", "package.json", "package-lock.json", "scripts/boot-backend-port-conflict.test.mjs", "scripts/check-ios-ui-test-fail-closed.mjs", "scripts/check-ios-ui-test-fail-closed.test.mjs", "scripts/patch-ios-xctestrun.py", "scripts/verify-xcresult-test-results.mjs", "scripts/verify-xcresult-test-results.test.mjs", ".github/workflows/ios-ui-tests.yml"]
+permissions: {contents: read}
 concurrency:
-  group: ios-ui-tests-${{ github.event.pull_request.number || github.ref }}
-  # PR-only cancellation; pushes to main/tags run to completion.
+  group: ios-ui-tests-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-
 jobs:
   ios-ui-tests:
     name: iOS — XCUITest + accessibility audit (Simulator)
+    # This public-repository gate intentionally runs on a one-job GitHub-hosted
+    # VM. Untrusted pull-request code must never reach a reusable self-hosted
+    # macOS runner; a future self-hosted lane requires a separately governed
+    # ephemeral/JIT runner group with teardown attestation.
     runs-on: macos-15
-    timeout-minutes: 45
-
+    timeout-minutes: 90
     env:
-      # Identity (no hardcoded guess). MNT_IOS_BUNDLE_ID is a repo variable that
-      # mirrors the registered app id behind MNT_IOS_APP_IDS in
-      # deploy/apps/maintenance/base/configmap.yaml. When that repo variable is
-      # absent, the xcconfig repo default is used for the unsigned Simulator test
-      # build only; this does not prove release signing/provisioning readiness.
-      MNT_IOS_BUNDLE_ID: ${{ vars.MNT_IOS_BUNDLE_ID || 'com.maintenance.field' }}
-      MNT_IOS_TEAM_ID: ${{ vars.MNT_IOS_TEAM_ID || '98Q89GFZWP' }}
-      # Real-backend session source for the no-fakes seeding. The suite skips
-      # (XCTSkip) the session-dependent tests if these are absent — it never fakes
-      # a session. Provide a base URL + a seeded refresh token (or OTP) for a
-      # dedicated UI-test mechanic.
-      MNT_UITEST_BASE_URL: ${{ secrets.MNT_UITEST_BASE_URL }}
-      MNT_UITEST_REFRESH_TOKEN: ${{ secrets.MNT_UITEST_REFRESH_TOKEN }}
-      MNT_UITEST_OTP: ${{ secrets.MNT_UITEST_OTP }}
-      # The fully-qualified shared keychain access group
-      # (<TeamIDPrefix>.com.maintenance.field.shared). The test runner uses this
-      # as an explicit override only if a probe write to it succeeds; otherwise it
-      # resolves the granted group at runtime (see RealSessionSeed.resolvedAccessGroup).
-      MNT_IOS_KEYCHAIN_GROUP: ${{ vars.MNT_IOS_KEYCHAIN_GROUP }}
-      # Anti-false-green: require the real post-login suite to actually run (not
-      # all-skip) on protected refs and pushes. This is a trust-context decision,
-      # not a function of whether secrets happen to be present; missing required
-      # inputs fail closed in the run step below instead of downgrading the gate.
-      MNT_UITEST_REQUIRE_REAL: ${{ (github.event_name == 'push' || github.ref_protected) && '1' || '0' }}
-      # Accessibility-audit strictness. BOOTSTRAP = "0": the SwiftUI views have
-      # not yet been observed under a real Simulator audit, so the first runs
-      # record findings as result-bundle attachments (to triage + fix the views)
-      # without failing. Flip to "1" (hard gate) once the audit is clean. Findings
-      # are NEVER silently suppressed — they always appear in the result bundle.
-      MNT_UITEST_AUDIT_STRICT: ${{ vars.MNT_UITEST_AUDIT_STRICT || '0' }}
-
+      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
     steps:
-      - name: Checkout
+      - name: Checkout exact candidate SHA
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
-
-      - name: Select Xcode
-        # Pin to Xcode 16.4: swift-openapi-runtime 1.12 uses Swift tools 6.1,
-        # and Xcode 16.0 only ships Swift 6.0 on the macos-15 runner.
-        run: sudo xcode-select -switch /Applications/Xcode_16.4.app
-
-      - name: Show toolchain
-        run: |
-          xcodebuild -version
-          swift --version
-
-      - name: Install XcodeGen + xcbeautify
-        run: brew install xcodegen xcbeautify
-
-      - name: Generate Xcode project
-        working-directory: ios
-        # project.yml wraps the SwiftPM app sources in an app target + a UITests
-        # target. The generated .xcodeproj is a build artifact (not committed).
-        run: xcodegen generate --spec project.yml
-
-      - name: Resolve Swift packages
-        working-directory: ios
-        run: xcodebuild -resolvePackageDependencies -project MaintenanceField.xcodeproj -scheme MaintenanceFieldApp
-
-      - name: Boot Simulator
-        run: |
-          xcrun simctl list devices available | grep -i "iPhone" || true
-
-      - name: Run XCUITest + accessibility audit
-        working-directory: ios
-        # Env vars the test RUNNER process must read (ProcessInfo.environment) are
-        # passed with the TEST_RUNNER_ prefix; xcodebuild strips the prefix before
-        # injecting them into the runner. This is how the no-fakes session source
-        # and the keychain group reach the suite without being baked into the app.
-        run: |
-          set -o pipefail
-          # Ad-hoc signing (CODE_SIGN_IDENTITY="-" via App.xcconfig) embeds the
-          # shared keychain-access-group entitlement on the Simulator build so the
-          # no-fakes seeding works; do NOT force CODE_SIGNING_ALLOWED=NO here or
-          # the entitlement is dropped and the session-dependent tests skip.
-          DERIVED_DATA_PATH="${RUNNER_TEMP}/maintenance-field-uitests-derived-data"
-          rm -rf "$DERIVED_DATA_PATH" TestResults.xcresult
-
-          # Xcode 16.4 on GitHub's macOS runner can begin the test operation
-          # before the host app product is fully materialized, which fails as:
-          # "The bundle identifier for MaintenanceFieldApp couldn't be read".
-          # Split the operation into build-for-testing + test-without-building
-          # against the same DerivedData path so the app host and .xctestrun are
-          # complete before XCTest starts.
-          xcodebuild build-for-testing \
-            -project MaintenanceField.xcodeproj \
-            -scheme MaintenanceFieldApp \
-            -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
-            -derivedDataPath "$DERIVED_DATA_PATH" \
-            | xcbeautify
-
-          APP_PATH="$DERIVED_DATA_PATH/Build/Products/Debug-iphonesimulator/MaintenanceFieldApp.app"
-          test -d "$APP_PATH"
-          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP_PATH/Info.plist"
-
-          XCTESTRUN="$(find "$DERIVED_DATA_PATH/Build/Products" -name '*.xctestrun' -print -quit)"
-          test -f "$XCTESTRUN"
-          python3 ../scripts/patch-ios-xctestrun.py "$XCTESTRUN" \
-            --target MaintenanceFieldUITests \
-            --ui-target-app-path "__TESTROOT__/Debug-iphonesimulator/MaintenanceFieldApp.app" \
-            --env MNT_UITEST_BASE_URL \
-            --env MNT_UITEST_REFRESH_TOKEN \
-            --env MNT_UITEST_OTP \
-            --env MNT_IOS_KEYCHAIN_GROUP \
-            --env MNT_UITEST_REQUIRE_REAL \
-            --env MNT_UITEST_AUDIT_STRICT
-          grep -q "MaintenanceFieldApp.app" "$XCTESTRUN"
-          echo "Verified xctestrun points UI tests at MaintenanceFieldApp.app"
-
-          TEST_SELECTION_ARGS=()
-          HAS_REAL_SESSION_SOURCE=0
-          if [[ -n "${MNT_UITEST_BASE_URL:-}" && ( -n "${MNT_UITEST_REFRESH_TOKEN:-}" || -n "${MNT_UITEST_OTP:-}" ) ]]; then
-            HAS_REAL_SESSION_SOURCE=1
-          fi
-
-          if [[ "${MNT_UITEST_REQUIRE_REAL:-0}" == "1" && "$HAS_REAL_SESSION_SOURCE" != "1" ]]; then
-            echo "::error title=Required iOS UI-test real-session inputs are missing::Protected/push iOS UI-test runs require MNT_UITEST_BASE_URL plus MNT_UITEST_REFRESH_TOKEN or MNT_UITEST_OTP; refusing an all-skip false green."
-            if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
-              {
-                echo "### iOS UI-test real-session gate"
-                echo "- Gate: required"
-                echo "- Result: failed closed before session-dependent tests could be skipped"
-                echo "- Required inputs: MNT_UITEST_BASE_URL plus MNT_UITEST_REFRESH_TOKEN or MNT_UITEST_OTP"
-              } >> "$GITHUB_STEP_SUMMARY"
-            fi
-            exit 1
-          fi
-
-          if [[ "$HAS_REAL_SESSION_SOURCE" != "1" ]]; then
-            echo "::notice title=Optional iOS UI-test real-session gate skipped::No real UI-test session source is configured in this optional context; skipping session-dependent UI tests."
-            if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
-              {
-                echo "### iOS UI-test real-session gate"
-                echo "- Gate: optional/skipped"
-                echo "- Reason: MNT_UITEST_BASE_URL plus MNT_UITEST_REFRESH_TOKEN or MNT_UITEST_OTP were not available in this non-required context"
-                echo "- Required contexts still fail closed before skip selection"
-              } >> "$GITHUB_STEP_SUMMARY"
-            fi
-            TEST_SELECTION_ARGS+=(
-              "-skip-testing:MaintenanceFieldUITests/AccessibilityAuditUITests"
-              "-skip-testing:MaintenanceFieldUITests/CameraCaptureUITests"
-              "-skip-testing:MaintenanceFieldUITests/FieldCriticalPathUITests"
-              "-skip-testing:MaintenanceFieldUITests/LoginValidationUITests/testInvalidUserIDSurfacesRealValidationCopy"
-              "-skip-testing:MaintenanceFieldUITests/MessengerUITests"
-            )
-          else
-            echo "Real UI-test session source configured; running session-dependent UI tests."
-          fi
-
-          xcodebuild test-without-building \
-            -xctestrun "$XCTESTRUN" \
-            -destination 'platform=iOS Simulator,name=iPhone 16,OS=latest' \
-            -resultBundlePath TestResults.xcresult \
-            "${TEST_SELECTION_ARGS[@]}" \
-            | xcbeautify
-
-      - name: Upload test results
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ios-ui-test-results
-          path: ios/TestResults.xcresult
-          if-no-files-found: ignore
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Initialize job-local toolchain paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          D="$RUNNER_TEMP/ios-ui-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          install -d -m 700 "$D"
+          printf '%s\n' "MNT_IOS_JOB_ROOT=$D" "CARGO_HOME=$D/cargo-home" "RUSTUP_HOME=$D/rustup-home" "CARGO_TARGET_DIR=$D/cargo-target" >> "$GITHUB_ENV"
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with: {toolchain: "1.96.0"}
+      - name: Cache Rust dependencies + build artifacts
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+        with: {workspaces: backend}
+      - name: Verify Xcode 16.4 and install pinned XcodeGen
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -x "$DEVELOPER_DIR/usr/bin/xcodebuild"
+          test "$(xcodebuild -version)" = $'Xcode 16.4\nBuild version 16F6'
+          xcodebuild -version; rustc --version
+          xcrun xcresulttool get test-results summary --help
+          xcrun xcresulttool get test-results tests --help
+          umask 077
+          TOOLS="$MNT_IOS_JOB_ROOT/tools"
+          ZIP="$TOOLS/xcodegen.zip"; DIST="$TOOLS/xcodegen-dist"
+          install -d -m 700 "$TOOLS" "$DIST"
+          /usr/bin/curl --proto '=https' --tlsv1.2 --fail --location --retry 5 --retry-all-errors --connect-timeout 15 --output "$ZIP" https://github.com/yonaskolb/XcodeGen/releases/download/2.46.0/xcodegen.zip
+          printf '%s  %s\n' 4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806 "$ZIP" | /usr/bin/shasum -a 256 --check -
+          /usr/bin/ditto -x -k "$ZIP" "$DIST"
+          XCODEGEN_BIN="$DIST/xcodegen/bin/xcodegen"
+          test -x "$XCODEGEN_BIN"
+          test -d "$DIST/xcodegen/share/xcodegen/SettingPresets"
+          test "$("$XCODEGEN_BIN" --version)" = 'Version: 2.46.0'
+          printf '%s\n' "$DIST/xcodegen/bin" >> "$GITHUB_PATH"
+      - name: Validate hermetic iOS UI-test contract
+        run: npm run check:ios-ui-test-fail-closed
+      - name: Hermetic exact-SHA backend and UI test
+        working-directory: ios
+        shell: bash
+        env: {CARGO_INCREMENTAL: "0", SQLX_OFFLINE: "true"}
+        run: |
+          set -euo pipefail
+          ROOT="$GITHUB_WORKSPACE"; D="$MNT_IOS_JOB_ROOT"; AUTH_DIR="$D/auth"; PGDATA="$D/postgres-data"; PG_PREFIX="$D/postgres-18.4"; DERIVED="$D/derived-data"; ARTIFACTS="$D/artifacts"; PROJECT="$PWD/MaintenanceField.xcodeproj"; CI_PLIST="$D/Info.ci.plist"; CI_PROJECT_SPEC="$PWD/project.ci.yml"; STATE="$D/state"; UUID=""; BACKEND_PID_FILE="$AUTH_DIR/backend.pid"; BACKEND_COMMAND_FILE="$AUTH_DIR/backend.command"
+          install -d -m 700 "$D" "$AUTH_DIR" "$PGDATA" "$ARTIFACTS"; umask 077; test ! -e "$PROJECT"
+          write_state() { cat > "$STATE" <<STATE
+          D='$D'
+          AUTH_DIR='$AUTH_DIR'
+          PGDATA='$PGDATA'
+          PG_PREFIX='$PG_PREFIX'
+          BACKEND_PID_FILE='$BACKEND_PID_FILE'
+          BACKEND_COMMAND_FILE='$BACKEND_COMMAND_FILE'
+          CI_PLIST='$CI_PLIST'
+          CI_PROJECT_SPEC='$CI_PROJECT_SPEC'
+          UUID='$UUID'
+          PROJECT='$PROJECT'
+          STATE
+          chmod 600 "$STATE"; }
+          stop_owned_backend() { local pid expected actual; [[ -s "$BACKEND_PID_FILE" ]] || return 0; pid="$(cat "$BACKEND_PID_FILE")"; kill -0 "$pid" 2>/dev/null || return 0; [[ -s "$BACKEND_COMMAND_FILE" ]] || { echo 'missing backend process identity' >&2; return 1; }; expected="$(cat "$BACKEND_COMMAND_FILE")"; actual="$(ps -p "$pid" -o command= 2>/dev/null || true)"; [[ "$actual" == "$expected" ]] || { echo 'backend PID identity changed; refusing cross-process cleanup' >&2; return 1; }; kill -TERM "$pid"; for _ in {1..50}; do kill -0 "$pid" 2>/dev/null || break; sleep 0.2; done; if kill -0 "$pid" 2>/dev/null; then kill -KILL "$pid"; for _ in {1..25}; do kill -0 "$pid" 2>/dev/null || break; sleep 0.2; done; fi; ! kill -0 "$pid" 2>/dev/null; }
+          clean_runtime() { local failed=0; stop_owned_backend || failed=1; if [[ -x "$PG_PREFIX/bin/pg_ctl" && -d "$PGDATA" ]]; then "$PG_PREFIX/bin/pg_ctl" -D "$PGDATA" -w stop -m fast >/dev/null 2>&1 || true; "$PG_PREFIX/bin/pg_ctl" -D "$PGDATA" status >/dev/null 2>&1 && failed=1; fi; if [[ -n "$UUID" ]]; then xcrun simctl shutdown "$UUID" >/dev/null 2>&1 || true; xcrun simctl delete "$UUID" >/dev/null 2>&1 || failed=1; xcrun simctl list devices -j | python3 -c 'import json,sys; target=sys.argv[1]; devices=json.load(sys.stdin)["devices"]; assert all(device.get("udid") != target for group in devices.values() for device in group)' "$UUID" || failed=1; fi; rm -rf "$CI_PLIST" "$CI_PROJECT_SPEC" "$PROJECT"; return "$failed"; }
+          write_state; trap 'clean_runtime || true' EXIT INT TERM
+          port() { python3 -c "import socket; s=socket.socket(); s.bind(('127.0.0.1', 0)); print(s.getsockname()[1]); s.close()"; }; secret() { openssl rand -hex 32; }
+          PP="$(port)"; BP="$(port)"; while [[ "$PP" == "$BP" ]]; do BP="$(port)"; done
+          PG_SUPERUSER=mnt_ci_admin; UP="$(secret)"; AP="$(secret)"; RP="$(secret)"; LP="$(secret)"; OP="$(secret)"; COLDSTART_OTP="$(secret)"; URL="http://127.0.0.1:$BP"
+          echo "::add-mask::$UP"; echo "::add-mask::$AP"; echo "::add-mask::$RP"; echo "::add-mask::$LP"; echo "::add-mask::$OP"; echo "::add-mask::$COLDSTART_OTP"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          curl --fail --location --retry 3 --silent --show-error --output "$D/postgresql-18.4.tar.bz2" https://ftp.postgresql.org/pub/source/v18.4/postgresql-18.4.tar.bz2
+          printf '%s  %s\n' 81a81ec695fb0c7901407defaa1d2f7973617154cf27ba74e3a7ab8e64436094 "$D/postgresql-18.4.tar.bz2" | shasum -a 256 -c -
+          tar -xjf "$D/postgresql-18.4.tar.bz2" -C "$D"; (cd "$D/postgresql-18.4" && ./configure --prefix="$PG_PREFIX" --without-icu --without-readline --without-zlib && make -j"$(sysctl -n hw.ncpu)" && make install)
+          PWFILE="$D/postgres-superuser.pw"; printf %s "$UP" > "$PWFILE"; chmod 600 "$PWFILE"; "$PG_PREFIX/bin/initdb" -D "$PGDATA" -U "$PG_SUPERUSER" --pwfile="$PWFILE" --auth-host=scram-sha-256 --auth-local=scram-sha-256; rm -f "$PWFILE"; "$PG_PREFIX/bin/pg_ctl" -D "$PGDATA" -o "-h 127.0.0.1 -p $PP" -w start
+          export PATH="$PG_PREFIX/bin:$PATH" E2E_PG_HOST=127.0.0.1 E2E_PG_PORT="$PP" E2E_PG_SUPERUSER="$PG_SUPERUSER" E2E_PG_SUPERUSER_PASSWORD="$UP" E2E_DB_NAME=mnt_ios_ui E2E_MNT_APP_POSTGRES_PASSWORD="$AP" E2E_MNT_RT_POSTGRES_PASSWORD="$RP" E2E_MNT_LEAVE_COMMAND_POSTGRES_PASSWORD="$LP" E2E_MNT_ONTOLOGY_COMMAND_POSTGRES_PASSWORD="$OP"
+          (cd "$ROOT/backend" && cargo build --locked --release -p mnt-app); export MNT_APP_BIN="$CARGO_TARGET_DIR/release/mnt-app"; "$ROOT/e2e/harness/db.sh"
+          export E2E_AUTH_DIR="$AUTH_DIR" E2E_HTTP_ADDR="127.0.0.1:$BP" E2E_PORT_CONFLICT_MODE=fail E2E_COLDSTART_OTP="$COLDSTART_OTP" E2E_RP_ORIGIN="$URL" E2E_RP_ID=127.0.0.1; "$ROOT/e2e/harness/boot-backend.sh"
+          BACKEND_PID="$(cat "$BACKEND_PID_FILE")"; kill -0 "$BACKEND_PID"; ps -p "$BACKEND_PID" -o command= > "$BACKEND_COMMAND_FILE"; chmod 600 "$BACKEND_COMMAND_FILE"; grep -F -- "$MNT_APP_BIN" "$BACKEND_COMMAND_FILE" >/dev/null
+          if /usr/libexec/PlistBuddy -c 'Print :NSAppTransportSecurity' Sources/MaintenanceFieldApp/Info.plist >/dev/null 2>&1; then echo 'production Info.plist must remain ATS-free' >&2; exit 1; fi
+          cp Sources/MaintenanceFieldApp/Info.plist "$CI_PLIST"; /usr/libexec/PlistBuddy -c 'Add :NSAppTransportSecurity dict' "$CI_PLIST"; /usr/libexec/PlistBuddy -c 'Add :NSAppTransportSecurity:NSAllowsLocalNetworking bool true' "$CI_PLIST"; plutil -lint "$CI_PLIST"
+          python3 - "$CI_PLIST" "$CI_PROJECT_SPEC" <<'PY'
+          from pathlib import Path
+          import sys
+          source = Path("project.yml").read_text()
+          needle = "INFOPLIST_FILE: Sources/MaintenanceFieldApp/Info.plist"
+          if source.count(needle) != 1:
+              raise SystemExit("expected exactly one MaintenanceFieldApp INFOPLIST_FILE setting")
+          Path(sys.argv[2]).write_text(source.replace(needle, f"INFOPLIST_FILE: {sys.argv[1]}"))
+          PY
+          chmod 600 "$CI_PROJECT_SPEC"; xcodegen generate --spec "$CI_PROJECT_SPEC"; xcodebuild -resolvePackageDependencies -onlyUsePackageVersionsFromResolvedFile -project MaintenanceField.xcodeproj -scheme MaintenanceFieldApp
+          SIM_RUNTIME=com.apple.CoreSimulator.SimRuntime.iOS-18-5
+          xcrun simctl list runtimes -j | python3 -c 'import json,sys; target=sys.argv[1]; assert any(x.get("isAvailable") and x.get("identifier") == target for x in json.load(sys.stdin)["runtimes"])' "$SIM_RUNTIME"
+          SIM_DEVICE_TYPE=com.apple.CoreSimulator.SimDeviceType.iPhone-16
+          xcrun simctl list devicetypes -j | python3 -c 'import json,sys; target=sys.argv[1]; assert any(x.get("identifier") == target for x in json.load(sys.stdin)["devicetypes"])' "$SIM_DEVICE_TYPE"
+          UUID="$(xcrun simctl create "Maintenance CI ${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" "$SIM_DEVICE_TYPE" "$SIM_RUNTIME")"; write_state; xcrun simctl boot "$UUID"; xcrun simctl bootstatus "$UUID" -b
+          xcodebuild build-for-testing -onlyUsePackageVersionsFromResolvedFile -project MaintenanceField.xcodeproj -scheme MaintenanceFieldApp -destination "platform=iOS Simulator,id=$UUID" -derivedDataPath "$DERIVED"
+          BUILT_PLIST="$(find "$DERIVED/Build/Products" -path '*MaintenanceFieldApp.app/Info.plist' -print -quit)"; test -n "$BUILT_PLIST"; # Built.app/Info.plist receives CI-only NSAllowsLocalNetworking
+          test "$(/usr/libexec/PlistBuddy -c 'Print :NSAppTransportSecurity:NSAllowsLocalNetworking' "$BUILT_PLIST")" = true
+          if /usr/libexec/PlistBuddy -c 'Print :NSAppTransportSecurity' Sources/MaintenanceFieldApp/Info.plist >/dev/null 2>&1; then echo 'production Info.plist must remain ATS-free' >&2; exit 1; fi
+          XCTESTRUN="$(find "$DERIVED/Build/Products" -name '*.xctestrun' -print -quit)"
+          test -n "$XCTESTRUN"
+          chmod 600 "$XCTESTRUN"
+          export MNT_UITEST_BASE_URL="$URL" MNT_UITEST_WORK_ORDER_ID_DETAIL=00000000-0000-0000-0000-000000f00004 MNT_UITEST_WORK_ORDER_ID_START=00000000-0000-0000-0000-000000f00003 MNT_UITEST_WORK_ORDER_ID_REPORT=00000000-0000-0000-0000-000000f00004 MNT_UITEST_WORK_ORDER_ID_REPORT_SUCCESS=00000000-0000-0000-0000-000000f00005 MNT_UITEST_WORK_ORDER_ID_CAMERA=00000000-0000-0000-0000-000000f00004 MNT_UITEST_MESSENGER_THREAD_ID=00000000-0000-0000-0000-000000c10001 MNT_UITEST_MESSENGER_INITIAL_MESSAGE_ID=00000000-0000-0000-0000-000000c20001
+          SECRETS_FILE="$AUTH_DIR/artifact-secret-values"; : > "$SECRETS_FILE"; chmod 600 "$SECRETS_FILE"
+          mint_class_session() { local otp hash; otp="$(secret)"; echo "::add-mask::$otp"; hash="$(printf %s "$otp" | shasum -a 256 | awk '{print $1}')"; PGPASSWORD="$AP" psql -h 127.0.0.1 -p "$PP" -U mnt_app -d mnt_ios_ui -v ON_ERROR_STOP=1 -v "otp_hash=$hash" -f "$ROOT/e2e/harness/seed-mobile-ci.sql"; python3 - "$otp" > "$AUTH_DIR/otp.json" <<'PY'
+          import json,sys; print(json.dumps({"otp": sys.argv[1]}))
+          PY
+          curl --fail --silent --show-error -X POST "$URL/api/v1/auth/otp/redeem" -H 'content-type: application/json' -H 'x-maintenance-client: mobile' --data-binary @- < "$AUTH_DIR/otp.json" > "$AUTH_DIR/tokens.json"; rm -f "$AUTH_DIR/otp.json"; MNT_UITEST_ACCESS_TOKEN="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["access_token"])' "$AUTH_DIR/tokens.json")"; MNT_UITEST_REFRESH_TOKEN="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["refresh_token"])' "$AUTH_DIR/tokens.json")"; export MNT_UITEST_ACCESS_TOKEN MNT_UITEST_REFRESH_TOKEN; echo "::add-mask::$MNT_UITEST_ACCESS_TOKEN"; echo "::add-mask::$MNT_UITEST_REFRESH_TOKEN"; printf '%s\n' "$otp" "$MNT_UITEST_ACCESS_TOKEN" "$MNT_UITEST_REFRESH_TOKEN" >> "$SECRETS_FILE"; rm -f "$AUTH_DIR/tokens.json"; (cd "$ROOT" && python3 scripts/patch-ios-xctestrun.py "$XCTESTRUN" --target MaintenanceFieldUITests --ui-target-app-path '__TESTROOT__/Debug-iphonesimulator/MaintenanceFieldApp.app' --env MNT_UITEST_BASE_URL --env MNT_UITEST_ACCESS_TOKEN --env MNT_UITEST_REFRESH_TOKEN --env MNT_UITEST_WORK_ORDER_ID_DETAIL --env MNT_UITEST_WORK_ORDER_ID_START --env MNT_UITEST_WORK_ORDER_ID_REPORT --env MNT_UITEST_WORK_ORDER_ID_REPORT_SUCCESS --env MNT_UITEST_WORK_ORDER_ID_CAMERA --env MNT_UITEST_MESSENGER_THREAD_ID --env MNT_UITEST_MESSENGER_INITIAL_MESSAGE_ID); }
+          run_xcode_with_timeout() { local test_class="$1" result="$2" test_pid watchdog_pid status=0; xcodebuild test-without-building -parallel-testing-enabled NO -only-testing:"MaintenanceFieldUITests/$test_class" -xctestrun "$XCTESTRUN" -destination "platform=iOS Simulator,id=$UUID" -resultBundlePath "$result" & test_pid=$!; (sleep 720; if kill -0 "$test_pid" 2>/dev/null; then echo "$test_class exceeded the 12-minute access-token-safe shard budget" >&2; kill -TERM "$test_pid" 2>/dev/null || true; sleep 10; kill -KILL "$test_pid" 2>/dev/null || true; fi) & watchdog_pid=$!; wait "$test_pid" || status=$?; kill "$watchdog_pid" 2>/dev/null || true; wait "$watchdog_pid" 2>/dev/null || true; return "$status"; }
+          TEST_CLASSES=(PreflightUITests LoginValidationUITests FieldAccessibilityIDParityTests FieldCriticalPathUITests MessengerUITests CameraCaptureUITests AccessibilityAuditUITests); VERIFY_ARGS=()
+          for test_class in "${TEST_CLASSES[@]}"; do mint_class_session; if [[ "$test_class" == CameraCaptureUITests ]]; then xcrun simctl privacy "$UUID" reset camera; fi; result="$ARTIFACTS/$test_class.xcresult"; run_xcode_with_timeout "$test_class" "$result"; summary="$ARTIFACTS/$test_class-summary.json"; tests="$ARTIFACTS/$test_class-tests.json"; xcrun xcresulttool get test-results summary --path "$result" --format json > "$summary"; xcrun xcresulttool get test-results tests --path "$result" --format json > "$tests"; VERIFY_ARGS+=(--summary "$summary" --tests "$tests"); done
+          node "$ROOT/scripts/verify-xcresult-test-results.mjs" "${VERIFY_ARGS[@]}" --swift-tests "$ROOT/ios/UITests"
+          clean_runtime; trap - EXIT INT TERM
+      - name: Scan result artifacts for raw session material
+        id: artifact-scan
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          D="${MNT_IOS_JOB_ROOT:-$RUNNER_TEMP/ios-ui-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}}"; ARTIFACTS="$D/artifacts"; SECRETS_FILE="$D/auth/artifact-secret-values"
+          [[ -d "$ARTIFACTS" ]] || exit 0
+          if find "$ARTIFACTS" -mindepth 1 -print -quit | grep -q .; then
+            [[ -s "$SECRETS_FILE" ]] || { echo 'artifacts exist without the owned raw-session scan source' >&2; exit 1; }
+            while IFS= read -r secret_value; do
+              [[ -n "$secret_value" ]] || continue
+              if LC_ALL=C grep -R -a -F -q -- "$secret_value" "$ARTIFACTS"; then
+                echo 'test artifact contains raw session material' >&2
+                exit 1
+              fi
+            done < "$SECRETS_FILE"
+          fi
+      - name: Upload test results
+        if: always() && steps.artifact-scan.outcome == 'success'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        # Reconstruct the exact owned path so artifact ownership remains visible
+        # and independently checkable at this security boundary.
+        with: {name: ios-ui-test-results, path: "${{ runner.temp }}/ios-ui-${{ github.run_id }}-${{ github.run_attempt }}/artifacts", if-no-files-found: warn, retention-days: 7}
+      - name: Always prove cleanup of exact owned resources
+        if: always()
+        shell: bash
+        run: |
+          set -u
+          D="${MNT_IOS_JOB_ROOT:-$RUNNER_TEMP/ios-ui-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}}"; STATE="$D/state"; failed=0
+          if [[ -s "$STATE" ]]; then
+            # shellcheck source=/dev/null
+            . "$STATE"
+            if [[ -s "$BACKEND_PID_FILE" ]] && kill -0 "$(cat "$BACKEND_PID_FILE")" 2>/dev/null; then expected="$(cat "$BACKEND_COMMAND_FILE" 2>/dev/null || true)"; actual="$(ps -p "$(cat "$BACKEND_PID_FILE")" -o command= 2>/dev/null || true)"; if [[ -n "$expected" && "$actual" == "$expected" ]]; then kill -TERM "$(cat "$BACKEND_PID_FILE")" 2>/dev/null || true; for _ in {1..50}; do kill -0 "$(cat "$BACKEND_PID_FILE")" 2>/dev/null || break; sleep 0.2; done; kill -KILL "$(cat "$BACKEND_PID_FILE")" 2>/dev/null || true; else echo 'backend PID identity changed; refusing cross-process cleanup' >&2; failed=1; fi; fi
+            [[ -s "$BACKEND_PID_FILE" ]] && kill -0 "$(cat "$BACKEND_PID_FILE")" 2>/dev/null && failed=1
+            if [[ -x "$PG_PREFIX/bin/pg_ctl" && -d "$PGDATA" ]]; then "$PG_PREFIX/bin/pg_ctl" -D "$PGDATA" -w stop -m fast >/dev/null 2>&1 || true; "$PG_PREFIX/bin/pg_ctl" -D "$PGDATA" status >/dev/null 2>&1 && failed=1; fi
+            if [[ -n "$UUID" ]]; then xcrun simctl shutdown "$UUID" >/dev/null 2>&1 || true; xcrun simctl delete "$UUID" >/dev/null 2>&1 || true; xcrun simctl list devices -j | python3 -c 'import json,sys; target=sys.argv[1]; devices=json.load(sys.stdin)["devices"]; assert all(device.get("udid") != target for group in devices.values() for device in group)' "$UUID" || failed=1; fi
+            rm -rf "$CI_PLIST" "$CI_PROJECT_SPEC" "$PROJECT"
+          fi
+          rm -rf "$D"
+          [[ ! -e "$D" ]] || failed=1
+          exit "$failed"
