@@ -25,11 +25,12 @@ const validWorkflow = `jobs:
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           curl -fsSLO https://ftp.postgresql.org/pub/source/v18.4/postgresql-18.4.tar.bz2
           echo "81a81ec695fb0c7901407defaa1d2f7973617154cf27ba74e3a7ab8e64436094 postgresql-18.4.tar.bz2" | shasum -a 256 -c -
-          tar -xjf postgresql-18.4.tar.bz2 && ./configure --prefix="$PG_PREFIX" && make -j2 && make install && make -C contrib/pg_trgm -j2 && make -C contrib/pg_trgm install
+          OPENSSL_PREFIX="$(brew --prefix openssl@3)"; test -d "$OPENSSL_PREFIX/include"; test -d "$OPENSSL_PREFIX/lib"; export CPPFLAGS="-I$OPENSSL_PREFIX/include" LDFLAGS="-L$OPENSSL_PREFIX/lib" PKG_CONFIG_PATH="$OPENSSL_PREFIX/lib/pkgconfig"
+          tar -xjf postgresql-18.4.tar.bz2 && ./configure --prefix="$PG_PREFIX" --with-ssl=openssl && make -j2 && make install && make -C contrib/pgcrypto -j2 && make -C contrib/pgcrypto install && make -C contrib/pg_trgm -j2 && make -C contrib/pg_trgm install
           port() { python3 -c "import socket; s=socket.socket(); s.bind(('127.0.0.1', 0)); print(s.getsockname()[1]); s.close()"; }
           PP="$(port)"; BP="$(port)"; while [[ "$PP" == "$BP" ]]; do BP="$(port)"; done
           "$PG_PREFIX/bin/initdb" -D "$PGDATA"; "$PG_PREFIX/bin/pg_ctl" -D "$PGDATA" -w start
-          PGPASSWORD="$UP" "$PG_PREFIX/bin/psql" -h 127.0.0.1 -p "$PP" -U "$PG_SUPERUSER" -d postgres -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION pg_trgm;' -c 'DROP EXTENSION pg_trgm;'
+          PGPASSWORD="$UP" "$PG_PREFIX/bin/psql" -h 127.0.0.1 -p "$PP" -U "$PG_SUPERUSER" -d postgres -v ON_ERROR_STOP=1 -c 'CREATE EXTENSION pgcrypto;' -c 'CREATE EXTENSION pg_trgm;' -c 'DROP EXTENSION pg_trgm;' -c 'DROP EXTENSION pgcrypto;'
           ${candidateBuild}
           URL="http://127.0.0.1:$BP"; export MNT_UITEST_BASE_URL="$URL"
           SIM_RUNTIME=com.apple.CoreSimulator.SimRuntime.iOS-18-5
@@ -107,15 +108,23 @@ describe("iOS hermetic UI CI contract", () => {
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": validWorkflow.replace("4d9e34b62172d645eed6457cac13fc222569974098ef4ee9c3368bedf0196806", "dynamic") }), "checksum-pinned XcodeGen");
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": validWorkflow.replace('install -d -m 700 "$D" "$PGDATA"', 'mkdir -p /tmp/pg') }), "mode-0700 job-root PGDATA");
   });
-  it("rejects PostgreSQL builds that omit or cannot load pg_trgm", () => {
+  it("rejects PostgreSQL builds that omit or cannot load the complete extension set", () => {
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": validWorkflow.replace(" --with-ssl=openssl", "") }), "pgcrypto");
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": validWorkflow.replace("--with-ssl=openssl", "--without-ssl # --with-ssl=openssl") }), "pgcrypto");
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": validWorkflow.replace(' export CPPFLAGS="-I$OPENSSL_PREFIX/include" LDFLAGS="-L$OPENSSL_PREFIX/lib" PKG_CONFIG_PATH="$OPENSSL_PREFIX/lib/pkgconfig"', "") }), "pgcrypto");
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": validWorkflow.replace(" && make -C contrib/pgcrypto -j2", "") }), "pgcrypto");
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": validWorkflow.replace(" && make -C contrib/pgcrypto install", "") }), "pgcrypto");
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": validWorkflow.replace(" -c 'CREATE EXTENSION pgcrypto;'", "") }), "pgcrypto");
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": validWorkflow.replace(" -c 'DROP EXTENSION pgcrypto;'", "") }), "pgcrypto");
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": validWorkflow.replace(" && make -C contrib/pg_trgm -j2", "") }), "pg_trgm");
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": validWorkflow.replace(" && make -C contrib/pg_trgm install", "") }), "pg_trgm");
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": validWorkflow.replace(" -c 'CREATE EXTENSION pg_trgm;'", "") }), "pg_trgm");
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": validWorkflow.replace(" -c 'DROP EXTENSION pg_trgm;'", "") }), "pg_trgm");
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": validWorkflow.replace(" && make -C contrib/pgcrypto -j2 && make -C contrib/pgcrypto install", " # make -C contrib/pgcrypto -j2 && make -C contrib/pgcrypto install") }), "pgcrypto");
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": validWorkflow.replace(" && make -C contrib/pg_trgm -j2 && make -C contrib/pg_trgm install", " # make -C contrib/pg_trgm -j2 && make -C contrib/pg_trgm install") }), "pg_trgm");
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": validWorkflow.replace('          PGPASSWORD="$UP"', '          # PGPASSWORD="$UP"') }), "pg_trgm");
     const start = '          "$PG_PREFIX/bin/initdb" -D "$PGDATA"; "$PG_PREFIX/bin/pg_ctl" -D "$PGDATA" -w start';
-    const load = '          PGPASSWORD="$UP" "$PG_PREFIX/bin/psql" -h 127.0.0.1 -p "$PP" -U "$PG_SUPERUSER" -d postgres -v ON_ERROR_STOP=1 -c \'CREATE EXTENSION pg_trgm;\' -c \'DROP EXTENSION pg_trgm;\'';
+    const load = '          PGPASSWORD="$UP" "$PG_PREFIX/bin/psql" -h 127.0.0.1 -p "$PP" -U "$PG_SUPERUSER" -d postgres -v ON_ERROR_STOP=1 -c \'CREATE EXTENSION pgcrypto;\' -c \'CREATE EXTENSION pg_trgm;\' -c \'DROP EXTENSION pg_trgm;\' -c \'DROP EXTENSION pgcrypto;\'';
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": validWorkflow.replace(`${start}\n${load}`, `${load}\n${start}`) }), "pg_trgm");
   });
   it("rejects missing per-shard session controls and fixtures", () => {

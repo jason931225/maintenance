@@ -75,16 +75,30 @@ function stripShellComments(source) {
 
 function hasRequiredPostgresExtensions(job) {
   const activeJob = stripShellComments(job);
+  const opensslPrefix = activeJob.search(/OPENSSL_PREFIX="\$\(brew\s+--prefix\s+openssl@3\)"/);
+  const opensslCppFlags = activeJob.search(/(?:export\s+)?CPPFLAGS="-I\$OPENSSL_PREFIX\/include"/);
+  const opensslLdFlags = activeJob.search(/LDFLAGS="-L\$OPENSSL_PREFIX\/lib"/);
+  const opensslPkgConfig = activeJob.search(/PKG_CONFIG_PATH="\$OPENSSL_PREFIX\/lib\/pkgconfig"/);
+  const sslConfigure = activeJob.search(/\.\/configure\b[\s\S]{0,400}--with-ssl=openssl\b/);
   const coreInstall = activeJob.search(/\bmake\s+install\b/);
-  const extensionBuild = activeJob.search(/\bmake\s+-C\s+contrib\/pg_trgm\s+-j/);
-  const extensionInstall = activeJob.search(/\bmake\s+-C\s+contrib\/pg_trgm\s+install\b/);
+  const pgcryptoBuild = activeJob.search(/\bmake\s+-C\s+contrib\/pgcrypto\s+-j/);
+  const pgcryptoInstall = activeJob.search(/\bmake\s+-C\s+contrib\/pgcrypto\s+install\b/);
+  const pgTrgmBuild = activeJob.search(/\bmake\s+-C\s+contrib\/pg_trgm\s+-j/);
+  const pgTrgmInstall = activeJob.search(/\bmake\s+-C\s+contrib\/pg_trgm\s+install\b/);
   const postgresStart = activeJob.search(/"\$PG_PREFIX\/bin\/pg_ctl"[\s\S]{0,240}\s-w\s+start\b/);
-  const extensionLoadTest = activeJob.search(/PGPASSWORD="\$UP"[\s\S]{0,160}"\$PG_PREFIX\/bin\/psql"[\s\S]{0,320}-v\s+ON_ERROR_STOP=1[\s\S]{0,160}-c\s+'CREATE EXTENSION pg_trgm;'[\s\S]{0,160}-c\s+'DROP EXTENSION pg_trgm;'/);
+  const extensionLoadTest = activeJob.search(/PGPASSWORD="\$UP"[\s\S]{0,160}"\$PG_PREFIX\/bin\/psql"[\s\S]{0,320}-v\s+ON_ERROR_STOP=1[\s\S]{0,160}-c\s+'CREATE EXTENSION pgcrypto;'[\s\S]{0,160}-c\s+'CREATE EXTENSION pg_trgm;'[\s\S]{0,160}-c\s+'DROP EXTENSION pg_trgm;'[\s\S]{0,160}-c\s+'DROP EXTENSION pgcrypto;'/);
   const backendBuild = activeJob.search(/cargo\s+build\b[\s\S]{0,100}(?:-p|--package)\s+mnt-app/);
-  return coreInstall !== -1
-    && extensionBuild > coreInstall
-    && extensionInstall > extensionBuild
-    && postgresStart > extensionInstall
+  return opensslPrefix !== -1
+    && opensslCppFlags > opensslPrefix
+    && opensslLdFlags >= opensslCppFlags
+    && opensslPkgConfig >= opensslLdFlags
+    && sslConfigure > opensslPkgConfig
+    && coreInstall > sslConfigure
+    && pgcryptoBuild > coreInstall
+    && pgcryptoInstall > pgcryptoBuild
+    && pgTrgmBuild > pgcryptoInstall
+    && pgTrgmInstall > pgTrgmBuild
+    && postgresStart > pgTrgmInstall
     && extensionLoadTest > postgresStart
     && backendBuild > extensionLoadTest;
 }
@@ -361,7 +375,7 @@ export function evaluateIosUiTestFailClosedChecks(files) {
   checks.push([hasCandidateShaBeforeBackendBuild(job), "iOS UI CI must verify git rev-parse HEAD against GITHUB_SHA before building candidate mnt-app"]);
   checks.push([hasPinnedJobLocalXcodegen(job), "iOS UI CI must install checksum-pinned XcodeGen 2.46.0 under its job root without mutating Homebrew"]);
   checks.push([hasOfficialPostgres184Source(job), "iOS UI CI must build PostgreSQL 18.4 from the official source tarball after SHA-256 verification"]);
-  checks.push([hasRequiredPostgresExtensions(job), "iOS UI CI must build, install, and load-test the required pg_trgm extension before compiling the backend"]);
+  checks.push([hasRequiredPostgresExtensions(job), "iOS UI CI must configure PostgreSQL with OpenSSL and build, install, and load-test the required pgcrypto and pg_trgm extensions before compiling the backend"]);
   checks.push([hasJobLocalPostgres(job), "iOS UI CI must use a mode-0700 job-root PGDATA with a random loopback-only PostgreSQL port"]);
   checks.push([hasPerClassSessions(job), "iOS UI CI must mint and mask a random, SHA-256-backed OTP session for every 720-second only-testing shard and provide all deterministic fixtures"]);
   checks.push([hasMode600Xctestrun(job), "iOS UI CI must inject session material through a mode-0600 job-root xctestrun before patch/use"]);
