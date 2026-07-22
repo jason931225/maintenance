@@ -4832,7 +4832,7 @@ mod tests {
     #[test]
     fn work_order_list_item_serializes_timestamps_as_rfc3339_strings() {
         let timestamp = time::OffsetDateTime::from_unix_timestamp(0).unwrap();
-        let item = WorkOrderListItem {
+        let mut item = WorkOrderListItem {
             id: WorkOrderId::from_uuid(uuid::Uuid::nil()),
             request_no: "20260722-001".to_owned(),
             branch_id: BranchId::from_uuid(uuid::Uuid::nil()),
@@ -4869,7 +4869,7 @@ mod tests {
             }],
         };
 
-        let json = serde_json::to_value(item).unwrap();
+        let json = serde_json::to_value(&item).unwrap();
         for pointer in [
             "/target_due_at",
             "/created_at",
@@ -4882,6 +4882,14 @@ mod tests {
                 "{pointer} must honor the OpenAPI string/date-time contract"
             );
         }
+
+        item.target_due_at = None;
+        let json = serde_json::to_value(item).unwrap();
+        assert_eq!(
+            json.pointer("/target_due_at"),
+            Some(&serde_json::Value::Null),
+            "an absent target due date must remain JSON null"
+        );
     }
 
     /// The console equipment search lets a user type the 호기 the way it appears
