@@ -13,7 +13,7 @@ const validFiles = {
   "ios/Sources/MaintenanceFieldCore/PersistenceStores.swift": readFileSync(new URL("../ios/Sources/MaintenanceFieldCore/PersistenceStores.swift", import.meta.url), "utf8"),
   "ios/Sources/MaintenanceFieldApp/FieldAccessibilityID.swift": `public enum FieldAccessibilityID { public static let staticID = "static.id"; public static func dynamicID(_ id: String) -> String { "dynamic.\\(id)" } }`,
   "ios/Sources/MaintenanceFieldApp/FieldViews.swift": `ForEach(viewModel.messengerState.searchResults) { message in FieldAccessibilityID.messengerSearchResultRow(message.id) }\nForEach(messages) { message in FieldAccessibilityID.messengerMessageRow(message.id) }`,
-  "ios/UITests/Support/FieldUITestCase.swift": `enum AID { static let staticID = "static.id"; static func dynamicID(_ id: String) -> String { "dynamic.\\(id)" } }\nstatic func requiredID(_ key: String) throws -> String { guard let value = ProcessInfo.processInfo.environment[key], UUID(uuidString: value) != nil else { throw Error.missing(key) }; return value }\ntry app.performAccessibilityAudit(for: .all)`,
+  "ios/UITests/Support/FieldUITestCase.swift": `enum AID { static let staticID = "static.id"; static func dynamicID(_ id: String) -> String { "dynamic.\\(id)" } }\nstatic func requiredID(_ key: String) throws -> String { guard let value = ProcessInfo.processInfo.environment[key], UUID(uuidString: value) != nil else { throw Error.missing(key) }; return value }\ntry app.performAccessibilityAudit(for: .all)\n@MainActor\nclass FieldUITestCase: XCTestCase {\n  override func setUpWithError() throws {\n    try super.setUpWithError()\n    let tokens = try RealBackendSession.tokens()\n    try RealSessionSeed.seed(tokens)\n  }\n  override func tearDownWithError() throws {\n    try RealSessionSeed.clear()\n    try super.tearDownWithError()\n  }\n}`,
   "ios/UITests/Support/RealSessionSeed.swift": readFileSync(new URL("../ios/UITests/Support/RealSessionSeed.swift", import.meta.url), "utf8"),
   "ios/Sources/MaintenanceFieldUITestSeeder/UITestSeederApp.swift": readFileSync(new URL("../ios/Sources/MaintenanceFieldUITestSeeder/UITestSeederApp.swift", import.meta.url), "utf8"),
   "ios/Config/App.xcconfig": readFileSync(new URL("../ios/Config/App.xcconfig", import.meta.url), "utf8"),
@@ -23,7 +23,8 @@ const validFiles = {
   "ios/UITests/FieldCriticalPathUITests.swift": `startWork.tap()\nlet detailStatus = app.descendants(matching: .any)[AID.detailStatus]\nXCTAssertEqual(detailStatus.label, KO.inProgress)\ngrant.tap()\napp.terminate()\n// A fresh app launch must read the granted state back\nreloadedWithdraw.tap()\napp.terminate()\n// A fresh app launch must read the withdrawn terminal state back`,
   "ios/UITests/MessengerUITests.swift": `app.buttons[AID.messengerSendButton].tap()\napp.terminate()\ntry await openSeededThread()\nXCTAssertTrue(app.staticTexts[sentMessageBody].exists)`,
   "ios/UITests/CameraCaptureUITests.swift": `if previewIsUsable { reachedTerminalState = true }\ncancel.tap()`,
-  "ios/UITests/LoginValidationUITests.swift": `XCTAssertEqual(loginError.label, KO.errorInvalidUserID)`,
+  "ios/UITests/PreflightUITests.swift": `@MainActor\nfinal class PreflightUITests: XCTestCase {}`,
+  "ios/UITests/LoginValidationUITests.swift": `@MainActor\nfinal class LoginValidationUITests: XCTestCase {\nXCTAssertEqual(loginError.label, KO.errorInvalidUserID)\n}`,
 };
 const evaluate = (overrides = {}) => evaluateIosUiTestFailClosedChecks({ ...validFiles, ...overrides });
 const expectsFailure = (result, fragment) => assert.ok(result.failures.some((failure) => failure.includes(fragment)), `Expected ${fragment}: ${result.failures}`);
@@ -186,6 +187,62 @@ describe("iOS hermetic UI CI contract", () => {
         "            kSecAttrAccount as String: uniqueProbeAccount,\n            kSecAttrAccessGroup as String: suffix,",
       ),
     }), "system-granted default group");
+  });
+  it("rejects UI automation that can launch outside the main actor", () => {
+    const fieldCase = validFiles["ios/UITests/Support/FieldUITestCase.swift"];
+    const fakeFieldContract = `@MainActor
+class FieldUITestCase: XCTestCase {
+  override func setUpWithError() throws {
+    try super.setUpWithError()
+    try RealSessionSeed.seed(tokens)
+  }
+  override func tearDownWithError() throws {
+    try RealSessionSeed.clear()
+    try super.tearDownWithError()
+  }
+}`;
+    expectsFailure(evaluate({
+      "ios/UITests/Support/FieldUITestCase.swift": fieldCase.replace("@MainActor\nclass FieldUITestCase", "class FieldUITestCase"),
+    }), "confine XCUIApplication");
+    expectsFailure(evaluate({
+      "ios/UITests/Support/FieldUITestCase.swift": fieldCase.replace("setUpWithError() throws", "setUp() async throws"),
+    }), "confine XCUIApplication");
+    expectsFailure(evaluate({
+      "ios/UITests/Support/FieldUITestCase.swift": fieldCase.replace("tearDownWithError() throws", "tearDown() async throws"),
+    }), "confine XCUIApplication");
+    expectsFailure(evaluate({
+      "ios/UITests/Support/RealSessionSeed.swift": validFiles["ios/UITests/Support/RealSessionSeed.swift"].replace("@MainActor\nenum RealSessionSeed", "enum RealSessionSeed"),
+    }), "confine XCUIApplication");
+    expectsFailure(evaluate({
+      "ios/UITests/PreflightUITests.swift": validFiles["ios/UITests/PreflightUITests.swift"].replace("@MainActor\n", ""),
+    }), "confine XCUIApplication");
+    expectsFailure(evaluate({
+      "ios/UITests/LoginValidationUITests.swift": validFiles["ios/UITests/LoginValidationUITests.swift"].replace("@MainActor\n", ""),
+    }), "confine XCUIApplication");
+    expectsFailure(evaluate({
+      "ios/UITests/Support/FieldUITestCase.swift": `/* ${fakeFieldContract} */\n${fieldCase.replace("@MainActor\nclass FieldUITestCase", "class FieldUITestCase")}`,
+    }), "confine XCUIApplication");
+    expectsFailure(evaluate({
+      "ios/UITests/Support/FieldUITestCase.swift": `let fake = """\n${fakeFieldContract}\n"""\n${fieldCase.replace("@MainActor\nclass FieldUITestCase", "class FieldUITestCase")}`,
+    }), "confine XCUIApplication");
+    expectsFailure(evaluate({
+      "ios/UITests/Support/FieldUITestCase.swift": `let fake = """\n\\\"""\n${fakeFieldContract}\n"""\n${fieldCase.replace("@MainActor\nclass FieldUITestCase", "class FieldUITestCase")}`,
+    }), "confine XCUIApplication");
+    expectsFailure(evaluate({
+      "ios/UITests/Support/FieldUITestCase.swift": `let fake = #"""\n\\#"""#\n${fakeFieldContract}\n"""#\n${fieldCase.replace("@MainActor\nclass FieldUITestCase", "class FieldUITestCase")}`,
+    }), "confine XCUIApplication");
+    expectsFailure(evaluate({
+      "ios/UITests/Support/FieldUITestCase.swift": fieldCase.replace("@MainActor\nclass FieldUITestCase", "// @MainActor\nclass FieldUITestCase"),
+    }), "confine XCUIApplication");
+    expectsFailure(evaluate({
+      "ios/UITests/Support/RealSessionSeed.swift": validFiles["ios/UITests/Support/RealSessionSeed.swift"].replace("@MainActor\nenum RealSessionSeed", "// @MainActor\nenum RealSessionSeed"),
+    }), "confine XCUIApplication");
+    expectsFailure(evaluate({
+      "ios/UITests/PreflightUITests.swift": validFiles["ios/UITests/PreflightUITests.swift"].replace("@MainActor\n", "// @MainActor\n"),
+    }), "confine XCUIApplication");
+    expectsFailure(evaluate({
+      "ios/UITests/LoginValidationUITests.swift": validFiles["ios/UITests/LoginValidationUITests.swift"].replace("@MainActor\n", "// @MainActor\n"),
+    }), "confine XCUIApplication");
   });
   it("rejects Runner mutation, stale Runner environment injection, and incomplete Mach-O entitlement proof", () => {
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow(

@@ -15,6 +15,7 @@ import XCTest
 ///
 /// Tokens are passed only through the launch environment and are never placed
 /// in an assertion, error, or log message.
+@MainActor
 enum RealSessionSeed {
     enum SeedError: Error, LocalizedError {
         case missingSeederResult

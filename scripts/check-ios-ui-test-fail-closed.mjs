@@ -384,6 +384,90 @@ function extractFunctionBody(source, declaration) {
   return openingBrace === -1 ? null : extractBalancedBlock(source, openingBrace);
 }
 
+function stripSwiftCommentsAndStrings(source) {
+  const output = source.split("");
+  const blank = (index) => {
+    if (source[index] !== "\n" && source[index] !== "\r") output[index] = " ";
+  };
+  let index = 0;
+  let blockCommentDepth = 0;
+  let stringDelimiter = null;
+
+  while (index < source.length) {
+    if (blockCommentDepth > 0) {
+      if (source.startsWith("/*", index)) {
+        blank(index);
+        blank(index + 1);
+        blockCommentDepth += 1;
+        index += 2;
+      } else if (source.startsWith("*/", index)) {
+        blank(index);
+        blank(index + 1);
+        blockCommentDepth -= 1;
+        index += 2;
+      } else {
+        blank(index);
+        index += 1;
+      }
+      continue;
+    }
+
+    if (stringDelimiter !== null) {
+      const { closing, rawHashes } = stringDelimiter;
+      if (source.startsWith(closing, index)) {
+        for (let offset = 0; offset < closing.length; offset += 1) blank(index + offset);
+        index += closing.length;
+        stringDelimiter = null;
+      } else if (source.startsWith(`\\${"#".repeat(rawHashes)}`, index)) {
+        const escapeLength = 2 + rawHashes;
+        for (let offset = 0; offset < escapeLength && index + offset < source.length; offset += 1) {
+          blank(index + offset);
+        }
+        index += escapeLength;
+      } else {
+        blank(index);
+        index += 1;
+      }
+      continue;
+    }
+
+    if (source.startsWith("//", index)) {
+      while (index < source.length && source[index] !== "\n") {
+        blank(index);
+        index += 1;
+      }
+      continue;
+    }
+    if (source.startsWith("/*", index)) {
+      blank(index);
+      blank(index + 1);
+      blockCommentDepth = 1;
+      index += 2;
+      continue;
+    }
+
+    let rawHashes = 0;
+    while (source[index + rawHashes] === "#") rawHashes += 1;
+    const quoteIndex = index + rawHashes;
+    if (source[quoteIndex] === '"') {
+      const multiline = source.startsWith('"""', quoteIndex);
+      const quoteLength = multiline ? 3 : 1;
+      const openingLength = rawHashes + quoteLength;
+      for (let offset = 0; offset < openingLength; offset += 1) blank(index + offset);
+      stringDelimiter = {
+        closing: `${'"'.repeat(quoteLength)}${"#".repeat(rawHashes)}`,
+        rawHashes,
+      };
+      index += openingLength;
+      continue;
+    }
+
+    index += 1;
+  }
+
+  return output.join("");
+}
+
 function plistKeychainAccessGroups(source) {
   const match = source.match(/<key>keychain-access-groups<\/key>\s*<array>([\s\S]*?)<\/array>/);
   if (!match) return [];
@@ -433,6 +517,35 @@ function hasDefaultSharedKeychainResolution(files) {
     && helper.includes("KeychainSessionTokenStore(")
     && helper.includes("SecKeychainAccess(accessGroup: accessGroup)")
     && !/import\s+Security\b|\bSecItem\w*\b|\bkSecAttrAccessGroup\b/.test(uiTestSupport);
+}
+
+function hasMainActorUiAutomationContract(files) {
+  const field = stripSwiftCommentsAndStrings(files["ios/UITests/Support/FieldUITestCase.swift"] ?? "");
+  const seeder = stripSwiftCommentsAndStrings(files["ios/UITests/Support/RealSessionSeed.swift"] ?? "");
+  const preflight = stripSwiftCommentsAndStrings(files["ios/UITests/PreflightUITests.swift"] ?? "");
+  const login = stripSwiftCommentsAndStrings(files["ios/UITests/LoginValidationUITests.swift"] ?? "");
+  const declaration = /@MainActor\s+(?:final\s+)?class\s+FieldUITestCase\s*:\s*XCTestCase\b/.exec(field);
+  if (!declaration) return false;
+  const openingBrace = field.indexOf("{", declaration.index + declaration[0].length);
+  const body = openingBrace === -1 ? null : extractBalancedBlock(field, openingBrace);
+  if (body === null) return false;
+
+  const setupBody = extractFunctionBody(body, /override\s+func\s+setUpWithError\s*\(\s*\)\s+throws\b/);
+  const teardownBody = extractFunctionBody(body, /override\s+func\s+tearDownWithError\s*\(\s*\)\s+throws\b/);
+  const synchronousSetup = setupBody !== null
+    && /\btry\s+super\.setUpWithError\s*\(\s*\)/.test(setupBody)
+    && /\btry\s+RealSessionSeed\.seed\s*\(\s*tokens\s*\)/.test(setupBody);
+  const synchronousTeardown = teardownBody !== null
+    && /\btry\s+RealSessionSeed\.clear\s*\(\s*\)/.test(teardownBody)
+    && /\btry\s+super\.tearDownWithError\s*\(\s*\)/.test(teardownBody);
+  const hasAsyncLifecycle = /override\s+func\s+(?:setUp|tearDown)(?:WithError)?\s*\([^)]*\)\s+async\b/.test(body);
+
+  return synchronousSetup
+    && synchronousTeardown
+    && !hasAsyncLifecycle
+    && /@MainActor\s+enum\s+RealSessionSeed\b/.test(seeder)
+    && /@MainActor\s+final\s+class\s+PreflightUITests\s*:\s*XCTestCase\b/.test(preflight)
+    && /@MainActor\s+final\s+class\s+LoginValidationUITests\s*:\s*XCTestCase\b/.test(login);
 }
 
 function hasEntitledSimulatorSeederContract(job) {
@@ -610,6 +723,7 @@ export function evaluateIosUiTestFailClosedChecks(files) {
   checks.push([hasPerClassSessions(job), "iOS UI CI must mint and mask a random, SHA-256-backed OTP session for every 720-second only-testing shard and provide all deterministic fixtures"]);
   checks.push([hasSharedKeychainEntitlementContract(files), "iOS app and dedicated UI-test seeder target must share one identically signed default keychain access group"]);
   checks.push([hasDefaultSharedKeychainResolution(files), "iOS app and UI-test seeder must resolve the fully qualified shared keychain group through the system-granted default group"]);
+  checks.push([hasMainActorUiAutomationContract(files), "iOS UI test automation must confine XCUIApplication and its entitled session seeder to the main actor with synchronous throwing base lifecycle hooks"]);
   checks.push([hasEntitledSimulatorSeederContract(job), "iOS UI CI must preserve the Xcode-created Simulator Runner and prove matching app/seeder Mach-O keychain entitlements before test execution"]);
   checks.push([hasMode600Xctestrun(job), "iOS UI CI must inject session material through a mode-0600 job-root xctestrun before patch/use"]);
   checks.push([!/-skip-testing|XCTSkip|optional\/skipped|HAS_REAL_SESSION_SOURCE/.test(workflow + (files["ios/UITests/Support/FieldUITestCase.swift"] ?? "") + (files["ios/UITests/Support/RealSessionSeed.swift"] ?? "")), "iOS UI CI and its test support must not include skip-testing, XCTSkip, or fail-open session branches"]);
@@ -651,6 +765,7 @@ function main() {
     "ios/project.yml",
     "ios/UITests/Support/FieldUITestCase.swift",
     "ios/UITests/Support/RealSessionSeed.swift",
+    "ios/UITests/PreflightUITests.swift",
     "ios/UITests/FieldCriticalPathUITests.swift",
     "ios/UITests/MessengerUITests.swift",
     "ios/UITests/CameraCaptureUITests.swift",

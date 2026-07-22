@@ -4,6 +4,7 @@ import XCTest
 /// deterministic fixture, or the app-owned Keychain-seeder prerequisites are
 /// absent. This is deliberately a real cross-process restore proof, not an
 /// entitlement inspection of the XCTest runner.
+@MainActor
 final class PreflightUITests: XCTestCase {
     func testWorkflowMintedSessionAndLocalBackendAreConfigured() throws {
         let baseURL = try RealBackendSession.baseURL()

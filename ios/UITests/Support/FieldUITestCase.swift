@@ -198,12 +198,13 @@ enum UITestFixture {
 /// layout under its own signed entitlement. The unmodified app then restores
 /// normally. Any missing runner input, helper result, or fixture throws and
 /// fails XCTest rather than permitting an all-skipped/fake success.
+@MainActor
 class FieldUITestCase: XCTestCase {
     var app: XCUIApplication!
     private(set) var seededSession = false
 
-    override func setUp() async throws {
-        try await super.setUp()
+    override func setUpWithError() throws {
+        try super.setUpWithError()
         continueAfterFailure = false
 
         let tokens = try RealBackendSession.tokens()
@@ -211,26 +212,23 @@ class FieldUITestCase: XCTestCase {
         seededSession = true
     }
 
-    override func tearDown() async throws {
+    override func tearDownWithError() throws {
         app?.terminate()
         if seededSession {
             try RealSessionSeed.clear()
         }
-        // Appearance is process-global to the Simulator; reset from the main
-        // actor so Swift 6 does not diagnose UI mutation from async teardown.
-        await MainActor.run {
-            XCUIDevice.shared.appearance = .light
-        }
+        // Appearance is process-global to the Simulator; the complete UI-test
+        // lifecycle stays on the main actor so XCTest never launches or
+        // mutates an application from its async worker executor.
+        XCUIDevice.shared.appearance = .light
         app = nil
-        try await super.tearDown()
+        try super.tearDownWithError()
     }
 
     /// Launch the app against the runner's isolated local backend.
     @discardableResult
     func launchApp(_ presentation: Presentation = .standard) async throws -> XCUIApplication {
-        await MainActor.run {
-            XCUIDevice.shared.appearance = presentation.deviceAppearance
-        }
+        XCUIDevice.shared.appearance = presentation.deviceAppearance
         let app = XCUIApplication()
         app.launchArguments += LaunchLocale.arguments
         app.launchArguments += presentation.launchArguments

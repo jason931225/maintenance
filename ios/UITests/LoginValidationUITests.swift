@@ -2,6 +2,7 @@ import XCTest
 
 /// Signed-out production login validation against the same local backend URL as
 /// the authenticated suite. CI-only.
+@MainActor
 final class LoginValidationUITests: XCTestCase {
     private var app: XCUIApplication!
 
