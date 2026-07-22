@@ -14,7 +14,7 @@ final class FieldCriticalPathUITests: FieldUITestCase {
         _ = try await launchApp()
         waitForAuthenticatedShell()
         XCTAssertTrue(app.collectionViews[AID.todayList].waitForExistence(timeout: 15), "Dispatch list should render.")
-        let fixtureID = try UITestFixture.workOrderID(UITestFixture.detailWorkOrderID)
+        let fixtureID = try UITestFixture.requiredID(UITestFixture.detailWorkOrderID)
         let fixtureRow = app.buttons[AID.workOrderRow(fixtureID)]
         XCTAssertTrue(fixtureRow.waitForExistence(timeout: 15), "Dispatch tab must render the deterministic mechanic fixture; an empty state is a failed seed or API result, not a valid CI outcome.")
     }

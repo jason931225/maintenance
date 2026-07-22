@@ -19,7 +19,7 @@ final class PreflightUITests: XCTestCase {
             UITestFixture.reportSuccessWorkOrderID,
             UITestFixture.cameraWorkOrderID,
         ] {
-            let workOrderID = try UITestFixture.workOrderID(key)
+            let workOrderID = try UITestFixture.requiredID(key)
             XCTAssertFalse(workOrderID.isEmpty, "Fixture \(key) must be non-empty.")
         }
         XCTAssertFalse(try UITestFixture.requiredID(UITestFixture.messengerThreadID).isEmpty)

@@ -66,6 +66,7 @@ enum AID {
     static let messengerLogoutButton = "messenger.logout"
     static func messengerThreadRow(_ id: String) -> String { "messenger.threadRow.\(id)" }
     static func messengerMessageRow(_ id: String) -> String { "messenger.messageRow.\(id)" }
+    static func messengerSearchResultRow(_ id: String) -> String { "messenger.searchResultRow.\(id)" }
 }
 
 /// The Korean strings the suite asserts as the real, visible outcomes. These are
@@ -82,6 +83,7 @@ enum KO {
     static let messengerEmptyThreads = "표시할 대화방이 없습니다."
     static let messengerSelectThread = "대화방을 선택하세요."
     static let messengerSearchNoResults = "검색 결과가 없습니다."
+    static let messengerSendPending = "오프라인 메시지로 저장되었습니다."
     static let logout = "로그아웃"
     static let refresh = "새로고침"
     static let startWork = "작업 시작"
@@ -177,13 +179,6 @@ enum UITestFixture {
         }
     }
 
-    static func workOrderID(
-        _ key: String,
-        environment: [String: String] = ProcessInfo.processInfo.environment
-    ) throws -> String {
-        try requiredID(key, environment: environment)
-    }
-
     static func requiredID(
         _ key: String,
         environment: [String: String] = ProcessInfo.processInfo.environment
@@ -257,7 +252,7 @@ class FieldUITestCase: XCTestCase {
         fixtureKey: String,
         timeout: TimeInterval = 15
     ) throws {
-        let id = try UITestFixture.workOrderID(fixtureKey)
+        let id = try UITestFixture.requiredID(fixtureKey)
         let row = app.buttons[AID.workOrderRow(id)]
         guard row.waitForExistence(timeout: timeout) else {
             throw UITestFixture.Error.missing("\(fixtureKey) (seeded ID \(id) was not rendered in Today)")

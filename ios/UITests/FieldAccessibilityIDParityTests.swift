@@ -32,13 +32,13 @@ extension FieldAccessibilityIDParityTests {
             UITestFixture.reportSuccessWorkOrderID,
             UITestFixture.cameraWorkOrderID,
         ] {
-            XCTAssertFalse(try UITestFixture.workOrderID(key, environment: environment).isEmpty)
+            XCTAssertFalse(try UITestFixture.requiredID(key, environment: environment).isEmpty)
         }
         XCTAssertFalse(try UITestFixture.requiredID(UITestFixture.messengerThreadID, environment: environment).isEmpty)
         XCTAssertFalse(try UITestFixture.requiredID(UITestFixture.messengerInitialMessageID, environment: environment).isEmpty)
 
         XCTAssertThrowsError(try RealBackendSession.tokens(environment: [:]))
-        XCTAssertThrowsError(try UITestFixture.workOrderID(UITestFixture.cameraWorkOrderID, environment: [:]))
+        XCTAssertThrowsError(try UITestFixture.requiredID(UITestFixture.cameraWorkOrderID, environment: [:]))
         XCTAssertThrowsError(try UITestFixture.requiredID(UITestFixture.messengerThreadID, environment: [:]))
     }
 }

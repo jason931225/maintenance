@@ -91,6 +91,13 @@ public enum FieldAccessibilityID {
     /// Per-row identifier for a persisted messenger message, keyed by message id.
     public static func messengerMessageRow(_ id: String) -> String { "messenger.messageRow.\(id)" }
 
+    /// Per-row identifier for a messenger search result, keyed by message id.
+    ///
+    /// Search results and the selected thread can contain the same persisted
+    /// message. Keeping their section anchors distinct prevents an XCUITest
+    /// query from resolving the wrong visible row.
+    public static func messengerSearchResultRow(_ id: String) -> String { "messenger.searchResultRow.\(id)" }
+
     /// Static identifiers exposed by the app. Dynamic formatters are intentionally
     /// absent from this value list and are covered by the host-side parity gate.
     public static let allStableIdentifiers: [String] = [

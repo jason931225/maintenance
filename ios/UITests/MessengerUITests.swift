@@ -61,7 +61,7 @@ final class MessengerUITests: FieldUITestCase {
             "A successful send must render the server-returned message."
         )
         XCTAssertFalse(
-            app.staticTexts["오프라인 메시지로 저장되었습니다."].exists,
+            app.staticTexts[KO.messengerSendPending].exists,
             "A queued offline fallback is not a successful persisted send."
         )
 

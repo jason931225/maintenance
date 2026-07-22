@@ -564,7 +564,7 @@ struct MessengerTabView: View {
                 if viewModel.messengerState.searchResults.isEmpty == false {
                     ForEach(viewModel.messengerState.searchResults) { message in
                         MessengerMessageRow(message: message, currentUserID: viewModel.currentUserID)
-                            .accessibilityIdentifier(FieldAccessibilityID.messengerMessageRow(message.id))
+                            .accessibilityIdentifier(FieldAccessibilityID.messengerSearchResultRow(message.id))
                     }
                 } else if viewModel.messengerHasSearched {
                     Text("messenger_search_no_results")

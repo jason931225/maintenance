@@ -302,6 +302,13 @@ function hasAccessibilityIDParity(files) {
   return equivalentAccessibilityMembers(production, uiTests).length === 0;
 }
 
+function hasSectionScopedMessengerMessageRows(files) {
+  const views = files["ios/Sources/MaintenanceFieldApp/FieldViews.swift"] ?? "";
+  const searchResults = /ForEach\(viewModel\.messengerState\.searchResults\)\s*\{\s*message\s+in[\s\S]{0,360}FieldAccessibilityID\.messengerSearchResultRow\(message\.id\)/;
+  const selectedThreadMessages = /ForEach\(messages\)\s*\{\s*message\s+in[\s\S]{0,360}FieldAccessibilityID\.messengerMessageRow\(message\.id\)/;
+  return searchResults.test(views) && selectedThreadMessages.test(views);
+}
+
 function hasCiOnlyLocalAts(files) {
   const production = files["ios/Sources/MaintenanceFieldApp/Info.plist"] ?? "";
   const workflow = files[".github/workflows/ios-ui-tests.yml"] ?? "";
@@ -357,7 +364,8 @@ function hasDurableCriticalPathEvidence(files) {
     && preview !== -1 && cancel > preview
     && !/if\s+previewIsUsable\s*\{\s*return\b/.test(camera)
     && /XCTAssertEqual\([\s\S]{0,160}loginError\.label[\s\S]{0,160}KO\.errorInvalidUserID/.test(login)
-    && /static\s+func\s+workOrderID[\s\S]{0,260}try\s+requiredID\(/.test(support);
+    && /static\s+func\s+requiredID[\s\S]{0,260}UUID\(uuidString: value\)/.test(support)
+    && !/static\s+func\s+workOrderID\s*\(/.test(support);
 }
 
 
@@ -383,6 +391,7 @@ export function evaluateIosUiTestFailClosedChecks(files) {
   checks.push([! /MNT_UITEST_AUDIT_STRICT/.test(workflow), "iOS UI CI must not make strict accessibility conditional through an environment toggle"]);
   checks.push([hasStrictAccessibility(files), "iOS UI CI must enforce strict accessibility auditing"]);
   checks.push([hasAccessibilityIDParity(files), "iOS UI CI must mirror every FieldAccessibilityID static and dynamic identifier in UITests AID"]);
+  checks.push([hasSectionScopedMessengerMessageRows(files), "iOS messenger search results and selected-thread messages must use section-scoped dynamic accessibility IDs"]);
   checks.push([hasCiOnlyLocalAts(files), "iOS UI CI must confine local ATS to CI-only job-root loopback configuration while production Info.plist remains unchanged"]);
   checks.push([hasStructuredResultVerification(job), "iOS UI CI must aggregate repeated structured xcresulttool summaries and tests through the reusable verifier"]);
   checks.push([hasDurableCriticalPathEvidence(files), "iOS UI tests must prove scoped mutations, backend readback after relaunch, camera dismissal, and UUID fixtures without local-state false greens"]);
@@ -405,8 +414,10 @@ function read(relativePath) {
 function main() {
   const paths = [
     ".github/workflows/ios-ui-tests.yml",
+    "scripts/boot-ios-ui-backend.mjs",
     "ios/Sources/MaintenanceFieldApp/Info.plist",
     "ios/Sources/MaintenanceFieldApp/FieldAccessibilityID.swift",
+    "ios/Sources/MaintenanceFieldApp/FieldViews.swift",
     "ios/project.yml",
     "ios/UITests/Support/FieldUITestCase.swift",
     "ios/UITests/Support/RealSessionSeed.swift",
