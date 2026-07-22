@@ -7,7 +7,7 @@ Single frontend: `web/` (npm workspace `@console/web`).
 - React 19.2.7 SPA, react-router-dom ^7 (declarative, React.lazy code-split), Vite 8 + @tailwindcss/vite, TypeScript strict (`tsc -b`).
 - Tailwind CSS v4.3 (CSS-first `@theme`, no config file) + shadcn/ui ("new-york", `web/components.json`) + CVA + tailwind-merge + lucide-react. Pretendard font.
 - Libs: react-leaflet (dispatch map), qrcode.react (passkey handoff), dompurify (mail HTML), openapi-fetch.
-- Siblings (not console): coss-rn (RN), android/, ios/, clients/{ts,kotlin,swift} generated API clients.
+- Siblings (not console): android/, ios/, clients/{ts,kotlin,swift} generated API clients. The former `coss-rn` RN public site is historical and retired by ADR-0026.
 
 ## 2. Routes (~60 real screens, source `web/src/AppRouter.tsx`, pages in `web/src/pages/`)
 

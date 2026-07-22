@@ -51,9 +51,10 @@ related: []
 | [ADR-0020](ADR-0020-korean-institutional-connectivity-coverage-factory.md) | accepted, fixture-only | Institutional connector coverage factory; no live institution access |
 | [ADR-0021](ADR-0021-cedar-pbac-authorization-strangler.md) | accepted target only | Cedar/PBAC strangler baseline; no live enforcement switch |
 | [ADR-0022](ADR-0022-local-identity-no-external-idp.md) | accepted | Local passkey identity; no speculative external IdP seam |
-| [ADR-0023](ADR-0023-oyatie-console-authority.md) | accepted, amended | Console product/workflow authority; shared-chrome composition and coexistence clauses amended by ADR-0025 |
+| [ADR-0023](ADR-0023-oyatie-console-authority.md) | accepted, amended | Console product/workflow authority; shared-chrome composition and coexistence clauses amended by ADR-0025; historical COSS RN follow-up amended by ADR-0026 |
 | [ADR-0024](ADR-0024-bare-metal-portability-and-ha.md) | accepted | Self-host first; cloud-agnostic core through ports/adapters; Oyatie Cloud, AWS, OCI, Azure, and GCP remain first-class and may use native capabilities behind replaceable context boundaries |
 | [ADR-0025](ADR-0025-carbon-copy-console-shared-platform-spine.md) | accepted | Amends ADR-0023 with an isolated carbon-copy `/console` visual system, one shared platform spine, staged rollout, full-stack slice gates, and measured legacy deletion |
+| [ADR-0026](ADR-0026-retire-coss-rn-public-site-surface.md) | accepted | Retire the standalone COSS RN public-site surface; remove it from npm workspaces and do not cite its historical evidence for MaintenanceField parity or releases |
 
 ## Effective relationship graph
 
@@ -62,6 +63,7 @@ related: []
 - ADR-0024's context-native identity seam means workload/infrastructure identity only. It does not amend ADR-0022's local product-user identity or authorize a speculative external IdP/federation seam.
 - ADR-0025 amends ADR-0023's shared-chrome composition and non-feature-flag coexistence clauses. ADR-0023 remains accepted for `/overview`, Work Hub/My Work semantics, workflow-engine direction, policy/audit rules, and the fully-wired/no-stub delivery contract.
 - ADR-0019 remains the mail-server authority. Mox is DARK and unresolved, not silently accepted.
+- ADR-0026 narrowly amends ADR-0023's historical COSS RN follow-up, records a product-surface retirement outside ADR-0009's MaintenanceField parity scope and ADR-0012's four deliverables, and does not amend either of those decisions.
 
 ## Subordinate design notes
 

@@ -60,6 +60,8 @@ npm run test:adrs
 npm run check:adrs
 for s in \
   check:foundation-gates \
+  check:package-lock \
+  check:root-workspaces \
   check:enterprise-ux-parity \
   check:browser-persona-matrix \
   check:ios-ui-test-fail-closed \
@@ -170,9 +172,11 @@ names only, not incidental workflow prose or runner setup text.
 - `check:kotlin`
 - `check:openapi-app`
 - `check:operations-intelligence-maturity`
+- `check:package-lock`
 - `check:payroll-release-gate`
 - `check:people-hr-maturity`
 - `check:pr473-migration-operational`
+- `check:root-workspaces`
 - `check:production-hardening`
 - `check:swift`
 - `check:ts`
@@ -187,6 +191,7 @@ names only, not incidental workflow prose or runner setup text.
 - `test:api-client-contract:ts`
 - `test:contract`
 - `test:adrs`
+- `test:root-workspaces`
 - `test:employee-import-contract`
 - `test:ontology-write-precondition`
 - `test:production-hardening`

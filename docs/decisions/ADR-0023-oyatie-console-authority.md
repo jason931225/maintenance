@@ -5,15 +5,16 @@ doc_status: published
 date: 2026-07-04
 owner: jasonlee
 related_documents: [DESIGN.md]
-amended_by: [ADR-0025]
-related: [ADR-0009, ADR-0018, ADR-0021, ADR-0025]
+amended_by: [ADR-0025, ADR-0026]
+related: [ADR-0009, ADR-0018, ADR-0021, ADR-0025, ADR-0026]
 ---
 
 # ADR-0023: Oyatie console authority — accepted foundation; two-shell surface strategy superseded by ADR-0025
 
 ## Status
 
-**Accepted; surface strategy amended by ADR-0025 on 2026-07-13.** This record was consensus-approved
+**Accepted; surface strategy amended by ADR-0025 on 2026-07-13, and the COSS RN
+public-site follow-up amended by ADR-0026 on 2026-07-22.** This record was consensus-approved
 2026-07-04 (Critic APPROVE after two Planner→Architect→Critic iterations) and
 execution-approved by the user the same day. ADR-0025 replaces its
 shared-chrome/two-shell composition and non-feature-flag coexistence clauses
@@ -152,8 +153,9 @@ infeasible.
 - Multi-jurisdiction PII program.
 - Object graph explorer.
 - Mobile-app parity for 메신저·메일·알림·전자결재 (DESIGN §4.8 — outside this `web/` program; the
-  dual-native Swift/Kotlin contract in ADR-0009 governs employee apps). `coss-rn` is the separate
-  public COSS site and is not an employee-app replacement.
+  dual-native Swift/Kotlin contract in ADR-0009 governs employee apps). At this
+  ADR's acceptance, `coss-rn` was the separate public COSS site and not an
+  employee-app replacement; ADR-0026 retires that surface.
 - This program's own open questions (UI-M12 internal ordering, comms-rail read/reply scope, 평가
   design depth, no-code canvas sign-off) are tracked in `.omc/plans/oyatie-console-plan.md` §7 and do
   not block UI-M0–M2b.

@@ -65,7 +65,7 @@ function checkRequiredText(checklist, failures) {
     ["`bash e2e/run.sh`", "browser E2E evidence"],
     ["`npm run check:api-drift:portable`", "portable client drift evidence"],
     ["`npm run check:api-drift:swift`", "Swift client drift evidence"],
-    ["`coss-rn/**`", "explicit COSS RN exclusion"],
+    ["retired by ADR-0026", "accepted COSS RN retirement boundary"],
   ];
 
   for (const [needle, label] of requiredText) {
@@ -186,7 +186,7 @@ function runMobileParityGate() {
   console.log(`Checked ${parseParityRows(checklist).length} parity rows across T1.7, T3.3, and T2.2.`);
   console.log(`Checked ${stringStats.androidKeys} Android string keys against ${stringStats.iosKeys} iOS keys.`);
   console.log(`Allowed ${stringStats.iosOnlyAliases} declared iOS-only aliases.`);
-  console.log("Release evidence requirements and coss-rn exclusion are present in docs/parity-checklist.md.");
+  console.log("Release evidence requirements and the COSS RN retirement boundary are present in docs/parity-checklist.md.");
 }
 
 const checks = [
