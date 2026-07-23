@@ -4119,6 +4119,7 @@ dependencies = [
  "mnt-ontology-domain",
  "mnt-platform-auth",
  "mnt-platform-authz",
+ "mnt-platform-authz-rest",
  "mnt-platform-db",
  "mnt-platform-request-context",
  "mnt-platform-test-support",
