@@ -2922,6 +2922,188 @@ paths:
           $ref: '#/components/responses/ValidationError'
         '401':
           $ref: '#/components/responses/Unauthorized'
+  /api/v1/compliance/regulations:
+    get:
+      tags: [Compliance]
+      operationId: listComplianceRegulations
+      summary: List RLS-scoped regulation impacts
+      security: [{ bearerAuth: [] }]
+      parameters:
+      - { name: q, in: query, required: false, schema: { type: string } }
+      - { name: status, in: query, required: false, schema: { $ref: '#/components/schemas/RegulationImpactStatus' } }
+      - { name: risk_level, in: query, required: false, schema: { $ref: '#/components/schemas/ComplianceRiskLevel' } }
+      - { name: limit, in: query, required: false, schema: { type: integer, format: int64, minimum: 1, maximum: 1000, default: 100 } }
+      - { name: offset, in: query, required: false, schema: { type: integer, format: int64, minimum: 0, default: 0 } }
+      responses:
+        '200': { description: Paged regulation impacts visible to the principal., content: { application/json: { schema: { $ref: '#/components/schemas/RegulationImpactPage' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+    post:
+      tags: [Compliance]
+      operationId: createComplianceRegulation
+      summary: Create an audited regulation impact
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CreateRegulationImpactRequest' } } } }
+      responses:
+        '200': { description: Created regulation impact., content: { application/json: { schema: { $ref: '#/components/schemas/RegulationImpact' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /api/v1/compliance/obligations:
+    get:
+      tags: [Compliance]
+      operationId: listComplianceObligations
+      summary: List RLS-scoped compliance obligations
+      security: [{ bearerAuth: [] }]
+      parameters:
+      - { name: q, in: query, required: false, schema: { type: string } }
+      - { name: status, in: query, required: false, schema: { $ref: '#/components/schemas/ObligationStatus' } }
+      - { name: severity, in: query, required: false, schema: { $ref: '#/components/schemas/ComplianceRiskLevel' } }
+      - { name: scope_type, in: query, required: false, schema: { $ref: '#/components/schemas/ComplianceScopeKind' } }
+      - { name: branch_id, in: query, required: false, schema: { $ref: '#/components/schemas/Uuid' } }
+      - { name: site_id, in: query, required: false, schema: { $ref: '#/components/schemas/Uuid' } }
+      - { name: limit, in: query, required: false, schema: { type: integer, format: int64, minimum: 1, maximum: 1000, default: 100 } }
+      - { name: offset, in: query, required: false, schema: { type: integer, format: int64, minimum: 0, default: 0 } }
+      responses:
+        '200': { description: Paged obligations within the principal branch scope., content: { application/json: { schema: { $ref: '#/components/schemas/ComplianceObligationPage' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+    post:
+      tags: [Compliance]
+      operationId: createComplianceObligation
+      summary: Create an audited obligation and optional regulation links
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CreateComplianceObligationRequest' } } } }
+      responses:
+        '200': { description: Created obligation., content: { application/json: { schema: { $ref: '#/components/schemas/ComplianceObligation' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /api/v1/compliance/obligation-regulation-links:
+    post:
+      tags: [Compliance]
+      operationId: linkComplianceObligationRegulation
+      summary: Create an audited obligation-to-regulation link
+      description: Relation links are write-only in this catalog API; no relation-list route is implemented.
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/LinkObligationRegulationRequest' } } } }
+      responses:
+        '200': { description: Created obligation-regulation link., content: { application/json: { schema: { $ref: '#/components/schemas/ObligationRegulationLink' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /api/v1/compliance/frameworks:
+    get:
+      tags: [Compliance]
+      operationId: listComplianceFrameworks
+      summary: List compliance frameworks
+      security: [{ bearerAuth: [] }]
+      parameters:
+      - { name: q, in: query, required: false, schema: { type: string } }
+      - { name: status, in: query, required: false, schema: { $ref: '#/components/schemas/FrameworkStatus' } }
+      - { name: kind, in: query, required: false, schema: { $ref: '#/components/schemas/FrameworkKind' } }
+      - { name: limit, in: query, required: false, schema: { type: integer, format: int64, minimum: 1, maximum: 1000, default: 100 } }
+      - { name: offset, in: query, required: false, schema: { type: integer, format: int64, minimum: 0, default: 0 } }
+      responses:
+        '200': { description: Paged frameworks., content: { application/json: { schema: { $ref: '#/components/schemas/ComplianceFrameworkPage' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+    post:
+      tags: [Compliance]
+      operationId: createComplianceFramework
+      summary: Create an audited compliance framework
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CreateComplianceFrameworkRequest' } } } }
+      responses:
+        '200': { description: Created framework., content: { application/json: { schema: { $ref: '#/components/schemas/ComplianceFramework' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /api/v1/compliance/framework-controls:
+    get:
+      tags: [Compliance]
+      operationId: listComplianceFrameworkControls
+      summary: List controls for one framework
+      security: [{ bearerAuth: [] }]
+      parameters:
+      - { name: framework_id, in: query, required: true, schema: { $ref: '#/components/schemas/Uuid' } }
+      - { name: q, in: query, required: false, schema: { type: string } }
+      - { name: status, in: query, required: false, schema: { $ref: '#/components/schemas/ControlStatus' } }
+      - { name: limit, in: query, required: false, schema: { type: integer, format: int64, minimum: 1, maximum: 1000, default: 100 } }
+      - { name: offset, in: query, required: false, schema: { type: integer, format: int64, minimum: 0, default: 0 } }
+      responses:
+        '200': { description: Paged controls for the framework., content: { application/json: { schema: { $ref: '#/components/schemas/ComplianceControlPage' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+    post:
+      tags: [Compliance]
+      operationId: createComplianceFrameworkControl
+      summary: Create an audited framework control
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CreateComplianceControlRequest' } } } }
+      responses:
+        '200': { description: Created framework control., content: { application/json: { schema: { $ref: '#/components/schemas/ComplianceControl' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /api/v1/compliance/control-obligation-coverage:
+    post:
+      tags: [Compliance]
+      operationId: linkComplianceControlObligation
+      summary: Create an audited control-to-obligation coverage link
+      description: Relation links are write-only in this catalog API; no coverage-list route is implemented.
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/LinkControlObligationRequest' } } } }
+      responses:
+        '200': { description: Created control-obligation coverage link., content: { application/json: { schema: { $ref: '#/components/schemas/ControlObligationCoverage' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+  /api/v1/compliance/evidence-bindings:
+    get:
+      tags: [Compliance]
+      operationId: listComplianceEvidenceBindings
+      summary: List compliance evidence bindings
+      security: [{ bearerAuth: [] }]
+      parameters:
+      - { name: control_id, in: query, required: false, schema: { $ref: '#/components/schemas/Uuid' } }
+      - { name: obligation_id, in: query, required: false, schema: { $ref: '#/components/schemas/Uuid' } }
+      - { name: target_type, in: query, required: false, schema: { $ref: '#/components/schemas/EvidenceTargetType' } }
+      - { name: status, in: query, required: false, schema: { $ref: '#/components/schemas/EvidenceBindingStatus' } }
+      - { name: limit, in: query, required: false, schema: { type: integer, format: int64, minimum: 1, maximum: 1000, default: 100 } }
+      - { name: offset, in: query, required: false, schema: { type: integer, format: int64, minimum: 0, default: 0 } }
+      responses:
+        '200': { description: Paged evidence bindings., content: { application/json: { schema: { $ref: '#/components/schemas/EvidenceBindingPage' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
+    post:
+      tags: [Compliance]
+      operationId: createComplianceEvidenceBinding
+      summary: Create an audited evidence binding
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/CreateEvidenceBindingRequest' } } } }
+      responses:
+        '200': { description: Created evidence binding., content: { application/json: { schema: { $ref: '#/components/schemas/EvidenceBinding' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '503': { $ref: '#/components/responses/ServiceUnavailable' }
   /api/v1/location-consent/status:
     get:
       tags:
@@ -13624,6 +13806,330 @@ components:
         tiers: { type: array, items: { $ref: '#/components/schemas/BenefitCatalogTier' } }
         conditions: { type: array, items: { $ref: '#/components/schemas/BenefitCatalogCondition' } }
         lifecycle: { $ref: '#/components/schemas/BenefitCatalogLifecycleBinding' }
+    ComplianceRiskLevel:
+      type: string
+      enum: [INFO, LOW, MEDIUM, HIGH, CRITICAL]
+    RegulationImpactStatus:
+      type: string
+      enum: [DRAFT, ACTIVE, SUPERSEDED, ARCHIVED]
+    ObligationType:
+      type: string
+      enum: [LEGAL, REGULATORY, CONTRACTUAL, INTERNAL_POLICY, CONTROL_REQUIREMENT]
+    ComplianceScopeKind:
+      type: string
+      enum: [ORG, BRANCH, SITE, TEAM, ROLE]
+    ObligationStatus:
+      type: string
+      enum: [DRAFT, ACTIVE, WAIVED, SUPERSEDED, ARCHIVED]
+    ReviewCadence:
+      type: string
+      enum: [MONTHLY, QUARTERLY, SEMI_ANNUAL, ANNUAL, EVENT_DRIVEN]
+    FrameworkKind:
+      type: string
+      enum: [LEGAL_BASELINE, INTERNAL_CONTROL, CUSTOMER_CONTROL, SECURITY_STANDARD, SAFETY_STANDARD, AUDIT_PROGRAM]
+    FrameworkStatus:
+      type: string
+      enum: [DRAFT, ACTIVE, RETIRED, ARCHIVED]
+    ControlType:
+      type: string
+      enum: [PREVENTIVE, DETECTIVE, CORRECTIVE, DIRECTIVE, COMPENSATING]
+    ControlCadence:
+      type: string
+      enum: [CONTINUOUS, DAILY, WEEKLY, MONTHLY, QUARTERLY, ANNUAL, EVENT_DRIVEN]
+    ControlStatus:
+      type: string
+      enum: [DRAFT, ACTIVE, RETIRED, ARCHIVED]
+    ObligationRegulationRelationship:
+      type: string
+      enum: [DERIVED_FROM, AMENDED_BY, SUPERSEDED_BY, INTERPRETS, EVIDENCES]
+    CoverageLevel:
+      type: string
+      enum: [PRIMARY, PARTIAL, SUPPORTING, COMPENSATING]
+    CoverageStatus:
+      type: string
+      enum: [ACTIVE, RETIRED]
+    EvidenceTargetType:
+      type: string
+      enum: [audit_event, evidence_media, workflow_run, workflow_task, object_link, governance_finding, external_document, future_ev_object]
+    EvidenceBindingStatus:
+      type: string
+      enum: [PROPOSED, ACCEPTED, REJECTED, EXPIRED, RETRACTED]
+    EvidenceConfidence:
+      type: string
+      enum: [LOW, MEDIUM, HIGH, SYSTEM]
+    ComplianceScope:
+      type: object
+      required: [kind]
+      properties:
+        kind: { $ref: '#/components/schemas/ComplianceScopeKind' }
+        scope_ref: { type: [string, 'null'], format: uuid }
+        branch_id: { type: [string, 'null'], format: uuid }
+        site_id: { type: [string, 'null'], format: uuid }
+      description: ORG carries no IDs; BRANCH requires matching branch_id and scope_ref; SITE requires branch_id and matching site_id/scope_ref. TEAM and ROLE are not accepted for writes yet.
+    RegulationImpact:
+      type: object
+      required: [id, code, title, jurisdiction, citation, impact_area, impact_summary, risk_level, status, metadata, created_by, updated_by, created_at, updated_at]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        code: { type: string }
+        title: { type: string }
+        jurisdiction: { type: string }
+        regulator: { type: [string, 'null'] }
+        citation: { type: string }
+        source_url: { type: [string, 'null'], format: uri }
+        impact_area: { type: string }
+        impact_summary: { type: string }
+        risk_level: { $ref: '#/components/schemas/ComplianceRiskLevel' }
+        status: { $ref: '#/components/schemas/RegulationImpactStatus' }
+        effective_from: { type: [string, 'null'], format: date }
+        effective_to: { type: [string, 'null'], format: date }
+        review_due_on: { type: [string, 'null'], format: date }
+        owner_user_id: { type: [string, 'null'], format: uuid }
+        metadata: { type: object, additionalProperties: true }
+        created_by: { $ref: '#/components/schemas/Uuid' }
+        updated_by: { $ref: '#/components/schemas/Uuid' }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+    ComplianceObligation:
+      type: object
+      required: [id, code, title, description, obligation_type, scope, severity, status, metadata, created_by, updated_by, created_at, updated_at]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        code: { type: string }
+        title: { type: string }
+        description: { type: string }
+        obligation_type: { $ref: '#/components/schemas/ObligationType' }
+        scope: { $ref: '#/components/schemas/ComplianceScope' }
+        owner_user_id: { type: [string, 'null'], format: uuid }
+        severity: { $ref: '#/components/schemas/ComplianceRiskLevel' }
+        status: { $ref: '#/components/schemas/ObligationStatus' }
+        effective_from: { type: [string, 'null'], format: date }
+        effective_to: { type: [string, 'null'], format: date }
+        review_cadence: { type: [string, 'null'], enum: [MONTHLY, QUARTERLY, SEMI_ANNUAL, ANNUAL, EVENT_DRIVEN, null] }
+        next_review_on: { type: [string, 'null'], format: date }
+        metadata: { type: object, additionalProperties: true }
+        created_by: { $ref: '#/components/schemas/Uuid' }
+        updated_by: { $ref: '#/components/schemas/Uuid' }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+    ObligationRegulationLink:
+      type: object
+      required: [id, obligation_id, regulation_impact_id, relationship, created_by, created_at]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        obligation_id: { $ref: '#/components/schemas/Uuid' }
+        regulation_impact_id: { $ref: '#/components/schemas/Uuid' }
+        relationship: { $ref: '#/components/schemas/ObligationRegulationRelationship' }
+        rationale: { type: [string, 'null'] }
+        created_by: { $ref: '#/components/schemas/Uuid' }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+    ComplianceFramework:
+      type: object
+      required: [id, code, name, version_label, framework_kind, status, metadata, created_by, updated_by, created_at, updated_at]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        code: { type: string }
+        name: { type: string }
+        version_label: { type: string }
+        framework_kind: { $ref: '#/components/schemas/FrameworkKind' }
+        status: { $ref: '#/components/schemas/FrameworkStatus' }
+        owner_user_id: { type: [string, 'null'], format: uuid }
+        effective_from: { type: [string, 'null'], format: date }
+        effective_to: { type: [string, 'null'], format: date }
+        metadata: { type: object, additionalProperties: true }
+        created_by: { $ref: '#/components/schemas/Uuid' }
+        updated_by: { $ref: '#/components/schemas/Uuid' }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+    ComplianceControl:
+      type: object
+      required: [id, framework_id, control_key, title, objective, control_type, status, evidence_requirements, created_by, updated_by, created_at, updated_at]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        framework_id: { $ref: '#/components/schemas/Uuid' }
+        control_key: { type: string }
+        title: { type: string }
+        objective: { type: string }
+        control_type: { $ref: '#/components/schemas/ControlType' }
+        cadence: { type: [string, 'null'], enum: [CONTINUOUS, DAILY, WEEKLY, MONTHLY, QUARTERLY, ANNUAL, EVENT_DRIVEN, null] }
+        status: { $ref: '#/components/schemas/ControlStatus' }
+        evidence_requirements: { type: object, additionalProperties: true }
+        owner_user_id: { type: [string, 'null'], format: uuid }
+        created_by: { $ref: '#/components/schemas/Uuid' }
+        updated_by: { $ref: '#/components/schemas/Uuid' }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+    ControlObligationCoverage:
+      type: object
+      required: [id, control_id, obligation_id, coverage_level, status, created_by, updated_by, created_at, updated_at]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        control_id: { $ref: '#/components/schemas/Uuid' }
+        obligation_id: { $ref: '#/components/schemas/Uuid' }
+        coverage_level: { $ref: '#/components/schemas/CoverageLevel' }
+        coverage_rationale: { type: [string, 'null'] }
+        status: { $ref: '#/components/schemas/CoverageStatus' }
+        created_by: { $ref: '#/components/schemas/Uuid' }
+        updated_by: { $ref: '#/components/schemas/Uuid' }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+    EvidenceBinding:
+      type: object
+      required: [id, control_id, evidence_target_type, evidence_target_id, status, confidence, metadata, created_by, updated_by, created_at, updated_at]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        control_id: { $ref: '#/components/schemas/Uuid' }
+        obligation_id: { type: [string, 'null'], format: uuid }
+        evidence_target_type: { $ref: '#/components/schemas/EvidenceTargetType' }
+        evidence_target_id: { type: string }
+        source_audit_event_id: { type: [string, 'null'], format: uuid }
+        status: { $ref: '#/components/schemas/EvidenceBindingStatus' }
+        confidence: { $ref: '#/components/schemas/EvidenceConfidence' }
+        collected_at: { type: [string, 'null'], format: date-time }
+        collected_by: { type: [string, 'null'], format: uuid }
+        valid_from: { type: [string, 'null'], format: date }
+        valid_to: { type: [string, 'null'], format: date }
+        hash_sha256: { type: [string, 'null'] }
+        metadata: { type: object, additionalProperties: true }
+        created_by: { $ref: '#/components/schemas/Uuid' }
+        updated_by: { $ref: '#/components/schemas/Uuid' }
+        created_at: { $ref: '#/components/schemas/Timestamp' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+    RegulationImpactPage:
+      type: object
+      required: [items, limit, offset, total]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/RegulationImpact' } }
+        limit: { type: integer, format: int64 }
+        offset: { type: integer, format: int64 }
+        total: { type: integer, format: int64 }
+    ComplianceObligationPage:
+      type: object
+      required: [items, limit, offset, total]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/ComplianceObligation' } }
+        limit: { type: integer, format: int64 }
+        offset: { type: integer, format: int64 }
+        total: { type: integer, format: int64 }
+    ComplianceFrameworkPage:
+      type: object
+      required: [items, limit, offset, total]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/ComplianceFramework' } }
+        limit: { type: integer, format: int64 }
+        offset: { type: integer, format: int64 }
+        total: { type: integer, format: int64 }
+    ComplianceControlPage:
+      type: object
+      required: [items, limit, offset, total]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/ComplianceControl' } }
+        limit: { type: integer, format: int64 }
+        offset: { type: integer, format: int64 }
+        total: { type: integer, format: int64 }
+    EvidenceBindingPage:
+      type: object
+      required: [items, limit, offset, total]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/EvidenceBinding' } }
+        limit: { type: integer, format: int64 }
+        offset: { type: integer, format: int64 }
+        total: { type: integer, format: int64 }
+    CreateRegulationImpactRequest:
+      type: object
+      required: [title, jurisdiction, citation, impact_area, impact_summary, risk_level]
+      properties:
+        title: { type: string }
+        jurisdiction: { type: string }
+        regulator: { type: [string, 'null'] }
+        citation: { type: string }
+        source_url: { type: [string, 'null'], format: uri }
+        impact_area: { type: string }
+        impact_summary: { type: string }
+        risk_level: { $ref: '#/components/schemas/ComplianceRiskLevel' }
+        effective_from: { type: [string, 'null'], format: date }
+        effective_to: { type: [string, 'null'], format: date }
+        review_due_on: { type: [string, 'null'], format: date }
+        owner_user_id: { type: [string, 'null'], format: uuid }
+        metadata: { type: object, additionalProperties: true }
+    RegulationLinkRequest:
+      type: object
+      required: [regulation_impact_id, relationship]
+      properties:
+        regulation_impact_id: { $ref: '#/components/schemas/Uuid' }
+        relationship: { $ref: '#/components/schemas/ObligationRegulationRelationship' }
+        rationale: { type: [string, 'null'] }
+    CreateComplianceObligationRequest:
+      type: object
+      required: [title, description, obligation_type, scope, severity]
+      properties:
+        title: { type: string }
+        description: { type: string }
+        obligation_type: { $ref: '#/components/schemas/ObligationType' }
+        scope: { $ref: '#/components/schemas/ComplianceScope' }
+        owner_user_id: { type: [string, 'null'], format: uuid }
+        severity: { $ref: '#/components/schemas/ComplianceRiskLevel' }
+        effective_from: { type: [string, 'null'], format: date }
+        effective_to: { type: [string, 'null'], format: date }
+        review_cadence: { type: [string, 'null'], enum: [MONTHLY, QUARTERLY, SEMI_ANNUAL, ANNUAL, EVENT_DRIVEN, null] }
+        next_review_on: { type: [string, 'null'], format: date }
+        metadata: { type: object, additionalProperties: true }
+        regulation_links: { type: array, items: { $ref: '#/components/schemas/RegulationLinkRequest' }, default: [] }
+    LinkObligationRegulationRequest:
+      type: object
+      required: [obligation_id, regulation_impact_id, relationship]
+      properties:
+        obligation_id: { $ref: '#/components/schemas/Uuid' }
+        regulation_impact_id: { $ref: '#/components/schemas/Uuid' }
+        relationship: { $ref: '#/components/schemas/ObligationRegulationRelationship' }
+        rationale: { type: [string, 'null'] }
+    CreateComplianceFrameworkRequest:
+      type: object
+      required: [name, version_label, framework_kind]
+      properties:
+        name: { type: string }
+        version_label: { type: string }
+        framework_kind: { $ref: '#/components/schemas/FrameworkKind' }
+        owner_user_id: { type: [string, 'null'], format: uuid }
+        effective_from: { type: [string, 'null'], format: date }
+        effective_to: { type: [string, 'null'], format: date }
+        metadata: { type: object, additionalProperties: true }
+    CreateComplianceControlRequest:
+      type: object
+      required: [framework_id, control_key, title, objective, control_type]
+      properties:
+        framework_id: { $ref: '#/components/schemas/Uuid' }
+        control_key: { type: string }
+        title: { type: string }
+        objective: { type: string }
+        control_type: { $ref: '#/components/schemas/ControlType' }
+        cadence: { type: [string, 'null'], enum: [CONTINUOUS, DAILY, WEEKLY, MONTHLY, QUARTERLY, ANNUAL, EVENT_DRIVEN, null] }
+        evidence_requirements: { type: object, additionalProperties: true }
+        owner_user_id: { type: [string, 'null'], format: uuid }
+    LinkControlObligationRequest:
+      type: object
+      required: [control_id, obligation_id, coverage_level]
+      properties:
+        control_id: { $ref: '#/components/schemas/Uuid' }
+        obligation_id: { $ref: '#/components/schemas/Uuid' }
+        coverage_level: { $ref: '#/components/schemas/CoverageLevel' }
+        coverage_rationale: { type: [string, 'null'] }
+    CreateEvidenceBindingRequest:
+      type: object
+      required: [control_id, evidence_target_type, evidence_target_id, confidence]
+      properties:
+        control_id: { $ref: '#/components/schemas/Uuid' }
+        obligation_id: { type: [string, 'null'], format: uuid }
+        evidence_target_type: { $ref: '#/components/schemas/EvidenceTargetType' }
+        evidence_target_id: { type: string }
+        source_audit_event_id: { type: [string, 'null'], format: uuid }
+        confidence: { $ref: '#/components/schemas/EvidenceConfidence' }
+        collected_at: { type: [string, 'null'], format: date-time }
+        collected_by: { type: [string, 'null'], format: uuid }
+        valid_from: { type: [string, 'null'], format: date }
+        valid_to: { type: [string, 'null'], format: date }
+        hash_sha256: { type: [string, 'null'] }
+        metadata: { type: object, additionalProperties: true }
     LeaveCreateRequest:
       type: object
       description: >-

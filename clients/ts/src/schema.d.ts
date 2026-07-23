@@ -1437,6 +1437,136 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/compliance/regulations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List RLS-scoped regulation impacts */
+        get: operations["listComplianceRegulations"];
+        put?: never;
+        /** Create an audited regulation impact */
+        post: operations["createComplianceRegulation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/compliance/obligations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List RLS-scoped compliance obligations */
+        get: operations["listComplianceObligations"];
+        put?: never;
+        /** Create an audited obligation and optional regulation links */
+        post: operations["createComplianceObligation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/compliance/obligation-regulation-links": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create an audited obligation-to-regulation link
+         * @description Relation links are write-only in this catalog API; no relation-list route is implemented.
+         */
+        post: operations["linkComplianceObligationRegulation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/compliance/frameworks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List compliance frameworks */
+        get: operations["listComplianceFrameworks"];
+        put?: never;
+        /** Create an audited compliance framework */
+        post: operations["createComplianceFramework"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/compliance/framework-controls": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List controls for one framework */
+        get: operations["listComplianceFrameworkControls"];
+        put?: never;
+        /** Create an audited framework control */
+        post: operations["createComplianceFrameworkControl"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/compliance/control-obligation-coverage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Create an audited control-to-obligation coverage link
+         * @description Relation links are write-only in this catalog API; no coverage-list route is implemented.
+         */
+        post: operations["linkComplianceControlObligation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/compliance/evidence-bindings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List compliance evidence bindings */
+        get: operations["listComplianceEvidenceBindings"];
+        put?: never;
+        /** Create an audited evidence binding */
+        post: operations["createComplianceEvidenceBinding"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/location-consent/status": {
         parameters: {
             query?: never;
@@ -7147,6 +7277,374 @@ export interface components {
             tiers: components["schemas"]["BenefitCatalogTier"][];
             conditions: components["schemas"]["BenefitCatalogCondition"][];
             lifecycle: components["schemas"]["BenefitCatalogLifecycleBinding"];
+        };
+        /** @description A self-service leave-request filing. The subject employee and branch are NOT accepted here — they are resolved from the authenticated caller. */
+        LeaveCreateRequest: {
+            /**
+             * Format: uuid
+             * @description Stable client submission id. Reuse it only to retry the same canonical client intent after an unknown or lost response.
+             */
+            idempotency_key: string;
+            /**
+             * @description Full-day or partial-day intent; quantity is resolved only from evidence.
+             * @enum {string}
+             */
+            leave_type: "annual" | "half_day";
+            /**
+             * @description Required exactly when leave_type is half_day.
+             * @enum {string|null}
+             */
+            partial_day_period?: "am" | "pm" | null;
+            /**
+             * Format: date
+             * @description YYYY-MM-DD. A half-day request must use the same start and end date.
+             */
+            start_date: string;
+        /** @enum {string} */
+        ComplianceRiskLevel: "INFO" | "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
+        /** @enum {string} */
+        RegulationImpactStatus: "DRAFT" | "ACTIVE" | "SUPERSEDED" | "ARCHIVED";
+        /** @enum {string} */
+        ObligationType: "LEGAL" | "REGULATORY" | "CONTRACTUAL" | "INTERNAL_POLICY" | "CONTROL_REQUIREMENT";
+        /** @enum {string} */
+        ComplianceScopeKind: "ORG" | "BRANCH" | "SITE" | "TEAM" | "ROLE";
+        /** @enum {string} */
+        ObligationStatus: "DRAFT" | "ACTIVE" | "WAIVED" | "SUPERSEDED" | "ARCHIVED";
+        /** @enum {string} */
+        ReviewCadence: "MONTHLY" | "QUARTERLY" | "SEMI_ANNUAL" | "ANNUAL" | "EVENT_DRIVEN";
+        /** @enum {string} */
+        FrameworkKind: "LEGAL_BASELINE" | "INTERNAL_CONTROL" | "CUSTOMER_CONTROL" | "SECURITY_STANDARD" | "SAFETY_STANDARD" | "AUDIT_PROGRAM";
+        /** @enum {string} */
+        FrameworkStatus: "DRAFT" | "ACTIVE" | "RETIRED" | "ARCHIVED";
+        /** @enum {string} */
+        ControlType: "PREVENTIVE" | "DETECTIVE" | "CORRECTIVE" | "DIRECTIVE" | "COMPENSATING";
+        /** @enum {string} */
+        ControlCadence: "CONTINUOUS" | "DAILY" | "WEEKLY" | "MONTHLY" | "QUARTERLY" | "ANNUAL" | "EVENT_DRIVEN";
+        /** @enum {string} */
+        ControlStatus: "DRAFT" | "ACTIVE" | "RETIRED" | "ARCHIVED";
+        /** @enum {string} */
+        ObligationRegulationRelationship: "DERIVED_FROM" | "AMENDED_BY" | "SUPERSEDED_BY" | "INTERPRETS" | "EVIDENCES";
+        /** @enum {string} */
+        CoverageLevel: "PRIMARY" | "PARTIAL" | "SUPPORTING" | "COMPENSATING";
+        /** @enum {string} */
+        CoverageStatus: "ACTIVE" | "RETIRED";
+        /** @enum {string} */
+        EvidenceTargetType: "audit_event" | "evidence_media" | "workflow_run" | "workflow_task" | "object_link" | "governance_finding" | "external_document" | "future_ev_object";
+        /** @enum {string} */
+        EvidenceBindingStatus: "PROPOSED" | "ACCEPTED" | "REJECTED" | "EXPIRED" | "RETRACTED";
+        /** @enum {string} */
+        EvidenceConfidence: "LOW" | "MEDIUM" | "HIGH" | "SYSTEM";
+        /** @description ORG carries no IDs; BRANCH requires matching branch_id and scope_ref; SITE requires branch_id and matching site_id/scope_ref. TEAM and ROLE are not accepted for writes yet. */
+        ComplianceScope: {
+            kind: components["schemas"]["ComplianceScopeKind"];
+            /** Format: uuid */
+            scope_ref?: string | null;
+            /** Format: uuid */
+            branch_id?: string | null;
+            /** Format: uuid */
+            site_id?: string | null;
+        };
+        RegulationImpact: {
+            id: components["schemas"]["Uuid"];
+            code: string;
+            title: string;
+            jurisdiction: string;
+            regulator?: string | null;
+            citation: string;
+            /** Format: uri */
+            source_url?: string | null;
+            impact_area: string;
+            impact_summary: string;
+            risk_level: components["schemas"]["ComplianceRiskLevel"];
+            status: components["schemas"]["RegulationImpactStatus"];
+            /** Format: date */
+            effective_from?: string | null;
+            /** Format: date */
+            effective_to?: string | null;
+            /** Format: date */
+            review_due_on?: string | null;
+            /** Format: uuid */
+            owner_user_id?: string | null;
+            metadata: {
+                [key: string]: unknown;
+            };
+            created_by: components["schemas"]["Uuid"];
+            updated_by: components["schemas"]["Uuid"];
+            created_at: components["schemas"]["Timestamp"];
+            updated_at: components["schemas"]["Timestamp"];
+        };
+        ComplianceObligation: {
+            id: components["schemas"]["Uuid"];
+            code: string;
+            title: string;
+            description: string;
+            obligation_type: components["schemas"]["ObligationType"];
+            scope: components["schemas"]["ComplianceScope"];
+            /** Format: uuid */
+            owner_user_id?: string | null;
+            severity: components["schemas"]["ComplianceRiskLevel"];
+            status: components["schemas"]["ObligationStatus"];
+            /** Format: date */
+            effective_from?: string | null;
+            /** Format: date */
+            effective_to?: string | null;
+            /** @enum {string|null} */
+            review_cadence?: "MONTHLY" | "QUARTERLY" | "SEMI_ANNUAL" | "ANNUAL" | "EVENT_DRIVEN" | null;
+            /** Format: date */
+            next_review_on?: string | null;
+            metadata: {
+                [key: string]: unknown;
+            };
+            created_by: components["schemas"]["Uuid"];
+            updated_by: components["schemas"]["Uuid"];
+            created_at: components["schemas"]["Timestamp"];
+            updated_at: components["schemas"]["Timestamp"];
+        };
+        ObligationRegulationLink: {
+            id: components["schemas"]["Uuid"];
+            obligation_id: components["schemas"]["Uuid"];
+            regulation_impact_id: components["schemas"]["Uuid"];
+            relationship: components["schemas"]["ObligationRegulationRelationship"];
+            rationale?: string | null;
+            created_by: components["schemas"]["Uuid"];
+            created_at: components["schemas"]["Timestamp"];
+        };
+        ComplianceFramework: {
+            id: components["schemas"]["Uuid"];
+            code: string;
+            name: string;
+            version_label: string;
+            framework_kind: components["schemas"]["FrameworkKind"];
+            status: components["schemas"]["FrameworkStatus"];
+            /** Format: uuid */
+            owner_user_id?: string | null;
+            /** Format: date */
+            effective_from?: string | null;
+            /** Format: date */
+            effective_to?: string | null;
+            metadata: {
+                [key: string]: unknown;
+            };
+            created_by: components["schemas"]["Uuid"];
+            updated_by: components["schemas"]["Uuid"];
+            created_at: components["schemas"]["Timestamp"];
+            updated_at: components["schemas"]["Timestamp"];
+        };
+        ComplianceControl: {
+            id: components["schemas"]["Uuid"];
+            framework_id: components["schemas"]["Uuid"];
+            control_key: string;
+            title: string;
+            objective: string;
+            control_type: components["schemas"]["ControlType"];
+            /** @enum {string|null} */
+            cadence?: "CONTINUOUS" | "DAILY" | "WEEKLY" | "MONTHLY" | "QUARTERLY" | "ANNUAL" | "EVENT_DRIVEN" | null;
+            status: components["schemas"]["ControlStatus"];
+            evidence_requirements: {
+                [key: string]: unknown;
+            };
+            /** Format: uuid */
+            owner_user_id?: string | null;
+            created_by: components["schemas"]["Uuid"];
+            updated_by: components["schemas"]["Uuid"];
+            created_at: components["schemas"]["Timestamp"];
+            updated_at: components["schemas"]["Timestamp"];
+        };
+        ControlObligationCoverage: {
+            id: components["schemas"]["Uuid"];
+            control_id: components["schemas"]["Uuid"];
+            obligation_id: components["schemas"]["Uuid"];
+            coverage_level: components["schemas"]["CoverageLevel"];
+            coverage_rationale?: string | null;
+            status: components["schemas"]["CoverageStatus"];
+            created_by: components["schemas"]["Uuid"];
+            updated_by: components["schemas"]["Uuid"];
+            created_at: components["schemas"]["Timestamp"];
+            updated_at: components["schemas"]["Timestamp"];
+        };
+        EvidenceBinding: {
+            id: components["schemas"]["Uuid"];
+            control_id: components["schemas"]["Uuid"];
+            /** Format: uuid */
+            obligation_id?: string | null;
+            evidence_target_type: components["schemas"]["EvidenceTargetType"];
+            evidence_target_id: string;
+            /** Format: uuid */
+            source_audit_event_id?: string | null;
+            status: components["schemas"]["EvidenceBindingStatus"];
+            confidence: components["schemas"]["EvidenceConfidence"];
+            /** Format: date-time */
+            collected_at?: string | null;
+            /** Format: uuid */
+            collected_by?: string | null;
+            /** Format: date */
+            valid_from?: string | null;
+            /** Format: date */
+            valid_to?: string | null;
+            hash_sha256?: string | null;
+            metadata: {
+                [key: string]: unknown;
+            };
+            created_by: components["schemas"]["Uuid"];
+            updated_by: components["schemas"]["Uuid"];
+            created_at: components["schemas"]["Timestamp"];
+            updated_at: components["schemas"]["Timestamp"];
+        };
+        RegulationImpactPage: {
+            items: components["schemas"]["RegulationImpact"][];
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            offset: number;
+            /** Format: int64 */
+            total: number;
+        };
+        ComplianceObligationPage: {
+            items: components["schemas"]["ComplianceObligation"][];
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            offset: number;
+            /** Format: int64 */
+            total: number;
+        };
+        ComplianceFrameworkPage: {
+            items: components["schemas"]["ComplianceFramework"][];
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            offset: number;
+            /** Format: int64 */
+            total: number;
+        };
+        ComplianceControlPage: {
+            items: components["schemas"]["ComplianceControl"][];
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            offset: number;
+            /** Format: int64 */
+            total: number;
+        };
+        EvidenceBindingPage: {
+            items: components["schemas"]["EvidenceBinding"][];
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            offset: number;
+            /** Format: int64 */
+            total: number;
+        };
+        CreateRegulationImpactRequest: {
+            title: string;
+            jurisdiction: string;
+            regulator?: string | null;
+            citation: string;
+            /** Format: uri */
+            source_url?: string | null;
+            impact_area: string;
+            impact_summary: string;
+            risk_level: components["schemas"]["ComplianceRiskLevel"];
+            /** Format: date */
+            effective_from?: string | null;
+            /** Format: date */
+            effective_to?: string | null;
+            /** Format: date */
+            review_due_on?: string | null;
+            /** Format: uuid */
+            owner_user_id?: string | null;
+            metadata?: {
+                [key: string]: unknown;
+            };
+        };
+        RegulationLinkRequest: {
+            regulation_impact_id: components["schemas"]["Uuid"];
+            relationship: components["schemas"]["ObligationRegulationRelationship"];
+            rationale?: string | null;
+        };
+        CreateComplianceObligationRequest: {
+            title: string;
+            description: string;
+            obligation_type: components["schemas"]["ObligationType"];
+            scope: components["schemas"]["ComplianceScope"];
+            /** Format: uuid */
+            owner_user_id?: string | null;
+            severity: components["schemas"]["ComplianceRiskLevel"];
+            /** Format: date */
+            effective_from?: string | null;
+            /** Format: date */
+            effective_to?: string | null;
+            /** @enum {string|null} */
+            review_cadence?: "MONTHLY" | "QUARTERLY" | "SEMI_ANNUAL" | "ANNUAL" | "EVENT_DRIVEN" | null;
+            /** Format: date */
+            next_review_on?: string | null;
+            metadata?: {
+                [key: string]: unknown;
+            };
+            /** @default [] */
+            regulation_links: components["schemas"]["RegulationLinkRequest"][];
+        };
+        LinkObligationRegulationRequest: {
+            obligation_id: components["schemas"]["Uuid"];
+            regulation_impact_id: components["schemas"]["Uuid"];
+            relationship: components["schemas"]["ObligationRegulationRelationship"];
+            rationale?: string | null;
+        };
+        CreateComplianceFrameworkRequest: {
+            name: string;
+            version_label: string;
+            framework_kind: components["schemas"]["FrameworkKind"];
+            /** Format: uuid */
+            owner_user_id?: string | null;
+            /** Format: date */
+            effective_from?: string | null;
+            /** Format: date */
+            effective_to?: string | null;
+            metadata?: {
+                [key: string]: unknown;
+            };
+        };
+        CreateComplianceControlRequest: {
+            framework_id: components["schemas"]["Uuid"];
+            control_key: string;
+            title: string;
+            objective: string;
+            control_type: components["schemas"]["ControlType"];
+            /** @enum {string|null} */
+            cadence?: "CONTINUOUS" | "DAILY" | "WEEKLY" | "MONTHLY" | "QUARTERLY" | "ANNUAL" | "EVENT_DRIVEN" | null;
+            evidence_requirements?: {
+                [key: string]: unknown;
+            };
+            /** Format: uuid */
+            owner_user_id?: string | null;
+        };
+        LinkControlObligationRequest: {
+            control_id: components["schemas"]["Uuid"];
+            obligation_id: components["schemas"]["Uuid"];
+            coverage_level: components["schemas"]["CoverageLevel"];
+            coverage_rationale?: string | null;
+        };
+        CreateEvidenceBindingRequest: {
+            control_id: components["schemas"]["Uuid"];
+            /** Format: uuid */
+            obligation_id?: string | null;
+            evidence_target_type: components["schemas"]["EvidenceTargetType"];
+            evidence_target_id: string;
+            /** Format: uuid */
+            source_audit_event_id?: string | null;
+            confidence: components["schemas"]["EvidenceConfidence"];
+            /** Format: date-time */
+            collected_at?: string | null;
+            /** Format: uuid */
+            collected_by?: string | null;
+            /** Format: date */
+            valid_from?: string | null;
+            /** Format: date */
+            valid_to?: string | null;
+            hash_sha256?: string | null;
+            metadata?: {
+                [key: string]: unknown;
+            };
         };
         /** @description A self-service leave-request filing. The subject employee and branch are NOT accepted here — they are resolved from the authenticated caller. */
         LeaveCreateRequest: {
@@ -15509,6 +16007,356 @@ export interface operations {
             };
             400: components["responses"]["ValidationError"];
             401: components["responses"]["Unauthorized"];
+        };
+    };
+    listComplianceRegulations: {
+        parameters: {
+            query?: {
+                q?: string;
+                status?: components["schemas"]["RegulationImpactStatus"];
+                risk_level?: components["schemas"]["ComplianceRiskLevel"];
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paged regulation impacts visible to the principal. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegulationImpactPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    createComplianceRegulation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateRegulationImpactRequest"];
+            };
+        };
+        responses: {
+            /** @description Created regulation impact. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RegulationImpact"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    listComplianceObligations: {
+        parameters: {
+            query?: {
+                q?: string;
+                status?: components["schemas"]["ObligationStatus"];
+                severity?: components["schemas"]["ComplianceRiskLevel"];
+                scope_type?: components["schemas"]["ComplianceScopeKind"];
+                branch_id?: components["schemas"]["Uuid"];
+                site_id?: components["schemas"]["Uuid"];
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paged obligations within the principal branch scope. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComplianceObligationPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    createComplianceObligation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateComplianceObligationRequest"];
+            };
+        };
+        responses: {
+            /** @description Created obligation. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComplianceObligation"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    linkComplianceObligationRegulation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LinkObligationRegulationRequest"];
+            };
+        };
+        responses: {
+            /** @description Created obligation-regulation link. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ObligationRegulationLink"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    listComplianceFrameworks: {
+        parameters: {
+            query?: {
+                q?: string;
+                status?: components["schemas"]["FrameworkStatus"];
+                kind?: components["schemas"]["FrameworkKind"];
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paged frameworks. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComplianceFrameworkPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    createComplianceFramework: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateComplianceFrameworkRequest"];
+            };
+        };
+        responses: {
+            /** @description Created framework. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComplianceFramework"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    listComplianceFrameworkControls: {
+        parameters: {
+            query: {
+                framework_id: components["schemas"]["Uuid"];
+                q?: string;
+                status?: components["schemas"]["ControlStatus"];
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paged controls for the framework. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComplianceControlPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    createComplianceFrameworkControl: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateComplianceControlRequest"];
+            };
+        };
+        responses: {
+            /** @description Created framework control. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ComplianceControl"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    linkComplianceControlObligation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LinkControlObligationRequest"];
+            };
+        };
+        responses: {
+            /** @description Created control-obligation coverage link. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ControlObligationCoverage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    listComplianceEvidenceBindings: {
+        parameters: {
+            query?: {
+                control_id?: components["schemas"]["Uuid"];
+                obligation_id?: components["schemas"]["Uuid"];
+                target_type?: components["schemas"]["EvidenceTargetType"];
+                status?: components["schemas"]["EvidenceBindingStatus"];
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Paged evidence bindings. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvidenceBindingPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            503: components["responses"]["ServiceUnavailable"];
+        };
+    };
+    createComplianceEvidenceBinding: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateEvidenceBindingRequest"];
+            };
+        };
+        responses: {
+            /** @description Created evidence binding. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EvidenceBinding"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            503: components["responses"]["ServiceUnavailable"];
         };
     };
     getLocationConsentStatus: {
