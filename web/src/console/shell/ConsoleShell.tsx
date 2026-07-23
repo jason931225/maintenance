@@ -116,7 +116,8 @@ export function ConsoleShell({
   // becomes an explicit drawer on mobile. The user's desktop/tablet toggle is
   // intentionally session-local until there is a product preference contract.
   const [railUser, setRailUser] = useState<boolean | null>(null);
-  const railOpen = !narrow && (railUser ?? true);
+  const railOpen = railUser ?? !narrow;
+  const expandedRailWidth = narrow ? 300 : shellLayout.rail;
   const activeDrawer = mobile ? drawer : null;
   const sidebarRef = useRef<HTMLDivElement>(null);
   const railRef = useRef<HTMLElement>(null);
@@ -300,7 +301,9 @@ export function ConsoleShell({
           type="button"
           aria-label={S.drawer.close}
           data-cshell-drawer-backdrop
-          onClick={() => closeDrawer()}
+          onClick={() => {
+            closeDrawer();
+          }}
         />
       )}
       <Sidebar
@@ -407,7 +410,7 @@ export function ConsoleShell({
           flex: "none",
           // `width` + `maxWidth` is equivalent to the prototype's
           // min(320px, 86vw) and remains measurable in jsdom/browser tests.
-          width: mobile ? "86vw" : railOpen ? shellLayout.rail : 54,
+          width: mobile ? "86vw" : railOpen ? expandedRailWidth : 54,
           maxWidth: mobile ? 320 : undefined,
           borderLeft: "1px solid var(--border)",
           background: "var(--surface)",

@@ -411,6 +411,11 @@ describe("ConsoleShell chrome", () => {
     const rail = document.querySelector("[data-cshell-rail]");
     expect(rail).not.toHaveAttribute("data-cshell-rail-open");
     expect(screen.getByRole("button", { name: "커뮤니케이션 펼치기" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "커뮤니케이션 펼치기" }));
+    expect(rail).toHaveAttribute("data-cshell-rail-open", "true");
+    expect(rail).toHaveStyle({ width: "300px" });
+    expect(screen.getByText("커뮤니케이션")).toBeVisible();
   });
 
   it("lets a compact sidebar expand to the full 236px navigation width", () => {
