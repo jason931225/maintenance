@@ -130,13 +130,16 @@ describe("MessengerConsoleScreen", () => {
           ? staleMessages.promise
           : Promise.resolve({ items: [message({ thread_id: threadId })], next_cursor: null });
       }),
-      markRead: vi.fn(async (threadId: string) => {
+      markRead: vi.fn((threadId: string) => {
         observed.readThreadIds.push(threadId);
+        return Promise.resolve();
       }),
     });
     const view = renderDeferredMessenger(api, "thread-channel");
 
-    await waitFor(() => expect(observed.messageThreadIds).toEqual(["thread-channel"]));
+    await waitFor(() => {
+      expect(observed.messageThreadIds).toEqual(["thread-channel"]);
+    });
     view.rerender(renderDeferredMessengerTree(api, "thread-dm"));
     expect(await screen.findByRole("region", { name: "김성호 대화" })).toBeVisible();
 
@@ -161,13 +164,16 @@ describe("MessengerConsoleScreen", () => {
         observed.messageThreadIds.push(threadId);
         return staleMessages.promise;
       }),
-      markRead: vi.fn(async (threadId: string) => {
+      markRead: vi.fn((threadId: string) => {
         observed.readThreadIds.push(threadId);
+        return Promise.resolve();
       }),
     });
     const view = renderDeferredMessenger(api, "thread-channel");
 
-    await waitFor(() => expect(observed.messageThreadIds).toEqual(["thread-channel"]));
+    await waitFor(() => {
+      expect(observed.messageThreadIds).toEqual(["thread-channel"]);
+    });
     view.rerender(renderDeferredMessengerTree(api, "thread-missing"));
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "요청한 대화에 접근할 수 없거나 더 이상 존재하지 않습니다.",
@@ -338,21 +344,36 @@ function renderDeferredMessengerTree(api: MessengerConsoleApi, requestedThreadId
 
 function deferredApi(overrides: Partial<MessengerConsoleApi>): MessengerConsoleApi {
   return {
-    listThreads: async () => [],
-    listChannels: async () => [],
-    joinChannel: async () => thread({}),
-    listMessages: async () => ({ items: [], next_cursor: null }),
-    markRead: async () => {},
-    listPresence: async () => [],
-    listMembers: async () => [],
-    searchMessages: async () => [],
-    sendMessage: async () => message({}),
-    toggleAck: async () => ({ message_id: "msg-1", thread_id: "thread-channel", acked: false, ack_count: 0 }),
-    setMute: async () => ({ thread_id: "thread-channel", muted: false }),
-    createTodo: async () => ({
-      id: "todo-1", owner_user_id: "user-me", text: "", scopes: [], links: [], done: false,
-      created_at: "2026-07-09T09:00:00Z", updated_at: "2026-07-09T09:00:00Z", done_at: null,
-    }),
+    listThreads: () => Promise.resolve([]),
+    listChannels: () => Promise.resolve([]),
+    joinChannel: () => Promise.resolve(thread({})),
+    listMessages: () => Promise.resolve({ items: [], next_cursor: null }),
+    markRead: () => Promise.resolve(),
+    listPresence: () => Promise.resolve([]),
+    listMembers: () => Promise.resolve([]),
+    searchMessages: () => Promise.resolve([]),
+    sendMessage: () => Promise.resolve(message({})),
+    toggleAck: () =>
+      Promise.resolve({
+        message_id: "msg-1",
+        thread_id: "thread-channel",
+        acked: false,
+        ack_count: 0,
+      }),
+    setMute: () =>
+      Promise.resolve({ thread_id: "thread-channel", muted: false }),
+    createTodo: () =>
+      Promise.resolve({
+        id: "todo-1",
+        owner_user_id: "user-me",
+        text: "",
+        scopes: [],
+        links: [],
+        done: false,
+        created_at: "2026-07-09T09:00:00Z",
+        updated_at: "2026-07-09T09:00:00Z",
+        done_at: null,
+      }),
     ...overrides,
   };
 }
