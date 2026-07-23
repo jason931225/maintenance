@@ -11,6 +11,12 @@ interface ImportMetaEnv {
   readonly VITE_CONSOLE_HOST?: string;
   /** Explicit release cycle label used by staged-rollout RUM/adoption telemetry. */
   readonly VITE_RELEASE_CYCLE?: string;
+  /**
+   * Local development-only opt-in for rendering mounted console inventory at
+   * `/console/*`. Production builds ignore this even when set because the
+   * router also requires `import.meta.env.DEV`.
+   */
+  readonly VITE_CONSOLE_DEV_PREVIEW?: string;
   readonly VITE_APP_VERSION?: string;
   readonly VITE_GIT_SHA?: string;
 }

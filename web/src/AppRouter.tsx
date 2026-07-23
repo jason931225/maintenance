@@ -3,7 +3,11 @@ import { Navigate, Route, Routes } from "react-router-dom";
 
 import { isConsoleHost } from "./lib/consoleUrl";
 import { ConsoleRolloutBoundary } from "./console/rollout/ConsoleRolloutBoundary";
-import { EXPOSED_SCREEN_KEYS } from "./console/shell/nav";
+import { isConsoleDevelopmentPreviewEnabled } from "./console/rollout/developmentPreview";
+import {
+  EXPOSED_SCREEN_KEYS,
+  MOUNTED_SCREEN_KEYS,
+} from "./console/shell/nav";
 
 import { PublicLayout } from "./components/public/PublicLayout";
 import { AppShell } from "./components/shell/AppShell";
@@ -284,6 +288,13 @@ export function AppRouter() {
   // the console at its root, apex/www keep the storefront. localhost/dev is not
   // a console host, so dev e2e still lands on `/` = storefront.
   const consoleHost = isConsoleHost();
+  // Local-only full-console preview. Both guards are required: Vite replaces
+  // DEV with false in production builds, while the explicit flag keeps normal
+  // development and test runs on the production-faithful rollout path.
+  const consoleDevelopmentPreview = isConsoleDevelopmentPreviewEnabled({
+    dev: import.meta.env.DEV,
+    flag: import.meta.env.VITE_CONSOLE_DEV_PREVIEW,
+  });
   return (
     <Routes>
       {/* Shell-less full-screen routes */}
@@ -423,9 +434,13 @@ export function AppRouter() {
           element={
             <RouteErrorBoundary>
               <Suspense fallback={<PageSpinner />}>
-                <ConsoleRolloutBoundary approvedScreenKeys={EXPOSED_SCREEN_KEYS}>
-                  <ConsoleApp screenKeys={EXPOSED_SCREEN_KEYS} />
-                </ConsoleRolloutBoundary>
+                {consoleDevelopmentPreview ? (
+                  <ConsoleApp screenKeys={MOUNTED_SCREEN_KEYS} />
+                ) : (
+                  <ConsoleRolloutBoundary approvedScreenKeys={EXPOSED_SCREEN_KEYS}>
+                    <ConsoleApp screenKeys={EXPOSED_SCREEN_KEYS} />
+                  </ConsoleRolloutBoundary>
+                )}
               </Suspense>
             </RouteErrorBoundary>
           }
