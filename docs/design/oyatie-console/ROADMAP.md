@@ -55,7 +55,7 @@
 | 모듈 / screen | 레거시 서피스 | 백엔드 substrate | 새 콘솔 body | 소스 판정 | 남은 게이트 |
 |---|---|---|---|---|---|
 | 오버뷰 / overview | 일부 대시보드 | action-inbox·todos | registry body | PARITY | 런타임·inline 완료 증거 |
-| 내 업무 / mywork | 일부 개인 큐 | action-inbox·todos | 없음 | PARTIAL | body·완전한 폐루프 |
+| 내 업무 / mywork | 일부 개인 큐 | action-inbox·todos | registry body | PARTIAL | 런타임·폐루프 E2E 증거 |
 | 개인 수신함 / inbox | 별도 수신 흐름 | inbox·passkey | 없음 | PARTIAL | body·수령증거 E2E |
 | 인사 / hr | EmployeesPage | hr·employees | 없음 | PARTIAL | body·생애주기 폐루프 |
 | 채용 / recruit | 없음 | recruiting REST 없음 | 없음 | MISSING | 전체 슬라이스 |

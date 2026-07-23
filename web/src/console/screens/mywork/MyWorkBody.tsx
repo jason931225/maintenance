@@ -15,11 +15,16 @@ import "../../tokens.css";
 import { screenHeaderStyle, screenTitleStyle } from "../screenHeader";
 import type { MyWorkApi, TodoSummary } from "./myWorkApi";
 import {
+  actionInboxDue,
+  actionInboxDoneTone,
+  actionInboxTone,
+  actionStatusLabel,
   actionInboxLinkRoute,
   dueCountOn,
   filterAssigned,
   kindLabel,
   myWorkStrings,
+  urgencyLabel,
   weekDays,
   type ActionInboxItem,
   type DayFilter,
@@ -102,8 +107,16 @@ export function MyWorkBody({ api, now, onOpen }: MyWorkBodyProps) {
   const busy = busyOwned.api === api ? busyOwned.value : false;
   const todoError = todoErrorOwned.api === api ? todoErrorOwned.value : undefined;
 
-  const timeFmt = useMemo(
-    () => new Intl.DateTimeFormat("ko-KR", { hour: "2-digit", minute: "2-digit", hour12: false }),
+  const dueFmt = useMemo(
+    () =>
+      new Intl.DateTimeFormat("ko-KR", {
+        year: "numeric",
+        month: "numeric",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false,
+      }),
     [],
   );
   const dowFmt = useMemo(() => new Intl.DateTimeFormat("ko-KR", { weekday: "narrow" }), []);
@@ -457,6 +470,7 @@ export function MyWorkBody({ api, now, onOpen }: MyWorkBodyProps) {
               <ul style={listStyle}>
                 {rows.map((item) => {
                 const destination = actionInboxLinkRoute(item);
+                const due = actionInboxDue(item.due);
                 const resolved = resolveRowTitle(
                   item.title,
                   item.ref,
@@ -466,17 +480,29 @@ export function MyWorkBody({ api, now, onOpen }: MyWorkBodyProps) {
                 const meta = [siteInTitle ? undefined : item.site, item.who].filter(Boolean).join(" · ");
                 return (
                   <li key={item.id} style={assignedRowStyle}>
-                    <StatusChip tone={item.done ? "ok" : "neutral"}>{kindLabel(item.kind, S)}</StatusChip>
-                    <div style={{ minWidth: 0, flex: 1 }}>
+                    <StatusChip tone={actionInboxDoneTone(item.done)}>{kindLabel(item.kind, S)}</StatusChip>
+                    <StatusChip tone={actionInboxTone(item.dueTone)}>{urgencyLabel(item.urg, S)}</StatusChip>
+                    <div style={assignedContentStyle}>
                       <div style={rowTitleStyle}>
                         <span style={titleTextStyle}>{resolved.title}</span>
                         {resolved.code ? <span style={rowCodeStyle}>{resolved.code}</span> : null}
                       </div>
                       {meta ? <div style={rowMetaStyle}>{meta}</div> : null}
                     </div>
-                    {item.due ? (
-                      <StatusChip tone={item.dueTone}>{timeFmt.format(new Date(item.due))}</StatusChip>
+                    {due ? (
+                      <time
+                        dateTime={item.due}
+                        aria-label={S.assigned.dueAt(dueFmt.format(due))}
+                        style={dueStyle}
+                      >
+                        {S.assigned.dueAt(dueFmt.format(due))}
+                      </time>
+                    ) : item.due != null ? (
+                      <StatusChip tone="neutral">{S.assigned.dueUnavailable}</StatusChip>
                     ) : null}
+                    <StatusChip tone={actionInboxDoneTone(item.done)}>
+                      {actionStatusLabel(item.done, S)}
+                    </StatusChip>
                     <button
                       type="button"
                       data-window-control="true"
@@ -529,7 +555,10 @@ const titleStyle = screenTitleStyle;
 const gridStyle: CSSProperties = {
   display: "grid",
   gap: "var(--sp-5)",
-  gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1.4fr)",
+  // Two dense panels when space permits; one column before either queue loses
+  // readable task actions or metadata. `min(100%, …)` also keeps narrow
+  // embedded/windowed console views from overflowing.
+  gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 24rem), 1fr))",
   alignItems: "start",
 };
 
@@ -710,10 +739,16 @@ const weekDotEmptyStyle: CSSProperties = {
 
 const assignedRowStyle: CSSProperties = {
   display: "flex",
+  flexWrap: "wrap",
   alignItems: "center",
   gap: "var(--sp-3)",
   padding: "var(--sp-3) 0",
   borderTop: "1px solid var(--border-soft)",
+};
+
+const assignedContentStyle: CSSProperties = {
+  flex: "1 1 12rem",
+  minWidth: "min(100%, 12rem)",
 };
 
 const rowTitleStyle: CSSProperties = {
@@ -744,6 +779,14 @@ const rowCodeStyle: CSSProperties = {
 const rowMetaStyle: CSSProperties = {
   fontSize: "var(--text-sm)",
   color: "var(--steel)",
+};
+
+const dueStyle: CSSProperties = {
+  flex: "none",
+  color: "var(--steel)",
+  fontSize: "var(--text-sm)",
+  fontVariantNumeric: "tabular-nums",
+  whiteSpace: "nowrap",
 };
 
 const ghostButtonStyle: CSSProperties = {

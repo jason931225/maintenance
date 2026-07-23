@@ -115,6 +115,73 @@ describe("MyWorkBody", () => {
     expect(screen.getByText("예산 결재")).toBeInTheDocument();
   });
 
+  it("keeps source urgency, state, and the exact due timestamp visible in the task queue", async () => {
+    renderBody(
+      stubApi({
+        loadInbox: vi.fn().mockResolvedValue({
+          total: 1,
+          items: [
+            item({
+              kind: "approval",
+              id: "approval:urgent",
+              title: "긴급 결재",
+              urg: "now",
+              due: "2026-07-08T21:00:00Z",
+              dueTone: "danger",
+            }),
+          ],
+        }),
+      }),
+    );
+
+    await screen.findByText("긴급 결재");
+    expect(screen.getByText("즉시")).toBeInTheDocument();
+    expect(screen.getByText("처리 대기")).toBeInTheDocument();
+    const dueAt = new Intl.DateTimeFormat("ko-KR", {
+      year: "numeric",
+      month: "numeric",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(new Date("2026-07-08T21:00:00Z"));
+    expect(screen.getByText(`마감 ${dueAt}`)).toBeInTheDocument();
+    expect(screen.getByLabelText(`마감 ${dueAt}`)).toHaveAttribute(
+      "dateTime",
+      "2026-07-08T21:00:00Z",
+    );
+  });
+
+  it("keeps malformed action-inbox fields neutral and inert instead of crashing or guessing", async () => {
+    const malformed = {
+      ...item({
+        kind: "approval",
+        id: "approval:malformed",
+        title: "검증 필요 업무",
+      }),
+      links: null,
+      urg: null,
+      done: "unknown",
+      due: "not-a-timestamp",
+      dueTone: "unknown-tone",
+    } as unknown as ActionInboxItem;
+    renderBody(
+      stubApi({
+        loadInbox: vi.fn().mockResolvedValue({ total: 1, items: [malformed] }),
+      }),
+    );
+
+    const row = (await screen.findByText("검증 필요 업무")).closest("li");
+    expect(within(row as HTMLElement).getByText("우선순위 확인 필요")).toBeVisible();
+    expect(within(row as HTMLElement).getByText("상태 확인 필요")).toHaveStyle({
+      background: "var(--muted)",
+    });
+    expect(within(row as HTMLElement).getByText("마감 정보 없음")).toBeVisible();
+    expect(
+      within(row as HTMLElement).getByRole("button", { name: S.assigned.open }),
+    ).toBeDisabled();
+  });
+
   it("loads additional action-inbox pages only after an explicit user action", async () => {
     const loadInbox = vi
       .fn()

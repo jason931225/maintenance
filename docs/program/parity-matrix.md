@@ -36,7 +36,7 @@ Each row: intended capability (one line) · verdict · evidence (path/tag). "REG
 | Module | Intended | Verdict | Evidence |
 |---|---|---|---|
 | overview | Palantir/Workday home: Task·WorkObject·KPI, agenda | **PARITY** | REGISTRY `overview`→`screens/overview/OverviewScreen.tsx` + `overviewApi.ts`; round 14 agenda depth |
-| mywork (내 업무) | personal landing: 결재 차례·배차 큐·수령확인·오늘 할일 | **PARTIAL** | backend `action_inbox`+`todos(4)` mounted; **no REGISTRY body** → empty canvas |
+| mywork (내 업무) | personal landing: 결재 차례·배차 큐·수령확인·오늘 할일 | **PARTIAL** | REGISTRY `mywork`→`screens/mywork/MyWorkScreen.tsx`; authenticated action-inbox + todo CRUD adapter, closed-world source-object drills, loading/error/empty recovery; runtime and closed-loop E2E evidence remain open |
 | inbox (개인수신함) | passkey 수령확인 vault, InboxDoc legal docs | **PARTIAL** | backend `inbox` rest mounted + `passkeys(2)` + webauthn migration `0144`; **no console body** |
 
 ### HR / people
@@ -213,7 +213,7 @@ Ranked by impact × visibility. **Top 10 program gaps overall are in bold** (the
 3. **pay (급여) product completion** — read-only payroll readiness REST exists, but persisted calculation results, issued payslip semantics, and a new-console body do not. *(HIGH)*
 4. **appr (전자결재) into new ConsoleShell** — ApprovalCompose built but only in legacy route; every employee. *(HIGH — mount + reconcile key-namespace)*
 5. **mail + messenger main full-view promotion (§4.8)** — rail works, main canvas empty; core comms. *(HIGH)*
-6. **mywork (내 업무) personal landing** — backend action_inbox/todos wired, no body. *(HIGH)*
+6. **mywork (내 업무) personal landing** — source-mounted and API-wired; runtime and closed-loop E2E evidence remain open. *(HIGH)*
 7. **recruit (채용) surface + recruiting REST** — HR persona core; no backend, no body. *(HIGH — needs backend + UI)*
 8. **org (조직도) console body** — backend wired, no body; org-lifecycle reference impl (§3.9.2) not surfaced. *(MED-HIGH)*
 9. **dispatch/maintenance/field console bodies** — backend `work-orders(14)`/`dispatch`/`p1-dispatches` wired, 3 empty canvases. *(MED-HIGH)*
