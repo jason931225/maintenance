@@ -234,7 +234,7 @@ async fn instance_list_composes_enforced_permit_forbid_and_tenant_scope(owner_po
     assert_eq!(created.status, StatusCode::CREATED, "{:?}", created.body);
     let type_id = created_object_type_id(&created.body);
 
-    seed_instance(
+    let visible_id = seed_instance(
         &runtime_pool,
         org,
         actor,
@@ -243,7 +243,7 @@ async fn instance_list_composes_enforced_permit_forbid_and_tenant_scope(owner_po
         json!({ "owner": actor.to_string(), "flagged": false }),
     )
     .await;
-    seed_instance(
+    let _forbidden_id = seed_instance(
         &runtime_pool,
         org,
         actor,
@@ -252,7 +252,7 @@ async fn instance_list_composes_enforced_permit_forbid_and_tenant_scope(owner_po
         json!({ "owner": actor.to_string(), "flagged": true }),
     )
     .await;
-    seed_instance(
+    let _other_owner_id = seed_instance(
         &runtime_pool,
         org,
         actor,
@@ -292,6 +292,7 @@ async fn instance_list_composes_enforced_permit_forbid_and_tenant_scope(owner_po
     .await;
     assert_eq!(permitted.status, StatusCode::OK, "{:?}", permitted.body);
     assert_instance_titles(&permitted.body, &["visible-to-owner"]);
+    assert_exact_instance_ids(&permitted.body, &[visible_id]);
 
     // A second org's type and instance are created through the real runtime role.
     // Supplying its UUID through an Org-A JWT must yield a not-found response,
@@ -299,7 +300,7 @@ async fn instance_list_composes_enforced_permit_forbid_and_tenant_scope(owner_po
     let org_b = OrgId::from_uuid(ORG_B);
     let actor_b = seed_org_and_super_admin(&owner_pool, ORG_B, "ontology-list-http-b").await;
     let type_b = seed_object_type(&owner_pool, org_b, actor_b, "otherpolicycase").await;
-    seed_instance(
+    let _cross_tenant_id = seed_instance(
         &runtime_pool,
         org_b,
         actor_b,
@@ -377,7 +378,7 @@ async fn instance_list_fails_closed_for_unsupported_or_malformed_enforced_policy
     .await;
     assert_eq!(created.status, StatusCode::CREATED, "{:?}", created.body);
     let type_id = created_object_type_id(&created.body);
-    seed_instance(
+    let _protected_id = seed_instance(
         &runtime_pool,
         org,
         actor,
@@ -534,7 +535,7 @@ async fn seed_instance(
     type_id: mnt_ontology_domain::ObjectTypeId,
     title: &str,
     attributes: Value,
-) {
+) -> Uuid {
     scope_org(org, async {
         PgInstanceStore::new(runtime_pool.clone())
             .create_instance(
@@ -553,7 +554,11 @@ async fn seed_instance(
             .await
             .expect("seed instance through mnt_rt")
     })
-    .await;
+    .await
+    .instance
+    .id
+    .as_uuid()
+    .to_owned()
 }
 
 async fn attach_enforced_policy(
@@ -636,6 +641,22 @@ fn assert_instance_titles(body: &Value, expected: &[&str]) {
         .map(|instance| instance["instance"]["title"].as_str().unwrap_or_default())
         .collect::<Vec<_>>();
     assert_eq!(titles, expected);
+}
+
+fn assert_exact_instance_ids(body: &Value, expected: &[Uuid]) {
+    let ids = body
+        .as_array()
+        .expect("instance list must be an array")
+        .iter()
+        .map(|instance| {
+            instance["instance"]["id"]
+                .as_str()
+                .expect("instance id must be serialized as a UUID")
+                .parse::<Uuid>()
+                .expect("instance id must parse as a UUID")
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(ids, expected);
 }
 
 fn body_text(body: &Value) -> String {
