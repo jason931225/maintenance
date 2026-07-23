@@ -28,7 +28,7 @@ export function MailFolderPane({
     })),
   ];
   return (
-    <nav aria-label={T.navLabel} style={separatorPaneStyle}>
+    <nav className="mail-screen__folders" aria-label={T.navLabel} style={separatorPaneStyle}>
       <h2 style={sectionTitleStyle}>{T.navLabel}</h2>
       <div style={stackStyle}>
         {rows.map((row) => {

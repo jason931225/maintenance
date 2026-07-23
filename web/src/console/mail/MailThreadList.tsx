@@ -60,7 +60,7 @@ export function MailThreadList({
   }
 
   return (
-    <section style={separatorPaneStyle}>
+    <section className="mail-screen__threads" style={separatorPaneStyle}>
       <div style={rowStyle}>
         <h2 style={sectionTitleStyle}>{T.thread.listLabel}</h2>
         <label style={{ ...faintTextStyle, display: "inline-flex", alignItems: "center", gap: "var(--sp-2)" }}>

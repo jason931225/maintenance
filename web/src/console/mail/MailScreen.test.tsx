@@ -226,7 +226,7 @@ function renderMailScreen(gate: PolicyGate = allowAll, ctx = makeAuthContext()) 
 }
 
 describe("MailScreen", () => {
-  it("renders the console mail panes, governed chips, attachment ingest CTA, and sanitized bodies", async () => {
+  it("renders the responsive console mail panes, governed chips, download-only attachments, and sanitized bodies", async () => {
     mockMailbox();
 
     renderMailScreen();
@@ -243,9 +243,16 @@ describe("MailScreen", () => {
     expect(screen.getAllByText("보존 R7").length).toBeGreaterThan(0);
     expect(screen.getAllByText("보존명령").length).toBeGreaterThan(0);
     expect(screen.getByText("DMARC 실패")).toBeVisible();
-    expect(screen.getByRole("button", { name: "invoice.pdf 인제스트" })).toBeVisible();
-    expect(screen.getByRole("button", { name: "invoice.pdf 증거 등재" })).toBeVisible();
     expect(screen.getByRole("button", { name: "invoice.pdf 다운로드" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "invoice.pdf 인제스트" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "invoice.pdf 증거 등재" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "개체 첨부" })).not.toBeInTheDocument();
+
+    const surface = screen.getByRole("navigation", { name: "메일 폴더" }).closest(".mail-screen__surface");
+    expect(surface).not.toBeNull();
+    expect(surface).toHaveClass("mail-screen__surface");
+    expect(surface?.querySelector(".mail-screen__threads")).toBeTruthy();
+    expect(surface?.querySelector(".mail-screen__reader")).toBeTruthy();
 
     const body = screen.getByTestId("mail-html-body");
     expect(body.querySelector("img, script")).toBeNull();
@@ -395,6 +402,8 @@ describe("MailScreen", () => {
 
     expect(await screen.findByRole("alert", { name: "반출 차단" })).toBeVisible();
     expect(screen.getAllByText("민감").length).toBeGreaterThan(0);
+    expect(screen.getByText("승인 요청")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "승인 요청" })).not.toBeInTheDocument();
     expect(sent).not.toHaveBeenCalled();
   });
 });

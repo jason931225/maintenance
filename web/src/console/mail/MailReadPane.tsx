@@ -100,15 +100,11 @@ function MessageArticle({
   onReply,
   onForward,
   onDownloadAttachment,
-  onIngestUnavailable,
-  onEvidenceUnavailable,
 }: {
   message: ConsoleMailMessage;
   onReply: (message: ConsoleMailMessage) => void;
   onForward: (message: ConsoleMailMessage) => void;
   onDownloadAttachment: (attachment: ConsoleMailAttachment) => void;
-  onIngestUnavailable: (attachment: ConsoleMailAttachment) => void;
-  onEvidenceUnavailable: (attachment: ConsoleMailAttachment) => void;
 }) {
   const T = ko.console.mail.read;
   const governance = messageGovernance(message);
@@ -147,8 +143,6 @@ function MessageArticle({
       <MailAttachmentRows
         attachments={message.attachments}
         onDownload={onDownloadAttachment}
-        onIngestUnavailable={onIngestUnavailable}
-        onEvidenceUnavailable={onEvidenceUnavailable}
       />
     </article>
   );
@@ -162,8 +156,6 @@ export function MailReadPane({
   onReply,
   onForward,
   onDownloadAttachment,
-  onIngestUnavailable,
-  onEvidenceUnavailable,
 }: {
   selectedThread?: ConsoleMailThread;
   detail?: ConsoleMailThreadDetail;
@@ -172,8 +164,6 @@ export function MailReadPane({
   onReply: (message: ConsoleMailMessage) => void;
   onForward: (message: ConsoleMailMessage) => void;
   onDownloadAttachment: (attachment: ConsoleMailAttachment) => void;
-  onIngestUnavailable: (attachment: ConsoleMailAttachment) => void;
-  onEvidenceUnavailable: (attachment: ConsoleMailAttachment) => void;
 }) {
   const T = ko.console.mail;
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -182,7 +172,7 @@ export function MailReadPane({
   const latest = messages[messages.length - 1];
   const prior = messages.slice(0, -1);
   return (
-    <section aria-label={T.read.regionLabel} style={paneStyle}>
+    <section className="mail-screen__reader" aria-label={T.read.regionLabel} style={paneStyle}>
       <header style={stackStyle}>
         <div style={rowStyle}>
           <div style={tightStackStyle}>
@@ -221,8 +211,6 @@ export function MailReadPane({
                   onReply={onReply}
                   onForward={onForward}
                   onDownloadAttachment={onDownloadAttachment}
-                  onIngestUnavailable={onIngestUnavailable}
-                  onEvidenceUnavailable={onEvidenceUnavailable}
                 />
               ) : (
                 <CollapsedMessageRow
@@ -239,8 +227,6 @@ export function MailReadPane({
             onReply={onReply}
             onForward={onForward}
             onDownloadAttachment={onDownloadAttachment}
-            onIngestUnavailable={onIngestUnavailable}
-            onEvidenceUnavailable={onEvidenceUnavailable}
           />
         </div>
       )}

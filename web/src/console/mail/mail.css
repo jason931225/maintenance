@@ -1,0 +1,66 @@
+/* Mail owns its pane breakpoints rather than relying on shell width.  This
+ * keeps the authenticated product surface usable when the left navigation and
+ * communication rail are both present. */
+.mail-screen__surface {
+  grid-template-columns: minmax(184px, 232px) minmax(280px, 360px) minmax(0, 1fr) !important;
+}
+
+.mail-screen__folders,
+.mail-screen__threads,
+.mail-screen__reader {
+  min-width: 0;
+}
+
+.mail-screen__threads [role="list"] {
+  max-height: min(62vh, 680px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.mail-screen__content {
+  min-width: 0;
+}
+
+@media (max-width: 1180px) {
+  .mail-screen__surface {
+    grid-template-columns: minmax(184px, 232px) minmax(0, 1fr) !important;
+  }
+
+  .mail-screen__content {
+    grid-column: 1 / -1;
+    border-top: 1px solid var(--border-soft);
+  }
+
+  .mail-screen__reader {
+    max-width: 980px;
+    margin: 0 auto;
+    width: 100%;
+  }
+}
+
+@media (max-width: 760px) {
+  .mail-screen__surface {
+    grid-template-columns: minmax(0, 1fr) !important;
+    min-height: 0 !important;
+  }
+
+  .mail-screen__folders,
+  .mail-screen__threads,
+  .mail-screen__content {
+    grid-column: auto;
+    border-right: 0 !important;
+    border-top: 1px solid var(--border-soft);
+  }
+
+  .mail-screen__folders {
+    border-top: 0;
+  }
+
+  .mail-screen__threads [role="list"] {
+    max-height: 24rem;
+  }
+
+  .mail-screen__recipient-columns {
+    grid-template-columns: minmax(0, 1fr) !important;
+  }
+}

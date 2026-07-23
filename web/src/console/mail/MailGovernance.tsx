@@ -10,7 +10,7 @@ import {
   governanceChips,
   senderAuthChips,
 } from "./mailScreenConfig";
-import { chipRowStyle, dangerButtonStyle, stackStyle } from "./styles";
+import { chipRowStyle, stackStyle } from "./styles";
 import type { MailEgressBlock, MailGovernance, MailSenderAuth } from "./types";
 
 const panelStyle: CSSProperties = {
@@ -77,9 +77,9 @@ export function EgressGatePanel({ block }: { block?: MailEgressBlock }) {
               </StatusChip>
             ))}
           </div>
-          <button type="button" style={dangerButtonStyle}>
+          <span style={{ fontSize: "var(--text-xs)", fontWeight: "var(--fw-strong)" }}>
             {egressNextActionLabel(block.nextAction)}
-          </button>
+          </span>
         </div>
       </div>
     </PolicyGated>

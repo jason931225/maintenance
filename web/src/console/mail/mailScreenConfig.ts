@@ -20,8 +20,6 @@ export const MAIL_ACTIONS = {
   forward: "mail.forward",
   markRead: "mail.mark_read",
   attachmentDownload: "mail.attachment.download",
-  attachmentIngest: "mail.attachment.ingest",
-  evidenceRegister: "mail.evidence.register",
   governanceView: "mail.governance.view",
   egressExternal: "mail.egress.external",
 } as const;

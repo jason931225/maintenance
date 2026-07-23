@@ -9,13 +9,9 @@ import type { ConsoleMailAttachment } from "./types";
 export function MailAttachmentRows({
   attachments,
   onDownload,
-  onIngestUnavailable,
-  onEvidenceUnavailable,
 }: {
   attachments: ConsoleMailAttachment[];
   onDownload: (attachment: ConsoleMailAttachment) => void;
-  onIngestUnavailable: (attachment: ConsoleMailAttachment) => void;
-  onEvidenceUnavailable: (attachment: ConsoleMailAttachment) => void;
 }) {
   if (attachments.length === 0) return null;
   const T = ko.console.mail.attachment;
@@ -50,26 +46,6 @@ export function MailAttachmentRows({
               </div>
             ) : null}
             <div style={chipRowStyle}>
-              <PolicyGated action={MAIL_ACTIONS.attachmentIngest} resource={{ kind: "mail_attachment", id: attachment.id }}>
-                <button
-                  type="button"
-                  style={ghostButtonStyle}
-                  aria-label={T.actionLabel(attachment.filename, T.ingest)}
-                  onClick={() => { onIngestUnavailable(attachment); }}
-                >
-                  {T.ingest}
-                </button>
-              </PolicyGated>
-              <PolicyGated action={MAIL_ACTIONS.evidenceRegister} resource={{ kind: "mail_attachment", id: attachment.id }}>
-                <button
-                  type="button"
-                  style={ghostButtonStyle}
-                  aria-label={T.actionLabel(attachment.filename, T.evidenceRegister)}
-                  onClick={() => { onEvidenceUnavailable(attachment); }}
-                >
-                  {T.evidenceRegister}
-                </button>
-              </PolicyGated>
               <PolicyGated action={MAIL_ACTIONS.attachmentDownload} resource={{ kind: "mail_attachment", id: attachment.id }}>
                 <button
                   type="button"

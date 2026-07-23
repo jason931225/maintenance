@@ -5,6 +5,7 @@ import { useAuth } from "../../context/auth";
 import type { SendMailRequest } from "../../api/types";
 import { PolicyGated } from "../policy";
 import "../tokens.css";
+import "./mail.css";
 import {
   forwardMail,
   getMailAccount,
@@ -372,7 +373,7 @@ export function MailScreen() {
       <p>{T.state.notConfigured}</p>
     </div>
   ) : (
-    <div style={surfaceStyle}>
+    <div className="mail-screen__surface" style={surfaceStyle}>
       <MailFolderPane folders={folders} selectedFolderId={folderId} onSelectFolder={setFolderId} />
       <MailThreadList
         threads={threads}
@@ -386,7 +387,7 @@ export function MailScreen() {
         onSelectThread={(thread) => { setSelectedThreadId(thread.id); }}
         onOpenThread={openThread}
       />
-      <div style={{ display: "grid", minWidth: 0, alignContent: "start" }}>
+      <div className="mail-screen__content" style={{ display: "grid", minWidth: 0, alignContent: "start" }}>
         <MailReadPane
           selectedThread={selectedThread}
           detail={detail}
@@ -397,10 +398,8 @@ export function MailScreen() {
           onReply={(message) => { startThreadedCompose("reply", message); }}
           onForward={(message) => { startThreadedCompose("forward", message); }}
           onDownloadAttachment={(attachment) => { void openAttachment(attachment); }}
-          onIngestUnavailable={() => { setError(T.attachment.ingestUnavailable); }}
-          onEvidenceUnavailable={() => { setError(T.attachment.evidenceUnavailable); }}
         />
-        <div style={{ padding: "0 var(--sp-5) var(--sp-5)" }}>
+        <div className="mail-screen__composer" style={{ padding: "0 var(--sp-5) var(--sp-5)" }}>
           <MailComposer
             compose={compose}
             attachments={composeAttachments}
@@ -412,7 +411,6 @@ export function MailScreen() {
             onRemoveAttachment={(file) => { setComposeAttachments((prev) => prev.filter((item) => item !== file)); setEgressBlock(undefined); }}
             onSubmit={() => { void sendCurrentMail(); }}
             onCancelThread={resetCompose}
-            onAttachObjectUnavailable={() => { setError(T.composer.objectAttachUnavailable); }}
           />
         </div>
       </div>
