@@ -213,6 +213,27 @@ describe("OverviewBody", () => {
     );
   });
 
+  it("supports J/K and arrow-key traversal of queue actions, then opens the focused row", async () => {
+    const user = userEvent.setup();
+    const onOpen = vi.fn();
+    renderBody({ onOpen });
+    const queue = within(await screen.findByRole("region", { name: S.queueTitle }));
+    const approval = queue.getByRole("button", { name: S.action.approval });
+    const dispatch = queue.getByRole("button", { name: S.action.dispatch });
+
+    approval.focus();
+    await user.keyboard("j");
+    expect(dispatch).toHaveFocus();
+
+    await user.keyboard("{ArrowUp}");
+    expect(approval).toHaveFocus();
+
+    await user.keyboard("{Enter}");
+    expect(onOpen).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "approval:1" }),
+    );
+  });
+
   it("shows the loading chip then clears it", async () => {
     renderBody();
     expect(screen.getByText(S.loading)).toBeInTheDocument();

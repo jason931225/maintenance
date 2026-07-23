@@ -2,8 +2,10 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type CSSProperties,
+  type KeyboardEvent,
 } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -58,6 +60,7 @@ export function OverviewBody({ accessToken, api, now, onOpen }: OverviewBodyProp
   const [filter, setFilter] = useState<QueueFilter>("all");
   const [reloadKey, setReloadKey] = useState(0);
   const [punch, setPunch] = useState<PunchStatus | undefined>();
+  const queueActionRefs = useRef(new Map<string, HTMLButtonElement>());
 
   useEffect(() => {
     let live = true;
@@ -86,6 +89,30 @@ export function OverviewBody({ accessToken, api, now, onOpen }: OverviewBodyProp
       void navigate(kindRoute(item.kind));
     },
     [onOpen, navigate],
+  );
+
+  const moveQueueFocus = useCallback(
+    (event: KeyboardEvent<HTMLUListElement>, rowIds: readonly string[]) => {
+      const key = event.key.toLowerCase();
+      const direction = key === "j" || key === "arrowdown" ? 1 : key === "k" || key === "arrowup" ? -1 : 0;
+      if (!direction) return;
+
+      const controls = rowIds
+        .map((id) => queueActionRefs.current.get(id))
+        .filter((control): control is HTMLButtonElement => control !== undefined);
+      if (controls.length === 0) return;
+
+      const currentIndex = controls.findIndex((control) => control === document.activeElement);
+      const nextIndex =
+        currentIndex === -1
+          ? direction > 0
+            ? 0
+            : controls.length - 1
+          : (currentIndex + direction + controls.length) % controls.length;
+      event.preventDefault();
+      controls[nextIndex]?.focus();
+    },
+    [],
   );
 
   const dateLabel = useMemo(
@@ -243,7 +270,13 @@ export function OverviewBody({ accessToken, api, now, onOpen }: OverviewBodyProp
           {rows.length === 0 ? (
             <p style={emptyStyle}>{S.empty.queue}</p>
           ) : (
-            <ul style={listStyle}>
+            <ul
+              style={listStyle}
+              aria-keyshortcuts="J K ArrowDown ArrowUp Enter"
+              onKeyDown={(event) => {
+                moveQueueFocus(event, rows.map((item) => item.id));
+              }}
+            >
               {rows.map((item) => {
                 // §4-18: dispatch/work rows carry only a request_no as `title`
                 // (see action_inbox.rs) — the shared resolver leads with a human
@@ -287,6 +320,13 @@ export function OverviewBody({ accessToken, api, now, onOpen }: OverviewBodyProp
                     type="button"
                     data-window-control="true"
                     style={buttonStyle}
+                    ref={(control) => {
+                      if (control) {
+                        queueActionRefs.current.set(item.id, control);
+                      } else {
+                        queueActionRefs.current.delete(item.id);
+                      }
+                    }}
                     onClick={() => {
                       openItem(item);
                     }}
@@ -451,7 +491,10 @@ const statValueStyle: CSSProperties = {
 const gridStyle: CSSProperties = {
   display: "grid",
   gap: "var(--sp-5)",
-  gridTemplateColumns: "minmax(0, 2fr) minmax(0, 1fr)",
+  // The shell already owns a right communications rail. The overview's two
+  // work panels therefore collapse before their rows become unreadably narrow
+  // in a split window or on smaller devices.
+  gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 22rem), 1fr))",
   alignItems: "start",
 };
 
@@ -519,6 +562,7 @@ const listStyle: CSSProperties = {
 const rowStyle: CSSProperties = {
   display: "flex",
   alignItems: "center",
+  flexWrap: "wrap",
   gap: "var(--sp-3)",
   padding: "var(--sp-3) 0",
   borderTop: "1px solid var(--border-soft)",
@@ -589,6 +633,7 @@ const panelFootStyle: CSSProperties = {
 const timelineRowStyle: CSSProperties = {
   display: "flex",
   alignItems: "center",
+  flexWrap: "wrap",
   gap: "var(--sp-3)",
   padding: "var(--sp-2) 0",
   borderTop: "1px solid var(--border-soft)",
@@ -665,4 +710,3 @@ const timelineTitleBtnStyle: CSSProperties = {
   textOverflow: "ellipsis",
   whiteSpace: "nowrap",
 };
-
