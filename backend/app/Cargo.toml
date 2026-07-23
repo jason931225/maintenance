@@ -47,6 +47,8 @@ mnt-comms-application = { workspace = true }
 mnt-comms-credential-cipher = { workspace = true }
 mnt-comms-rest = { workspace = true }
 mnt-action-inbox-application = { workspace = true }
+mnt-benefit-adapter-postgres = { workspace = true }
+mnt-benefit-rest = { workspace = true }
 mnt-compliance-adapter-postgres = { workspace = true }
 mnt-compliance-rest = { workspace = true }
 mnt-erp-domain = { workspace = true }

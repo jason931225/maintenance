@@ -6941,10 +6941,213 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/benefit-catalog/items": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List tenant-scoped legal or optional benefit catalog items */
+        get: operations["listBenefitCatalogItems"];
+        put?: never;
+        /** Create an audited benefit catalog item */
+        post: operations["createBenefitCatalogItem"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/benefit-catalog/items/{benefit_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read one tenant-visible benefit catalog item */
+        get: operations["getBenefitCatalogItem"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update an audited benefit catalog item */
+        patch: operations["updateBenefitCatalogItem"];
+        trace?: never;
+    };
+    "/api/v1/benefit-catalog/items/{benefit_id}/tiers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Replace audited tier rows without physical delete */
+        put: operations["replaceBenefitCatalogTiers"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/benefit-catalog/items/{benefit_id}/conditions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Replace audited eligibility condition rows without physical delete */
+        put: operations["replaceBenefitCatalogConditions"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        BenefitCatalogScope: {
+            /** @enum {string} */
+            scope_type: "ORG" | "BRANCH" | "SITE" | "TEAM" | "ROLE" | "EMPLOYEE_SEGMENT";
+            scope_ref?: components["schemas"]["Uuid"];
+            branch_id?: components["schemas"]["Uuid"];
+            site_id?: components["schemas"]["Uuid"];
+        };
+        BenefitCatalogTier: {
+            id?: components["schemas"]["Uuid"];
+            benefit_id?: components["schemas"]["Uuid"];
+            tier_basis: string;
+            tier_key: string;
+            value_label: string;
+            /** Format: int64 */
+            amount_won?: number | null;
+            limit_period?: string | null;
+            criteria: {
+                [key: string]: unknown;
+            };
+            display_order: number;
+        };
+        BenefitCatalogCondition: {
+            id?: components["schemas"]["Uuid"];
+            benefit_id?: components["schemas"]["Uuid"];
+            condition_kind: string;
+            operator: string;
+            condition_key: string;
+            condition_value: {
+                [key: string]: unknown;
+            };
+            display_label: string;
+            cedar_policy_ref?: string | null;
+            display_order: number;
+        };
+        /** @description Tenant and actor are derived from the verified bearer token; neither can be supplied by callers. */
+        BenefitCatalogCreateRequest: {
+            scope: components["schemas"]["BenefitCatalogScope"];
+            /** @enum {string} */
+            category: "legal" | "extra";
+            name: string;
+            coverageLabel: string;
+            coveredCount?: number | null;
+            costLabel: string;
+            /** Format: int64 */
+            estimatedAnnualCostWon?: number | null;
+            employerRateBps?: number | null;
+            note?: string | null;
+            legalBasis?: string | null;
+            relatedDomain?: string | null;
+            relatedObjectId?: components["schemas"]["Uuid"];
+            /** Format: date */
+            effectiveOn?: string | null;
+            /** Format: date */
+            retiresOn?: string | null;
+            /** @default 0 */
+            displayOrder: number;
+            metadata?: {
+                [key: string]: unknown;
+            };
+            tiers?: components["schemas"]["BenefitCatalogTier"][];
+            conditions?: components["schemas"]["BenefitCatalogCondition"][];
+        };
+        /** @description Mutable catalog fields only; tenant, actor, identifiers, and lifecycle state are server-owned. */
+        BenefitCatalogUpdateRequest: {
+            /** @enum {string} */
+            category?: "legal" | "extra";
+            name?: string;
+            scope?: components["schemas"]["BenefitCatalogScope"];
+            coverageLabel?: string;
+            coveredCount?: number | null;
+            costLabel?: string;
+            /** Format: int64 */
+            estimatedAnnualCostWon?: number | null;
+            employerRateBps?: number | null;
+            note?: string | null;
+            legalBasis?: string | null;
+            relatedDomain?: string | null;
+            relatedObjectId?: components["schemas"]["Uuid"];
+            /** Format: date */
+            effectiveOn?: string | null;
+            /** Format: date */
+            retiresOn?: string | null;
+            displayOrder?: number;
+            metadata?: {
+                [key: string]: unknown;
+            };
+        };
+        BenefitCatalogReplaceTiersRequest: {
+            tiers: components["schemas"]["BenefitCatalogTier"][];
+        };
+        BenefitCatalogReplaceConditionsRequest: {
+            conditions: components["schemas"]["BenefitCatalogCondition"][];
+        };
+        BenefitCatalogLifecycleBinding: {
+            /** @enum {string} */
+            object_type: "benefit_catalog_item";
+            object_id: components["schemas"]["Uuid"];
+            current_state?: string | null;
+            legal_hold?: boolean | null;
+            /** Format: date-time */
+            retention_until?: string | null;
+        };
+        BenefitCatalogItemPage: {
+            items: components["schemas"]["BenefitCatalogItem"][];
+            limit: number;
+            offset: number;
+            total: number;
+        };
+        BenefitCatalogItem: {
+            id: components["schemas"]["Uuid"];
+            benefit_code: string;
+            /** @enum {string} */
+            category: "legal" | "extra";
+            name: string;
+            scope: components["schemas"]["BenefitCatalogScope"];
+            coverage_label: string;
+            covered_count?: number | null;
+            cost_label: string;
+            /** Format: int64 */
+            estimated_annual_cost_won?: number | null;
+            employer_rate_bps?: number | null;
+            note?: string | null;
+            legal_basis?: string | null;
+            related_domain?: string | null;
+            related_object_id?: components["schemas"]["Uuid"];
+            /** Format: date */
+            effective_on?: string | null;
+            /** Format: date */
+            retires_on?: string | null;
+            tiers: components["schemas"]["BenefitCatalogTier"][];
+            conditions: components["schemas"]["BenefitCatalogCondition"][];
+            lifecycle: components["schemas"]["BenefitCatalogLifecycleBinding"];
+        };
         /** @description A self-service leave-request filing. The subject employee and branch are NOT accepted here — they are resolved from the authenticated caller. */
         LeaveCreateRequest: {
             /**
@@ -24332,6 +24535,177 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorBody"];
                 };
             };
+        };
+    };
+    listBenefitCatalogItems: {
+        parameters: {
+            query?: {
+                category?: "legal" | "extra";
+                branchId?: components["schemas"]["Uuid"];
+                siteId?: components["schemas"]["Uuid"];
+                q?: string;
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Tenant-visible benefit rows */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BenefitCatalogItemPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createBenefitCatalogItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BenefitCatalogCreateRequest"];
+            };
+        };
+        responses: {
+            /** @description Created audited row */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BenefitCatalogItem"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getBenefitCatalogItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                benefit_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Benefit row */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BenefitCatalogItem"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    updateBenefitCatalogItem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                benefit_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BenefitCatalogUpdateRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated row */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BenefitCatalogItem"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    replaceBenefitCatalogTiers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                benefit_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BenefitCatalogReplaceTiersRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated row */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BenefitCatalogItem"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    replaceBenefitCatalogConditions: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                benefit_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BenefitCatalogReplaceConditionsRequest"];
+            };
+        };
+        responses: {
+            /** @description Updated row */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BenefitCatalogItem"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
         };
     };
 }

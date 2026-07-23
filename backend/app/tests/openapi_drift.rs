@@ -7,6 +7,7 @@ const OPENAPI_YAML: &str = include_str!("../../openapi/openapi.yaml");
 const REQUIRED_CONFIGURED_SURFACES: &[&str] = &[
     "audit",
     "dispatch",
+    "benefit",
     "financial",
     "integrity",
     "hr",
@@ -36,6 +37,12 @@ const CONFIGURED_ROUTE_SOURCES: &[RouteSource] = &[
         name: "dispatch REST router",
         surface: "dispatch",
         source: include_str!("../../crates/dispatch/rest/src/lib.rs"),
+        ignored_route_refs: &[],
+    },
+    RouteSource {
+        name: "benefit REST router",
+        surface: "benefit",
+        source: include_str!("../../crates/benefit/rest/src/lib.rs"),
         ignored_route_refs: &[],
     },
     RouteSource {

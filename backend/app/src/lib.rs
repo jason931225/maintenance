@@ -23,6 +23,8 @@ use axum::routing::get;
 use axum::{Json, Router};
 use metrics_exporter_prometheus::{Matcher, PrometheusBuilder, PrometheusHandle};
 use mnt_analytics_quant_rest::AnalyticsQuantState;
+use mnt_benefit_adapter_postgres::PgBenefitCatalogStore;
+use mnt_benefit_rest::BenefitRestState;
 use mnt_comms_adapter_postgres::PgMailStore;
 use mnt_comms_credential_cipher::EnvelopeCredentialCipher;
 use mnt_comms_rest::CommsRestState;
@@ -202,6 +204,10 @@ pub const CONFIGURED_ROUTE_SURFACES: &[ConfiguredRouteSurface] = &[
     ConfiguredRouteSurface {
         name: "dispatch",
         paths: mnt_dispatch_rest::DISPATCH_ROUTE_PATHS,
+    },
+    ConfiguredRouteSurface {
+        name: "benefit",
+        paths: mnt_benefit_rest::BENEFIT_ROUTE_PATHS,
     },
     ConfiguredRouteSurface {
         name: "financial",
@@ -2665,6 +2671,7 @@ pub fn build_router(state: AppState) -> Router {
             let cedar_policy_store = PgCedarPolicyStore::new(pool.clone());
             let work_order_store = PgWorkOrderStore::new(pool.clone())
                 .with_created_listener(Arc::new(messenger_store.clone()));
+            let benefit_store = PgBenefitCatalogStore::new(pool.clone());
             let leave_store = {
                 let store = mnt_leave_adapter_postgres::PgLeaveStore::new(
                     pool.clone(),
@@ -2867,6 +2874,10 @@ pub fn build_router(state: AppState) -> Router {
                 // `PgInboxStore` over the shared pool as the `InboxDocSink`).
                 .merge(mnt_leave_rest::router(mnt_leave_rest::LeaveRestState::new(
                     leave_store,
+                    state.jwt_verifier.clone(),
+                )))
+                .merge(mnt_benefit_rest::router(BenefitRestState::new(
+                    benefit_store,
                     state.jwt_verifier.clone(),
                 )))
                 .merge(mnt_todos_rest::router(TodoRestState::new(

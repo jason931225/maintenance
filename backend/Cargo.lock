@@ -2779,6 +2779,8 @@ dependencies = [
  "metrics-exporter-prometheus",
  "mnt-action-inbox-application",
  "mnt-analytics-quant-rest",
+ "mnt-benefit-adapter-postgres",
+ "mnt-benefit-rest",
  "mnt-comms-adapter-imap",
  "mnt-comms-adapter-postgres",
  "mnt-comms-application",
@@ -2918,6 +2920,25 @@ dependencies = [
  "mnt-kernel-core",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "mnt-benefit-rest"
+version = "0.1.0"
+dependencies = [
+ "axum",
+ "mnt-benefit-adapter-postgres",
+ "mnt-benefit-application",
+ "mnt-benefit-domain",
+ "mnt-kernel-core",
+ "mnt-platform-auth",
+ "mnt-platform-authz",
+ "mnt-platform-request-context",
+ "serde",
+ "serde_json",
+ "time",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]

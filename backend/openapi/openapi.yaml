@@ -13207,6 +13207,87 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
+  /api/v1/benefit-catalog/items:
+    get:
+      tags: [benefit-catalog]
+      operationId: listBenefitCatalogItems
+      summary: List tenant-scoped legal or optional benefit catalog items
+      security: [{ bearerAuth: [] }]
+      parameters:
+      - { name: category, in: query, schema: { type: string, enum: [legal, extra] } }
+      - { name: branchId, in: query, schema: { $ref: '#/components/schemas/Uuid' } }
+      - { name: siteId, in: query, schema: { $ref: '#/components/schemas/Uuid' } }
+      - { name: q, in: query, schema: { type: string } }
+      - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100 } }
+      - { name: offset, in: query, schema: { type: integer, minimum: 0 } }
+      responses:
+        '200': { description: Tenant-visible benefit rows, content: { application/json: { schema: { $ref: '#/components/schemas/BenefitCatalogItemPage' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+    post:
+      tags: [benefit-catalog]
+      operationId: createBenefitCatalogItem
+      summary: Create an audited benefit catalog item
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/BenefitCatalogCreateRequest' } } } }
+      responses:
+        '201': { description: Created audited row, content: { application/json: { schema: { $ref: '#/components/schemas/BenefitCatalogItem' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/benefit-catalog/items/{benefit_id}:
+    get:
+      tags: [benefit-catalog]
+      operationId: getBenefitCatalogItem
+      summary: Read one tenant-visible benefit catalog item
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: benefit_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      responses:
+        '200': { description: Benefit row, content: { application/json: { schema: { $ref: '#/components/schemas/BenefitCatalogItem' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [benefit-catalog]
+      operationId: updateBenefitCatalogItem
+      summary: Update an audited benefit catalog item
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: benefit_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/BenefitCatalogUpdateRequest' } } } }
+      responses:
+        '200': { description: Updated row, content: { application/json: { schema: { $ref: '#/components/schemas/BenefitCatalogItem' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/benefit-catalog/items/{benefit_id}/tiers:
+    put:
+      tags: [benefit-catalog]
+      operationId: replaceBenefitCatalogTiers
+      summary: Replace audited tier rows without physical delete
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: benefit_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/BenefitCatalogReplaceTiersRequest' } } } }
+      responses:
+        '200': { description: Updated row, content: { application/json: { schema: { $ref: '#/components/schemas/BenefitCatalogItem' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/benefit-catalog/items/{benefit_id}/conditions:
+    put:
+      tags: [benefit-catalog]
+      operationId: replaceBenefitCatalogConditions
+      summary: Replace audited eligibility condition rows without physical delete
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: benefit_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/BenefitCatalogReplaceConditionsRequest' } } } }
+      responses:
+        '200': { description: Updated row, content: { application/json: { schema: { $ref: '#/components/schemas/BenefitCatalogItem' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '422': { $ref: '#/components/responses/ValidationError' }
 components:
   securitySchemes:
     bearerAuth:
@@ -13408,6 +13489,141 @@ components:
           schema:
             $ref: '#/components/schemas/ErrorBody'
   schemas:
+    BenefitCatalogScope:
+      type: object
+      additionalProperties: false
+      required: [scope_type]
+      properties:
+        scope_type: { type: string, enum: [ORG, BRANCH, SITE, TEAM, ROLE, EMPLOYEE_SEGMENT] }
+        scope_ref: { $ref: '#/components/schemas/Uuid', nullable: true }
+        branch_id: { $ref: '#/components/schemas/Uuid', nullable: true }
+        site_id: { $ref: '#/components/schemas/Uuid', nullable: true }
+    BenefitCatalogTier:
+      type: object
+      additionalProperties: false
+      required: [tier_basis, tier_key, value_label, criteria, display_order]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        benefit_id: { $ref: '#/components/schemas/Uuid' }
+        tier_basis: { type: string }
+        tier_key: { type: string }
+        value_label: { type: string }
+        amount_won: { type: integer, format: int64, nullable: true }
+        limit_period: { type: string, nullable: true }
+        criteria: { type: object, additionalProperties: true }
+        display_order: { type: integer }
+    BenefitCatalogCondition:
+      type: object
+      additionalProperties: false
+      required: [condition_kind, operator, condition_key, condition_value, display_label, display_order]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        benefit_id: { $ref: '#/components/schemas/Uuid' }
+        condition_kind: { type: string }
+        operator: { type: string }
+        condition_key: { type: string }
+        condition_value: { type: object, additionalProperties: true }
+        display_label: { type: string }
+        cedar_policy_ref: { type: string, nullable: true }
+        display_order: { type: integer }
+    BenefitCatalogCreateRequest:
+      type: object
+      description: Tenant and actor are derived from the verified bearer token; neither can be supplied by callers.
+      additionalProperties: false
+      required: [scope, category, name, coverageLabel, costLabel]
+      properties:
+        scope: { $ref: '#/components/schemas/BenefitCatalogScope' }
+        category: { type: string, enum: [legal, extra] }
+        name: { type: string, minLength: 1 }
+        coverageLabel: { type: string, minLength: 1 }
+        coveredCount: { type: integer, nullable: true }
+        costLabel: { type: string, minLength: 1 }
+        estimatedAnnualCostWon: { type: integer, format: int64, nullable: true }
+        employerRateBps: { type: integer, nullable: true }
+        note: { type: string, nullable: true }
+        legalBasis: { type: string, nullable: true }
+        relatedDomain: { type: string, nullable: true }
+        relatedObjectId: { $ref: '#/components/schemas/Uuid', nullable: true }
+        effectiveOn: { type: string, format: date, nullable: true }
+        retiresOn: { type: string, format: date, nullable: true }
+        displayOrder: { type: integer, default: 0 }
+        metadata: { type: object, additionalProperties: true }
+        tiers: { type: array, items: { $ref: '#/components/schemas/BenefitCatalogTier' } }
+        conditions: { type: array, items: { $ref: '#/components/schemas/BenefitCatalogCondition' } }
+    BenefitCatalogUpdateRequest:
+      type: object
+      description: Mutable catalog fields only; tenant, actor, identifiers, and lifecycle state are server-owned.
+      additionalProperties: false
+      properties:
+        category: { type: string, enum: [legal, extra] }
+        name: { type: string, minLength: 1 }
+        scope: { $ref: '#/components/schemas/BenefitCatalogScope' }
+        coverageLabel: { type: string }
+        coveredCount: { type: integer, nullable: true }
+        costLabel: { type: string }
+        estimatedAnnualCostWon: { type: integer, format: int64, nullable: true }
+        employerRateBps: { type: integer, nullable: true }
+        note: { type: string, nullable: true }
+        legalBasis: { type: string, nullable: true }
+        relatedDomain: { type: string, nullable: true }
+        relatedObjectId: { $ref: '#/components/schemas/Uuid', nullable: true }
+        effectiveOn: { type: string, format: date, nullable: true }
+        retiresOn: { type: string, format: date, nullable: true }
+        displayOrder: { type: integer }
+        metadata: { type: object, additionalProperties: true }
+    BenefitCatalogReplaceTiersRequest:
+      type: object
+      additionalProperties: false
+      required: [tiers]
+      properties:
+        tiers: { type: array, items: { $ref: '#/components/schemas/BenefitCatalogTier' } }
+    BenefitCatalogReplaceConditionsRequest:
+      type: object
+      additionalProperties: false
+      required: [conditions]
+      properties:
+        conditions: { type: array, items: { $ref: '#/components/schemas/BenefitCatalogCondition' } }
+    BenefitCatalogLifecycleBinding:
+      type: object
+      additionalProperties: false
+      required: [object_type, object_id]
+      properties:
+        object_type: { type: string, enum: [benefit_catalog_item] }
+        object_id: { $ref: '#/components/schemas/Uuid' }
+        current_state: { type: string, nullable: true }
+        legal_hold: { type: boolean, nullable: true }
+        retention_until: { type: string, format: date-time, nullable: true }
+    BenefitCatalogItemPage:
+      type: object
+      required: [items, limit, offset, total]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/BenefitCatalogItem' } }
+        limit: { type: integer }
+        offset: { type: integer }
+        total: { type: integer }
+    BenefitCatalogItem:
+      type: object
+      required: [id, benefit_code, category, name, scope, coverage_label, cost_label, tiers, conditions, lifecycle]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        benefit_code: { type: string }
+        category: { type: string, enum: [legal, extra] }
+        name: { type: string }
+        scope: { $ref: '#/components/schemas/BenefitCatalogScope' }
+        coverage_label: { type: string }
+        covered_count: { type: integer, nullable: true }
+        cost_label: { type: string }
+        estimated_annual_cost_won: { type: integer, format: int64, nullable: true }
+        employer_rate_bps: { type: integer, nullable: true }
+        note: { type: string, nullable: true }
+        legal_basis: { type: string, nullable: true }
+        related_domain: { type: string, nullable: true }
+        related_object_id: { $ref: '#/components/schemas/Uuid', nullable: true }
+        effective_on: { type: string, format: date, nullable: true }
+        retires_on: { type: string, format: date, nullable: true }
+        tiers: { type: array, items: { $ref: '#/components/schemas/BenefitCatalogTier' } }
+        conditions: { type: array, items: { $ref: '#/components/schemas/BenefitCatalogCondition' } }
+        lifecycle: { $ref: '#/components/schemas/BenefitCatalogLifecycleBinding' }
     LeaveCreateRequest:
       type: object
       description: >-

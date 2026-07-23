@@ -65,7 +65,7 @@
 | 근태 / att | AttendancePage | daily-work-plans | 없음 | PARTIAL | body·월마감/주52h 깊이 |
 | 급여 / pay | PayrollPage | read-only draft readiness REST | 없음 | PARTIAL | 계산결과·발급 급여명세·body |
 | 연차 / leave | 일부 기존 흐름 | leave REST | registry body | PARTIAL | 신청 생성·법정 타이밍/순서·E2E |
-| 복리후생 / benefit | 없음 | domain/table DARK | 없음 | MISSING | REST·body |
+| 복리후생 / benefit | 없음 | tenant-scoped catalog REST | development REGISTRY body | PARTIAL | independent runtime/RLS closed-loop evidence·production exposure |
 | 전자결재 / appr | compose 특수 라우트 | workflow/governance | registry 없음 | PARTIAL | 기안 외 함 IA·새 shell mount |
 | 문서·증거 / docs | 기록물 흐름 | evidence·integrity·lifecycle | registry body | PARTIAL | 외부 signer·anchor·object-lock·TSA |
 | 권한·정책 / policy | 일부 정책 화면 | Cedar authoring/sim | registry body | PARITY | live Cedar 승격은 별도 DARK 게이트 |

@@ -11,6 +11,7 @@ src/main/kotlin/com/maintenance/api/client/api/AnalyticsApi.kt
 src/main/kotlin/com/maintenance/api/client/api/ApprovalItemsApi.kt
 src/main/kotlin/com/maintenance/api/client/api/AuditApi.kt
 src/main/kotlin/com/maintenance/api/client/api/AuthApi.kt
+src/main/kotlin/com/maintenance/api/client/api/BenefitCatalogApi.kt
 src/main/kotlin/com/maintenance/api/client/api/BranchesApi.kt
 src/main/kotlin/com/maintenance/api/client/api/CollaborationApi.kt
 src/main/kotlin/com/maintenance/api/client/api/ConsoleApi.kt
@@ -147,6 +148,16 @@ src/main/kotlin/com/maintenance/api/client/model/AuditChainAttestation.kt
 src/main/kotlin/com/maintenance/api/client/model/AuditStreamPage.kt
 src/main/kotlin/com/maintenance/api/client/model/AuditStreamReadKind.kt
 src/main/kotlin/com/maintenance/api/client/model/AuditStreamRecord.kt
+src/main/kotlin/com/maintenance/api/client/model/BenefitCatalogCondition.kt
+src/main/kotlin/com/maintenance/api/client/model/BenefitCatalogCreateRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/BenefitCatalogItem.kt
+src/main/kotlin/com/maintenance/api/client/model/BenefitCatalogItemPage.kt
+src/main/kotlin/com/maintenance/api/client/model/BenefitCatalogLifecycleBinding.kt
+src/main/kotlin/com/maintenance/api/client/model/BenefitCatalogReplaceConditionsRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/BenefitCatalogReplaceTiersRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/BenefitCatalogScope.kt
+src/main/kotlin/com/maintenance/api/client/model/BenefitCatalogTier.kt
+src/main/kotlin/com/maintenance/api/client/model/BenefitCatalogUpdateRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/BranchScope.kt
 src/main/kotlin/com/maintenance/api/client/model/BranchSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/BulkAuthorizeBody.kt

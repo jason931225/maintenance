@@ -5,7 +5,7 @@ Source: `backend/openapi/openapi.yaml` (223 REST paths). Console is **almost ent
 ## Coverage highlights
 - **Solid/wired (contract-adjacent):** work-orders/dispatch, employees(+import), equipment/asset, financial purchase-requests(full workflow), customers/sites, attendance, messenger, mail(custom Rust), map/location, KPI/ops, support/tickets, identity/credential admin(platform.ts/groupAdmin.ts), storefront/sales, workflow-studio(full: catalog/CRUD/run/simulate/publish/pause/resume/rollback/clone/history/run-log/revisions).
 - **PARTIAL:** explore(equipment-typed only, no generic object search/graph/type-registry), policy(RBAC-role-shaped, no Cedar doc CRUD/simulate/authorize REST), financial(no GL/journal/voucher), leave(read-only), evidence(presign/status; no attestation/verify), ingest(domain importers, no generic DX pipeline), notifications(WS only), directory.
-- **MISSING REST (crate exists, zero REST):** payroll, inventory, benefits. **Also missing:** leave mutations, recruiting(postings/candidates), notifications REST, board.
+- **MISSING REST (crate exists, zero REST):** payroll, inventory. Benefit catalog REST is mounted with PBAC/RLS/audit substrate, but production console exposure and closed-loop runtime evidence remain pending. **Also missing:** leave mutations, recruiting(postings/candidates), notifications REST, board.
 - **Backend-ready but UI-unwired (quick wins):** `reporting/work-diary`(+confirm), `exports/daily-status`/`work-diary`, `console/kill-switch`, `console/rollout/org-flag`, `hr/exit-cases/{id}/approval-draft`.
 
 ## THE SPINE — HANDOFF engine layer, essentially UNBUILT (critical path)
