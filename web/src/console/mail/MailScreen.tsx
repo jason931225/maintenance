@@ -124,7 +124,7 @@ export function MailScreen() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [compose, setCompose] = useState<MailComposerState>(EMPTY_COMPOSE);
   const [composeAttachments, setComposeAttachments] = useState<File[]>([]);
-  const [sending, setSending] = useState(false);
+  const [pendingGeneration, setPendingGeneration] = useState<number>();
   const [notice, setNotice] = useState<string>();
   const [error, setError] = useState<string>();
   const [egressBlock, setEgressBlock] = useState<MailEgressBlock>();
@@ -141,6 +141,7 @@ export function MailScreen() {
   const selectedThreadId = route.threadId
     ? threads.some((thread) => thread.id === route.threadId) ? route.threadId : undefined
     : threads[0]?.id;
+  const sending = pendingGeneration === composeGenerationRef.current;
 
   const updateMailRoute = useCallback((updates: MailRouteUpdate, options: { replace?: boolean; focus?: "master" | "content"; preserveActiveFocus?: boolean } = {}) => {
     const params = new URLSearchParams(location.search);
@@ -411,7 +412,7 @@ export function MailScreen() {
       return;
     }
     const sendingGeneration = composeGenerationRef.current;
-    setSending(true);
+    setPendingGeneration(sendingGeneration);
     try {
       const attachments = composeAttachments.length > 0
         ? await Promise.all(composeAttachments.map(fileToMailAttachment))
@@ -448,7 +449,7 @@ export function MailScreen() {
     } catch {
       if (composeGenerationRef.current === sendingGeneration) setError(compose.mode === "reply" ? T.composer.replyFailed : compose.mode === "forward" ? T.composer.forwardFailed : T.composer.failed);
     } finally {
-      setSending(false);
+      setPendingGeneration((current) => current === sendingGeneration ? undefined : current);
     }
   }, [api, compose, composeAttachments, resetCompose, T]);
 

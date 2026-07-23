@@ -584,6 +584,36 @@ describe("MailScreen", () => {
     expect(screen.queryByText("메일을 보내지 못했습니다.")).not.toBeInTheDocument();
   });
 
+  it("lets a successor reply send while an older send remains pending", async () => {
+    const user = userEvent.setup();
+    let resolveFirst: (response: HttpResponse) => void = () => {};
+    const first = new Promise<HttpResponse>((resolve) => { resolveFirst = resolve; });
+    const replied = vi.fn();
+    mockMailbox();
+    server.use(
+      http.post("*/api/v1/mail/send", () => first),
+      http.post("*/api/v1/mail/reply", async ({ request }) => {
+        replied(await request.json());
+        return HttpResponse.json({ message_id: "reply", rfc_message_id: "<reply@example.com>" }, { status: 201 });
+      }),
+    );
+    renderMailScreen();
+    const composer = await screen.findByRole("form", { name: "메일 작성" });
+    await user.type(within(composer).getByLabelText("받는 사람"), "payroll@example.com");
+    await user.type(within(composer).getByLabelText("제목"), "A");
+    await user.type(within(composer).getByLabelText("본문"), "A");
+    await user.click(within(composer).getByRole("button", { name: "메일 보내기" }));
+    await user.click(await screen.findByRole("button", { name: "답장" }));
+    const replyComposer = screen.getByRole("form", { name: "메일 작성" });
+    await waitFor(() => { expect(within(replyComposer).getByLabelText("제목")).toHaveValue("Re: 급여명세서 확인"); });
+    const replySend = within(replyComposer).getByRole("button", { name: "답장 보내기" });
+    expect(replySend).toBeEnabled();
+    await user.type(within(replyComposer).getByLabelText("본문"), "B");
+    await user.click(replySend);
+    await waitFor(() => { expect(replied).toHaveBeenCalledTimes(1); });
+    resolveFirst(HttpResponse.json({ message_id: "sent", rfc_message_id: "<sent@example.com>" }, { status: 201 }));
+  });
+
   it("omits policy-denied affordances and uses stable mail policy action names", async () => {
     const seen: string[] = [];
     const gate: PolicyGate = {
