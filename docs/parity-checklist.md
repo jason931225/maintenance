@@ -19,7 +19,7 @@ Each ADR-0009 release must attach evidence for every applicable row below. Local
 | Checklist and native string keys | This checklist has complete T1.7, T3.3, and T2.2 rows; Android `strings.xml` keys are present in iOS `Localizable.strings` except declared iOS aliases | Every mobile release and before adding a new mobile user-visible capability | `node scripts/check-i18n.mjs`; CI `Mobile parity — checklist and strings` |
 | Generated client drift | Portable Kotlin/TypeScript and Swift generated clients remain contract-clean; no generated client is hand-edited in this lane | Backend/OpenAPI or generated-client consumers change | `npm run check:api-drift:portable`; `npm run check:api-drift:swift`; `npm run check:kotlin`; `npm run check:swift` |
 | Swift package build and behavior | iOS package builds, SwiftPM test target resolves, and behavior runner covers auth/session/device registration/mapping/offline/messenger/location reducers | Every release with iOS or shared mobile capability impact | `cd ios && swift build`; `cd ios && swift test`; `cd ios && swift run MaintenanceFieldCoreBehaviorTests` |
-| iOS Simulator UI and accessibility | A GitHub-hosted `macos-15` VM verifies Xcode 16.4 build `16F6` and iOS 18.5, then XcodeGen builds the real app against an exact-SHA, job-local Rust backend and checksum-pinned PostgreSQL 18.4; each test-class shard gets a fresh one-use-OTP session and a 12-minute bound, and the aggregated strict suite matches the source test set exactly with zero skips/failures/errors | `ios/**` UI changes, mobile-visible workflow changes, or release candidates requiring iOS UI evidence | `.github/workflows/ios-ui-tests.yml` (`iOS — XCUITest + accessibility audit (Simulator)`); structured `xcresulttool` aggregation, raw-session scan, and cleanup proof |
+| iOS Simulator UI and accessibility | A GitHub-hosted `macos-26` VM verifies Xcode 26.6 build `17F113` with Apple Swift 6.3.3 in strict Swift 6 language mode and iOS 26.5, then XcodeGen builds the real app against an exact-SHA, job-local Rust backend and checksum-pinned PostgreSQL 18.4; each test-class shard gets a fresh one-use-OTP session and a measured 45-to-600-second class-specific bound, and the aggregated strict suite matches the source test set exactly with zero skips/failures/errors | `ios/**` UI changes, mobile-visible workflow changes, or release candidates requiring iOS UI evidence | `.github/workflows/ios-ui-tests.yml` (`iOS — XCUITest + accessibility audit (Simulator)`); structured `xcresulttool` aggregation, raw-session scan, and cleanup proof |
 | iOS secure passkey ceremony | Real device Face ID/Touch ID + iCloud Keychain passkey create/assert/persistence/negative-path sign-off | Native passkey/auth changes, release candidates requiring secure-system UI proof, or when real ceremony evidence is stale for the release | `ios/E2E-MANUAL-SMOKE.md` |
 | Android Gradle build/unit/UI/screenshot | Android release/debug build gate, Robolectric Compose UI/accessibility tests, and Roborazzi screenshot regression all pass | Every release with Android or shared mobile capability impact | `cd android && ./gradlew build -x testReleaseUnitTest -x testDebugUnitTest`; `cd android && ./gradlew testDebugUnitTest`; `cd android && ./gradlew verifyRoborazziDebug` |
 | Android instrumented post-login E2E | Gradle Managed Device uses an isolated PostgreSQL 18.4 database and exact-candidate backend, then proves a random-OTP mechanic session can call the protected work-order API; missing, skipped, failed, or errored evidence fails | Android post-login flows, release candidates requiring Android end-to-end evidence, or token/session transport changes | CI `android-instrumented`; local `cd android && ./gradlew fieldApi34DebugAndroidTest` after equivalent harness setup |
@@ -76,10 +76,10 @@ Each ADR-0009 release must attach evidence for every applicable row below. Local
   package-level build and behavior-test readiness only.
 - **XcodeGen/XCUITest workflow:** `.github/workflows/ios-ui-tests.yml` runs
   every triggered push/tag or public/untrusted pull-request gate on one
-  job-local GitHub-hosted `macos-15` VM; it does not route repository code to a reusable
+  job-local GitHub-hosted `macos-26` VM; it does not route repository code to a reusable
   self-hosted runner. A future self-hosted lane requires separately governed
-  ephemeral/JIT runners and teardown attestation. The job verifies Xcode 16.4
-  build `16F6` and the iOS 18.5 runtime, generates
+  ephemeral/JIT runners and teardown attestation. The job verifies Xcode 26.6
+  build `17F113` with Apple Swift 6.3.3 in strict Swift 6 language mode and the iOS 26.5 runtime, generates
   `ios/MaintenanceField.xcodeproj` from `ios/project.yml`, resolves packages, and
   runs Simulator-bound XCUITest/accessibility-audit tests. The generated project
   is a CI artifact, not a committed Xcode project or TestFlight guarantee.
@@ -87,7 +87,7 @@ Each ADR-0009 release must attach evidence for every applicable row below. Local
   DerivedData, `.xctestrun`, and result bundles live below one owned
   runner-temporary root. Before each test-class shard, CI seeds deterministic
   fixtures and redeems a fresh random one-use OTP into a new session. A
-  12-minute hard bound keeps every shard below the 15-minute access-token TTL;
+  measured class-specific hard bounds of 45 to 600 seconds keep every shard below the 15-minute access-token TTL;
   production rotating refresh exists, but the gate does not rely on it. The
   mode-`0600` `.xctestrun` is patched in place so `__TESTROOT__` remains valid.
   Strict aggregation across every shard `.xcresult` requires the exact

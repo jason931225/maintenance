@@ -104,8 +104,14 @@ function hasRunnerTempAuthDirectorySeam(files) {
 }
 
 function hasSafeMobileCredentialSeed(files) {
+  const workflow = files[".github/workflows/ci.yml"] ?? "";
   const seed = files["e2e/harness/seed-mobile-ci.sql"] ?? "";
   return /:\{\?otp_hash\}/.test(seed)
+    && /^[ \t]*\\set\s+ON_ERROR_STOP\s+on\s*$/m.test(seed)
+    && /RAISE\s+EXCEPTION\s+'seed-mobile-ci:/i.test(seed)
+    && /:\{\?fixture_profile\}/.test(seed)
+    && /'full'\s*,\s*'accessibility-audit-one-row'/.test(seed)
+    && /(?:--set|-v)\s+"?fixture_profile=full"?/.test(workflow)
     && /\^\[0-9a-f\]\{64\}\$/.test(seed)
     && /00000000-0000-0000-0000-0000000d0002/.test(seed)
     && /decode\(:'otp_hash',\s*'hex'\)/.test(seed)

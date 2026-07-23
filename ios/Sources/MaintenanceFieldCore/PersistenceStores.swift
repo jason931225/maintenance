@@ -103,16 +103,21 @@ public actor KeychainSessionTokenStore: SessionTokenStore {
             try keychain.delete(service: service, account: account)
             try legacyKeychain?.delete(service: service, account: account)
             return tokens
-        } catch {
-            Self.restore(
-                primaryData: primaryData,
-                legacyData: legacyData,
-                keychain: keychain,
-                legacyKeychain: legacyKeychain,
-                service: service,
-                account: account
-            )
-            throw error
+        } catch let deletionFailure {
+            do {
+                try Self.restoreOrThrow(
+                    afterDeletionFailure: deletionFailure,
+                    primaryData: primaryData,
+                    legacyData: legacyData,
+                    keychain: keychain,
+                    legacyKeychain: legacyKeychain,
+                    service: service,
+                    account: account
+                )
+            } catch {
+                throw error
+            }
+            throw deletionFailure
         }
     }
 
@@ -129,16 +134,21 @@ public actor KeychainSessionTokenStore: SessionTokenStore {
             try keychain.delete(service: service, account: account)
             try legacyKeychain?.delete(service: service, account: account)
             tokenProvider.set(nil)
-        } catch {
-            Self.restore(
-                primaryData: primaryData,
-                legacyData: legacyData,
-                keychain: keychain,
-                legacyKeychain: legacyKeychain,
-                service: service,
-                account: account
-            )
-            throw error
+        } catch let deletionFailure {
+            do {
+                try Self.restoreOrThrow(
+                    afterDeletionFailure: deletionFailure,
+                    primaryData: primaryData,
+                    legacyData: legacyData,
+                    keychain: keychain,
+                    legacyKeychain: legacyKeychain,
+                    service: service,
+                    account: account
+                )
+            } catch {
+                throw error
+            }
+            throw deletionFailure
         }
     }
 
@@ -160,16 +170,38 @@ public actor KeychainSessionTokenStore: SessionTokenStore {
         return try? JSONDecoder().decode(AuthTokens.self, from: data)
     }
 
-    private static func restore(
+    /// Restores the pre-delete snapshots. A failed rollback is materially
+    /// different from a delete failure: callers need both sanitized causes to
+    /// decide whether the original session may still be trusted.
+    private static func restoreOrThrow(
+        afterDeletionFailure deletionFailure: Error,
         primaryData: Data?,
         legacyData: Data?,
         keychain: any KeychainAccess,
         legacyKeychain: (any KeychainAccess)?,
         service: String,
         account: String
-    ) {
-        if let primaryData { try? keychain.write(primaryData, service: service, account: account) }
-        if let legacyData { try? legacyKeychain?.write(legacyData, service: service, account: account) }
+    ) throws {
+        var rollbackFailures: [String] = []
+        if let primaryData {
+            do {
+                try keychain.write(primaryData, service: service, account: account)
+            } catch {
+                rollbackFailures.append("primary=\(PersistenceStoreError.sanitizedUnderlyingDescription(error))")
+            }
+        }
+        if let legacyData {
+            do {
+                try legacyKeychain?.write(legacyData, service: service, account: account)
+            } catch {
+                rollbackFailures.append("legacy=\(PersistenceStoreError.sanitizedUnderlyingDescription(error))")
+            }
+        }
+        guard !rollbackFailures.isEmpty else { return }
+        throw PersistenceStoreError.writeFailed(
+            "session",
+            "deletion=\(PersistenceStoreError.sanitizedUnderlyingDescription(deletionFailure)); rollback=\(rollbackFailures.joined(separator: ","))"
+        )
     }
 }
 
@@ -265,33 +297,105 @@ public struct SecKeychainAccess: KeychainAccess {
 /// entitled group, then reads back and validates the exact group the system
 /// granted. Returns `nil` when that default group does not match the shared-group
 /// suffix (the app then transparently uses its legacy default-group store).
-public enum KeychainAccessGroup {
-    public static func resolveShared(
-        suffix: String,
-        service: String = "maintenance.field",
-        probeAccount: String = "maintenance.field.group.probe"
-    ) -> String? {
-        let uniqueProbeAccount = "\(probeAccount).\(UUID().uuidString.lowercased())"
+public struct KeychainAccessGroupProbeResult: Sendable {
+    public let grantedAccessGroup: String?
+
+    public init(grantedAccessGroup: String?) {
+        self.grantedAccessGroup = grantedAccessGroup
+    }
+}
+
+/// A sanitized, non-secret signal for a best-effort probe cleanup failure.
+///
+/// The probe account is deliberately omitted: it contains a per-launch UUID and
+/// is not useful to production telemetry. The domain and code retain the
+/// actionable Keychain failure category without exposing account or credential
+/// material.
+public struct KeychainAccessGroupProbeCleanupFailure: Sendable, Equatable {
+    public let errorDomain: String
+    public let errorCode: Int
+
+    public init(error: Error) {
+        let nsError = error as NSError
+        errorDomain = nsError.domain
+        errorCode = nsError.code
+    }
+}
+
+public typealias KeychainAccessGroupProbeCleanupFailureReporter = @Sendable (KeychainAccessGroupProbeCleanupFailure) -> Void
+
+/// Isolates the throwaway Keychain probe so failure handling can be tested
+/// without calling Security.framework from a host test process.
+public protocol KeychainAccessGroupProbing: Sendable {
+    func addProbe(service: String, account: String) throws -> KeychainAccessGroupProbeResult
+    func deleteProbe(service: String, account: String) throws
+}
+
+public struct SecKeychainAccessGroupProbe: KeychainAccessGroupProbing {
+    public init() {}
+
+    public func addProbe(service: String, account: String) throws -> KeychainAccessGroupProbeResult {
         let add: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
-            kSecAttrAccount as String: uniqueProbeAccount,
+            kSecAttrAccount as String: account,
             kSecValueData as String: Data("probe".utf8),
             kSecReturnAttributes as String: true,
         ]
         var result: CFTypeRef?
         let status = SecItemAdd(add as CFDictionary, &result)
+        guard status == errSecSuccess else {
+            throw PersistenceStoreError.writeFailed("keychain_access_group_probe", "keychain status \(status)")
+        }
+        let attributes = result as? [String: Any]
+        return KeychainAccessGroupProbeResult(
+            grantedAccessGroup: attributes?[kSecAttrAccessGroup as String] as? String
+        )
+    }
+
+    public func deleteProbe(service: String, account: String) throws {
+        let status = SecItemDelete([
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: account,
+        ] as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw PersistenceStoreError.writeFailed("keychain_access_group_probe", "keychain delete status \(status)")
+        }
+    }
+}
+
+public enum KeychainAccessGroup {
+    public static func resolveShared(
+        suffix: String,
+        service: String = "maintenance.field",
+        probeAccount: String = "maintenance.field.group.probe",
+        probe: any KeychainAccessGroupProbing = SecKeychainAccessGroupProbe(),
+        reportCleanupFailure: KeychainAccessGroupProbeCleanupFailureReporter = { failure in
+            NSLog(
+                "MaintenanceField keychain access-group probe cleanup failed: %@:%ld",
+                failure.errorDomain,
+                failure.errorCode
+            )
+        }
+    ) -> String? {
+        let uniqueProbeAccount = "\(probeAccount).\(UUID().uuidString.lowercased())"
+        guard let result = try? probe.addProbe(service: service, account: uniqueProbeAccount) else {
+            return nil
+        }
         defer {
-            SecItemDelete([
-                kSecClass as String: kSecClassGenericPassword,
-                kSecAttrService as String: service,
-                kSecAttrAccount as String: uniqueProbeAccount,
-            ] as CFDictionary)
+            // The probe is unique and contains no credential material. Cleanup
+            // remains non-fatal during launch, but unexpected failures are
+            // observable through a sanitized reporter. A later probe has a
+            // different account name.
+            do {
+                try probe.deleteProbe(service: service, account: uniqueProbeAccount)
+            } catch {
+                reportCleanupFailure(KeychainAccessGroupProbeCleanupFailure(error: error))
+            }
         }
         guard
-            status == errSecSuccess,
-            let attributes = result as? [String: Any],
-            let granted = attributes[kSecAttrAccessGroup as String] as? String,
+            let granted = result.grantedAccessGroup,
             granted == suffix || granted.hasSuffix(".\(suffix)")
         else {
             return nil

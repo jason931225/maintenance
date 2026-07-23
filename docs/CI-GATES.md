@@ -121,14 +121,15 @@ their prerequisites are available:
   The required `WorkOrderFlowTest` must execute with zero skips, failures, or
   errors; no external backend or long-lived refresh-token secret is required.
 - `.github/workflows/ios-ui-tests.yml` for Simulator-bound XCUITest/accessibility
-  audit on one GitHub-hosted `macos-15` VM. CI verifies Xcode 16.4 build `16F6`
-  and the iOS 18.5 runtime, builds checksum-pinned PostgreSQL 18.4 and the exact
-  candidate Rust backend under a job-local root, and mints a fresh random
-  one-use-OTP session for each test-class shard. Every shard has a 12-minute hard
-  bound under the 15-minute access-token TTL. Structured results across all
-  shards must match the source-discovered test set exactly with zero skips,
-  failures, or errors; no external backend/session secret or fork skip path is
-  permitted.
+  audit on one GitHub-hosted `macos-26` VM. The current merge authority is Xcode
+  26.6 build `17F113`, Apple Swift 6.3.3 in strict Swift 6 language mode, and the
+  iOS 26.5 runtime. The job builds checksum-pinned PostgreSQL 18.4 and the exact
+  candidate Rust backend under a job-local root, then runs 15 named fail-slow
+  shards. Each shard receives a fresh random one-use-OTP session, its own
+  presentation precondition/readback, a 45-to-360-second hard budget, timing
+  telemetry, and separate result artifacts. Structured results across all shards
+  must match the source-discovered test set exactly with zero skips, failures, or
+  errors; no external backend/session secret or fork skip path is permitted.
 - Swift client and iOS app gates require macOS/Swift; Linux developers should use
   CI or a macOS runner for those surfaces.
 
@@ -264,16 +265,18 @@ names only, not incidental workflow prose or runner setup text.
 - **iOS app — Swift build and behavior tests**: `swift build`, `swift test`, and
   `swift run MaintenanceFieldCoreBehaviorTests` from `ios/` on macOS.
 - **iOS UI tests — XCUITest/accessibility audit (Simulator)**:
-  `.github/workflows/ios-ui-tests.yml` runs on a GitHub-hosted `macos-15` VM,
-  verifies Xcode 16.4 build `16F6` and the iOS 18.5 runtime, generates the Xcode
-  project with XcodeGen, and executes one test-class shard at a time against an
+  `.github/workflows/ios-ui-tests.yml` runs on a GitHub-hosted `macos-26` VM and
+  treats Xcode 26.6 build `17F113`, Apple Swift 6.3.3 in strict Swift 6 language
+  mode, and the iOS 26.5 runtime as the current merge authority. It generates the
+  Xcode project with XcodeGen and executes 15 named fail-slow shards against an
   exact-SHA backend and checksum-pinned PostgreSQL 18.4. Each shard gets a fresh
-  random one-use-OTP session and a 12-minute hard timeout. The mode-`0600`
-  `.xctestrun`, Cargo/Rust homes and target, PostgreSQL, backend state,
-  DerivedData, and results remain under the job-local runner-temporary root.
-  Missing inputs, entitlements, fixtures, expected tests, secret-scan evidence,
-  or cleanup proof fail; there is no external session secret, `XCTSkip`, or
-  fork-reduced test path.
+  random one-use-OTP session, a shell-owned Simulator presentation with exact
+  readback, a measured 45-to-360-second hard timeout, and independent timing and
+  result artifacts. The mode-`0600` `.xctestrun`, Cargo/Rust homes and target,
+  PostgreSQL, backend state, DerivedData, and results remain under the job-local
+  runner-temporary root. Missing inputs, entitlements, fixtures, expected tests,
+  secret-scan evidence, or cleanup proof fail; there is no external session
+  secret, `XCTSkip`, or fork-reduced test path.
 - **Browser E2E — Playwright (all user stories)**: backend `mnt-app` build,
   Postgres/psql/Python helper setup, `npx playwright install --with-deps
   chromium`, and `bash e2e/run.sh`.
@@ -651,20 +654,20 @@ the macOS CI runner.
 ### iOS UI tests — hermetic real-session XCUITest/accessibility gate
 
 The standalone `.github/workflows/ios-ui-tests.yml` workflow is the CI-only
-Simulator gate for SwiftUI post-login flows and accessibility audit coverage. It
-runs every triggered push/tag or untrusted/public pull-request gate on one
-job-local GitHub-hosted `macos-15` VM. Public pull-request code does not run on a reusable
+Simulator gate for SwiftUI post-login flows and accessibility coverage. It runs
+every triggered push/tag or untrusted/public pull-request gate on one job-local
+GitHub-hosted `macos-26` VM. Public pull-request code does not run on a reusable
 self-hosted macOS runner. Any future self-hosted CI lane must use a separately
 governed ephemeral/JIT runner group with teardown attestation; that lane is not
 implemented or evidenced by the current workflow.
 
-The job sets `DEVELOPER_DIR` to Xcode 16.4 and fails unless `xcodebuild -version`
-returns build `16F6`. It also fails unless the exact iOS 18.5 Simulator runtime
-identifier is available. XcodeGen 2.46.0 is downloaded into the job root and
-verified against the repository-pinned SHA-256. This generates
-`ios/MaintenanceField.xcodeproj` from `ios/project.yml`; it is a test artifact,
-not a committed archive-capable project, TestFlight proof, or release-signing
-gate.
+The current merge authority is Xcode 26.6 build `17F113`, Apple Swift 6.3.3 in
+strict Swift 6 language mode, and the exact iOS 26.5 Simulator runtime. The job
+fails if any version differs. XcodeGen 2.46.0 is downloaded into the job root and
+verified against the repository-pinned SHA-256. It generates
+`ios/MaintenanceField.xcodeproj` from `ios/project.yml`; that project is a test
+artifact, not a committed archive-capable project, TestFlight proof, or
+release-signing gate.
 
 The database, backend, build, and session boundary is job-local:
 
@@ -677,39 +680,113 @@ The database, backend, build, and session boundary is job-local:
    `81a81ec695fb0c7901407defaa1d2f7973617154cf27ba74e3a7ab8e64436094`
    before building it. The mode-`0700` cluster and candidate `mnt-app` backend
    use separate random loopback ports.
-3. It applies migrations and deterministic UI fixtures. Before each test-class
-   shard, it generates a new random one-use OTP and stores only its SHA-256
-   digest in the database. The plaintext OTP and minted access/refresh tokens
-   briefly reside in runner-local mode-`0700` job files (and the mode-`0600`
-   `.xctestrun`), are GitHub-masked, are checked by the artifact secret scan,
-   and are deleted with the owned job root. The `.xctestrun` remains below
-   job-local DerivedData so `__TESTROOT__` continues to resolve the built
-   products.
-4. Each shard has a 720-second (12-minute) hard bound, below the backend's
-   15-minute access-token TTL. The production iOS client implements serialized,
-   rotating refresh with proactive expiry handling, verified Keychain
-   delete-before-use semantics, and one reactive retry. Failed deletion blocks
-   network use and cannot falsely report logout. Fresh per-shard sessions keep
-   this CI gate independent of refresh success and prevent suite duration from
-   becoming an authentication dependency.
-5. Every shard writes its own `.xcresult`, summary JSON, and test-tree JSON.
-   `scripts/verify-xcresult-test-results.mjs` aggregates those files and requires
-   the exact union of XCTest methods discovered from `ios/UITests`, with no
-   duplicate, missing, skipped, failed, or errored case.
+3. It applies migrations and deterministic UI fixtures. Before each named shard,
+   it generates a new random one-use OTP and stores only its SHA-256 digest in
+   the database. The plaintext OTP and minted access/refresh tokens briefly
+   reside in runner-local mode-`0700` job files and the mode-`0600` `.xctestrun`.
+   GitHub masks those values; the artifact secret scan checks for them; cleanup
+   deletes them with the owned job root. The `.xctestrun` remains below job-local
+   DerivedData so `__TESTROOT__` resolves the built products.
+4. The job executes all named shards even after an earlier shard fails. Each
+   shard owns a process session, timeout watchdog, presentation, fresh fixture
+   session, `.xcresult`, summary JSON, test-tree JSON, and timing record. A shard
+   failure sets the aggregate status but does not hide failures in later shards.
+5. `scripts/verify-xcresult-test-results.mjs` aggregates all shard results and
+   requires the exact union of XCTest methods discovered from `ios/UITests`, with
+   no duplicate, missing, skipped, failed, or errored case.
 6. Before upload, the workflow scans the artifact tree for every raw OTP, access
    token, and refresh token minted during the job and fails on any match. The
-   artifact upload step then copies the diagnostic results with seven-day
-   retention.
-7. After the upload attempt, an unconditional cleanup step compares the backend
-   PID with its recorded command before signaling it, proves the backend stopped,
-   stops PostgreSQL and proves `pg_ctl status` is inactive, deletes the exact
-   Simulator and proves its UUID is absent, removes generated CI files, deletes
-   the complete owned job root, and proves that root no longer exists.
+   artifact upload step copies diagnostic results with seven-day retention.
+7. After the upload attempt, unconditional cleanup verifies the backend process
+   identity before stopping it, proves PostgreSQL is inactive, restores the
+   Simulator to light appearance and `large` content size with exact readback,
+   deletes the exact Simulator and proves its UUID is absent, removes generated
+   CI files, deletes the complete owned job root, and proves that root no longer
+   exists.
 
-Missing configuration, fixtures, keychain entitlement, session material,
-expected-test evidence, secret-scan evidence, or cleanup proof fails the gate.
-No `-skip-testing`, `XCTSkip`, optional-session branch, external backend/session
-secret, or fork-specific reduced suite is valid.
+#### Named fail-slow shards and budgets
+
+The manifest order, selectors, presentation, and hard budgets are part of the
+fail-closed contract:
+
+| Named shard | XCTest selection | Presentation | Budget |
+| --- | --- | --- | ---: |
+| `preflight` | `PreflightUITests` | light / large | 90 s |
+| `login-validation` | `LoginValidationUITests` | light / large | 90 s |
+| `accessibility-id-parity` | `FieldAccessibilityIDParityTests` | light / large | 45 s |
+| `critical-path` | `FieldCriticalPathUITests` | light / large | 360 s |
+| `messenger` | `MessengerUITests` | light / large | 210 s |
+| `camera-capture` | `CameraCaptureUITests` | light / large | 90 s |
+| `audit-dynamic-today` | Today Dynamic Type audit method | light / large | 150 s |
+| `audit-dynamic-detail` | work-order-detail Dynamic Type audit method | light / large | 150 s |
+| `audit-dynamic-messenger` | Messenger Dynamic Type audit method | light / large | 150 s |
+| `audit-dynamic-login` | login Dynamic Type audit method | light / large | 120 s |
+| `accessibility-standard` | four non-Dynamic-Type standard audit methods | light / large | 360 s |
+| `accessibility-largest` | two non-Dynamic-Type AX5 audit methods | light / accessibility extra-extra-extra large | 240 s |
+| `accessibility-dark` | two non-Dynamic-Type dark audit methods | dark / large | 240 s |
+| `dynamic-type-large` | large Dynamic Type runtime contract | light / large | 150 s |
+| `dynamic-type-ax5` | AX5 Dynamic Type runtime contract | light / accessibility extra-extra-extra large | 180 s |
+
+Every shard records `test:<shard-name>` timing with its configured budget and a
+terminal `passed`, `failed`, `timeout`, or `setup-failed` status. The measured
+budgets total 2,625 seconds; the workflow reserves another 30 minutes for setup,
+build, result verification, artifact handling, and cleanup under the 90-minute
+job ceiling. Fresh per-shard sessions remain below the backend's 15-minute access
+token TTL and keep suite duration independent of refresh success.
+
+#### Shell-owned presentation and runtime proof
+
+The workflow, not the test process, owns global Simulator presentation. Before
+each shard it runs supported `xcrun simctl ui` commands for `appearance` and
+`content_size`, queries both values, and requires exact equality with the shard
+contract before minting the session or launching XCTest. App launch does not use
+`-UIPreferredContentSizeCategoryName`, and tests do not mutate
+`XCUIDevice.shared.appearance`. This avoids process-local assumptions and makes
+dark mode and content-size setup independently observable.
+
+The two runtime shards complement XCTest's audit API with layout evidence:
+
+- `dynamic-type-large` proves that consent remains inline; the Messenger body and
+  timestamp are hittable, visible, non-overlapping, and in one horizontal band.
+- `dynamic-type-ax5` proves that consent moves to a system sheet; every consent
+  control is visible and hittable; the grant button is at least 44 points high;
+  and the Messenger timestamp moves below the body while both remain clear of
+  navigation and tab chrome.
+
+#### Xcode 26 Dynamic Type compatibility ledger
+
+Xcode 26.6 reports a bounded set of synthesized SwiftUI-node Dynamic Type issues
+that the runtime shards test directly. The handler accepts an issue only when all
+of these fields match: audit type `.dynamicType`, compact description
+`Dynamic Type font sizes are partially unsupported`, detailed description
+`User will not be able to change the font size of this SwiftUI.AccessibilityNode`,
+non-null element, exact accessibility identifier, and exact element type. The
+observed sorted multiset must equal the expected sorted multiset, so a changed,
+new, missing, or duplicate issue fails. All non-Dynamic-Type audit types run
+handler-free through `.all.subtracting(.dynamicType)`.
+
+The exact compatibility ledger is:
+
+| Screen | Accepted synthesized nodes |
+| --- | --- |
+| Today | static text `locationConsent.title`; static text `locationConsent.stateLabel`; static text `locationConsent.stateValue`; static text `locationConsent.collectionLabel`; static text `locationConsent.collectionValue`; button `locationConsent.grant` |
+| Work-order detail | static text `detail.symptom.label`; static text `detail.symptom.value` |
+| Messenger | none |
+| Login | none |
+
+This is a toolchain compatibility ledger, not a general suppression list. Remove
+an entry when the pinned merge-authority toolchain no longer emits that exact
+issue and the affected Dynamic Type audit passes without it, while both runtime
+proof shards remain green. Remove the helper only after all four methods pass
+with empty ledgers and no issue handler. Make either change atomically with the
+expected entries, fail-closed checker/mutation coverage, and this document. A
+future Xcode or Swift version is not merge authority until its own pinned
+workflow and evidence replace the versions above.
+
+Missing configuration, fixtures, keychain entitlement, presentation readback,
+session material, expected-test evidence, secret-scan evidence, or cleanup proof
+fails the gate. No `-skip-testing`, `XCTSkip`, optional-session branch, external
+backend/session secret, or fork-specific reduced suite is valid.
 
 The job-local backend uses a CI-only loopback ATS allowance. Production
 `ios/Sources/MaintenanceFieldApp/Info.plist`, TestFlight/archive settings, and

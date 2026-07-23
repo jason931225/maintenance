@@ -8,14 +8,16 @@ final class CameraCaptureUITests: FieldUITestCase {
         waitForAuthenticatedShell()
         try openSeededWorkOrder(fixtureKey: UITestFixture.cameraWorkOrderID)
 
-        let capture = app.buttons[AID.detailCaptureEvidenceButton]
-        XCTAssertTrue(capture.waitForExistence(timeout: 5), "증빙 촬영 button should be present.")
+        guard let capture = scrollToDetailElement(app.buttons[AID.detailCaptureEvidenceButton]) else {
+            XCTFail("증빙 촬영 button should be reachable in the lazy detail form.")
+            return
+        }
 
         // Resolve the one-time system prompt into the same explicit denied
         // terminal state asserted below. The monitor is only input handling;
         // it is never counted as a successful camera outcome.
         let permissionMonitor = addUIInterruptionMonitor(withDescription: "Camera permission") { alert in
-            for label in ["Don't Allow", "허용 안 함", "허용하지 않음"] {
+            for label in ["Don’t Allow", "Don't Allow", "허용 안 함", "허용하지 않음"] {
                 let deny = alert.buttons[label]
                 if deny.exists {
                     deny.tap()
@@ -51,7 +53,7 @@ final class CameraCaptureUITests: FieldUITestCase {
                 reachedTerminalState = true
                 break
             }
-            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+            try await Task.sleep(for: .milliseconds(200))
         }
 
         guard reachedTerminalState else {

@@ -4849,6 +4849,42 @@ mod tests {
     use mnt_platform_storage::ProcessingStatus;
     use mnt_workorder_domain::AttachmentStage;
 
+    fn test_equipment_summary() -> EquipmentSummary {
+        EquipmentSummary {
+            id: uuid::Uuid::nil(),
+            equipment_no: "EQ-001".to_owned(),
+            management_no: Some("001".to_owned()),
+            model: Some("TEST".to_owned()),
+            status: "ACTIVE".to_owned(),
+            specification: "TEST".to_owned(),
+            ton_text: "1T".to_owned(),
+        }
+    }
+
+    fn test_customer() -> NamedEntity {
+        NamedEntity {
+            id: uuid::Uuid::nil(),
+            name: "Test customer".to_owned(),
+        }
+    }
+
+    fn test_site() -> NamedEntity {
+        NamedEntity {
+            id: uuid::Uuid::nil(),
+            name: "Test site".to_owned(),
+        }
+    }
+
+    fn test_assignments(timestamp: time::OffsetDateTime) -> Vec<AssignmentSummary> {
+        vec![AssignmentSummary {
+            id: uuid::Uuid::nil(),
+            mechanic_id: UserId::from_uuid(uuid::Uuid::nil()),
+            mechanic_name: "Test mechanic".to_owned(),
+            role: "PRIMARY".to_owned(),
+            assigned_at: timestamp,
+        }]
+    }
+
     #[test]
     fn work_order_list_item_serializes_timestamps_as_rfc3339_strings() {
         let timestamp = time::OffsetDateTime::from_unix_timestamp(0).unwrap();
@@ -4862,31 +4898,11 @@ mod tests {
             target_due_at: Some(timestamp),
             created_at: timestamp,
             updated_at: timestamp,
-            equipment: EquipmentSummary {
-                id: uuid::Uuid::nil(),
-                equipment_no: "EQ-001".to_owned(),
-                management_no: Some("001".to_owned()),
-                model: Some("TEST".to_owned()),
-                status: "ACTIVE".to_owned(),
-                specification: "TEST".to_owned(),
-                ton_text: "1T".to_owned(),
-            },
-            customer: NamedEntity {
-                id: uuid::Uuid::nil(),
-                name: "Test customer".to_owned(),
-            },
-            site: NamedEntity {
-                id: uuid::Uuid::nil(),
-                name: "Test site".to_owned(),
-            },
+            equipment: test_equipment_summary(),
+            customer: test_customer(),
+            site: test_site(),
             site_contact: None,
-            assignments: vec![AssignmentSummary {
-                id: uuid::Uuid::nil(),
-                mechanic_id: UserId::from_uuid(uuid::Uuid::nil()),
-                mechanic_name: "Test mechanic".to_owned(),
-                role: "PRIMARY".to_owned(),
-                assigned_at: timestamp,
-            }],
+            assignments: test_assignments(timestamp),
         };
 
         let json = serde_json::to_value(&item).unwrap();
@@ -5041,31 +5057,11 @@ mod tests {
             evidence_verified: true,
             created_at: timestamp,
             updated_at: timestamp,
-            equipment: EquipmentSummary {
-                id: uuid::Uuid::nil(),
-                equipment_no: "EQ-001".to_owned(),
-                management_no: Some("001".to_owned()),
-                model: Some("TEST".to_owned()),
-                status: "ACTIVE".to_owned(),
-                specification: "TEST".to_owned(),
-                ton_text: "1T".to_owned(),
-            },
-            customer: NamedEntity {
-                id: uuid::Uuid::nil(),
-                name: "Test customer".to_owned(),
-            },
-            site: NamedEntity {
-                id: uuid::Uuid::nil(),
-                name: "Test site".to_owned(),
-            },
+            equipment: test_equipment_summary(),
+            customer: test_customer(),
+            site: test_site(),
             site_contact: None,
-            assignments: vec![AssignmentSummary {
-                id: uuid::Uuid::nil(),
-                mechanic_id: UserId::from_uuid(uuid::Uuid::nil()),
-                mechanic_name: "Test mechanic".to_owned(),
-                role: "PRIMARY".to_owned(),
-                assigned_at: timestamp,
-            }],
+            assignments: test_assignments(timestamp),
             approval_line: vec![ApprovalStepSummary {
                 id: uuid::Uuid::nil(),
                 step_order: 1,

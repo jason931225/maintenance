@@ -19,6 +19,7 @@ struct MaintenanceFieldCoreBehaviorTests {
         try await passkeyLoginMissingRefreshTokenClearsSessionAndReturnsLoginFailed()
         try await rotatingRefreshPersistsTheReplacementPairAndSharesOneFlight()
         try await rotatingRefreshInvalidatesTheLocalSession()
+        try await rotatingRefreshRejectsIncompleteRotatedPair()
         try await rotatingRefreshConsumesTokensBeforeNetworkAndClearsOnAnyFailure()
         try await rotatingRefreshClearsProviderWhenNoSessionExists()
         try await keychainSaveFailureDoesNotUpdateAccessProvider()
@@ -31,7 +32,9 @@ struct MaintenanceFieldCoreBehaviorTests {
         try await concurrent401sDuringTokenConsumptionShareOneRefresh()
         try await refreshDeletionFailurePreventsNetworkAndClearsProvider()
         try await legacyRefreshDeletionFailurePreventsNetworkAndClearsProvider()
+        try await refreshDeletionAndRollbackFailurePreservesBothCauses()
         try await logoutDeletionFailureDoesNotClaimSignedOut()
+        try keychainAccessGroupProbeFailuresAreNonFatal()
         try await loginInvalidationFailurePreservesRestorableSession()
         try locationConsentStateMachineMirrorsAndroidGpsGate()
         try workOrderMappersMirrorAndroidModels()
@@ -334,6 +337,34 @@ struct MaintenanceFieldCoreBehaviorTests {
         try expectEqual(tokenProvider.get(), nil)
     }
 
+    private static func rotatingRefreshRejectsIncompleteRotatedPair() async throws {
+        for rotated in [
+            AuthTokens(accessToken: "", refreshToken: "refresh-b"),
+            AuthTokens(accessToken: "fresh-access", refreshToken: ""),
+        ] {
+            let tokenProvider = CurrentTokenProvider(accessToken: "expired-access")
+            let sessionStore = InMemorySessionTokenStore(
+                tokens: AuthTokens(accessToken: "expired-access", refreshToken: "refresh-a")
+            )
+            let refresher = RotatingTokenRefresher(
+                gateway: DelayedRefreshGateway(result: .success(rotated)),
+                sessionStore: sessionStore,
+                tokenProvider: tokenProvider
+            )
+
+            do {
+                _ = try await refresher.refresh()
+                throw BehaviorTestFailure("refresh with an incomplete rotated token pair unexpectedly succeeded")
+            } catch SessionRefreshError.invalidSession {
+                // Expected: an incomplete rotated pair must not create a locally authenticated session.
+            }
+
+            try expectEqual(await sessionStore.load(), nil)
+            try expectEqual(await sessionStore.clearCalls(), 1)
+            try expectEqual(tokenProvider.get(), nil)
+        }
+    }
+
     private static func rotatingRefreshConsumesTokensBeforeNetworkAndClearsOnAnyFailure() async throws {
         let tokenProvider = CurrentTokenProvider(accessToken: "expired-access")
         let sessionStore = InMemorySessionTokenStore(
@@ -565,6 +596,60 @@ struct MaintenanceFieldCoreBehaviorTests {
         try expectEqual(provider.get(), nil)
         try expect(primary.allStoredStrings().contains { $0.contains("refresh-a") }, "primary session must be restored after legacy deletion failure")
         try expect(legacy.allStoredStrings().contains { $0.contains("refresh-a") }, "legacy session must remain after its deletion failure")
+    }
+
+    private static func refreshDeletionAndRollbackFailurePreservesBothCauses() async throws {
+        let keychain = InMemoryKeychainAccess()
+        let provider = CurrentTokenProvider()
+        let store = KeychainSessionTokenStore(tokenProvider: provider, keychain: keychain)
+        let tokens = AuthTokens(accessToken: "expired-access", refreshToken: "refresh-a")
+        try await store.save(tokens)
+        keychain.failDeletes = true
+        keychain.failWrites = true
+
+        let error = try await expectAsyncThrows {
+            try await store.consumeForRefresh()
+        }
+
+        guard case let PersistenceStoreError.writeFailed(storeName, detail) = error else {
+            throw BehaviorTestFailure("delete plus rollback failure must surface as a sanitized persistence write failure")
+        }
+        try expectEqual(storeName, "session")
+        try expect(detail.contains("deletion="), "composite failure must retain the deletion cause")
+        try expect(detail.contains("rollback=primary="), "composite failure must retain the rollback cause")
+        try expect(!detail.contains(tokens.refreshToken), "composite failure must not leak token material")
+        try expectEqual(provider.get(), nil)
+        try expectEqual(await store.load(), tokens)
+    }
+
+    private static func keychainAccessGroupProbeFailuresAreNonFatal() throws {
+        let addFailure = RecordingKeychainAccessGroupProbe(addFailure: true)
+        try expectEqual(
+            KeychainAccessGroup.resolveShared(suffix: "TEAMID.com.example.maintenance", probe: addFailure),
+            nil
+        )
+        try expectEqual(addFailure.deleteCalls, 0)
+
+        let cleanupFailure = RecordingKeychainAccessGroupProbe(
+            grantedAccessGroup: "TEAMID.com.example.maintenance",
+            deleteError: NSError(domain: "KeychainAccessGroupProbeTests", code: 73)
+        )
+        let cleanupFailureReporter = RecordingKeychainAccessGroupProbeCleanupFailureReporter()
+        try expectEqual(
+            KeychainAccessGroup.resolveShared(
+                suffix: "com.example.maintenance",
+                probe: cleanupFailure,
+                reportCleanupFailure: cleanupFailureReporter.report
+            ),
+            "TEAMID.com.example.maintenance"
+        )
+        try expectEqual(cleanupFailure.deleteCalls, 1)
+        try expectEqual(
+            cleanupFailureReporter.failures,
+            [KeychainAccessGroupProbeCleanupFailure(
+                error: NSError(domain: "KeychainAccessGroupProbeTests", code: 73)
+            )]
+        )
     }
 
     private static func logoutDeletionFailureDoesNotClaimSignedOut() async throws {
@@ -2843,6 +2928,54 @@ private final class InMemoryKeychainAccess: KeychainAccess, @unchecked Sendable 
         lock.lock()
         defer { lock.unlock() }
         return storage.isEmpty
+    }
+}
+
+private final class RecordingKeychainAccessGroupProbe: KeychainAccessGroupProbing, @unchecked Sendable {
+    let grantedAccessGroup: String?
+    let addFailure: Bool
+    let deleteError: (any Error)?
+    private(set) var deleteCalls = 0
+
+    init(
+        grantedAccessGroup: String? = nil,
+        addFailure: Bool = false,
+        deleteError: (any Error)? = nil
+    ) {
+        self.grantedAccessGroup = grantedAccessGroup
+        self.addFailure = addFailure
+        self.deleteError = deleteError
+    }
+
+    func addProbe(service: String, account: String) throws -> KeychainAccessGroupProbeResult {
+        if addFailure {
+            throw BehaviorTestFailure("injected access-group probe add failure")
+        }
+        return KeychainAccessGroupProbeResult(grantedAccessGroup: grantedAccessGroup)
+    }
+
+    func deleteProbe(service: String, account: String) throws {
+        deleteCalls += 1
+        if let deleteError {
+            throw deleteError
+        }
+    }
+}
+
+private final class RecordingKeychainAccessGroupProbeCleanupFailureReporter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var reportedFailures: [KeychainAccessGroupProbeCleanupFailure] = []
+
+    func report(_ failure: KeychainAccessGroupProbeCleanupFailure) {
+        lock.lock()
+        reportedFailures.append(failure)
+        lock.unlock()
+    }
+
+    var failures: [KeychainAccessGroupProbeCleanupFailure] {
+        lock.lock()
+        defer { lock.unlock() }
+        return reportedFailures
     }
 }
 

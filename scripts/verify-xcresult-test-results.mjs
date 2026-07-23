@@ -245,6 +245,35 @@ export function verifyStructuredXcresultBatches({ runs, expectedTests }) {
   return { failures, cases, expectedTests: [...expected] };
 }
 
+/**
+ * Read every requested shard independently.  A broken extraction must never
+ * hide diagnostics from a later shard, and valid shards still contribute to
+ * the cross-shard source-coverage proof.
+ */
+export function loadStructuredXcresultRuns({ summaryPaths, testsPaths }) {
+  const failures = [];
+  const runs = [];
+  for (let index = 0; index < summaryPaths.length; index += 1) {
+    const shard = index + 1;
+    let summary;
+    let tests;
+    let readable = true;
+    for (const [kind, path] of [["summary", summaryPaths[index]], ["tests", testsPaths[index]]]) {
+      try {
+        const parsed = JSON.parse(readFileSync(resolve(path), "utf8"));
+        if (kind === "summary") summary = parsed;
+        else tests = parsed;
+      } catch (error) {
+        readable = false;
+        const operation = error instanceof SyntaxError ? "parse" : "read";
+        failures.push(`xcresult shard ${shard} ${kind} JSON ${operation} failed (${path}): ${error.message}`);
+      }
+    }
+    if (readable) runs.push({ summary, tests });
+  }
+  return { failures, runs };
+}
+
 function readSwiftSources(directory) {
   const sources = {};
   for (const entry of readdirSync(directory)) {
@@ -264,18 +293,7 @@ function main(argv) {
     console.error("usage: verify-xcresult-test-results.mjs [--summary <summary.json> --tests <tests.json>]... --swift-tests <ios/UITests>");
     return 2;
   }
-  const runs = [];
-  try {
-    for (let index = 0; index < summaryPaths.length; index += 1) {
-      runs.push({
-        summary: JSON.parse(readFileSync(resolve(summaryPaths[index]), "utf8")),
-        tests: JSON.parse(readFileSync(resolve(testsPaths[index]), "utf8")),
-      });
-    }
-  } catch (error) {
-    console.error(`unable to parse structured xcresult JSON: ${error.message}`);
-    return 2;
-  }
+  const loaded = loadStructuredXcresultRuns({ summaryPaths, testsPaths });
   let expectedTests;
   try {
     expectedTests = discoverExpectedSwiftTests(readSwiftSources(resolve(argv[sourceIndex + 1])));
@@ -283,9 +301,11 @@ function main(argv) {
     console.error(`unable to read Swift UI test sources: ${error.message}`);
     return 2;
   }
-  const { failures, cases } = runs.length === 1
-    ? verifyStructuredXcresult({ ...runs[0], expectedTests })
-    : verifyStructuredXcresultBatches({ runs, expectedTests });
+  const verification = loaded.runs.length === 1
+    ? verifyStructuredXcresult({ ...loaded.runs[0], expectedTests })
+    : verifyStructuredXcresultBatches({ runs: loaded.runs, expectedTests });
+  const failures = [...loaded.failures, ...verification.failures];
+  const { cases } = verification;
   if (failures.length > 0) {
     console.error("structured xcresult verification failed:");
     for (const failure of failures) console.error(`- ${failure}`);

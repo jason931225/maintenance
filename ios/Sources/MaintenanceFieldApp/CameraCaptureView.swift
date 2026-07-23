@@ -10,14 +10,19 @@ struct CameraCaptureView: View {
     let onCancel: () -> Void
     let onError: () -> Void
 
+    @Environment(\.scenePhase) private var scenePhase
     @State private var authorizationStatus = AVCaptureDevice.authorizationStatus(for: .video)
 
     var body: some View {
         Group {
             switch authorizationStatus {
             case .authorized:
-                CameraPreviewController(onCapture: onCapture, onCancel: onCancel, onError: onError)
-                    .ignoresSafeArea()
+                if hasBackCamera {
+                    CameraPreviewController(onCapture: onCapture, onCancel: onCancel, onError: onError)
+                        .ignoresSafeArea()
+                } else {
+                    CameraUnavailableView(onCancel: onCancel)
+                }
             case .notDetermined:
                 CameraPermissionRequestView()
                     .task {
@@ -28,6 +33,17 @@ struct CameraCaptureView: View {
                 CameraPermissionDeniedView(onCancel: onCancel)
             }
         }
+        .onChange(of: scenePhase) { _, newPhase in
+            guard newPhase == .active else { return }
+            authorizationStatus = AVCaptureDevice.authorizationStatus(for: .video)
+        }
+    }
+
+    /// A simulator or other camera-less device cannot create a capture input.
+    /// Decide that before constructing the UIKit preview so rendering never
+    /// synchronously dismisses the presentation through `onError`.
+    private var hasBackCamera: Bool {
+        AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) != nil
     }
 }
 
@@ -64,6 +80,25 @@ private struct CameraPermissionDeniedView: View {
     }
 }
 
+private struct CameraUnavailableView: View {
+    let onCancel: () -> Void
+
+    var body: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "camera.fill")
+                .font(.largeTitle)
+                .foregroundStyle(.secondary)
+            Text("camera_unavailable")
+                .multilineTextAlignment(.center)
+                .accessibilityIdentifier(FieldAccessibilityID.cameraUnavailable)
+            Button("camera_cancel", action: onCancel)
+                .accessibilityIdentifier(FieldAccessibilityID.cameraCancelButton)
+        }
+        .padding()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
 private struct CameraPreviewController: UIViewControllerRepresentable {
     let onCapture: (URL) -> Void
     let onCancel: () -> Void
@@ -83,14 +118,16 @@ private struct CameraPreviewController: UIViewControllerRepresentable {
             let input = try? AVCaptureDeviceInput(device: device),
             session.canAddInput(input)
         else {
-            onError()
+            // CameraCaptureView preflights the no-device state. Reaching this
+            // branch means a real setup failure after that preflight.
+            reportSetupError()
             return controller
         }
         session.addInput(input)
 
         let photoOutput = AVCapturePhotoOutput()
         guard session.canAddOutput(photoOutput) else {
-            onError()
+            reportSetupError()
             return controller
         }
         session.addOutput(photoOutput)
@@ -136,6 +173,15 @@ private struct CameraPreviewController: UIViewControllerRepresentable {
         context.coordinator.previewLayer = previewLayer
         context.coordinator.sessionRunner = sessionRunner
         return controller
+    }
+
+    /// SwiftUI may invoke `makeUIViewController` while updating its view tree.
+    /// Defer the parent-owned error transition so setup failure never mutates
+    /// SwiftUI state synchronously during render construction.
+    private func reportSetupError() {
+        DispatchQueue.main.async {
+            onError()
+        }
     }
 
     func updateUIViewController(_ uiViewController: UIViewController, context: Context) {

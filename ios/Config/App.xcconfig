@@ -55,5 +55,8 @@ CODE_SIGN_IDENTITY = -
 
 INFOPLIST_KEY_NSCameraUsageDescription = 작업 증빙 사진을 촬영하기 위해 카메라 접근 권한이 필요합니다.
 
-SWIFT_VERSION = 6.1
+// SWIFT_VERSION is the language mode. Xcode 26.6 provides the pinned Swift
+// 6.3.3 compiler; all XcodeGen targets remain in strict Swift 6 mode.
+SWIFT_VERSION = 6.0
+SWIFT_STRICT_CONCURRENCY = complete
 IPHONEOS_DEPLOYMENT_TARGET = 17.0

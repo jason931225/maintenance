@@ -10,9 +10,7 @@ final class LoginValidationUITests: XCTestCase {
         try super.setUpWithError()
         continueAfterFailure = false
         try RealSessionSeed.clear()
-        app = XCUIApplication()
-        app.launchArguments += LaunchLocale.arguments
-        app.launchEnvironment["MAINTENANCE_API_BASE_URL"] = try RealBackendSession.baseURL()
+        app = try XCUIApplication.fieldUITestApp()
         app.launch()
     }
 

@@ -43,6 +43,9 @@ public enum FieldAccessibilityID {
     public static let todayRefreshButton = "today.refresh"
     public static let todayLogoutButton = "today.logout"
     public static let todayLoading = "today.loading"
+    public static let todayLocationConsentButton = "today.locationConsent"
+    public static let todayLocationConsentSheet = "today.locationConsent.sheet"
+    public static let todayLocationConsentCloseButton = "today.locationConsent.close"
 
     /// Per-row identifier for a dispatched work order, keyed by the work-order id.
     public static func workOrderRow(_ id: String) -> String { "today.workOrderRow.\(id)" }
@@ -58,6 +61,8 @@ public enum FieldAccessibilityID {
     public static let detailCaptureEvidenceButton = "detail.captureEvidence"
     public static let detailBackButton = "detail.back"
     public static let detailMessage = "detail.message"
+    public static let detailSymptomLabel = "detail.symptom.label"
+    public static let detailSymptomValue = "detail.symptom.value"
 
     // Camera capture
     public static let cameraShutterButton = "camera.shutter"
@@ -68,6 +73,11 @@ public enum FieldAccessibilityID {
     public static let cameraUnavailable = "camera.unavailable"
 
     // Location consent (shared section, present in Today + Detail)
+    public static let locationConsentTitle = "locationConsent.title"
+    public static let locationConsentStateLabel = "locationConsent.stateLabel"
+    public static let locationConsentStateValue = "locationConsent.stateValue"
+    public static let locationConsentCollectionLabel = "locationConsent.collectionLabel"
+    public static let locationConsentCollectionValue = "locationConsent.collectionValue"
     public static let locationConsentGrantButton = "locationConsent.grant"
     public static let locationConsentSuspendButton = "locationConsent.suspend"
     public static let locationConsentResumeButton = "locationConsent.resume"
@@ -89,6 +99,7 @@ public enum FieldAccessibilityID {
 
     /// Per-row identifier for a persisted messenger message, keyed by message id.
     public static func messengerMessageRow(_ id: String) -> String { "messenger.messageRow.\(id)" }
+    public static func messengerMessageTimestamp(_ id: String) -> String { "messenger.messageTimestamp.\(id)" }
 
     /// Per-row identifier for a messenger search result, keyed by message id.
     ///
@@ -116,6 +127,8 @@ public enum FieldAccessibilityID {
         todayRefreshButton,
         todayLogoutButton,
         todayLoading,
+        todayLocationConsentButton,
+        todayLocationConsentCloseButton,
         detailView,
         detailStatus,
         detailStartWorkButton,
@@ -126,12 +139,19 @@ public enum FieldAccessibilityID {
         detailCaptureEvidenceButton,
         detailBackButton,
         detailMessage,
+        detailSymptomLabel,
+        detailSymptomValue,
         cameraShutterButton,
         cameraCancelButton,
         cameraOpenSettingsButton,
         cameraPermissionDenied,
         cameraPermissionRequesting,
         cameraUnavailable,
+        locationConsentTitle,
+        locationConsentStateLabel,
+        locationConsentStateValue,
+        locationConsentCollectionLabel,
+        locationConsentCollectionValue,
         locationConsentGrantButton,
         locationConsentSuspendButton,
         locationConsentResumeButton,

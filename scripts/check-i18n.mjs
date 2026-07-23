@@ -124,6 +124,8 @@ function checkStringKeyParity(failures) {
     camera_unavailable: "iOS camera capability fallback copy",
     camera_open_settings: "iOS-only: deep-link to the Settings app for camera permission",
     capture_evidence: "SwiftUI alias for detail_capture_evidence",
+    close: "iOS-only dedicated-sheet dismissal label",
+    detail_title: "iOS-only compact work-order detail navigation title",
     equipment: "SwiftUI detail label",
     error_invalid_user_id: "iOS-only login user-id format validation copy",
     error_network: "SwiftUI network error copy",

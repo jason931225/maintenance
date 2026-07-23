@@ -109,6 +109,9 @@ public actor RotatingTokenRefresher {
             }
             do {
                 let rotated = try await gateway.refresh(using: current.refreshToken)
+                guard !rotated.accessToken.isEmpty, !rotated.refreshToken.isEmpty else {
+                    throw SessionRefreshError.invalidSession
+                }
                 try await sessionStore.save(rotated)
                 tokenProvider.set(rotated.accessToken)
                 return rotated
@@ -181,7 +184,11 @@ public struct GeneratedTokenRefreshGateway: TokenRefreshGateway {
         switch output {
         case let .ok(response):
             let tokens = try response.body.json
-            guard let refreshToken = tokens.refreshToken, !refreshToken.isEmpty else {
+            guard
+                !tokens.accessToken.isEmpty,
+                let refreshToken = tokens.refreshToken,
+                !refreshToken.isEmpty
+            else {
                 throw SessionRefreshError.invalidSession
             }
             return AuthTokens(accessToken: tokens.accessToken, refreshToken: refreshToken)

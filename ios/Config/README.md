@@ -105,13 +105,13 @@ Xcode project/workspace in the release workflow.
 The UI workflow injects `MNT_UITEST_BASE_URL`, but its value is a job-local
 loopback URL, not a stored secret or external service address. It runs
 every triggered push/tag or public/untrusted pull-request gate on one
-GitHub-hosted `macos-15` VM. Repository code does not execute on a reusable self-hosted macOS
+GitHub-hosted `macos-26` VM. Repository code does not execute on a reusable self-hosted macOS
 runner; a future self-hosted lane requires a separately governed ephemeral/JIT
 runner group with teardown attestation.
 
 Each job:
 
-1. Verifies Xcode 16.4 build `16F6`, the exact iOS 18.5 Simulator runtime, and
+1. Verifies Xcode 26.6 build `17F113` with Apple Swift 6.3.3 in strict Swift 6 language mode, the exact iOS 26.5 Simulator runtime, and
    the checkout against `GITHUB_SHA` before building the candidate Rust backend.
 2. Creates one mode-`0700` root below `$RUNNER_TEMP`. `CARGO_HOME`,
    `RUSTUP_HOME`, `CARGO_TARGET_DIR`, XcodeGen, PostgreSQL, backend state,
@@ -123,8 +123,9 @@ Each job:
    random loopback ports.
 4. Seeds deterministic test records and, before each test-class shard, generates
    a fresh random one-use OTP, stores only its SHA-256 digest, and redeems it for
-   a new access/refresh pair. Each shard has a 720-second (12-minute) hard bound,
-   below the backend's 15-minute access-token TTL. The production app implements
+   a new access/refresh pair. Each shard has a measured class-specific hard bound
+   from 45 to 600 seconds, below the backend's 15-minute access-token TTL. The
+   production app implements
    serialized rotating refresh with proactive expiry handling, delete-before-use
    persistence, and one reactive retry, but the CI gate does not depend on refresh
    to finish a shard.

@@ -28,7 +28,11 @@ configFiles:
 
 settings:
   base:
-    SWIFT_VERSION: "6.1"
+    # SWIFT_VERSION selects a language mode, not the installed compiler's
+    # release number. Xcode 26.6 supplies Swift 6.3.3 and compiles every target
+    # below in strict Swift 6 mode.
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
     # Identity + signing are sourced from Config/App.xcconfig (xcconfig wins for
     # values it sets). Hermetic CI uses the xcconfig defaults; no workflow secret
     # or repository variable is required for the Simulator wrapper.
@@ -94,19 +98,15 @@ targets:
       - target: MaintenanceFieldUITestSeeder
     settings:
       base:
-        # Xcode 16.4's XCTest UI APIs are MainActor-isolated in Swift 6 mode,
-        # while XCTest lifecycle hooks remain nonisolated. Keep the CI-only
-        # UI-test harness in Swift 5 compatibility mode; the app target and
-        # SwiftPM packages stay on Swift 6.1 via the global setting above.
-        SWIFT_VERSION: "5.0"
+        # UI automation is MainActor-confined and compiles in the same strict
+        # Swift 6 language mode as the app and dedicated session seeder.
         GENERATE_INFOPLIST_FILE: "YES"
         INFOPLIST_KEY_CFBundleDisplayName: "MaintenanceFieldUITests"
         PRODUCT_BUNDLE_IDENTIFIER: "$(MNT_IOS_BUNDLE_ID).UITests"
         # Keep this as the Xcode target name (not the .app wrapper name) so
         # XcodeGen emits the UI-test Target Application relationship/TestTargetID.
-        # The GitHub runner's Xcode 16.4 xctestrun still records an extensionless
-        # UITargetAppPath, so the CI workflow patches the generated xctestrun
-        # after build-for-testing and before test-without-building.
+        # CI normalizes the generated xctestrun and injects each shard's
+        # one-use session only after build-for-testing.
         TEST_TARGET_NAME: "MaintenanceFieldApp"
         # The UI-test bundle intentionally carries no shared-Keychain
         # entitlement: only the app and separately signed seeder hold that

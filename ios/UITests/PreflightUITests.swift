@@ -34,9 +34,7 @@ final class PreflightUITests: XCTestCase {
         let baseURL = try RealBackendSession.baseURL()
 
         try RealSessionSeed.seed(tokens)
-        let restoredApp = XCUIApplication()
-        restoredApp.launchArguments += LaunchLocale.arguments
-        restoredApp.launchEnvironment["MAINTENANCE_API_BASE_URL"] = baseURL
+        let restoredApp = try XCUIApplication.fieldUITestApp(baseURL: baseURL)
         restoredApp.launch()
         defer { restoredApp.terminate() }
 
@@ -61,9 +59,7 @@ final class PreflightUITests: XCTestCase {
         restoredApp.terminate()
         try RealSessionSeed.clear()
 
-        let signedOutApp = XCUIApplication()
-        signedOutApp.launchArguments += LaunchLocale.arguments
-        signedOutApp.launchEnvironment["MAINTENANCE_API_BASE_URL"] = baseURL
+        let signedOutApp = try XCUIApplication.fieldUITestApp(baseURL: baseURL)
         signedOutApp.launch()
         defer { signedOutApp.terminate() }
         XCTAssertTrue(

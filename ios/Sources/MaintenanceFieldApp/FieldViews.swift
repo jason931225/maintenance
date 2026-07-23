@@ -3,22 +3,27 @@ import MaintenanceAPIClient
 import MaintenanceFieldCore
 import SwiftUI
 
+#if os(iOS)
+import UIKit
+#endif
+
 struct FieldRootView: View {
     @StateObject var viewModel: FieldViewModel
 
     var body: some View {
-        NavigationStack {
-            Group {
-                if viewModel.isAuthenticated {
-                    FieldAuthenticatedTabs(viewModel: viewModel)
-                } else {
+        Group {
+            if viewModel.isAuthenticated {
+                FieldAuthenticatedTabs(viewModel: viewModel)
+            } else {
+                NavigationStack {
                     LoginView(viewModel: viewModel)
+                        .navigationTitle(Text("app_name"))
+                        .inlineNavigationTitle()
                 }
             }
-            .navigationTitle(Text("app_name"))
-            .task {
-                viewModel.restore()
-            }
+        }
+        .task {
+            viewModel.restore()
         }
         .sheet(isPresented: $viewModel.isCameraPresented) {
             CameraCaptureView { url in
@@ -41,29 +46,309 @@ struct FieldAuthenticatedTabs: View {
 
     var body: some View {
         TabView {
-            TodayListView(viewModel: viewModel)
+            UnobscuredTabContent {
+                NavigationStack {
+                    TodayListView(viewModel: viewModel)
+                }
+            }
                 .tabItem {
                     Label("today_title", systemImage: "list.bullet")
                 }
-            WorkHubTabView(viewModel: viewModel)
+            UnobscuredTabContent {
+                NavigationStack {
+                    WorkHubTabView(viewModel: viewModel)
+                        .accessibilityIdentifier(FieldAccessibilityID.workHubTab)
+                }
+            }
                 .tabItem {
                     Label("work_hub_title", systemImage: "square.grid.2x2")
                 }
-                .accessibilityIdentifier(FieldAccessibilityID.workHubTab)
-            MessengerTabView(viewModel: viewModel)
+            UnobscuredTabContent {
+                NavigationStack {
+                    MessengerTabView(viewModel: viewModel)
+                        .accessibilityIdentifier(FieldAccessibilityID.messengerTab)
+                }
+            }
                 .tabItem {
                     Label("messenger_title", systemImage: "message.fill")
                 }
-                .accessibilityIdentifier(FieldAccessibilityID.messengerTab)
-            OperationsTabView(viewModel: viewModel)
+            UnobscuredTabContent {
+                NavigationStack {
+                    OperationsTabView(viewModel: viewModel)
+                        .accessibilityIdentifier(FieldAccessibilityID.operationsTab)
+                }
+            }
                 .tabItem {
                     Label("operations_title", systemImage: "tray.full")
                 }
-                .accessibilityIdentifier(FieldAccessibilityID.operationsTab)
         }
         .accessibilityIdentifier(FieldAccessibilityID.authenticatedTabs)
     }
 }
+
+private struct UnobscuredTabContent<Content: View>: View {
+    let content: Content
+    @State private var contentInsets = TabBarContentInsets.zero
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    @ViewBuilder
+    var body: some View {
+        #if os(iOS)
+        if #available(iOS 26.0, *) {
+            // Keep the UIKit probe in the outer tab-content shell.  The content it
+            // measures is intentionally a sibling of the padded SwiftUI tree so a
+            // newly reported inset cannot change the probe's own coordinate space.
+            ZStack {
+                TabBarContentLayoutGuideProbe { measuredInsets in
+                    guard contentInsets.isApproximatelyEqual(to: measuredInsets) == false else {
+                        return
+                    }
+                    contentInsets = measuredInsets
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
+
+                content
+                    .padding(contentInsets.edgeInsets)
+            }
+        } else {
+            content
+        }
+        #else
+        content
+        #endif
+    }
+}
+
+private struct TabBarContentInsets: Equatable {
+    static let zero = TabBarContentInsets(top: 0, leading: 0, bottom: 0, trailing: 0)
+
+    let top: CGFloat
+    let leading: CGFloat
+    let bottom: CGFloat
+    let trailing: CGFloat
+
+    var edgeInsets: EdgeInsets {
+        EdgeInsets(top: top, leading: leading, bottom: bottom, trailing: trailing)
+    }
+
+    func isApproximatelyEqual(to other: TabBarContentInsets) -> Bool {
+        abs(top - other.top) < 0.5
+            && abs(leading - other.leading) < 0.5
+            && abs(bottom - other.bottom) < 0.5
+            && abs(trailing - other.trailing) < 0.5
+    }
+}
+
+#if os(iOS)
+@available(iOS 26.0, *)
+@MainActor
+private struct TabBarContentLayoutGuideProbe: UIViewControllerRepresentable {
+    let onInsetsChange: @MainActor (TabBarContentInsets) -> Void
+
+    func makeUIViewController(context: Context) -> TabBarContentLayoutGuideProbeController {
+        TabBarContentLayoutGuideProbeController(onInsetsChange: onInsetsChange)
+    }
+
+    func updateUIViewController(
+        _ uiViewController: TabBarContentLayoutGuideProbeController,
+        context: Context
+    ) {
+        uiViewController.onInsetsChange = onInsetsChange
+        uiViewController.requestMeasurement()
+    }
+
+    static func dismantleUIViewController(
+        _ uiViewController: TabBarContentLayoutGuideProbeController,
+        coordinator: ()
+    ) {
+        uiViewController.invalidate()
+    }
+}
+
+@available(iOS 26.0, *)
+@MainActor
+private final class TabBarContentLayoutGuideSensor: UIView {
+    var onLayout: (@MainActor () -> Void)?
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        onLayout?()
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        onLayout?()
+    }
+}
+
+@available(iOS 26.0, *)
+@MainActor
+private final class TabBarContentLayoutGuideProbeController: UIViewController {
+    var onInsetsChange: (@MainActor (TabBarContentInsets) -> Void)?
+    private var lastReportedInsets = TabBarContentInsets.zero
+    private weak var observedTabBarController: UITabBarController?
+    private var contentLayoutSensor: TabBarContentLayoutGuideSensor?
+    private var pendingMeasurementTask: Task<Void, Never>?
+
+    init(onInsetsChange: @escaping @MainActor (TabBarContentInsets) -> Void) {
+        self.onInsetsChange = onInsetsChange
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func loadView() {
+        let probeView = UIView()
+        probeView.backgroundColor = .clear
+        probeView.isUserInteractionEnabled = false
+        probeView.isAccessibilityElement = false
+        view = probeView
+    }
+
+    override func viewIsAppearing(_ animated: Bool) {
+        super.viewIsAppearing(animated)
+        requestMeasurement()
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        requestMeasurement()
+    }
+
+    override func didMove(toParent parent: UIViewController?) {
+        super.didMove(toParent: parent)
+        if parent == nil {
+            invalidate()
+        } else {
+            requestMeasurement()
+        }
+    }
+
+    override func viewSafeAreaInsetsDidChange() {
+        super.viewSafeAreaInsetsDidChange()
+        requestMeasurement()
+    }
+
+    override func viewWillTransition(
+        to size: CGSize,
+        with coordinator: any UIViewControllerTransitionCoordinator
+    ) {
+        super.viewWillTransition(to: size, with: coordinator)
+        coordinator.animate(alongsideTransition: nil) { [weak self] _ in
+            self?.requestMeasurement()
+        }
+    }
+
+    func requestMeasurement() {
+        guard pendingMeasurementTask == nil else { return }
+
+        pendingMeasurementTask = Task { @MainActor [weak self] in
+            // Publishing in the same layout pass would feed the SwiftUI padding
+            // update back into UIKit layout.  One cooperative turn breaks that
+            // re-entrant loop while preserving every lifecycle trigger above.
+            await Task.yield()
+            guard let self, Task.isCancelled == false else { return }
+            self.pendingMeasurementTask = nil
+            self.reportContentInsetsIfAvailable()
+        }
+    }
+
+    private func reportContentInsetsIfAvailable() {
+        guard
+            let window = viewIfLoaded?.window,
+            let tabBarController,
+            tabBarController.view.window === window
+        else {
+            removeContentLayoutSensor()
+            return
+        }
+
+        tabBarController.view.layoutIfNeeded()
+        guard let sensor = installContentLayoutSensorIfNeeded(in: tabBarController) else { return }
+        tabBarController.view.layoutIfNeeded()
+
+        let probeBounds = view.bounds
+        guard
+            probeBounds.isEmpty == false,
+            let sensorSuperview = sensor.superview
+        else {
+            return
+        }
+
+        let sensorFrame = sensorSuperview.convert(sensor.frame, to: view)
+        guard sensorFrame.isEmpty == false else { return }
+
+        let left = max(sensorFrame.minX - probeBounds.minX, 0)
+        let right = max(probeBounds.maxX - sensorFrame.maxX, 0)
+        let layoutDirection = view.effectiveUserInterfaceLayoutDirection
+
+        let measuredInsets = TabBarContentInsets(
+            top: max(sensorFrame.minY - probeBounds.minY, 0),
+            leading: layoutDirection == .rightToLeft ? right : left,
+            bottom: max(probeBounds.maxY - sensorFrame.maxY, 0),
+            trailing: layoutDirection == .rightToLeft ? left : right
+        )
+        guard lastReportedInsets.isApproximatelyEqual(to: measuredInsets) == false else { return }
+        lastReportedInsets = measuredInsets
+        onInsetsChange?(measuredInsets)
+    }
+
+    private func installContentLayoutSensorIfNeeded(
+        in tabBarController: UITabBarController
+    ) -> TabBarContentLayoutGuideSensor? {
+        if observedTabBarController === tabBarController, let contentLayoutSensor {
+            return contentLayoutSensor
+        }
+
+        removeContentLayoutSensor()
+
+        let sensor = TabBarContentLayoutGuideSensor()
+        sensor.translatesAutoresizingMaskIntoConstraints = false
+        sensor.backgroundColor = .clear
+        sensor.isUserInteractionEnabled = false
+        sensor.isAccessibilityElement = false
+        sensor.onLayout = { [weak self] in
+            self?.requestMeasurement()
+        }
+        tabBarController.view.addSubview(sensor)
+        NSLayoutConstraint.activate([
+            sensor.topAnchor.constraint(equalTo: tabBarController.contentLayoutGuide.topAnchor),
+            sensor.leadingAnchor.constraint(equalTo: tabBarController.contentLayoutGuide.leadingAnchor),
+            sensor.bottomAnchor.constraint(equalTo: tabBarController.contentLayoutGuide.bottomAnchor),
+            sensor.trailingAnchor.constraint(equalTo: tabBarController.contentLayoutGuide.trailingAnchor),
+        ])
+        observedTabBarController = tabBarController
+        contentLayoutSensor = sensor
+        return sensor
+    }
+
+    private func removeContentLayoutSensor() {
+        contentLayoutSensor?.onLayout = nil
+        contentLayoutSensor?.removeFromSuperview()
+        contentLayoutSensor = nil
+        observedTabBarController = nil
+    }
+
+    func invalidate() {
+        pendingMeasurementTask?.cancel()
+        pendingMeasurementTask = nil
+        removeContentLayoutSensor()
+        onInsetsChange = nil
+    }
+
+    deinit {
+        pendingMeasurementTask?.cancel()
+    }
+}
+#endif
 
 
 struct WorkHubTabView: View {
@@ -474,13 +759,20 @@ struct LoginView: View {
                 Button {
                     Task { await viewModel.login() }
                 } label: {
-                    Label("login_button", systemImage: "person.badge.key")
+                    Text("login_button")
+                        .font(.body)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(minHeight: 44)
                 }
+                .buttonStyle(.borderedProminent)
+                .tint(.primary)
                 .disabled(viewModel.isLoading)
                 .accessibilityIdentifier(FieldAccessibilityID.loginButton)
             } header: {
                 Text("login_title")
+                    .foregroundStyle(.primary)
             }
+            .headerProminence(.increased)
 
             if let messageKey = viewModel.messageKey {
                 Text(LocalizedStringKey(messageKey))
@@ -493,10 +785,14 @@ struct LoginView: View {
 
 struct TodayListView: View {
     @ObservedObject var viewModel: FieldViewModel
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    @State private var isLocationConsentPresented = false
 
     var body: some View {
         List {
-            LocationConsentSection(viewModel: viewModel)
+            if dynamicTypeSize.isAccessibilitySize == false {
+                LocationConsentSection(viewModel: viewModel)
+            }
             if let messageKey = viewModel.messageKey {
                 Text(LocalizedStringKey(messageKey))
             }
@@ -518,6 +814,14 @@ struct TodayListView: View {
         .navigationTitle(Text("today_title"))
         .toolbar {
             ToolbarItemGroup(placement: .primaryAction) {
+                if dynamicTypeSize.isAccessibilitySize {
+                    Button {
+                        isLocationConsentPresented = true
+                    } label: {
+                        Label("location_consent_title", systemImage: "location.circle")
+                    }
+                    .accessibilityIdentifier(FieldAccessibilityID.todayLocationConsentButton)
+                }
                 Button {
                     Task { await viewModel.refreshToday() }
                 } label: {
@@ -538,10 +842,29 @@ struct TodayListView: View {
                     .accessibilityIdentifier(FieldAccessibilityID.todayLoading)
             }
         }
-        .sheet(item: $viewModel.selectedWorkOrder) { _ in
+        .sheet(isPresented: $isLocationConsentPresented) {
+            NavigationStack {
+                Form {
+                    LocationConsentSection(viewModel: viewModel)
+                }
+                .accessibilityIdentifier(FieldAccessibilityID.todayLocationConsentSheet)
+                .navigationTitle(Text("location_consent_title"))
+                .inlineNavigationTitle()
+                .toolbar {
+                    Button {
+                        isLocationConsentPresented = false
+                    } label: {
+                        Label("close", systemImage: "xmark")
+                    }
+                    .accessibilityIdentifier(FieldAccessibilityID.todayLocationConsentCloseButton)
+                }
+            }
+        }
+        .workOrderDetailPresentation(item: $viewModel.selectedWorkOrder) { _ in
             WorkOrderDetailView(viewModel: viewModel)
         }
     }
+
 }
 
 struct MessengerTabView: View {
@@ -551,19 +874,39 @@ struct MessengerTabView: View {
         List {
             Section {
                 HStack {
-                    TextField(String(localized: "messenger_search"), text: $viewModel.messengerSearchQuery)
-                        .accessibilityIdentifier(FieldAccessibilityID.messengerSearchField)
+                    ZStack(alignment: .leading) {
+                        if viewModel.messengerSearchQuery.isEmpty {
+                            Text("messenger_search")
+                                .foregroundStyle(.primary)
+                                .accessibilityHidden(true)
+                        }
+                        TextField("", text: $viewModel.messengerSearchQuery, axis: .vertical)
+                            .accessibilityLabel(Text("messenger_search"))
+                            .accessibilityIdentifier(FieldAccessibilityID.messengerSearchField)
+                    }
+                        .lineLimit(1...2)
+                        .layoutPriority(1)
                     Button {
                         Task { await viewModel.searchMessengerMessages() }
                     } label: {
                         Label("messenger_search_button", systemImage: "magnifyingglass")
+                            .labelStyle(.iconOnly)
+                            .foregroundStyle(.primary)
+                            .frame(minWidth: 44, minHeight: 44)
+                            .contentShape(Rectangle())
                     }
+                    .accessibilityLabel(Text("messenger_search_button"))
                     .accessibilityIdentifier(FieldAccessibilityID.messengerSearchButton)
+                    .buttonStyle(.plain)
+                    .tint(.primary)
                 }
                 if viewModel.messengerState.searchResults.isEmpty == false {
                     ForEach(viewModel.messengerState.searchResults) { message in
-                        MessengerMessageRow(message: message, currentUserID: viewModel.currentUserID)
-                            .accessibilityIdentifier(FieldAccessibilityID.messengerSearchResultRow(message.id))
+                        MessengerMessageRow(
+                            message: message,
+                            currentUserID: viewModel.currentUserID,
+                            accessibilityIdentifier: FieldAccessibilityID.messengerSearchResultRow(message.id)
+                        )
                     }
                 } else if viewModel.messengerHasSearched {
                     Text("messenger_search_no_results")
@@ -585,45 +928,77 @@ struct MessengerTabView: View {
                             thread: thread,
                             isSelected: viewModel.messengerState.selectedThreadID == thread.id
                         )
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
                     }
+                    .buttonStyle(.plain)
                     .accessibilityIdentifier(FieldAccessibilityID.messengerThreadRow(thread.id))
                 }
             } header: {
                 Text("messenger_threads")
+                    .foregroundStyle(.primary)
             }
+            .headerProminence(.increased)
 
             Section {
+                Text("messenger_messages")
+                    .font(.headline)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .foregroundStyle(.primary)
+                    .accessibilityAddTraits(.isHeader)
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+
                 if let selectedThreadID = viewModel.messengerState.selectedThreadID {
                     let messages = viewModel.messengerState.messagesByThread[selectedThreadID] ?? []
-                    if viewModel.messengerState.nextCursorByThread[selectedThreadID] != nil {
+                    // Dictionary lookup returns a nested optional because the
+                    // stored cursor is itself optional. A present key with a
+                    // nil cursor means there is no older page to load.
+                    if let _ = viewModel.messengerState.nextCursorByThread[selectedThreadID] ?? nil {
                         Button {
                             Task { await viewModel.loadOlderMessengerMessages() }
                         } label: {
-                            Label("messenger_load_older", systemImage: "arrow.up.circle")
+                            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                                Image(systemName: "arrow.up.circle")
+                                    .accessibilityHidden(true)
+                                Text("messenger_load_older")
+                                    .font(.body)
+                                    .multilineTextAlignment(.leading)
+                            }
+                            .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
                         }
                     }
                     if messages.isEmpty {
                         Text("messenger_empty_messages")
+                            .fixedSize(horizontal: false, vertical: true)
                     }
                     ForEach(messages) { message in
-                        MessengerMessageRow(message: message, currentUserID: viewModel.currentUserID)
-                            .accessibilityIdentifier(FieldAccessibilityID.messengerMessageRow(message.id))
+                        MessengerMessageRow(
+                            message: message,
+                            currentUserID: viewModel.currentUserID,
+                            accessibilityIdentifier: FieldAccessibilityID.messengerMessageRow(message.id)
+                        )
                     }
-                    TextField(String(localized: "messenger_composer"), text: $viewModel.messengerDraft, axis: .vertical)
-                        .lineLimit(2...5)
-                        .accessibilityIdentifier(FieldAccessibilityID.messengerComposerField)
-                    Button {
-                        Task { await viewModel.sendMessengerMessage() }
-                    } label: {
-                        Label("messenger_send", systemImage: "paperplane.fill")
+                    HStack(alignment: .bottom) {
+                        TextField(String(localized: "messenger_composer"), text: $viewModel.messengerDraft, axis: .vertical)
+                            .lineLimit(2...5)
+                            .layoutPriority(1)
+                            .accessibilityIdentifier(FieldAccessibilityID.messengerComposerField)
+                        Button {
+                            Task { await viewModel.sendMessengerMessage() }
+                        } label: {
+                            Label("messenger_send", systemImage: "paperplane.fill")
+                                .labelStyle(.iconOnly)
+                                .frame(minWidth: 44, minHeight: 44)
+                                .contentShape(Rectangle())
+                        }
+                        .accessibilityLabel(Text("messenger_send"))
+                        .accessibilityIdentifier(FieldAccessibilityID.messengerSendButton)
                     }
-                    .accessibilityIdentifier(FieldAccessibilityID.messengerSendButton)
                 } else {
                     Text("messenger_select_thread")
                         .accessibilityIdentifier(FieldAccessibilityID.messengerSelectThreadPrompt)
                 }
-            } header: {
-                Text("messenger_messages")
             }
 
             if let messageKey = viewModel.messageKey {
@@ -669,16 +1044,19 @@ struct MessengerThreadRow: View {
             HStack {
                 Text(messengerThreadDisplayTitle(thread))
                     .font(.headline)
+                    .fixedSize(horizontal: false, vertical: true)
                 Spacer()
                 FieldChip(key: thread.kind.fieldLabelKey)
             }
             Text(localizedString("messenger_member_count_format", thread.memberCount))
                 .font(.footnote)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.primary)
+                .fixedSize(horizontal: false, vertical: true)
             if isSelected {
                 Text("messenger_selected")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -722,6 +1100,8 @@ private extension MessengerThread {
 struct MessengerMessageRow: View {
     let message: MessengerMessage
     let currentUserID: Components.Schemas.Uuid?
+    let accessibilityIdentifier: String
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -732,17 +1112,44 @@ struct MessengerMessageRow: View {
                     .padding(.vertical, 4)
                     .background(.thinMaterial, in: Capsule())
             }
-            Text(message.body)
-                .font(.body)
-            HStack {
-                Text(message.sentAt.formatted(date: .abbreviated, time: .shortened))
-                if message.attachmentEvidenceIDs.isEmpty == false {
-                    FieldChip(key: "messenger_attachment")
-                }
-            }
-            .font(.caption)
-            .foregroundStyle(.secondary)
+            messageContent
         }
+    }
+
+    @ViewBuilder
+    private var messageContent: some View {
+        if dynamicTypeSize.isAccessibilitySize {
+            VStack(alignment: .leading, spacing: 6) {
+                bodyText
+                timestampAndAttachment
+            }
+        } else {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                bodyText
+                Spacer(minLength: 8)
+                timestampAndAttachment
+            }
+        }
+    }
+
+    private var bodyText: some View {
+        Text(message.body)
+            .font(.body)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier(accessibilityIdentifier)
+    }
+
+    private var timestampAndAttachment: some View {
+        HStack(spacing: 6) {
+            Text(message.sentAt.formatted(date: .abbreviated, time: .shortened))
+                .font(.caption)
+                .accessibilityIdentifier(FieldAccessibilityID.messengerMessageTimestamp(message.id))
+            if message.attachmentEvidenceIDs.isEmpty == false {
+                FieldChip(key: "messenger_attachment")
+            }
+        }
+        .foregroundStyle(.primary)
+        .fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -761,7 +1168,7 @@ struct WorkOrderRow: View {
                 .font(.subheadline)
             Text(localizedString("equipment_format", workOrder.managementNo, workOrder.modelName))
                 .font(.footnote)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(.primary)
             HStack {
                 FieldChip(key: workOrder.status.fieldLabelKey)
                 FieldChip(key: workOrder.syncState.fieldLabelKey)
@@ -773,6 +1180,7 @@ struct WorkOrderRow: View {
 
 struct WorkOrderDetailView: View {
     @ObservedObject var viewModel: FieldViewModel
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     var body: some View {
         NavigationStack {
@@ -781,17 +1189,22 @@ struct WorkOrderDetailView: View {
                     LocationConsentSection(viewModel: viewModel)
 
                     Section {
-                        LabeledContent("request_no", value: workOrder.requestNo)
-                        LabeledContent(
+                        metadataRow("request_no", value: workOrder.requestNo)
+                        metadataRow(
                             "equipment",
                             value: localizedString("equipment_format", workOrder.managementNo, workOrder.modelName)
                         )
-                        LabeledContent("site", value: workOrder.siteName)
+                        metadataRow("site", value: workOrder.siteName)
                         if let symptom = workOrder.symptom {
-                            LabeledContent("symptom", value: symptom)
+                            metadataRow(
+                                "symptom",
+                                value: symptom,
+                                labelIdentifier: FieldAccessibilityID.detailSymptomLabel,
+                                valueIdentifier: FieldAccessibilityID.detailSymptomValue
+                            )
                         }
                         if let targetDueAt = workOrder.targetDueAt {
-                            LabeledContent(
+                            metadataRow(
                                 "target_due",
                                 value: targetDueAt.formatted(date: .abbreviated, time: .shortened)
                             )
@@ -848,8 +1261,10 @@ struct WorkOrderDetailView: View {
                             .accessibilityIdentifier(FieldAccessibilityID.detailMessage)
                     }
                 }
+                .scrollDismissesKeyboard(.immediately)
                 .accessibilityIdentifier(FieldAccessibilityID.detailView)
-                .navigationTitle(Text(workOrder.requestNo))
+                .navigationTitle(Text("detail_title"))
+                .inlineNavigationTitle()
                 .toolbar {
                     Button {
                         viewModel.closeDetail()
@@ -865,63 +1280,188 @@ struct WorkOrderDetailView: View {
     private var reportableResults: [Components.Schemas.WorkResultType] {
         [.completed, .temporaryAction, .incomplete, .revisitRequired]
     }
+
+    @ViewBuilder
+    private func metadataRow(
+        _ labelKey: LocalizedStringKey,
+        value: String,
+        labelIdentifier: String? = nil,
+        valueIdentifier: String? = nil
+    ) -> some View {
+        let usesVerticalLayout = dynamicTypeSize.isAccessibilitySize
+        let layout = usesVerticalLayout
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
+            : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 12))
+        layout {
+            metadataText(labelKey, identifier: labelIdentifier)
+            if usesVerticalLayout == false {
+                Spacer(minLength: 12)
+            }
+            metadataValueText(value, alignLeading: usesVerticalLayout, identifier: valueIdentifier)
+        }
+    }
+
+    @ViewBuilder
+    private func metadataText(_ key: LocalizedStringKey, identifier: String?) -> some View {
+        let text = Text(key)
+            .font(.body)
+            .foregroundStyle(.primary)
+            .fixedSize(horizontal: false, vertical: true)
+        if let identifier {
+            text.accessibilityIdentifier(identifier)
+        } else {
+            text
+        }
+    }
+
+    @ViewBuilder
+    private func metadataValueText(
+        _ value: String,
+        alignLeading: Bool,
+        identifier: String?
+    ) -> some View {
+        let text = Text(value)
+            .font(.body)
+            .foregroundStyle(.primary)
+            .multilineTextAlignment(alignLeading ? .leading : .trailing)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: alignLeading ? .infinity : nil, alignment: alignLeading ? .leading : .trailing)
+        if let identifier {
+            text.accessibilityIdentifier(identifier)
+        } else {
+            text
+        }
+    }
 }
 
 struct LocationConsentSection: View {
     @ObservedObject var viewModel: FieldViewModel
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
 
     private var state: Components.Schemas.LocationConsentState {
         viewModel.locationConsent?.state ?? .noRecord
     }
 
+    @ViewBuilder
     var body: some View {
         Section {
-            LabeledContent(
-                "location_consent_state",
-                value: localizedString(locationConsentStateKey(state))
-            )
-            LabeledContent(
-                "location_consent_collection",
-                value: localizedString(viewModel.locationConsent?.mayCollect == true ? "yes" : "no")
-            )
-            Button {
-                Task { await viewModel.grantLocationConsent() }
-            } label: {
-                Label {
-                    Text(LocalizedStringKey(state == .withdrawn ? "location_consent_regain" : "location_consent_grant"))
-                } icon: {
-                    Image(systemName: "checkmark.shield")
-                }
-            }
-            .disabled(viewModel.isLoading || state == .granted)
-            .accessibilityIdentifier(FieldAccessibilityID.locationConsentGrantButton)
-
-            Button {
-                Task { await viewModel.suspendLocationConsent() }
-            } label: {
-                Label("location_consent_suspend", systemImage: "location.slash")
-            }
-            .disabled(viewModel.isLoading || state != .granted)
-            .accessibilityIdentifier(FieldAccessibilityID.locationConsentSuspendButton)
-
-            Button {
-                Task { await viewModel.resumeLocationConsent() }
-            } label: {
-                Label("location_consent_resume", systemImage: "location")
-            }
-            .disabled(viewModel.isLoading || state != .suspended)
-            .accessibilityIdentifier(FieldAccessibilityID.locationConsentResumeButton)
-
-            Button(role: .destructive) {
-                Task { await viewModel.withdrawLocationConsent() }
-            } label: {
-                Label("location_consent_withdraw", systemImage: "trash")
-            }
-            .disabled(viewModel.isLoading || (state != .granted && state != .suspended))
-            .accessibilityIdentifier(FieldAccessibilityID.locationConsentWithdrawButton)
+            consentControls
         } header: {
             Text("location_consent_title")
+                .foregroundStyle(.primary)
+                .accessibilityIdentifier(FieldAccessibilityID.locationConsentTitle)
         }
+        .headerProminence(.increased)
+    }
+
+    @ViewBuilder
+    private var consentControls: some View {
+            consentValueRow(
+                labelKey: "location_consent_state",
+                labelIdentifier: FieldAccessibilityID.locationConsentStateLabel,
+                value: localizedString(locationConsentStateKey(state)),
+                identifier: FieldAccessibilityID.locationConsentStateValue
+            )
+
+            consentValueRow(
+                labelKey: "location_consent_collection",
+                labelIdentifier: FieldAccessibilityID.locationConsentCollectionLabel,
+                value: localizedString(viewModel.locationConsent?.mayCollect == true ? "yes" : "no"),
+                identifier: FieldAccessibilityID.locationConsentCollectionValue
+            )
+
+            switch state {
+            case .noRecord:
+                Button {
+                    Task { await viewModel.grantLocationConsent() }
+                } label: {
+                    consentButtonLabel("location_consent_grant")
+                }
+                .disabled(viewModel.isLoading)
+                .accessibilityIdentifier(FieldAccessibilityID.locationConsentGrantButton)
+            case .withdrawn:
+                Button {
+                    Task { await viewModel.grantLocationConsent() }
+                } label: {
+                    consentButtonLabel("location_consent_regain")
+                }
+                .disabled(viewModel.isLoading)
+                .accessibilityIdentifier(FieldAccessibilityID.locationConsentGrantButton)
+            case .granted:
+                Button {
+                    Task { await viewModel.suspendLocationConsent() }
+                } label: {
+                    consentButtonLabel("location_consent_suspend")
+                }
+                .disabled(viewModel.isLoading)
+                .accessibilityIdentifier(FieldAccessibilityID.locationConsentSuspendButton)
+
+                withdrawButton
+            case .suspended:
+                Button {
+                    Task { await viewModel.resumeLocationConsent() }
+                } label: {
+                    consentButtonLabel("location_consent_resume")
+                }
+                .disabled(viewModel.isLoading)
+                .accessibilityIdentifier(FieldAccessibilityID.locationConsentResumeButton)
+
+                withdrawButton
+            }
+    }
+
+    @ViewBuilder
+    private func consentValueRow(
+        labelKey: LocalizedStringKey,
+        labelIdentifier: String,
+        value: String,
+        identifier: String
+    ) -> some View {
+        let usesVerticalLayout = dynamicTypeSize.isAccessibilitySize
+        let layout = usesVerticalLayout
+            ? AnyLayout(VStackLayout(alignment: .leading, spacing: 4))
+            : AnyLayout(HStackLayout(alignment: .firstTextBaseline, spacing: 12))
+        layout {
+            consentText(labelKey)
+                .accessibilityIdentifier(labelIdentifier)
+            if usesVerticalLayout == false {
+                Spacer(minLength: 12)
+            }
+            consentValueText(value, identifier: identifier, alignLeading: usesVerticalLayout)
+        }
+    }
+
+    private func consentText(_ key: LocalizedStringKey) -> some View {
+        Text(key)
+            .font(.body)
+            .foregroundStyle(.primary)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func consentValueText(_ value: String, identifier: String, alignLeading: Bool) -> some View {
+        Text(value)
+            .font(.body)
+            .foregroundStyle(.primary)
+            .multilineTextAlignment(alignLeading ? .leading : .trailing)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: alignLeading ? .infinity : nil, alignment: alignLeading ? .leading : .trailing)
+            .accessibilityIdentifier(identifier)
+    }
+
+    private func consentButtonLabel(_ key: LocalizedStringKey) -> some View {
+        Text(key)
+            .font(.body)
+            .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private var withdrawButton: some View {
+        Button(role: .destructive) {
+            Task { await viewModel.withdrawLocationConsent() }
+        } label: {
+            consentButtonLabel("location_consent_withdraw")
+        }
+        .disabled(viewModel.isLoading)
+        .accessibilityIdentifier(FieldAccessibilityID.locationConsentWithdrawButton)
     }
 }
 
@@ -931,10 +1471,35 @@ struct FieldChip: View {
     var body: some View {
         Text(LocalizedStringKey(key))
             .font(.caption)
+            .foregroundStyle(.primary)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
             .background(.thinMaterial, in: Capsule())
     }
+}
+
+private extension View {
+    @ViewBuilder
+    func inlineNavigationTitle() -> some View {
+        #if os(iOS)
+        navigationBarTitleDisplayMode(.inline)
+        #else
+        self
+        #endif
+    }
+
+    @ViewBuilder
+    func workOrderDetailPresentation<Item: Identifiable, Presented: View>(
+        item: Binding<Item?>,
+        @ViewBuilder content: @escaping (Item) -> Presented
+    ) -> some View {
+        #if os(iOS)
+        fullScreenCover(item: item, content: content)
+        #else
+        sheet(item: item, content: content)
+        #endif
+    }
+
 }
 
 private func localizedString(_ key: String, _ arguments: CVarArg...) -> String {

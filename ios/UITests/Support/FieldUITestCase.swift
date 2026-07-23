@@ -1,4 +1,5 @@
 import XCTest
+import UIKit
 
 /// Mirror of `FieldAccessibilityID` (the production namespace in the app target).
 ///
@@ -29,6 +30,9 @@ enum AID {
     static let todayRefreshButton = "today.refresh"
     static let todayLogoutButton = "today.logout"
     static let todayLoading = "today.loading"
+    static let todayLocationConsentButton = "today.locationConsent"
+    static let todayLocationConsentSheet = "today.locationConsent.sheet"
+    static let todayLocationConsentCloseButton = "today.locationConsent.close"
     static func workOrderRow(_ id: String) -> String { "today.workOrderRow.\(id)" }
 
     static let detailView = "detail.view"
@@ -41,6 +45,8 @@ enum AID {
     static let detailCaptureEvidenceButton = "detail.captureEvidence"
     static let detailBackButton = "detail.back"
     static let detailMessage = "detail.message"
+    static let detailSymptomLabel = "detail.symptom.label"
+    static let detailSymptomValue = "detail.symptom.value"
 
     static let cameraShutterButton = "camera.shutter"
     static let cameraCancelButton = "camera.cancel"
@@ -49,10 +55,15 @@ enum AID {
     static let cameraPermissionRequesting = "camera.permissionRequesting"
     static let cameraUnavailable = "camera.unavailable"
 
+    static let locationConsentTitle = "locationConsent.title"
+    static let locationConsentStateLabel = "locationConsent.stateLabel"
+    static let locationConsentCollectionLabel = "locationConsent.collectionLabel"
     static let locationConsentGrantButton = "locationConsent.grant"
     static let locationConsentSuspendButton = "locationConsent.suspend"
     static let locationConsentResumeButton = "locationConsent.resume"
     static let locationConsentWithdrawButton = "locationConsent.withdraw"
+    static let locationConsentStateValue = "locationConsent.stateValue"
+    static let locationConsentCollectionValue = "locationConsent.collectionValue"
 
     static let messengerSearchField = "messenger.searchField"
     static let messengerSearchButton = "messenger.searchButton"
@@ -65,6 +76,7 @@ enum AID {
     static let messengerLogoutButton = "messenger.logout"
     static func messengerThreadRow(_ id: String) -> String { "messenger.threadRow.\(id)" }
     static func messengerMessageRow(_ id: String) -> String { "messenger.messageRow.\(id)" }
+    static func messengerMessageTimestamp(_ id: String) -> String { "messenger.messageTimestamp.\(id)" }
     static func messengerSearchResultRow(_ id: String) -> String { "messenger.searchResultRow.\(id)" }
 }
 
@@ -114,44 +126,32 @@ enum LaunchLocale {
     static let arguments = ["-AppleLanguages", "(ko)", "-AppleLocale", "ko_KR"]
 }
 
-/// Launch presentation variants the suite runs each screen under, so the
-/// accessibility audit covers the real Dynamic Type / dark-mode conditions the
-/// field uses (gloves, bright sun, night shift).
+/// Presentation is preconditioned by the shell runner (simctl) before this
+/// XCTest process starts. Tests only assert the rendered result; they never
+/// mutate process-global Simulator presentation state themselves.
 enum Presentation {
     case standard
     case largestDynamicType
     case darkMode
 
-    /// Launch arguments that drive the Dynamic Type presentation.
-    /// `-UIPreferredContentSizeCategoryName` is the well-known UIKit
-    /// NSUserDefaults key UIKit reads at startup (the only practical mechanism
-    /// for driving content size from a UI test; it works reliably in the
-    /// Simulator). Dark mode is NOT driven here — it uses the supported
-    /// `XCUIDevice.shared.appearance` API, applied by `launchApp(_:)`.
-    var launchArguments: [String] {
-        switch self {
-        case .standard, .darkMode:
-            return []
-        case .largestDynamicType:
-            return [
-                "-UIPreferredContentSizeCategoryName",
-                "UICTContentSizeCategoryAccessibilityXXXL",
-            ]
-        }
+    var expectedDarkAppearance: Bool {
+        self == .darkMode
     }
+}
 
-    /// The device appearance this presentation requires. Applied via the
-    /// supported `XCUIDevice.shared.appearance` property (iOS 15+) BEFORE launch
-    /// — the documented, stable way to drive light/dark in XCUITest (per Apple's
-    /// XCUIDevice.h; the `-UIUserInterfaceStyle` launch argument is undocumented
-    /// and unreliable).
-    var deviceAppearance: XCUIDevice.Appearance {
-        switch self {
-        case .darkMode:
-            return .dark
-        case .standard, .largestDynamicType:
-            return .light
-        }
+/// Creates an unlaunched app wired to the isolated backend. The shell owns
+/// Simulator appearance and Dynamic Type; tests must not smuggle either through
+/// app launch arguments because that diverges from production process state.
+@MainActor
+extension XCUIApplication {
+    static func fieldUITestApp(
+        presentation _: Presentation = .standard,
+        baseURL: String? = nil
+    ) throws -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments += LaunchLocale.arguments
+        app.launchEnvironment["MAINTENANCE_API_BASE_URL"] = try baseURL ?? RealBackendSession.baseURL()
+        return app
     }
 }
 
@@ -163,6 +163,8 @@ enum UITestFixture {
     static let startWorkOrderID = "MNT_UITEST_WORK_ORDER_ID_START"
     static let reportWorkOrderID = "MNT_UITEST_WORK_ORDER_ID_REPORT"
     static let reportSuccessWorkOrderID = "MNT_UITEST_WORK_ORDER_ID_REPORT_SUCCESS"
+    static let adminApproveWorkOrderID = "MNT_UITEST_WORK_ORDER_ID_ADMIN_APPROVE"
+    static let adminRejectWorkOrderID = "MNT_UITEST_WORK_ORDER_ID_ADMIN_REJECT"
     static let cameraWorkOrderID = "MNT_UITEST_WORK_ORDER_ID_CAMERA"
     static let messengerThreadID = "MNT_UITEST_MESSENGER_THREAD_ID"
     static let messengerInitialMessageID = "MNT_UITEST_MESSENGER_INITIAL_MESSAGE_ID"
@@ -194,27 +196,176 @@ enum UITestFixture {
 /// the initial viewport (especially at larger Dynamic Type sizes), so a direct
 /// `waitForExistence` is not evidence that the API response was empty.
 @MainActor
+func workOrderRowActivationPoint(
+    in app: XCUIApplication,
+    row: XCUIElement,
+    list: XCUIElement
+) -> XCUICoordinate? {
+    guard row.exists, row.isHittable, list.exists, row.frame.height > 0 else { return nil }
+
+    var viewport = list.frame
+    let navigationBar = app.navigationBars.firstMatch
+    if navigationBar.exists {
+        let visibleTop = max(viewport.minY, navigationBar.frame.maxY)
+        viewport = CGRect(
+            x: viewport.minX,
+            y: visibleTop,
+            width: viewport.width,
+            height: max(0, viewport.maxY - visibleTop)
+        )
+    }
+
+    let tabBar = app.tabBars.firstMatch
+    if tabBar.exists {
+        // The floating tab bar's dimming/material surface extends above its
+        // reported accessibility frame. Reserve one tab-bar height so a row
+        // is never accepted while its activation point is under that chrome.
+        let tabChromeTop = tabBar.frame.minY - tabBar.frame.height
+        let visibleBottom = min(viewport.maxY, tabChromeTop)
+        viewport.size.height = max(0, visibleBottom - viewport.minY)
+    }
+
+    // A partially visible SwiftUI Button can report itself hittable even when
+    // tapping the midpoint of the visible fragment misses its activation
+    // region. Only accept the row once its semantic center is clear of both
+    // navigation and floating-tab chrome, then activate that stable center.
+    let center = CGPoint(x: row.frame.midX, y: row.frame.midY)
+    guard viewport.contains(center) else { return nil }
+
+    return row.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+}
+
+@MainActor
 func scrollToWorkOrderRow(
     in app: XCUIApplication,
     id: String,
-    timeout: TimeInterval = 15,
-    maxSwipes: Int = 12
+    timeout: TimeInterval = 60,
+    maxSwipes: Int = 48
 ) -> XCUIElement? {
     let row = app.buttons[AID.workOrderRow(id)]
+    let list = app.collectionViews[AID.todayList]
+    let deadline = Date().addingTimeInterval(timeout)
     let initialProbe = min(timeout, 2)
-    if row.waitForExistence(timeout: initialProbe), row.isHittable {
+    let rowAppeared = row.waitForExistence(timeout: initialProbe)
+
+    let listProbe = max(min(deadline.timeIntervalSinceNow, initialProbe), 0)
+    guard list.waitForExistence(timeout: listProbe) else { return nil }
+    if rowAppeared, workOrderRowActivationPoint(in: app, row: row, list: list) != nil {
         return row
     }
 
-    let list = app.collectionViews[AID.todayList]
-    guard list.waitForExistence(timeout: initialProbe) else { return nil }
-
-    let remainingProbe = max(timeout - initialProbe, 0)
-    let perSwipeProbe = maxSwipes > 0 ? remainingProbe / Double(maxSwipes) : 0
+    // A SwiftUI List can preserve a prior scroll position across a terminate /
+    // relaunch cycle. Normalize only until the always-present first section is
+    // visible, then use short controlled drags so an exact row cannot be skipped
+    // by the momentum of a full swipe. Both phases share one deadline.
+    let topSentinel = app.staticTexts[KO.locationConsentTitle]
     for _ in 0..<maxSwipes {
-        list.swipeUp()
-        if row.waitForExistence(timeout: perSwipeProbe), row.isHittable {
+        if topSentinel.exists, topSentinel.isHittable { break }
+        guard Date() < deadline else { return nil }
+        list.swipeDown()
+        if workOrderRowActivationPoint(in: app, row: row, list: list) != nil {
             return row
+        }
+    }
+
+    let dragStart = list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.72))
+    let dragEnd = list.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.48))
+    for _ in 0..<maxSwipes {
+        if workOrderRowActivationPoint(in: app, row: row, list: list) != nil { return row }
+        guard Date() < deadline else { return nil }
+        dragStart.press(forDuration: 0.1, thenDragTo: dragEnd)
+        // The gesture already waits for the application to become idle. A
+        // timed existence query here forces XCTest to capture a full hierarchy
+        // on every miss, turning a bounded list scan into a 30-second crawl at
+        // accessibility text sizes. Probe synchronously after each settled
+        // drag so all 48 positions fit inside the shared deadline.
+        if workOrderRowActivationPoint(in: app, row: row, list: list) != nil {
+            return row
+        }
+    }
+    return nil
+}
+
+@MainActor
+func assertTodayListEndsAtOrAboveTabBar(
+    in app: XCUIApplication,
+    file: StaticString = #filePath,
+    line: UInt = #line
+) {
+    let list = app.collectionViews[AID.todayList]
+    let tabBar = app.tabBars.firstMatch
+    guard list.waitForExistence(timeout: 15) else {
+        XCTFail("Today list must exist before tab-bar geometry is evaluated.", file: file, line: line)
+        return
+    }
+    guard tabBar.waitForExistence(timeout: 15) else {
+        XCTFail("Authenticated tab bar must exist before Today geometry is evaluated.", file: file, line: line)
+        return
+    }
+    XCTAssertLessThanOrEqual(
+        list.frame.maxY,
+        tabBar.frame.minY + 1,
+        "Today's scroll viewport must end at or above the floating tab bar.",
+        file: file,
+        line: line
+    )
+    XCTAssertGreaterThanOrEqual(
+        list.frame.maxY,
+        tabBar.frame.minY - 1,
+        "Today's scroll viewport must use the complete unobscured tab content guide.",
+        file: file,
+        line: line
+    )
+}
+
+/// Finds a lazy SwiftUI Form/List element without relying on its initial
+/// accessibility materialization. The caller supplies the first-section
+/// sentinel so a relaunch starts from a known scroll origin before controlled
+/// forward drags search for one exact target. Every wait and gesture shares a
+/// single absolute deadline.
+@MainActor
+func scrollToElement(
+    _ element: XCUIElement,
+    in container: XCUIElement,
+    topSentinel: XCUIElement,
+    timeout: TimeInterval = 15,
+    maxSwipes: Int = 16
+) -> XCUIElement? {
+    let deadline = Date().addingTimeInterval(timeout)
+    let initialProbe = min(timeout, 2)
+    if element.waitForExistence(timeout: initialProbe), element.isHittable {
+        return element
+    }
+
+    let containerProbe = max(min(deadline.timeIntervalSinceNow, initialProbe), 0)
+    guard container.waitForExistence(timeout: containerProbe) else { return nil }
+
+    for _ in 0..<maxSwipes {
+        if topSentinel.exists, topSentinel.isHittable { break }
+        guard Date() < deadline else { return nil }
+        container.swipeDown()
+        if element.exists, element.isHittable { return element }
+    }
+
+    // Drag through the Form's trailing gutter rather than the centered
+    // multiline editor or the leading-edge navigation gesture region. A
+    // focused TextField consumes center-origin gestures, while a leading-edge
+    // drag can be claimed by NavigationStack before the Form applies its
+    // immediate keyboard-dismiss policy.
+    let origin = container.coordinate(withNormalizedOffset: .zero)
+    let trailingGutterX = max(container.frame.width - 8, 8)
+    let dragStart = origin.withOffset(
+        CGVector(dx: trailingGutterX, dy: container.frame.height * 0.50)
+    )
+    let dragEnd = origin.withOffset(
+        CGVector(dx: trailingGutterX, dy: container.frame.height * 0.28)
+    )
+    for _ in 0..<maxSwipes {
+        if element.exists, element.isHittable { return element }
+        guard Date() < deadline else { return nil }
+        dragStart.press(forDuration: 0.1, thenDragTo: dragEnd)
+        if element.exists, element.isHittable {
+            return element
         }
     }
     return nil
@@ -233,6 +384,8 @@ class FieldUITestCase: XCTestCase {
     var app: XCUIApplication!
     private(set) var seededSession = false
 
+    deinit {}
+
     override func setUpWithError() throws {
         try super.setUpWithError()
         continueAfterFailure = false
@@ -247,22 +400,103 @@ class FieldUITestCase: XCTestCase {
         if seededSession {
             try RealSessionSeed.clear()
         }
-        // Appearance is process-global to the Simulator; the complete UI-test
-        // lifecycle stays on the main actor so XCTest never launches or
-        // mutates an application from its async worker executor.
-        XCUIDevice.shared.appearance = .light
         app = nil
         try super.tearDownWithError()
     }
 
+    /// Proves that the application rendered the requested appearance rather
+    /// than merely accepting the Simulator setting. The system-managed tab-bar
+    /// material exposes a stable interior light/dark reference surface without
+    /// any production-only test hook.
+    func assertRenderedAppearance(
+        _ presentation: Presentation,
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let tabBar = app.tabBars.firstMatch
+        guard tabBar.waitForExistence(timeout: 10) else {
+            XCTFail("Authenticated tab bar is required to verify rendered appearance.", file: file, line: line)
+            return
+        }
+
+        let screenshot = tabBar.screenshot().image
+        guard let cgImage = screenshot.cgImage else {
+            XCTFail("Could not rasterize the authenticated tab bar screenshot.", file: file, line: line)
+            return
+        }
+
+        let width = cgImage.width
+        let height = cgImage.height
+        guard width > 0, height > 0, let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) else {
+            XCTFail("Authenticated tab bar screenshot has no measurable sRGB surface.", file: file, line: line)
+            return
+        }
+
+        var rgba = [UInt8](repeating: 0, count: width * height * 4)
+        let rendered = rgba.withUnsafeMutableBytes { bytes -> Bool in
+            guard let baseAddress = bytes.baseAddress,
+                  let context = CGContext(
+                      data: baseAddress,
+                      width: width,
+                      height: height,
+                      bitsPerComponent: 8,
+                      bytesPerRow: width * 4,
+                      space: colorSpace,
+                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+                          | CGBitmapInfo.byteOrder32Big.rawValue
+                  )
+            else { return false }
+            context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        guard rendered else {
+            XCTFail("Could not create an sRGB renderer for the authenticated tab bar.", file: file, line: line)
+            return
+        }
+
+        let xRange = stride(from: width / 10, to: width * 9 / 10, by: 4)
+        let yRange = stride(from: height / 10, to: height * 9 / 10, by: 4)
+        var lumaSum = 0.0
+        var sampleCount = 0
+        for y in yRange {
+            for x in xRange {
+                let offset = (y * width + x) * 4
+                let red = Double(rgba[offset])
+                let green = Double(rgba[offset + 1])
+                let blue = Double(rgba[offset + 2])
+                lumaSum += (0.2126 * red + 0.7152 * green + 0.0722 * blue) / 255.0
+                sampleCount += 1
+            }
+        }
+        guard sampleCount > 0 else {
+            XCTFail("Authenticated tab bar screenshot produced no appearance samples.", file: file, line: line)
+            return
+        }
+
+        let meanLuma = lumaSum / Double(sampleCount)
+        let matches = presentation.expectedDarkAppearance ? meanLuma < 0.35 : meanLuma > 0.65
+        if !matches {
+            let attachment = XCTAttachment(image: screenshot)
+            attachment.name = "Rendered appearance mismatch"
+            attachment.lifetime = .keepAlways
+            add(attachment)
+            let expected = presentation.expectedDarkAppearance ? "dark" : "light"
+            XCTFail(
+                "Expected rendered \(expected) tab bar; measured mean sRGB luma \(String(format: "%.3f", meanLuma)).",
+                file: file,
+                line: line
+            )
+        }
+    }
+
     /// Launch the app against the runner's isolated local backend.
     @discardableResult
-    func launchApp(_ presentation: Presentation = .standard) async throws -> XCUIApplication {
-        XCUIDevice.shared.appearance = presentation.deviceAppearance
-        let app = XCUIApplication()
-        app.launchArguments += LaunchLocale.arguments
-        app.launchArguments += presentation.launchArguments
-        app.launchEnvironment["MAINTENANCE_API_BASE_URL"] = try RealBackendSession.baseURL()
+    func launchApp(
+        _ presentation: Presentation = .standard
+    ) async throws -> XCUIApplication {
+        let app = try XCUIApplication.fieldUITestApp(
+            presentation: presentation
+        )
         app.launch()
         self.app = app
         return app
@@ -280,16 +514,61 @@ class FieldUITestCase: XCTestCase {
     /// intentionally forbidden because it makes state-changing tests nonrepeatable.
     func openSeededWorkOrder(
         fixtureKey: String,
-        timeout: TimeInterval = 15
+        timeout: TimeInterval = 60
     ) throws {
         let id = try UITestFixture.requiredID(fixtureKey)
         guard let row = scrollToWorkOrderRow(in: app, id: id, timeout: timeout) else {
             throw UITestFixture.Error.missing("\(fixtureKey) (seeded ID \(id) was not rendered in Today)")
         }
-        row.tap()
-        guard app.otherElements[AID.detailView].waitForExistence(timeout: 10) else {
+        let list = app.collectionViews[AID.todayList]
+        guard let activationPoint = workOrderRowActivationPoint(in: app, row: row, list: list) else {
+            throw UITestFixture.Error.missing("\(fixtureKey) (seeded ID \(id) was not safely visible above navigation chrome)")
+        }
+        activationPoint.tap()
+        let detail = app.descendants(matching: .any)[AID.detailView]
+        let back = app.buttons[AID.detailBackButton]
+        guard detail.waitForExistence(timeout: 10),
+              back.waitForExistence(timeout: 2),
+              back.isHittable else {
             throw UITestFixture.Error.missing("\(fixtureKey) (seeded ID \(id) did not open detail)")
         }
+    }
+
+    /// Detail is a lazy SwiftUI Form backed by a collection view. Resolve the
+    /// exact control before interacting so lower sections are not mistaken for
+    /// missing API/UI state merely because they are off-screen.
+    func scrollToDetailElement(
+        _ element: XCUIElement,
+        timeout: TimeInterval = 15,
+        maxSwipes: Int = 16
+    ) -> XCUIElement? {
+        scrollToElement(
+            element,
+            in: app.descendants(matching: .any)[AID.detailView],
+            // The full-screen detail's persistent toolbar button stays mounted
+            // while its lazy Form materializes and anchors normalization.
+            topSentinel: app.buttons[AID.detailBackButton],
+            timeout: timeout,
+            maxSwipes: maxSwipes
+        )
+    }
+
+    /// Waits for one stable accessibility element to expose a rendered value.
+    /// This avoids brittle exact static-text lookups when SwiftUI combines a
+    /// row label and value into one accessibility label.
+    @discardableResult
+    func waitForLabel(
+        _ element: XCUIElement,
+        containing expected: String,
+        timeout: TimeInterval = 15
+    ) -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        guard element.waitForExistence(timeout: min(timeout, 2)) else { return false }
+        while Date() < deadline {
+            if element.label.contains(expected) { return true }
+            RunLoop.current.run(until: Date().addingTimeInterval(0.2))
+        }
+        return element.label.contains(expected)
     }
 
     @discardableResult
@@ -309,28 +588,110 @@ class FieldUITestCase: XCTestCase {
     }
 
     @discardableResult
-    func tapTab(_ koreanLabel: String, timeout: TimeInterval = 10) -> Bool {
+    func tapTab(
+        _ koreanLabel: String,
+        destination: XCUIElement,
+        timeout: TimeInterval = 10
+    ) -> Bool {
         let inTabBar = app.tabBars.buttons[koreanLabel]
-        if inTabBar.waitForExistence(timeout: timeout) {
-            inTabBar.tap()
-            return true
+        guard inTabBar.waitForExistence(timeout: timeout) else { return false }
+
+        func reachedDestination() -> Bool {
+            destination.waitForExistence(timeout: 1) && inTabBar.isSelected
         }
-        let flat = app.buttons[koreanLabel]
-        if flat.waitForExistence(timeout: 1) {
-            flat.tap()
-            return true
+
+        inTabBar.tap()
+        if reachedDestination() { return true }
+
+        // iOS floating-tab accessibility frames can overlap. Retry inside the
+        // requested tab's outer regions and prove both selected state and the
+        // exact destination; a synthesized tap alone is not navigation proof.
+        for horizontalOffset in [0.85, 0.15] {
+            inTabBar.coordinate(
+                withNormalizedOffset: CGVector(dx: horizontalOffset, dy: 0.5)
+            ).tap()
+            if reachedDestination() { return true }
         }
         return false
     }
 
-    /// Audit the complete surface with XCTest's strict default behavior. There
-    /// is no issue handler: every issue is an XCTest failure.
-    func assertNoAccessibilityIssues(
+    /// Runs Dynamic Type audit with a deliberately exact compatibility ledger
+    /// for the Xcode 26 SwiftUI synthesized-node false positives. Any changed
+    /// description, element type, identifier, duplicate, new, or missing issue
+    /// fails the test; all other audit types remain unsuppressed.
+    func assertDynamicTypeAccessibilitySupport(
+        expectedCompatibilityIssues: [DynamicTypeAuditIssue] = [],
         file: StaticString = #filePath,
         line: UInt = #line
     ) {
+        let priorContinueAfterFailure = continueAfterFailure
+        continueAfterFailure = true
+        defer { continueAfterFailure = priorContinueAfterFailure }
+
+        var observed: [DynamicTypeAuditIssue] = []
         do {
-            try app.performAccessibilityAudit(for: .all)
+            try app.performAccessibilityAudit(for: .dynamicType) { issue in
+                guard
+                    issue.auditType == .dynamicType,
+                    issue.compactDescription == DynamicTypeAuditIssue.compactDescription,
+                    issue.detailedDescription == DynamicTypeAuditIssue.detailedDescription,
+                    let element = issue.element,
+                    let expected = expectedCompatibilityIssues.first(where: {
+                        $0.identifier == element.identifier && $0.elementType == element.elementType
+                    })
+                else {
+                    return false
+                }
+                observed.append(expected)
+                return true
+            }
+        } catch {
+            XCTFail("Dynamic Type accessibility audit reported issues: \(error)", file: file, line: line)
+            return
+        }
+
+        XCTAssertEqual(
+            observed.sorted(),
+            expectedCompatibilityIssues.sorted(),
+            "Dynamic Type compatibility ledger drifted. This only permits the documented Xcode 26 SwiftUI synthesized-node false positives.",
+            file: file,
+            line: line
+        )
+    }
+
+    struct DynamicTypeAuditIssue: Hashable, Comparable {
+        static let compactDescription = "Dynamic Type font sizes are partially unsupported"
+        static let detailedDescription = "User will not be able to change the font size of this SwiftUI.AccessibilityNode"
+
+        let identifier: String
+        let elementType: XCUIElement.ElementType
+
+        static func < (lhs: Self, rhs: Self) -> Bool {
+            (lhs.identifier, lhs.elementType.rawValue) < (rhs.identifier, rhs.elementType.rawValue)
+        }
+
+        static func staticText(_ identifier: String) -> Self {
+            Self(identifier: identifier, elementType: .staticText)
+        }
+
+        static func button(_ identifier: String) -> Self {
+            Self(identifier: identifier, elementType: .button)
+        }
+    }
+
+    /// Audit the complement of `.dynamicType` after a clean screen reacquisition.
+    /// Together with `assertDynamicTypeAccessibilitySupport`, this is exactly
+    /// `.all`; neither phase installs an issue handler or suppresses a finding.
+    func assertNoNonDynamicTypeAccessibilityIssues(
+        file: StaticString = #filePath,
+        line: UInt = #line
+    ) {
+        let priorContinueAfterFailure = continueAfterFailure
+        continueAfterFailure = true
+        defer { continueAfterFailure = priorContinueAfterFailure }
+
+        do {
+            try app.performAccessibilityAudit(for: .all.subtracting(.dynamicType))
         } catch {
             XCTFail("Accessibility audit reported issues: \(error)", file: file, line: line)
         }

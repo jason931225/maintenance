@@ -22,7 +22,7 @@ jobs:
           bootstrap_otp=$(openssl rand -hex 24)
           otp_hash=$(printf '%s' "$bootstrap_otp" | sha256sum | awk '{print $1}')
           bash e2e/harness/db.sh
-          psql -v otp_hash="$otp_hash" -f e2e/harness/seed-mobile-ci.sql
+          psql -v otp_hash="$otp_hash" -v fixture_profile=full -f e2e/harness/seed-mobile-ci.sql
           E2E_AUTH_DIR="$RUNNER_TEMP/mobile-auth" bash e2e/harness/boot-backend.sh
           printf '%s' "$bootstrap_otp" | jq -Rsc '{otp:.}' | curl -fsS http://127.0.0.1:8080/api/v1/auth/otp/redeem --data-binary @-
           install -d -m 700 "$RUNNER_TEMP/android-e2e-session-assets"
@@ -66,7 +66,11 @@ const validFiles = {
   "e2e/harness/boot-backend.sh": 'AUTH_DIR="${E2E_AUTH_DIR:-${E2E_DIR}/.auth}"\nPID_FILE="${AUTH_DIR}/backend.pid"\ninstall -d -m 700 "${AUTH_DIR}"',
   "e2e/run.sh": 'AUTH_DIR="${E2E_AUTH_DIR:-${REPO_ROOT}/e2e/.auth}"\nPID_FILE="${AUTH_DIR}/backend.pid"',
   "e2e/harness/seed-mobile-ci.sql": `
+    \\set ON_ERROR_STOP on
     \\if :{?otp_hash}
+    \\if :{?fixture_profile}
+    RAISE EXCEPTION 'seed-mobile-ci: invalid input';
+    SELECT :'fixture_profile' IN ('full', 'accessibility-audit-one-row');
     SELECT :'otp_hash' ~ '^[0-9a-f]{64}$';
     INSERT INTO auth_bootstrap_credentials (user_id, token_hash, expires_at)
     VALUES ('00000000-0000-0000-0000-0000000d0002', decode(:'otp_hash', 'hex'), now() + interval '15 minutes');
@@ -84,6 +88,10 @@ function expectsFailure(result, fragment) {
 describe("Android hermetic E2E CI contract", () => {
   it("accepts a local candidate-SHA PostgreSQL 18.4 Android E2E job", () => {
     assert.deepEqual(evaluate().failures, []);
+  });
+
+  it("rejects an Android seed invocation without the explicit full fixture profile", () => {
+    expectsFailure(evaluate(validWorkflow.replace(" -v fixture_profile=full", "")), "caller-supplied SHA-256");
   });
 
   it("rejects external backend and refresh-token secret dependencies", () => {

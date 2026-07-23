@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { describe, it } from "node:test";
-import { collectXcresultTestCases, discoverExpectedSwiftTests, verifyStructuredXcresult, verifyStructuredXcresultBatches } from "./verify-xcresult-test-results.mjs";
+import { collectXcresultTestCases, discoverExpectedSwiftTests, loadStructuredXcresultRuns, verifyStructuredXcresult, verifyStructuredXcresultBatches } from "./verify-xcresult-test-results.mjs";
 
 const summary = { passedTests: 3, skippedTests: 0, failedTests: 0, result: "Passed" };
 const tests = {
@@ -196,5 +199,38 @@ describe("structured xcresult verifier", () => {
     }).failures.join("\n");
     assert.match(failures, /testAudit.*2 times/);
     assert.match(failures, /testPostLogin.*0 times/);
+  });
+
+  it("collects every shard JSON read or parse failure while retaining valid shards for coverage verification", () => {
+    const directory = mkdtempSync(join(tmpdir(), "xcresult-verifier-"));
+    try {
+      const validSummary = join(directory, "valid-summary.json");
+      const validTests = join(directory, "valid-tests.json");
+      const malformedSummary = join(directory, "malformed-summary.json");
+      const missingTests = join(directory, "missing-tests.json");
+      writeFileSync(validSummary, JSON.stringify({ passedTests: 1, failedTests: 0, skippedTests: 0, totalTestCount: 1, result: "Passed" }));
+      writeFileSync(validTests, JSON.stringify({ testNodes: [tests.devices[0].testPlanConfigurations[0].testableSummaries[0].tests[0].children[0]] }));
+      writeFileSync(malformedSummary, "not json");
+
+      const loaded = loadStructuredXcresultRuns({
+        summaryPaths: [validSummary, malformedSummary],
+        testsPaths: [validTests, missingTests],
+      });
+
+      assert.equal(loaded.runs.length, 1);
+      assert.match(loaded.failures.join("\n"), /xcresult shard 2 summary JSON .*parse/i);
+      assert.match(loaded.failures.join("\n"), /xcresult shard 2 tests JSON .*read/i);
+
+      const verification = verifyStructuredXcresultBatches({
+        runs: loaded.runs,
+        expectedTests: [
+          "AccessibilityAuditUITests/testAudit",
+          "FieldCriticalPathUITests/testPostLogin",
+        ],
+      });
+      assert.match(verification.failures.join("\n"), /testPostLogin.*0 times/);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 });
