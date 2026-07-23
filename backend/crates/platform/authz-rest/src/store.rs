@@ -422,7 +422,11 @@ impl PgCedarPolicyStore {
             Box::pin(async move {
                 let rows = sqlx::query(
                     r#"
-                    SELECT c.id, c.effect, c.validation_status, c.normalized_row
+                    SELECT a.effect AS attachment_effect,
+                           c.id,
+                           c.effect,
+                           c.validation_status,
+                           c.normalized_row
                     FROM ont_object_policies a
                     JOIN cedar_policy_catalog_entries c
                       ON c.id = a.cedar_policy_id AND c.org_id = a.org_id
@@ -435,8 +439,9 @@ impl PgCedarPolicyStore {
                 .await?;
                 rows.iter()
                     .map(|row| {
+                        let attachment_effect: String = row.try_get("attachment_effect")?;
                         let policy_id: Uuid = row.try_get("id")?;
-                        let effect: String = row.try_get("effect")?;
+                        let catalog_effect: String = row.try_get("effect")?;
                         let validation_status: String = row.try_get("validation_status")?;
                         let value: serde_json::Value = row.try_get("normalized_row")?;
                         let blocks: NoCodeBlocks = serde_json::from_value(value.clone()).map_err(|error| {
@@ -455,9 +460,11 @@ impl PgCedarPolicyStore {
                                 "enforced object policy row {policy_id} is not canonical"
                             ))));
                         }
-                        if blocks.effect.as_str() != effect {
+                        if blocks.effect.as_str() != catalog_effect
+                            || catalog_effect != attachment_effect
+                        {
                             return Err(PgCedarError::Domain(KernelError::validation(format!(
-                                "enforced object policy row {policy_id} effect does not match catalog"
+                                "enforced object policy row {policy_id} effect does not match attachment and catalog"
                             ))));
                         }
                         Ok(blocks)

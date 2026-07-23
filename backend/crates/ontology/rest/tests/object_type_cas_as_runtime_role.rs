@@ -530,6 +530,90 @@ async fn instance_list_fails_closed_for_unsupported_or_malformed_enforced_policy
             "{key}"
         );
     }
+
+    let effect_mismatch = policy_attachment_effect_mismatch_response(
+        service,
+        &owner_pool,
+        &runtime_pool,
+        org,
+        actor,
+        &auth.token,
+    )
+    .await;
+    assert_eq!(effect_mismatch.status, StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(effect_mismatch.body["error"]["code"], "internal");
+    assert_eq!(
+        effect_mismatch.body["error"]["message"],
+        "unable to evaluate object visibility policy"
+    );
+    assert!(!body_text(&effect_mismatch.body).contains("effect-mismatch-secret"));
+}
+
+async fn policy_attachment_effect_mismatch_response(
+    service: axum::Router,
+    owner_pool: &PgPool,
+    runtime_pool: &PgPool,
+    org: OrgId,
+    actor: UserId,
+    token: &str,
+) -> HttpResponse {
+    let key = "policyeffectmismatch";
+    let created = request_json(
+        service.clone(),
+        "POST",
+        "/api/v1/ontology/object-types",
+        token,
+        None,
+        policy_draft(key),
+    )
+    .await;
+    assert_eq!(created.status, StatusCode::CREATED, "{:?}", created.body);
+    let type_id = created_object_type_id(&created.body);
+    let _instance_id = seed_instance(
+        runtime_pool,
+        org,
+        actor,
+        type_id,
+        "effect-mismatch-secret",
+        json!({ "owner": actor.to_string(), "flagged": false }),
+    )
+    .await;
+
+    // A database corruption/recovery fixture bypasses only the new write-time
+    // trigger. The real HTTP path must still fail closed before lowering it.
+    sqlx::query(
+        "ALTER TABLE ont_object_policies DISABLE TRIGGER trg_ont_object_policies_effect_matches_catalog",
+    )
+    .execute(owner_pool)
+    .await
+    .expect("disable invariant trigger for corrupt-row fixture");
+    attach_enforced_policy_with_attachment_effect(
+        owner_pool,
+        org,
+        type_id,
+        "policy.effect_mismatch",
+        "permit",
+        "forbid",
+        "valid",
+        owner_permit_blocks(key),
+    )
+    .await;
+    sqlx::query(
+        "ALTER TABLE ont_object_policies ENABLE TRIGGER trg_ont_object_policies_effect_matches_catalog",
+    )
+    .execute(owner_pool)
+    .await
+    .expect("restore invariant trigger after corrupt-row fixture");
+
+    request_json(
+        service,
+        "GET",
+        &format!("/api/v1/ontology/instances?type={type_id}"),
+        token,
+        None,
+        Value::Null,
+    )
+    .await
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
@@ -717,6 +801,83 @@ async fn policy_validation_failure_response(
     .await
 }
 
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn blocker_queue_is_tenant_scoped_cascades_and_attachment_effects_are_write_checked(
+    owner_pool: PgPool,
+) {
+    let org_a = OrgId::knl();
+    seed_org_and_super_admin(&owner_pool, *org_a.as_uuid(), "blockers-a").await;
+    let org_b = OrgId::from_uuid(ORG_B);
+    seed_org_and_super_admin(&owner_pool, ORG_B, "blockers-b").await;
+    let catalog_a = seed_catalog_entry(&owner_pool, org_a, "policy.blocker_a").await;
+    let catalog_b = seed_catalog_entry(&owner_pool, org_b, "policy.blocker_b").await;
+    sqlx::query(
+        "INSERT INTO cedar_policy_catalog_normalization_blockers (org_id, catalog_entry_id, prior_status, reason) VALUES ($1, $2, 'enforced', 'fixture')",
+    )
+    .bind(*org_a.as_uuid())
+    .bind(catalog_a)
+    .execute(&owner_pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO cedar_policy_catalog_normalization_blockers (org_id, catalog_entry_id, prior_status, reason) VALUES ($1, $2, 'shadow', 'fixture')",
+    )
+    .bind(*org_b.as_uuid())
+    .bind(catalog_b)
+    .execute(&owner_pool)
+    .await
+    .unwrap();
+
+    let runtime_pool = runtime_role_pool(&owner_pool).await;
+    let visible_to_a: Uuid = scope_org(org_a, async {
+        sqlx::query_scalar(
+            "SELECT catalog_entry_id FROM cedar_policy_catalog_normalization_blockers",
+        )
+        .fetch_one(&runtime_pool)
+        .await
+        .unwrap()
+    })
+    .await;
+    assert_eq!(visible_to_a, catalog_a);
+    let visible_to_b: Uuid = scope_org(org_b, async {
+        sqlx::query_scalar(
+            "SELECT catalog_entry_id FROM cedar_policy_catalog_normalization_blockers",
+        )
+        .fetch_one(&runtime_pool)
+        .await
+        .unwrap()
+    })
+    .await;
+    assert_eq!(visible_to_b, catalog_b);
+
+    let mismatch = sqlx::query(
+        "INSERT INTO ont_object_policies (org_id, object_type_id, cedar_policy_id, effect) VALUES ($1, $2, $3, 'forbid')",
+    )
+    .bind(*org_a.as_uuid())
+    .bind(Uuid::new_v4())
+    .bind(catalog_a)
+    .execute(&owner_pool)
+    .await;
+    assert!(
+        mismatch.is_err(),
+        "attachment effect mismatch must be rejected"
+    );
+
+    sqlx::query("DELETE FROM cedar_policy_catalog_entries WHERE id = $1 AND org_id = $2")
+        .bind(catalog_a)
+        .bind(*org_a.as_uuid())
+        .execute(&owner_pool)
+        .await
+        .unwrap();
+    let orphan_count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM cedar_policy_catalog_normalization_blockers WHERE catalog_entry_id = $1")
+            .bind(catalog_a)
+            .fetch_one(&owner_pool)
+            .await
+            .unwrap();
+    assert_eq!(orphan_count, 0);
+}
+
 fn policy_draft(key: &str) -> Value {
     json!({
         "stable_key": key,
@@ -823,6 +984,26 @@ async fn seed_instance(
     .to_owned()
 }
 
+async fn seed_catalog_entry(owner_pool: &PgPool, org: OrgId, stable_key: &str) -> Uuid {
+    sqlx::query_scalar(
+        r#"
+        INSERT INTO cedar_policy_catalog_entries
+            (org_id, stable_key, title, natural_language_rule, effect, status, source,
+             principal, action, resource, conditions, validation_status, generated_policy_text)
+        VALUES ($1, $2, $3, 'fixture', 'permit', 'draft', 'no_code_draft',
+                '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, '[]'::jsonb,
+                'valid', 'permit(principal, action, resource);')
+        RETURNING id
+        "#,
+    )
+    .bind(*org.as_uuid())
+    .bind(stable_key)
+    .bind(format!("Policy {stable_key}"))
+    .fetch_one(owner_pool)
+    .await
+    .expect("seed catalog fixture")
+}
+
 async fn attach_enforced_policy(
     owner_pool: &PgPool,
     org: OrgId,
@@ -831,18 +1012,19 @@ async fn attach_enforced_policy(
     effect: &str,
     blocks: Value,
 ) {
-    attach_enforced_policy_with_validation(
-        owner_pool, org, type_id, stable_key, effect, "valid", blocks,
+    attach_enforced_policy_with_attachment_effect(
+        owner_pool, org, type_id, stable_key, effect, effect, "valid", blocks,
     )
     .await;
 }
 
-async fn attach_enforced_policy_with_validation(
+async fn attach_enforced_policy_with_attachment_effect(
     owner_pool: &PgPool,
     org: OrgId,
     type_id: mnt_ontology_domain::ObjectTypeId,
     stable_key: &str,
-    effect: &str,
+    catalog_effect: &str,
+    attachment_effect: &str,
     validation_status: &str,
     blocks: Value,
 ) {
@@ -863,7 +1045,7 @@ async fn attach_enforced_policy_with_validation(
     .bind(*org.as_uuid())
     .bind(stable_key)
     .bind(format!("Policy {stable_key}"))
-    .bind(effect)
+    .bind(catalog_effect)
     .bind(validation_status)
     .bind(blocks)
     // rls-arming: test fixture writes the protected catalog as DB owner before
@@ -877,12 +1059,34 @@ async fn attach_enforced_policy_with_validation(
     .bind(*org.as_uuid())
     .bind(*type_id.as_uuid())
     .bind(policy_id)
-    .bind(effect)
+    .bind(attachment_effect)
     // rls-arming: test fixture attaches the policy as DB owner before the
     // runtime-role request makes the read decision.
     .execute(owner_pool)
     .await
     .expect("attach enforced object policy");
+}
+
+async fn attach_enforced_policy_with_validation(
+    owner_pool: &PgPool,
+    org: OrgId,
+    type_id: mnt_ontology_domain::ObjectTypeId,
+    stable_key: &str,
+    effect: &str,
+    validation_status: &str,
+    blocks: Value,
+) {
+    attach_enforced_policy_with_attachment_effect(
+        owner_pool,
+        org,
+        type_id,
+        stable_key,
+        effect,
+        effect,
+        validation_status,
+        blocks,
+    )
+    .await;
 }
 
 fn owner_permit_blocks(resource_type: &str) -> Value {
