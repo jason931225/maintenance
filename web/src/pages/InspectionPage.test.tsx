@@ -190,8 +190,10 @@ describe("InspectionPage", () => {
 
     expect(await screen.findByRole("option", { name: "새 지점" })).toBeVisible();
     expect(oldRequests).toBeGreaterThan(0);
-    resolveOld?.();
-    await waitFor(() => expect(oldResponses).toBe(1));
+    if (resolveOld) resolveOld();
+    await waitFor(() => {
+      expect(oldResponses).toBe(1);
+    });
     await waitFor(() => {
       expect(
         screen.queryByRole("option", { name: "이전 지점" }),
@@ -371,7 +373,9 @@ describe("InspectionPage", () => {
       "정기 일정을 불러오지 못했습니다.",
     );
     await user.click(screen.getByRole("button", { name: /현재 100건/ }));
-    await waitFor(() => expect(moreAttempts).toBe(2));
+    await waitFor(() => {
+      expect(moreAttempts).toBe(2);
+    });
 
     expect(screen.getByText("101", { selector: ".inspection-count" })).toBeVisible();
   });
@@ -413,7 +417,9 @@ describe("InspectionPage", () => {
     );
     await user.type(screen.getByLabelText("점검 내용"), "첫 번째 처리");
     await user.click(screen.getByRole("button", { name: "완료 처리" }));
-    await waitFor(() => expect(posts).toBe(1));
+    await waitFor(() => {
+      expect(posts).toBe(1);
+    });
 
     await user.click(screen.getByRole("button", { name: /291.*점검 완료/ }));
     await user.type(screen.getByLabelText("점검 내용"), "두 번째 처리");
@@ -422,10 +428,10 @@ describe("InspectionPage", () => {
       await screen.findByText("정기 점검 라운드를 완료 처리했습니다."),
     ).toBeVisible();
 
-    releaseFirst?.();
-    await waitFor(() =>
-      expect(screen.queryByRole("alert")).not.toBeInTheDocument(),
-    );
+    if (releaseFirst) releaseFirst();
+    await waitFor(() => {
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    });
   });
 
   it("drops a delayed manager completion after the authenticated session changes", async () => {
@@ -465,12 +471,12 @@ describe("InspectionPage", () => {
         </MemoryRouter>
       </AuthContext.Provider>,
     );
-    releaseCompletion?.();
-    await waitFor(() =>
+    if (releaseCompletion) releaseCompletion();
+    await waitFor(() => {
       expect(
         screen.queryByText("정기 점검 라운드를 완료 처리했습니다."),
-      ).not.toBeInTheDocument(),
-    );
+      ).not.toBeInTheDocument();
+    });
   });
 
   it("does not retain a schedule detail that the active status filter hides", async () => {

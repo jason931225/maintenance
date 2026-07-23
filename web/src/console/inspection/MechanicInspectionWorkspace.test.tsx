@@ -49,8 +49,12 @@ const assignedSchedule: InspectionScheduleSummary = {
 beforeAll(() => {
   server.listen({ onUnhandledRequest: "bypass" });
 });
-afterEach(() => server.resetHandlers());
-afterAll(() => server.close());
+afterEach(() => {
+  server.resetHandlers();
+});
+afterAll(() => {
+  server.close();
+});
 
 function context(userId = mechanicId): AuthContextValue {
   const session: AuthSession = {
@@ -144,22 +148,26 @@ describe("MechanicInspectionWorkspace", () => {
     );
 
     const rendered = render(workspace(context("mechanic-old")));
-    await waitFor(() => expect(call).toBe(1));
+    await waitFor(() => {
+      expect(call).toBe(1);
+    });
     rendered.rerender(workspace(context("mechanic-new")));
-    await waitFor(() => expect(call).toBe(2));
-    resolveFirst?.();
+    await waitFor(() => {
+      expect(call).toBe(2);
+    });
+    if (resolveFirst) resolveFirst();
 
     expect(await screen.findByText("NEW")).toBeVisible();
-    await waitFor(() =>
-      expect(screen.queryByText("OLD")).not.toBeInTheDocument(),
-    );
+    await waitFor(() => {
+      expect(screen.queryByText("OLD")).not.toBeInTheDocument();
+    });
   });
 
   it("loads the next mechanic page with an honest count, retries locally, and preserves the open row", async () => {
     const firstPage = Array.from({ length: 100 }, (_, index) => ({
       ...assignedSchedule,
       id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
-      management_no: `M-${index}`,
+      management_no: `M-${String(index)}`,
     }));
     const next = {
       ...assignedSchedule,
@@ -228,15 +236,17 @@ describe("MechanicInspectionWorkspace", () => {
     );
 
     render(workspace(context()));
-    await waitFor(() => expect(call).toBe(1));
+    await waitFor(() => {
+      expect(call).toBe(1);
+    });
     await userEvent
       .setup()
       .click(screen.getByRole("button", { name: "일정 조회" }));
     expect(await screen.findByText("FRESH")).toBeVisible();
-    resolveFirst?.();
-    await waitFor(() =>
-      expect(screen.queryByText("STALE")).not.toBeInTheDocument(),
-    );
+    if (resolveFirst) resolveFirst();
+    await waitFor(() => {
+      expect(screen.queryByText("STALE")).not.toBeInTheDocument();
+    });
   });
 
   it("does not surface a delayed earlier rejection after a newer retry succeeds", async () => {
@@ -263,17 +273,19 @@ describe("MechanicInspectionWorkspace", () => {
 
     try {
       render(workspace(context()));
-      await waitFor(() => expect(call).toBe(1));
+      await waitFor(() => {
+        expect(call).toBe(1);
+      });
       await userEvent
         .setup()
         .click(screen.getByRole("button", { name: "일정 조회" }));
       expect(await screen.findByText("RECOVERED")).toBeVisible();
-      resolveFirst?.();
-      await waitFor(() =>
+      if (resolveFirst) resolveFirst();
+      await waitFor(() => {
         expect(
           screen.queryByText("정기 일정을 불러오지 못했습니다."),
-        ).not.toBeInTheDocument(),
-      );
+        ).not.toBeInTheDocument();
+      });
     } finally {
       errorSpy.mockRestore();
     }

@@ -109,6 +109,7 @@ function emptyForm(): FormState {
 
 export function InspectionPage() {
   const { api, session } = useAuth();
+  const sessionId = session?.user_id;
   const [rangeStart, setRangeStart] = useState(today);
   const [rangeEnd, setRangeEnd] = useState(() => plusDays(30));
   const [schedules, setSchedules] = useState<InspectionScheduleSummary[]>();
@@ -149,7 +150,7 @@ export function InspectionPage() {
       scopeEpoch.current += 1;
       completionRequestVersion.current += 1;
     };
-  }, [api, session?.user_id]);
+  }, [api, sessionId]);
   // Transient success confirmations clear themselves so they do not linger.
   const clearRoundNotice = useCallback(() => {
     setRoundNotice(undefined);
@@ -204,7 +205,7 @@ export function InspectionPage() {
           setLoadError("retry");
       }
     },
-    [api, rangeStart, rangeEnd, session?.user_id],
+    [api, rangeStart, rangeEnd],
   );
 
   const loadMore = useCallback(async () => {
@@ -265,7 +266,7 @@ export function InspectionPage() {
     // synchronously inside the effect body (react-hooks/set-state-in-effect);
     // the arrow drops the `.then` value so `load()`'s optional range stays unset.
     void Promise.resolve().then(() => load());
-  }, [load]);
+  }, [load, sessionId]);
 
   // Load the branch + mechanic option sources once for the create-form pickers.
   const loadOptions = useCallback(async (epoch: number) => {

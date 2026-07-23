@@ -20,6 +20,7 @@ type LoadError = "retry" | "denied";
  */
 export function MechanicInspectionWorkspace() {
   const { api, session } = useAuth();
+  const sessionId = session?.user_id;
   const [schedules, setSchedules] = useState<InspectionScheduleSummary[]>();
   const [total, setTotal] = useState<number>();
   const [loadError, setLoadError] = useState<LoadError>();
@@ -42,7 +43,7 @@ export function MechanicInspectionWorkspace() {
       scopeEpoch.current += 1;
       listRequestVersion.current += 1;
     };
-  }, [api, session?.user_id]);
+  }, [api, sessionId]);
 
   const ownsListRequest = useCallback(
     (epoch: number, requestVersion: number) =>
@@ -87,7 +88,7 @@ export function MechanicInspectionWorkspace() {
     } catch {
       if (ownsListRequest(epoch, requestVersion)) setLoadError("retry");
     }
-  }, [api, businessDate, ownsListRequest, session?.user_id]);
+  }, [api, businessDate, ownsListRequest]);
 
   const loadMore = useCallback(async () => {
     if (!canLoadMore || schedules === undefined) return;
@@ -131,7 +132,7 @@ export function MechanicInspectionWorkspace() {
 
   useEffect(() => {
     void Promise.resolve().then(load);
-  }, [load]);
+  }, [load, sessionId]);
 
   const complete = useCallback(
     async (scheduleId: string) => {
