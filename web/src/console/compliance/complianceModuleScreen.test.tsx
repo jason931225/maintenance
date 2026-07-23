@@ -45,13 +45,13 @@ const evidence = {
 function page(items: unknown[]) { return { items, limit: 100, offset: 0, total: items.length }; }
 
 function apiWithCatalog() {
-  const GET = vi.fn(async (path: string) => {
-    if (path === "/api/v1/compliance/obligations") return { data: page([obligation]) };
-    if (path === "/api/v1/compliance/regulations") return { data: page([regulation]) };
-    if (path === "/api/v1/compliance/frameworks") return { data: page([framework]) };
-    if (path === "/api/v1/compliance/framework-controls") return { data: page([control]) };
-    if (path === "/api/v1/compliance/evidence-bindings") return { data: page([evidence]) };
-    throw new Error(`unexpected path ${path}`);
+  const GET = vi.fn((path: string) => {
+    if (path === "/api/v1/compliance/obligations") return Promise.resolve({ data: page([obligation]) });
+    if (path === "/api/v1/compliance/regulations") return Promise.resolve({ data: page([regulation]) });
+    if (path === "/api/v1/compliance/frameworks") return Promise.resolve({ data: page([framework]) });
+    if (path === "/api/v1/compliance/framework-controls") return Promise.resolve({ data: page([control]) });
+    if (path === "/api/v1/compliance/evidence-bindings") return Promise.resolve({ data: page([evidence]) });
+    return Promise.reject(new Error(`unexpected path ${path}`));
   });
   return { api: { GET } as unknown as ConsoleApiClient, GET };
 }
@@ -69,7 +69,9 @@ describe("complianceModuleScreen", () => {
     const { api, GET } = apiWithCatalog();
     renderCompliance(api);
 
-    await waitFor(() => expect(screen.getByRole("button", { name: "CP-0001 상세 열기" })).toBeVisible());
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "CP-0001 상세 열기" })).toBeVisible();
+    });
     expect(screen.getByRole("button", { name: "RG-0001 상세 열기" })).toBeVisible();
     expect(screen.getByRole("button", { name: "FW-0001 상세 열기" })).toBeVisible();
     expect(GET).toHaveBeenCalledWith("/api/v1/compliance/obligations", expect.anything());
@@ -83,7 +85,9 @@ describe("complianceModuleScreen", () => {
     renderCompliance(api);
 
     await user.click(await screen.findByRole("button", { name: "FW-0001 상세 열기" }));
-    await waitFor(() => expect(screen.getByText(/ISMS-1/)).toBeVisible());
+    await waitFor(() => {
+      expect(screen.getByText(/ISMS-1/)).toBeVisible();
+    });
     expect(screen.getByText(/1\/1/)).toBeVisible();
     expect(GET).toHaveBeenCalledWith("/api/v1/compliance/framework-controls", expect.anything());
     expect(GET).toHaveBeenCalledWith("/api/v1/compliance/evidence-bindings", expect.anything());
@@ -96,7 +100,9 @@ describe("complianceModuleScreen", () => {
     expect(GET).not.toHaveBeenCalled();
 
     renderCompliance(api);
-    await waitFor(() => expect(screen.getAllByText(ko.console.modules.compliance.statuses.active).length).toBeGreaterThan(0));
+    await waitFor(() => {
+      expect(screen.getAllByText(ko.console.modules.compliance.statuses.active).length).toBeGreaterThan(0);
+    });
   });
 
   it("does not request catalog kinds that the local policy has denied", async () => {
@@ -118,11 +124,11 @@ describe("compliance pagination and recovery", () => {
       code: `CP-${String(index + 1).padStart(4, "0")}`,
       title: `의무 ${String(index + 1)}`,
     }));
-    const GET = vi.fn(async (path: string, init: { params: { query: { offset?: number } } }) => {
+    const GET = vi.fn((path: string, init: { params: { query: { offset?: number } } }) => {
       const offset = init.params.query.offset ?? 0;
-      if (path === "/api/v1/compliance/obligations") return { data: { items: obligations.slice(offset, offset + 100), limit: 100, offset, total: obligations.length } };
-      if (path === "/api/v1/compliance/regulations" || path === "/api/v1/compliance/frameworks") return { data: page([]) };
-      throw new Error(`unexpected path ${path}`);
+      if (path === "/api/v1/compliance/obligations") return Promise.resolve({ data: { items: obligations.slice(offset, offset + 100), limit: 100, offset, total: obligations.length } });
+      if (path === "/api/v1/compliance/regulations" || path === "/api/v1/compliance/frameworks") return Promise.resolve({ data: page([]) });
+      return Promise.reject(new Error(`unexpected path ${path}`));
     });
     renderCompliance({ GET } as unknown as ConsoleApiClient, { can: (action) => action === complianceModuleScreen.policy.read });
 
@@ -143,18 +149,18 @@ describe("compliance pagination and recovery", () => {
       id: `evidence-${String(index + 1)}`,
       control_id: "control-1",
     }));
-    const GET = vi.fn(async (path: string, init: { params: { query: { offset?: number; control_id?: string } } }) => {
+    const GET = vi.fn((path: string, init: { params: { query: { offset?: number; control_id?: string } } }) => {
       const offset = init.params.query.offset ?? 0;
-      if (path === "/api/v1/compliance/obligations" || path === "/api/v1/compliance/regulations") return { data: page([]) };
-      if (path === "/api/v1/compliance/frameworks") return { data: page([framework]) };
-      if (path === "/api/v1/compliance/framework-controls") return { data: { items: controls.slice(offset, offset + 100), limit: 100, offset, total: controls.length } };
+      if (path === "/api/v1/compliance/obligations" || path === "/api/v1/compliance/regulations") return Promise.resolve({ data: page([]) });
+      if (path === "/api/v1/compliance/frameworks") return Promise.resolve({ data: page([framework]) });
+      if (path === "/api/v1/compliance/framework-controls") return Promise.resolve({ data: { items: controls.slice(offset, offset + 100), limit: 100, offset, total: controls.length } });
       if (path === "/api/v1/compliance/evidence-bindings") {
         const rows = init.params.query.control_id === "control-1" ? bindings : [];
-        return { data: { items: rows.slice(offset, offset + 100), limit: 100, offset, total: rows.length } };
+        return Promise.resolve({ data: { items: rows.slice(offset, offset + 100), limit: 100, offset, total: rows.length } });
       }
-      throw new Error(`unexpected path ${path}`);
+      return Promise.reject(new Error(`unexpected path ${path}`));
     });
-    renderCompliance({ GET } as unknown as ConsoleApiClient, { can: (action) => action !== complianceModuleScreen.policy.read || true });
+    renderCompliance({ GET } as unknown as ConsoleApiClient);
 
     await (await import("@testing-library/user-event")).default.setup().click(await screen.findByRole("button", { name: "FW-0001 상세 열기" }));
     await screen.findByText(/1\/101/);
@@ -168,14 +174,14 @@ describe("compliance pagination and recovery", () => {
 
   it("retains a scoped result and exposes an accessible retry when a refresh fails", async () => {
     let reads = 0;
-    const GET = vi.fn(async (path: string) => {
+    const GET = vi.fn((path: string) => {
       if (path === "/api/v1/compliance/obligations") {
         reads += 1;
-        if (reads === 2) throw new Error("temporary failure");
-        return { data: page([obligation]) };
+        if (reads === 2) return Promise.reject(new Error("temporary failure"));
+        return Promise.resolve({ data: page([obligation]) });
       }
-      if (path === "/api/v1/compliance/regulations" || path === "/api/v1/compliance/frameworks") return { data: page([]) };
-      throw new Error(`unexpected path ${path}`);
+      if (path === "/api/v1/compliance/regulations" || path === "/api/v1/compliance/frameworks") return Promise.resolve({ data: page([]) });
+      return Promise.reject(new Error(`unexpected path ${path}`));
     });
     renderCompliance({ GET } as unknown as ConsoleApiClient, { can: (action) => action === complianceModuleScreen.policy.read });
     await screen.findByRole("button", { name: "CP-0001 상세 열기" });
@@ -188,17 +194,19 @@ describe("compliance pagination and recovery", () => {
     const retry = screen.getByRole("button", { name: ko.page.retry });
     expect(retry).toBeVisible();
     await user.click(retry);
-    await waitFor(() => expect(reads).toBeGreaterThanOrEqual(3));
+    await waitFor(() => {
+      expect(reads).toBeGreaterThanOrEqual(3);
+    });
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });
 
 describe("compliance authority boundaries", () => {
   it("clears Tenant A before deferred Tenant B resolves or fails", async () => {
-    const aGET = vi.fn(async (path: string) => {
-      if (path === "/api/v1/compliance/obligations") return { data: page([obligation]) };
-      if (path === "/api/v1/compliance/regulations" || path === "/api/v1/compliance/frameworks") return { data: page([]) };
-      throw new Error(`unexpected path ${path}`);
+    const aGET = vi.fn((path: string) => {
+      if (path === "/api/v1/compliance/obligations") return Promise.resolve({ data: page([obligation]) });
+      if (path === "/api/v1/compliance/regulations" || path === "/api/v1/compliance/frameworks") return Promise.resolve({ data: page([]) });
+      return Promise.reject(new Error(`unexpected path ${path}`));
     });
     let rejectB!: (error: Error) => void;
     const bObligations = new Promise<{ data: ReturnType<typeof page> }>((_, reject) => { rejectB = reject; });

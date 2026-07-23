@@ -12,7 +12,7 @@ const framework: ComplianceFramework = {
 
 function control(index: number) {
   return {
-    id: `control-${index}`, framework_id: "framework-1", control_key: `ISMS-${index}`, title: `Control ${index}`,
+    id: `control-${String(index)}`, framework_id: "framework-1", control_key: `ISMS-${String(index)}`, title: `Control ${String(index)}`,
     objective: "Objective", control_type: "PREVENTIVE", cadence: "ANNUAL", status: "ACTIVE", evidence_requirements: {},
     owner_user_id: null, created_by: "creator", updated_by: "updater", created_at: "2026-01-01T00:00:00Z", updated_at: "2026-01-01T00:00:00Z",
   };
@@ -25,7 +25,7 @@ describe("readFrameworkDetail", () => {
     const controls = Array.from({ length: EVIDENCE_READ_CONCURRENCY + 3 }, (_, index) => control(index + 1));
     let active = 0;
     let maximum = 0;
-    const GET = vi.fn((path: string, init: { params: { query: { control_id?: string } }; signal?: AbortSignal }) => {
+    const GET = vi.fn((path: string) => {
       if (path === "/api/v1/compliance/framework-controls") return Promise.resolve({ data: page(controls) });
       if (path === "/api/v1/compliance/evidence-bindings") {
         active += 1;
@@ -47,7 +47,9 @@ describe("readFrameworkDetail", () => {
     let observedSignal: AbortSignal | undefined;
     const GET = vi.fn((_path: string, init: { signal?: AbortSignal }) => new Promise((_, reject) => {
       observedSignal = init.signal;
-      init.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError")), { once: true });
+      init.signal?.addEventListener("abort", () => {
+        reject(new DOMException("aborted", "AbortError"));
+      }, { once: true });
     }));
     const controller = new AbortController();
     const pending = readFrameworkDetail({ GET } as unknown as ConsoleApiClient, framework, controller.signal);

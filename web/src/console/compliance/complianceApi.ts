@@ -55,7 +55,7 @@ async function readAllPages<T>(
     if (page.items.length === 0 && offset < total) {
       throw new Error("compliance catalog page ended before its declared total");
     }
-  } while (offset < (total ?? 0));
+  } while (offset < total);
 
   return items;
 }
@@ -220,11 +220,10 @@ async function mapWithConcurrency<T, R>(
   const results = new Array<R>(values.length);
   let nextIndex = 0;
   const worker = async (): Promise<void> => {
-    while (true) {
+    while (nextIndex < values.length) {
       throwIfAborted(signal);
       const index = nextIndex;
       nextIndex += 1;
-      if (index >= values.length) return;
       results[index] = await work(values[index]);
     }
   };
