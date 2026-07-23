@@ -33,7 +33,9 @@ function screens(
 describe("console nav deny-by-omission", () => {
   it("keeps every mounted screen DARK until its ADR-0025 evidence is approved", () => {
     const s = screens(grants([ROLES.MEMBER]));
-    expect(MOUNTED_SCREEN_KEYS).toEqual(expect.arrayContaining(["overview", "mywork", "mail"]));
+    expect(MOUNTED_SCREEN_KEYS).toEqual(
+      expect.arrayContaining(["overview", "mywork", "sales", "mail"]),
+    );
     expect(EXPOSED_SCREEN_KEYS).toEqual([]);
     expect(s).toEqual(new Set());
   });
@@ -60,6 +62,7 @@ describe("console nav deny-by-omission", () => {
     expect(s.has("payroll")).toBe(false);
     expect(s.has("audit")).toBe(true);
     expect(s.has("dashboard")).toBe(true);
+    expect(s.has("sales")).toBe(true);
     // RoleManage-tier is SUPER_ADMIN-only, never unlocked for ADMIN
     expect(s.has("policy")).toBe(false);
     expect(s.has("workflow")).toBe(false);
@@ -84,6 +87,21 @@ describe("console nav deny-by-omission", () => {
     expect(s.has("hr")).toBe(false);
     expect(s.has("payroll")).toBe(false);
     expect(s.has("audit")).toBe(false); // different feature — still hidden
+  });
+
+  it("mounts sales for its backend-aligned management role or explicit grant only", () => {
+    expect(
+      screens(grants([ROLES.EXECUTIVE]), MOUNTED_SCREEN_KEYS).has("sales"),
+    ).toBe(true);
+    expect(
+      screens(
+        grants([ROLES.MEMBER], [FEATURES.SALES_MANAGE]),
+        MOUNTED_SCREEN_KEYS,
+      ).has("sales"),
+    ).toBe(true);
+    expect(
+      screens(grants([ROLES.MEMBER]), MOUNTED_SCREEN_KEYS).has("sales"),
+    ).toBe(false);
   });
 
   it("drops groups that end up empty after filtering", () => {

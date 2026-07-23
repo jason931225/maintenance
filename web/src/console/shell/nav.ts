@@ -38,6 +38,7 @@ export const FEATURES = {
   AUDIT_LOG_READ: "audit_log_read",
   INTEGRITY_FINDINGS_READ: "integrity_findings_read",
   ROLE_MANAGE: "role_manage",
+  SALES_MANAGE: "sales_manage",
 } as const;
 
 const ADMIN_ROLES = [ROLES.ADMIN, ROLES.SUPER_ADMIN];
@@ -87,6 +88,7 @@ export const MOUNTED_SCREEN_KEYS = [
   "inbox",
   "leave",
   "benefit",
+  "sales",
   "finance",
   "asset",
   "appr",
@@ -167,6 +169,18 @@ export const NAV_GROUPS: readonly ConsoleNavGroup[] = [
         labelKey: "console.shell.nav.evaluation",
         icon: "circleCheck",
         gate: g(DIRECTORY_ROLES, [FEATURES.EMPLOYEE_DIRECTORY_READ]),
+      },
+    ],
+  },
+  {
+    labelKey: "console.shell.nav.groups.commercial",
+    labelId: "commercial",
+    items: [
+      {
+        screen: "sales",
+        labelKey: "console.shell.nav.sales",
+        icon: "trend",
+        gate: g(MANAGEMENT_ROLES, [FEATURES.SALES_MANAGE]),
       },
     ],
   },

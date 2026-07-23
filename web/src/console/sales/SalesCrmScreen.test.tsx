@@ -121,9 +121,12 @@ describe("SalesCrmScreen", () => {
     await screen.findByRole("button", { name: "연락 완료로 변경" });
     fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
     fireEvent.click(screen.getByRole("button", { name: "연락 완료로 변경" }));
-    await waitFor(() => expect(client.PATCH).toHaveBeenCalledTimes(1));
+    await waitFor(() => { expect(client.PATCH).toHaveBeenCalledTimes(1); });
     expect(await screen.findByRole("button", { name: "종료로 변경" })).toBeVisible();
-    await act(async () => staleSnapshot.resolve({ response: new Response(), data: { items: [inquiry], limit: 50, offset: 0, total: 1 } } as never));
+    await act(async () => {
+      staleSnapshot.resolve({ response: new Response(), data: { items: [inquiry], limit: 50, offset: 0, total: 1 } });
+      await Promise.resolve();
+    });
     expect(screen.getByRole("button", { name: "종료로 변경" })).toBeVisible();
     expect(screen.queryByRole("button", { name: "연락 완료로 변경" })).not.toBeInTheDocument();
     expect(inquiryCalls).toBe(3);
@@ -145,14 +148,24 @@ describe("SalesCrmScreen", () => {
     await screen.findByRole("button", { name: "연락 완료로 변경" });
     fireEvent.click(screen.getByRole("button", { name: "연락 완료로 변경" }));
     fireEvent.click(screen.getByRole("button", { name: "신규" }));
-    await act(async () => patch.resolve({ response: new Response(null, { status: 204 }) } as never));
+    await act(async () => {
+      patch.resolve({ response: new Response(null, { status: 204 }) });
+      await Promise.resolve();
+    });
     expect(await screen.findByRole("button", { name: "종료로 변경" })).toBeVisible();
-    const reconciliation = vi.mocked(client.GET).mock.calls.filter(([path]) => path === "/api/v1/sales/inquiries").at(-1);
-    expect(reconciliation?.[1]).toEqual(expect.objectContaining({
+    const inquiryCallsAfterMutation = vi.mocked(client.GET).mock.calls.filter(
+      ([path]) => path === "/api/v1/sales/inquiries",
+    );
+    const reconciliation =
+      inquiryCallsAfterMutation[inquiryCallsAfterMutation.length - 1];
+    expect(reconciliation[1]).toEqual(expect.objectContaining({
       headers: { "Cache-Control": "no-cache" },
       params: { query: expect.objectContaining({ status: "NEW" }) },
     }));
-    await act(async () => staleFilteredRead.resolve({ response: new Response(), data: { items: [inquiry], limit: 50, offset: 0, total: 1 } } as never));
+    await act(async () => {
+      staleFilteredRead.resolve({ response: new Response(), data: { items: [inquiry], limit: 50, offset: 0, total: 1 } });
+      await Promise.resolve();
+    });
     expect(screen.getByRole("button", { name: "종료로 변경" })).toBeVisible();
   });
 
@@ -172,7 +185,10 @@ describe("SalesCrmScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
     fireEvent.click(screen.getByRole("button", { name: "연락 완료로 변경" }));
     expect(await screen.findByText("판매 관리 권한이 없습니다.")).toBeVisible();
-    await act(async () => inFlightRead.resolve({ response: new Response(), data: { items: [inquiry], limit: 50, offset: 0, total: 1 } } as never));
+    await act(async () => {
+      inFlightRead.resolve({ response: new Response(), data: { items: [inquiry], limit: 50, offset: 0, total: 1 } });
+      await Promise.resolve();
+    });
     expect(screen.getByText("판매 관리 권한이 없습니다.")).toBeVisible();
     expect(inquiryCalls).toBe(2);
   });
@@ -191,8 +207,11 @@ describe("SalesCrmScreen", () => {
     await screen.findByRole("button", { name: "새로고침" });
     fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
     fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
-    await waitFor(() => expect(inquiryCalls).toBe(3));
-    await act(async () => staleDeniedRead.resolve({ response: new Response(null, { status: 403 }), error: { message: "forbidden" } } as never));
+    await waitFor(() => { expect(inquiryCalls).toBe(3); });
+    await act(async () => {
+      staleDeniedRead.resolve({ response: new Response(null, { status: 403 }), error: { message: "forbidden" } });
+      await Promise.resolve();
+    });
     expect(await screen.findByText("판매 관리 권한이 없습니다.")).toBeVisible();
   });
 
@@ -212,7 +231,10 @@ describe("SalesCrmScreen", () => {
     fireEvent.click(screen.getByRole("button", { name: "새로고침" }));
     fireEvent.click(screen.getByRole("button", { name: "연락 완료로 변경" }));
     expect(await screen.findByText("판매 관리 권한이 없습니다.")).toBeVisible();
-    await act(async () => rejectedRead.reject(new Error("offline")));
+    await act(async () => {
+      rejectedRead.reject(new Error("offline"));
+      await Promise.resolve();
+    });
     expect(screen.getByText("판매 관리 권한이 없습니다.")).toBeVisible();
   });
 
@@ -234,13 +256,19 @@ describe("SalesCrmScreen", () => {
     const apiBTransition = await screen.findByRole("button", { name: "연락 완료로 변경" });
     expect(apiBTransition).toBeEnabled();
     fireEvent.click(apiBTransition);
-    await waitFor(() => expect(vi.mocked(apiB.PATCH)).toHaveBeenCalledTimes(1));
+    await waitFor(() => { expect(vi.mocked(apiB.PATCH)).toHaveBeenCalledTimes(1); });
     expect(vi.mocked(apiA.PATCH)).toHaveBeenCalledTimes(1);
-    await act(async () => oldPatch.resolve({ response: new Response(null, { status: 204 }) } as never));
+    await act(async () => {
+      oldPatch.resolve({ response: new Response(null, { status: 204 }) });
+      await Promise.resolve();
+    });
     expect(screen.getByRole("button", { name: "상태 변경 중…" })).toBeDisabled();
     expect(vi.mocked(apiB.PATCH)).toHaveBeenCalledTimes(1);
     apiBCommitted = true;
-    await act(async () => newPatch.resolve({ response: new Response(null, { status: 204 }) } as never));
+    await act(async () => {
+      newPatch.resolve({ response: new Response(null, { status: 204 }) });
+      await Promise.resolve();
+    });
     expect(await screen.findByRole("button", { name: "종료로 변경" })).toBeVisible();
     expect(vi.mocked(apiA.GET)).toHaveBeenCalledTimes(2);
   });
@@ -249,7 +277,7 @@ describe("SalesCrmScreen", () => {
     const abandoned = api();
     const abandonedView = render(<SalesCrmScreen api={abandoned} />);
     abandonedView.unmount();
-    await act(async () => {});
+    await act(() => Promise.resolve());
     expect(abandoned.GET).not.toHaveBeenCalled();
     const replay = api();
     render(<SalesCrmScreen api={replay} />);
@@ -272,9 +300,9 @@ describe("SalesCrmScreen", () => {
     });
     expect(screen.getByRole("option", { name: /이서연/ })).toHaveFocus();
     fireEvent.keyDown(screen.getByRole("option", { name: /이서연/ }), { key: "End" });
-    await waitFor(() => expect(screen.getByRole("option", { name: /최도윤/ })).toHaveFocus());
+    await waitFor(() => { expect(screen.getByRole("option", { name: /최도윤/ })).toHaveFocus(); });
     fireEvent.keyDown(screen.getByRole("option", { name: /최도윤/ }), { key: "Home" });
-    await waitFor(() => expect(first).toHaveFocus());
+    await waitFor(() => { expect(first).toHaveFocus(); });
     expect(screen.getByRole("listbox")).not.toHaveAttribute("aria-activedescendant");
   });
 
@@ -331,12 +359,18 @@ describe("SalesCrmScreen", () => {
         const inboxSuccess = { response: new Response(), data: { items: [inquiry], limit: 50, offset: 0, total: 1 } } as never;
         const first = deniedPath === "/api/v1/sales/listings" ? (denyFirst ? catalogResult : inboxResult) : (denyFirst ? inboxResult : catalogResult);
         const second = deniedPath === "/api/v1/sales/listings" ? (denyFirst ? inboxResult : catalogResult) : (denyFirst ? catalogResult : inboxResult);
-        await act(async () => { first.resolve(denyFirst ? denied : (first === catalogResult ? catalogSuccess : inboxSuccess)); });
+        await act(async () => {
+          first.resolve(denyFirst ? denied : (first === catalogResult ? catalogSuccess : inboxSuccess));
+          await Promise.resolve();
+        });
         if (!denyFirst) {
           if (deniedPath === "/api/v1/sales/listings") expect(await screen.findByRole("option", { name: /김민수/ })).toBeVisible();
           else expect(await screen.findByText("E20 전동 지게차")).toBeVisible();
         }
-        await act(async () => { second.resolve(denyFirst ? (second === catalogResult ? catalogSuccess : inboxSuccess) : denied); });
+        await act(async () => {
+          second.resolve(denyFirst ? (second === catalogResult ? catalogSuccess : inboxSuccess) : denied);
+          await Promise.resolve();
+        });
         expect(await screen.findByText("판매 관리 권한이 없습니다.")).toBeVisible();
         view.unmount();
       }
@@ -386,8 +420,9 @@ describe("SalesCrmScreen", () => {
     expect(await screen.findByText("E35 최신 전동 지게차")).toBeVisible();
     expect(screen.getByRole("option", { name: /신규 문의 담당자/ })).toBeVisible();
     await act(async () => {
-      staleListings.resolve({ response: new Response(), data: { items: [listing], limit: 50, offset: 0, total: 1 } } as never);
+      staleListings.resolve({ response: new Response(), data: { items: [listing], limit: 50, offset: 0, total: 1 } });
       staleInquiries.reject(new Error("stale network failure"));
+      await Promise.resolve();
     });
     expect(screen.getByText("E35 최신 전동 지게차")).toBeVisible();
     expect(screen.getByRole("option", { name: /신규 문의 담당자/ })).toBeVisible();
@@ -413,7 +448,10 @@ describe("SalesCrmScreen", () => {
     expect(more).toBeDisabled();
     fireEvent.click(more);
     expect(vi.mocked(client.GET).mock.calls.filter(([path, init]) => path === "/api/v1/sales/inquiries" && (init as { params: { query: { offset: number } } }).params.query.offset === 1)).toHaveLength(1);
-    await act(async () => inquiryMore.resolve({ response: new Response(), data: { items: [nextPage], limit: 50, offset: 1, total: 51 } } as never));
+    await act(async () => {
+      inquiryMore.resolve({ response: new Response(), data: { items: [nextPage], limit: 50, offset: 1, total: 51 } });
+      await Promise.resolve();
+    });
     expect(await screen.findByRole("option", { name: /추가 문의/ })).toBeVisible();
   });
 
@@ -427,7 +465,10 @@ describe("SalesCrmScreen", () => {
     expect(await screen.findByRole("status")).toHaveTextContent("상태 변경 중…");
     expect(screen.getByRole("button", { name: "상태 변경 중…" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "상태 변경 중…" })).toHaveAttribute("aria-describedby", "sales-transition-pending");
-    await act(async () => update.resolve({ response: new Response(null, { status: 204 }) } as never));
+    await act(async () => {
+      update.resolve({ response: new Response(null, { status: 204 }) });
+      await Promise.resolve();
+    });
   });
 
   it("retains the selected detail and offers action-local recovery when a mutation rejects", async () => {

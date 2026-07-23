@@ -895,6 +895,7 @@ export const ko = {
       nav: {
         groups: {
           overview: "개요",
+          commercial: "영업·고객",
           hr: "인사",
           payroll: "급여·근태",
           erp: "ERP",
@@ -907,6 +908,7 @@ export const ko = {
         overview: "통합 개요",
         mywork: "내 업무",
         inbox: "개인 수신함",
+        sales: "판매·고객 문의",
         hr: "인사 관리",
         recruit: "채용",
         orgchart: "조직도",

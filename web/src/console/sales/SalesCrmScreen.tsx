@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import type {
   CustomerInquiryPage,
@@ -102,7 +109,6 @@ export function SalesCrmScreen({ api }: { api: ConsoleApiClient }) {
   const rowRefs = useRef(new Map<string, HTMLButtonElement>());
   const listingsRef = useRef<SalesListingView[]>([]);
   const inquiriesRef = useRef<CustomerInquiryView[]>([]);
-  apiRef.current = api;
 
   const selectedInquiry = useMemo(
     () => inquiries.find((inquiry) => inquiry.id === selectedInquiryId),
@@ -110,6 +116,10 @@ export function SalesCrmScreen({ api }: { api: ConsoleApiClient }) {
   );
   const selectedNextStatus = selectedInquiry ? NEXT_STATUS[selectedInquiry.status] : undefined;
   const mutationPending = Boolean(busyId && busyApi === api);
+
+  useLayoutEffect(() => {
+    apiRef.current = api;
+  }, [api]);
 
   useEffect(() => {
     mounted.current = true;
@@ -179,7 +189,6 @@ export function SalesCrmScreen({ api }: { api: ConsoleApiClient }) {
       if (errorKind(inquiryResult) === "denied") { latchTerminalDenied(); return; }
       if (terminalDenied.current || generation !== viewGeneration.current || owner !== inquiryRequestOwner.current || dataVersion !== inboxDataVersion.current || inboxDenied.current) return;
       if (!inquiryResult.data) {
-        const failure = errorKind(inquiryResult);
         setInboxState(inquiriesRef.current.length === 0 ? "error" : "stale-error");
         return;
       }
