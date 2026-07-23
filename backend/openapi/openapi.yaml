@@ -13579,6 +13579,17 @@ paths:
       - {name: capacity_date, in: query, required: true, schema: {type: string, format: date}}
       responses:
         '200': {description: Tenant and branch scoped capacity slots, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/ProductionCapacitySlot'}}}}}
+  /api/v1/production/source-ingress:
+    post:
+      operationId: ingestProductionSource
+      tags: [Production]
+      security: [{bearerAuth: []}]
+      description: Reviewer-authorized, tenant-scoped source-of-truth ingress for demand, capacity, and material facts. The source system/id/version tuple is immutable and idempotent; reusing it with different content returns 409 and accepted entries retain an actor/audit record.
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ProductionSourceIngress'}}}}
+      responses:
+        '200': {description: Existing source-version replay, or accepted source fact, content: {application/json: {schema: {type: object, additionalProperties: true}}}}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationError'}
   /api/v1/production/plans/{plan_id}:
     get:
       operationId: getProductionPlan
@@ -27747,7 +27758,7 @@ components:
           operation: {$ref: '#/components/schemas/ProductionOperation'}
     CreateProductionPlan:
       type: object
-      required: [branch_id, customer_demand_id, capacity_slot_id, material_item_id, quantity, due_at, approval_ref, ontology_type_id, idempotency_key]
+      required: [branch_id, customer_demand_id, capacity_slot_id, material_item_id, quantity, due_at, ontology_type_id, idempotency_key]
       properties:
         branch_id: {$ref: '#/components/schemas/Uuid'}
         customer_demand_id: {$ref: '#/components/schemas/Uuid'}
@@ -27755,15 +27766,59 @@ components:
         material_item_id: {$ref: '#/components/schemas/Uuid'}
         quantity: {type: integer, format: int64, minimum: 1}
         due_at: {type: string, format: date-time}
-        approval_ref: {$ref: '#/components/schemas/Uuid'}
         ontology_type_id: {$ref: '#/components/schemas/Uuid'}
         idempotency_key: {type: string, minLength: 1, maxLength: 128}
     ReleaseProductionPlan:
       type: object
-      required: [expected_version, idempotency_key]
+      required: [expected_version, approval_ref, idempotency_key]
       properties:
         expected_version: {type: integer, minimum: 1}
+        approval_ref: {$ref: '#/components/schemas/Uuid', description: 'Approved production_plan_release:v{expected_version} decision bound to this persisted plan. It is consumed exactly once by the current approver.'}
         idempotency_key: {type: string, minLength: 1, maxLength: 128}
+    ProductionSourceIngress:
+      oneOf:
+      - $ref: '#/components/schemas/ProductionDemandIngress'
+      - $ref: '#/components/schemas/ProductionCapacityIngress'
+      - $ref: '#/components/schemas/ProductionMaterialIngress'
+    ProductionDemandIngress:
+      type: object
+      required: [kind, branch_id, id, inquiry_id, product_code, quantity, due_at, source_system, source_id, source_version]
+      properties:
+        kind: {type: string, enum: [demand]}
+        branch_id: {$ref: '#/components/schemas/Uuid'}
+        id: {$ref: '#/components/schemas/Uuid'}
+        inquiry_id: {$ref: '#/components/schemas/Uuid'}
+        product_code: {type: string, minLength: 1}
+        quantity: {type: integer, format: int64, minimum: 1}
+        due_at: {type: string, format: date-time}
+        source_system: {type: string, minLength: 1, maxLength: 80}
+        source_id: {type: string, minLength: 1, maxLength: 160}
+        source_version: {type: string, minLength: 1, maxLength: 160}
+    ProductionCapacityIngress:
+      type: object
+      required: [kind, branch_id, id, site_id, capacity_date, available_quantity, source_system, source_id, source_version]
+      properties:
+        kind: {type: string, enum: [capacity]}
+        branch_id: {$ref: '#/components/schemas/Uuid'}
+        id: {$ref: '#/components/schemas/Uuid'}
+        site_id: {$ref: '#/components/schemas/Uuid'}
+        capacity_date: {type: string, format: date}
+        available_quantity: {type: integer, format: int64, minimum: 1}
+        source_system: {type: string, minLength: 1, maxLength: 80}
+        source_id: {type: string, minLength: 1, maxLength: 160}
+        source_version: {type: string, minLength: 1, maxLength: 160}
+    ProductionMaterialIngress:
+      type: object
+      required: [kind, branch_id, material_item_id, quantity_on_hand_milli, safety_stock_milli, source_system, source_id, source_version]
+      properties:
+        kind: {type: string, enum: [material]}
+        branch_id: {$ref: '#/components/schemas/Uuid'}
+        material_item_id: {$ref: '#/components/schemas/Uuid'}
+        quantity_on_hand_milli: {type: integer, format: int64, minimum: 0}
+        safety_stock_milli: {type: integer, format: int64, minimum: 0}
+        source_system: {type: string, minLength: 1, maxLength: 80}
+        source_id: {type: string, minLength: 1, maxLength: 160}
+        source_version: {type: string, minLength: 1, maxLength: 160}
     RecordProductionOperation:
       type: object
       required: [expected_version, idempotency_key, output_quantity, scrap_quantity, downtime_minutes, quality_evidence_ref, quality_passed, note]

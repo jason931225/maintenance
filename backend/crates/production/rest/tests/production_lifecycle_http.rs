@@ -13,7 +13,7 @@ use mnt_platform_auth::{AccessTokenInput, JwtIssuer, JwtSettings, JwtVerifier};
 use mnt_platform_test_support::runtime_role_pool;
 use mnt_production_rest::{
     PRODUCTION_CAPACITY_SLOTS_PATH, PRODUCTION_PLAN_PATH, PRODUCTION_PLANS_PATH,
-    ProductionRestState, router,
+    PRODUCTION_SOURCE_INGRESS_PATH, ProductionRestState, router,
 };
 use p256::ecdsa::SigningKey;
 use p256::elliptic_curve::rand_core::OsRng;
@@ -42,7 +42,6 @@ struct Fixture {
     capacity: Uuid,
     material: Uuid,
     ontology: Uuid,
-    approval: Uuid,
     due_at: OffsetDateTime,
 }
 
@@ -207,9 +206,6 @@ async fn seed_fixture(pool: &PgPool) -> Fixture {
         .bind(capacity).bind(*org.as_uuid()).bind(*branch.as_uuid()).bind(site).bind(due_at.date()).execute(pool).await.unwrap();
     let ontology: Uuid = sqlx::query_scalar("INSERT INTO ont_object_types (org_id,stable_key,title,backing_kind,schema_version,lifecycle_state,created_by) VALUES ($1,$2,'Production plan','instance',1,'published',$3) RETURNING id")
         .bind(*org.as_uuid()).bind(format!("production.plan.test{}", Uuid::new_v4().simple())).bind(*planner.as_uuid()).fetch_one(pool).await.unwrap();
-    let approval = Uuid::new_v4();
-    sqlx::query("INSERT INTO gov_approvals (id,org_id,request_ref,kind,target_ref,requested_by,approver_id,decision) VALUES ($1,$2,$3,'production_plan_create',$4,$5,$6,'approved')")
-        .bind(approval).bind(*org.as_uuid()).bind(Uuid::new_v4()).bind(demand).bind(*planner.as_uuid()).bind(*reviewer.as_uuid()).execute(pool).await.unwrap();
     Fixture {
         org,
         branch,
@@ -220,7 +216,6 @@ async fn seed_fixture(pool: &PgPool) -> Fixture {
         capacity,
         material,
         ontology,
-        approval,
         due_at,
     }
 }
@@ -287,9 +282,15 @@ fn create_body(fixture: &Fixture, key: &str) -> Value {
         "quantity": 10,
         "due_at": fixture.due_at,
         "idempotency_key": key,
-        "approval_ref": fixture.approval,
         "ontology_type_id": fixture.ontology,
     })
+}
+
+async fn release_body(pool: &PgPool, fixture: &Fixture, plan_id: &str, key: &str) -> Value {
+    let approval = Uuid::new_v4();
+    sqlx::query("INSERT INTO gov_approvals (id,org_id,request_ref,kind,target_ref,requested_by,approver_id,decision) VALUES ($1,$2,$3,'production_plan_release:v1',$4,$5,$6,'approved')")
+        .bind(approval).bind(*fixture.org.as_uuid()).bind(Uuid::new_v4()).bind(Uuid::parse_str(plan_id).unwrap()).bind(*fixture.planner.as_uuid()).bind(*fixture.reviewer.as_uuid()).execute(pool).await.unwrap();
+    json!({"expected_version": 1, "approval_ref": approval, "idempotency_key": key})
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
@@ -356,7 +357,7 @@ async fn planner_reviewer_operator_complete_a_durable_production_lifecycle(pool:
         service.clone(),
         &format!("/api/v1/production/plans/{plan_id}/release"),
         &reviewer_token,
-        json!({"expected_version": 1, "idempotency_key": "production-release-1"}),
+        release_body(&pool, &fixture, plan_id, "production-release-1").await,
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{released:?}");
@@ -370,6 +371,73 @@ async fn planner_reviewer_operator_complete_a_durable_production_lifecycle(pool:
     ).await;
     assert_eq!(status, StatusCode::OK, "{operation:?}");
     assert_eq!(operation["status"], "RECORDED");
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn release_requires_the_bound_reviewer_and_consumes_the_approval_once(pool: PgPool) {
+    let keys = keys();
+    let fixture = seed_fixture(&pool).await;
+    let service = app(runtime_role_pool(&pool).await, &keys);
+    let planner = bearer(
+        &keys,
+        fixture.planner,
+        fixture.org,
+        "SUPER_ADMIN",
+        fixture.branch,
+    );
+    let reviewer = bearer(
+        &keys,
+        fixture.reviewer,
+        fixture.org,
+        "SUPER_ADMIN",
+        fixture.branch,
+    );
+    let operator = bearer(
+        &keys,
+        fixture.operator,
+        fixture.org,
+        "SUPER_ADMIN",
+        fixture.branch,
+    );
+    let (status, plan) = post(
+        service.clone(),
+        PRODUCTION_PLANS_PATH,
+        &planner,
+        create_body(&fixture, "bound-release-create"),
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{plan:?}");
+    let plan_id = plan["id"].as_str().unwrap();
+    let body = release_body(&pool, &fixture, plan_id, "bound-release").await;
+    let uri = format!("/api/v1/production/plans/{plan_id}/release");
+    let (status, self_release) = post(service.clone(), &uri, &planner, body.clone()).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{self_release:?}");
+    let (status, foreign_release) = post(service.clone(), &uri, &operator, body.clone()).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{foreign_release:?}");
+    let (status, released) = post(service.clone(), &uri, &reviewer, body.clone()).await;
+    assert_eq!(status, StatusCode::OK, "{released:?}");
+    let (status, replay) = post(service.clone(), &uri, &reviewer, body).await;
+    assert_eq!(
+        status,
+        StatusCode::OK,
+        "idempotent replay returns the release: {replay:?}"
+    );
+    let consumed: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM gov_approval_consumptions WHERE consumed_by=$1")
+            .bind(*fixture.reviewer.as_uuid())
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        consumed, 1,
+        "the release approval is single-use and auditable"
+    );
+    let released_events: i64 = sqlx::query_scalar("SELECT count(*) FROM production_plan_events WHERE plan_id=$1 AND event_type='PLAN_RELEASED'")
+        .bind(Uuid::parse_str(plan_id).unwrap()).fetch_one(&pool).await.unwrap();
+    assert_eq!(
+        released_events, 1,
+        "a terminal plan has one release audit event"
+    );
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
@@ -428,7 +496,7 @@ async fn create_rejects_a_demand_quantity_or_due_date_that_does_not_match_the_in
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
-async fn create_rejects_a_production_approval_after_its_single_consumption(pool: PgPool) {
+async fn drafts_do_not_consume_release_approval_before_review(pool: PgPool) {
     let keys = keys();
     let fixture = seed_fixture(&pool).await;
     let service = app(runtime_role_pool(&pool).await, &keys);
@@ -448,7 +516,7 @@ async fn create_rejects_a_production_approval_after_its_single_consumption(pool:
     .await;
     assert_eq!(status, StatusCode::CREATED, "{created:?}");
 
-    let (status, conflict) = post(
+    let (status, second) = post(
         service,
         PRODUCTION_PLANS_PATH,
         &token,
@@ -458,7 +526,7 @@ async fn create_rejects_a_production_approval_after_its_single_consumption(pool:
     assert_eq!(
         status,
         StatusCode::CONFLICT,
-        "a consumed approval must fail closed as a conflict: {conflict:?}"
+        "same demand and capacity reservation remains unavailable: {second:?}"
     );
 }
 
@@ -483,17 +551,6 @@ async fn concurrent_tenant_authorized_reservations_do_not_oversubscribe_material
         .execute(&pool)
         .await
         .unwrap();
-    let second_approval = Uuid::new_v4();
-    sqlx::query("INSERT INTO gov_approvals (id,org_id,request_ref,kind,target_ref,requested_by,approver_id,decision) VALUES ($1,$2,$3,'production_plan_create',$4,$5,$6,'approved')")
-        .bind(second_approval)
-        .bind(*fixture.org.as_uuid())
-        .bind(Uuid::new_v4())
-        .bind(second_demand)
-        .bind(*fixture.planner.as_uuid())
-        .bind(*fixture.reviewer.as_uuid())
-        .execute(&pool)
-        .await
-        .unwrap();
 
     sqlx::query("UPDATE production_capacity_slots SET available_quantity=10, reserved_quantity=0 WHERE id=$1")
         .bind(fixture.capacity)
@@ -503,7 +560,6 @@ async fn concurrent_tenant_authorized_reservations_do_not_oversubscribe_material
     let first = create_body(&fixture, "production-concurrent-reservation-1");
     let mut second = create_body(&fixture, "production-concurrent-reservation-2");
     second["customer_demand_id"] = json!(second_demand);
-    second["approval_ref"] = json!(second_approval);
 
     let mut capacity_lock = pool.begin().await.unwrap();
     sqlx::query("SELECT id FROM production_capacity_slots WHERE id=$1 FOR UPDATE")
@@ -622,7 +678,7 @@ async fn operation_record_rejects_a_terminal_operation_write(pool: PgPool) {
         service.clone(),
         &format!("/api/v1/production/plans/{plan_id}/release"),
         &reviewer_token,
-        json!({"expected_version": 1, "idempotency_key": "production-terminal-release"}),
+        release_body(&pool, &fixture, plan_id, "production-terminal-release").await,
     )
     .await;
     assert_eq!(status, StatusCode::OK, "{release:?}");
@@ -683,6 +739,40 @@ async fn tenant_cannot_read_another_tenants_production_plan_under_force_rls(pool
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn production_reads_deny_roles_without_daily_plan_request_or_review(pool: PgPool) {
+    let keys = keys();
+    let fixture = seed_fixture(&pool).await;
+    let mechanic = seed_user(
+        &pool,
+        fixture.org,
+        fixture.branch,
+        "RECEPTIONIST",
+        "production-read-denied",
+    )
+    .await;
+    let service = app(runtime_role_pool(&pool).await, &keys);
+    let token = bearer(&keys, mechanic, fixture.org, "RECEPTIONIST", fixture.branch);
+    let (status, body) = get(
+        service.clone(),
+        &format!("{PRODUCTION_PLANS_PATH}?branch_id={}", fixture.branch),
+        &token,
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body:?}");
+    let (status, body) = get(
+        service,
+        &format!(
+            "{PRODUCTION_CAPACITY_SLOTS_PATH}?branch_id={}&capacity_date={}",
+            fixture.branch,
+            fixture.due_at.date()
+        ),
+        &token,
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{body:?}");
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn runtime_routes_reject_caller_authored_demand_and_capacity_ingress(pool: PgPool) {
     let keys = keys();
     let fixture = seed_fixture(&pool).await;
@@ -710,4 +800,54 @@ async fn runtime_routes_reject_caller_authored_demand_and_capacity_ingress(pool:
     )
     .await;
     assert_eq!(status, StatusCode::NOT_FOUND, "{demand:?}");
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn reviewer_source_ingress_is_authenticated_idempotent_and_audited(pool: PgPool) {
+    let keys = keys();
+    let fixture = seed_fixture(&pool).await;
+    let service = app(runtime_role_pool(&pool).await, &keys);
+    let token = bearer(
+        &keys,
+        fixture.reviewer,
+        fixture.org,
+        "SUPER_ADMIN",
+        fixture.branch,
+    );
+    let body = json!({
+        "kind": "material", "branch_id": fixture.branch, "material_item_id": fixture.material,
+        "quantity_on_hand_milli": 120, "safety_stock_milli": 5,
+        "source_system": "erp", "source_id": "material-1", "source_version": "v2"
+    });
+    let (status, accepted) = post(
+        service.clone(),
+        PRODUCTION_SOURCE_INGRESS_PATH,
+        &token,
+        body.clone(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{accepted:?}");
+    let (status, replay) = post(
+        service.clone(),
+        PRODUCTION_SOURCE_INGRESS_PATH,
+        &token,
+        body.clone(),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{replay:?}");
+    let mut changed = body;
+    changed["quantity_on_hand_milli"] = json!(121);
+    let (status, conflict) = post(service, PRODUCTION_SOURCE_INGRESS_PATH, &token, changed).await;
+    assert_eq!(status, StatusCode::CONFLICT, "{conflict:?}");
+    let audit_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM production_source_ingress_claims WHERE org_id=$1 AND kind='MATERIAL'",
+    )
+    .bind(*fixture.org.as_uuid())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        audit_count, 1,
+        "exactly one immutable ingress audit row is retained"
+    );
 }

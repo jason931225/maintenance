@@ -68,7 +68,7 @@ CREATE TABLE production_plans (
     FOREIGN KEY (ontology_type_id, org_id) REFERENCES ont_object_types(id, org_id) ON DELETE RESTRICT,
     FOREIGN KEY (created_by, org_id) REFERENCES users(id, org_id) ON DELETE RESTRICT,
     FOREIGN KEY (released_by, org_id) REFERENCES users(id, org_id) ON DELETE RESTRICT,
-    CHECK ((status = 'DRAFT' AND released_by IS NULL AND released_at IS NULL) OR (status = 'RELEASED' AND released_by IS NOT NULL AND released_at IS NOT NULL))
+    CHECK ((status = 'DRAFT' AND approval_ref IS NULL AND released_by IS NULL AND released_at IS NULL) OR (status = 'RELEASED' AND approval_ref IS NOT NULL AND released_by IS NOT NULL AND released_at IS NOT NULL))
 );
 CREATE INDEX idx_production_plans_branch_created ON production_plans (org_id, branch_id, created_at DESC, id DESC);
 
@@ -116,6 +116,24 @@ CREATE TABLE production_idempotency_claims (
     PRIMARY KEY (org_id, operation, idempotency_key)
 );
 
+-- Source ingress is a separately audited boundary. Its immutable source tuple
+-- is both the idempotency key and the optimistic source-version contract; a
+-- planner cannot write these facts through the plan endpoints.
+CREATE TABLE production_source_ingress_claims (
+    org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE RESTRICT,
+    kind TEXT NOT NULL CHECK (kind IN ('DEMAND', 'CAPACITY', 'MATERIAL')),
+    source_system TEXT NOT NULL CHECK (btrim(source_system) <> '' AND char_length(source_system) <= 80),
+    source_id TEXT NOT NULL CHECK (btrim(source_id) <> '' AND char_length(source_id) <= 160),
+    source_version TEXT NOT NULL CHECK (btrim(source_version) <> '' AND char_length(source_version) <= 160),
+    payload_hash TEXT NOT NULL CHECK (payload_hash ~ '^[a-f0-9]{64}$'),
+    response JSONB NULL,
+    ingested_by UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+    ingested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    completed_at TIMESTAMPTZ NULL,
+    PRIMARY KEY (org_id, kind, source_system, source_id, source_version),
+    FOREIGN KEY (ingested_by, org_id) REFERENCES users(id, org_id) ON DELETE RESTRICT
+);
+
 ALTER TABLE production_plans ENABLE ROW LEVEL SECURITY;
 ALTER TABLE production_plans FORCE ROW LEVEL SECURITY;
 CREATE POLICY org_isolation ON production_plans USING (org_id = NULLIF(current_setting('app.current_org', true), '')::uuid) WITH CHECK (org_id = NULLIF(current_setting('app.current_org', true), '')::uuid);
@@ -137,12 +155,18 @@ CREATE POLICY org_isolation ON production_plan_events USING (org_id = NULLIF(cur
 ALTER TABLE production_idempotency_claims ENABLE ROW LEVEL SECURITY;
 ALTER TABLE production_idempotency_claims FORCE ROW LEVEL SECURITY;
 CREATE POLICY org_isolation ON production_idempotency_claims USING (org_id = NULLIF(current_setting('app.current_org', true), '')::uuid) WITH CHECK (org_id = NULLIF(current_setting('app.current_org', true), '')::uuid);
+ALTER TABLE production_source_ingress_claims ENABLE ROW LEVEL SECURITY;
+ALTER TABLE production_source_ingress_claims FORCE ROW LEVEL SECURITY;
+CREATE POLICY org_isolation ON production_source_ingress_claims USING (org_id = NULLIF(current_setting('app.current_org', true), '')::uuid) WITH CHECK (org_id = NULLIF(current_setting('app.current_org', true), '')::uuid);
+CREATE TRIGGER trg_production_source_ingress_claims_org_immutable BEFORE UPDATE ON production_source_ingress_claims FOR EACH ROW EXECUTE FUNCTION enforce_org_id_immutable();
 
 GRANT SELECT, INSERT, UPDATE ON production_plans TO mnt_rt;
-GRANT SELECT ON production_demand_contracts, production_capacity_slots TO mnt_rt;
+GRANT SELECT, INSERT, UPDATE ON production_demand_contracts, production_capacity_slots TO mnt_rt;
 GRANT SELECT, INSERT, UPDATE ON production_operations TO mnt_rt;
 GRANT SELECT, INSERT ON production_plan_events TO mnt_rt;
 GRANT SELECT, INSERT, UPDATE ON production_idempotency_claims TO mnt_rt;
+GRANT SELECT, INSERT, UPDATE ON production_source_ingress_claims TO mnt_rt;
 REVOKE DELETE ON production_plans, production_operations, production_plan_events FROM mnt_rt;
-REVOKE INSERT, UPDATE, DELETE ON production_demand_contracts, production_capacity_slots FROM mnt_rt;
+REVOKE DELETE ON production_demand_contracts, production_capacity_slots FROM mnt_rt;
 REVOKE DELETE ON production_idempotency_claims FROM mnt_rt;
+REVOKE DELETE ON production_source_ingress_claims FROM mnt_rt;
