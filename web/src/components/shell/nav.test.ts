@@ -154,6 +154,7 @@ const EXPECTED_VISIBLE: Record<string, string[]> = {
     "intake",
     "daily-plan",
     "collaboration",
+    "inspection",
     "support",
     "reporting",
     "equipment",
@@ -519,12 +520,17 @@ describe("nav role gating", () => {
     }
   });
 
-  it("shows inspection (InspectionScheduleManage) only to ADMIN and SUPER_ADMIN", () => {
+  it("shows inspection execution to MECHANIC and schedule management to ADMIN/SUPER_ADMIN", () => {
     expect(isNavItemVisible("inspection", [ROLES.ADMIN])).toBe(true);
     expect(isNavItemVisible("inspection", [ROLES.SUPER_ADMIN])).toBe(true);
     expect(isNavItemVisible("inspection", [ROLES.EXECUTIVE])).toBe(false);
-    expect(isNavItemVisible("inspection", [ROLES.MECHANIC])).toBe(false);
+    expect(isNavItemVisible("inspection", [ROLES.MECHANIC])).toBe(true);
     expect(isNavItemVisible("inspection", [ROLES.RECEPTIONIST])).toBe(false);
+    expect(
+      isNavItemVisible("inspection", [ROLES.MEMBER], undefined, [
+        FEATURES.INSPECTION_ROUND_COMPLETE,
+      ]),
+    ).toBe(true);
   });
 
   it("shows integrity (IntegrityFindingsRead) only to EXECUTIVE and SUPER_ADMIN", () => {

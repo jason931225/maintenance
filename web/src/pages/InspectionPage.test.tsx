@@ -132,6 +132,34 @@ const adminSession: AuthSession = {
 };
 
 describe("InspectionPage", () => {
+  it("routes a mechanic-only session to the principal-bound execution workspace", async () => {
+    server.use(
+      http.get("*/api/v1/inspections/my-schedules", () =>
+        HttpResponse.json(inspectionSchedulePage([overdueSchedule])),
+      ),
+    );
+
+    renderApp(
+      makeAuthContext({
+        access_token: "mechanic-token",
+        user_id: mechanicId,
+        roles: ["MECHANIC"],
+        branches: [branchId],
+      }),
+    );
+
+    expect(
+      await screen.findByText("290", {
+        selector: ".inspection-mechanic__row-title",
+      }),
+    ).toBeVisible();
+    expect(screen.getByText(/본사현장/)).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "점검 완료" }),
+    ).toBeVisible();
+    expect(screen.queryByText("정기 일정 등록")).not.toBeInTheDocument();
+  });
+
   it("keeps newer option sources when an old-session request resolves last", async () => {
     let resolveOld: (() => void) | undefined;
     let oldRequests = 0;
@@ -192,7 +220,7 @@ describe("InspectionPage", () => {
     expect(oldRequests).toBeGreaterThan(0);
     if (resolveOld) resolveOld();
     await waitFor(() => {
-      expect(oldResponses).toBe(1);
+      expect(oldResponses).toBe(oldRequests);
     });
     await waitFor(() => {
       expect(

@@ -27,6 +27,7 @@ import { ko } from "../i18n/ko";
 import { SUCCESS_DISMISS_MS, useAutoDismiss } from "../lib/useAutoDismiss";
 import { formatListCount, safeLabel, todayInSeoul } from "../lib/utils";
 import { InspectionScheduleDetail } from "../console/inspection/InspectionScheduleDetail";
+import { MechanicInspectionWorkspace } from "../console/inspection/MechanicInspectionWorkspace";
 import {
   type InspectionScheduleFilter,
   filterInspectionSchedules,
@@ -108,6 +109,20 @@ function emptyForm(): FormState {
 }
 
 export function InspectionPage() {
+  const { session } = useAuth();
+  const roles = session?.roles ?? [];
+  const isManager = roles.some((role) =>
+    ["SUPER_ADMIN", "ADMIN", "EXECUTIVE"].includes(role),
+  );
+
+  if (roles.includes("MECHANIC") && !isManager) {
+    return <MechanicInspectionWorkspace />;
+  }
+
+  return <InspectionManagerPage />;
+}
+
+function InspectionManagerPage() {
   const { api, session } = useAuth();
   const sessionId = session?.user_id;
   const [rangeStart, setRangeStart] = useState(today);

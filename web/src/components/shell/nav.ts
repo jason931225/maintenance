@@ -81,6 +81,7 @@ export const FEATURES = {
   EQUIPMENT_MANAGE: "equipment_manage",
   PURCHASE_REQUEST_READ: "purchase_request_read",
   INSPECTION_SCHEDULE_MANAGE: "inspection_schedule_manage",
+  INSPECTION_ROUND_COMPLETE: "inspection_round_complete",
   AUDIT_LOG_READ: "audit_log_read",
   EXCEL_DOWNLOAD: "excel_download",
   OPS_DASHBOARD_READ: "ops_dashboard_read",
@@ -161,6 +162,17 @@ const EQUIPMENT_SALES_ROLES: readonly Role[] = OPERATIONAL_ROLES;
  * nav gate matches DailyPlanRequest. Receptionist and Executive are denied both.
  */
 const DAILY_PLAN_ROLES: readonly Role[] = [
+  ROLES.MECHANIC,
+  ROLES.ADMIN,
+  ROLES.SUPER_ADMIN,
+];
+/**
+ * Inspection is one role-aware destination with two real workflows:
+ * mechanics execute their own assigned rounds, while admins manage schedules.
+ * The page itself selects the principal-bound workspace after this coarse
+ * navigation gate; the backend remains authoritative for both operations.
+ */
+const INSPECTION_ROLES: readonly Role[] = [
   ROLES.MECHANIC,
   ROLES.ADMIN,
   ROLES.SUPER_ADMIN,
@@ -282,9 +294,9 @@ const ITEM_ROLE_GATES = new Map<string, readonly Role[]>([
   // mailbox hosting is platform-operated; admins manage domains/mailboxes, not
   // SMTP/IMAP host/port/password settings.
   ["email", []],
-  // inspection (InspectionScheduleManage): ADMIN/SUPER_ADMIN only, matching the
-  // backend matrix row [D, D, A, D, A] and the list-schedules read gate.
-  ["inspection", ADMIN_ROLES],
+  // inspection combines principal-bound InspectionRoundComplete execution for
+  // MECHANIC with InspectionScheduleManage for ADMIN/SUPER_ADMIN.
+  ["inspection", INSPECTION_ROLES],
   // equipment-manage (EquipmentManage): ADMIN/EXECUTIVE/SUPER_ADMIN only,
   // matching the backend matrix and the RequireEquipmentManageRoute guard.
   ["equipment-manage", EQUIPMENT_MANAGE_ROLES],
@@ -342,7 +354,13 @@ const ITEM_FEATURE_GATES = new Map<string, readonly FeatureGrant[]>([
   ["equipment", [FEATURES.WORK_ORDER_READ_ALL]],
   ["equipment-manage", [FEATURES.EQUIPMENT_MANAGE]],
   ["catalog", [FEATURES.SALES_MANAGE]],
-  ["inspection", [FEATURES.INSPECTION_SCHEDULE_MANAGE]],
+  [
+    "inspection",
+    [
+      FEATURES.INSPECTION_SCHEDULE_MANAGE,
+      FEATURES.INSPECTION_ROUND_COMPLETE,
+    ],
+  ],
   [
     "integrity",
     [FEATURES.INTEGRITY_FINDINGS_READ, FEATURES.INTEGRITY_FINDING_TRIAGE],
