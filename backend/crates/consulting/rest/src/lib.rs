@@ -297,7 +297,7 @@ async fn create_diagnostic(
     required(&body.summary, "summary")?;
     let org = current_org().map_err(RestError::kernel)?;
     let actor_id = *actor.user_id.as_uuid();
-    let item = with_org_conn(&state.pool, org, |tx| Box::pin(async move { ensure_engagement(tx, id).await?; let row = sqlx::query("INSERT INTO consulting_diagnostics (org_id, engagement_id, summary, document_id, created_by) VALUES ($1,$2,$3,$4,$5) RETURNING id, summary, document_id, created_at").bind(*org.as_uuid()).bind(id).bind(body.summary.trim()).bind(body.document_id).bind(actor_id).fetch_one(tx.as_mut()).await?; insert_history(tx,*org.as_uuid(),id,actor_id,"diagnostic.recorded",None,None,version(tx,id).await?,serde_json::json!({"diagnostic_id": row.try_get::<Uuid,_>("id")?})).await?; diagnostic(&row) })).await.map_err(RestError::db)?;
+    let item = with_org_conn(&state.pool, org, |tx| Box::pin(async move { ensure_writable_engagement(tx, id).await?; let row = sqlx::query("INSERT INTO consulting_diagnostics (org_id, engagement_id, summary, document_id, created_by) VALUES ($1,$2,$3,$4,$5) RETURNING id, summary, document_id, created_at").bind(*org.as_uuid()).bind(id).bind(body.summary.trim()).bind(body.document_id).bind(actor_id).fetch_one(tx.as_mut()).await?; insert_history(tx,*org.as_uuid(),id,actor_id,"diagnostic.recorded",None,None,version(tx,id).await?,serde_json::json!({"diagnostic_id": row.try_get::<Uuid,_>("id")?})).await?; diagnostic(&row) })).await.map_err(RestError::conflict_or_db)?;
     Ok((StatusCode::CREATED, Json(item)))
 }
 
@@ -405,6 +405,18 @@ async fn ensure_engagement(
     row.map(|r| engagement(&r))
         .transpose()?
         .ok_or(sqlx::Error::RowNotFound)
+}
+async fn ensure_writable_engagement(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    id: Uuid,
+) -> Result<Engagement, sqlx::Error> {
+    let engagement = ensure_engagement(tx, id).await?;
+    if matches!(engagement.status.as_str(), "SUSTAINED" | "CORRECTIVE") {
+        return Err(sqlx::Error::Protocol(
+            "terminal consulting engagements are immutable".into(),
+        ));
+    }
+    Ok(engagement)
 }
 async fn version(tx: &mut sqlx::Transaction<'_, Postgres>, id: Uuid) -> Result<i64, sqlx::Error> {
     sqlx::query_scalar("SELECT version FROM consulting_engagements WHERE id=$1")
@@ -514,9 +526,9 @@ fn required(value: &str, field: &str) -> Result<(), RestError> {
 }
 fn require(principal: &Principal, write: bool) -> Result<(), RestError> {
     let feature = if write {
-        Feature::BenefitCatalogManage
+        Feature::ConsultingManage
     } else {
-        Feature::BenefitCatalogRead
+        Feature::ConsultingRead
     };
     let action = Action::new(feature);
     let allowed = match &principal.branch_scope {
@@ -550,11 +562,10 @@ async fn principal(
                 "unauthorized",
                 "missing, malformed, or invalid bearer token",
             ),
-            RequestContextError::WrongTokenTier | RequestContextError::AccessScope(_) => {
-                RestError::kernel(KernelError::forbidden(
-                    "token is not authorized for consulting",
-                ))
-            }
+            RequestContextError::WrongTokenTier => RestError::kernel(KernelError::forbidden(
+                "token is not authorized for consulting",
+            )),
+            RequestContextError::AccessScope(error) => RestError::kernel(error),
             RequestContextError::VerifierUnavailable => RestError::new(
                 StatusCode::SERVICE_UNAVAILABLE,
                 "unavailable",
