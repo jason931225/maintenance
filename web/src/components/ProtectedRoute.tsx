@@ -6,8 +6,10 @@ import { useAuth } from "../context/auth";
 
 /**
  * Paths a no-grant MEMBER may still reach: the pending landing itself and their
- * own profile (the one surface the backend allows). Any other tenant path is
- * redirected to /pending so they never land on a 403 screen.
+ * own profile (the one surface the backend allows), plus the new console route
+ * whose own live `/me/authz` projection determines its sole exposed module.
+ * Any other tenant path is redirected to /pending so they never land on a 403
+ * screen.
  */
 const MEMBER_ALLOWED_PATHS = ["/pending", "/settings/profile"];
 
@@ -67,7 +69,8 @@ export function ProtectedRoute({ children }: { children?: React.ReactNode }) {
       session.group_roles,
       session.feature_grants,
     ) &&
-    !MEMBER_ALLOWED_PATHS.includes(location.pathname)
+    !MEMBER_ALLOWED_PATHS.includes(location.pathname) &&
+    !location.pathname.startsWith("/console")
   ) {
     return <Navigate to="/pending" replace />;
   }

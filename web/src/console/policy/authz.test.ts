@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   gateAllows,
+  featureGrantsFromAuthzProjection,
   fetchAuthzProjection,
   jwtFloorProjection,
   parseAuthzResponse,
@@ -85,6 +86,27 @@ describe("parseAuthzResponse", () => {
   it("tolerates a malformed body", () => {
     expect(parseAuthzResponse(null).capabilities).toEqual([]);
     expect(parseAuthzResponse({ capabilities: "nope" }).capabilities).toEqual([]);
+  });
+
+  it("projects live allow capabilities into the shared UI feature-grant list", () => {
+    const p = parseAuthzResponse({
+      capabilities: [
+        { feature: "sales_manage", permission: "allow" },
+        { feature: "sales_read", permission: "limited" },
+        { feature: "sales_manage", permission: "allow" },
+      ],
+    });
+    expect(featureGrantsFromAuthzProjection(p)).toEqual(["sales_manage"]);
+  });
+
+  it("accepts legacy feature_grants only when capabilities are absent", () => {
+    expect(featureGrantsFromAuthzProjection(parseAuthzResponse({
+      feature_grants: ["sales_manage"],
+    }))).toEqual(["sales_manage"]);
+    expect(featureGrantsFromAuthzProjection(parseAuthzResponse({
+      feature_grants: ["sales_manage"],
+      capabilities: [],
+    }))).toEqual([]);
   });
 });
 

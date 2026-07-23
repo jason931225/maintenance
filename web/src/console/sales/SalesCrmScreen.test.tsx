@@ -249,6 +249,36 @@ describe("SalesCrmScreen", () => {
     expect(screen.getByRole("option", { name: /새 세션 고객/ })).toBeVisible();
   });
 
+  it("synchronously fences A data and selection while replacement B is pending", async () => {
+    const apiA = api();
+    const pendingB = deferred<unknown>();
+    const apiB = api();
+    vi.mocked(apiB.GET).mockImplementation(() => pendingB.promise);
+
+    const view = render(<SalesCrmScreen api={apiA} />);
+    expect(await screen.findByText("E20 전동 지게차")).toBeVisible();
+    expect(screen.getByRole("option", { name: /김민수/ })).toBeVisible();
+
+    view.rerender(<SalesCrmScreen api={apiB} />);
+
+    expect(screen.queryByText("E20 전동 지게차")).not.toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /김민수/ })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("status")).toHaveLength(2);
+  });
+
+  it("clears A terminal denial when replacement B is authorized", async () => {
+    const apiA = api({ denied: true });
+    const apiB = api();
+    const view = render(<SalesCrmScreen api={apiA} />);
+
+    expect(await screen.findByText("판매 관리 권한이 없습니다.")).toBeVisible();
+    view.rerender(<SalesCrmScreen api={apiB} />);
+
+    expect(screen.queryByText("판매 관리 권한이 없습니다.")).not.toBeInTheDocument();
+    expect(await screen.findByText("E20 전동 지게차")).toBeVisible();
+    expect(screen.getByRole("option", { name: /김민수/ })).toBeVisible();
+  });
+
   it("does not let a GET rejection overwrite a PATCH denial", async () => {
     const rejectedRead = deferred<unknown>();
     let inquiryCalls = 0;

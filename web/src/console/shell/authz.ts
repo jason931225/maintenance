@@ -1,10 +1,14 @@
-import { useEffect, useMemo, useState } from "react";
+import { createContext, createElement, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 
-import { getDeviceId } from "../../api/device";
 import { buildNonAuthoritativePolicyProjection } from "../../auth/policyProjection";
 import { useAuth } from "../../context/auth";
 import { listGroupAdminGroups } from "../../api/groupAdmin";
 import type { ConsoleGrants } from "./nav";
+import {
+  featureGrantsFromAuthzProjection,
+  fetchAuthzProjection,
+  type AuthzProjection,
+} from "../policy/authz";
 
 /**
  * Console authorization hints (deny-by-omission source) + scope entities.
@@ -22,54 +26,11 @@ import type { ConsoleGrants } from "./nav";
  * authorized entities — never a literal all-orgs option.
  */
 
-function apiBaseUrl(): string {
-  return import.meta.env.VITE_API_BASE_URL ?? window.location.origin;
-}
-
-interface AuthzResponse {
-  roles?: unknown;
-  feature_grants?: unknown;
-}
-
-function stringArray(value: unknown): string[] {
-  return Array.isArray(value)
-    ? value.filter((v): v is string => typeof v === "string")
-    : [];
-}
-
-/**
- * Best-effort authoritative authz read. Returns `undefined` on 404/error so the
- * caller keeps the JWT-derived baseline.
- *
- * ponytail: raw fetch, not `api.GET`, because the path is not in the generated
- * openapi client yet (PR #234). Swap to `api.GET("/api/v1/me/authz")` once the
- * client is regenerated — the typed call gets refresh/cache for free then.
- */
-async function fetchAuthz(
-  bearer: string | undefined,
-  signal: AbortSignal,
-): Promise<ConsoleGrants | undefined> {
-  try {
-    const headers = new Headers({ Accept: "application/json" });
-    if (bearer) headers.set("Authorization", `Bearer ${bearer}`);
-    headers.set("X-Auth-Transport", "cookie");
-    const deviceId = getDeviceId();
-    if (deviceId) headers.set("X-Device-Id", deviceId);
-    const res = await fetch(`${apiBaseUrl()}/api/v1/me/authz`, {
-      method: "GET",
-      headers,
-      credentials: "include",
-      signal,
-    });
-    if (!res.ok) return undefined;
-    const body = (await res.json()) as AuthzResponse;
-    return {
-      roles: stringArray(body.roles),
-      featureGrants: stringArray(body.feature_grants),
-    };
-  } catch {
-    return undefined;
-  }
+function grantsFromAuthzProjection(projection: AuthzProjection): ConsoleGrants {
+  return {
+    roles: projection.roles,
+    featureGrants: featureGrantsFromAuthzProjection(projection),
+  };
 }
 
 /** JWT-derived grants: role claims + feature grants (incl. the Cedar projection). */
@@ -84,20 +45,28 @@ function grantsFromSession(session: ReturnType<typeof useAuth>["session"]): Cons
   };
 }
 
-export function useConsoleAuthz(): { grants: ConsoleGrants; source: "authz" | "jwt" } {
+export interface ConsoleAuthz {
+  grants: ConsoleGrants;
+  source: "authz" | "jwt";
+  /** False until the live endpoint has settled for this authenticated session. */
+  ready: boolean;
+}
+
+function useConsoleAuthzState(): ConsoleAuthz {
   const { session } = useAuth();
   const token = session?.access_token;
   const baseline = useMemo(() => grantsFromSession(session), [session]);
-  const [authoritative, setAuthoritative] = useState<
-    { token: string | undefined; grants: ConsoleGrants } | undefined
-  >();
+  const [authoritative, setAuthoritative] = useState<{ token: string | undefined; grants: ConsoleGrants }>();
+  const [settledToken, setSettledToken] = useState<string | undefined>();
   const currentAuthoritative =
     authoritative && authoritative.token === token ? authoritative.grants : undefined;
 
   useEffect(() => {
     const controller = new AbortController();
-    void fetchAuthz(token, controller.signal).then((grants) => {
-      if (!controller.signal.aborted && grants) setAuthoritative({ token, grants });
+    void fetchAuthzProjection(token, controller.signal, { attempts: 1 }).then((projection) => {
+      if (controller.signal.aborted) return;
+      if (projection) setAuthoritative({ token, grants: grantsFromAuthzProjection(projection) });
+      setSettledToken(token);
     });
     return () => {
       controller.abort();
@@ -105,8 +74,22 @@ export function useConsoleAuthz(): { grants: ConsoleGrants; source: "authz" | "j
   }, [token]);
 
   return currentAuthoritative
-    ? { grants: currentAuthoritative, source: "authz" }
-    : { grants: baseline, source: "jwt" };
+    ? { grants: currentAuthoritative, source: "authz", ready: true }
+    : { grants: baseline, source: "jwt", ready: settledToken === token };
+}
+
+const ConsoleAuthzContext = createContext<ConsoleAuthz | undefined>(undefined);
+
+/** Shares one authz read and one normalized feature-grant view with shell and screens. */
+export function ConsoleAuthzProvider({ children }: { children: ReactNode }) {
+  const value = useConsoleAuthzState();
+  return createElement(ConsoleAuthzContext.Provider, { value }, children);
+}
+
+export function useConsoleAuthz(): ConsoleAuthz {
+  const value = useContext(ConsoleAuthzContext);
+  if (!value) throw new Error("useConsoleAuthz must be used within ConsoleAuthzProvider");
+  return value;
 }
 
 // ---- scope switcher --------------------------------------------------------

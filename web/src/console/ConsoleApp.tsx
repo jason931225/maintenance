@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { ConsoleShell } from "./shell/ConsoleShell";
+import { ConsoleAuthzProvider } from "./shell/authz";
 import { EXPOSED_SCREEN_KEYS, type MountedScreenKey } from "./shell/nav";
 import { nextTheme, themeAttribute } from "./shell/theme";
 import type { ThemeMode } from "./shell/theme";
@@ -52,7 +53,9 @@ export function ConsoleApp({
         fontFamily: "var(--font-sans)",
       }}
     >
-      <ConsoleShell theme={theme} onCycleTheme={cycleTheme} screenKeys={screenKeys} />
+      <ConsoleAuthzProvider>
+        <ConsoleShell theme={theme} onCycleTheme={cycleTheme} screenKeys={screenKeys} />
+      </ConsoleAuthzProvider>
     </div>
   );
 }

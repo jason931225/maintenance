@@ -59,7 +59,7 @@ export function ConsoleShell({
   const { session } = useAuth();
   const location = useLocation();
   const navigate = useNavigate();
-  const { grants, source: authzSource } = useConsoleAuthz();
+  const { grants, source: authzSource, ready: authzReady } = useConsoleAuthz();
   const groups = useMemo(() => visibleConsoleNav(grants, screenKeys), [grants, screenKeys]);
   const { options: scopeOptions } = useConsoleScopes(S.scope.all);
 
@@ -287,6 +287,9 @@ export function ConsoleShell({
   // (navBadges.ts). Fails soft to an empty map, so the shell never depends on it.
   const badges = useNavBadges(session?.access_token);
 
+  // A live capability-only grant may be the sole reason this console is
+  // visible. Do not redirect before its authoritative projection settles.
+  if (!authzReady) return null;
   if (!activeScreen || !ScreenBody) return <Navigate to="/overview" replace />;
 
   return (

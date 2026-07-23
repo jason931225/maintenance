@@ -127,6 +127,7 @@ describe("AppRouter development-only routes", () => {
 describe("AppRouter console rollout boundary", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
+    vi.unstubAllGlobals();
   });
 
   it("admits an authorized user to the sole evidence-approved sales route through server rollout authority", async () => {
@@ -165,6 +166,91 @@ describe("AppRouter console rollout boundary", () => {
     expect(await screen.findByText("장비 판매 목록")).toBeVisible();
     expect(screen.getByTestId("location")).toHaveTextContent("/console/sales");
     expect(api.GET).toHaveBeenCalledWith("/api/v1/console/rollout", expect.anything());
+  });
+
+  it("admits a MEMBER only from live sales_manage capabilities and exposes only Sales", async () => {
+    isConsoleHost.mockReturnValue(false);
+    const api = {
+      GET: vi.fn((path: string) => Promise.resolve(path === "/api/v1/console/rollout"
+        ? {
+            data: {
+              flag_key: "console_carbon_copy",
+              org_enabled: true,
+              org_rollout_enabled: true,
+              user_opted_in: true,
+              legacy_kill_switch_enabled: false,
+              kill_switch_active: false,
+              effective_new_console: true,
+              effective_route: "new_console",
+              effective_route_for_opted_in_user: "new_console",
+              effective_route_for_opted_out_user: "legacy",
+              overrides_individual_toggles: false,
+            },
+          }
+        : path === "/api/v1/sales/listings"
+          ? { data: { items: [], limit: 50, offset: 0, total: 0 } }
+          : path === "/api/v1/sales/inquiries"
+            ? { data: { items: [], limit: 50, offset: 0, total: 0 } }
+            : { data: undefined })),
+      PATCH: vi.fn(),
+      POST: vi.fn(),
+    } as unknown as ConsoleApiClient;
+    const auth = authenticatedContext(api);
+    auth.session = { access_token: "member-token", roles: ["MEMBER"], org_id: "org-1" };
+    const fetch = vi.fn((input: string | URL) => {
+      const url = String(input);
+      if (url.includes("/api/v1/me/authz")) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({
+            roles: ["MEMBER"],
+            capabilities: [{ feature: "sales_manage", permission: "allow", branch_scope: { kind: "all" } }],
+          }),
+        });
+      }
+      if (url.includes("/api/v1/me/notifications")) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ items: [] }) });
+      }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+    });
+    vi.stubGlobal("fetch", fetch);
+
+    renderAt("/console/sales", { auth });
+
+    await waitFor(() => expect(fetch).toHaveBeenCalled());
+    expect(await screen.findByText("장비 판매 목록")).toBeVisible();
+    expect(screen.getByRole("button", { name: "판매·고객 문의" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "통합 개요" })).not.toBeInTheDocument();
+    expect(screen.getByTestId("location")).toHaveTextContent("/console/sales");
+  });
+
+  it("fails closed for a MEMBER with no live sales capability", async () => {
+    isConsoleHost.mockReturnValue(false);
+    const api = {
+      GET: vi.fn((path: string) => Promise.resolve(path === "/api/v1/console/rollout"
+        ? {
+            data: {
+              flag_key: "console_carbon_copy", org_enabled: true, org_rollout_enabled: true,
+              user_opted_in: true, legacy_kill_switch_enabled: false, kill_switch_active: false,
+              effective_new_console: true, effective_route: "new_console",
+              effective_route_for_opted_in_user: "new_console", effective_route_for_opted_out_user: "legacy",
+              overrides_individual_toggles: false,
+            },
+          }
+        : { data: undefined })),
+      PATCH: vi.fn(), POST: vi.fn(),
+    } as unknown as ConsoleApiClient;
+    const auth = authenticatedContext(api);
+    auth.session = { access_token: "member-token", roles: ["MEMBER"], org_id: "org-1" };
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ roles: ["MEMBER"], capabilities: [] }),
+    }));
+
+    renderAt("/console/sales", { auth });
+
+    await waitFor(() => expect(screen.getByTestId("location")).toHaveTextContent("/overview"));
+    expect(screen.queryByText("장비 판매 목록")).not.toBeInTheDocument();
   });
 
   it("renders mounted inventory only with the explicit development preview opt-in", async () => {

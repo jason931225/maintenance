@@ -1,7 +1,6 @@
 import {
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -21,6 +20,17 @@ import "./sales.css";
 type StreamState = "loading" | "ready" | "stale-error" | "error" | "denied";
 type InboxFilter = "ALL" | InquiryStatus;
 const PAGE_SIZE = 50;
+const apiInstanceKeys = new WeakMap<ConsoleApiClient, number>();
+let nextApiInstanceKey = 1;
+
+function apiInstanceKey(api: ConsoleApiClient): number {
+  let key = apiInstanceKeys.get(api);
+  if (key === undefined) {
+    key = nextApiInstanceKey++;
+    apiInstanceKeys.set(api, key);
+  }
+  return key;
+}
 
 const INBOX_FILTERS: ReadonlyArray<{ value: InboxFilter; label: string }> = [
   { value: "ALL", label: S.filterAll },
@@ -81,6 +91,13 @@ function errorKind(result: { response?: Response; error?: unknown }): "denied" |
  * quote, owner assignment, or branch scope that the backend does not expose.
  */
 export function SalesCrmScreen({ api }: { api: ConsoleApiClient }) {
+  // A replacement client is a replacement authenticated context. A keyed
+  // remount is a synchronous render-time fence: React cannot commit A's data,
+  // selection, busy state, terminal denial, or late responses into B's view.
+  return <SalesCrmScreenInstance key={apiInstanceKey(api)} api={api} />;
+}
+
+function SalesCrmScreenInstance({ api }: { api: ConsoleApiClient }) {
   const [catalogState, setCatalogState] = useState<StreamState>("loading");
   const [inboxState, setInboxState] = useState<StreamState>("loading");
   const [listings, setListings] = useState<SalesListingView[]>([]);
@@ -116,10 +133,6 @@ export function SalesCrmScreen({ api }: { api: ConsoleApiClient }) {
   );
   const selectedNextStatus = selectedInquiry ? NEXT_STATUS[selectedInquiry.status] : undefined;
   const mutationPending = Boolean(busyId && busyApi === api);
-
-  useLayoutEffect(() => {
-    apiRef.current = api;
-  }, [api]);
 
   useEffect(() => {
     mounted.current = true;
