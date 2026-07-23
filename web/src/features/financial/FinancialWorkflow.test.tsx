@@ -78,6 +78,14 @@ beforeAll(() => {
 });
 beforeEach(() => {
   mockAssertPasskeyStepUp.mockResolvedValue(mockStepUpAssertion);
+  // Every FinancialPage mount reads the authenticated branch queue. Individual
+  // scenarios register a later handler when the queue itself is under test;
+  // direct lookup/create/action cases still need this truthful baseline.
+  server.use(
+    http.get("*/api/v1/financial/purchase-requests", () =>
+      HttpResponse.json(purchaseQueue([purchase("STATEMENT_ATTACHED")])),
+    ),
+  );
 });
 afterEach(() => {
   server.resetHandlers();
@@ -655,6 +663,9 @@ describe("financial purchase request workflow", () => {
     });
 
     server.use(
+      http.get("*/api/v1/financial/purchase-requests", () =>
+        HttpResponse.json(purchaseQueue([current])),
+      ),
       http.get("*/api/v1/financial/purchase-requests/preferences", () =>
         HttpResponse.json({
           feature_key: "purchase_requests",
@@ -784,7 +795,7 @@ describe("financial purchase request workflow", () => {
     expect(await screen.findByText("요청자")).toBeVisible();
     expect(screen.getByText("김요청")).toBeVisible();
     expect(screen.getByText("hanbit-quote.pdf")).toBeVisible();
-    expect(screen.getByText(/견적서 업데이트가 필요/)).toBeVisible();
+    expect(screen.getAllByText(/견적서 업데이트가 필요/)[0]).toBeVisible();
   });
   it("hides KNL-only equipment fields for non-KNL purchase requests", async () => {
     const user = userEvent.setup();
