@@ -74,7 +74,7 @@ if [[ ! "${port}" =~ ^[0-9]+$ ]]; then
   echo "buck-postgres: could not resolve disposable PostgreSQL loopback port" >&2
   exit 1
 fi
-database_url="postgres://mnt_app:${app_password}@127.0.0.1:${port}/${database}"
+database_url="postgres://mnt_buck_admin:${admin_password}@127.0.0.1:${port}/${database}"
 
 BUCK_ISOLATION_DIR="${isolation_dir}" "${buck_bin}" test --local-only "$@" \
   -- --env "DATABASE_URL=${database_url}"
