@@ -35,6 +35,7 @@ export function MailThreadList({
   folderNavOpen,
   folderTriggerRef,
   threadListRef,
+  backgroundInert,
 }: {
   threads: ConsoleMailThread[];
   selectedThreadId?: string;
@@ -51,6 +52,7 @@ export function MailThreadList({
   folderNavOpen: boolean;
   folderTriggerRef: RefObject<HTMLButtonElement | null>;
   threadListRef: RefObject<HTMLElement | null>;
+  backgroundInert: boolean;
 }) {
   const T = ko.console.mail;
   const responsive = T.responsive;
@@ -71,7 +73,7 @@ export function MailThreadList({
   }
 
   return (
-    <section ref={threadListRef} className="mail-screen__threads" style={separatorPaneStyle} tabIndex={-1}>
+    <section ref={threadListRef} className="mail-screen__threads" aria-hidden={backgroundInert || undefined} inert={backgroundInert || undefined} style={separatorPaneStyle} tabIndex={-1}>
       <div style={rowStyle}>
         <h2 style={sectionTitleStyle}>{T.thread.listLabel}</h2>
         <div style={chipRowStyle}>

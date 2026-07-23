@@ -429,7 +429,7 @@ describe("MailScreen", () => {
 
     await user.click(screen.getByRole("button", { name: "메일 폴더 열기" }));
     const requestsBeforeBlockedRefresh = accountRequests.mock.calls.length;
-    const refresh = screen.getByRole("button", { name: "새로고침" });
+    const refresh = screen.getByRole("button", { name: "새로고침", hidden: true });
     expect(refresh.closest("header")).toBeTruthy();
     await user.click(refresh);
     expect(accountRequests).toHaveBeenCalledTimes(requestsBeforeBlockedRefresh);

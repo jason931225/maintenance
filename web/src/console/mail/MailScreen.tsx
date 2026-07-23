@@ -259,7 +259,11 @@ export function MailScreen() {
       }
     };
     window.addEventListener("keydown", onKeyDown);
-    return () => { window.removeEventListener("keydown", onKeyDown); };
+    const onFocusIn = (event: FocusEvent) => {
+      if (!folderNavRef.current?.contains(event.target as Node)) folderCloseRef.current?.focus();
+    };
+    window.addEventListener("focusin", onFocusIn);
+    return () => { window.removeEventListener("keydown", onKeyDown); window.removeEventListener("focusin", onFocusIn); };
   }, [closeFolderNav, folderNavOpen]);
 
   useEffect(() => {
@@ -429,15 +433,20 @@ export function MailScreen() {
         : compose.mode === "forward"
           ? await forwardMail(api, requestBody)
           : await sendMail(api, requestBody);
+      const stillCurrent = composeGenerationRef.current === sendingGeneration;
       if (!response.data) {
-        if (response.response.status === 503) setLoadState("unavailable");
-        setError(compose.mode === "reply" ? T.composer.replyFailed : compose.mode === "forward" ? T.composer.forwardFailed : T.composer.failed);
+        if (stillCurrent) {
+          if (response.response.status === 503) setLoadState("unavailable");
+          setError(compose.mode === "reply" ? T.composer.replyFailed : compose.mode === "forward" ? T.composer.forwardFailed : T.composer.failed);
+        }
         return;
       }
-      setNotice(compose.mode === "reply" ? T.composer.replySent : compose.mode === "forward" ? T.composer.forwardSent : T.composer.sent);
-      if (composeGenerationRef.current === sendingGeneration) resetCompose();
+      if (stillCurrent) {
+        setNotice(compose.mode === "reply" ? T.composer.replySent : compose.mode === "forward" ? T.composer.forwardSent : T.composer.sent);
+        resetCompose();
+      }
     } catch {
-      setError(compose.mode === "reply" ? T.composer.replyFailed : compose.mode === "forward" ? T.composer.forwardFailed : T.composer.failed);
+      if (composeGenerationRef.current === sendingGeneration) setError(compose.mode === "reply" ? T.composer.replyFailed : compose.mode === "forward" ? T.composer.forwardFailed : T.composer.failed);
     } finally {
       setSending(false);
     }
@@ -521,8 +530,9 @@ export function MailScreen() {
         folderNavOpen={folderNavOpen}
         folderTriggerRef={folderTriggerRef}
         threadListRef={threadListRef}
+        backgroundInert={folderNavOpen}
       />
-      <div ref={contentRef} className="mail-screen__content" style={{ display: "grid", minWidth: 0, alignContent: "start" }} tabIndex={-1}>
+      <div ref={contentRef} className="mail-screen__content" aria-hidden={folderNavOpen || undefined} inert={folderNavOpen || undefined} style={{ display: "grid", minWidth: 0, alignContent: "start" }} tabIndex={-1}>
         <div className="mail-screen__mobile-navigation" aria-label={T.title}>
           <button type="button" style={{ minHeight: "calc(var(--sp-6) * 2)" }} onClick={() => { setMailView("master"); }}>
             {T.responsive.backToThreads}
@@ -564,7 +574,7 @@ export function MailScreen() {
   return (
     <PolicyGated action={MAIL_ACTIONS.read} resource={{ kind: "mail_screen" }}>
       <main className="console mail-screen__root" style={rootStyle}>
-        <header style={headerStyle}>
+        <header aria-hidden={folderNavOpen || undefined} inert={folderNavOpen || undefined} style={headerStyle}>
           <h1 style={titleStyle}>{T.title}</h1>
           <button type="button" style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-md)", background: "var(--surface)", color: "var(--ink)", padding: "0 var(--sp-4)", minHeight: "calc(var(--sp-6) * 2)", fontFamily: "var(--font-sans)", fontWeight: "var(--fw-strong)" }} onClick={() => { if (!folderNavOpen) void loadMailbox(); }}>
             {T.state.refresh}
