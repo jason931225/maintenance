@@ -313,6 +313,8 @@ export interface GraphExplorerProps {
   model: ObjectExplorerModel;
   /** Parent hook loads the search-around neighbourhood for the new center. */
   onFocusChange?: (id: string) => void;
+  /** Host-selected exact instance to focus after its governed graph is present. */
+  requestedFocusId?: string;
   /**
    * GET /ontology/instances/{id} (+history/traverse) → the full inspector card.
    * Throws/404s for projected instances (S23) and transient failures → the pane
@@ -336,6 +338,7 @@ export interface GraphExplorerProps {
 export function GraphExplorer({
   model,
   onFocusChange,
+  requestedFocusId,
   resolveNodeDescriptor,
   projectedTypeIds,
   cardHandlers,
@@ -347,10 +350,19 @@ export function GraphExplorer({
   const [scale, setScale] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
   const panDrag = useRef<{ px: number; py: number; ox: number; oy: number } | null>(null);
+  const requestedNode = useMemo(
+    () => model.nodes.find((node) => node.id === requestedFocusId),
+    [model.nodes, requestedFocusId],
+  );
+  const effectiveFocusId = requestedNode?.id ?? focusId;
+  const effectiveSelectedId = requestedNode?.id ?? selectedId;
 
   const view = useMemo(
-    () => (model.nodes.length > 0 ? buildObjectExplorerView(model, focusId) : undefined),
-    [model, focusId],
+    () =>
+      model.nodes.length > 0
+        ? buildObjectExplorerView(model, effectiveFocusId)
+        : undefined,
+    [effectiveFocusId, model],
   );
   const layout = useMemo(() => (view ? layoutObjectExplorerNodes(view) : []), [view]);
   const posById = useMemo(
@@ -387,20 +399,23 @@ export function GraphExplorer({
   // failed) inside `resolve`, so this is a no-op once a node is loaded.
   useEffect(() => {
     if (!view) return;
-    const target = view.nodes.find((node) => node.id === (selectedId ?? focusId)) ?? view.focus;
+    const target =
+      view.nodes.find(
+        (node) => node.id === (effectiveSelectedId ?? effectiveFocusId),
+      ) ?? view.focus;
     resolve(target);
-  }, [view, selectedId, focusId, resolve]);
+  }, [effectiveFocusId, effectiveSelectedId, resolve, view]);
 
   const onNodeActivate = useCallback(
     (node: ObjectExplorerNode): void => {
       setSelectedId(node.id);
-      if (node.id !== focusId) {
+      if (node.id !== effectiveFocusId) {
         setFocusId(node.id);
         onFocusChange?.(node.id);
       }
       resolve(node);
     },
-    [focusId, onFocusChange, resolve],
+    [effectiveFocusId, onFocusChange, resolve],
   );
 
   const legend = useMemo<LegendEntry[]>(() => {
@@ -417,7 +432,8 @@ export function GraphExplorer({
 
   if (!view) return null;
 
-  const selectedNode = view.nodes.find((node) => node.id === selectedId) ?? view.focus;
+  const selectedNode =
+    view.nodes.find((node) => node.id === effectiveSelectedId) ?? view.focus;
   const descriptor = resolved.get(selectedNode.id) ?? degradedDescriptor(selectedNode);
   const showProjected = isProjected(selectedNode);
   const zoomPct = Math.round(scale * 100);

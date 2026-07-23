@@ -17,10 +17,14 @@ import {
 } from "../../../api/ontology";
 import type { ConsoleApiClient } from "../../../api/client";
 import { ApiCallError } from "../../../api/ontologyActions";
+import { ko } from "../../../i18n/ko";
+
+const A = ko.console.ontology.analysis;
 
 export interface OntologyAnalyticsDrill {
   objectType: ObjectTypeSummaryWire;
   dimension: string;
+  dimensionLabel: string;
   value: string;
   instanceIds: string[];
   /** The backend has no cursor/total contract, so this is only the exact returned set. */
@@ -103,7 +107,7 @@ function errorState(error: unknown): Exclude<ReadState, "loading" | "ready"> {
 function dimensionsFor(
   detail: ObjectTypeDetailWire | undefined,
 ): Array<{ value: Dimension; label: string }> {
-  if (!detail) return [{ value: "lifecycle", label: "Lifecycle state" }];
+  if (!detail) return [{ value: "lifecycle", label: A.lifecycle }];
   // Only values returned in the governed revision payload are candidates. Properties
   // with a property policy are intentionally excluded: the client must not turn a
   // partial/redacted field into a misleading aggregate dimension.
@@ -122,7 +126,7 @@ function dimensionsFor(
       ].includes(property.field_type),
   );
   return [
-    { value: "lifecycle", label: "Lifecycle state" },
+    { value: "lifecycle", label: A.lifecycle },
     ...scalar.map((property) => ({
       value: property.key,
       label: property.title,
@@ -134,7 +138,7 @@ function scalarLabel(value: unknown): string {
   if (typeof value === "string" && value.trim()) return value;
   if (typeof value === "number" || typeof value === "boolean")
     return String(value);
-  return "No value";
+  return A.noValue;
 }
 
 function groupsFor(
@@ -353,7 +357,7 @@ export function OntologyAnalyticsWorkbench({
               id="ontology-analytics-title"
               style={{ margin: 0, fontSize: "var(--text-lg)" }}
             >
-              Object analysis
+              {A.title}
             </h2>
             <p
               style={{
@@ -362,8 +366,7 @@ export function OntologyAnalyticsWorkbench({
                 fontSize: "var(--text-sm)",
               }}
             >
-              Aggregate the authorized object set and drill into the exact
-              returned records.
+              {A.description}
             </p>
           </div>
           <button
@@ -372,7 +375,7 @@ export function OntologyAnalyticsWorkbench({
             onClick={onClose}
             style={buttonStyle}
           >
-            Close
+            {A.close}
           </button>
         </header>
         <div
@@ -384,40 +387,33 @@ export function OntologyAnalyticsWorkbench({
         >
           {state === "denied" ? (
             <section role="alert">
-              <strong>
-                Analysis access is not available for this session.
-              </strong>
-              <p>
-                Object types and counts are hidden until authorization succeeds.
-              </p>
+              <strong>{A.deniedTitle}</strong>
+              <p>{A.deniedDescription}</p>
               <button type="button" onClick={retry} style={buttonStyle}>
-                Retry
+                {A.retry}
               </button>
             </section>
           ) : null}
           {state === "error" ? (
             <section role="alert">
-              <strong>Object analysis could not be loaded.</strong>
-              <p>No prior result is shown after a failed request.</p>
+              <strong>{A.errorTitle}</strong>
+              <p>{A.errorDescription}</p>
               <button type="button" onClick={retry} style={buttonStyle}>
-                Retry
+                {A.retry}
               </button>
             </section>
           ) : null}
           {state === "loading" ? (
             <p role="status" aria-live="polite">
-              Loading authorized object data…
+              {A.loading}
             </p>
           ) : null}
           {state === "ready" ? (
             <>
               {types.length === 0 ? (
                 <section role="status">
-                  <strong>No authorized object types are available.</strong>
-                  <p>
-                    Create or obtain access to an object type before building an
-                    analysis.
-                  </p>
+                  <strong>{A.emptyTypesTitle}</strong>
+                  <p>{A.emptyTypesDescription}</p>
                 </section>
               ) : (
                 <>
@@ -436,9 +432,9 @@ export function OntologyAnalyticsWorkbench({
                         fontWeight: "var(--fw-strong)",
                       }}
                     >
-                      Object type
+                      {A.objectType}
                       <select
-                        aria-label="Object type"
+                        aria-label={A.objectType}
                         value={selectedTypeId}
                         onChange={(event) => {
                           setSelectedTypeId(event.target.value);
@@ -459,9 +455,9 @@ export function OntologyAnalyticsWorkbench({
                         fontWeight: "var(--fw-strong)",
                       }}
                     >
-                      Group by
+                      {A.groupBy}
                       <select
-                        aria-label="Group dimension"
+                        aria-label={A.groupBy}
                         value={dimension}
                         onChange={(event) => {
                           setDimension(event.target.value);
@@ -483,20 +479,16 @@ export function OntologyAnalyticsWorkbench({
                       fontSize: "var(--text-sm)",
                     }}
                   >
-                    Showing {instances.length} records returned by the governed
-                    instance read. The current API has no pagination-total or
-                    saved-analysis contract.
+                    {A.returnedCount(instances.length)}
                   </p>
                   {instances.length === 0 ? (
                     <section role="status">
-                      <strong>
-                        No current instances match this object type.
-                      </strong>
-                      <p>There is no aggregate to display.</p>
+                      <strong>{A.noInstancesTitle}</strong>
+                      <p>{A.noInstancesDescription}</p>
                     </section>
                   ) : (
                     <section
-                      aria-label="Aggregate bars"
+                      aria-label={A.bars}
                       style={{ display: "grid", gap: "var(--sp-3)" }}
                     >
                       {groups.map((group) => (
@@ -538,15 +530,23 @@ export function OntologyAnalyticsWorkbench({
                               onDrill({
                                 objectType: selectedType,
                                 dimension,
+                                dimensionLabel:
+                                  dimensions.find(
+                                    (candidate) =>
+                                      candidate.value === dimension,
+                                  )?.label ?? dimension,
                                 value: group.label,
                                 instanceIds: group.instanceIds,
                                 source: "unpaginated_instance_collection",
                               });
                             }}
                             style={primaryButtonStyle}
-                            aria-label={`Open ${group.label}, ${String(group.instanceIds.length)} records`}
+                            aria-label={A.openGroup(
+                              group.label,
+                              group.instanceIds.length,
+                            )}
                           >
-                            {group.instanceIds.length} records
+                            {A.recordCount(group.instanceIds.length)}
                           </button>
                         </div>
                       ))}

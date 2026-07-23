@@ -1167,6 +1167,47 @@ export const ko = {
         addFormula: "수식",
         addSubmit: "분석 추가",
       },
+      analysis: {
+        open: "객체 분석 열기",
+        title: "객체 분석",
+        description:
+          "현재 권한으로 반환된 객체 집합을 집계하고 정확한 객체 기록으로 이동합니다.",
+        close: "닫기",
+        retry: "다시 시도",
+        loading: "권한이 확인된 객체 데이터를 불러오는 중…",
+        deniedTitle: "이 세션에서는 객체 분석을 사용할 수 없습니다.",
+        deniedDescription:
+          "권한 확인에 성공할 때까지 객체 타입과 집계 건수를 표시하지 않습니다.",
+        errorTitle: "객체 분석을 불러오지 못했습니다.",
+        errorDescription: "읽기에 실패한 뒤에는 이전 분석 결과를 표시하지 않습니다.",
+        emptyTypesTitle: "조회할 수 있는 객체 타입이 없습니다.",
+        emptyTypesDescription:
+          "객체 타입을 만들거나 조회 권한을 받은 뒤 분석을 실행하세요.",
+        objectType: "객체 타입",
+        groupBy: "그룹 기준",
+        lifecycle: "수명주기 상태",
+        noValue: "값 없음",
+        returnedCount: (count: number) =>
+          `권한이 적용된 현재 읽기에서 반환된 ${String(count)}개 기록을 표시합니다. 현재 API에는 페이지네이션 전체 건수나 저장된 분석 계약이 없습니다.`,
+        noInstancesTitle: "이 객체 타입에 현재 인스턴스가 없습니다.",
+        noInstancesDescription: "표시할 집계가 없습니다.",
+        bars: "객체 집계 막대",
+        openGroup: (label: string, count: number) =>
+          `${label} ${String(count)}개 기록 열기`,
+        recordCount: (count: number) => `${String(count)}개 기록`,
+        result: {
+          title: "분석 드릴 결과",
+          summary: (
+            objectType: string,
+            dimension: string,
+            value: string,
+            count: number,
+          ) =>
+            `${objectType} · ${dimension}: ${value} · 현재 읽기 응답 ${String(count)}개`,
+          clear: "분석 결과 닫기",
+          openInstance: (label: string) => `${label} 그래프에서 열기`,
+        },
+      },
       instances: {
         rowAria: (code: string) => `${code} 개체 카드 열기`,
       },

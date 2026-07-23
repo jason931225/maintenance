@@ -85,6 +85,39 @@ describe("GraphExplorer", () => {
     });
   });
 
+  it("focuses and resolves an exact host-requested instance once it is in the graph", async () => {
+    const resolve = vi.fn((node: ObjectExplorerNode) => Promise.resolve(resolvedDescriptor(node)));
+    const view = render(
+      <GraphExplorer
+        model={{ ...model, nodes: [model.nodes[0]] }}
+        requestedFocusId="n2"
+        resolveNodeDescriptor={resolve}
+      />,
+    );
+    expect(
+      screen.queryByRole("button", {
+        name: ko.console.explore.actions.recenter("경비 근무 장구"),
+      }),
+    ).not.toBeInTheDocument();
+
+    view.rerender(
+      <GraphExplorer
+        model={model}
+        requestedFocusId="n2"
+        resolveNodeDescriptor={resolve}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(resolve).toHaveBeenCalledWith(expect.objectContaining({ id: "n2" }));
+      expect(
+        screen.getByRole("complementary", {
+          name: ko.console.objectcard.panel("경비 근무 장구"),
+        }),
+      ).toBeInTheDocument();
+    });
+  });
+
   it("ignores authority cancellation and permits the current resolver to retry", async () => {
     const cancelled = vi.fn().mockResolvedValue(undefined);
     const view = render(<GraphExplorer model={model} resolveNodeDescriptor={cancelled} />);

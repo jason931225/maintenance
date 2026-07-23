@@ -11,8 +11,10 @@ import {
 } from "../../../test/ontologyFixtures";
 import { ApiCallError } from "../../../api/ontologyActions";
 import type * as OntologyApi from "../../../api/ontology";
+import { ko } from "../../../i18n/ko";
 import { OntologyAnalyticsWorkbench } from "./OntologyAnalyticsWorkbench";
 
+const A = ko.console.ontology.analysis;
 const apiReads = vi.hoisted(() => ({
   listObjectTypes: vi.fn(),
   getObjectType: vi.fn(),
@@ -118,23 +120,24 @@ describe("OntologyAnalyticsWorkbench", () => {
 
     await screen.findByRole("option", { name: "Region" });
     await user.selectOptions(
-      await screen.findByLabelText("Group dimension"),
+      await screen.findByLabelText(A.groupBy),
       "region",
     );
     await user.click(
-      await screen.findByRole("button", { name: "Open Seoul, 2 records" }),
+      await screen.findByRole("button", { name: A.openGroup("Seoul", 2) }),
     );
     expect(onDrill).toHaveBeenCalledWith(
       expect.objectContaining({
         objectType: summaryFixture,
         dimension: "region",
+        dimensionLabel: "Region",
         value: "Seoul",
         instanceIds: ["instance-a", "instance-b"],
         source: "unpaginated_instance_collection",
       }),
     );
     expect(
-      screen.getByText(/no pagination-total or saved-analysis contract/i),
+      screen.getByText(A.returnedCount(3)),
     ).toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: /save/i }),
@@ -147,9 +150,9 @@ describe("OntologyAnalyticsWorkbench", () => {
     );
     mount();
     expect(await screen.findByRole("alert")).toHaveTextContent(
-      "Object types and counts are hidden",
+      A.deniedDescription,
     );
-    expect(screen.queryByText(/records returned/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(A.returnedCount(0))).not.toBeInTheDocument();
   });
 
   it("retries a failed read without preserving a prior result", async () => {
@@ -160,9 +163,9 @@ describe("OntologyAnalyticsWorkbench", () => {
     apiReads.listInstances.mockResolvedValue([]);
     const user = userEvent.setup();
     mount();
-    await user.click(await screen.findByRole("button", { name: "Retry" }));
+    await user.click(await screen.findByRole("button", { name: A.retry }));
     expect(
-      await screen.findByText("No current instances match this object type."),
+      await screen.findByText(A.noInstancesTitle),
     ).toBeInTheDocument();
   });
 
@@ -234,7 +237,7 @@ describe("OntologyAnalyticsWorkbench", () => {
     });
     await waitFor(() => {
       expect(
-        screen.getByText(/No authorized object types/i),
+        screen.getByText(A.emptyTypesTitle),
       ).toBeInTheDocument();
     });
   });
@@ -259,7 +262,7 @@ describe("OntologyAnalyticsWorkbench", () => {
     render(<StatefulWorkbench />);
     const opener = screen.getByRole("button", { name: "Open analysis" });
     await user.click(opener);
-    await user.click(await screen.findByRole("button", { name: "Close" }));
+    await user.click(await screen.findByRole("button", { name: A.close }));
     await waitFor(() => {
       expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     });

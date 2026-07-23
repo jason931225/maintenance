@@ -3,6 +3,10 @@ import { useMemo, useRef, useState, type CSSProperties } from "react";
 import { ko } from "../../../i18n/ko";
 import type { ConsoleApiClient } from "../../../api/client";
 import { OntologyManagerScreen } from "../../ontology";
+import {
+  OntologyAnalyticsWorkbench,
+  type OntologyAnalyticsDrill,
+} from "../../ontology/analytics";
 import { GraphExplorer } from "./GraphExplorer";
 import { BulkPolicyGateProvider } from "../../policy";
 import { WindowManagerProvider } from "../../window";
@@ -65,6 +69,61 @@ const tabActiveStyle: CSSProperties = {
   color: "var(--ink)",
 };
 
+const headerActionsStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "center",
+  gap: "var(--sp-2)",
+};
+
+const actionButtonStyle: CSSProperties = {
+  minHeight: 44,
+  padding: "0 var(--sp-4)",
+  border: "1px solid var(--border)",
+  borderRadius: "var(--radius-control)",
+  background: "var(--surface)",
+  color: "var(--ink)",
+  fontSize: "var(--text-sm)",
+  fontWeight: "var(--fw-strong)",
+  cursor: "pointer",
+};
+
+const drillResultStyle: CSSProperties = {
+  display: "grid",
+  gap: "var(--sp-3)",
+  padding: "var(--sp-4)",
+  border: "1px solid var(--border)",
+  borderRadius: "var(--radius-card)",
+  background: "var(--surface)",
+  boxShadow: "var(--shadow)",
+};
+
+const drillResultHeaderStyle: CSSProperties = {
+  display: "flex",
+  flexWrap: "wrap",
+  alignItems: "start",
+  justifyContent: "space-between",
+  gap: "var(--sp-3)",
+};
+
+const drillResultListStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(240px, 1fr))",
+  gap: "var(--sp-2)",
+  margin: 0,
+  padding: 0,
+  listStyle: "none",
+};
+
+interface AuthorityAnalyticsDrill {
+  authorityKey: string | undefined;
+  value: OntologyAnalyticsDrill;
+}
+
+interface AuthorityFocusRequest {
+  authorityKey: string | undefined;
+  instanceId: string;
+}
+
 interface OntologyWorkspaceBodyBaseProps {
   api: ConsoleApiClient;
   /** Screen title (온톨로지 for the manager, 객체 탐색 for the explorer). */
@@ -111,7 +170,32 @@ export function OntologyWorkspaceBody({
     authorityPartition,
   );
   const [tab, setTab] = useState<WorkspaceTab>(allowManager ? defaultTab : "graph");
+  const [analyticsOpen, setAnalyticsOpen] = useState(false);
+  const [analyticsDrill, setAnalyticsDrill] =
+    useState<AuthorityAnalyticsDrill>();
+  const [focusRequest, setFocusRequest] = useState<AuthorityFocusRequest>();
   const graphRef = useRef<HTMLDivElement>(null);
+
+  const visibleAnalyticsDrill =
+    analyticsDrill && analyticsDrill.authorityKey === authorityPartition
+      ? analyticsDrill.value
+      : undefined;
+  const visibleFocusRequest =
+    focusRequest && focusRequest.authorityKey === authorityPartition
+      ? focusRequest
+      : undefined;
+  const instanceById = useMemo(
+    () =>
+      new Map(
+        ws.registry.flatMap((objectType) =>
+          objectType.instances.map((instance) => [
+            instance.id,
+            { instance, objectType },
+          ] as const),
+        ),
+      ),
+    [ws.registry],
+  );
 
   const stats = useMemo<WorkspaceStat[]>(
     () => [
@@ -156,6 +240,17 @@ export function OntologyWorkspaceBody({
     <section className="console" aria-label={title} style={rootStyle}>
       <header style={headerStyle}>
         <h1 style={titleStyle}>{title}</h1>
+        <div style={headerActionsStyle}>
+          <button
+            type="button"
+            onClick={() => {
+              setAnalyticsOpen(true);
+            }}
+            style={actionButtonStyle}
+          >
+            {ON.analysis.open}
+          </button>
+        </div>
       </header>
       <StatStrip stats={stats} onDrill={handleDrill} ariaLabel={title} />
       {allowManager ? (
@@ -215,17 +310,105 @@ export function OntologyWorkspaceBody({
               />
             ) : (
               <div ref={graphRef}>
+                {visibleAnalyticsDrill ? (
+                  <section
+                    aria-labelledby="ontology-analytics-result-title"
+                    style={drillResultStyle}
+                  >
+                    <div style={drillResultHeaderStyle}>
+                      <div>
+                        <h2
+                          id="ontology-analytics-result-title"
+                          style={{ margin: 0, fontSize: "var(--text-md)" }}
+                        >
+                          {ON.analysis.result.title}
+                        </h2>
+                        <p
+                          style={{
+                            margin: "var(--sp-1) 0 0",
+                            color: "var(--steel)",
+                          }}
+                        >
+                          {ON.analysis.result.summary(
+                            visibleAnalyticsDrill.objectType.title,
+                            visibleAnalyticsDrill.dimensionLabel,
+                            visibleAnalyticsDrill.value,
+                            visibleAnalyticsDrill.instanceIds.length,
+                          )}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAnalyticsDrill(undefined);
+                          setFocusRequest(undefined);
+                        }}
+                        style={actionButtonStyle}
+                      >
+                        {ON.analysis.result.clear}
+                      </button>
+                    </div>
+                    <ul style={drillResultListStyle}>
+                      {visibleAnalyticsDrill.instanceIds.map((instanceId) => {
+                        const registered = instanceById.get(instanceId);
+                        const label = registered
+                          ? `${registered.instance.code} · ${registered.instance.title}`
+                          : instanceId;
+                        return (
+                          <li key={instanceId}>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setFocusRequest({
+                                  authorityKey: authorityPartition,
+                                  instanceId,
+                                });
+                                ws.onGraphFocusChange(instanceId);
+                              }}
+                              style={{ ...actionButtonStyle, width: "100%" }}
+                            >
+                              {ON.analysis.result.openInstance(label)}
+                            </button>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </section>
+                ) : null}
                 <GraphExplorer
                   model={ws.explorerModel}
-                  onFocusChange={ws.onGraphFocusChange}
+                  onFocusChange={(instanceId) => {
+                    setFocusRequest(undefined);
+                    ws.onGraphFocusChange(instanceId);
+                  }}
                   resolveNodeDescriptor={ws.resolveNodeDescriptor}
                   projectedTypeIds={ws.projectedTypeIds}
+                  requestedFocusId={visibleFocusRequest?.instanceId}
                 />
               </div>
             )}
           </WindowManagerProvider>
         </BulkPolicyGateProvider>
       )}
+      <OntologyAnalyticsWorkbench
+        key={authorityPartition ?? "authority-unavailable"}
+        api={api}
+        authorityKey={authorityPartition}
+        open={analyticsOpen}
+        onClose={() => {
+          setAnalyticsOpen(false);
+        }}
+        onDrill={(drill) => {
+          setAnalyticsOpen(false);
+          setAnalyticsDrill({
+            authorityKey: authorityPartition,
+            value: drill,
+          });
+          setFocusRequest(undefined);
+          if (allowManager) setTab("graph");
+          scrollGraphIntoView();
+        }}
+      />
     </section>
   );
 }

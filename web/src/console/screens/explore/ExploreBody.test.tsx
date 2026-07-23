@@ -90,6 +90,68 @@ describe("ExploreBody", () => {
     expect(nodes[0]).toBeInTheDocument();
   });
 
+  it("opens governed analytics and drills the exact returned instance into the graph", async () => {
+    render(
+      <ExploreBody api={api} authorityKey="tenant-a:incarnation-a" />,
+    );
+    await screen.findAllByText(instanceFixture.instance.title);
+    fireEvent.click(screen.getByRole("button", { name: ko.console.ontology.analysis.open }));
+
+    const groupButton = await screen.findByRole("button", {
+      name: ko.console.ontology.analysis.openGroup(
+        instanceFixture.instance.lifecycle_state,
+        1,
+      ),
+    });
+    fireEvent.click(groupButton);
+
+    expect(
+      screen.getByText(ko.console.ontology.analysis.result.title),
+    ).toBeInTheDocument();
+    const instanceCode = instanceFixture.instance.id
+      .replaceAll("-", "")
+      .slice(0, 8)
+      .toUpperCase();
+    const instanceLabel = `${instanceCode} · ${instanceFixture.instance.title}`;
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: ko.console.ontology.analysis.result.openInstance(instanceLabel),
+      }),
+    );
+    await waitFor(() => {
+      expect(mocked.traverseInstance).toHaveBeenCalledWith(
+        api,
+        instanceFixture.instance.id,
+      );
+    });
+  });
+
+  it("hides analytics drill state synchronously when authority changes", async () => {
+    const view = render(
+      <ExploreBody api={api} authorityKey="tenant-a:incarnation-a" />,
+    );
+    await screen.findAllByText(instanceFixture.instance.title);
+    fireEvent.click(screen.getByRole("button", { name: ko.console.ontology.analysis.open }));
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: ko.console.ontology.analysis.openGroup(
+          instanceFixture.instance.lifecycle_state,
+          1,
+        ),
+      }),
+    );
+    expect(
+      screen.getByText(ko.console.ontology.analysis.result.title),
+    ).toBeInTheDocument();
+
+    view.rerender(
+      <ExploreBody api={api} authorityKey="tenant-b:incarnation-b" />,
+    );
+    expect(
+      screen.queryByText(ko.console.ontology.analysis.result.title),
+    ).not.toBeInTheDocument();
+  });
+
   it("renders the honest empty state when the registry is empty", async () => {
     mocked.listObjectTypes.mockResolvedValue([]);
     render(<ExploreBody api={api} />);
