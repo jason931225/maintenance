@@ -15,58 +15,24 @@ use mnt_kernel_core::{BranchId, ErrorKind, KernelError};
 use mnt_platform_auth::JwtVerifier;
 use mnt_platform_authz::{Action, Feature, Principal, authorize};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use sqlx::{PgPool, Row};
 use time::OffsetDateTime;
 use uuid::Uuid;
 
 pub const PRODUCTION_PLANS_PATH: &str = "/api/v1/production/plans";
+pub const PRODUCTION_CAPACITY_SLOTS_PATH: &str = "/api/v1/production/capacity-slots";
 pub const PRODUCTION_PLAN_PATH: &str = "/api/v1/production/plans/{plan_id}";
 pub const PRODUCTION_PLAN_RELEASE_PATH: &str = "/api/v1/production/plans/{plan_id}/release";
 pub const PRODUCTION_OPERATION_RECORDS_PATH: &str =
     "/api/v1/production/plans/{plan_id}/operations/{operation_id}/records";
 pub const PRODUCTION_ROUTE_PATHS: &[&str] = &[
     PRODUCTION_PLANS_PATH,
+    PRODUCTION_CAPACITY_SLOTS_PATH,
     PRODUCTION_PLAN_PATH,
     PRODUCTION_PLAN_RELEASE_PATH,
     PRODUCTION_OPERATION_RECORDS_PATH,
 ];
-
-/// Boundaries deliberately kept as ports: callers provide only stable refs and
-/// evaluated check outcomes; no customer/people/inventory/etc. table is joined.
-pub trait CustomerDemandPort {
-    fn demand_exists(&self, _demand_id: Uuid) -> bool;
-}
-pub trait CapacityMaterialStaffingPort {
-    fn checks_current(&self, _branch_id: BranchId, _snapshot: &CheckSnapshot) -> bool;
-}
-pub trait ApprovalOntologyReportingPort {
-    fn approval_and_lineage_allowed(&self, _approval_ref: Option<Uuid>) -> bool;
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct CheckSnapshot {
-    pub capacity_ok: bool,
-    pub material_ok: bool,
-    pub staffing_ok: bool,
-    pub capacity_reference: String,
-    pub material_reference: String,
-    pub staffing_reference: String,
-}
-
-impl CheckSnapshot {
-    fn valid(&self) -> bool {
-        self.capacity_ok
-            && self.material_ok
-            && self.staffing_ok
-            && [
-                &self.capacity_reference,
-                &self.material_reference,
-                &self.staffing_reference,
-            ]
-            .iter()
-            .all(|value| !value.trim().is_empty() && value.len() <= 160)
-    }
-}
 
 #[derive(Clone)]
 pub struct ProductionRestState {
@@ -85,6 +51,10 @@ pub fn router(state: ProductionRestState) -> Router {
     let pool = state.pool.clone();
     let router = Router::new()
         .route(PRODUCTION_PLANS_PATH, get(list_plans).post(create_plan))
+        .route(
+            PRODUCTION_CAPACITY_SLOTS_PATH,
+            get(list_capacity_slots).post(create_capacity_slot),
+        )
         .route(PRODUCTION_PLAN_PATH, get(get_plan))
         .route(PRODUCTION_PLAN_RELEASE_PATH, post(release_plan))
         .route(PRODUCTION_OPERATION_RECORDS_PATH, post(record_operation))
@@ -103,24 +73,24 @@ struct ListQuery {
 const fn default_limit() -> i64 {
     25
 }
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 struct CreatePlan {
     branch_id: BranchId,
     customer_demand_id: Uuid,
-    product_code: String,
+    capacity_slot_id: Uuid,
+    material_item_id: Uuid,
     quantity: i64,
     due_at: OffsetDateTime,
-    checks: CheckSnapshot,
     idempotency_key: String,
-    approval_ref: Option<Uuid>,
-    ontology_type: String,
+    approval_ref: Uuid,
+    ontology_type_id: Uuid,
 }
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 struct ReleasePlan {
     expected_version: i32,
     idempotency_key: String,
 }
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 struct RecordOperation {
     expected_version: i32,
     idempotency_key: String,
@@ -131,8 +101,33 @@ struct RecordOperation {
     quality_passed: bool,
     note: String,
 }
-
+#[derive(Deserialize)]
+struct CapacityQuery {
+    branch_id: BranchId,
+    capacity_date: time::Date,
+}
+#[derive(Deserialize)]
+struct CreateCapacitySlot {
+    branch_id: BranchId,
+    site_id: Uuid,
+    capacity_date: time::Date,
+    available_quantity: i64,
+    source_ref: String,
+}
 #[derive(Serialize)]
+struct CapacitySlot {
+    id: Uuid,
+    branch_id: Uuid,
+    site_id: Uuid,
+    capacity_date: time::Date,
+    available_quantity: i64,
+    reserved_quantity: i64,
+    version: i32,
+    source_ref: String,
+    evaluated_at: OffsetDateTime,
+}
+
+#[derive(Deserialize, Serialize)]
 struct PlanSummary {
     id: Uuid,
     branch_id: Uuid,
@@ -161,7 +156,7 @@ struct LifecycleEvent {
     payload: serde_json::Value,
     occurred_at: OffsetDateTime,
 }
-#[derive(Serialize)]
+#[derive(Deserialize, Serialize)]
 struct OperationDetail {
     id: Uuid,
     sequence: i32,
@@ -204,6 +199,61 @@ async fn list_plans(
             .collect::<Result<_, _>>()?,
     ))
 }
+async fn list_capacity_slots(
+    State(state): State<ProductionRestState>,
+    headers: HeaderMap,
+    Query(query): Query<CapacityQuery>,
+) -> Result<Json<Vec<CapacitySlot>>, RestError> {
+    let principal = principal(&state, &headers).await?;
+    authorize(
+        &principal,
+        Action::limited(Feature::WorkOrderReadAll),
+        query.branch_id,
+    )
+    .map_err(RestError::kernel)?;
+    let org = mnt_platform_request_context::current_org()
+        .map_err(|_| RestError::internal("tenant context is missing"))?;
+    let mut tx = state.pool.begin().await.map_err(RestError::db)?;
+    arm_tenant(&mut tx, *org.as_uuid()).await?;
+    let rows = sqlx::query("SELECT id,branch_id,site_id,capacity_date,available_quantity,reserved_quantity,version,source_ref,evaluated_at FROM production_capacity_slots WHERE branch_id=$1 AND capacity_date=$2 ORDER BY site_id")
+        .bind(*query.branch_id.as_uuid()).bind(query.capacity_date).fetch_all(&mut *tx).await.map_err(RestError::db)?;
+    tx.commit().await.map_err(RestError::db)?;
+    Ok(Json(
+        rows.into_iter()
+            .map(capacity_slot)
+            .collect::<Result<_, _>>()?,
+    ))
+}
+async fn create_capacity_slot(
+    State(state): State<ProductionRestState>,
+    headers: HeaderMap,
+    Json(request): Json<CreateCapacitySlot>,
+) -> Result<(StatusCode, Json<CapacitySlot>), RestError> {
+    if request.available_quantity <= 0
+        || request.source_ref.trim().is_empty()
+        || request.source_ref.len() > 160
+    {
+        return Err(RestError::validation(
+            "capacity quantity and source reference are required",
+        ));
+    }
+    let principal = principal(&state, &headers).await?;
+    authorize(
+        &principal,
+        Action::limited(Feature::DailyPlanReview),
+        request.branch_id,
+    )
+    .map_err(RestError::kernel)?;
+    let org = mnt_platform_request_context::current_org()
+        .map_err(|_| RestError::internal("tenant context is missing"))?;
+    let mut tx = state.pool.begin().await.map_err(RestError::db)?;
+    arm_tenant(&mut tx, *org.as_uuid()).await?;
+    let id = Uuid::new_v4();
+    let row = sqlx::query("INSERT INTO production_capacity_slots (id,org_id,branch_id,site_id,capacity_date,available_quantity,source_ref,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id,branch_id,site_id,capacity_date,available_quantity,reserved_quantity,version,source_ref,evaluated_at")
+        .bind(id).bind(*org.as_uuid()).bind(*request.branch_id.as_uuid()).bind(request.site_id).bind(request.capacity_date).bind(request.available_quantity).bind(request.source_ref.trim()).bind(*principal.user_id.as_uuid()).fetch_one(&mut *tx).await.map_err(RestError::db)?;
+    tx.commit().await.map_err(RestError::db)?;
+    Ok((StatusCode::CREATED, Json(capacity_slot(row)?)))
+}
 
 async fn create_plan(
     State(state): State<ProductionRestState>,
@@ -222,24 +272,59 @@ async fn create_plan(
         .map_err(|_| RestError::internal("tenant context is missing"))?;
     let mut tx = state.pool.begin().await.map_err(RestError::db)?;
     arm_tenant(&mut tx, *org.as_uuid()).await?;
-    let existing = sqlx::query("SELECT id, branch_id, customer_demand_id, product_code, quantity, status, version, first_operation_id, created_at, due_at FROM production_plans WHERE org_id=$1 AND idempotency_key=$2")
-        .bind(*org.as_uuid()).bind(request.idempotency_key.trim()).fetch_optional(&mut *tx).await.map_err(RestError::db)?;
-    if let Some(row) = existing {
+    let request_hash = hash_request(&request)?;
+    sqlx::query("INSERT INTO production_idempotency_claims (org_id,operation,idempotency_key,request_hash) VALUES ($1,'CREATE_PLAN',$2,$3) ON CONFLICT DO NOTHING")
+        .bind(*org.as_uuid()).bind(request.idempotency_key.trim()).bind(&request_hash).execute(&mut *tx).await.map_err(RestError::db)?;
+    let claim = sqlx::query("SELECT request_hash,response FROM production_idempotency_claims WHERE org_id=$1 AND operation='CREATE_PLAN' AND idempotency_key=$2 FOR UPDATE")
+        .bind(*org.as_uuid()).bind(request.idempotency_key.trim()).fetch_one(&mut *tx).await.map_err(RestError::db)?;
+    let stored_hash: String = claim.try_get("request_hash").map_err(RestError::db)?;
+    if stored_hash != request_hash {
+        return Err(RestError::conflict(
+            "idempotency key was already used for a different request",
+        ));
+    }
+    if let Some(response) = claim
+        .try_get::<Option<serde_json::Value>, _>("response")
+        .map_err(RestError::db)?
+    {
+        let plan: PlanSummary = serde_json::from_value(response)
+            .map_err(|_| RestError::internal("stored idempotency response is invalid"))?;
         tx.commit().await.map_err(RestError::db)?;
-        return Ok((StatusCode::OK, Json(plan_summary(row)?)));
+        return Ok((StatusCode::OK, Json(plan)));
     }
     let plan_id = Uuid::new_v4();
     let operation_id = Uuid::new_v4();
     let now = OffsetDateTime::now_utc();
-    let checks = serde_json::to_value(&request.checks)
-        .map_err(|_| RestError::internal("could not encode check snapshot"))?;
-    sqlx::query("INSERT INTO production_plans (id, org_id, branch_id, customer_demand_id, product_code, quantity, due_at, checks, idempotency_key, approval_ref, ontology_type, first_operation_id, created_by, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$14)")
-        .bind(plan_id).bind(*org.as_uuid()).bind(*request.branch_id.as_uuid()).bind(request.customer_demand_id).bind(request.product_code.trim()).bind(request.quantity).bind(request.due_at).bind(checks.clone()).bind(request.idempotency_key.trim()).bind(request.approval_ref).bind(request.ontology_type.trim()).bind(operation_id).bind(*principal.user_id.as_uuid()).bind(now).execute(&mut *tx).await.map_err(RestError::db)?;
+    let sources = resolve_required_sources(&mut tx, &request, *org.as_uuid()).await?;
+    sqlx::query("INSERT INTO production_plans (id, org_id, branch_id, customer_demand_id, product_code, quantity, due_at, checks, source_snapshot, idempotency_key, approval_ref, ontology_type_id, first_operation_id, created_by, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$16)")
+        .bind(plan_id).bind(*org.as_uuid()).bind(*request.branch_id.as_uuid()).bind(request.customer_demand_id).bind(&sources.product_code).bind(request.quantity).bind(request.due_at).bind(&sources.checks).bind(&sources.snapshot).bind(request.idempotency_key.trim()).bind(request.approval_ref).bind(request.ontology_type_id).bind(operation_id).bind(*principal.user_id.as_uuid()).bind(now).execute(&mut *tx).await.map_err(RestError::db)?;
     sqlx::query("INSERT INTO production_operations (id, org_id, plan_id, sequence, status) VALUES ($1,$2,$3,1,'PENDING')").bind(operation_id).bind(*org.as_uuid()).bind(plan_id).execute(&mut *tx).await.map_err(RestError::db)?;
-    event(&mut tx, *org.as_uuid(), plan_id, principal.user_id.as_uuid(), "PLAN_CREATED", serde_json::json!({"checks": checks, "customer_demand_id": request.customer_demand_id, "ontology_type": request.ontology_type})).await?;
+    event(
+        &mut tx,
+        *org.as_uuid(),
+        plan_id,
+        principal.user_id.as_uuid(),
+        "PLAN_CREATED",
+        sources.snapshot,
+    )
+    .await?;
+    let plan = PlanSummary {
+        id: plan_id,
+        branch_id: *request.branch_id.as_uuid(),
+        customer_demand_id: request.customer_demand_id,
+        product_code: sources.product_code,
+        quantity: request.quantity,
+        status: "DRAFT".to_owned(),
+        version: 1,
+        first_operation_id: operation_id,
+        created_at: now,
+        due_at: request.due_at,
+    };
+    sqlx::query("UPDATE production_idempotency_claims SET response=$1,completed_at=now() WHERE org_id=$2 AND operation='CREATE_PLAN' AND idempotency_key=$3")
+        .bind(serde_json::to_value(&plan).map_err(|_| RestError::internal("could not serialize idempotency response"))?)
+        .bind(*org.as_uuid()).bind(request.idempotency_key.trim()).execute(&mut *tx).await.map_err(RestError::db)?;
     tx.commit().await.map_err(RestError::db)?;
-    let plan = plan_for_auth(&state.pool, plan_id).await?;
-    Ok((StatusCode::CREATED, Json(plan_summary_from_plan(&plan))))
+    Ok((StatusCode::CREATED, Json(plan)))
 }
 
 async fn release_plan(
@@ -261,14 +346,22 @@ async fn release_plan(
         .map_err(|_| RestError::internal("tenant context is missing"))?;
     let mut tx = state.pool.begin().await.map_err(RestError::db)?;
     arm_tenant(&mut tx, *org.as_uuid()).await?;
-    let duplicate =
-        sqlx::query("SELECT 1 FROM production_plan_events WHERE plan_id=$1 AND idempotency_key=$2")
-            .bind(plan_id)
-            .bind(request.idempotency_key.trim())
-            .fetch_optional(&mut *tx)
-            .await
-            .map_err(RestError::db)?;
-    if duplicate.is_none() {
+    let request_hash = hash_request(&(plan_id, &request))?;
+    if let Some(response) = claim_or_replay(
+        &mut tx,
+        *org.as_uuid(),
+        "RELEASE_PLAN",
+        request.idempotency_key.trim(),
+        &request_hash,
+    )
+    .await?
+    {
+        let plan: PlanSummary = serde_json::from_value(response)
+            .map_err(|_| RestError::internal("stored idempotency response is invalid"))?;
+        tx.commit().await.map_err(RestError::db)?;
+        return Ok(Json(plan));
+    }
+    {
         let updated = sqlx::query("UPDATE production_plans SET status='RELEASED', version=version+1, updated_at=now(), released_at=now(), released_by=$1 WHERE id=$2 AND status='DRAFT' AND version=$3").bind(*principal.user_id.as_uuid()).bind(plan_id).bind(request.expected_version).execute(&mut *tx).await.map_err(RestError::db)?;
         if updated.rows_affected() != 1 {
             return Err(RestError::conflict(
@@ -287,8 +380,16 @@ async fn release_plan(
         )
         .await?;
     }
+    let plan = plan_for_auth_tx(&mut tx, plan_id).await?;
+    store_claim_response(
+        &mut tx,
+        *org.as_uuid(),
+        "RELEASE_PLAN",
+        request.idempotency_key.trim(),
+        &plan_summary_from_plan(&plan),
+    )
+    .await?;
     tx.commit().await.map_err(RestError::db)?;
-    let plan = plan_for_auth(&state.pool, plan_id).await?;
     Ok(Json(plan_summary_from_plan(&plan)))
 }
 
@@ -321,14 +422,22 @@ async fn record_operation(
         .map_err(|_| RestError::internal("tenant context is missing"))?;
     let mut tx = state.pool.begin().await.map_err(RestError::db)?;
     arm_tenant(&mut tx, *org.as_uuid()).await?;
-    let duplicate =
-        sqlx::query("SELECT 1 FROM production_plan_events WHERE plan_id=$1 AND idempotency_key=$2")
-            .bind(plan_id)
-            .bind(request.idempotency_key.trim())
-            .fetch_optional(&mut *tx)
-            .await
-            .map_err(RestError::db)?;
-    if duplicate.is_none() {
+    let request_hash = hash_request(&(plan_id, operation_id, &request))?;
+    if let Some(response) = claim_or_replay(
+        &mut tx,
+        *org.as_uuid(),
+        "RECORD_OPERATION",
+        request.idempotency_key.trim(),
+        &request_hash,
+    )
+    .await?
+    {
+        let operation: OperationDetail = serde_json::from_value(response)
+            .map_err(|_| RestError::internal("stored idempotency response is invalid"))?;
+        tx.commit().await.map_err(RestError::db)?;
+        return Ok(Json(operation));
+    }
+    {
         let updated = sqlx::query("UPDATE production_operations SET output_quantity=output_quantity+$1, scrap_quantity=scrap_quantity+$2, downtime_minutes=downtime_minutes+$3, quality_evidence_ref=$4, quality_passed=$5, status='RECORDED', version=version+1 WHERE id=$6 AND plan_id=$7 AND status='RELEASED' AND version=$8").bind(request.output_quantity).bind(request.scrap_quantity).bind(request.downtime_minutes).bind(request.quality_evidence_ref.trim()).bind(request.quality_passed).bind(operation_id).bind(plan_id).bind(request.expected_version).execute(&mut *tx).await.map_err(RestError::db)?;
         if updated.rows_affected() != 1 {
             return Err(RestError::conflict(
@@ -337,8 +446,17 @@ async fn record_operation(
         }
         event_with_key(&mut tx, *org.as_uuid(), plan_id, principal.user_id.as_uuid(), "OPERATION_RECORDED", serde_json::json!({"operation_id": operation_id, "output_quantity": request.output_quantity, "scrap_quantity": request.scrap_quantity, "downtime_minutes": request.downtime_minutes, "quality_evidence_ref": request.quality_evidence_ref, "quality_passed": request.quality_passed, "note": request.note}), request.idempotency_key.trim()).await?;
     }
+    let operation = operation_detail_tx(&mut tx, operation_id).await?;
+    store_claim_response(
+        &mut tx,
+        *org.as_uuid(),
+        "RECORD_OPERATION",
+        request.idempotency_key.trim(),
+        &operation,
+    )
+    .await?;
     tx.commit().await.map_err(RestError::db)?;
-    operation_detail(&state.pool, operation_id).await.map(Json)
+    Ok(Json(operation))
 }
 
 async fn get_plan(
@@ -392,13 +510,109 @@ struct PlanRow {
     due_at: OffsetDateTime,
     checks: serde_json::Value,
 }
+struct ResolvedSources {
+    product_code: String,
+    checks: serde_json::Value,
+    snapshot: serde_json::Value,
+}
+
+/// Resolves every planning prerequisite from its owning tenant store under the
+/// same transaction as the capacity reservation. A missing or stale source is
+/// an availability failure, never a caller-controlled green check.
+async fn resolve_required_sources(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    request: &CreatePlan,
+    org_id: Uuid,
+) -> Result<ResolvedSources, RestError> {
+    let demand = sqlx::query(
+        "SELECT id, updated_at FROM customer_inquiries WHERE id=$1 AND status <> 'CLOSED'",
+    )
+    .bind(request.customer_demand_id)
+    .fetch_optional(&mut **tx)
+    .await
+    .map_err(RestError::db)?
+    .ok_or_else(|| RestError::unavailable("customer demand source is unavailable"))?;
+    let material = sqlx::query("SELECT id, iv_code, quantity_on_hand_milli, safety_stock_milli, updated_at FROM inventory_items WHERE id=$1 AND branch_id=$2 AND status='ACTIVE' FOR SHARE")
+        .bind(request.material_item_id).bind(*request.branch_id.as_uuid()).fetch_optional(&mut **tx).await.map_err(RestError::db)?
+        .ok_or_else(|| RestError::unavailable("material source is unavailable"))?;
+    let on_hand: i64 = material
+        .try_get("quantity_on_hand_milli")
+        .map_err(RestError::db)?;
+    let safety: i64 = material
+        .try_get("safety_stock_milli")
+        .map_err(RestError::db)?;
+    if on_hand <= safety {
+        return Err(RestError::unavailable(
+            "material source has no allocable stock",
+        ));
+    }
+    let capacity = sqlx::query("SELECT id, available_quantity, reserved_quantity, version, source_ref, evaluated_at FROM production_capacity_slots WHERE id=$1 AND branch_id=$2 AND capacity_date = $3::date FOR UPDATE")
+        .bind(request.capacity_slot_id).bind(*request.branch_id.as_uuid()).bind(request.due_at.date()).fetch_optional(&mut **tx).await.map_err(RestError::db)?
+        .ok_or_else(|| RestError::unavailable("capacity source is unavailable"))?;
+    let available: i64 = capacity
+        .try_get("available_quantity")
+        .map_err(RestError::db)?;
+    let reserved: i64 = capacity
+        .try_get("reserved_quantity")
+        .map_err(RestError::db)?;
+    if available - reserved < request.quantity {
+        return Err(RestError::unavailable(
+            "capacity source has insufficient available quantity",
+        ));
+    }
+    let staffing: i64 = sqlx::query_scalar("SELECT count(*) FROM users u JOIN user_branches ub ON ub.user_id=u.id AND ub.org_id=u.org_id WHERE ub.branch_id=$1 AND u.is_active=true")
+        .bind(*request.branch_id.as_uuid()).fetch_one(&mut **tx).await.map_err(RestError::db)?;
+    if staffing < 1 {
+        return Err(RestError::unavailable(
+            "staffing source has no active assignee",
+        ));
+    }
+    let approval =
+        sqlx::query("SELECT id, decided_at FROM gov_approvals WHERE id=$1 AND decision='approved'")
+            .bind(request.approval_ref)
+            .fetch_optional(&mut **tx)
+            .await
+            .map_err(RestError::db)?
+            .ok_or_else(|| RestError::unavailable("approval source is unavailable"))?;
+    let ontology = sqlx::query("SELECT id, stable_key, schema_version, updated_at FROM ont_object_types WHERE id=$1 AND lifecycle_state='published'")
+        .bind(request.ontology_type_id).fetch_optional(&mut **tx).await.map_err(RestError::db)?
+        .ok_or_else(|| RestError::unavailable("ontology source is unavailable"))?;
+    let capacity_version: i32 = capacity.try_get("version").map_err(RestError::db)?;
+    let updated = sqlx::query("UPDATE production_capacity_slots SET reserved_quantity=reserved_quantity+$1, version=version+1, updated_at=now() WHERE id=$2 AND org_id=$3 AND version=$4")
+        .bind(request.quantity).bind(request.capacity_slot_id).bind(org_id).bind(capacity_version).execute(&mut **tx).await.map_err(RestError::db)?;
+    if updated.rows_affected() != 1 {
+        return Err(RestError::conflict(
+            "capacity source changed while reserving plan",
+        ));
+    }
+    let checks = serde_json::json!({"capacity_ok":true,"material_ok":true,"staffing_ok":true});
+    Ok(ResolvedSources {
+        product_code: material.try_get("iv_code").map_err(RestError::db)?,
+        checks,
+        snapshot: serde_json::json!({
+          "demand":{"id":demand.try_get::<Uuid,_>("id").map_err(RestError::db)?,"evaluated_at":demand.try_get::<OffsetDateTime,_>("updated_at").map_err(RestError::db)?},
+          "capacity":{"id":request.capacity_slot_id,"source_ref":capacity.try_get::<String,_>("source_ref").map_err(RestError::db)?,"version":capacity_version,"evaluated_at":capacity.try_get::<OffsetDateTime,_>("evaluated_at").map_err(RestError::db)?},
+          "material":{"id":request.material_item_id,"version":material.try_get::<OffsetDateTime,_>("updated_at").map_err(RestError::db)?,"evaluated_at":OffsetDateTime::now_utc()},
+          "staffing":{"active_count":staffing,"evaluated_at":OffsetDateTime::now_utc()},
+          "approval":{"id":request.approval_ref,"evaluated_at":approval.try_get::<OffsetDateTime,_>("decided_at").map_err(RestError::db)?},
+          "ontology":{"id":request.ontology_type_id,"stable_key":ontology.try_get::<String,_>("stable_key").map_err(RestError::db)?,"version":ontology.try_get::<i64,_>("schema_version").map_err(RestError::db)?,"evaluated_at":ontology.try_get::<OffsetDateTime,_>("updated_at").map_err(RestError::db)?}
+        }),
+    })
+}
 async fn plan_for_auth(pool: &PgPool, id: Uuid) -> Result<PlanRow, RestError> {
     let org = mnt_platform_request_context::current_org()
         .map_err(|_| RestError::internal("tenant context is missing"))?;
     let mut tx = pool.begin().await.map_err(RestError::db)?;
     arm_tenant(&mut tx, *org.as_uuid()).await?;
-    let r=sqlx::query("SELECT id,branch_id,customer_demand_id,product_code,quantity,status,version,first_operation_id,created_at,due_at,checks FROM production_plans WHERE id=$1").bind(id).fetch_optional(&mut *tx).await.map_err(RestError::db)?.ok_or_else(||RestError::not_found("production plan not found"))?;
+    let plan = plan_for_auth_tx(&mut tx, id).await?;
     tx.commit().await.map_err(RestError::db)?;
+    Ok(plan)
+}
+async fn plan_for_auth_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    id: Uuid,
+) -> Result<PlanRow, RestError> {
+    let r=sqlx::query("SELECT id,branch_id,customer_demand_id,product_code,quantity,status,version,first_operation_id,created_at,due_at,checks FROM production_plans WHERE id=$1").bind(id).fetch_optional(&mut **tx).await.map_err(RestError::db)?.ok_or_else(||RestError::not_found("production plan not found"))?;
     Ok(PlanRow {
         id: r.try_get("id").map_err(RestError::db)?,
         branch_id: r.try_get("branch_id").map_err(RestError::db)?,
@@ -418,8 +632,15 @@ async fn operation_detail(pool: &PgPool, id: Uuid) -> Result<OperationDetail, Re
         .map_err(|_| RestError::internal("tenant context is missing"))?;
     let mut tx = pool.begin().await.map_err(RestError::db)?;
     arm_tenant(&mut tx, *org.as_uuid()).await?;
-    let r=sqlx::query("SELECT id,sequence,status,output_quantity,scrap_quantity,downtime_minutes,quality_evidence_ref,quality_passed,version FROM production_operations WHERE id=$1").bind(id).fetch_one(&mut *tx).await.map_err(RestError::db)?;
+    let operation = operation_detail_tx(&mut tx, id).await?;
     tx.commit().await.map_err(RestError::db)?;
+    Ok(operation)
+}
+async fn operation_detail_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    id: Uuid,
+) -> Result<OperationDetail, RestError> {
+    let r=sqlx::query("SELECT id,sequence,status,output_quantity,scrap_quantity,downtime_minutes,quality_evidence_ref,quality_passed,version FROM production_operations WHERE id=$1").bind(id).fetch_one(&mut **tx).await.map_err(RestError::db)?;
     Ok(OperationDetail {
         id: r.try_get("id").map_err(RestError::db)?,
         sequence: r.try_get("sequence").map_err(RestError::db)?,
@@ -444,6 +665,19 @@ fn plan_summary(r: sqlx::postgres::PgRow) -> Result<PlanSummary, RestError> {
         first_operation_id: r.try_get("first_operation_id").map_err(RestError::db)?,
         created_at: r.try_get("created_at").map_err(RestError::db)?,
         due_at: r.try_get("due_at").map_err(RestError::db)?,
+    })
+}
+fn capacity_slot(r: sqlx::postgres::PgRow) -> Result<CapacitySlot, RestError> {
+    Ok(CapacitySlot {
+        id: r.try_get("id").map_err(RestError::db)?,
+        branch_id: r.try_get("branch_id").map_err(RestError::db)?,
+        site_id: r.try_get("site_id").map_err(RestError::db)?,
+        capacity_date: r.try_get("capacity_date").map_err(RestError::db)?,
+        available_quantity: r.try_get("available_quantity").map_err(RestError::db)?,
+        reserved_quantity: r.try_get("reserved_quantity").map_err(RestError::db)?,
+        version: r.try_get("version").map_err(RestError::db)?,
+        source_ref: r.try_get("source_ref").map_err(RestError::db)?,
+        evaluated_at: r.try_get("evaluated_at").map_err(RestError::db)?,
     })
 }
 fn plan_summary_from_plan(plan: &PlanRow) -> PlanSummary {
@@ -504,15 +738,8 @@ async fn arm_tenant(
 }
 fn validate_create(r: &CreatePlan) -> Result<(), RestError> {
     valid_key(&r.idempotency_key)?;
-    if r.product_code.trim().is_empty()
-        || r.product_code.len() > 80
-        || r.quantity <= 0
-        || !r.checks.valid()
-        || r.ontology_type.trim().is_empty()
-    {
-        return Err(RestError::validation(
-            "product, positive quantity, complete checks, and ontology type are required",
-        ));
+    if r.quantity <= 0 {
+        return Err(RestError::validation("quantity must be positive"));
     }
     Ok(())
 }
@@ -524,6 +751,43 @@ fn valid_key(k: &str) -> Result<(), RestError> {
     } else {
         Ok(())
     }
+}
+fn hash_request<T: Serialize>(request: &T) -> Result<String, RestError> {
+    let encoded = serde_json::to_vec(request)
+        .map_err(|_| RestError::internal("could not canonicalize idempotency request"))?;
+    Ok(format!("{:x}", Sha256::digest(encoded)))
+}
+async fn claim_or_replay(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    org: Uuid,
+    operation: &str,
+    key: &str,
+    request_hash: &str,
+) -> Result<Option<serde_json::Value>, RestError> {
+    sqlx::query("INSERT INTO production_idempotency_claims (org_id,operation,idempotency_key,request_hash) VALUES ($1,$2,$3,$4) ON CONFLICT DO NOTHING")
+        .bind(org).bind(operation).bind(key).bind(request_hash).execute(&mut **tx).await.map_err(RestError::db)?;
+    let claim = sqlx::query("SELECT request_hash,response FROM production_idempotency_claims WHERE org_id=$1 AND operation=$2 AND idempotency_key=$3 FOR UPDATE")
+        .bind(org).bind(operation).bind(key).fetch_one(&mut **tx).await.map_err(RestError::db)?;
+    let stored_hash: String = claim.try_get("request_hash").map_err(RestError::db)?;
+    if stored_hash != request_hash {
+        return Err(RestError::conflict(
+            "idempotency key was already used for a different request",
+        ));
+    }
+    claim.try_get("response").map_err(RestError::db)
+}
+async fn store_claim_response<T: Serialize>(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    org: Uuid,
+    operation: &str,
+    key: &str,
+    response: &T,
+) -> Result<(), RestError> {
+    let response = serde_json::to_value(response)
+        .map_err(|_| RestError::internal("could not serialize idempotency response"))?;
+    sqlx::query("UPDATE production_idempotency_claims SET response=$1,completed_at=now() WHERE org_id=$2 AND operation=$3 AND idempotency_key=$4")
+        .bind(response).bind(org).bind(operation).bind(key).execute(&mut **tx).await.map_err(RestError::db)?;
+    Ok(())
 }
 async fn principal(
     state: &ProductionRestState,
@@ -561,6 +825,13 @@ impl RestError {
     fn internal(m: impl Into<String>) -> Self {
         Self {
             status: StatusCode::INTERNAL_SERVER_ERROR,
+            kind: ErrorKind::Internal,
+            message: m.into(),
+        }
+    }
+    fn unavailable(m: impl Into<String>) -> Self {
+        Self {
+            status: StatusCode::SERVICE_UNAVAILABLE,
             kind: ErrorKind::Internal,
             message: m.into(),
         }

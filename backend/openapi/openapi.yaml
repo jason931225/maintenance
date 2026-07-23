@@ -13556,16 +13556,37 @@ paths:
         in: query
         schema: {type: integer, minimum: 0, default: 0}
       responses:
-        '200': {description: Tenant- and branch-authorized production plans}
+        '200': {description: Tenant- and branch-authorized production plans, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/ProductionPlan'}}}}}
         '401': {$ref: '#/components/responses/Unauthorized'}
         '403': {$ref: '#/components/responses/Forbidden'}
     post:
       operationId: createProductionPlan
       tags: [Production]
       security: [{bearerAuth: []}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateProductionPlan'}}}}
       responses:
-        '201': {description: Draft plan and first operation created}
-        '200': {description: Idempotent replay returns the existing plan}
+        '201': {description: Draft plan and first operation created, content: {application/json: {schema: {$ref: '#/components/schemas/ProductionPlan'}}}}
+        '200': {description: Idempotent replay returns the existing plan, content: {application/json: {schema: {$ref: '#/components/schemas/ProductionPlan'}}}}
+        '409': {$ref: '#/components/responses/Conflict'}
+        '422': {$ref: '#/components/responses/ValidationError'}
+  /api/v1/production/capacity-slots:
+    get:
+      operationId: listProductionCapacitySlots
+      tags: [Production]
+      security: [{bearerAuth: []}]
+      parameters:
+      - {name: branch_id, in: query, required: true, schema: {$ref: '#/components/schemas/Uuid'}}
+      - {name: capacity_date, in: query, required: true, schema: {type: string, format: date}}
+      responses:
+        '200': {description: Tenant and branch scoped capacity slots, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/ProductionCapacitySlot'}}}}}
+    post:
+      operationId: createProductionCapacitySlot
+      tags: [Production]
+      security: [{bearerAuth: []}]
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateProductionCapacitySlot'}}}}
+      responses:
+        '201': {description: Capacity control-plane slot created, content: {application/json: {schema: {$ref: '#/components/schemas/ProductionCapacitySlot'}}}}
+        '409': {$ref: '#/components/responses/Conflict'}
         '422': {$ref: '#/components/responses/ValidationError'}
   /api/v1/production/plans/{plan_id}:
     get:
@@ -13578,7 +13599,7 @@ paths:
         required: true
         schema: {$ref: '#/components/schemas/Uuid'}
       responses:
-        '200': {description: Plan, first operation, checks, and durable lifecycle lineage}
+        '200': {description: Plan, first operation, checks, and durable lifecycle lineage, content: {application/json: {schema: {$ref: '#/components/schemas/ProductionPlanDetail'}}}}
         '404': {$ref: '#/components/responses/NotFound'}
   /api/v1/production/plans/{plan_id}/release:
     post:
@@ -13590,8 +13611,9 @@ paths:
         in: path
         required: true
         schema: {$ref: '#/components/schemas/Uuid'}
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ReleaseProductionPlan'}}}}
       responses:
-        '200': {description: Plan and first operation released exactly once}
+        '200': {description: Plan and first operation released exactly once, content: {application/json: {schema: {$ref: '#/components/schemas/ProductionPlan'}}}}
         '409': {$ref: '#/components/responses/Conflict'}
   /api/v1/production/plans/{plan_id}/operations/{operation_id}/records:
     post:
@@ -13607,8 +13629,9 @@ paths:
         in: path
         required: true
         schema: {$ref: '#/components/schemas/Uuid'}
+      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/RecordProductionOperation'}}}}
       responses:
-        '200': {description: Output, scrap, downtime, and quality evidence recorded idempotently}
+        '200': {description: Output, scrap, downtime, and quality evidence recorded idempotently, content: {application/json: {schema: {$ref: '#/components/schemas/ProductionOperation'}}}}
         '409': {$ref: '#/components/responses/Conflict'}
 components:
   securitySchemes:
@@ -27682,3 +27705,92 @@ components:
         offset:
           type: integer
           format: int64
+    ProductionPlan:
+      type: object
+      required: [id, branch_id, customer_demand_id, product_code, quantity, status, version, first_operation_id, created_at, due_at]
+      properties:
+        id: {$ref: '#/components/schemas/Uuid'}
+        branch_id: {$ref: '#/components/schemas/Uuid'}
+        customer_demand_id: {$ref: '#/components/schemas/Uuid'}
+        product_code: {type: string}
+        quantity: {type: integer, format: int64}
+        status: {type: string, enum: [DRAFT, RELEASED]}
+        version: {type: integer}
+        first_operation_id: {$ref: '#/components/schemas/Uuid'}
+        created_at: {type: string, format: date-time}
+        due_at: {type: string, format: date-time}
+    ProductionCapacitySlot:
+      type: object
+      required: [id, branch_id, site_id, capacity_date, available_quantity, reserved_quantity, version, source_ref, evaluated_at]
+      properties:
+        id: {$ref: '#/components/schemas/Uuid'}
+        branch_id: {$ref: '#/components/schemas/Uuid'}
+        site_id: {$ref: '#/components/schemas/Uuid'}
+        capacity_date: {type: string, format: date}
+        available_quantity: {type: integer, format: int64}
+        reserved_quantity: {type: integer, format: int64}
+        version: {type: integer}
+        source_ref: {type: string}
+        evaluated_at: {type: string, format: date-time}
+    CreateProductionCapacitySlot:
+      type: object
+      required: [branch_id, site_id, capacity_date, available_quantity, source_ref]
+      properties:
+        branch_id: {$ref: '#/components/schemas/Uuid'}
+        site_id: {$ref: '#/components/schemas/Uuid'}
+        capacity_date: {type: string, format: date}
+        available_quantity: {type: integer, format: int64, minimum: 1}
+        source_ref: {type: string, minLength: 1, maxLength: 160}
+    ProductionOperation:
+      type: object
+      required: [id, sequence, status, output_quantity, scrap_quantity, downtime_minutes, version]
+      properties:
+        id: {$ref: '#/components/schemas/Uuid'}
+        sequence: {type: integer}
+        status: {type: string, enum: [PENDING, RELEASED, RECORDED]}
+        output_quantity: {type: integer, format: int64}
+        scrap_quantity: {type: integer, format: int64}
+        downtime_minutes: {type: integer}
+        quality_evidence_ref: {type: [string, 'null']}
+        quality_passed: {type: [boolean, 'null']}
+        version: {type: integer}
+    ProductionPlanDetail:
+      allOf:
+      - $ref: '#/components/schemas/ProductionPlan'
+      - type: object
+        required: [checks, events, operation]
+        properties:
+          checks: {type: object, additionalProperties: true}
+          events: {type: array, items: {type: object, required: [id, event_type, actor_id, payload, occurred_at], properties: {id: {$ref: '#/components/schemas/Uuid'}, event_type: {type: string}, actor_id: {$ref: '#/components/schemas/Uuid'}, payload: {type: object, additionalProperties: true}, occurred_at: {type: string, format: date-time}}}}
+          operation: {$ref: '#/components/schemas/ProductionOperation'}
+    CreateProductionPlan:
+      type: object
+      required: [branch_id, customer_demand_id, capacity_slot_id, material_item_id, quantity, due_at, approval_ref, ontology_type_id, idempotency_key]
+      properties:
+        branch_id: {$ref: '#/components/schemas/Uuid'}
+        customer_demand_id: {$ref: '#/components/schemas/Uuid'}
+        capacity_slot_id: {$ref: '#/components/schemas/Uuid'}
+        material_item_id: {$ref: '#/components/schemas/Uuid'}
+        quantity: {type: integer, format: int64, minimum: 1}
+        due_at: {type: string, format: date-time}
+        approval_ref: {$ref: '#/components/schemas/Uuid'}
+        ontology_type_id: {$ref: '#/components/schemas/Uuid'}
+        idempotency_key: {type: string, minLength: 1, maxLength: 128}
+    ReleaseProductionPlan:
+      type: object
+      required: [expected_version, idempotency_key]
+      properties:
+        expected_version: {type: integer, minimum: 1}
+        idempotency_key: {type: string, minLength: 1, maxLength: 128}
+    RecordProductionOperation:
+      type: object
+      required: [expected_version, idempotency_key, output_quantity, scrap_quantity, downtime_minutes, quality_evidence_ref, quality_passed, note]
+      properties:
+        expected_version: {type: integer, minimum: 1}
+        idempotency_key: {type: string, minLength: 1, maxLength: 128}
+        output_quantity: {type: integer, format: int64, minimum: 0}
+        scrap_quantity: {type: integer, format: int64, minimum: 0}
+        downtime_minutes: {type: integer, minimum: 0}
+        quality_evidence_ref: {type: string, minLength: 1}
+        quality_passed: {type: boolean}
+        note: {type: string, maxLength: 500}
