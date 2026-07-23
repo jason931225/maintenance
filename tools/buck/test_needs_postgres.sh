@@ -5,13 +5,18 @@ set -euo pipefail
 repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 postgres_image="postgres:18.4@sha256:65f70a152846cf504dff86e807007e9aeac98c3aeb7b62541b2c55ab9d264e56"
 container_name="mnt-buck-postgres-${USER:-user}-$$"
-isolation_dir="$(mktemp -d "${TMPDIR:-/tmp}/mnt-buck-postgres.XXXXXX")"
 buck_bin="${MNT_BUCK_NEEDS_POSTGRES_TEST_BUCK:-${repo_root}/tools/buck2}"
+safe_user="${USER:-user}"
+safe_user="${safe_user//[^[:alnum:]_.-]/_}"
+isolation_name="mnt-buck-postgres-${safe_user}-$$"
 database="mnt_buck_test_$$"
 
 cleanup() {
+  local status=$?
+  # BUCK_ISOLATION_DIR confines this kill to this harness's daemon only.
+  BUCK_ISOLATION_DIR="${isolation_name}" "${buck_bin}" kill >/dev/null 2>&1 || true
   docker rm -f "${container_name}" >/dev/null 2>&1 || true
-  rm -rf "${isolation_dir}"
+  return "${status}"
 }
 trap cleanup EXIT HUP INT TERM
 
@@ -76,5 +81,5 @@ if [[ ! "${port}" =~ ^[0-9]+$ ]]; then
 fi
 database_url="postgres://mnt_buck_admin:${admin_password}@127.0.0.1:${port}/${database}"
 
-BUCK_ISOLATION_DIR="${isolation_dir}" "${buck_bin}" test --local-only "$@" \
+BUCK_ISOLATION_DIR="${isolation_name}" "${buck_bin}" test --local-only "$@" \
   -- --env "DATABASE_URL=${database_url}" --env RUST_TEST_THREADS=1
