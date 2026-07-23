@@ -178,6 +178,17 @@ pub enum Feature {
     BenefitCatalogRead,
     /// Create and maintain tenant benefit-catalog rows, tiers, and conditions.
     BenefitCatalogManage,
+    /// Read the tenant compliance domain (regulations, obligations, frameworks,
+    /// and controls). Org-wide catalog rows require an org-wide principal;
+    /// branch-scoped obligations are separately authorized at their branch.
+    ComplianceDomainRead,
+    /// Create tenant compliance-domain rows and append compliance relations.
+    /// Org-wide resources require org-wide authorization.
+    ComplianceDomainManage,
+    /// Link evidence to a compliance control or obligation. This is separate
+    /// from generic work-report evidence attachment because it changes the
+    /// audited compliance evidence register.
+    ComplianceEvidenceLink,
     /// Permission metadata for the future AI assistant seam. T0.6 requires the
     /// 22-feature matrix; this does not implement an AI adapter or demo mode.
     AiAssist,
@@ -254,7 +265,7 @@ pub enum Feature {
 }
 
 impl Feature {
-    pub const ALL: [Self; 62] = [
+    pub const ALL: [Self; 65] = [
         Self::Login,
         Self::WorkOrderCreate,
         Self::WorkOrderEditIntake,
@@ -300,6 +311,9 @@ impl Feature {
         Self::InventoryReorder,
         Self::BenefitCatalogRead,
         Self::BenefitCatalogManage,
+        Self::ComplianceDomainRead,
+        Self::ComplianceDomainManage,
+        Self::ComplianceEvidenceLink,
         Self::AiAssist,
         Self::IntegrityFindingsRead,
         Self::IntegrityFindingTriage,
@@ -367,6 +381,9 @@ impl Feature {
             Self::InventoryReorder => "inventory_reorder",
             Self::BenefitCatalogRead => "benefit_catalog_read",
             Self::BenefitCatalogManage => "benefit_catalog_manage",
+            Self::ComplianceDomainRead => "compliance_domain_read",
+            Self::ComplianceDomainManage => "compliance_domain_manage",
+            Self::ComplianceEvidenceLink => "compliance_evidence_link",
             Self::AiAssist => "ai_assist",
             Self::IntegrityFindingsRead => "integrity_findings_read",
             Self::IntegrityFindingTriage => "integrity_finding_triage",
@@ -449,6 +466,13 @@ impl Feature {
             // executives can read org-wide catalog state for policy oversight.
             Self::BenefitCatalogRead => [D, D, D, A, A, A],
             Self::BenefitCatalogManage => [D, D, D, A, D, A],
+            // Compliance's org-owned catalog objects are additionally guarded
+            // by the REST boundary's org-wide scope check. The ADMIN cells keep
+            // branch-scoped obligation work available without granting an
+            // arbitrary branch an org-wide regulation/framework/evidence view.
+            Self::ComplianceDomainRead => [D, D, D, A, A, A],
+            Self::ComplianceDomainManage => [D, D, D, A, D, A],
+            Self::ComplianceEvidenceLink => [D, D, D, A, D, A],
             Self::AiAssist => [D, A, A, A, A, A],
             // Integrity findings are labor-law sensitive: ADMIN must not read
             // findings about themselves. EXECUTIVE + SUPER_ADMIN only.
@@ -542,6 +566,9 @@ impl FromStr for Feature {
             "inventory_reorder" => Ok(Self::InventoryReorder),
             "benefit_catalog_read" => Ok(Self::BenefitCatalogRead),
             "benefit_catalog_manage" => Ok(Self::BenefitCatalogManage),
+            "compliance_domain_read" => Ok(Self::ComplianceDomainRead),
+            "compliance_domain_manage" => Ok(Self::ComplianceDomainManage),
+            "compliance_evidence_link" => Ok(Self::ComplianceEvidenceLink),
             "ai_assist" => Ok(Self::AiAssist),
             "integrity_findings_read" => Ok(Self::IntegrityFindingsRead),
             "integrity_finding_triage" => Ok(Self::IntegrityFindingTriage),

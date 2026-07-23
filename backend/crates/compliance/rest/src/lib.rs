@@ -354,43 +354,55 @@ struct ErrorPayload {
     message: String,
 }
 
-// Compliance catalog routes deliberately reuse the already-authoritative policy
-// tier closest to tenant policy catalog administration. They do not overload
-// integrity findings: catalog mutation is a different business capability.
+/// Compliance catalog authorization distinguishes tenant-wide rows from
+/// branch-scoped obligations. Never authorize a tenant-wide resource against an
+/// arbitrary branch from a multi-branch principal.
 fn require_compliance_read(principal: &Principal) -> Result<(), RestError> {
-    require_catalog_feature(principal, Feature::BenefitCatalogRead)
+    require_org_catalog_feature(principal, Feature::ComplianceDomainRead)
 }
 
 fn require_compliance_manage(principal: &Principal) -> Result<(), RestError> {
-    require_catalog_feature(principal, Feature::BenefitCatalogManage)
+    require_org_catalog_feature(principal, Feature::ComplianceDomainManage)
 }
 
-fn require_catalog_feature(principal: &Principal, feature: Feature) -> Result<(), RestError> {
+fn require_compliance_evidence_link(principal: &Principal) -> Result<(), RestError> {
+    require_org_catalog_feature(principal, Feature::ComplianceEvidenceLink)
+}
+
+fn require_org_catalog_feature(principal: &Principal, feature: Feature) -> Result<(), RestError> {
     match &principal.branch_scope {
         BranchScope::All => authorize_org_wide(principal, Action::new(feature)),
-        BranchScope::Branches(branches) => branches
-            .iter()
-            .next()
-            .copied()
-            .ok_or_else(|| KernelError::forbidden("principal has no branch scope"))
-            .and_then(|branch_id| authorize(principal, Action::new(feature), branch_id)),
+        BranchScope::Branches(_) => Err(KernelError::forbidden(
+            "org-wide compliance catalog access requires an org-wide principal",
+        )),
     }
     .map_err(RestError::from_kernel)
+}
+
+fn require_branch_compliance_feature(
+    principal: &Principal,
+    feature: Feature,
+    branch_id: BranchId,
+) -> Result<(), RestError> {
+    authorize(principal, Action::new(feature), branch_id).map_err(RestError::from_kernel)
 }
 
 fn catalog_page(page: CatalogPageQuery) -> Result<PageRequest, RestError> {
     PageRequest::new(page.limit, page.offset).map_err(RestError::from_kernel)
 }
 
-fn require_scope_branch(principal: &Principal, scope: ComplianceScope) -> Result<(), RestError> {
+fn require_obligation_scope_manage(
+    principal: &Principal,
+    scope: ComplianceScope,
+) -> Result<(), RestError> {
     if let Some(branch_id) = scope.branch_id {
-        if !principal.branch_scope.allows(branch_id) {
-            return Err(RestError::from_kernel(KernelError::forbidden(
-                "obligation scope branch is outside principal scope",
-            )));
-        }
+        return require_branch_compliance_feature(
+            principal,
+            Feature::ComplianceDomainManage,
+            branch_id,
+        );
     }
-    Ok(())
+    require_compliance_manage(principal)
 }
 
 async fn list_regulations(
@@ -453,13 +465,12 @@ async fn list_obligations(
     Query(query): Query<ObligationQuery>,
 ) -> Result<Json<mnt_compliance_application::ComplianceObligationPage>, RestError> {
     let principal = principal_from_headers(&state, &headers).await?;
-    require_compliance_read(&principal)?;
     if let Some(branch_id) = query.branch_id {
-        if !principal.branch_scope.allows(branch_id) {
-            return Err(RestError::from_kernel(KernelError::forbidden(
-                "requested branch is outside principal scope",
-            )));
-        }
+        require_branch_compliance_feature(&principal, Feature::ComplianceDomainRead, branch_id)?;
+    } else {
+        // Without a branch predicate this store query can return every
+        // obligation in the tenant, including branch-scoped rows.
+        require_compliance_read(&principal)?;
     }
     let q = query.page.q.clone();
     let page = catalog_page(query.page)?;
@@ -486,8 +497,7 @@ async fn create_obligation(
     Json(body): Json<CreateObligationRequest>,
 ) -> Result<Json<mnt_compliance_domain::ComplianceObligation>, RestError> {
     let principal = principal_from_headers(&state, &headers).await?;
-    require_compliance_manage(&principal)?;
-    require_scope_branch(&principal, body.scope)?;
+    require_obligation_scope_manage(&principal, body.scope)?;
     let regulation_links = body
         .regulation_links
         .into_iter()
@@ -729,7 +739,7 @@ async fn create_evidence_binding(
     Json(body): Json<CreateEvidenceBindingRequest>,
 ) -> Result<Json<mnt_compliance_domain::EvidenceBinding>, RestError> {
     let principal = principal_from_headers(&state, &headers).await?;
-    require_compliance_manage(&principal)?;
+    require_compliance_evidence_link(&principal)?;
     let result = state
         .store
         .create_evidence_binding(CreateEvidenceBindingCommand {
