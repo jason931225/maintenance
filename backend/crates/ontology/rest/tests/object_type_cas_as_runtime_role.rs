@@ -8,11 +8,12 @@
 use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode, header};
 use mnt_governance_adapter_postgres::PgGovernanceStore;
-use mnt_kernel_core::{OrgId, UserId};
+use mnt_kernel_core::{OrgId, TraceContext, UserId};
 use mnt_ontology_adapter_postgres::PgOntologyStore;
-use mnt_ontology_adapter_postgres::instances::PgInstanceStore;
+use mnt_ontology_adapter_postgres::instances::{CreateInstance, PgInstanceStore};
 use mnt_ontology_rest::{OntologyRestState, router};
 use mnt_platform_auth::{AccessTokenInput, JwtIssuer, JwtSettings, JwtVerifier};
+use mnt_platform_request_context::scope_org;
 use mnt_platform_test_support::{runtime_role_pool, seed_org_and_super_admin};
 use p256::ecdsa::SigningKey;
 use p256::elliptic_curve::rand_core::OsRng;
@@ -22,10 +23,13 @@ use sqlx::PgPool;
 use sqlx::postgres::PgPoolOptions;
 use time::{Duration, OffsetDateTime};
 use tower::ServiceExt;
+use uuid::Uuid;
 
 const TEST_ISSUER: &str = "mnt-platform-auth";
 const TEST_AUDIENCE: &str = "mnt-api";
 const KEY: &str = "cas.http.proof";
+const POLICY_KEY: &str = "policycase";
+const ORG_B: Uuid = Uuid::from_u128(0x5555_5555_5555_5555_5555_5555_5555_5555);
 
 struct TestAuth {
     token: String,
@@ -199,6 +203,443 @@ async fn object_type_cas_is_enforced_by_the_real_router(owner_pool: PgPool) {
         );
     }
     assert_eq!(stored_state(&owner_pool, org).await, after_winner);
+}
+
+/// The list endpoint must compose the caller's request context, the RLS tenant
+/// floor, and the enforced object-policy residual. This test deliberately uses
+/// the HTTP router rather than invoking the adapter primitive directly.
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn instance_list_composes_enforced_permit_forbid_and_tenant_scope(owner_pool: PgPool) {
+    let org = OrgId::knl();
+    let actor = seed_org_and_super_admin(&owner_pool, *org.as_uuid(), "ontology-list-http").await;
+    let auth = test_auth(actor, org);
+    let runtime_pool = runtime_role_pool(&owner_pool).await;
+    let command_pool = command_role_pool(&owner_pool).await;
+    let service = router(OntologyRestState::new(
+        PgOntologyStore::new(runtime_pool.clone()).with_command_pool(command_pool),
+        PgInstanceStore::new(runtime_pool.clone()),
+        PgGovernanceStore::new(runtime_pool.clone()),
+        Some(auth.verifier),
+    ));
+
+    let created = request_json(
+        service.clone(),
+        "POST",
+        "/api/v1/ontology/object-types",
+        &auth.token,
+        None,
+        policy_draft(POLICY_KEY),
+    )
+    .await;
+    assert_eq!(created.status, StatusCode::CREATED, "{:?}", created.body);
+    let type_id = created_object_type_id(&created.body);
+
+    seed_instance(
+        &runtime_pool,
+        org,
+        actor,
+        type_id,
+        "visible-to-owner",
+        json!({ "owner": actor.to_string(), "flagged": false }),
+    )
+    .await;
+    seed_instance(
+        &runtime_pool,
+        org,
+        actor,
+        type_id,
+        "hidden-by-forbid",
+        json!({ "owner": actor.to_string(), "flagged": true }),
+    )
+    .await;
+    seed_instance(
+        &runtime_pool,
+        org,
+        actor,
+        type_id,
+        "hidden-other-owner",
+        json!({ "owner": "another-user", "flagged": false }),
+    )
+    .await;
+
+    attach_enforced_policy(
+        &owner_pool,
+        org,
+        type_id,
+        "policy.owner_permit",
+        "permit",
+        owner_permit_blocks(POLICY_KEY),
+    )
+    .await;
+    attach_enforced_policy(
+        &owner_pool,
+        org,
+        type_id,
+        "policy.flagged_forbid",
+        "forbid",
+        flagged_forbid_blocks(POLICY_KEY),
+    )
+    .await;
+
+    let permitted = request_json(
+        service.clone(),
+        "GET",
+        &format!("/api/v1/ontology/instances?type={type_id}"),
+        &auth.token,
+        None,
+        Value::Null,
+    )
+    .await;
+    assert_eq!(permitted.status, StatusCode::OK, "{:?}", permitted.body);
+    assert_instance_titles(&permitted.body, &["visible-to-owner"]);
+
+    // A second org's type and instance are created through the real runtime role.
+    // Supplying its UUID through an Org-A JWT must yield a not-found response,
+    // rather than a list response that can disclose rows or counts.
+    let org_b = OrgId::from_uuid(ORG_B);
+    let actor_b = seed_org_and_super_admin(&owner_pool, ORG_B, "ontology-list-http-b").await;
+    let type_b = seed_object_type(&owner_pool, org_b, actor_b, "otherpolicycase").await;
+    seed_instance(
+        &runtime_pool,
+        org_b,
+        actor_b,
+        type_b,
+        "cross-tenant-secret",
+        json!({ "owner": actor_b.to_string(), "flagged": false }),
+    )
+    .await;
+    let cross_tenant = request_json(
+        service.clone(),
+        "GET",
+        &format!("/api/v1/ontology/instances?type={type_b}"),
+        &auth.token,
+        None,
+        Value::Null,
+    )
+    .await;
+    assert_eq!(cross_tenant.status, StatusCode::NOT_FOUND);
+    assert!(!body_text(&cross_tenant.body).contains("cross-tenant-secret"));
+
+    // An unconditional forbid must win over the matching permit and return an
+    // empty array (never a count-bearing response).
+    attach_enforced_policy(
+        &owner_pool,
+        org,
+        type_id,
+        "policy.global_forbid",
+        "forbid",
+        json!({
+            "effect": "forbid",
+            "action": "view",
+            "resource_type": POLICY_KEY,
+            "conditions": []
+        }),
+    )
+    .await;
+    let denied = request_json(
+        service,
+        "GET",
+        &format!("/api/v1/ontology/instances?type={type_id}"),
+        &auth.token,
+        None,
+        Value::Null,
+    )
+    .await;
+    assert_eq!(denied.status, StatusCode::OK, "{:?}", denied.body);
+    assert_eq!(denied.body, json!([]));
+    assert!(!body_text(&denied.body).contains("visible-to-owner"));
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn instance_list_fails_closed_for_unsupported_or_malformed_enforced_policy(
+    owner_pool: PgPool,
+) {
+    let org = OrgId::knl();
+    let actor =
+        seed_org_and_super_admin(&owner_pool, *org.as_uuid(), "ontology-list-invalid").await;
+    let auth = test_auth(actor, org);
+    let runtime_pool = runtime_role_pool(&owner_pool).await;
+    let service = router(OntologyRestState::new(
+        PgOntologyStore::new(runtime_pool.clone())
+            .with_command_pool(command_role_pool(&owner_pool).await),
+        PgInstanceStore::new(runtime_pool.clone()),
+        PgGovernanceStore::new(runtime_pool.clone()),
+        Some(auth.verifier),
+    ));
+    let created = request_json(
+        service.clone(),
+        "POST",
+        "/api/v1/ontology/object-types",
+        &auth.token,
+        None,
+        policy_draft(POLICY_KEY),
+    )
+    .await;
+    assert_eq!(created.status, StatusCode::CREATED, "{:?}", created.body);
+    let type_id = created_object_type_id(&created.body);
+    seed_instance(
+        &runtime_pool,
+        org,
+        actor,
+        type_id,
+        "must-not-leak",
+        json!({ "owner": actor.to_string(), "flagged": false }),
+    )
+    .await;
+    attach_enforced_policy(
+        &owner_pool,
+        org,
+        type_id,
+        "policy.base_permit",
+        "permit",
+        owner_permit_blocks(POLICY_KEY),
+    )
+    .await;
+    attach_enforced_policy(
+        &owner_pool,
+        org,
+        type_id,
+        "policy.unsupported_contains",
+        "forbid",
+        json!({
+            "effect": "forbid",
+            "action": "view",
+            "resource_type": POLICY_KEY,
+            "conditions": [{
+                "attr": "roles",
+                "op": "contains",
+                "value": { "kind": "literal", "value": "SUPER_ADMIN" }
+            }]
+        }),
+    )
+    .await;
+    let unsupported = request_json(
+        service.clone(),
+        "GET",
+        &format!("/api/v1/ontology/instances?type={type_id}"),
+        &auth.token,
+        None,
+        Value::Null,
+    )
+    .await;
+    assert_eq!(unsupported.status, StatusCode::OK, "{:?}", unsupported.body);
+    assert_eq!(unsupported.body, json!([]));
+
+    // Corrupt persisted JSON is not silently skipped: the route returns its
+    // opaque internal error before it can issue an unfiltered instance query.
+    attach_enforced_policy(
+        &owner_pool,
+        org,
+        type_id,
+        "policy.malformed",
+        "permit",
+        json!({ "not": "a NoCodeBlocks row" }),
+    )
+    .await;
+    let malformed = request_json(
+        service,
+        "GET",
+        &format!("/api/v1/ontology/instances?type={type_id}"),
+        &auth.token,
+        None,
+        Value::Null,
+    )
+    .await;
+    assert_eq!(malformed.status, StatusCode::INTERNAL_SERVER_ERROR);
+    assert_eq!(malformed.body["error"]["code"], "internal");
+    assert_eq!(
+        malformed.body["error"]["message"],
+        "unable to evaluate object visibility policy"
+    );
+    assert!(!body_text(&malformed.body).contains("must-not-leak"));
+}
+
+fn policy_draft(key: &str) -> Value {
+    json!({
+        "stable_key": key,
+        "title": "Governed policy case",
+        "backing_kind": "instance",
+        "properties": [
+            {
+                "key": "owner",
+                "title": "Owner",
+                "field_type": "text",
+                "config": {},
+                "backing_column": null,
+                "required": true,
+                "in_property_policy": false
+            },
+            {
+                "key": "flagged",
+                "title": "Flagged",
+                "field_type": "boolean",
+                "config": {},
+                "backing_column": null,
+                "required": false,
+                "in_property_policy": false
+            }
+        ],
+        "links": [],
+        "actions": [],
+        "analytics": []
+    })
+}
+
+fn created_object_type_id(body: &Value) -> mnt_ontology_domain::ObjectTypeId {
+    let id = body["id"]
+        .as_str()
+        .expect("object-type create response must contain an id")
+        .parse::<Uuid>()
+        .expect("object-type id must be a UUID");
+    mnt_ontology_domain::ObjectTypeId::from_uuid(id)
+}
+
+async fn seed_object_type(
+    owner_pool: &PgPool,
+    org: OrgId,
+    actor: UserId,
+    stable_key: &str,
+) -> mnt_ontology_domain::ObjectTypeId {
+    scope_org(org, async {
+        PgOntologyStore::new(owner_pool.clone())
+            .with_command_pool(command_role_pool(owner_pool).await)
+            .create_object_type(
+                actor,
+                mnt_ontology_adapter_postgres::CreateObjectTypeDraft {
+                    stable_key: stable_key.to_owned(),
+                    title: "Other tenant case".to_owned(),
+                    title_property_key: None,
+                    backing_kind: mnt_ontology_domain::BackingKind::Instance,
+                    backing_table: None,
+                    primary_key_property: None,
+                    properties: Vec::new(),
+                    links: Vec::new(),
+                    actions: Vec::new(),
+                    analytics: Vec::new(),
+                },
+                TraceContext::generate(),
+                OffsetDateTime::now_utc(),
+            )
+            .await
+            .expect("seed other tenant object type")
+            .id
+    })
+    .await
+}
+
+async fn seed_instance(
+    runtime_pool: &PgPool,
+    org: OrgId,
+    actor: UserId,
+    type_id: mnt_ontology_domain::ObjectTypeId,
+    title: &str,
+    attributes: Value,
+) {
+    scope_org(org, async {
+        PgInstanceStore::new(runtime_pool.clone())
+            .create_instance(
+                actor,
+                CreateInstance {
+                    object_type_id: type_id,
+                    title: title.to_owned(),
+                    attributes,
+                    valid_from: None,
+                    action_type_id: None,
+                    reason: Some("runtime composition fixture".to_owned()),
+                },
+                TraceContext::generate(),
+                OffsetDateTime::now_utc(),
+            )
+            .await
+            .expect("seed instance through mnt_rt")
+    })
+    .await;
+}
+
+async fn attach_enforced_policy(
+    owner_pool: &PgPool,
+    org: OrgId,
+    type_id: mnt_ontology_domain::ObjectTypeId,
+    stable_key: &str,
+    effect: &str,
+    blocks: Value,
+) {
+    let policy_id: Uuid = sqlx::query_scalar(
+        r#"
+        INSERT INTO cedar_policy_catalog_entries
+            (org_id, stable_key, title, natural_language_rule, effect, status, source,
+             principal, action, resource, conditions, policy_version, schema_version,
+             bundle_digest, validation_status, normalized_row, generated_policy_text)
+        VALUES ($1, $2, $3, 'runtime composition fixture', $4, 'enforced', 'imported_fixture',
+                '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, '[]'::jsonb, 1,
+                'ontology-runtime-filter-v1',
+                'sha256:0000000000000000000000000000000000000000000000000000000000000000',
+                'valid', $5, 'permit(principal, action, resource);')
+        RETURNING id
+        "#,
+    )
+    .bind(*org.as_uuid())
+    .bind(stable_key)
+    .bind(format!("Policy {stable_key}"))
+    .bind(effect)
+    .bind(blocks)
+    // rls-arming: test fixture writes the protected catalog as DB owner before
+    // the route exercises its genuine mnt_rt read role.
+    .fetch_one(owner_pool)
+    .await
+    .expect("seed enforced policy catalog entry");
+    sqlx::query(
+        "INSERT INTO ont_object_policies (org_id, object_type_id, cedar_policy_id, effect) VALUES ($1, $2, $3, $4)",
+    )
+    .bind(*org.as_uuid())
+    .bind(*type_id.as_uuid())
+    .bind(policy_id)
+    .bind(effect)
+    // rls-arming: test fixture attaches the policy as DB owner before the
+    // runtime-role request makes the read decision.
+    .execute(owner_pool)
+    .await
+    .expect("attach enforced object policy");
+}
+
+fn owner_permit_blocks(resource_type: &str) -> Value {
+    json!({
+        "effect": "permit",
+        "action": "view",
+        "resource_type": resource_type,
+        "conditions": [{
+            "attr": "owner",
+            "op": "eq",
+            "value": { "kind": "subject_attr", "value": "user_id" }
+        }]
+    })
+}
+
+fn flagged_forbid_blocks(resource_type: &str) -> Value {
+    json!({
+        "effect": "forbid",
+        "action": "view",
+        "resource_type": resource_type,
+        "conditions": [{
+            "attr": "flagged",
+            "op": "eq",
+            "value": { "kind": "bool", "value": true }
+        }]
+    })
+}
+
+fn assert_instance_titles(body: &Value, expected: &[&str]) {
+    let titles = body
+        .as_array()
+        .expect("instance list must be an array")
+        .iter()
+        .map(|instance| instance["instance"]["title"].as_str().unwrap_or_default())
+        .collect::<Vec<_>>();
+    assert_eq!(titles, expected);
+}
+
+fn body_text(body: &Value) -> String {
+    serde_json::to_string(body).expect("response body is serializable")
 }
 
 fn draft(title: &str) -> Value {
