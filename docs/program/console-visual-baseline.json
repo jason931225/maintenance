@@ -127,6 +127,33 @@
       "Move typography, metadata density, card chrome, and desktop grid toward the pinned Claude reference."
     ]
   },
+  "latest_live_replay": {
+    "captured_at": "2026-07-23T20:58:00Z",
+    "branch": "codex/console-integration-20260723",
+    "commit_at_capture": "0fbc3fb8",
+    "route": "/console/mywork",
+    "viewport": {
+      "width": 1280,
+      "height": 720
+    },
+    "theme": "light",
+    "image_path": "docs/evidence/console/visual/mywork-live-detail-2026-07-23.png",
+    "image_sha256": "279c604ea1a30fc61e14d2b9f41a5c62f3b4c2bb3e8775e8a1ff85b95ca70c36",
+    "backend_readiness": {
+      "url": "http://127.0.0.1:8090/readyz",
+      "status": "ready",
+      "database": "ready"
+    },
+    "observed_state": [
+      "authenticated dev-only console preview",
+      "nine real action-inbox items",
+      "selected work-order approval detail",
+      "exact reference key and due-time fields",
+      "expanded disclosure semantics",
+      "real Messenger, Mail, notification, and notice rail data"
+    ],
+    "claim_boundary": "local dev-auth runtime evidence only; not visual parity, independent review, release, deployment, or production evidence"
+  },
   "candidate_gate_requirements": [
     "exact_candidate_commit",
     "reference_etag_and_sha256",
