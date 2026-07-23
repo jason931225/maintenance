@@ -1,5 +1,16 @@
 import { CalendarPlus, RefreshCw } from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type InputHTMLAttributes,
+  type ButtonHTMLAttributes,
+  type SelectHTMLAttributes,
+  type TextareaHTMLAttributes,
+} from "react";
 
 import type {
   BranchSummary,
@@ -11,21 +22,6 @@ import type {
   UserSummary,
 } from "../api/types";
 import { useAuth } from "../context/auth";
-import { PageError } from "../components/states/PageError";
-import { SkeletonCards } from "../components/states/Skeleton";
-import { PageHeader } from "../components/shell/PageHeader";
-import { LoadMoreButton } from "../components/shell/LoadMoreButton";
-import { Badge } from "../components/ui/badge";
-import { Button } from "../components/ui/button";
-import { Card } from "../components/ui/card";
-import {
-  AsyncCombobox,
-  Combobox,
-  type ComboboxOption,
-} from "../components/ui/combobox";
-import { Input } from "../components/ui/input";
-import { Select } from "../components/ui/select";
-import { Textarea } from "../components/ui/textarea";
 import { ko } from "../i18n/ko";
 import { SUCCESS_DISMISS_MS, useAutoDismiss } from "../lib/useAutoDismiss";
 import { formatListCount, safeLabel, todayInSeoul } from "../lib/utils";
@@ -39,7 +35,7 @@ import {
 import "../console/inspection/inspection.css";
 
 /** Schedule page size; matches the backend default and keeps the list bounded. */
-const SCHEDULES_PAGE_SIZE = 200;
+const SCHEDULES_PAGE_SIZE = 100;
 
 const ROUND_OUTCOMES: InspectionRoundOutcome[] = [
   "COMPLETED",
@@ -120,6 +116,7 @@ export function InspectionPage() {
   const [scheduleFilter, setScheduleFilter] =
     useState<InspectionScheduleFilter>("ALL");
   const [loadingMore, setLoadingMore] = useState(false);
+  const [loadMoreError, setLoadMoreError] = useState(false);
   const [loadError, setLoadError] = useState<"retry" | "denied">();
   const [form, setForm] = useState<FormState>(emptyForm);
   const [creating, setCreating] = useState(false);
@@ -131,7 +128,7 @@ export function InspectionPage() {
   const [mechanics, setMechanics] = useState<UserSummary[]>([]);
   // The equipment option the admin picked, kept so the human label renders for
   // the already-selected id (the search endpoint is a per-query typeahead).
-  const [equipmentOption, setEquipmentOption] = useState<ComboboxOption>();
+  const [equipmentOption, setEquipmentOption] = useState<ConsoleOption>();
   // The schedule whose "complete round" form is open, plus the last-completed
   // notice. There is one open round form at a time so the list stays compact.
   const [completingId, setCompletingId] = useState<string>();
@@ -139,11 +136,14 @@ export function InspectionPage() {
   // A filter/date refresh may finish after a newer request. Keep only the
   // newest server response so the visible branch-scoped list never rewinds.
   const scheduleRequestVersion = useRef(0);
+  const completionRequestVersion = useRef(0);
   const scopeEpoch = useRef(0);
   useEffect(() => {
     scopeEpoch.current += 1;
+    completionRequestVersion.current += 1;
     return () => {
       scopeEpoch.current += 1;
+      completionRequestVersion.current += 1;
     };
   }, [api, session?.user_id]);
   // Transient success confirmations clear themselves so they do not linger.
@@ -162,8 +162,10 @@ export function InspectionPage() {
       const epoch = scopeEpoch.current;
       setLoadError(undefined);
       setLoadingMore(false);
+      setLoadMoreError(false);
       try {
         const response = await api.GET("/api/v1/inspections/schedules", {
+          headers: { "Cache-Control": "no-cache" },
           params: {
             query: {
               due_start: range?.start ?? rangeStart,
@@ -198,7 +200,7 @@ export function InspectionPage() {
           setLoadError("retry");
       }
     },
-    [api, rangeStart, rangeEnd],
+    [api, rangeStart, rangeEnd, session?.user_id],
   );
 
   const loadMore = useCallback(async () => {
@@ -206,8 +208,10 @@ export function InspectionPage() {
     const requestVersion = ++scheduleRequestVersion.current;
     const epoch = scopeEpoch.current;
     setLoadingMore(true);
+    setLoadMoreError(false);
     try {
       const response = await api.GET("/api/v1/inspections/schedules", {
+        headers: { "Cache-Control": "no-cache" },
         params: {
           query: {
             due_start: rangeStart,
@@ -233,6 +237,15 @@ export function InspectionPage() {
           ];
         });
         setScheduleTotal(next.total);
+      } else {
+        setLoadMoreError(true);
+      }
+    } catch {
+      if (
+        requestVersion === scheduleRequestVersion.current &&
+        epoch === scopeEpoch.current
+      ) {
+        setLoadMoreError(true);
       }
     } finally {
       if (
@@ -274,12 +287,12 @@ export function InspectionPage() {
     void Promise.resolve().then(loadOptions);
   }, [loadOptions]);
 
-  const branchOptions = useMemo<ComboboxOption[]>(
+  const branchOptions = useMemo<ConsoleOption[]>(
     () => branches.map((branch) => ({ id: branch.id, label: branch.name })),
     [branches],
   );
 
-  const mechanicOptions = useMemo<ComboboxOption[]>(
+  const mechanicOptions = useMemo<ConsoleOption[]>(
     () =>
       mechanics.map((user) => ({
         id: user.id,
@@ -290,7 +303,7 @@ export function InspectionPage() {
   );
 
   const searchEquipment = useCallback(
-    async (query: string): Promise<ComboboxOption[]> => {
+    async (query: string): Promise<ConsoleOption[]> => {
       const response = await api
         .GET("/api/v1/equipment", { params: { query: { q: query, limit: 8 } } })
         .catch(() => undefined);
@@ -356,11 +369,20 @@ export function InspectionPage() {
 
   async function completeRound(
     scheduleId: string,
+    mechanicId: string,
     outcome: InspectionRoundOutcome,
     findings: string,
     note: string,
-  ): Promise<boolean> {
+  ): Promise<"done" | "failed" | "superseded"> {
+    // The server is authoritative and rejects an actor other than the assigned
+    // mechanic. Keep the UI operation bound to that same identity as well, so a
+    // stale form cannot submit after an auth-session transition.
+    if (!session?.user_id || session.user_id !== mechanicId) return "superseded";
     const epoch = scopeEpoch.current;
+    const requestVersion = ++completionRequestVersion.current;
+    const ownsCompletion = () =>
+      epoch === scopeEpoch.current &&
+      requestVersion === completionRequestVersion.current;
     setRoundNotice(undefined);
     try {
       const body: CompleteInspectionRoundRequest = {
@@ -372,13 +394,14 @@ export function InspectionPage() {
         "/api/v1/inspections/schedules/{schedule_id}/rounds",
         { params: { path: { schedule_id: scheduleId } }, body },
       );
-      if (!response.data || epoch !== scopeEpoch.current) return false;
+      if (!ownsCompletion()) return "superseded";
+      if (!response.data) return "failed";
       setRoundNotice(ko.inspection.round.done);
       setCompletingId(undefined);
       await load();
-      return true;
+      return ownsCompletion() ? "done" : "superseded";
     } catch {
-      return false;
+      return ownsCompletion() ? "failed" : "superseded";
     }
   }
 
@@ -407,22 +430,25 @@ export function InspectionPage() {
   );
 
   return (
-    <>
-      <PageHeader
-        title={ko.inspection.title}
-        description={ko.inspection.description}
-      />
-      <div className="grid max-w-6xl gap-5">
-        <Card className="grid gap-4">
-          <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
-            <div className="grid gap-2">
+    <main
+      className="console inspection-page"
+      aria-labelledby="inspection-title"
+    >
+      <header className="inspection-page__header">
+        <h1 id="inspection-title">{ko.inspection.title}</h1>
+        <p>{ko.inspection.description}</p>
+      </header>
+      <div className="inspection-manager">
+        <section className="inspection-panel">
+          <div className="inspection-range">
+            <div className="inspection-field">
               <label
-                className="text-sm font-medium text-steel"
+                className="inspection-label"
                 htmlFor="inspection-range-start"
               >
                 {ko.inspection.rangeStart}
               </label>
-              <Input
+              <ConsoleInput
                 id="inspection-range-start"
                 type="date"
                 value={rangeStart}
@@ -431,14 +457,14 @@ export function InspectionPage() {
                 }}
               />
             </div>
-            <div className="grid gap-2">
+            <div className="inspection-field">
               <label
-                className="text-sm font-medium text-steel"
+                className="inspection-label"
                 htmlFor="inspection-range-end"
               >
                 {ko.inspection.rangeEnd}
               </label>
-              <Input
+              <ConsoleInput
                 id="inspection-range-end"
                 type="date"
                 value={rangeEnd}
@@ -447,7 +473,7 @@ export function InspectionPage() {
                 }}
               />
             </div>
-            <Button
+            <ConsoleButton
               type="button"
               onClick={() => {
                 void load();
@@ -455,40 +481,41 @@ export function InspectionPage() {
             >
               <RefreshCw aria-hidden="true" size={16} />
               {ko.inspection.refresh}
-            </Button>
+            </ConsoleButton>
           </div>
 
           {loadError ? (
-            <PageError
-              message={ko.inspection.loadFailed}
-              status={loadError === "denied" ? 403 : undefined}
-              onRetry={() => {
-                void load();
-              }}
+            <ConsoleError
+              message={
+                loadError === "denied"
+                  ? ko.page.permissionDenied
+                  : ko.inspection.loadFailed
+              }
+              retry={loadError === "retry" ? () => void load() : undefined}
             />
           ) : null}
           {roundNotice ? (
-            <p role="status" className="text-sm font-medium text-brand-teal">
+            <p role="status" className="inspection-notice">
               {roundNotice}
             </p>
           ) : null}
           {!loadError && schedules === undefined ? (
-            <SkeletonCards count={3} lines={2} />
-          ) : null}
-          {schedules && schedules.length === 0 ? (
-            <p className="rounded-md border border-dashed border-line bg-muted-panel p-3 text-sm text-steel">
-              {ko.inspection.empty}
+            <p className="inspection-loading" role="status">
+              {ko.common.loading}
             </p>
           ) : null}
+          {schedules && schedules.length === 0 ? (
+            <p className="inspection-empty">{ko.inspection.empty}</p>
+          ) : null}
           {schedules && schedules.length > 0 ? (
-            <div className="grid gap-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <h2 className="text-base font-semibold text-ink">
+            <div className="inspection-list-section">
+              <div className="inspection-list-header">
+                <h2 className="inspection-list-title">
                   {ko.inspection.listTitle}
                 </h2>
-                <Badge>
-                  {formatListCount(scheduleTotal ?? schedules.length)}
-                </Badge>
+                <span className="inspection-count">
+                  {formatListCount(schedules.length, { total: scheduleTotal })}
+                </span>
               </div>
               <div className="inspection-summary">
                 <Metric
@@ -514,39 +541,36 @@ export function InspectionPage() {
                     ["COMPLETED", ko.inspection.statuses.COMPLETED],
                   ] as const
                 ).map(([filter, label]) => (
-                  <Button
+                  <ConsoleButton
                     key={filter}
                     type="button"
-                    size="sm"
-                    variant={
-                      scheduleFilter === filter ? "default" : "secondary"
-                    }
+                    data-secondary={scheduleFilter !== filter || undefined}
                     aria-pressed={scheduleFilter === filter}
                     onClick={() => {
                       setScheduleFilter(filter);
                     }}
                   >
                     {label}
-                  </Button>
+                  </ConsoleButton>
                 ))}
               </div>
-              <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.72fr)]">
-                <ul className="grid gap-2" aria-label={ko.inspection.listTitle}>
+              <div className="inspection-list-grid">
+                <ul
+                  className="inspection-list"
+                  aria-label={ko.inspection.listTitle}
+                >
                   {visibleSchedules.map((schedule) => (
-                    <li
-                      key={schedule.id}
-                      className="grid gap-3 rounded-md border border-line p-3"
-                    >
-                      <div className="flex flex-wrap items-center justify-between gap-3">
+                    <li key={schedule.id} className="inspection-list-row">
+                      <div className="inspection-list-row__head">
                         <button
                           type="button"
-                          className="grid min-w-0 flex-1 gap-1 text-left focus:outline-none focus:ring-2 focus:ring-brand-teal focus:ring-offset-2"
+                          className="inspection-list-row__select"
                           aria-pressed={selectedScheduleId === schedule.id}
                           onClick={() => {
                             setSelectedScheduleId(schedule.id);
                           }}
                         >
-                          <span className="font-medium text-ink">
+                          <span className="inspection-list-row__title">
                             {safeLabel(
                               schedule.management_no,
                               schedule.model,
@@ -556,7 +580,7 @@ export function InspectionPage() {
                               ? ` · ${schedule.model}`
                               : ""}
                           </span>
-                          <span className="text-sm text-steel">
+                          <span className="inspection-list-row__meta">
                             {schedule.site_name} ·{" "}
                             {ko.inspection.cycles[schedule.cycle]} ·{" "}
                             {schedule.due_date} ·{" "}
@@ -564,23 +588,22 @@ export function InspectionPage() {
                             {safeLabel(schedule.mechanic_display_name)}
                           </span>
                         </button>
-                        <div className="flex items-center gap-2">
+                        <div className="inspection-list-row__actions">
                           {schedule.status === "SCHEDULED" &&
                           isInspectionOverdue(schedule, businessDate) ? (
-                            <Badge className="border-red-300 bg-red-50 text-red-800">
+                            <span className="inspection-chip inspection-chip--danger">
                               {ko.inspection.overdue}
-                            </Badge>
+                            </span>
                           ) : (
-                            <Badge>
+                            <span className="inspection-chip">
                               {ko.inspection.statuses[schedule.status]}
-                            </Badge>
+                            </span>
                           )}
                           {schedule.status === "SCHEDULED" &&
                           schedule.mechanic_id === session?.user_id ? (
-                            <Button
+                            <ConsoleButton
                               type="button"
-                              size="sm"
-                              variant="secondary"
+                              data-secondary
                               aria-label={`${safeLabel(schedule.management_no, schedule.model, ko.common.noNumber)} ${ko.inspection.round.complete}`}
                               onClick={() => {
                                 setRoundNotice(undefined);
@@ -592,13 +615,14 @@ export function InspectionPage() {
                               }}
                             >
                               {ko.inspection.round.complete}
-                            </Button>
+                            </ConsoleButton>
                           ) : null}
                         </div>
                       </div>
                       {completingId === schedule.id ? (
                         <InspectionRoundForm
                           scheduleId={schedule.id}
+                          mechanicId={schedule.mechanic_id}
                           onComplete={completeRound}
                           onCancel={() => {
                             setCompletingId(undefined);
@@ -625,46 +649,56 @@ export function InspectionPage() {
               </div>
               {scheduleTotal !== undefined &&
               schedules.length < scheduleTotal ? (
-                <LoadMoreButton
-                  onClick={() => {
-                    void loadMore();
-                  }}
-                  isLoading={loadingMore}
-                  loaded={schedules.length}
-                  total={scheduleTotal}
-                />
+                <div className="inspection-more">
+                  {loadMoreError ? (
+                    <p className="inspection-round-form__error" role="alert">
+                      {ko.inspection.loadFailed}
+                    </p>
+                  ) : null}
+                  <button
+                    type="button"
+                    className="inspection-button"
+                    disabled={loadingMore}
+                    aria-label={ko.common.loadMoreAria
+                      .replace("{loaded}", String(schedules.length))
+                      .replace("{total}", String(scheduleTotal))
+                      .replaceAll("{unit}", ko.common.countUnit)}
+                    onClick={() => {
+                      void loadMore();
+                    }}
+                  >
+                    {loadingMore ? ko.common.loadingMore : ko.common.loadMore}
+                  </button>
+                </div>
               ) : null}
             </div>
           ) : null}
-        </Card>
+        </section>
 
-        <Card className="grid gap-4">
+        <section className="inspection-panel">
           <div>
-            <h2 className="text-lg font-semibold text-ink">
+            <h2 className="inspection-panel__title">
               {ko.inspection.createTitle}
             </h2>
           </div>
           {notice ? (
-            <p role="status" className="text-sm font-medium text-brand-teal">
+            <p role="status" className="inspection-notice">
               {notice}
             </p>
           ) : null}
-          {createError ? <PageError message={createError} /> : null}
+          {createError ? <ConsoleError message={createError} /> : null}
           <form
-            className="grid gap-3 sm:grid-cols-2"
+            className="inspection-create-form"
             onSubmit={(event) => {
               event.preventDefault();
               void handleCreate();
             }}
           >
-            <div className="grid gap-2">
-              <label
-                className="text-sm font-medium text-steel"
-                htmlFor="ins-branch"
-              >
+            <div className="inspection-field">
+              <label className="inspection-label" htmlFor="ins-branch">
                 {ko.inspection.fields.branch}
               </label>
-              <Combobox
+              <ConsoleCombobox
                 id="ins-branch"
                 options={branchOptions}
                 value={form.branch_id}
@@ -674,14 +708,11 @@ export function InspectionPage() {
                 placeholder={ko.inspection.fields.branchPlaceholder}
               />
             </div>
-            <div className="grid gap-2">
-              <label
-                className="text-sm font-medium text-steel"
-                htmlFor="ins-equipment"
-              >
+            <div className="inspection-field">
+              <label className="inspection-label" htmlFor="ins-equipment">
                 {ko.inspection.fields.equipment}
               </label>
-              <AsyncCombobox
+              <AsyncConsoleCombobox
                 id="ins-equipment"
                 search={searchEquipment}
                 value={form.equipment_id}
@@ -694,14 +725,11 @@ export function InspectionPage() {
                 placeholder={ko.inspection.fields.equipmentPlaceholder}
               />
             </div>
-            <div className="grid gap-2">
-              <label
-                className="text-sm font-medium text-steel"
-                htmlFor="ins-mechanic"
-              >
+            <div className="inspection-field">
+              <label className="inspection-label" htmlFor="ins-mechanic">
                 {ko.inspection.fields.mechanic}
               </label>
-              <Combobox
+              <ConsoleCombobox
                 id="ins-mechanic"
                 options={mechanicOptions}
                 value={form.mechanic_id}
@@ -711,14 +739,11 @@ export function InspectionPage() {
                 placeholder={ko.inspection.fields.mechanicPlaceholder}
               />
             </div>
-            <div className="grid gap-2">
-              <label
-                className="text-sm font-medium text-steel"
-                htmlFor="ins-cycle"
-              >
+            <div className="inspection-field">
+              <label className="inspection-label" htmlFor="ins-cycle">
                 {ko.inspection.fields.cycle}
               </label>
-              <Select
+              <ConsoleSelect
                 id="ins-cycle"
                 value={form.cycle}
                 onChange={(event) => {
@@ -739,7 +764,7 @@ export function InspectionPage() {
                     {ko.inspection.cycles[cycle]}
                   </option>
                 ))}
-              </Select>
+              </ConsoleSelect>
             </div>
             <Field
               id="ins-interval"
@@ -767,16 +792,201 @@ export function InspectionPage() {
                 setField("note", v);
               }}
             />
-            <div className="sm:col-span-2">
-              <Button type="submit" disabled={createDisabled}>
+            <div className="inspection-create-submit">
+              <ConsoleButton type="submit" disabled={createDisabled}>
                 <CalendarPlus aria-hidden="true" size={16} />
                 {creating ? ko.inspection.creating : ko.inspection.create}
-              </Button>
+              </ConsoleButton>
             </div>
           </form>
-        </Card>
+        </section>
       </div>
-    </>
+    </main>
+  );
+}
+
+type ConsoleOption = {
+  id: string;
+  label: string;
+  sublabel?: string;
+};
+
+function ConsoleButton({
+  className,
+  ...props
+}: ButtonHTMLAttributes<HTMLButtonElement>) {
+  return (
+    <button
+      className={["inspection-button", className].filter(Boolean).join(" ")}
+      {...props}
+    />
+  );
+}
+
+function ConsoleInput({
+  className,
+  ...props
+}: InputHTMLAttributes<HTMLInputElement>) {
+  return (
+    <input
+      className={["inspection-input", className].filter(Boolean).join(" ")}
+      {...props}
+    />
+  );
+}
+
+function ConsoleTextarea({
+  className,
+  ...props
+}: TextareaHTMLAttributes<HTMLTextAreaElement>) {
+  return (
+    <textarea
+      className={["inspection-input", "inspection-textarea", className]
+        .filter(Boolean)
+        .join(" ")}
+      {...props}
+    />
+  );
+}
+
+function ConsoleSelect({
+  className,
+  ...props
+}: SelectHTMLAttributes<HTMLSelectElement>) {
+  return (
+    <select
+      className={["inspection-input", className].filter(Boolean).join(" ")}
+      {...props}
+    />
+  );
+}
+
+function ConsoleError({
+  message,
+  retry,
+}: {
+  message: string;
+  retry?: () => void;
+}) {
+  return (
+    <div className="inspection-error" role="alert">
+      <p>{message}</p>
+      {retry ? (
+        <ConsoleButton type="button" data-secondary onClick={retry}>
+          {ko.page.retry}
+        </ConsoleButton>
+      ) : null}
+    </div>
+  );
+}
+
+function ConsoleCombobox({
+  id,
+  options,
+  value,
+  onChange,
+  placeholder,
+}: {
+  id: string;
+  options: ConsoleOption[];
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+}) {
+  return (
+    <ConsoleSelect
+      id={id}
+      value={value}
+      onChange={(event) => onChange(event.currentTarget.value)}
+    >
+      <option value="">{placeholder}</option>
+      {options.map((option) => (
+        <option key={option.id} value={option.id}>
+          {option.label}
+          {option.sublabel ? ` · ${option.sublabel}` : ""}
+        </option>
+      ))}
+    </ConsoleSelect>
+  );
+}
+
+function AsyncConsoleCombobox({
+  id,
+  search,
+  value,
+  selectedOption,
+  onChange,
+  onSelectOption,
+  placeholder,
+}: {
+  id: string;
+  search: (query: string) => Promise<ConsoleOption[]>;
+  value: string;
+  selectedOption?: ConsoleOption;
+  onChange: (value: string) => void;
+  onSelectOption: (option: ConsoleOption | undefined) => void;
+  placeholder: string;
+}) {
+  const listId = useId();
+  const [query, setQuery] = useState(selectedOption?.label ?? "");
+  const [options, setOptions] = useState<ConsoleOption[]>([]);
+  const requestVersion = useRef(0);
+
+  useEffect(() => {
+    setQuery(selectedOption?.label ?? "");
+  }, [selectedOption]);
+
+  async function find(nextQuery: string) {
+    setQuery(nextQuery);
+    onChange("");
+    onSelectOption(undefined);
+    if (!nextQuery.trim()) {
+      setOptions([]);
+      return;
+    }
+    const version = ++requestVersion.current;
+    const results = await search(nextQuery);
+    if (version === requestVersion.current) setOptions(results);
+  }
+
+  return (
+    <div className="inspection-async-combobox">
+      <ConsoleInput
+        id={id}
+        value={query}
+        placeholder={placeholder}
+        role="combobox"
+        aria-controls={listId}
+        aria-expanded={options.length > 0}
+        onChange={(event) => void find(event.currentTarget.value)}
+      />
+      {options.length > 0 ? (
+        <ul
+          id={listId}
+          className="inspection-async-combobox__options"
+          role="listbox"
+        >
+          {options.map((option) => (
+            <li key={option.id}>
+              <button
+                type="button"
+                role="option"
+                aria-selected={value === option.id}
+                onClick={() => {
+                  onChange(option.id);
+                  onSelectOption(option);
+                  setQuery(option.label);
+                  setOptions([]);
+                }}
+              >
+                {option.label}
+                {option.sublabel ? ` · ${option.sublabel}` : ""}
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
   );
 }
 
@@ -809,11 +1019,11 @@ interface FieldProps {
 
 function Field({ id, label, value, onChange, type = "text" }: FieldProps) {
   return (
-    <div className="grid gap-2">
-      <label className="text-sm font-medium text-steel" htmlFor={id}>
+    <div className="inspection-field">
+      <label className="inspection-label" htmlFor={id}>
         {label}
       </label>
-      <Input
+      <ConsoleInput
         id={id}
         type={type}
         value={value}
@@ -827,17 +1037,20 @@ function Field({ id, label, value, onChange, type = "text" }: FieldProps) {
 
 interface InspectionRoundFormProps {
   scheduleId: string;
+  mechanicId: string;
   onComplete: (
     scheduleId: string,
+    mechanicId: string,
     outcome: InspectionRoundOutcome,
     findings: string,
     note: string,
-  ) => Promise<boolean>;
+  ) => Promise<"done" | "failed" | "superseded">;
   onCancel: () => void;
 }
 
 function InspectionRoundForm({
   scheduleId,
+  mechanicId,
   onComplete,
   onCancel,
 }: InspectionRoundFormProps) {
@@ -852,28 +1065,34 @@ function InspectionRoundForm({
     if (!findings.trim()) return;
     setSubmitting(true);
     setError(undefined);
-    const ok = await onComplete(scheduleId, outcome, findings.trim(), note);
+    const result = await onComplete(
+      scheduleId,
+      mechanicId,
+      outcome,
+      findings.trim(),
+      note,
+    );
     setSubmitting(false);
-    if (!ok) setError(t.failed);
+    if (result === "failed") setError(t.failed);
   }
 
   return (
     <form
-      className="grid gap-3 rounded-md border border-line bg-muted-panel p-3"
+      className="inspection-round-form"
       onSubmit={(event) => {
         event.preventDefault();
         void submit();
       }}
     >
-      <p className="text-sm font-semibold text-ink">{t.title}</p>
-      <div className="grid gap-2">
+      <p className="inspection-round-form__title">{t.title}</p>
+      <div className="inspection-field">
         <label
-          className="text-sm font-medium text-steel"
+          className="inspection-label"
           htmlFor={`round-outcome-${scheduleId}`}
         >
           {t.outcomeLabel}
         </label>
-        <Select
+        <ConsoleSelect
           id={`round-outcome-${scheduleId}`}
           value={outcome}
           onChange={(event) => {
@@ -885,16 +1104,16 @@ function InspectionRoundForm({
               {t.outcomes[value]}
             </option>
           ))}
-        </Select>
+        </ConsoleSelect>
       </div>
-      <div className="grid gap-2">
+      <div className="inspection-field">
         <label
-          className="text-sm font-medium text-steel"
+          className="inspection-label"
           htmlFor={`round-findings-${scheduleId}`}
         >
           {t.findingsLabel}
         </label>
-        <Textarea
+        <ConsoleTextarea
           id={`round-findings-${scheduleId}`}
           placeholder={t.findingsPlaceholder}
           value={findings}
@@ -903,14 +1122,14 @@ function InspectionRoundForm({
           }}
         />
       </div>
-      <div className="grid gap-2">
+      <div className="inspection-field">
         <label
-          className="text-sm font-medium text-steel"
+          className="inspection-label"
           htmlFor={`round-note-${scheduleId}`}
         >
           {t.noteLabel}
         </label>
-        <Input
+        <ConsoleInput
           id={`round-note-${scheduleId}`}
           placeholder={t.notePlaceholder}
           value={note}
@@ -920,22 +1139,22 @@ function InspectionRoundForm({
         />
       </div>
       {error ? (
-        <p role="alert" className="text-sm font-semibold text-red-700">
+        <p role="alert" className="inspection-round-form__error">
           {error}
         </p>
       ) : null}
-      <div className="flex items-center justify-end gap-2">
-        <Button
+      <div className="inspection-round-form__actions">
+        <ConsoleButton
           type="button"
-          variant="secondary"
+          data-secondary
           disabled={submitting}
           onClick={onCancel}
         >
           {t.cancel}
-        </Button>
-        <Button type="submit" disabled={submitting || !findings.trim()}>
+        </ConsoleButton>
+        <ConsoleButton type="submit" disabled={submitting || !findings.trim()}>
           {submitting ? t.submitting : t.submit}
-        </Button>
+        </ConsoleButton>
       </div>
     </form>
   );

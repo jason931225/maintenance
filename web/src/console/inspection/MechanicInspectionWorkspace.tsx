@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type {
   InspectionRoundOutcome,
@@ -12,6 +12,8 @@ import "./inspection.css";
 
 const PAGE_SIZE = 100;
 
+type LoadError = "retry" | "denied";
+
 /**
  * Mechanic-only execution surface. Its source is the server-side `my-schedules`
  * projection, which binds rows to the authenticated principal; it intentionally
@@ -20,27 +22,45 @@ const PAGE_SIZE = 100;
 export function MechanicInspectionWorkspace() {
   const { api, session } = useAuth();
   const [schedules, setSchedules] = useState<InspectionScheduleSummary[]>();
-  const [error, setError] = useState<"retry" | "denied">();
+  const [total, setTotal] = useState<number>();
+  const [loadError, setLoadError] = useState<LoadError>();
+  const [loadMoreError, setLoadMoreError] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [openId, setOpenId] = useState<string>();
   const [findings, setFindings] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [completionError, setCompletionError] = useState<string>();
   const scopeEpoch = useRef(0);
+  const listRequestVersion = useRef(0);
   const businessDate = todayInSeoul();
   const loadedSchedules = schedules ?? [];
+  const canLoadMore = total !== undefined && loadedSchedules.length < total;
 
   useEffect(() => {
     scopeEpoch.current += 1;
+    listRequestVersion.current += 1;
     return () => {
       scopeEpoch.current += 1;
+      listRequestVersion.current += 1;
     };
   }, [api, session?.user_id]);
 
+  const ownsListRequest = useCallback(
+    (epoch: number, requestVersion: number) =>
+      epoch === scopeEpoch.current &&
+      requestVersion === listRequestVersion.current,
+    [],
+  );
+
   const load = useCallback(async () => {
     const epoch = scopeEpoch.current;
-    setError(undefined);
+    const requestVersion = ++listRequestVersion.current;
+    setLoadError(undefined);
+    setLoadMoreError(false);
+    setLoadingMore(false);
     try {
       const response = await api.GET("/api/v1/inspections/my-schedules", {
+        headers: { "Cache-Control": "no-cache" },
         params: {
           query: {
             due_start: businessDate,
@@ -50,16 +70,61 @@ export function MechanicInspectionWorkspace() {
           },
         },
       });
-      if (epoch !== scopeEpoch.current) return;
+      if (!ownsListRequest(epoch, requestVersion)) return;
       if (response.data) {
-        setSchedules(response.data.items);
+        const page = response.data;
+        setSchedules(page.items);
+        setTotal(page.total);
+        setOpenId((current) =>
+          page.items.some((schedule) => schedule.id === current)
+            ? current
+            : undefined,
+        );
       } else {
-        setError(response.response.status === 403 ? "denied" : "retry");
+        setLoadError(response.response.status === 403 ? "denied" : "retry");
       }
     } catch {
-      if (epoch === scopeEpoch.current) setError("retry");
+      if (ownsListRequest(epoch, requestVersion)) setLoadError("retry");
     }
-  }, [api, businessDate, session?.user_id]);
+  }, [api, businessDate, ownsListRequest, session?.user_id]);
+
+  const loadMore = useCallback(async () => {
+    if (!canLoadMore || schedules === undefined) return;
+    const epoch = scopeEpoch.current;
+    const requestVersion = ++listRequestVersion.current;
+    const offset = schedules.length;
+    setLoadingMore(true);
+    setLoadMoreError(false);
+    try {
+      const response = await api.GET("/api/v1/inspections/my-schedules", {
+        headers: { "Cache-Control": "no-cache" },
+        params: {
+          query: {
+            due_start: businessDate,
+            due_end: `${Number(businessDate.slice(0, 4)) + 1}${businessDate.slice(4)}`,
+            limit: PAGE_SIZE,
+            offset,
+          },
+        },
+      });
+      if (!ownsListRequest(epoch, requestVersion)) return;
+      if (!response.data) {
+        setLoadMoreError(true);
+        return;
+      }
+      const page = response.data;
+      setSchedules((current) => {
+        const existing = current ?? [];
+        const ids = new Set(existing.map((schedule) => schedule.id));
+        return [...existing, ...page.items.filter((item) => !ids.has(item.id))];
+      });
+      setTotal(page.total);
+    } catch {
+      if (ownsListRequest(epoch, requestVersion)) setLoadMoreError(true);
+    } finally {
+      if (ownsListRequest(epoch, requestVersion)) setLoadingMore(false);
+    }
+  }, [api, businessDate, canLoadMore, ownsListRequest, schedules]);
 
   useEffect(() => {
     void load();
@@ -103,15 +168,24 @@ export function MechanicInspectionWorkspace() {
     [api, findings, load],
   );
 
-  if (error) {
+  const loadMoreAria = useMemo(
+    () =>
+      ko.common.loadMoreAria
+        .replace("{loaded}", String(loadedSchedules.length))
+        .replace("{total}", String(total ?? 0))
+        .replaceAll("{unit}", ko.common.countUnit),
+    [loadedSchedules.length, total],
+  );
+
+  if (loadError) {
     return (
       <section className="inspection-mechanic" aria-live="polite">
         <p className="inspection-mechanic__error">
-          {error === "denied"
+          {loadError === "denied"
             ? ko.page.permissionDenied
             : ko.inspection.loadFailed}
         </p>
-        {error === "retry" ? (
+        {loadError === "retry" ? (
           <button type="button" onClick={() => void load()}>
             {ko.page.retry}
           </button>
@@ -131,6 +205,11 @@ export function MechanicInspectionWorkspace() {
       {schedules === undefined ? <p>{ko.common.loading}</p> : null}
       {schedules !== undefined && loadedSchedules.length === 0 ? (
         <p>{ko.inspection.empty}</p>
+      ) : null}
+      {total !== undefined ? (
+        <p className="inspection-mechanic__count" aria-live="polite">
+          {loadedSchedules.length} / {total} {ko.common.countUnit}
+        </p>
       ) : null}
       <ul className="inspection-mechanic__list">
         {loadedSchedules.map((schedule) => {
@@ -215,6 +294,23 @@ export function MechanicInspectionWorkspace() {
           );
         })}
       </ul>
+      {canLoadMore ? (
+        <div className="inspection-mechanic__more">
+          {loadMoreError ? (
+            <p className="inspection-mechanic__error" role="alert">
+              {ko.inspection.loadFailed}
+            </p>
+          ) : null}
+          <button
+            type="button"
+            aria-label={loadMoreAria}
+            disabled={loadingMore}
+            onClick={() => void loadMore()}
+          >
+            {loadingMore ? ko.common.loadingMore : ko.common.loadMore}
+          </button>
+        </div>
+      ) : null}
     </section>
   );
 }

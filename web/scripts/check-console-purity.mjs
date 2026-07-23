@@ -3,7 +3,8 @@
  * check-console-purity — structural guard for the carbon-copy console (charter
  * D1/§3 P0.0 AC "zero shadcn/Tailwind class in console/**").
  *
- * Fails the web lint run if anything under web/src/console/** does either of:
+ * Fails the web lint run if anything under web/src/console/** or the mounted
+ * inspection entry surface does either of:
  *   1. carries a Tailwind utility class in a `className` (the console owns its
  *      look through tokens.css; utility visuals are legacy inheritance);
  *   2. imports from web/src/components/ui/** (shadcn) or components/shell/**
@@ -22,6 +23,7 @@ import { fileURLToPath } from "node:url";
 
 const webRoot = join(fileURLToPath(new URL(".", import.meta.url)), "..");
 const consoleDir = join(webRoot, "src", "console");
+const inspectionEntry = join(webRoot, "src", "pages", "InspectionPage.tsx");
 
 // Tailwind utility shapes: prefixed utilities (p-4, text-sm, bg-white, w-full,
 // gap-2, rounded-lg, -mx-2, md:flex, hover:bg-…) and common bare utilities.
@@ -30,13 +32,15 @@ const PREFIXED =
 const BARE =
   /^-?(?:(?:sm|md|lg|xl|2xl|hover|focus|active|disabled|group-hover|dark):)*(?:flex|grid|block|inline|inline-block|inline-flex|hidden|table|contents|absolute|relative|fixed|sticky|static|container|truncate|uppercase|lowercase|capitalize|italic|underline|antialiased|isolate|flow-root)$/;
 
-const isTailwindToken = (t) => t.length > 0 && (PREFIXED.test(t) || BARE.test(t));
+const isTailwindToken = (t) =>
+  t.length > 0 && (PREFIXED.test(t) || BARE.test(t));
 
 /** Pull the string content out of each className attribute in a TS/TSX source. */
 function classNameValues(src) {
   const out = [];
   const bindings = simpleStringBindings(src);
-  const re = /className\s*=\s*(?:"([^"]*)"|'([^']*)'|\{`([^`]*)`\}|\{"([^"]*)"\}|\{'([^']*)'\})/g;
+  const re =
+    /className\s*=\s*(?:"([^"]*)"|'([^']*)'|\{`([^`]*)`\}|\{"([^"]*)"\}|\{'([^']*)'\})/g;
   let m;
   while ((m = re.exec(src)) !== null) {
     const v = m[1] ?? m[2] ?? m[3] ?? m[4] ?? m[5];
@@ -51,7 +55,8 @@ function classNameValues(src) {
 function importSpecifiers(src) {
   const bindings = simpleStringBindings(src);
   const out = [];
-  const re = /(?:import|export)[^'"]*from\s*['"]([^'"]+)['"]|import\s*['"]([^'"]+)['"]/g;
+  const re =
+    /(?:import|export)[^'"]*from\s*['"]([^'"]+)['"]|import\s*['"]([^'"]+)['"]/g;
   let m;
   while ((m = re.exec(src)) !== null) out.push(m[1] ?? m[2]);
   for (const expr of dynamicImportExpressions(src)) {
@@ -79,7 +84,8 @@ const JS_KEYWORDS = new Set([
 
 function simpleStringBindings(src) {
   const bindings = new Map();
-  const re = /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(["'`])([\s\S]*?)\2/g;
+  const re =
+    /\b(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=\s*(["'`])([\s\S]*?)\2/g;
   let m;
   while ((m = re.exec(src)) !== null) {
     if (m[2] === "`" && m[3].includes("${")) continue;
@@ -100,7 +106,7 @@ function balancedChunk(src, openIndex, open, close) {
       else if (ch === quote) quote = null;
       continue;
     }
-    if (ch === "\"" || ch === "'" || ch === "`") {
+    if (ch === '"' || ch === "'" || ch === "`") {
       quote = ch;
       continue;
     }
@@ -133,7 +139,8 @@ function dynamicImportExpressions(src) {
 
 function stringValuesFromExpression(expr, bindings) {
   const out = [];
-  const literalRe = /"([^"\\]*(?:\\.[^"\\]*)*)"|'([^'\\]*(?:\\.[^'\\]*)*)'|`([^`]*)`/g;
+  const literalRe =
+    /"([^"\\]*(?:\\.[^"\\]*)*)"|'([^'\\]*(?:\\.[^'\\]*)*)'|`([^`]*)`/g;
   let m;
   while ((m = literalRe.exec(expr)) !== null) {
     const raw = m[1] ?? m[2] ?? m[3] ?? "";
@@ -141,7 +148,8 @@ function stringValuesFromExpression(expr, bindings) {
   }
   for (const word of expr.match(/\b[A-Za-z_$][\w$]*\b/g) ?? []) {
     if (JS_KEYWORDS.has(word) || word === "cn" || word === "clsx") continue;
-    if (IDENTIFIER.test(word) && bindings.has(word)) out.push(bindings.get(word));
+    if (IDENTIFIER.test(word) && bindings.has(word))
+      out.push(bindings.get(word));
   }
   return out;
 }
@@ -161,7 +169,8 @@ if (!existsSync(consoleDir)) {
   // No console dir yet — nothing to guard.
   process.exit(0);
 }
-const files = walk(consoleDir);
+const files = [...walk(consoleDir)];
+if (existsSync(inspectionEntry)) files.push(inspectionEntry);
 
 for (const file of files) {
   const rel = relative(webRoot, file);
@@ -171,12 +180,16 @@ for (const file of files) {
     for (const cn of classNameValues(src)) {
       const bad = cn.split(/\s+/).filter(isTailwindToken);
       if (bad.length) {
-        violations.push(`${rel}: Tailwind utility class(es) in className — ${bad.join(", ")}`);
+        violations.push(
+          `${rel}: Tailwind utility class(es) in className — ${bad.join(", ")}`,
+        );
       }
     }
     for (const spec of importSpecifiers(src)) {
       if (BANNED_IMPORT.test(spec)) {
-        violations.push(`${rel}: banned import "${spec}" (components/ui|shell)`);
+        violations.push(
+          `${rel}: banned import "${spec}" (components/ui|shell)`,
+        );
       }
     }
   }
@@ -195,4 +208,6 @@ if (violations.length) {
   process.exit(1);
 }
 
-console.log(`check-console-purity OK — ${files.length} file(s) under web/src/console clean.`);
+console.log(
+  `check-console-purity OK — ${files.length} console and inspection-entry file(s) clean.`,
+);

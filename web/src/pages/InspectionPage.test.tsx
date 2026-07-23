@@ -177,6 +177,168 @@ describe("InspectionPage", () => {
     ).toBeVisible();
   });
 
+  it("does not offer a manager an assigned mechanic's completion operation", async () => {
+    const complete = vi.fn();
+    server.use(
+      http.get("*/api/v1/inspections/schedules", () =>
+        HttpResponse.json(inspectionSchedulePage([overdueSchedule])),
+      ),
+      http.post("*/api/v1/inspections/schedules/:scheduleId/rounds", () => {
+        complete();
+        return HttpResponse.json({ id: "round-1" }, { status: 201 });
+      }),
+    );
+
+    renderApp(makeAuthContext(adminSession));
+
+    await screen.findByText("290");
+    expect(
+      screen.queryByRole("button", { name: /290.*점검 완료/ }),
+    ).not.toBeInTheDocument();
+    expect(complete).not.toHaveBeenCalled();
+  });
+
+  it("loads every manager schedule page and retries a failed next page", async () => {
+    const firstPage = Array.from({ length: 100 }, (_, index) => ({
+      ...overdueSchedule,
+      id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+      management_no: `M-${index}`,
+    }));
+    const nextPage = {
+      ...overdueSchedule,
+      id: "00000000-0000-4000-8000-000000000100",
+      management_no: "M-100",
+    };
+    let moreAttempts = 0;
+    server.use(
+      http.get("*/api/v1/inspections/schedules", ({ request }) => {
+        const offset = new URL(request.url).searchParams.get("offset");
+        if (offset === "0") {
+          return HttpResponse.json(inspectionSchedulePage(firstPage, 101));
+        }
+        moreAttempts += 1;
+        if (moreAttempts === 1) {
+          return HttpResponse.json(
+            { error: { message: "retry" } },
+            { status: 503 },
+          );
+        }
+        return HttpResponse.json(inspectionSchedulePage([nextPage], 101));
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderApp(makeAuthContext(adminSession));
+    await screen.findByText("M-0");
+
+    const loadMore = screen.getByRole("button", { name: /현재 100건/ });
+    await user.click(loadMore);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "정기 일정을 불러오지 못했습니다.",
+    );
+    await user.click(screen.getByRole("button", { name: /현재 100건/ }));
+
+    expect(await screen.findByText("M-100")).toBeVisible();
+    expect(screen.getByText("101")).toBeVisible();
+  });
+
+  it("keeps the newest manager completion in charge when an earlier completion rejects late", async () => {
+    const secondSchedule = {
+      ...overdueSchedule,
+      id: "88888888-8888-4888-8888-888888888888",
+      management_no: "291",
+    };
+    let releaseFirst: (() => void) | undefined;
+    const firstPending = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    let posts = 0;
+    server.use(
+      http.get("*/api/v1/inspections/schedules", () =>
+        HttpResponse.json(
+          inspectionSchedulePage([overdueSchedule, secondSchedule]),
+        ),
+      ),
+      http.post(
+        "*/api/v1/inspections/schedules/:scheduleId/rounds",
+        async () => {
+          posts += 1;
+          if (posts === 1) {
+            await firstPending;
+            return HttpResponse.error();
+          }
+          return HttpResponse.json({ id: "round-2" }, { status: 201 });
+        },
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderApp(makeAuthContext({ ...adminSession, user_id: mechanicId }));
+    await user.click(
+      await screen.findByRole("button", { name: /290.*점검 완료/ }),
+    );
+    await user.type(screen.getByLabelText("점검 내용"), "첫 번째 처리");
+    await user.click(screen.getByRole("button", { name: "완료 처리" }));
+    await waitFor(() => expect(posts).toBe(1));
+
+    await user.click(screen.getByRole("button", { name: /291.*점검 완료/ }));
+    await user.type(screen.getByLabelText("점검 내용"), "두 번째 처리");
+    await user.click(screen.getByRole("button", { name: "완료 처리" }));
+    expect(
+      await screen.findByText("정기 점검 라운드를 완료 처리했습니다."),
+    ).toBeVisible();
+
+    releaseFirst?.();
+    await waitFor(() =>
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument(),
+    );
+  });
+
+  it("drops a delayed manager completion after the authenticated session changes", async () => {
+    let releaseCompletion: (() => void) | undefined;
+    const completionPending = new Promise<void>((resolve) => {
+      releaseCompletion = resolve;
+    });
+    server.use(
+      http.get("*/api/v1/inspections/schedules", () =>
+        HttpResponse.json(inspectionSchedulePage([overdueSchedule])),
+      ),
+      http.post(
+        "*/api/v1/inspections/schedules/:scheduleId/rounds",
+        async () => {
+          await completionPending;
+          return HttpResponse.json({ id: "round-late" }, { status: 201 });
+        },
+      ),
+    );
+
+    const user = userEvent.setup();
+    const view = renderApp(
+      makeAuthContext({ ...adminSession, user_id: mechanicId }),
+    );
+    await user.click(
+      await screen.findByRole("button", { name: /290.*점검 완료/ }),
+    );
+    await user.type(screen.getByLabelText("점검 내용"), "세션 전환 전 처리");
+    await user.click(screen.getByRole("button", { name: "완료 처리" }));
+
+    view.rerender(
+      <AuthContext.Provider
+        value={makeAuthContext({ ...adminSession, user_id: "new-session" })}
+      >
+        <MemoryRouter initialEntries={["/inspection"]}>
+          <AppRouter />
+        </MemoryRouter>
+      </AuthContext.Provider>,
+    );
+    releaseCompletion?.();
+    await waitFor(() =>
+      expect(
+        screen.queryByText("정기 점검 라운드를 완료 처리했습니다."),
+      ).not.toBeInTheDocument(),
+    );
+  });
+
   it("does not retain a schedule detail that the active status filter hides", async () => {
     const completedSchedule: InspectionScheduleSummary = {
       ...overdueSchedule,
@@ -264,17 +426,15 @@ describe("InspectionPage", () => {
     expect(screen.getAllByText(/홍정비/).length).toBeGreaterThan(0);
     expect(screen.queryByLabelText("담당 정비사")).not.toBeInTheDocument();
 
-    // Branch picker: type to filter, then pick the human-named option.
-    await user.type(screen.getByLabelText("지점"), "창원");
-    await user.click(await screen.findByRole("option", { name: /창원지점/ }));
+    // Console-native picker keeps the selected human label while submitting
+    // the server-owned branch id.
+    await user.selectOptions(screen.getByLabelText("지점"), branchId);
 
     // Equipment picker: server typeahead, pick by management number / model.
     await user.type(screen.getByLabelText("장비 (호기 번호)"), "290");
     await user.click(await screen.findByRole("option", { name: /290/ }));
 
-    // Mechanic picker: filter and select the assigned mechanic by name.
-    await user.type(screen.getByLabelText("정비사"), "홍정비");
-    await user.click(await screen.findByRole("option", { name: /홍정비/ }));
+    await user.selectOptions(screen.getByLabelText("정비사"), mechanicId);
 
     await user.click(screen.getByRole("button", { name: "일정 등록" }));
 

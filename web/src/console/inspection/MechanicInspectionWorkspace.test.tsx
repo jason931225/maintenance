@@ -152,4 +152,128 @@ describe("MechanicInspectionWorkspace", () => {
       expect(screen.queryByText("OLD")).not.toBeInTheDocument(),
     );
   });
+
+  it("loads the next mechanic page with an honest count, retries locally, and preserves the open row", async () => {
+    const firstPage = Array.from({ length: 100 }, (_, index) => ({
+      ...assignedSchedule,
+      id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+      management_no: `M-${index}`,
+    }));
+    const next = {
+      ...assignedSchedule,
+      id: "00000000-0000-4000-8000-000000000100",
+      management_no: "M-100",
+    };
+    let moreAttempts = 0;
+    server.use(
+      http.get("*/api/v1/inspections/my-schedules", ({ request }) => {
+        const offset = new URL(request.url).searchParams.get("offset");
+        if (offset === "0") {
+          return HttpResponse.json(inspectionSchedulePage(firstPage, 101));
+        }
+        moreAttempts += 1;
+        if (moreAttempts === 1) {
+          return HttpResponse.json(
+            { error: { message: "retry" } },
+            { status: 503 },
+          );
+        }
+        return HttpResponse.json(inspectionSchedulePage([next], 101));
+      }),
+    );
+
+    const user = userEvent.setup();
+    render(workspace(context()));
+    await screen.findByText("M-0");
+    await user.click(screen.getAllByRole("button", { name: "점검 완료" })[0]);
+    expect(screen.getByLabelText("점검 내용")).toBeVisible();
+
+    const loadMore = screen.getByRole("button", { name: /현재 100건/ });
+    await user.click(loadMore);
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "정기 일정을 불러오지 못했습니다.",
+    );
+    await user.click(loadMore);
+
+    expect(await screen.findByText("M-100")).toBeVisible();
+    expect(screen.getByText("101 / 101 건")).toBeVisible();
+    expect(screen.getByLabelText("점검 내용")).toBeVisible();
+  });
+
+  it("keeps a newer same-session refresh when an older response resolves late", async () => {
+    let resolveFirst: (() => void) | undefined;
+    const firstPending = new Promise<void>((resolve) => {
+      resolveFirst = resolve;
+    });
+    let call = 0;
+    server.use(
+      http.get("*/api/v1/inspections/my-schedules", async () => {
+        call += 1;
+        if (call === 1) {
+          await firstPending;
+          return HttpResponse.json(
+            inspectionSchedulePage([
+              { ...assignedSchedule, management_no: "STALE" },
+            ]),
+          );
+        }
+        return HttpResponse.json(
+          inspectionSchedulePage([
+            { ...assignedSchedule, management_no: "FRESH" },
+          ]),
+        );
+      }),
+    );
+
+    render(workspace(context()));
+    await waitFor(() => expect(call).toBe(1));
+    await userEvent
+      .setup()
+      .click(screen.getByRole("button", { name: "일정 조회" }));
+    expect(await screen.findByText("FRESH")).toBeVisible();
+    resolveFirst?.();
+    await waitFor(() =>
+      expect(screen.queryByText("STALE")).not.toBeInTheDocument(),
+    );
+  });
+
+  it("does not surface a delayed earlier rejection after a newer retry succeeds", async () => {
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    let resolveFirst: (() => void) | undefined;
+    const firstPending = new Promise<void>((resolve) => {
+      resolveFirst = resolve;
+    });
+    let call = 0;
+    server.use(
+      http.get("*/api/v1/inspections/my-schedules", async () => {
+        call += 1;
+        if (call === 1) {
+          await firstPending;
+          throw new Error("delayed failure");
+        }
+        return HttpResponse.json(
+          inspectionSchedulePage([
+            { ...assignedSchedule, management_no: "RECOVERED" },
+          ]),
+        );
+      }),
+    );
+
+    try {
+      render(workspace(context()));
+      await waitFor(() => expect(call).toBe(1));
+      await userEvent
+        .setup()
+        .click(screen.getByRole("button", { name: "일정 조회" }));
+      expect(await screen.findByText("RECOVERED")).toBeVisible();
+      resolveFirst?.();
+      await waitFor(() =>
+        expect(
+          screen.queryByText("정기 일정을 불러오지 못했습니다."),
+        ).not.toBeInTheDocument(),
+      );
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
 });
