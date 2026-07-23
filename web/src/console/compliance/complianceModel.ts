@@ -137,25 +137,17 @@ const EVIDENCE_TONE: Record<string, ModuleChipTone> = {
   RETRACTED: "danger",
 };
 
-const COVERAGE_LABEL_KEY: Record<string, string> = {
-  PRIMARY: `${NS}.coverageLevels.primary`,
-  PARTIAL: `${NS}.coverageLevels.partial`,
-  SUPPORTING: `${NS}.coverageLevels.supporting`,
-  COMPENSATING: `${NS}.coverageLevels.compensating`,
-};
-
 /** FW- control→evidence coverage matrix, reusing the ledger detail variant. */
 export function controlEvidenceLedger(framework: ComplianceFramework): ModuleLedgerValue {
-  const accepted = framework.controls.filter((c) => c.evidenceStatus === "ACCEPTED").length;
+  const accepted = framework.controls.filter((control) => control.evidenceBindings.some((binding) => binding.status === "ACCEPTED")).length;
   return {
     total: `${String(accepted)}/${String(framework.controls.length)}`,
     entries: framework.controls.map((control) => ({
       id: control.id,
       label: `${control.controlKey} · ${control.title}`,
-      amount: control.evidenceCount,
+      amount: control.evidenceBindings.length,
       meta: control.objective,
-      sourceLabelKey: COVERAGE_LABEL_KEY[control.coverageLevel],
-      tone: EVIDENCE_TONE[control.evidenceStatus] ?? "neutral",
+      tone: EVIDENCE_TONE[control.evidenceBindings[0]?.status ?? ""] ?? "neutral",
     })),
   };
 }

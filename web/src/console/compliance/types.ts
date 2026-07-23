@@ -1,10 +1,7 @@
-// CP-/RG-/FW- compliance surface types — UI mirror of the BE compliance
-// domain FSMs (backend/crates/compliance/domain/src/lib.rs: ObligationStatus,
-// RegulationImpactStatus, FrameworkStatus, ControlStatus, EvidenceBindingStatus
-// + the compliance_enum! wire strings). No REST/openapi exists for these
-// objects yet (0 refs — ontology-coverage-matrix.md item 6); every read here
-// is wire-pending until BE-OBJ ships mnt_compliance_rest obligation/regulation/
-// framework/control/evidence routes + an openapi.yaml fragment + client regen.
+// CP-/RG-/FW- compliance surface types mirror the authenticated compliance REST
+// domain. They intentionally retain server identities, scope, provenance, and
+// evidence metadata: presentation must never replace those facts with labels or
+// local fixture data.
 export type ObligationStatus = "DRAFT" | "ACTIVE" | "WAIVED" | "SUPERSEDED" | "ARCHIVED";
 export type RegulationImpactStatus = "DRAFT" | "ACTIVE" | "SUPERSEDED" | "ARCHIVED";
 export type FrameworkStatus = "DRAFT" | "ACTIVE" | "RETIRED" | "ARCHIVED";
@@ -36,7 +33,9 @@ export interface ComplianceObligation {
   description: string;
   obligationType: ObligationType;
   scopeKind: ComplianceScopeKind;
+  scope: { scope_type: ComplianceScopeKind; scope_ref: string | null; branch_id: string | null; site_id: string | null };
   ownerName?: string;
+  ownerUserId?: string;
   severity: ComplianceRiskLevel;
   status: ObligationStatus;
   effectiveFrom?: string;
@@ -44,6 +43,10 @@ export interface ComplianceObligation {
   reviewCadence?: ReviewCadence;
   nextReviewOn?: string;
   updatedAt: string;
+  metadata: unknown;
+  createdBy: string;
+  updatedBy: string;
+  createdAt: string;
 }
 
 export interface RegulationImpact {
@@ -63,7 +66,12 @@ export interface RegulationImpact {
   effectiveTo?: string;
   reviewDueOn?: string;
   ownerName?: string;
+  ownerUserId?: string;
   updatedAt: string;
+  metadata: unknown;
+  createdBy: string;
+  updatedBy: string;
+  createdAt: string;
 }
 
 export interface ComplianceControl {
@@ -72,11 +80,16 @@ export interface ComplianceControl {
   controlKey: string;
   title: string;
   objective: string;
+  controlType: string;
+  cadence?: string | null;
   status: ControlStatus;
-  coverageLevel: CoverageLevel;
-  coverageStatus: CoverageStatus;
-  evidenceStatus: EvidenceBindingStatus;
-  evidenceCount: number;
+  evidenceRequirements: unknown;
+  ownerUserId?: string;
+  createdBy: string;
+  updatedBy: string;
+  createdAt: string;
+  updatedAt: string;
+  evidenceBindings: EvidenceBinding[];
 }
 
 export interface ComplianceFramework {
@@ -88,10 +101,36 @@ export interface ComplianceFramework {
   frameworkKind: FrameworkKind;
   status: FrameworkStatus;
   ownerName?: string;
+  ownerUserId?: string;
   effectiveFrom?: string;
   effectiveTo?: string;
   updatedAt: string;
+  metadata: unknown;
+  createdBy: string;
+  updatedBy: string;
+  createdAt: string;
   controls: ComplianceControl[];
+}
+
+export interface EvidenceBinding {
+  id: string;
+  controlId: string;
+  obligationId?: string;
+  evidenceTargetType: string;
+  evidenceTargetId: string;
+  sourceAuditEventId?: string;
+  status: EvidenceBindingStatus;
+  confidence: string;
+  collectedAt?: string;
+  collectedBy?: string;
+  validFrom?: string;
+  validTo?: string;
+  hashSha256?: string;
+  metadata: unknown;
+  createdBy: string;
+  updatedBy: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export type ComplianceCatalogItem = ComplianceObligation | RegulationImpact | ComplianceFramework;

@@ -3,29 +3,38 @@
 // ../modules/moduleScreens.ts MOD_SCREENS so it renders through the shared
 // GenericModuleScreen — same list/right-pin/policy-gate idiom as finance and
 // asset (§4-18 reuse; no bespoke screen component).
-import { createComplianceCatalogStubs } from "./complianceStubs";
+import { readComplianceCatalog, readFrameworkDetail } from "./complianceApi";
 import { catalogStats, COMPLIANCE_ACTIONS, filterRows, toRows } from "./complianceModel";
 import type { ModuleDataAdapter, ModuleScreenConfig } from "../modules/types";
+import type { ComplianceCatalogItem } from "./types";
 
 const NS = "console.modules.compliance";
 
-// wire-pending: W1-FE-compliance-ui — loadRows/loadDetail below ignore `api`
-// because no compliance obligation/regulation/framework REST exists yet (see
-// complianceStubs.ts header). Swap the stub source for real GET calls once
-// BE-OBJ ships the routes; row/detail shapes already match the domain structs.
+let latestCatalog: ComplianceCatalogItem[] = [];
+
 const complianceDataAdapter: ModuleDataAdapter = {
-  loadRows({ query }) {
-    const items = createComplianceCatalogStubs();
+  async loadRows({ api, query, hasPolicy }) {
+    if (!hasPolicy(COMPLIANCE_ACTIONS.read)) return { rows: [] };
+    const items = await readComplianceCatalog(api, query, {
+      obligations: hasPolicy(COMPLIANCE_ACTIONS.read),
+      regulations: hasPolicy(COMPLIANCE_ACTIONS.regulationRead),
+      frameworks: hasPolicy(COMPLIANCE_ACTIONS.frameworkRead),
+    });
+    latestCatalog = items;
     const rows = filterRows(toRows(items), query);
     const stats = catalogStats(items);
-    return Promise.resolve({
+    return {
       rows,
       stats: { active: stats.active, attention: stats.attention, frameworks: stats.frameworks },
       selectedRowId: rows[0]?.id,
-    });
+    };
   },
-  loadDetail({ row }) {
-    return Promise.resolve({ row });
+  async loadDetail({ api, row }) {
+    const item = latestCatalog.find((catalogItem) => catalogItem.id === row.id);
+    if (!item || item.kind !== "framework") return { row };
+    const hydrated = await readFrameworkDetail(api, item);
+    latestCatalog = latestCatalog.map((catalogItem) => catalogItem.id === hydrated.id ? hydrated : catalogItem);
+    return { row: toRows([hydrated])[0] };
   },
 };
 
@@ -44,11 +53,7 @@ export const complianceModuleScreen: ModuleScreenConfig = {
     read: COMPLIANCE_ACTIONS.read,
     audit: COMPLIANCE_ACTIONS.audit,
   },
-  data: {
-    // wire-pending: no REST exists for these paths today; see complianceStubs.ts.
-    list: "/api/v1/compliance/obligations",
-    detail: "/api/v1/compliance/obligations/{id}",
-  },
+  data: { list: "/api/v1/compliance/obligations" },
   dataAdapter: complianceDataAdapter,
   statbar: [
     { key: "active", labelKey: `${NS}.stats.active`, tone: "ok", source: "compliance catalog status=ACTIVE", requiresBackend: true },
