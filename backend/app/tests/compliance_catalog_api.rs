@@ -21,3 +21,18 @@ fn compliance_catalog_routes_are_registered() {
         );
     }
 }
+
+#[test]
+fn catalog_search_query_stays_bound_to_the_flattened_page_request() {
+    let source = include_str!("../../crates/compliance/rest/src/lib.rs");
+
+    assert!(
+        !source.contains("query.q"),
+        "CatalogPageQuery owns q, so handlers must read query.page.q"
+    );
+    assert_eq!(
+        source.matches("let q = query.page.q.clone();").count(),
+        4,
+        "regulation, obligation, framework, and control lists must preserve q"
+    );
+}

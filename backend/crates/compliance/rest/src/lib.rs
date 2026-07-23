@@ -400,13 +400,14 @@ async fn list_regulations(
 ) -> Result<Json<mnt_compliance_application::RegulationImpactPage>, RestError> {
     let principal = principal_from_headers(&state, &headers).await?;
     require_compliance_read(&principal)?;
+    let q = query.page.q.clone();
     let page = catalog_page(query.page)?;
     let result = state
         .store
         .list_regulation_impacts(RegulationImpactQuery {
             status: query.status,
             risk_level: query.risk_level,
-            q: query.q,
+            q,
             page,
         })
         .await
@@ -460,6 +461,7 @@ async fn list_obligations(
             )));
         }
     }
+    let q = query.page.q.clone();
     let page = catalog_page(query.page)?;
     let result = state
         .store
@@ -470,7 +472,7 @@ async fn list_obligations(
             scope_type: query.scope_type,
             branch_id: query.branch_id,
             site_id: query.site_id,
-            q: query.q,
+            q,
             page,
         })
         .await
@@ -561,13 +563,14 @@ async fn list_frameworks(
 ) -> Result<Json<mnt_compliance_application::ComplianceFrameworkPage>, RestError> {
     let principal = principal_from_headers(&state, &headers).await?;
     require_compliance_read(&principal)?;
+    let q = query.page.q.clone();
     let page = catalog_page(query.page)?;
     let result = state
         .store
         .list_compliance_frameworks(ComplianceFrameworkQuery {
             status: query.status,
             kind: query.kind,
-            q: query.q,
+            q,
             page,
         })
         .await
@@ -611,13 +614,14 @@ async fn list_framework_controls(
     let framework_id = query.framework_id.parse().map_err(|_| {
         RestError::from_kernel(KernelError::validation("framework_id must be a UUID"))
     })?;
+    let q = query.page.q.clone();
     let page = catalog_page(query.page)?;
     let result = state
         .store
         .list_compliance_controls(ComplianceControlQuery {
             framework_id,
             status: query.status,
-            q: query.q,
+            q,
             page,
         })
         .await
