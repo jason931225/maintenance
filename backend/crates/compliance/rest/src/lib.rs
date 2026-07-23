@@ -9,10 +9,21 @@ use axum::{Json, Router};
 use mnt_compliance_adapter_postgres::{PgComplianceError, PgComplianceStore};
 use mnt_compliance_application::{
     ArrivalEventPage, ArrivalEventQuery, AuditStreamPage, AuditStreamQuery, AuditStreamReadKind,
-    CEO_COVERT_AUDIT_STREAM_KEY, ConsentTransitionCommand, ConsentTransitionKind,
-    LocationConsentLedgerEntry, LocationConsentLedgerPage, LocationConsentLedgerQuery,
+    CEO_COVERT_AUDIT_STREAM_KEY, ComplianceControlQuery, ComplianceFrameworkQuery,
+    ComplianceObligationQuery, ConsentTransitionCommand, ConsentTransitionKind,
+    CreateComplianceControlCommand, CreateComplianceFrameworkCommand,
+    CreateComplianceObligationCommand, CreateEvidenceBindingCommand, CreateRegulationImpactCommand,
+    EvidenceBindingQuery, LinkControlObligationCommand, LinkObligationRegulationCommand,
+    LocationConsentLedgerEntry, LocationConsentLedgerPage, LocationConsentLedgerQuery, PageRequest,
+    RegulationImpactQuery,
 };
-use mnt_compliance_domain::{LocationConsent, LocationConsentState, LocationPing};
+use mnt_compliance_domain::{
+    ComplianceRiskLevel, ComplianceScope, ComplianceScopeKind, ControlCadence, ControlStatus,
+    ControlType, CoverageLevel, EvidenceBindingStatus, EvidenceConfidence, EvidenceTargetType,
+    FrameworkKind, FrameworkStatus, LocationConsent, LocationConsentState, LocationPing,
+    ObligationRegulationRelationship, ObligationStatus, ObligationType, RegulationImpactStatus,
+    ReviewCadence,
+};
 use mnt_kernel_core::{
     BranchId, BranchScope, ErrorKind, KernelError, LocationPingId, Timestamp, TraceContext, UserId,
 };
@@ -26,6 +37,13 @@ use mnt_platform_authz::{
 use serde::{Deserialize, Serialize};
 
 pub const COMPLIANCE_ROUTE_PATHS: &[&str] = &[
+    "/api/v1/compliance/regulations",
+    "/api/v1/compliance/obligations",
+    "/api/v1/compliance/obligation-regulation-links",
+    "/api/v1/compliance/frameworks",
+    "/api/v1/compliance/framework-controls",
+    "/api/v1/compliance/control-obligation-coverage",
+    "/api/v1/compliance/evidence-bindings",
     "/api/v1/location-consent/status",
     "/api/v1/location-consent/grant",
     "/api/v1/location-consent/suspend",
@@ -59,6 +77,34 @@ pub fn router(state: ComplianceRestState) -> Router {
     let verifier = state.jwt_verifier.clone();
     let pool = state.store.pool().clone();
     let router = Router::new()
+        .route(
+            "/api/v1/compliance/regulations",
+            get(list_regulations).post(create_regulation),
+        )
+        .route(
+            "/api/v1/compliance/obligations",
+            get(list_obligations).post(create_obligation),
+        )
+        .route(
+            "/api/v1/compliance/obligation-regulation-links",
+            post(link_obligation_regulation),
+        )
+        .route(
+            "/api/v1/compliance/frameworks",
+            get(list_frameworks).post(create_framework),
+        )
+        .route(
+            "/api/v1/compliance/framework-controls",
+            get(list_framework_controls).post(create_framework_control),
+        )
+        .route(
+            "/api/v1/compliance/control-obligation-coverage",
+            post(link_control_obligation),
+        )
+        .route(
+            "/api/v1/compliance/evidence-bindings",
+            get(list_evidence_bindings).post(create_evidence_binding),
+        )
         .route("/api/v1/location-consent/status", get(get_status))
         .route("/api/v1/location-consent/grant", post(grant_consent))
         .route("/api/v1/location-consent/suspend", post(suspend_consent))
@@ -81,6 +127,163 @@ pub fn router(state: ComplianceRestState) -> Router {
         )
         .with_state(state);
     mnt_platform_request_context::with_request_context(router, verifier, pool)
+}
+
+/// All compliance catalog writes derive the actor, trace, timestamp, and tenant
+/// from authenticated request context. Callers may choose a business owner, but
+/// may never impersonate the actor or select an organization.
+#[derive(Debug, Deserialize)]
+struct CatalogPageQuery {
+    limit: Option<i64>,
+    offset: Option<i64>,
+    q: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct RegulationQuery {
+    #[serde(flatten)]
+    page: CatalogPageQuery,
+    status: Option<RegulationImpactStatus>,
+    risk_level: Option<ComplianceRiskLevel>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ObligationQuery {
+    #[serde(flatten)]
+    page: CatalogPageQuery,
+    status: Option<ObligationStatus>,
+    severity: Option<ComplianceRiskLevel>,
+    scope_type: Option<ComplianceScopeKind>,
+    branch_id: Option<BranchId>,
+    site_id: Option<mnt_kernel_core::SiteId>,
+}
+
+#[derive(Debug, Deserialize)]
+struct FrameworkQuery {
+    #[serde(flatten)]
+    page: CatalogPageQuery,
+    status: Option<FrameworkStatus>,
+    kind: Option<FrameworkKind>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ControlQuery {
+    framework_id: String,
+    #[serde(flatten)]
+    page: CatalogPageQuery,
+    status: Option<ControlStatus>,
+}
+
+#[derive(Debug, Deserialize)]
+struct EvidenceQuery {
+    #[serde(flatten)]
+    page: CatalogPageQuery,
+    control_id: Option<String>,
+    obligation_id: Option<String>,
+    target_type: Option<EvidenceTargetType>,
+    status: Option<EvidenceBindingStatus>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateRegulationRequest {
+    title: String,
+    jurisdiction: String,
+    regulator: Option<String>,
+    citation: String,
+    source_url: Option<String>,
+    impact_area: String,
+    impact_summary: String,
+    risk_level: ComplianceRiskLevel,
+    effective_from: Option<time::Date>,
+    effective_to: Option<time::Date>,
+    review_due_on: Option<time::Date>,
+    owner_user_id: Option<UserId>,
+    #[serde(default)]
+    metadata: serde_json::Value,
+}
+
+#[derive(Debug, Deserialize)]
+struct RegulationLinkRequest {
+    regulation_impact_id: String,
+    relationship: ObligationRegulationRelationship,
+    rationale: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateObligationRequest {
+    title: String,
+    description: String,
+    obligation_type: ObligationType,
+    scope: ComplianceScope,
+    owner_user_id: Option<UserId>,
+    severity: ComplianceRiskLevel,
+    effective_from: Option<time::Date>,
+    effective_to: Option<time::Date>,
+    review_cadence: Option<ReviewCadence>,
+    next_review_on: Option<time::Date>,
+    #[serde(default)]
+    metadata: serde_json::Value,
+    #[serde(default)]
+    regulation_links: Vec<RegulationLinkRequest>,
+}
+
+#[derive(Debug, Deserialize)]
+struct LinkObligationRegulationRequest {
+    obligation_id: String,
+    regulation_impact_id: String,
+    relationship: ObligationRegulationRelationship,
+    rationale: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateFrameworkRequest {
+    name: String,
+    version_label: String,
+    framework_kind: FrameworkKind,
+    owner_user_id: Option<UserId>,
+    effective_from: Option<time::Date>,
+    effective_to: Option<time::Date>,
+    #[serde(default)]
+    metadata: serde_json::Value,
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateControlRequest {
+    framework_id: String,
+    control_key: String,
+    title: String,
+    objective: String,
+    control_type: ControlType,
+    cadence: Option<ControlCadence>,
+    #[serde(default)]
+    evidence_requirements: serde_json::Value,
+    owner_user_id: Option<UserId>,
+}
+
+#[derive(Debug, Deserialize)]
+struct LinkControlObligationRequest {
+    control_id: String,
+    obligation_id: String,
+    coverage_level: CoverageLevel,
+    coverage_rationale: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct CreateEvidenceBindingRequest {
+    control_id: String,
+    obligation_id: Option<String>,
+    evidence_target_type: EvidenceTargetType,
+    evidence_target_id: String,
+    source_audit_event_id: Option<String>,
+    confidence: EvidenceConfidence,
+    #[serde(with = "time::serde::rfc3339::option")]
+    collected_at: Option<Timestamp>,
+    collected_by: Option<UserId>,
+    valid_from: Option<time::Date>,
+    valid_to: Option<time::Date>,
+    hash_sha256: Option<String>,
+    #[serde(default)]
+    metadata: serde_json::Value,
 }
 
 #[derive(Debug, Deserialize)]
@@ -149,6 +352,422 @@ struct ErrorBody {
 struct ErrorPayload {
     code: &'static str,
     message: String,
+}
+
+// Compliance catalog routes deliberately reuse the already-authoritative policy
+// tier closest to tenant policy catalog administration. They do not overload
+// integrity findings: catalog mutation is a different business capability.
+fn require_compliance_read(principal: &Principal) -> Result<(), RestError> {
+    require_catalog_feature(principal, Feature::BenefitCatalogRead)
+}
+
+fn require_compliance_manage(principal: &Principal) -> Result<(), RestError> {
+    require_catalog_feature(principal, Feature::BenefitCatalogManage)
+}
+
+fn require_catalog_feature(principal: &Principal, feature: Feature) -> Result<(), RestError> {
+    match &principal.branch_scope {
+        BranchScope::All => authorize_org_wide(principal, Action::new(feature)),
+        BranchScope::Branches(branches) => branches
+            .iter()
+            .next()
+            .copied()
+            .ok_or_else(|| KernelError::forbidden("principal has no branch scope"))
+            .and_then(|branch_id| authorize(principal, Action::new(feature), branch_id)),
+    }
+    .map_err(RestError::from_kernel)
+}
+
+fn catalog_page(page: CatalogPageQuery) -> Result<PageRequest, RestError> {
+    PageRequest::new(page.limit, page.offset).map_err(RestError::from_kernel)
+}
+
+fn require_scope_branch(principal: &Principal, scope: ComplianceScope) -> Result<(), RestError> {
+    if let Some(branch_id) = scope.branch_id {
+        if !principal.branch_scope.allows(branch_id) {
+            return Err(RestError::from_kernel(KernelError::forbidden(
+                "obligation scope branch is outside principal scope",
+            )));
+        }
+    }
+    Ok(())
+}
+
+async fn list_regulations(
+    State(state): State<ComplianceRestState>,
+    headers: HeaderMap,
+    Query(query): Query<RegulationQuery>,
+) -> Result<Json<mnt_compliance_application::RegulationImpactPage>, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    require_compliance_read(&principal)?;
+    let page = catalog_page(query.page)?;
+    let result = state
+        .store
+        .list_regulation_impacts(RegulationImpactQuery {
+            status: query.status,
+            risk_level: query.risk_level,
+            q: query.q,
+            page,
+        })
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(Json(result))
+}
+
+async fn create_regulation(
+    State(state): State<ComplianceRestState>,
+    headers: HeaderMap,
+    Json(body): Json<CreateRegulationRequest>,
+) -> Result<Json<mnt_compliance_domain::RegulationImpact>, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    require_compliance_manage(&principal)?;
+    let result = state
+        .store
+        .create_regulation_impact(CreateRegulationImpactCommand {
+            actor: principal.user_id,
+            title: body.title,
+            jurisdiction: body.jurisdiction,
+            regulator: body.regulator,
+            citation: body.citation,
+            source_url: body.source_url,
+            impact_area: body.impact_area,
+            impact_summary: body.impact_summary,
+            risk_level: body.risk_level,
+            effective_from: body.effective_from,
+            effective_to: body.effective_to,
+            review_due_on: body.review_due_on,
+            owner_user_id: body.owner_user_id,
+            metadata: body.metadata,
+            trace: current_trace_context(),
+            occurred_at: time::OffsetDateTime::now_utc(),
+        })
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(Json(result))
+}
+
+async fn list_obligations(
+    State(state): State<ComplianceRestState>,
+    headers: HeaderMap,
+    Query(query): Query<ObligationQuery>,
+) -> Result<Json<mnt_compliance_application::ComplianceObligationPage>, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    require_compliance_read(&principal)?;
+    if let Some(branch_id) = query.branch_id {
+        if !principal.branch_scope.allows(branch_id) {
+            return Err(RestError::from_kernel(KernelError::forbidden(
+                "requested branch is outside principal scope",
+            )));
+        }
+    }
+    let page = catalog_page(query.page)?;
+    let result = state
+        .store
+        .list_compliance_obligations(ComplianceObligationQuery {
+            branch_scope: principal.branch_scope,
+            status: query.status,
+            severity: query.severity,
+            scope_type: query.scope_type,
+            branch_id: query.branch_id,
+            site_id: query.site_id,
+            q: query.q,
+            page,
+        })
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(Json(result))
+}
+
+async fn create_obligation(
+    State(state): State<ComplianceRestState>,
+    headers: HeaderMap,
+    Json(body): Json<CreateObligationRequest>,
+) -> Result<Json<mnt_compliance_domain::ComplianceObligation>, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    require_compliance_manage(&principal)?;
+    require_scope_branch(&principal, body.scope)?;
+    let regulation_links = body
+        .regulation_links
+        .into_iter()
+        .map(|link| {
+            Ok(mnt_compliance_application::CreateObligationRegulationLink {
+                regulation_impact_id: link.regulation_impact_id.parse().map_err(|_| {
+                    RestError::from_kernel(KernelError::validation(
+                        "regulation_impact_id must be a UUID",
+                    ))
+                })?,
+                relationship: link.relationship,
+                rationale: link.rationale,
+            })
+        })
+        .collect::<Result<Vec<_>, RestError>>()?;
+    let result = state
+        .store
+        .create_compliance_obligation(CreateComplianceObligationCommand {
+            actor: principal.user_id,
+            title: body.title,
+            description: body.description,
+            obligation_type: body.obligation_type,
+            scope: body.scope,
+            owner_user_id: body.owner_user_id,
+            severity: body.severity,
+            effective_from: body.effective_from,
+            effective_to: body.effective_to,
+            review_cadence: body.review_cadence,
+            next_review_on: body.next_review_on,
+            metadata: body.metadata,
+            regulation_links,
+            trace: current_trace_context(),
+            occurred_at: time::OffsetDateTime::now_utc(),
+        })
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(Json(result))
+}
+
+async fn link_obligation_regulation(
+    State(state): State<ComplianceRestState>,
+    headers: HeaderMap,
+    Json(body): Json<LinkObligationRegulationRequest>,
+) -> Result<Json<mnt_compliance_domain::ObligationRegulationLink>, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    require_compliance_manage(&principal)?;
+    let result = state
+        .store
+        .link_obligation_regulation(LinkObligationRegulationCommand {
+            actor: principal.user_id,
+            obligation_id: body.obligation_id.parse().map_err(|_| {
+                RestError::from_kernel(KernelError::validation("obligation_id must be a UUID"))
+            })?,
+            regulation_impact_id: body.regulation_impact_id.parse().map_err(|_| {
+                RestError::from_kernel(KernelError::validation(
+                    "regulation_impact_id must be a UUID",
+                ))
+            })?,
+            relationship: body.relationship,
+            rationale: body.rationale,
+            trace: current_trace_context(),
+            occurred_at: time::OffsetDateTime::now_utc(),
+        })
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(Json(result))
+}
+
+async fn list_frameworks(
+    State(state): State<ComplianceRestState>,
+    headers: HeaderMap,
+    Query(query): Query<FrameworkQuery>,
+) -> Result<Json<mnt_compliance_application::ComplianceFrameworkPage>, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    require_compliance_read(&principal)?;
+    let page = catalog_page(query.page)?;
+    let result = state
+        .store
+        .list_compliance_frameworks(ComplianceFrameworkQuery {
+            status: query.status,
+            kind: query.kind,
+            q: query.q,
+            page,
+        })
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(Json(result))
+}
+
+async fn create_framework(
+    State(state): State<ComplianceRestState>,
+    headers: HeaderMap,
+    Json(body): Json<CreateFrameworkRequest>,
+) -> Result<Json<mnt_compliance_domain::ComplianceFramework>, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    require_compliance_manage(&principal)?;
+    let result = state
+        .store
+        .create_compliance_framework(CreateComplianceFrameworkCommand {
+            actor: principal.user_id,
+            name: body.name,
+            version_label: body.version_label,
+            framework_kind: body.framework_kind,
+            owner_user_id: body.owner_user_id,
+            effective_from: body.effective_from,
+            effective_to: body.effective_to,
+            metadata: body.metadata,
+            trace: current_trace_context(),
+            occurred_at: time::OffsetDateTime::now_utc(),
+        })
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(Json(result))
+}
+
+async fn list_framework_controls(
+    State(state): State<ComplianceRestState>,
+    headers: HeaderMap,
+    Query(query): Query<ControlQuery>,
+) -> Result<Json<mnt_compliance_application::ComplianceControlPage>, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    require_compliance_read(&principal)?;
+    let framework_id = query.framework_id.parse().map_err(|_| {
+        RestError::from_kernel(KernelError::validation("framework_id must be a UUID"))
+    })?;
+    let page = catalog_page(query.page)?;
+    let result = state
+        .store
+        .list_compliance_controls(ComplianceControlQuery {
+            framework_id,
+            status: query.status,
+            q: query.q,
+            page,
+        })
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(Json(result))
+}
+
+async fn create_framework_control(
+    State(state): State<ComplianceRestState>,
+    headers: HeaderMap,
+    Json(body): Json<CreateControlRequest>,
+) -> Result<Json<mnt_compliance_domain::ComplianceControl>, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    require_compliance_manage(&principal)?;
+    let result = state
+        .store
+        .create_compliance_control(CreateComplianceControlCommand {
+            actor: principal.user_id,
+            framework_id: body.framework_id.parse().map_err(|_| {
+                RestError::from_kernel(KernelError::validation("framework_id must be a UUID"))
+            })?,
+            control_key: body.control_key,
+            title: body.title,
+            objective: body.objective,
+            control_type: body.control_type,
+            cadence: body.cadence,
+            evidence_requirements: body.evidence_requirements,
+            owner_user_id: body.owner_user_id,
+            trace: current_trace_context(),
+            occurred_at: time::OffsetDateTime::now_utc(),
+        })
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(Json(result))
+}
+
+async fn link_control_obligation(
+    State(state): State<ComplianceRestState>,
+    headers: HeaderMap,
+    Json(body): Json<LinkControlObligationRequest>,
+) -> Result<Json<mnt_compliance_domain::ControlObligationCoverage>, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    require_compliance_manage(&principal)?;
+    let result = state
+        .store
+        .link_control_obligation(LinkControlObligationCommand {
+            actor: principal.user_id,
+            control_id: body.control_id.parse().map_err(|_| {
+                RestError::from_kernel(KernelError::validation("control_id must be a UUID"))
+            })?,
+            obligation_id: body.obligation_id.parse().map_err(|_| {
+                RestError::from_kernel(KernelError::validation("obligation_id must be a UUID"))
+            })?,
+            coverage_level: body.coverage_level,
+            coverage_rationale: body.coverage_rationale,
+            trace: current_trace_context(),
+            occurred_at: time::OffsetDateTime::now_utc(),
+        })
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(Json(result))
+}
+
+async fn list_evidence_bindings(
+    State(state): State<ComplianceRestState>,
+    headers: HeaderMap,
+    Query(query): Query<EvidenceQuery>,
+) -> Result<Json<mnt_compliance_application::EvidenceBindingPage>, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    require_compliance_read(&principal)?;
+    let control_id = query
+        .control_id
+        .map(|id| {
+            id.parse().map_err(|_| {
+                RestError::from_kernel(KernelError::validation("control_id must be a UUID"))
+            })
+        })
+        .transpose()?;
+    let obligation_id = query
+        .obligation_id
+        .map(|id| {
+            id.parse().map_err(|_| {
+                RestError::from_kernel(KernelError::validation("obligation_id must be a UUID"))
+            })
+        })
+        .transpose()?;
+    let page = catalog_page(query.page)?;
+    let result = state
+        .store
+        .list_evidence_bindings(EvidenceBindingQuery {
+            control_id,
+            obligation_id,
+            target_type: query.target_type,
+            status: query.status,
+            page,
+        })
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(Json(result))
+}
+
+async fn create_evidence_binding(
+    State(state): State<ComplianceRestState>,
+    headers: HeaderMap,
+    Json(body): Json<CreateEvidenceBindingRequest>,
+) -> Result<Json<mnt_compliance_domain::EvidenceBinding>, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    require_compliance_manage(&principal)?;
+    let result = state
+        .store
+        .create_evidence_binding(CreateEvidenceBindingCommand {
+            actor: principal.user_id,
+            control_id: body.control_id.parse().map_err(|_| {
+                RestError::from_kernel(KernelError::validation("control_id must be a UUID"))
+            })?,
+            obligation_id: body
+                .obligation_id
+                .map(|id| {
+                    id.parse().map_err(|_| {
+                        RestError::from_kernel(KernelError::validation(
+                            "obligation_id must be a UUID",
+                        ))
+                    })
+                })
+                .transpose()?,
+            evidence_target_type: body.evidence_target_type,
+            evidence_target_id: body.evidence_target_id,
+            source_audit_event_id: body
+                .source_audit_event_id
+                .map(|id| {
+                    id.parse().map_err(|_| {
+                        RestError::from_kernel(KernelError::validation(
+                            "source_audit_event_id must be a UUID",
+                        ))
+                    })
+                })
+                .transpose()?,
+            confidence: body.confidence,
+            collected_at: body.collected_at,
+            collected_by: body.collected_by,
+            valid_from: body.valid_from,
+            valid_to: body.valid_to,
+            hash_sha256: body.hash_sha256,
+            metadata: body.metadata,
+            trace: current_trace_context(),
+            occurred_at: time::OffsetDateTime::now_utc(),
+        })
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(Json(result))
 }
 
 async fn get_status(
