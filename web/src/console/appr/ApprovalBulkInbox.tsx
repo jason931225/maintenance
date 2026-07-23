@@ -127,6 +127,7 @@ export function ApprovalBulkInbox({ api, bearerToken, currentUserId, currentOrgI
   const [selectedTasks, setSelectedTasks] = useState<Partial<Record<string, WorkflowWaitingTask>>>({});
   const [receipt, setReceipt] = useState<Receipt>(() => Object.fromEntries(Object.entries(persistedRef.current?.operations ?? {}).map(([taskId, operation]) => [taskId, operation.outcome])));
   const [receiptContextKey, setReceiptContextKey] = useState(operationContextKey);
+  const [loadedContextKey, setLoadedContextKey] = useState<string | undefined>(undefined);
   const [receiptPresentationHidden, setReceiptPresentationHidden] = useState(false);
   const [pageCursors, setPageCursors] = useState<string[]>([""]);
   const [pageIndex, setPageIndex] = useState(0);
@@ -139,20 +140,25 @@ export function ApprovalBulkInbox({ api, bearerToken, currentUserId, currentOrgI
   const isMounted = () => mountedRef.current;
 
   const load = useCallback(async (cursor?: string) => {
+    const requestContextKey = operationContextKey;
     const generation = loadGenerationRef.current + 1;
     loadGenerationRef.current = generation;
     setReadState("loading");
     try {
       const page = await workflowApi.listWaitingTasks({ limit: PAGE_SIZE, cursor });
-      if (!isMounted() || generation !== loadGenerationRef.current) return;
+      if (!isMounted() || generation !== loadGenerationRef.current || persistedContextRef.current !== requestContextKey) return;
       setTasks(page.items);
       setHasMore(page.has_more);
       setNextCursor(page.next_cursor);
+      setLoadedContextKey(requestContextKey);
       setReadState("ready");
     } catch {
-      if (isMounted() && generation === loadGenerationRef.current) setReadState("error");
+      if (isMounted() && generation === loadGenerationRef.current && persistedContextRef.current === requestContextKey) {
+        setLoadedContextKey(requestContextKey);
+        setReadState("error");
+      }
     }
-  }, [workflowApi]);
+  }, [operationContextKey, workflowApi]);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -181,6 +187,10 @@ export function ApprovalBulkInbox({ api, bearerToken, currentUserId, currentOrgI
     keyByTaskRef.current = Object.fromEntries(Object.entries(stored?.operations ?? {}).map(([taskId, operation]) => [taskId, operation.idempotencyKey]));
     setReceipt(Object.fromEntries(Object.entries(stored?.operations ?? {}).map(([taskId, operation]) => [taskId, operation.outcome])));
     setReceiptContextKey(operationContextKey);
+    setLoadedContextKey(undefined);
+    setTasks([]);
+    setHasMore(false);
+    setNextCursor(undefined);
     setReceiptPresentationHidden(false);
     setSelected(new Set());
     setSelectedTasks({});
@@ -190,6 +200,7 @@ export function ApprovalBulkInbox({ api, bearerToken, currentUserId, currentOrgI
   }, [load, operationContext, operationContextKey]);
 
   const rows = useMemo(() => tasks.map((task) => ({ task, message: capabilityMessage(task) })), [tasks]);
+  const contextReady = loadedContextKey === operationContextKey && receiptContextKey === operationContextKey;
   const selectedRows = useMemo(() => [...selected].map((id) => selectedTasks[id]).filter((task): task is WorkflowWaitingTask => task !== undefined), [selected, selectedTasks]);
   const unresolvedIds = useMemo(() => receiptEntries(receipt).flatMap(([id, outcome]) => outcome.state === "approved" ? [] : [id]), [receipt]);
   const freshSelected = useMemo(() => selectedRows.filter((task) => task.bulk_decision.decidable && !keyByTaskRef.current[task.task_id]), [selectedRows]);
@@ -290,15 +301,15 @@ export function ApprovalBulkInbox({ api, bearerToken, currentUserId, currentOrgI
   }, [operationContext, operationContextKey, receipt, receiptContextKey]);
 
   return <section className="console" style={sectionStyle} aria-labelledby="approval-bulk-inbox-title">
-    <div style={toolbarStyle}><div><h2 id="approval-bulk-inbox-title" style={{ margin: 0, fontSize: "var(--text-card-title)" }}>Approval inbox</h2><p style={{ margin: "var(--sp-1) 0 0", color: "var(--steel)", fontSize: "var(--text-sm)" }}>Bulk approval sends one audited, idempotent decision per workflow-authorized task.</p></div><button type="button" style={running ? disabledButtonStyle : buttonStyle} onClick={() => { void load(pageCursors[pageIndex] || undefined); }} disabled={running || readState === "loading"}>Refresh</button></div>
-    <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--sp-2)", alignItems: "center" }} aria-live="polite"><StatusChip tone="info">{selectedRows.length} selected</StatusChip>{cancelled ? <StatusChip tone="warn">Cancelled. The in-flight result is unconfirmed until retried.</StatusChip> : null}</div>
+    <div style={toolbarStyle}><div><h2 id="approval-bulk-inbox-title" style={{ margin: 0, fontSize: "var(--text-card-title)" }}>Approval inbox</h2><p style={{ margin: "var(--sp-1) 0 0", color: "var(--steel)", fontSize: "var(--text-sm)" }}>Bulk approval sends one audited, idempotent decision per workflow-authorized task.</p></div><button type="button" style={running || !contextReady ? disabledButtonStyle : buttonStyle} onClick={() => { void load(pageCursors[pageIndex] || undefined); }} disabled={running || !contextReady || readState === "loading"}>Refresh</button></div>
+    {!contextReady ? <p style={{ margin: 0, color: "var(--steel)" }}>Loading approval context…</p> : <><div style={{ display: "flex", flexWrap: "wrap", gap: "var(--sp-2)", alignItems: "center" }} aria-live="polite"><StatusChip tone="info">{selectedRows.length} selected</StatusChip>{cancelled ? <StatusChip tone="warn">Cancelled. The in-flight result is unconfirmed until retried.</StatusChip> : null}</div>
     {readState === "error" ? <div role="alert"><StatusChip tone="danger">The approval inbox could not be loaded.</StatusChip> <button type="button" style={buttonStyle} onClick={() => { void load(pageCursors[pageIndex] || undefined); }}>Retry loading</button></div> : null}
     {readState === "loading" && tasks.length === 0 ? <p style={{ margin: 0, color: "var(--steel)" }}>Loading approval tasks…</p> : null}
     {readState === "ready" && rows.length === 0 ? <p style={{ margin: 0, color: "var(--steel)" }}>There are no workflow-authorized approval tasks.</p> : null}
     {rows.length > 0 ? <ul style={{ display: "grid", gap: "var(--sp-2)", listStyle: "none", margin: 0, padding: 0 }} aria-label="Approval tasks">{rows.map(({ task, message }) => <li key={task.task_id} style={{ display: "grid", gap: "var(--sp-2)", padding: "var(--sp-3)", border: "1px solid var(--border-soft)", borderRadius: "var(--radius-md)", background: "var(--muted)" }}><div style={{ display: "flex", flexWrap: "wrap", gap: "var(--sp-3)", alignItems: "start" }}><input id={`approval-select-${task.task_id}`} type="checkbox" checked={selected.has(task.task_id)} disabled={Boolean(message) || running} aria-describedby={message ? `approval-guard-${task.task_id}` : undefined} onChange={() => { toggle(task); }} /><div style={{ display: "grid", gap: "var(--sp-1)", minWidth: 0, flex: "1 1 18rem" }}><label htmlFor={`approval-select-${task.task_id}`} style={{ color: "var(--ink)", fontWeight: "var(--fw-strong)", cursor: message || running ? "default" : "pointer" }}>{task.title}</label><span style={{ color: "var(--steel)", fontSize: "var(--text-sm)" }}>{task.waiting_key} · {task.assignee_role_key ?? "personal inbox"}</span>{task.due_at ? <span style={{ color: "var(--steel)", fontSize: "var(--text-xs)" }}>Due {new Date(task.due_at).toLocaleString()}</span> : null}</div><StatusChip tone={task.status === "CLAIMED" ? "info" : "neutral"}>{task.status}</StatusChip></div>{message ? <p id={`approval-guard-${task.task_id}`} style={{ margin: 0, color: "var(--danger-tx)", fontSize: "var(--text-sm)" }}>{message}</p> : null}<MaybeOutcomeStatus outcome={receipt[task.task_id]} /></li>)}</ul> : null}
     {pageIndex > 0 || hasMore ? <nav aria-label="Approval inbox pages" style={{ display: "flex", gap: "var(--sp-2)", alignItems: "center" }}><button type="button" style={pageIndex === 0 || running ? disabledButtonStyle : buttonStyle} disabled={pageIndex === 0 || running} onClick={() => { const previous = pageCursors[pageIndex - 1]; setPageIndex(pageIndex - 1); void load(previous || undefined); }}>Previous</button><span style={{ color: "var(--steel)", fontSize: "var(--text-sm)" }}>Page {pageIndex + 1}</span><button type="button" style={!hasMore || running ? disabledButtonStyle : buttonStyle} disabled={!hasMore || running} onClick={() => { const next = nextCursor; if (!next) return; const cursors = [...pageCursors.slice(0, pageIndex + 1), next]; setPageCursors(cursors); setPageIndex(pageIndex + 1); void load(next); }}>Next</button></nav> : null}
     {Object.keys(receipt).length > 0 && !receiptPresentationHidden ? <section aria-label="Latest approval operation receipt" style={{ display: "grid", gap: "var(--sp-2)", padding: "var(--sp-3)", border: "1px solid var(--border-soft)", borderRadius: "var(--radius-md)" }}><div style={toolbarStyle}><strong>Latest approval operation receipt</strong><button type="button" style={buttonStyle} onClick={dismissReceipt}>Dismiss receipt</button></div>{receiptEntries(receipt).map(([id, outcome]) => <div key={id}><code>{id}</code> <OutcomeStatus outcome={outcome} /></div>)}</section> : null}
-    <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--sp-2)", alignItems: "center" }}><button type="button" style={freshSelected.length === 0 || running ? disabledButtonStyle : primaryButtonStyle} disabled={freshSelected.length === 0 || running} onClick={() => { void approve(freshSelected.map((task) => task.task_id), false); }}>Approve selected ({freshSelected.length})</button><button type="button" style={selected.size === 0 || running ? disabledButtonStyle : buttonStyle} disabled={selected.size === 0 || running} onClick={() => { setSelected(new Set()); }}>Clear selection</button>{running ? <button type="button" style={buttonStyle} onClick={cancel}>Cancel remaining</button> : null}{unresolvedIds.length > 0 && !running ? <button type="button" style={buttonStyle} onClick={() => { void approve(unresolvedIds, true); }}>Retry unresolved ({unresolvedIds.length})</button> : null}</div>
+    <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--sp-2)", alignItems: "center" }}><button type="button" style={freshSelected.length === 0 || running ? disabledButtonStyle : primaryButtonStyle} disabled={freshSelected.length === 0 || running} onClick={() => { void approve(freshSelected.map((task) => task.task_id), false); }}>Approve selected ({freshSelected.length})</button><button type="button" style={selected.size === 0 || running ? disabledButtonStyle : buttonStyle} disabled={selected.size === 0 || running} onClick={() => { setSelected(new Set()); }}>Clear selection</button>{running ? <button type="button" style={buttonStyle} onClick={cancel}>Cancel remaining</button> : null}{unresolvedIds.length > 0 && !running ? <button type="button" style={buttonStyle} onClick={() => { void approve(unresolvedIds, true); }}>Retry unresolved ({unresolvedIds.length})</button> : null}</div></>}
   </section>;
 }
 

@@ -288,7 +288,7 @@ describe("ApprovalBulkInbox", () => {
 
     firstView.unmount();
     renderInbox();
-    expect(await screen.findByText("Decision submitted; outcome is unconfirmed. Retry uses the same idempotency key.")).toBeVisible();
+    expect((await screen.findAllByText("Decision submitted; outcome is unconfirmed. Retry uses the same idempotency key."))[0]).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Retry unresolved (1)" }));
     await waitFor(() => { expect(keys).toHaveLength(2); });
     expect(keys[1]).toBe(keys[0]);
@@ -325,6 +325,46 @@ describe("ApprovalBulkInbox", () => {
     await user.click(screen.getByRole("button", { name: "Retry unresolved (1)" }));
     await waitFor(() => { expect(keys).toHaveLength(2); });
     expect(keys[1]).toBe(keys[0]);
+  });
+
+  it("fences prior rows, receipts, and actions during tenant, user, or session context switches", async () => {
+    const user = userEvent.setup();
+    const contextATask = task({ title: "Context A approval" });
+    installList([contextATask]);
+    server.use(http.post("*/api/v1/workflow-tasks/:taskId/decide", () => HttpResponse.json({ message: "Context A decision failed" }, { status: 409 })));
+
+    const seedView = renderInbox();
+    await user.click(await screen.findByRole("checkbox", { name: "Context A approval" }));
+    await user.click(screen.getByRole("button", { name: "Approve selected (1)" }));
+    await screen.findAllByText("Context A decision failed");
+    seedView.unmount();
+    server.resetHandlers();
+
+    const alternateContexts: Array<Partial<ApprovalBulkInboxProps>> = [
+      { currentOrgId: "00000000-0000-4000-8000-000000000099" },
+      { currentUserId: "10000000-0000-4000-8000-000000000099" },
+      { clientSessionIncarnation: "approval-session-b" },
+    ];
+    for (const alternateContext of alternateContexts) {
+      installList([contextATask]);
+      const view = renderInbox();
+      await screen.findAllByText("Context A decision failed");
+      server.use(http.get("*/api/v1/approval-inbox/bulk-tasks", () => new Promise<Response>(() => {})));
+
+      // This rerender is the authority-boundary commit: old data must be
+      // absent before the replacement fetch settles.
+      view.rerender(<ApprovalBulkInbox currentUserId={USER_ID} currentOrgId={ORG_ID} clientSessionIncarnation={SESSION_INCARNATION} {...alternateContext} />);
+
+      expect(screen.getByText("Loading approval context…")).toBeVisible();
+      expect(screen.queryByRole("checkbox", { name: "Context A approval" })).not.toBeInTheDocument();
+      expect(screen.queryByText("Context A decision failed")).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("Latest approval operation receipt")).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Approve selected (0)" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Clear selection" })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Retry unresolved (1)" })).not.toBeInTheDocument();
+      view.unmount();
+      server.resetHandlers();
+    }
   });
 
   it("dismisses a cancelled receipt without losing its per-user retry key", async () => {
