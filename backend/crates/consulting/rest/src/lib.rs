@@ -235,7 +235,7 @@ async fn list_engagements(
     require(&principal, false)?;
     let limit = params.limit.unwrap_or(25).clamp(1, 100);
     let offset = params.offset.unwrap_or(0).max(0);
-    let org = current_org().map_err(RestError::kernel)?;
+    let org = current_org().map_err(rest_error_from_request_context)?;
     let q = params.q.filter(|v| !v.trim().is_empty());
     let page = with_org_conn(&state.pool, org, |tx| Box::pin(async move {
         let total: i64 = sqlx::query_scalar("SELECT count(*) FROM consulting_engagements WHERE ($1::text IS NULL OR title ILIKE '%' || $1 || '%')").bind(q.as_deref()).fetch_one(tx.as_mut()).await?;
@@ -254,7 +254,7 @@ async fn create_engagement(
     require(&actor, true)?;
     required(&body.title, "title")?;
     required(&body.idempotency_key, "idempotencyKey")?;
-    let org = current_org().map_err(RestError::kernel)?;
+    let org = current_org().map_err(rest_error_from_request_context)?;
     let actor_id = *actor.user_id.as_uuid();
     let id = Uuid::new_v4();
     let request_hash = request_hash(&body);
@@ -285,7 +285,7 @@ async fn create_engagement(
         let value = serde_json::from_value(replay.try_get("idempotency_response")?)
             .map_err(|error| sqlx::Error::Protocol(error.to_string()))?;
         Ok((status, value))
-    })).await.map_err(RestError::db)?;
+    })).await.map_err(RestError::conflict_or_db)?;
     let response_status = StatusCode::from_u16(response_status as u16).map_err(|_| {
         RestError::kernel(KernelError::validation(
             "invalid stored idempotency response status",
@@ -301,7 +301,7 @@ async fn get_engagement(
 ) -> Result<Json<EngagementDetail>, RestError> {
     let actor = principal(&state, &headers).await?;
     require(&actor, false)?;
-    let org = current_org().map_err(RestError::kernel)?;
+    let org = current_org().map_err(rest_error_from_request_context)?;
     let result = with_org_conn(&state.pool, org, |tx| {
         Box::pin(async move { detail(tx, id).await })
     })
@@ -323,7 +323,7 @@ async fn create_diagnostic(
     let actor = principal(&state, &headers).await?;
     require(&actor, true)?;
     required(&body.summary, "summary")?;
-    let org = current_org().map_err(RestError::kernel)?;
+    let org = current_org().map_err(rest_error_from_request_context)?;
     let actor_id = *actor.user_id.as_uuid();
     let item = with_org_conn(&state.pool, org, |tx| Box::pin(async move { ensure_writable_engagement(tx, id).await?; require_reference_kind(tx, body.document_id, "DOCUMENT").await?; let row = sqlx::query("INSERT INTO consulting_diagnostics (org_id, engagement_id, summary, document_id, created_by) VALUES ($1,$2,$3,$4,$5) RETURNING id, summary, document_id, created_at").bind(*org.as_uuid()).bind(id).bind(body.summary.trim()).bind(body.document_id).bind(actor_id).fetch_one(tx.as_mut()).await?; insert_history(tx,*org.as_uuid(),id,actor_id,"diagnostic.recorded",None,None,version(tx,id).await?,serde_json::json!({"diagnostic_id": row.try_get::<Uuid,_>("id")?})).await?; diagnostic(&row).map_err(DbError::from) })).await.map_err(RestError::conflict_or_db)?;
     Ok((StatusCode::CREATED, Json(item)))
@@ -338,7 +338,7 @@ async fn create_finding(
     let actor = principal(&state, &headers).await?;
     require(&actor, true)?;
     required(&body.statement, "statement")?;
-    let org = current_org().map_err(RestError::kernel)?;
+    let org = current_org().map_err(rest_error_from_request_context)?;
     let actor_id = *actor.user_id.as_uuid();
     let item=with_org_conn(&state.pool,org,|tx|Box::pin(async move { ensure_writable_engagement(tx,id).await?; require_reference_kind(tx, Some(body.evidence_id), "EVIDENCE").await?; require_reference_kind(tx, body.document_id, "DOCUMENT").await?; let exists: bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM consulting_diagnostics WHERE id=$1 AND engagement_id=$2)").bind(body.diagnostic_id).bind(id).fetch_one(tx.as_mut()).await?; if !exists{return Err(DbError::Sqlx(sqlx::Error::RowNotFound))}; let row=sqlx::query("INSERT INTO consulting_findings (org_id,engagement_id,diagnostic_id,statement,evidence_id,document_id,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id,diagnostic_id,statement,evidence_id,document_id,created_at").bind(*org.as_uuid()).bind(id).bind(body.diagnostic_id).bind(body.statement.trim()).bind(body.evidence_id).bind(body.document_id).bind(actor_id).fetch_one(tx.as_mut()).await?; insert_history(tx,*org.as_uuid(),id,actor_id,"finding.recorded",None,None,version(tx,id).await?,serde_json::json!({"finding_id":row.try_get::<Uuid,_>("id")?,"evidence_id":body.evidence_id})).await?; finding(&row).map_err(DbError::from)})).await.map_err(RestError::db)?;
     Ok((StatusCode::CREATED, Json(item)))
@@ -359,7 +359,7 @@ async fn create_initiative(
             "targetDirection must be INCREASE or DECREASE",
         )));
     }
-    let org = current_org().map_err(RestError::kernel)?;
+    let org = current_org().map_err(rest_error_from_request_context)?;
     let actor_id = *actor.user_id.as_uuid();
     let item=with_org_conn(&state.pool,org,|tx|Box::pin(async move {ensure_writable_engagement(tx,id).await?; require_reference_kind(tx, Some(body.kpi_definition_id), "KPI_DEFINITION").await?; let exists:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM consulting_findings WHERE id=$1 AND engagement_id=$2)").bind(body.finding_id).bind(id).fetch_one(tx.as_mut()).await?; if !exists{return Err(DbError::Sqlx(sqlx::Error::RowNotFound))} let row=sqlx::query("INSERT INTO consulting_initiatives (org_id,engagement_id,finding_id,title,hypothesis,kpi_definition_id,target_direction,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id,finding_id,title,hypothesis,kpi_definition_id,target_direction,created_at").bind(*org.as_uuid()).bind(id).bind(body.finding_id).bind(body.title.trim()).bind(body.hypothesis.trim()).bind(body.kpi_definition_id).bind(body.target_direction).bind(actor_id).fetch_one(tx.as_mut()).await?;insert_history(tx,*org.as_uuid(),id,actor_id,"initiative.proposed",None,None,version(tx,id).await?,serde_json::json!({"initiative_id":row.try_get::<Uuid,_>("id")?,"kpi_definition_id":body.kpi_definition_id})).await?; initiative(&row).map_err(DbError::from)})).await.map_err(RestError::db)?;
     Ok((StatusCode::CREATED, Json(item)))
@@ -374,7 +374,7 @@ async fn transition(
     let actor = principal(&state, &headers).await?;
     require(&actor, true)?;
     required(&body.reason, "reason")?;
-    let org = current_org().map_err(RestError::kernel)?;
+    let org = current_org().map_err(rest_error_from_request_context)?;
     let actor_id = *actor.user_id.as_uuid();
     let value=with_org_conn(&state.pool,org,|tx|Box::pin(async move { let current=ensure_writable_engagement(tx,id).await?; if !allowed(&current.status,&body.to_status){return Err(DbError::Sqlx(sqlx::Error::Protocol("invalid consulting transition".into())))} if body.to_status=="APPROVED" { let approval_id=body.approval_id.ok_or_else(|| sqlx::Error::Protocol("approvalId is required for APPROVED".into()))?; let consumed: Option<Uuid>=sqlx::query_scalar("INSERT INTO gov_approval_consumptions (org_id, approval_id, consumed_by) SELECT $1, a.id, $2 FROM gov_approvals a WHERE a.id=$3 AND a.org_id=$1 AND a.decision='approved' AND a.kind='consulting.engagement.approval' AND a.target_ref=$4 AND a.requested_by <> $2 AND NOT EXISTS (SELECT 1 FROM gov_approval_consumptions c WHERE c.org_id=$1 AND c.approval_id=a.id) ON CONFLICT (org_id, approval_id) DO NOTHING RETURNING approval_id").bind(*org.as_uuid()).bind(actor_id).bind(approval_id).bind(id).fetch_optional(tx.as_mut()).await?; if consumed.is_none(){return Err(DbError::Sqlx(sqlx::Error::Protocol("approval is not an unused four-eyes authorization for this engagement".into())))} } if body.to_status=="IMPLEMENTED" { let ready: bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM consulting_initiatives WHERE engagement_id=$1)").bind(id).fetch_one(tx.as_mut()).await?; if !ready{return Err(DbError::Sqlx(sqlx::Error::Protocol("an initiative is required before implementation closure".into())))} } if matches!(body.to_status.as_str(), "SUSTAINED"|"CORRECTIVE") { let ready: bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM consulting_benefit_observations WHERE engagement_id=$1)").bind(id).fetch_one(tx.as_mut()).await?; if !ready{return Err(DbError::Sqlx(sqlx::Error::Protocol("a benefit observation is required before outcome closure".into())))} } let row=sqlx::query("UPDATE consulting_engagements SET status=$1, approval_id=COALESCE($2,approval_id), version=version+1, updated_at=now() WHERE id=$3 AND version=$4 RETURNING id,customer_id,customer_document_id,ontology_instance_id,title,status,approval_id,workflow_execution_id,version,created_at,updated_at").bind(&body.to_status).bind(body.approval_id).bind(id).bind(body.expected_version).fetch_optional(tx.as_mut()).await?; let row=row.ok_or(sqlx::Error::RowNotFound)?;let value=engagement(&row)?;insert_history(tx,*org.as_uuid(),id,actor_id,"engagement.transitioned",Some(&current.status),Some(&value.status),value.version,serde_json::json!({"reason":body.reason,"approval_id":body.approval_id})).await?;Ok(value)})).await.map_err(RestError::conflict_or_db)?;
     Ok(Json(value))
@@ -389,7 +389,7 @@ async fn record_observation(
     let actor = principal(&state, &headers).await?;
     require(&actor, true)?;
     required(&body.note, "note")?;
-    let org = current_org().map_err(RestError::kernel)?;
+    let org = current_org().map_err(rest_error_from_request_context)?;
     let actor_id = *actor.user_id.as_uuid();
     let item=with_org_conn(&state.pool,org,|tx|Box::pin(async move {let e=ensure_writable_engagement(tx,id).await?;if e.status!="IMPLEMENTED" {return Err(DbError::Sqlx(sqlx::Error::Protocol("implementation review must be completed before a benefit observation".into())))}require_reference_kind(tx, Some(body.kpi_definition_id), "KPI_DEFINITION").await?;require_reference_kind(tx, Some(body.evidence_id), "EVIDENCE").await?;let valid:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM consulting_initiatives WHERE id=$1 AND engagement_id=$2 AND kpi_definition_id=$3)").bind(body.initiative_id).bind(id).bind(body.kpi_definition_id).fetch_one(tx.as_mut()).await?;if !valid{return Err(DbError::Sqlx(sqlx::Error::RowNotFound))}let row=sqlx::query("INSERT INTO consulting_benefit_observations (org_id,engagement_id,initiative_id,kpi_definition_id,evidence_id,observed_at,note,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id,initiative_id,kpi_definition_id,evidence_id,observed_at,note,created_at").bind(*org.as_uuid()).bind(id).bind(body.initiative_id).bind(body.kpi_definition_id).bind(body.evidence_id).bind(body.observed_at).bind(body.note.trim()).bind(actor_id).fetch_one(tx.as_mut()).await?;let item=observation(&row)?;insert_history(tx,*org.as_uuid(),id,actor_id,"benefit.observed",None,None,version(tx,id).await?,serde_json::json!({"observation_id":item.id,"kpi_definition_id":item.kpi_definition_id,"evidence_id":item.evidence_id})).await?;Ok(item)})).await.map_err(RestError::db)?;
     Ok((StatusCode::CREATED, Json(item)))
@@ -402,7 +402,7 @@ async fn list_history(
 ) -> Result<Json<Vec<History>>, RestError> {
     let actor = principal(&state, &headers).await?;
     require(&actor, false)?;
-    let org = current_org().map_err(RestError::kernel)?;
+    let org = current_org().map_err(rest_error_from_request_context)?;
     let value=with_org_conn(&state.pool,org,|tx|Box::pin(async move{ensure_engagement(tx,id).await?;let rows=sqlx::query("SELECT id,event_type,from_status,to_status,version,payload,occurred_at FROM consulting_engagement_history WHERE engagement_id=$1 ORDER BY occurred_at,id").bind(id).fetch_all(tx.as_mut()).await?;rows.iter().map(history).collect::<Result<Vec<_>,_>>().map_err(DbError::from) })).await.map_err(RestError::db)?;
     Ok(Json(value))
 }
@@ -613,33 +613,36 @@ async fn principal(
     })?;
     mnt_platform_request_context::resolve_principal(verifier, &state.pool, headers)
         .await
-        .map_err(|error| match error {
-            RequestContextError::MissingBearer
-            | RequestContextError::InvalidToken
-            | RequestContextError::InvalidClaim(_) => RestError::new(
-                StatusCode::UNAUTHORIZED,
-                "unauthorized",
-                "missing, malformed, or invalid bearer token",
-            ),
-            RequestContextError::WrongTokenTier => RestError::kernel(KernelError::forbidden(
-                "token is not authorized for consulting",
-            )),
-            RequestContextError::AccessScope(error) => RestError::kernel(error),
-            RequestContextError::VerifierUnavailable => RestError::new(
-                StatusCode::SERVICE_UNAVAILABLE,
-                "unavailable",
-                "JWT verification is not configured for consulting",
-            ),
-            RequestContextError::BranchScope(message)
-            | RequestContextError::EffectivePolicy(message) => {
-                RestError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal", message)
-            }
-            RequestContextError::MissingOrg => RestError::new(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "internal",
-                "no tenant context is bound",
-            ),
-        })
+        .map_err(rest_error_from_request_context)
+}
+fn rest_error_from_request_context(error: RequestContextError) -> RestError {
+    match error {
+        RequestContextError::MissingBearer
+        | RequestContextError::InvalidToken
+        | RequestContextError::InvalidClaim(_) => RestError::new(
+            StatusCode::UNAUTHORIZED,
+            "unauthorized",
+            "missing, malformed, or invalid bearer token",
+        ),
+        RequestContextError::WrongTokenTier => RestError::kernel(KernelError::forbidden(
+            "token is not authorized for consulting",
+        )),
+        RequestContextError::AccessScope(error) => RestError::kernel(error),
+        RequestContextError::VerifierUnavailable => RestError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "unavailable",
+            "JWT verification is not configured for consulting",
+        ),
+        RequestContextError::BranchScope(message)
+        | RequestContextError::EffectivePolicy(message) => {
+            RestError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal", message)
+        }
+        RequestContextError::MissingOrg => RestError::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "internal",
+            "no tenant context is bound",
+        ),
+    }
 }
 #[derive(Serialize)]
 struct ErrorBody {
@@ -741,6 +744,29 @@ mod tests {
         assert!(
             hash.bytes()
                 .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        );
+    }
+
+    #[test]
+    fn missing_org_request_context_fails_closed() {
+        let error = rest_error_from_request_context(RequestContextError::MissingOrg);
+
+        assert_eq!(error.status, StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(error.code, "internal");
+        assert_eq!(error.message, "no tenant context is bound");
+    }
+
+    #[test]
+    fn idempotency_payload_mismatch_is_a_conflict() {
+        let error = RestError::conflict_or_db(DbError::Sqlx(sqlx::Error::Protocol(
+            "idempotency key was already used with a different request payload".into(),
+        )));
+
+        assert_eq!(error.status, StatusCode::CONFLICT);
+        assert_eq!(error.code, "conflict");
+        assert_eq!(
+            error.message,
+            "idempotency key was already used with a different request payload"
         );
     }
 }
