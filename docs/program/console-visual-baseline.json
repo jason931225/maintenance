@@ -34,40 +34,47 @@
     "prototype_completion_is_product_evidence": false
   },
   "latest_reference_sync": {
-    "synced_at": "2026-07-23T21:25:46Z",
+    "synced_at": "2026-07-23T22:34:11Z",
     "project_id": "9c7c313a-2187-4cf1-bb35-7c07ad0a4d9d",
-    "html_etag": "1784841196051073",
-    "roadmap_etag": "1784841405899933",
-    "todo_etag": "1784841405899933",
-    "agents_etag": "1784841405899933",
-    "html_bytes": 2126070,
-    "html_sha256": "659b8328719a1df27c1c16708d7749f5a4c34167240d052370bc0e2842c6bb45",
+    "html_etag": "1784843022706269",
+    "roadmap_etag": "1784843101958537",
+    "todo_etag": "1784843101958537",
+    "agents_etag": "1784843101958537",
+    "design_etag": "1784842661951827",
+    "html_bytes": 2138303,
+    "html_sha256": "afe30db771e99444dc69698942e602cf1db33acbd44955e33f9d7ce78ecbbc07",
     "baseline_changed": true,
     "impact_classification": {
       "material_additions": [
-        "attendance close blocker links directly to the first unresolved exception",
-        "attendance-to-payroll golden-path gates expose blocking reasons before close, calculation, exception handling, and approval submission",
-        "zero-state reconstruction and restore exercise for queue, notifications, schedule, and composer-driven recovery",
-        "dispatch unassigned and SLA counts derive from the active row collection instead of fixed prototype numbers"
+        "employee creation captures employment type, normalized phone, and base pay and exposes persisted values on the people card",
+        "legal-entity creation captures representative, registration number, and address and exposes persisted values on the entity card",
+        "extensible enum controls add a direct-entry path while object and person selectors move toward bounded typeahead instead of exhaustive chips",
+        "structured inputs normalize phone, currency, and business-registration values before submission",
+        "ontology creation coverage adds maintenance, site, position, and workforce-pool types"
       ],
       "affected_future_lanes": [
-        "workforce_attendance_payroll",
-        "overview_dispatch",
-        "zero_state_user_story_reconstruction"
+        "people_and_workforce_admin",
+        "organization_and_legal_entity_admin",
+        "ontology_object_composer",
+        "policy_and_object_typeahead",
+        "shared_form_input_invariants",
+        "large_directory_virtualization_and_audit_partitioning"
       ],
       "unaffected_active_contracts": [
+        "responsive_console_shell",
         "compliance_catalog",
         "procurement_purchase_requests",
         "sales_crm",
         "inspection_ehs",
         "approvals_bulk",
-        "ontology_analytics"
+        "ontology_analytics_read_model"
       ],
       "product_interpretation": [
-        "blocking fix links require a real routable source object and may not be copied as inert prototype controls",
-        "session-only seed clearing is prototype test support, not a production settings capability",
-        "zero-state reconstruction belongs in isolated dev-auth provisioning and end-to-end tests",
-        "operational counts must derive from authorized backend collections or aggregate contracts"
+        "employee and entity fields require durable tenant-scoped backend persistence, authorization, audit, and generated API contracts; prototype-local arrays are not evidence",
+        "normalization is a client usability contract backed by server-side canonical validation and may not replace authorization or domain validation",
+        "direct-entry enum values must flow through governed domain-value creation rather than becoming untracked display strings",
+        "typeahead must use authorized paginated search with stable selection identity and truthful totals",
+        "new ontology types require real schemas, lifecycle policy, relationship semantics, and creation workflows rather than registry labels alone"
       ],
       "requires_new_reference_capture_before_release": true
     }

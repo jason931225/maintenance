@@ -32,16 +32,17 @@ implementation evidence. A reference change may add or refine acceptance
 criteria; it cannot turn prototype rows, actions, or checklist claims into
 verified product behavior.
 
-The 2026-07-23T21:25:46Z rolling sync changed the HTML reference to ETag
-`1784841196051073` and SHA-256
-`659b8328719a1df27c1c16708d7749f5a4c34167240d052370bc0e2842c6bb45`.
-Its material product deltas are an actionable attendance-close blocker link,
-explicit attendance-to-payroll gate reasons, zero-state reconstruction
-coverage, and dispatch counts derived from live rows. These become acceptance
-criteria for workforce/payroll, overview/dispatch, and role-story testing.
-The prototype's session-only seed-clearing control is not a production feature;
-the product implementation uses isolated dev-auth provisioning and end-to-end
-fixtures instead.
+The 2026-07-23T22:34:11Z rolling sync changed the HTML reference to ETag
+`1784843022706269` and SHA-256
+`afe30db771e99444dc69698942e602cf1db33acbd44955e33f9d7ce78ecbbc07`.
+Its material product deltas deepen people and legal-entity creation, add
+normalized phone/currency/registration inputs, require governed extensible
+enums and authorized typeahead at production scale, and expand ontology
+creation coverage for maintenance, site, position, and workforce-pool objects.
+These become acceptance criteria for the people/organization, shared-form,
+object-composer, and large-directory lanes. Prototype-local arrays, direct
+string insertion, and completed prototype checklists remain reference behavior,
+not backend or product evidence.
 
 ## Business coverage
 
