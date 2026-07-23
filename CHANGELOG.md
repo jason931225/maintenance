@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/jason931225/maintenance/compare/v0.2.0...v0.2.1) (2026-07-23)
+
+
+### Bug Fixes
+
+* **ci:** make iOS post-login E2E hermetic ([#486](https://github.com/jason931225/maintenance/issues/486)) ([3740621](https://github.com/jason931225/maintenance/commit/374062131be1a023bd4e0a644c0978357c53d276))
+
 ## [0.2.0](https://github.com/jason931225/maintenance/compare/v0.1.65...v0.2.0) (2026-07-22)
 
 
