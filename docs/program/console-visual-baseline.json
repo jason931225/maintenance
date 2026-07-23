@@ -16,6 +16,52 @@
       "height": 720
     }
   },
+  "reference_sync_policy": {
+    "cadence": [
+      "before_each_module_wave",
+      "before_candidate_visual_capture",
+      "after_user_reported_design_change",
+      "before_release_acceptance"
+    ],
+    "procedure": [
+      "verify_live_mcp_access",
+      "export_to_new_empty_directory",
+      "record_project_file_etags_bytes_and_sha256",
+      "classify_delta_by_module_and_interaction_contract",
+      "preserve_unaffected_candidate_evidence",
+      "rerun_only_impacted_visual_and_user_story_gates"
+    ],
+    "prototype_completion_is_product_evidence": false
+  },
+  "latest_reference_sync": {
+    "synced_at": "2026-07-23T20:45:52Z",
+    "project_id": "9c7c313a-2187-4cf1-bb35-7c07ad0a4d9d",
+    "html_etag": "1784839181802800",
+    "roadmap_etag": "1784838665301415",
+    "todo_etag": "1784838665301415",
+    "agents_etag": "1784838665301415",
+    "html_bytes": 2122516,
+    "html_sha256": "7630157ba85828f332402fff4ee8447cde4497e446cb0128e18c9ad1a1d96508",
+    "baseline_changed": true,
+    "impact_classification": {
+      "material_additions": [
+        "guarded multi-select and bulk approval with per-item audit",
+        "ontology ad-hoc chart builder with live grouping and analysis-object save",
+        "human-resources issue counts derived from the canonical collection length"
+      ],
+      "affected_future_lanes": [
+        "approvals",
+        "ontology_analytics"
+      ],
+      "unaffected_active_contracts": [
+        "compliance_catalog",
+        "procurement_purchase_requests",
+        "sales_crm",
+        "inspection_ehs"
+      ],
+      "requires_new_reference_capture_before_release": true
+    }
+  },
   "candidate": {
     "branch": "codex/console-integration-20260723",
     "commit_at_capture": "a729afcf",

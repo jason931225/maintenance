@@ -22,6 +22,16 @@ The evolving Claude Design project is an approved visual and interaction
 reference. Its mock data, prototype actions, and completion labels are not
 backend or release evidence.
 
+Claude Design is a moving input, so synchronization is a recurring gate rather
+than a one-time import. The visual consolidation owner must refresh the project
+before each module wave, before candidate visual capture, after an explicit
+user-reported design change, and before release acceptance. Every refresh
+records project file ETags, byte lengths, and SHA-256 digests, classifies the
+delta by affected module and interaction contract, and preserves unaffected
+implementation evidence. A reference change may add or refine acceptance
+criteria; it cannot turn prototype rows, actions, or checklist claims into
+verified product behavior.
+
 ## Business coverage
 
 The console is an enterprise operating system for all documented COSS business
@@ -301,7 +311,12 @@ Required capture matrix:
 
 The current immutable visual input receipt is
 [`console-visual-baseline.json`](console-visual-baseline.json). The 2026-07-23
-Claude export is pinned by ETag, byte length, and SHA-256. The initial 46/100
+Claude baseline export is pinned by ETag, byte length, and SHA-256. A later
+2026-07-23 live refresh is recorded separately in that receipt so the original
+image comparison remains reproducible. The refresh added guarded bulk approval
+selection and ontology ad-hoc charting; those deltas are routed to isolated
+Approvals and Ontology/Analytics lanes instead of destabilizing unrelated
+Compliance, Procurement, Sales/CRM, or Inspection/EHS contracts. The initial 46/100
 comparison and the post-shell 42/100 medium-width comparison are provisional
 orientation baselines, not directly comparable desktop scores, Visual Ralph,
 or release evidence. The lower post-shell score reflects the todo-only module
@@ -493,6 +508,23 @@ As of 2026-07-23, local non-merged work includes:
   awaiting fresh review.
 - Overview polish `3a04a2b4` passed fresh `I1_NON_INDEPENDENT` review and is on
   the development preview train as `6381a1d2`.
+- My Work selected-item detail `656fbb85` passed fresh
+  `I1_NON_INDEPENDENT` review and is on the development preview train as
+  `3514b98b`; a live dev-auth browser replay verified the real nine-item action
+  inbox, exact selected-item fields, disclosure semantics, and the
+  communications rail.
+- Compliance backend tip `26b0db3f` and catalog contract tip `73359be1` passed
+  fresh `I1_NON_INDEPENDENT` review. Compliance frontend pagination, typed
+  generated-client use, request-race isolation, deterministic evidence
+  summaries, and shared retry recovery are still being repaired before
+  consolidation.
+- Procurement backend collection `3b87267c` was rejected in fresh review for
+  repeated-query parsing, canonical error-envelope, and N+1 query defects; its
+  repair is active. The frontend queue is also being aligned to the canonical
+  repeated `status` query contract before review.
+- Sales/CRM and Inspection/EHS have isolated full-stack module lanes in
+  progress. Their shared navigation, registry, localization, generated-client,
+  and roadmap roots remain reserved for consolidation.
 - Pipeline preflight/release-ordering repairs are locally reviewed but are not
   production evidence.
 
