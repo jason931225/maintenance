@@ -138,6 +138,9 @@ export function MyWorkBody({ api, now, onOpen }: MyWorkBodyProps) {
       .then((res) => {
         if (!live || currentApiRef.current !== api) return;
         setItemsOwned(ownedBy(api, res.items));
+        setSelectedItemId((current) =>
+          current && res.items.some((item) => item.id === current) ? current : undefined,
+        );
         const next = res.next_cursor ?? null;
         inboxCursors.current = new Set(next ? [next] : []);
         setNextCursorOwned(ownedBy(api, next));
@@ -296,12 +299,6 @@ export function MyWorkBody({ api, now, onOpen }: MyWorkBodyProps) {
     () => rows.find((item) => item.id === selectedItemId),
     [rows, selectedItemId],
   );
-
-  // The detail is always scoped to the visible queue. A day change retains a
-  // still-visible selection and immediately removes one that is filtered out.
-  useEffect(() => {
-    if (selectedItemId && !selectedItem) setSelectedItemId(undefined);
-  }, [selectedItem, selectedItemId]);
 
   const setAssignedDayFilter = useCallback(
     (nextFilter: DayFilter) => {

@@ -39,8 +39,9 @@ export function MyWorkDetailPanel({
   const due = actionInboxDue(item.due);
   const submitted = actionInboxDue(item.submitted);
   const destination = actionInboxLinkRoute(item);
-  const rawLinks = Array.isArray(item.links)
-    ? item.links.filter(
+  const candidateLinks: unknown = item.links;
+  const rawLinks = Array.isArray(candidateLinks)
+    ? candidateLinks.filter(
         (link): link is { kind: string; id: string } =>
           typeof link === "object" &&
           link !== null &&

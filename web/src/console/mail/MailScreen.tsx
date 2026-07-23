@@ -135,13 +135,19 @@ export function MailScreen() {
   const threadListRef = useRef<HTMLElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const composeGenerationRef = useRef(0);
+  const [composeGeneration, setComposeGeneration] = useState(0);
+  const advanceComposeGeneration = useCallback(() => {
+    const nextGeneration = composeGenerationRef.current + 1;
+    composeGenerationRef.current = nextGeneration;
+    setComposeGeneration(nextGeneration);
+  }, []);
   const route = useMemo(() => parsedMailRoute(location.search), [location.search]);
   const folderId = route.folderId;
   const responsiveView = route.view;
   const selectedThreadId = route.threadId
     ? threads.some((thread) => thread.id === route.threadId) ? route.threadId : undefined
     : threads[0]?.id;
-  const sending = pendingGeneration === composeGenerationRef.current;
+  const sending = pendingGeneration === composeGeneration;
 
   const updateMailRoute = useCallback((updates: MailRouteUpdate, options: { replace?: boolean; focus?: "master" | "content"; preserveActiveFocus?: boolean } = {}) => {
     const params = new URLSearchParams(location.search);
@@ -291,19 +297,19 @@ export function MailScreen() {
 
   const updateCompose = useCallback(
     <K extends keyof MailComposerState>(key: K, value: MailComposerState[K]) => {
-      composeGenerationRef.current += 1;
+      advanceComposeGeneration();
       setCompose((prev) => ({ ...prev, [key]: value }));
       setEgressBlock(undefined);
     },
-    [],
+    [advanceComposeGeneration],
   );
 
   const resetCompose = useCallback(() => {
-    composeGenerationRef.current += 1;
+    advanceComposeGeneration();
     setCompose(EMPTY_COMPOSE);
     setComposeAttachments([]);
     setEgressBlock(undefined);
-  }, []);
+  }, [advanceComposeGeneration]);
 
   const setThreadSeen = useCallback(
     async (threadId: string, seen: boolean) => {
@@ -355,7 +361,7 @@ export function MailScreen() {
       setNotice(undefined);
       setError(undefined);
       setEgressBlock(undefined);
-      composeGenerationRef.current += 1;
+      advanceComposeGeneration();
       setCompose({
         mode,
         to: mode === "reply" ? replyRecipients(message) : "",
@@ -370,7 +376,7 @@ export function MailScreen() {
       setComposeAttachments([]);
       updateMailRoute({ view: "compose" }, { focus: "content", preserveActiveFocus: true });
     },
-    [T.composer.validation.threadingUnavailable, T.thread.noSubject, selectedThread?.subject, updateMailRoute],
+    [T.composer.validation.threadingUnavailable, T.thread.noSubject, advanceComposeGeneration, selectedThread?.subject, updateMailRoute],
   );
 
   const closeCompose = useCallback(() => {
@@ -561,8 +567,8 @@ export function MailScreen() {
             egressBlock={egressBlock}
             onComposeChange={updateCompose}
             onClassificationChange={(classification: MailClassification) => { updateCompose("classification", classification); }}
-            onFilesSelected={(files) => { composeGenerationRef.current += 1; setComposeAttachments((prev) => [...prev, ...files]); setEgressBlock(undefined); }}
-            onRemoveAttachment={(file) => { composeGenerationRef.current += 1; setComposeAttachments((prev) => prev.filter((item) => item !== file)); setEgressBlock(undefined); }}
+            onFilesSelected={(files) => { advanceComposeGeneration(); setComposeAttachments((prev) => [...prev, ...files]); setEgressBlock(undefined); }}
+            onRemoveAttachment={(file) => { advanceComposeGeneration(); setComposeAttachments((prev) => prev.filter((item) => item !== file)); setEgressBlock(undefined); }}
             onSubmit={() => { void sendCurrentMail(); }}
             onCancelThread={closeCompose}
           />
