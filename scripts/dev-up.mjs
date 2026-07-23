@@ -49,7 +49,7 @@ const REPO_ROOT = path.resolve(
 );
 const BACKEND_DIR = path.join(REPO_ROOT, "backend");
 const SECRETS_DIR = path.join(REPO_ROOT, "ops", ".dev-secrets");
-const STATE_DIR = path.join(REPO_ROOT, ".omc", "state", "dev-up");
+const STATE_DIR = path.join(REPO_ROOT, ".local-dev", "dev-up");
 const PID_FILE = path.join(STATE_DIR, "pids.json");
 const DOCTOR_CACHE_FILE = path.join(STATE_DIR, "doctor.json");
 
