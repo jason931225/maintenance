@@ -2,6 +2,7 @@ import { render, screen, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { MemoryRouter } from "react-router-dom";
 
 import { createConsoleApiClient } from "../api/client";
 import { AuthContext, type AuthContextValue, type AuthSession } from "../context/auth";
@@ -142,7 +143,9 @@ function mockMailbox() {
 function renderPage(session: AuthSession = adminSession) {
   return render(
     <AuthContext.Provider value={makeAuthContext(session)}>
-      <MailPage />
+      <MemoryRouter>
+        <MailPage />
+      </MemoryRouter>
     </AuthContext.Provider>,
   );
 }
@@ -156,7 +159,7 @@ describe("MailPage", () => {
     expect(await screen.findByRole("heading", { name: "메일함" })).toBeVisible();
     expect(screen.getByRole("navigation", { name: "메일 폴더" })).toBeVisible();
     expect(await screen.findByText("안전 HTML 본문")).toBeVisible();
-    expect(screen.getByRole("button", { name: "invoice.pdf 인제스트" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "invoice.pdf 인제스트" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "메일 보내기" })).toBeVisible();
 
     const body = screen.getByTestId("mail-html-body");

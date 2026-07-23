@@ -62,9 +62,23 @@ const EMPTY_COMPOSE: MailComposerState = {
 
 type LoadState = "loading" | "ready" | "empty" | "error" | "unavailable" | "not_configured";
 type ResponsiveMailView = "master" | "detail" | "compose";
+type MailRouteUpdate = {
+  folderId?: string | undefined;
+  threadId?: string | undefined;
+  view?: ResponsiveMailView;
+};
 
 function responsiveMailView(value: string | null): ResponsiveMailView {
   return value === "detail" || value === "compose" ? value : "master";
+}
+
+function parsedMailRoute(search: string): Required<Pick<MailRouteUpdate, "view">> & MailRouteUpdate {
+  const params = new URLSearchParams(search);
+  return {
+    folderId: params.get("mail_folder")?.trim() || undefined,
+    threadId: params.get("mail_thread")?.trim() || undefined,
+    view: responsiveMailView(params.get("mail_view")),
+  };
 }
 
 function hasExternalRecipient(values: string[]): boolean {
@@ -103,11 +117,9 @@ export function MailScreen() {
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [folders, setFolders] = useState<ConsoleMailFolder[]>([]);
   const [threads, setThreads] = useState<ConsoleMailThread[]>([]);
-  const [folderId, setFolderId] = useState<string | undefined>(() => new URLSearchParams(location.search).get("mail_folder")?.trim() || undefined);
   const [query, setQuery] = useState("");
   const [queryDraft, setQueryDraft] = useState("");
   const [unreadOnly, setUnreadOnly] = useState(false);
-  const [selectedThreadId, setSelectedThreadId] = useState<string | undefined>(() => new URLSearchParams(location.search).get("mail_thread")?.trim() || undefined);
   const [detail, setDetail] = useState<ConsoleMailThreadDetail>();
   const [detailLoading, setDetailLoading] = useState(false);
   const [compose, setCompose] = useState<MailComposerState>(EMPTY_COMPOSE);
@@ -116,18 +128,20 @@ export function MailScreen() {
   const [notice, setNotice] = useState<string>();
   const [error, setError] = useState<string>();
   const [egressBlock, setEgressBlock] = useState<MailEgressBlock>();
-  const [responsiveView, setResponsiveView] = useState<ResponsiveMailView>(() => responsiveMailView(new URLSearchParams(location.search).get("mail_view")));
   const [folderNavOpen, setFolderNavOpen] = useState(false);
   const folderTriggerRef = useRef<HTMLButtonElement>(null);
   const folderCloseRef = useRef<HTMLButtonElement>(null);
+  const folderNavRef = useRef<HTMLElement>(null);
   const threadListRef = useRef<HTMLElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+  const route = useMemo(() => parsedMailRoute(location.search), [location.search]);
+  const folderId = route.folderId;
+  const responsiveView = route.view;
+  const selectedThreadId = route.threadId && threads.some((thread) => thread.id === route.threadId)
+    ? route.threadId
+    : threads[0]?.id;
 
-  const updateMailRoute = useCallback((updates: {
-    folderId?: string | undefined;
-    threadId?: string | undefined;
-    view?: ResponsiveMailView;
-  }, replace = false) => {
+  const updateMailRoute = useCallback((updates: MailRouteUpdate, options: { replace?: boolean; focus?: "master" | "content" } = {}) => {
     const params = new URLSearchParams(location.search);
     if ("folderId" in updates) {
       if (updates.folderId) params.set("mail_folder", updates.folderId);
@@ -141,16 +155,17 @@ export function MailScreen() {
     const search = params.toString();
     void navigate(
       { pathname: location.pathname, search: search ? `?${search}` : "", hash: location.hash },
-      { replace },
+      { replace: options.replace },
     );
+    if (options.focus) {
+      window.requestAnimationFrame(() => {
+        (options.focus === "master" ? threadListRef.current : contentRef.current)?.focus();
+      });
+    }
   }, [location.hash, location.pathname, location.search, navigate]);
 
   const setMailView = useCallback((view: ResponsiveMailView) => {
-    setResponsiveView(view);
-    updateMailRoute({ view });
-    window.requestAnimationFrame(() => {
-      (view === "master" ? threadListRef.current : contentRef.current)?.focus();
-    });
+    updateMailRoute({ view }, { focus: view === "master" ? "master" : "content" });
   }, [updateMailRoute]);
 
   const closeFolderNav = useCallback(() => {
@@ -179,7 +194,6 @@ export function MailScreen() {
         setLoadState("unavailable");
         setFolders([]);
         setThreads([]);
-        setSelectedThreadId(undefined);
         setDetail(undefined);
         return;
       }
@@ -187,7 +201,6 @@ export function MailScreen() {
         setLoadState("not_configured");
         setFolders([]);
         setThreads([]);
-        setSelectedThreadId(undefined);
         setDetail(undefined);
         return;
       }
@@ -198,11 +211,6 @@ export function MailScreen() {
       const nextThreads = threadRes.data;
       setFolders(folderRes.data);
       setThreads(nextThreads);
-      setSelectedThreadId((current) =>
-        current && nextThreads.some((thread) => thread.id === current)
-          ? current
-          : nextThreads[0]?.id,
-      );
       setLoadState(nextThreads.length > 0 ? "ready" : "empty");
     } catch {
       setLoadState("error");
@@ -219,6 +227,21 @@ export function MailScreen() {
       if (event.key === "Escape") {
         event.preventDefault();
         closeFolderNav();
+        return;
+      }
+      if (event.key !== "Tab") return;
+      const focusable = Array.from(folderNavRef.current?.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ) ?? []);
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
       }
     };
     window.addEventListener("keydown", onKeyDown);
@@ -294,12 +317,10 @@ export function MailScreen() {
 
   const openThread = useCallback(
     (thread: ConsoleMailThread) => {
-      setSelectedThreadId(thread.id);
-      setMailView("detail");
-      updateMailRoute({ threadId: thread.id, view: "detail" });
+      updateMailRoute({ threadId: thread.id, view: "detail" }, { focus: "content" });
       if (thread.unread_count > 0) void setThreadSeen(thread.id, true);
     },
-    [setMailView, setThreadSeen, updateMailRoute],
+    [setThreadSeen, updateMailRoute],
   );
 
   const startThreadedCompose = useCallback(
@@ -325,10 +346,15 @@ export function MailScreen() {
         classification: "normal",
       });
       setComposeAttachments([]);
-      setMailView("compose");
+      updateMailRoute({ view: "compose" }, { focus: "content" });
     },
-    [T.composer.validation.threadingUnavailable, T.thread.noSubject, selectedThread?.subject, setMailView],
+    [T.composer.validation.threadingUnavailable, T.thread.noSubject, selectedThread?.subject, updateMailRoute],
   );
+
+  const closeCompose = useCallback(() => {
+    resetCompose();
+    updateMailRoute({ view: selectedThread ? "detail" : "master" }, { focus: selectedThread ? "content" : "master" });
+  }, [resetCompose, selectedThread, updateMailRoute]);
 
   const sendCurrentMail = useCallback(async () => {
     setNotice(undefined);
@@ -450,13 +476,12 @@ export function MailScreen() {
         selectedFolderId={folderId}
         onClose={closeFolderNav}
         closeButtonRef={folderCloseRef}
+        drawerOpen={folderNavOpen}
+        folderNavRef={folderNavRef}
         onSelectFolder={(nextFolderId) => {
-          setFolderId(nextFolderId);
-          setSelectedThreadId(undefined);
           setDetail(undefined);
           setFolderNavOpen(false);
-          setResponsiveView("master");
-          updateMailRoute({ folderId: nextFolderId, threadId: undefined, view: "master" });
+          updateMailRoute({ folderId: nextFolderId, threadId: undefined, view: "master" }, { focus: "master" });
         }}
       />
       <MailThreadList
@@ -468,7 +493,7 @@ export function MailScreen() {
         onQueryDraftChange={setQueryDraft}
         onSubmitSearch={() => { setQuery(queryDraft); }}
         onUnreadOnlyChange={setUnreadOnly}
-        onSelectThread={(thread) => { setSelectedThreadId(thread.id); }}
+        onSelectThread={(thread) => { updateMailRoute({ threadId: thread.id }); }}
         onOpenThread={openThread}
         onOpenFolders={() => {
           setFolderNavOpen(true);
@@ -510,7 +535,7 @@ export function MailScreen() {
             onFilesSelected={(files) => { setComposeAttachments((prev) => [...prev, ...files]); setEgressBlock(undefined); }}
             onRemoveAttachment={(file) => { setComposeAttachments((prev) => prev.filter((item) => item !== file)); setEgressBlock(undefined); }}
             onSubmit={() => { void sendCurrentMail(); }}
-            onCancelThread={resetCompose}
+            onCancelThread={closeCompose}
           />
         </div>
       </div>

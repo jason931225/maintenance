@@ -84,11 +84,9 @@ export function MailComposer({
     >
       <div style={rowStyle}>
         <h2 style={sectionTitleStyle}>{title}</h2>
-        {compose.mode !== "new" ? (
-          <button type="button" style={ghostButtonStyle} onClick={onCancelThread}>
-            {T.cancelThread}
-          </button>
-        ) : null}
+        <button type="button" style={ghostButtonStyle} onClick={onCancelThread}>
+          {T.close}
+        </button>
       </div>
       <div style={chipRowStyle}>
         {CLASSIFICATION_OPTIONS.map((option) => {

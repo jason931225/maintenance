@@ -12,12 +12,16 @@ export function MailFolderPane({
   onSelectFolder,
   onClose,
   closeButtonRef,
+  drawerOpen,
+  folderNavRef,
 }: {
   folders: ConsoleMailFolder[];
   selectedFolderId?: string;
   onSelectFolder: (folderId: string | undefined) => void;
   onClose: () => void;
   closeButtonRef: RefObject<HTMLButtonElement | null>;
+  drawerOpen: boolean;
+  folderNavRef: RefObject<HTMLElement | null>;
 }) {
   const T = ko.console.mail.folder;
   const responsive = ko.console.mail.responsive;
@@ -35,7 +39,15 @@ export function MailFolderPane({
     })),
   ];
   return (
-    <nav id="mail-folder-navigation" className="mail-screen__folders" aria-label={T.navLabel} style={separatorPaneStyle}>
+    <nav
+      ref={folderNavRef}
+      id="mail-folder-navigation"
+      className="mail-screen__folders"
+      aria-label={T.navLabel}
+      aria-modal={drawerOpen ? true : undefined}
+      role={drawerOpen ? "dialog" : "navigation"}
+      style={separatorPaneStyle}
+    >
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--sp-2)" }}>
         <h2 style={sectionTitleStyle}>{T.navLabel}</h2>
         <button ref={closeButtonRef} className="mail-screen__folder-close" type="button" style={buttonBaseStyle} onClick={onClose}>
