@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const get = vi.fn();
 const post = vi.fn();
-const api = { GET: get, POST: post };
+let api = { GET: get, POST: post };
 let session = { org_id: "org-1", user_id: "user-1", access_token: "token-1", client_session_incarnation: 1 };
 vi.mock("../../context/auth", () => ({ useAuth: () => ({ api, session }) }));
 
@@ -22,9 +22,20 @@ const detail = {
   employment: { employment_type: "REGULAR", phone_e164: "+821012345678", base_pay: "1000000", currency: "KRW" },
 };
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => { resolve = resolvePromise; });
+  return { promise, resolve };
+}
+
+function switchAuthority() {
+  session = { ...session, access_token: "token-2", client_session_incarnation: session.client_session_incarnation + 1 };
+}
+
 describe("PeopleWorkforceBody", () => {
   beforeEach(() => {
     session = { org_id: "org-1", user_id: "user-1", access_token: "token-1", client_session_incarnation: 1 };
+    api = { GET: get, POST: post };
     get.mockReset();
     post.mockReset();
     get.mockImplementation((path: string) => Promise.resolve(path === "/api/v1/branches"
@@ -88,8 +99,70 @@ describe("PeopleWorkforceBody", () => {
     fireEvent.click(screen.getByRole("button", { name: "직원 등록" }));
     await screen.findByText("+821012345678");
 
-    session = { ...session, access_token: "token-2", client_session_incarnation: 2 };
+    switchAuthority();
     rerender(<PeopleWorkforceBody />);
     expect(screen.queryByText("+821012345678")).not.toBeInTheDocument();
+  });
+
+  it("clears privileged detail synchronously when the API authority instance changes", async () => {
+    const { rerender } = render(<PeopleWorkforceBody />);
+    await screen.findByText("Kim");
+    fillRequiredForm();
+    fireEvent.click(screen.getByRole("button", { name: "직원 등록" }));
+    await screen.findByText("+821012345678");
+
+    api = { GET: get, POST: post };
+    rerender(<PeopleWorkforceBody />);
+    expect(screen.queryByText("+821012345678")).not.toBeInTheDocument();
+  });
+
+  it("ignores a delayed create response and clears the submitting state after an authority switch", async () => {
+    const create = deferred<{ response: { status: number }; data: typeof detail }>();
+    post.mockReturnValue(create.promise);
+    const { rerender } = render(<PeopleWorkforceBody />);
+    await screen.findByText("Kim");
+    fillRequiredForm();
+    fireEvent.click(screen.getByRole("button", { name: "직원 등록" }));
+    expect(screen.getByRole("button", { name: "저장 중…" })).toBeDisabled();
+
+    switchAuthority();
+    rerender(<PeopleWorkforceBody />);
+    expect(screen.getByRole("button", { name: "직원 등록" })).toBeEnabled();
+    create.resolve({ response: { status: 201 }, data: detail });
+    await Promise.resolve();
+    expect(screen.queryByText("+821012345678")).not.toBeInTheDocument();
+  });
+
+  it("ignores a delayed detail response after an authority switch", async () => {
+    const employeeDetail = deferred<{ response: { status: number }; data: typeof detail }>();
+    get.mockImplementation((path: string) => {
+      if (path === "/api/v1/branches") return Promise.resolve({ response: { status: 200 }, data: [{ id: "branch-1", name: "Seoul" }] });
+      if (path === "/api/v1/employees/{id}") return employeeDetail.promise;
+      return Promise.resolve({ response: { status: 200 }, data: { items: [{ id: "employee-1", name: "Kim", company: "KnL" }] } });
+    });
+    const { rerender } = render(<PeopleWorkforceBody />);
+    fireEvent.click(await screen.findByRole("button", { name: /Kim/ }));
+    expect(screen.getByRole("button", { name: /Kim/ })).toBeDisabled();
+
+    switchAuthority();
+    rerender(<PeopleWorkforceBody />);
+    expect(await screen.findByRole("button", { name: /Kim/ })).toBeEnabled();
+    employeeDetail.resolve({ response: { status: 200 }, data: detail });
+    await Promise.resolve();
+    expect(screen.queryByText("+821012345678")).not.toBeInTheDocument();
+  });
+
+  it("ignores delayed directory data after an authority switch", async () => {
+    const directory = deferred<{ response: { status: number }; data: { items: Array<{ id: string; name: string; company: string }> } }>();
+    const branches = deferred<{ response: { status: number }; data: Array<{ id: string; name: string }> }>();
+    get.mockImplementationOnce(() => directory.promise).mockImplementationOnce(() => branches.promise);
+    const { rerender } = render(<PeopleWorkforceBody />);
+    switchAuthority();
+    rerender(<PeopleWorkforceBody />);
+    directory.resolve({ response: { status: 200 }, data: { items: [{ id: "stale", name: "Stale", company: "KnL" }] } });
+    branches.resolve({ response: { status: 200 }, data: [{ id: "stale-branch", name: "Stale" }] });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(screen.queryByText("Stale")).not.toBeInTheDocument();
   });
 });

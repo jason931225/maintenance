@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
 
 import { useAuth } from "../../context/auth";
+import { ko } from "../../i18n/ko";
 
 type Employee = {
   id: string;
@@ -63,6 +64,7 @@ function directEntrySuggestions(employees: readonly Employee[], key: "company" |
  * use the ordinary list contract; compensation is only read from the privileged
  * detail response and is never fabricated in client state. */
 export function PeopleWorkforceBody() {
+  const copy = ko.console.people;
   const { api, session } = useAuth();
   const authorityKey = [session?.org_id, session?.user_id, session?.access_token, session?.client_session_incarnation].join(":");
   const [form, setForm] = useState<Form>(initialForm);
@@ -91,11 +93,11 @@ export function PeopleWorkforceBody() {
       ]);
       if (epoch !== directoryEpoch.current) return;
       if (directory.response.status === 403 || branchResult.response.status === 403) { setDenied(true); setEmployees([]); setBranches([]); }
-      else if (!directory.data || !branchResult.data) setError(errorText(directory.error ?? branchResult.error, "인사 데이터를 불러올 수 없습니다."));
+      else if (!directory.data || !branchResult.data) setError(errorText(directory.error ?? branchResult.error, copy.loadError));
       else { setEmployees(directory.data.items as Employee[]); setBranches(branchResult.data as Branch[]); }
     } catch (loadError) {
       if (epoch !== directoryEpoch.current) return;
-      setError(errorText(loadError, "인사 데이터를 불러올 수 없습니다."));
+      setError(errorText(loadError, copy.loadError));
     } finally {
       if (epoch === directoryEpoch.current) setLoading(false);
     }
@@ -108,9 +110,13 @@ export function PeopleWorkforceBody() {
     setDetail(undefined);
     setEmployees([]);
     setBranches([]);
+    setLoading(true);
+    setSubmitting(false);
+    setOpeningDetail(false);
+    setDenied(false);
     setError(undefined);
     setNotice(undefined);
-  }, [authorityKey]);
+  }, [api, authorityKey]);
 
   useEffect(() => {
     void load();
@@ -124,14 +130,14 @@ export function PeopleWorkforceBody() {
     try {
       const response = await api.POST("/api/v1/employees", { body });
       if (epoch !== authorityEpoch.current) return;
-      if (!response.data) { setError(errorText(response.error, "직원을 등록할 수 없습니다. 입력 내용은 재시도를 위해 유지됩니다.")); return; }
+      if (!response.data) { setError(errorText(response.error, copy.createError)); return; }
       setDetail(response.data as EmployeeDetail);
-      setNotice(`${response.data.employee.name} 직원 정보를 저장했습니다.`);
+      setNotice(copy.saved(response.data.employee.name));
       setForm(initialForm);
       idempotencyKey.current = crypto.randomUUID();
       await load();
     } catch (submitError) {
-      if (epoch === authorityEpoch.current) setError(errorText(submitError, "직원을 등록할 수 없습니다. 입력 내용은 재시도를 위해 유지됩니다."));
+      if (epoch === authorityEpoch.current) setError(errorText(submitError, copy.createError));
     } finally {
       if (epoch === authorityEpoch.current) setSubmitting(false);
     }
@@ -142,11 +148,11 @@ export function PeopleWorkforceBody() {
     try {
       const response = await api.GET("/api/v1/employees/{id}", { params: { path: { id: employee.id } } });
       if (epoch !== detailEpoch.current) return;
-      if (!response.data) { setError(errorText(response.error, "직원 상세 정보를 불러올 수 없습니다.")); return; }
+      if (!response.data) { setError(errorText(response.error, copy.detailError)); return; }
       setDetail(response.data as EmployeeDetail);
     } catch (detailError) {
       if (epoch !== detailEpoch.current) return;
-      setError(errorText(detailError, "직원 상세 정보를 불러올 수 없습니다."));
+      setError(errorText(detailError, copy.detailError));
     } finally {
       if (epoch === detailEpoch.current) setOpeningDetail(false);
     }
@@ -159,22 +165,22 @@ export function PeopleWorkforceBody() {
   }), [employees]);
 
   return <main aria-labelledby="people-title" style={shell}>
-    <header><h1 id="people-title">인사 · 인력 운영</h1></header>
-    {denied ? <section style={panel} role="alert"><strong>접근 권한 없음</strong><span>인사 명부를 조회하거나 변경할 권한이 없습니다.</span></section> : null}
-    {error ? <section style={panel} role="alert"><strong>{error}</strong><button type="button" onClick={() => void load()}>다시 시도</button></section> : null}
+    <header><h1 id="people-title">{copy.title}</h1></header>
+    {denied ? <section style={panel} role="alert"><strong>{copy.accessDenied}</strong><span>{copy.accessDeniedDescription}</span></section> : null}
+    {error ? <section style={panel} role="alert"><strong>{error}</strong><button type="button" onClick={() => void load()}>{copy.retry}</button></section> : null}
     <section style={panel} aria-busy={submitting}>
-      <h2>직원 등록</h2>{notice ? <p role="status">{notice}</p> : null}
+      <h2>{copy.createTitle}</h2>{notice ? <p role="status">{notice}</p> : null}
       <form onSubmit={submit} style={fields}>
-        {([ ["employee_number", "사번"], ["name", "성명"], ["company", "법인"], ["phone", "전화번호"], ["org_unit", "조직"], ["position", "직책"], ["site", "근무지"], ["base_pay", "기본급 (KRW)"] ] as const).map(([key, label]) => <label key={key}>{label}<input required value={form[key]} list={["company", "org_unit", "position", "site"].includes(key) ? `employee-${key}-options` : undefined} inputMode={key === "base_pay" ? "decimal" : key === "phone" ? "tel" : undefined} onBlur={(event) => { if (key === "phone") update(key, normalizePhoneInput(event.target.value)); if (key === "base_pay") update(key, formatKrwInput(event.target.value)); }} onChange={(event) => update(key, key === "base_pay" ? formatKrwInput(event.target.value) : event.target.value)} /></label>)}
+        {([ ["employee_number", copy.fields.employee_number], ["name", copy.fields.name], ["company", copy.fields.company], ["phone", copy.fields.phone], ["org_unit", copy.fields.org_unit], ["position", copy.fields.position], ["site", copy.fields.site], ["base_pay", copy.fields.base_pay] ] as const).map(([key, label]) => <label key={key}>{label}<input required value={form[key]} list={["company", "org_unit", "position", "site"].includes(key) ? `employee-${key}-options` : undefined} inputMode={key === "base_pay" ? "decimal" : key === "phone" ? "tel" : undefined} onBlur={(event) => { if (key === "phone") update(key, normalizePhoneInput(event.target.value)); if (key === "base_pay") update(key, formatKrwInput(event.target.value)); }} onChange={(event) => update(key, key === "base_pay" ? formatKrwInput(event.target.value) : event.target.value)} /></label>)}
         {Object.entries(suggestions).map(([key, values]) => <datalist key={key} id={`employee-${key}-options`}>{values.map((value) => <option key={value} value={value} />)}</datalist>)}
-        <label>고용 형태<select value={form.employment_type} onChange={(event) => update("employment_type", event.target.value)}><option value="REGULAR">정규직</option><option value="CONTRACT">계약직</option><option value="PART_TIME">시간제</option><option value="INTERN">인턴</option></select></label>
-        <label>소속 지점<select required value={form.home_branch_id} onChange={(event) => update("home_branch_id", event.target.value)}><option value="">활성 지점 선택</option>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>
-        <div><button type="submit" disabled={submitting || denied}>{submitting ? "저장 중…" : "직원 등록"}</button></div>
+        <label>{copy.fields.employmentType}<select value={form.employment_type} onChange={(event) => update("employment_type", event.target.value)}><option value="REGULAR">{copy.employmentTypes.REGULAR}</option><option value="CONTRACT">{copy.employmentTypes.CONTRACT}</option><option value="PART_TIME">{copy.employmentTypes.PART_TIME}</option><option value="INTERN">{copy.employmentTypes.INTERN}</option></select></label>
+        <label>{copy.fields.homeBranch}<select required value={form.home_branch_id} onChange={(event) => update("home_branch_id", event.target.value)}><option value="">{copy.activeBranchPlaceholder}</option>{branches.map((branch) => <option key={branch.id} value={branch.id}>{branch.name}</option>)}</select></label>
+        <div><button type="submit" disabled={submitting || denied}>{submitting ? copy.submitting : copy.submit}</button></div>
       </form>
     </section>
-    {detail ? <section style={panel} aria-busy={openingDetail} aria-labelledby="employee-detail-title"><h2 id="employee-detail-title">직원 상세</h2><dl><dt>성명</dt><dd>{detail.employee.name}</dd><dt>고용 형태</dt><dd>{detail.employment.employment_type}</dd><dt>전화번호</dt><dd>{detail.employment.phone_e164}</dd><dt>기본급</dt><dd>{displayPay(detail.employment.base_pay, detail.employment.currency)}</dd><dt>소속 지점</dt><dd>{detail.employee.home_branch_name ?? "-"}</dd></dl></section> : null}
-    <section style={panel} aria-busy={loading}><h2>직원 명부</h2><label>직원 검색<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="성명 또는 사번" /></label>
-      {loading ? <p>명부를 불러오는 중…</p> : employees.length === 0 ? <p>검색 조건에 맞는 직원이 없습니다.</p> : <ul>{employees.map((employee) => <li key={employee.id}><button type="button" onClick={() => void openDetail(employee)} disabled={openingDetail}><strong>{employee.name}</strong> {employee.employee_number ? `(${employee.employee_number})` : ""}</button><br /><small>{[employee.company, employee.org_unit, employee.position, employee.worksite_name, employee.home_branch_name].filter(Boolean).join(" · ")}</small></li>)}</ul>}
+    {detail ? <section style={panel} aria-busy={openingDetail} aria-labelledby="employee-detail-title"><h2 id="employee-detail-title">{copy.detailTitle}</h2><dl><dt>{copy.detail.name}</dt><dd>{detail.employee.name}</dd><dt>{copy.detail.employmentType}</dt><dd>{detail.employment.employment_type}</dd><dt>{copy.detail.phone}</dt><dd>{detail.employment.phone_e164}</dd><dt>{copy.detail.basePay}</dt><dd>{displayPay(detail.employment.base_pay, detail.employment.currency)}</dd><dt>{copy.detail.homeBranch}</dt><dd>{detail.employee.home_branch_name ?? copy.detail.unset}</dd></dl></section> : null}
+    <section style={panel} aria-busy={loading}><h2>{copy.directoryTitle}</h2><label>{copy.fields.search}<input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={copy.searchPlaceholder} /></label>
+      {loading ? <p>{copy.loading}</p> : employees.length === 0 ? <p>{copy.empty}</p> : <ul>{employees.map((employee) => <li key={employee.id}><button type="button" onClick={() => void openDetail(employee)} disabled={openingDetail}><strong>{employee.name}</strong> {employee.employee_number ? `(${employee.employee_number})` : ""}</button><br /><small>{[employee.company, employee.org_unit, employee.position, employee.worksite_name, employee.home_branch_name].filter(Boolean).join(copy.separator)}</small></li>)}</ul>}
     </section>
   </main>;
 }

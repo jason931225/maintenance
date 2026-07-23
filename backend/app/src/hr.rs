@@ -952,7 +952,7 @@ async fn create_employee(
                     to_org_unit, to_position, effective_date, comment, signoffs, created_by
                 ) VALUES ($1, $2, $3, 'ONBOARD', 'ACTIVE', $4, $5, $6, $7,
                     'Created through People & Workforce',
-                    '{"privacy_notice_ack":true,"korean_labor_law_ack":true,"payroll_cutoff_ack":true,"retirement_settlement_ack":true}'::jsonb,
+                    '{}'::jsonb,
                     $8)"#,
             )
             .bind(Uuid::new_v4()).bind(org_uuid).bind(employee_id).bind(&request.company)
@@ -7534,17 +7534,7 @@ fn normalize_create_employee_request(
             "employment_type must be REGULAR, CONTRACT, PART_TIME, or INTERN",
         ));
     }
-    let base_pay = required_employee_text(body.base_pay, "base_pay")?;
-    if base_pay
-        .parse::<f64>()
-        .ok()
-        .filter(|pay| pay.is_finite() && *pay >= 0.0)
-        .is_none()
-    {
-        return Err(HrError::validation(
-            "base_pay must be a non-negative number",
-        ));
-    }
+    let base_pay = normalize_employee_base_pay(body.base_pay)?;
     Ok(NormalizedCreateEmployeeRequest {
         employee_number: required_employee_text(body.employee_number, "employee_number")?,
         name: required_employee_text(body.name, "name")?,
@@ -7558,6 +7548,31 @@ fn normalize_create_employee_request(
         base_pay,
         idempotency_key: normalize_idempotency_key(body.idempotency_key)?,
     })
+}
+
+/// Produces a fixed-scale decimal accepted by PostgreSQL `NUMERIC(14,2)` without
+/// float rounding, exponent notation, leading zeros, or silent truncation.
+fn normalize_employee_base_pay(value: String) -> Result<String, HrError> {
+    let value = value.trim();
+    let (whole, fraction) = value
+        .split_once('.')
+        .map_or((value, None), |(whole, fraction)| (whole, Some(fraction)));
+    let valid_whole = whole == "0"
+        || (whole.len() <= 12
+            && !whole.starts_with('0')
+            && whole.chars().all(|character| character.is_ascii_digit()));
+    let valid_fraction = fraction.is_none_or(|fraction| {
+        !fraction.is_empty()
+            && fraction.len() <= 2
+            && fraction.chars().all(|character| character.is_ascii_digit())
+    });
+    if !valid_whole || !valid_fraction {
+        return Err(HrError::validation(
+            "base_pay must be a canonical NUMERIC(14,2) decimal",
+        ));
+    }
+    let fraction = fraction.unwrap_or("0");
+    Ok(format!("{whole}.{fraction:0<2}"))
 }
 
 async fn load_employee_detail(

@@ -59,6 +59,19 @@ async fn employee_create_is_idempotent_unique_and_tenant_scoped(pool: PgPool) {
     };
     let employee_id = created["employee"]["id"].as_str().unwrap();
     assert_eq!(created["employment"]["phone_e164"], "+821012345678");
+    let signoffs: Value = sqlx::query_scalar(
+        "SELECT signoffs FROM employee_lifecycle_events WHERE org_id = $1 AND employee_id = $2",
+    )
+    .bind(*org.as_uuid())
+    .bind(Uuid::parse_str(employee_id).unwrap())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        signoffs,
+        json!({}),
+        "employee creation must not fabricate acknowledgements"
+    );
     for table in [
         "employees",
         "employee_employment_profiles",
@@ -102,6 +115,38 @@ async fn employee_create_is_idempotent_unique_and_tenant_scoped(pool: PgPool) {
         "{:?}",
         duplicate.json
     );
+
+    for (employee_number, key, base_pay, expected) in [
+        ("PEOPLE-LOWER", "pay-lower", "0", "0.00"),
+        (
+            "PEOPLE-UPPER",
+            "pay-upper",
+            "999999999999.99",
+            "999999999999.99",
+        ),
+    ] {
+        let mut boundary = create_body(branch, employee_number, key, "010-1234-5678", "Pay bound");
+        boundary["base_pay"] = json!(base_pay);
+        let response = post(service.clone(), EMPLOYEES_PATH, &token, boundary).await;
+        assert_eq!(response.status, StatusCode::CREATED, "{:?}", response.json);
+        assert_eq!(response.json["employment"]["base_pay"], expected);
+    }
+    for (employee_number, key, base_pay) in [
+        ("PEOPLE-SCALE", "pay-scale", "1.001"),
+        ("PEOPLE-RANGE", "pay-range", "1000000000000"),
+        ("PEOPLE-CANON", "pay-canon", "01.00"),
+        ("PEOPLE-EXP", "pay-exp", "1e2"),
+    ] {
+        let mut invalid = create_body(branch, employee_number, key, "010-1234-5678", "Invalid pay");
+        invalid["base_pay"] = json!(base_pay);
+        let response = post(service.clone(), EMPLOYEES_PATH, &token, invalid).await;
+        assert_eq!(
+            response.status,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{:?}",
+            response.json
+        );
+    }
 
     let other_org = OrgId::from_uuid(Uuid::new_v4());
     seed_org(&pool, other_org).await;
