@@ -240,6 +240,8 @@ export interface ModuleListLoadResult {
 
 export interface ModuleListLoadContext {
   api: ConsoleApiClient;
+  /** Aborted when a newer query, retry, or authority scope supersedes this read. */
+  signal: AbortSignal;
   query: string;
   hasPolicy: (action: string, resource?: PolicyResource) => boolean;
 }
@@ -251,6 +253,8 @@ export interface ModuleDetailLoadResult {
 
 export interface ModuleDetailLoadContext {
   api: ConsoleApiClient;
+  /** Aborted when selection, unmount, or authority scope changes. */
+  signal: AbortSignal;
   row: ModuleRow;
   hasPolicy: (action: string, resource?: PolicyResource) => boolean;
 }

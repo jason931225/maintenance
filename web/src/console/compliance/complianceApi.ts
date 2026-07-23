@@ -19,6 +19,12 @@ type RawControl = components["schemas"]["ComplianceControl"];
 type RawEvidence = components["schemas"]["EvidenceBinding"];
 
 const PAGE_SIZE = 100;
+/** Keeps evidence hydration responsive and bounded even for large frameworks. */
+export const EVIDENCE_READ_CONCURRENCY = 6;
+
+function throwIfAborted(signal: AbortSignal): void {
+  if (signal.aborted) throw new DOMException("Compliance read was aborted", "AbortError");
+}
 
 /**
  * Walk every server-declared page.  A catalog surface must never silently turn
@@ -26,6 +32,7 @@ const PAGE_SIZE = 100;
  * used the maximum normal page size.
  */
 async function readAllPages<T>(
+  signal: AbortSignal,
   readPage: (offset: number) => Promise<ApiPage<T>>,
 ): Promise<T[]> {
   const items: T[] = [];
@@ -33,7 +40,9 @@ async function readAllPages<T>(
   let total: number | undefined;
 
   do {
+    throwIfAborted(signal);
     const page = await readPage(offset);
+    throwIfAborted(signal);
     if (!Number.isInteger(page.total) || page.total < 0 || !Number.isInteger(page.limit) || page.limit < 1) {
       throw new Error("compliance catalog returned an invalid page boundary");
     }
@@ -53,11 +62,13 @@ async function readAllPages<T>(
 
 async function obligationPage(
   api: ConsoleApiClient,
+  signal: AbortSignal,
   offset: number,
   query: string,
 ): Promise<ApiPage<RawObligation>> {
   const { data } = await api.GET("/api/v1/compliance/obligations", {
     params: { query: { limit: PAGE_SIZE, offset, ...(query ? { q: query } : {}) } },
+    signal,
   });
   if (!data) throw new Error("compliance obligations read returned no data");
   return data;
@@ -65,11 +76,13 @@ async function obligationPage(
 
 async function regulationPage(
   api: ConsoleApiClient,
+  signal: AbortSignal,
   offset: number,
   query: string,
 ): Promise<ApiPage<RawRegulation>> {
   const { data } = await api.GET("/api/v1/compliance/regulations", {
     params: { query: { limit: PAGE_SIZE, offset, ...(query ? { q: query } : {}) } },
+    signal,
   });
   if (!data) throw new Error("compliance regulations read returned no data");
   return data;
@@ -77,11 +90,13 @@ async function regulationPage(
 
 async function frameworkPage(
   api: ConsoleApiClient,
+  signal: AbortSignal,
   offset: number,
   query: string,
 ): Promise<ApiPage<RawFramework>> {
   const { data } = await api.GET("/api/v1/compliance/frameworks", {
     params: { query: { limit: PAGE_SIZE, offset, ...(query ? { q: query } : {}) } },
+    signal,
   });
   if (!data) throw new Error("compliance frameworks read returned no data");
   return data;
@@ -89,11 +104,13 @@ async function frameworkPage(
 
 async function controlPage(
   api: ConsoleApiClient,
+  signal: AbortSignal,
   frameworkId: string,
   offset: number,
 ): Promise<ApiPage<RawControl>> {
   const { data } = await api.GET("/api/v1/compliance/framework-controls", {
     params: { query: { framework_id: frameworkId, limit: PAGE_SIZE, offset } },
+    signal,
   });
   if (!data) throw new Error("compliance framework controls read returned no data");
   return data;
@@ -101,11 +118,13 @@ async function controlPage(
 
 async function evidencePage(
   api: ConsoleApiClient,
+  signal: AbortSignal,
   controlId: string,
   offset: number,
 ): Promise<ApiPage<RawEvidence>> {
   const { data } = await api.GET("/api/v1/compliance/evidence-bindings", {
     params: { query: { control_id: controlId, limit: PAGE_SIZE, offset } },
+    signal,
   });
   if (!data) throw new Error("compliance evidence bindings read returned no data");
   return data;
@@ -181,23 +200,52 @@ export async function readComplianceCatalog(
   api: ConsoleApiClient,
   query: string,
   readable: { obligations: boolean; regulations: boolean; frameworks: boolean },
+  signal: AbortSignal,
 ): Promise<ComplianceCatalogItem[]> {
   const q = normalizedQuery(query);
   const [obligations, regulations, frameworks] = await Promise.all([
-    readable.obligations ? readAllPages((offset) => obligationPage(api, offset, q)) : Promise.resolve([] as RawObligation[]),
-    readable.regulations ? readAllPages((offset) => regulationPage(api, offset, q)) : Promise.resolve([] as RawRegulation[]),
-    readable.frameworks ? readAllPages((offset) => frameworkPage(api, offset, q)) : Promise.resolve([] as RawFramework[]),
+    readable.obligations ? readAllPages(signal, (offset) => obligationPage(api, signal, offset, q)) : Promise.resolve([] as RawObligation[]),
+    readable.regulations ? readAllPages(signal, (offset) => regulationPage(api, signal, offset, q)) : Promise.resolve([] as RawRegulation[]),
+    readable.frameworks ? readAllPages(signal, (offset) => frameworkPage(api, signal, offset, q)) : Promise.resolve([] as RawFramework[]),
   ]);
   return [...obligations.map(obligation), ...regulations.map(regulation), ...frameworks.map((item) => framework(item))];
 }
 
-export async function readFrameworkDetail(api: ConsoleApiClient, frameworkRow: ComplianceFramework): Promise<ComplianceFramework> {
-  const rawControls = await readAllPages((offset) => controlPage(api, frameworkRow.id, offset));
-  const controlsWithEvidence = await Promise.all(
-    rawControls.map(async (rawControl) => {
-      const bindings = await readAllPages((offset) => evidencePage(api, rawControl.id, offset));
+async function mapWithConcurrency<T, R>(
+  values: readonly T[],
+  signal: AbortSignal,
+  limit: number,
+  work: (value: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(values.length);
+  let nextIndex = 0;
+  const worker = async (): Promise<void> => {
+    while (true) {
+      throwIfAborted(signal);
+      const index = nextIndex;
+      nextIndex += 1;
+      if (index >= values.length) return;
+      results[index] = await work(values[index]);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, values.length) }, () => worker()));
+  return results;
+}
+
+export async function readFrameworkDetail(
+  api: ConsoleApiClient,
+  frameworkRow: ComplianceFramework,
+  signal: AbortSignal,
+): Promise<ComplianceFramework> {
+  const rawControls = await readAllPages(signal, (offset) => controlPage(api, signal, frameworkRow.id, offset));
+  const controlsWithEvidence = await mapWithConcurrency(
+    rawControls,
+    signal,
+    EVIDENCE_READ_CONCURRENCY,
+    async (rawControl) => {
+      const bindings = await readAllPages(signal, (offset) => evidencePage(api, signal, rawControl.id, offset));
       return control(rawControl, bindings.map(evidence));
-    }),
+    },
   );
   return { ...frameworkRow, controls: controlsWithEvidence };
 }

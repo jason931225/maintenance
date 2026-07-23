@@ -916,11 +916,17 @@ function moduleRuntimeReducer(
 export function GenericModuleScreen({
   config,
   api,
+  authorityKey,
 }: {
   config: ModuleScreenConfig;
   api?: ConsoleApiClient;
+  /** Effective tenant/user/session incarnation. Changing it must discard all
+   * retained module state before a new authority can resolve. */
+  authorityKey?: string;
 }) {
-  return <GenericModuleScreenBody key={config.id} api={api} config={config} />;
+  // A keyed remount clears rows, stats, selection, detail, and retry/error state
+  // during reconciliation, then effect cleanup aborts the superseded requests.
+  return <GenericModuleScreenBody key={`${config.id}:${authorityKey ?? "untrusted"}`} api={api} config={config} />;
 }
 
 function GenericModuleScreenBody({
@@ -1012,9 +1018,10 @@ function GenericModuleScreenBody({
 
   useEffect(() => {
     if (!api || !loadRows) return;
+    const controller = new AbortController();
     let active = true;
     dispatch({ type: "listLoading" });
-    void loadRows({ api, query, hasPolicy: gate.can })
+    void loadRows({ api, signal: controller.signal, query, hasPolicy: gate.can })
       .then((result) => {
         if (!active) return;
         dispatch({
@@ -1030,6 +1037,7 @@ function GenericModuleScreenBody({
       });
     return () => {
       active = false;
+      controller.abort();
     };
   }, [api, gate.can, loadRows, query, refreshToken]);
 
@@ -1044,9 +1052,10 @@ function GenericModuleScreenBody({
       dispatch({ type: "detailIdle" });
       return;
     }
+    const controller = new AbortController();
     let active = true;
     dispatch({ type: "detailLoading" });
-    void loadDetail({ api, row: selectedRow, hasPolicy: gate.can })
+    void loadDetail({ api, signal: controller.signal, row: selectedRow, hasPolicy: gate.can })
       .then((result) => {
         if (!active) return;
         dispatch({
@@ -1062,6 +1071,7 @@ function GenericModuleScreenBody({
       });
     return () => {
       active = false;
+      controller.abort();
     };
     // Depend on the row's id (not the `selectedRow` object) and refreshToken,
     // not `selectedRow` itself: loadDetail always returns a freshly-mapped row

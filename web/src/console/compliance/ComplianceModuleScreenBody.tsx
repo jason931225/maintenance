@@ -30,6 +30,13 @@ export function ComplianceModuleScreenBody() {
   const { api, session } = useAuth();
   const roles = session?.roles;
   const featureGrants = session?.feature_grants;
+  // The provider-owned incarnation changes whenever the effective session or
+  // tenant context changes. Never retain scope-bound rows across a missing or
+  // changed incarnation; the backend remains the authorization authority.
+  const authorityKey =
+    session?.org_id && session.user_id && session.client_session_incarnation
+      ? `${session.org_id}:${session.user_id}:${session.client_session_incarnation}`
+      : undefined;
 
   const gate = useMemo<PolicyGate>(
     () => ({
@@ -49,7 +56,7 @@ export function ComplianceModuleScreenBody() {
 
   return (
     <PolicyGateProvider gate={gate}>
-      <GenericModuleScreen config={complianceModuleScreen} api={api} />
+      <GenericModuleScreen config={complianceModuleScreen} api={api} authorityKey={authorityKey} />
     </PolicyGateProvider>
   );
 }

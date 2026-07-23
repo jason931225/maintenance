@@ -16,13 +16,13 @@ function isFrameworkCatalogItem(item: unknown): item is ComplianceFramework {
 
 
 const complianceDataAdapter: ModuleDataAdapter = {
-  async loadRows({ api, query, hasPolicy }) {
+  async loadRows({ api, signal, query, hasPolicy }) {
     if (!hasPolicy(COMPLIANCE_ACTIONS.read)) return { rows: [] };
     const items = await readComplianceCatalog(api, query, {
       obligations: hasPolicy(COMPLIANCE_ACTIONS.read),
       regulations: hasPolicy(COMPLIANCE_ACTIONS.regulationRead),
       frameworks: hasPolicy(COMPLIANCE_ACTIONS.frameworkRead),
-    });
+    }, signal);
     const rows = filterRows(toRows(items), query);
     const stats = catalogStats(items);
     return {
@@ -31,10 +31,10 @@ const complianceDataAdapter: ModuleDataAdapter = {
       selectedRowId: rows[0]?.id,
     };
   },
-  async loadDetail({ api, row }) {
+  async loadDetail({ api, signal, row }) {
     const item = row.sourceRecord;
     if (!isFrameworkCatalogItem(item)) return { row };
-    const hydrated = await readFrameworkDetail(api, item);
+    const hydrated = await readFrameworkDetail(api, item, signal);
     return { row: toRows([hydrated])[0] };
   },
 };

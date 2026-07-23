@@ -56,10 +56,10 @@ function apiWithCatalog() {
   return { api: { GET } as unknown as ConsoleApiClient, GET };
 }
 
-function renderCompliance(api: ConsoleApiClient, gate: PolicyGate = allowGate) {
+function renderCompliance(api: ConsoleApiClient, gate: PolicyGate = allowGate, authorityKey?: string) {
   return render(
     <PolicyGateProvider gate={gate}>
-      <GenericModuleScreen config={complianceModuleScreen} api={api} />
+      <GenericModuleScreen config={complianceModuleScreen} api={api} authorityKey={authorityKey} />
     </PolicyGateProvider>,
   );
 }
@@ -110,6 +110,7 @@ describe("complianceModuleScreen", () => {
   });
 });
 
+describe("compliance pagination and recovery", () => {
   it("walks every declared catalog page instead of hiding row 101", async () => {
     const obligations = Array.from({ length: 101 }, (_, index) => ({
       ...obligation,
@@ -190,3 +191,62 @@ describe("complianceModuleScreen", () => {
     await waitFor(() => expect(reads).toBeGreaterThanOrEqual(3));
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
+});
+
+describe("compliance authority boundaries", () => {
+  it("clears Tenant A before deferred Tenant B resolves or fails", async () => {
+    const aGET = vi.fn(async (path: string) => {
+      if (path === "/api/v1/compliance/obligations") return { data: page([obligation]) };
+      if (path === "/api/v1/compliance/regulations" || path === "/api/v1/compliance/frameworks") return { data: page([]) };
+      throw new Error(`unexpected path ${path}`);
+    });
+    let rejectB!: (error: Error) => void;
+    const bObligations = new Promise<{ data: ReturnType<typeof page> }>((_, reject) => { rejectB = reject; });
+    const bGET = vi.fn((path: string) => {
+      if (path === "/api/v1/compliance/obligations") return bObligations;
+      if (path === "/api/v1/compliance/regulations" || path === "/api/v1/compliance/frameworks") return Promise.resolve({ data: page([]) });
+      return Promise.reject(new Error(`unexpected path ${path}`));
+    });
+    const view = renderCompliance({ GET: aGET } as unknown as ConsoleApiClient, allowGate, "tenant-a:user:incarnation-a");
+    await screen.findByRole("button", { name: "CP-0001 상세 열기" });
+
+    view.rerender(
+      <PolicyGateProvider gate={allowGate}>
+        <GenericModuleScreen config={complianceModuleScreen} api={{ GET: bGET } as unknown as ConsoleApiClient} authorityKey="tenant-b:user:incarnation-b" />
+      </PolicyGateProvider>,
+    );
+    // Keyed authority reset occurs in the same reconciliation pass, before B's deferred response settles.
+    expect(screen.queryByRole("button", { name: "CP-0001 상세 열기" })).not.toBeInTheDocument();
+    rejectB(new Error("tenant B unavailable"));
+    await screen.findByRole("alert");
+    expect(screen.queryByRole("button", { name: "CP-0001 상세 열기" })).not.toBeInTheDocument();
+  });
+});
+
+describe("compliance detail cancellation", () => {
+  it("aborts stale framework detail when selection moves to another framework", async () => {
+    const secondFramework = { ...framework, id: "framework-2", code: "FW-0002", name: "Second ISMS" };
+    let firstDetailAborted = false;
+    const GET = vi.fn((path: string, init: { params?: { query?: { framework_id?: string } }; signal?: AbortSignal }) => {
+      if (path === "/api/v1/compliance/obligations" || path === "/api/v1/compliance/regulations") return Promise.resolve({ data: page([]) });
+      if (path === "/api/v1/compliance/frameworks") return Promise.resolve({ data: page([framework, secondFramework]) });
+      if (path === "/api/v1/compliance/framework-controls") {
+        if (init.params?.query?.framework_id === "framework-1") {
+          return new Promise((_, reject) => init.signal?.addEventListener("abort", () => {
+            firstDetailAborted = true;
+            reject(new DOMException("aborted", "AbortError"));
+          }, { once: true }));
+        }
+        return Promise.resolve({ data: page([{ ...control, id: "control-2", framework_id: "framework-2", title: "Second control" }]) });
+      }
+      if (path === "/api/v1/compliance/evidence-bindings") return Promise.resolve({ data: page([]) });
+      return Promise.reject(new Error(`unexpected path ${path}`));
+    });
+    renderCompliance({ GET } as unknown as ConsoleApiClient);
+    const second = await screen.findByRole("button", { name: "FW-0002 상세 열기" });
+    await (await import("@testing-library/user-event")).default.setup().click(second);
+    await screen.findByText(/Second control/);
+    expect(firstDetailAborted).toBe(true);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+});
