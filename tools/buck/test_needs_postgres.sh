@@ -77,4 +77,4 @@ fi
 database_url="postgres://mnt_buck_admin:${admin_password}@127.0.0.1:${port}/${database}"
 
 BUCK_ISOLATION_DIR="${isolation_dir}" "${buck_bin}" test --local-only "$@" \
-  -- --env "DATABASE_URL=${database_url}"
+  -- --env "DATABASE_URL=${database_url}" --env RUST_TEST_THREADS=1

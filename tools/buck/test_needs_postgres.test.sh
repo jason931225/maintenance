@@ -52,6 +52,7 @@ grep -Fq -- 'postgres:18.4@sha256:65f70a152846cf504dff86e807007e9aeac98c3aeb7b62
 grep -Fq -- 'bash /topology.sh' <<<"${calls}"
 grep -Fq -- 'buck BUCK_ISOLATION_DIR=' <<<"${calls}"
 grep -Fq -- 'test --local-only //backend/crates/platform/db:db-itest-runtime --test-filter smoke -- --env DATABASE_URL=postgres://mnt_buck_admin:' <<<"${calls}"
+grep -Fq -- '--env RUST_TEST_THREADS=1' <<<"${calls}"
 ! grep -Fq -- 'DATABASE_URL=postgres://mnt_app:' <<<"${calls}"
 grep -Fq -- '@127.0.0.1:49123/mnt_buck_test_' <<<"${calls}"
 grep -Fq -- 'docker rm -f mnt-buck-postgres-' <<<"${calls}"
