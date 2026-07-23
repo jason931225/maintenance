@@ -13579,15 +13579,6 @@ paths:
       - {name: capacity_date, in: query, required: true, schema: {type: string, format: date}}
       responses:
         '200': {description: Tenant and branch scoped capacity slots, content: {application/json: {schema: {type: array, items: {$ref: '#/components/schemas/ProductionCapacitySlot'}}}}}
-    post:
-      operationId: createProductionCapacitySlot
-      tags: [Production]
-      security: [{bearerAuth: []}]
-      requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/CreateProductionCapacitySlot'}}}}
-      responses:
-        '201': {description: Capacity control-plane slot created, content: {application/json: {schema: {$ref: '#/components/schemas/ProductionCapacitySlot'}}}}
-        '409': {$ref: '#/components/responses/Conflict'}
-        '422': {$ref: '#/components/responses/ValidationError'}
   /api/v1/production/plans/{plan_id}:
     get:
       operationId: getProductionPlan
@@ -27732,15 +27723,6 @@ components:
         version: {type: integer}
         source_ref: {type: string}
         evaluated_at: {type: string, format: date-time}
-    CreateProductionCapacitySlot:
-      type: object
-      required: [branch_id, site_id, capacity_date, available_quantity, source_ref]
-      properties:
-        branch_id: {$ref: '#/components/schemas/Uuid'}
-        site_id: {$ref: '#/components/schemas/Uuid'}
-        capacity_date: {type: string, format: date}
-        available_quantity: {type: integer, format: int64, minimum: 1}
-        source_ref: {type: string, minLength: 1, maxLength: 160}
     ProductionOperation:
       type: object
       required: [id, sequence, status, output_quantity, scrap_quantity, downtime_minutes, version]

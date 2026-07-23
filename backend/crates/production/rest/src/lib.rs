@@ -51,10 +51,7 @@ pub fn router(state: ProductionRestState) -> Router {
     let pool = state.pool.clone();
     let router = Router::new()
         .route(PRODUCTION_PLANS_PATH, get(list_plans).post(create_plan))
-        .route(
-            PRODUCTION_CAPACITY_SLOTS_PATH,
-            get(list_capacity_slots).post(create_capacity_slot),
-        )
+        .route(PRODUCTION_CAPACITY_SLOTS_PATH, get(list_capacity_slots))
         .route(PRODUCTION_PLAN_PATH, get(get_plan))
         .route(PRODUCTION_PLAN_RELEASE_PATH, post(release_plan))
         .route(PRODUCTION_OPERATION_RECORDS_PATH, post(record_operation))
@@ -105,14 +102,6 @@ struct RecordOperation {
 struct CapacityQuery {
     branch_id: BranchId,
     capacity_date: time::Date,
-}
-#[derive(Deserialize)]
-struct CreateCapacitySlot {
-    branch_id: BranchId,
-    site_id: Uuid,
-    capacity_date: time::Date,
-    available_quantity: i64,
-    source_ref: String,
 }
 #[derive(Serialize)]
 struct CapacitySlot {
@@ -215,7 +204,7 @@ async fn list_capacity_slots(
         .map_err(|_| RestError::internal("tenant context is missing"))?;
     let mut tx = state.pool.begin().await.map_err(RestError::db)?;
     arm_tenant(&mut tx, *org.as_uuid()).await?;
-    let rows = sqlx::query("SELECT id,branch_id,site_id,capacity_date,available_quantity,reserved_quantity,version,source_ref,evaluated_at FROM production_capacity_slots WHERE branch_id=$1 AND capacity_date=$2 ORDER BY site_id")
+    let rows = sqlx::query("SELECT id,branch_id,site_id,capacity_date,available_quantity,reserved_quantity,version,source_id AS source_ref,evaluated_at FROM production_capacity_slots WHERE branch_id=$1 AND capacity_date=$2 ORDER BY site_id")
         .bind(*query.branch_id.as_uuid()).bind(query.capacity_date).fetch_all(&mut *tx).await.map_err(RestError::db)?;
     tx.commit().await.map_err(RestError::db)?;
     Ok(Json(
@@ -223,36 +212,6 @@ async fn list_capacity_slots(
             .map(capacity_slot)
             .collect::<Result<_, _>>()?,
     ))
-}
-async fn create_capacity_slot(
-    State(state): State<ProductionRestState>,
-    headers: HeaderMap,
-    Json(request): Json<CreateCapacitySlot>,
-) -> Result<(StatusCode, Json<CapacitySlot>), RestError> {
-    if request.available_quantity <= 0
-        || request.source_ref.trim().is_empty()
-        || request.source_ref.len() > 160
-    {
-        return Err(RestError::validation(
-            "capacity quantity and source reference are required",
-        ));
-    }
-    let principal = principal(&state, &headers).await?;
-    authorize(
-        &principal,
-        Action::limited(Feature::DailyPlanReview),
-        request.branch_id,
-    )
-    .map_err(RestError::kernel)?;
-    let org = mnt_platform_request_context::current_org()
-        .map_err(|_| RestError::internal("tenant context is missing"))?;
-    let mut tx = state.pool.begin().await.map_err(RestError::db)?;
-    arm_tenant(&mut tx, *org.as_uuid()).await?;
-    let id = Uuid::new_v4();
-    let row = sqlx::query("INSERT INTO production_capacity_slots (id,org_id,branch_id,site_id,capacity_date,available_quantity,source_ref,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id,branch_id,site_id,capacity_date,available_quantity,reserved_quantity,version,source_ref,evaluated_at")
-        .bind(id).bind(*org.as_uuid()).bind(*request.branch_id.as_uuid()).bind(request.site_id).bind(request.capacity_date).bind(request.available_quantity).bind(request.source_ref.trim()).bind(*principal.user_id.as_uuid()).fetch_one(&mut *tx).await.map_err(RestError::db)?;
-    tx.commit().await.map_err(RestError::db)?;
-    Ok((StatusCode::CREATED, Json(capacity_slot(row)?)))
 }
 
 async fn create_plan(
@@ -295,7 +254,13 @@ async fn create_plan(
     let plan_id = Uuid::new_v4();
     let operation_id = Uuid::new_v4();
     let now = OffsetDateTime::now_utc();
-    let sources = resolve_required_sources(&mut tx, &request, *org.as_uuid()).await?;
+    let sources = resolve_required_sources(
+        &mut tx,
+        &request,
+        *org.as_uuid(),
+        *principal.user_id.as_uuid(),
+    )
+    .await?;
     sqlx::query("INSERT INTO production_plans (id, org_id, branch_id, customer_demand_id, product_code, quantity, due_at, checks, source_snapshot, idempotency_key, approval_ref, ontology_type_id, first_operation_id, created_by, created_at, updated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$16)")
         .bind(plan_id).bind(*org.as_uuid()).bind(*request.branch_id.as_uuid()).bind(request.customer_demand_id).bind(&sources.product_code).bind(request.quantity).bind(request.due_at).bind(&sources.checks).bind(&sources.snapshot).bind(request.idempotency_key.trim()).bind(request.approval_ref).bind(request.ontology_type_id).bind(operation_id).bind(*principal.user_id.as_uuid()).bind(now).execute(&mut *tx).await.map_err(RestError::db)?;
     sqlx::query("INSERT INTO production_operations (id, org_id, plan_id, sequence, status) VALUES ($1,$2,$3,1,'PENDING')").bind(operation_id).bind(*org.as_uuid()).bind(plan_id).execute(&mut *tx).await.map_err(RestError::db)?;
@@ -523,30 +488,45 @@ async fn resolve_required_sources(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     request: &CreatePlan,
     org_id: Uuid,
+    actor_id: Uuid,
 ) -> Result<ResolvedSources, RestError> {
     let demand = sqlx::query(
-        "SELECT id, updated_at FROM customer_inquiries WHERE id=$1 AND status <> 'CLOSED'",
+        "SELECT d.id,d.product_code,d.quantity,d.due_at,d.source_system,d.source_id,d.source_version,d.evaluated_at FROM production_demand_contracts d JOIN customer_inquiries i ON i.id=d.inquiry_id WHERE d.id=$1 AND i.status <> 'CLOSED'",
     )
     .bind(request.customer_demand_id)
     .fetch_optional(&mut **tx)
     .await
     .map_err(RestError::db)?
     .ok_or_else(|| RestError::unavailable("customer demand source is unavailable"))?;
+    let demand_product: String = demand.try_get("product_code").map_err(RestError::db)?;
+    let demand_quantity: i64 = demand.try_get("quantity").map_err(RestError::db)?;
+    let demand_due_at: OffsetDateTime = demand.try_get("due_at").map_err(RestError::db)?;
+    if demand_quantity != request.quantity || demand_due_at != request.due_at {
+        return Err(RestError::unavailable(
+            "demand contract does not match quantity and due date",
+        ));
+    }
     let material = sqlx::query("SELECT id, iv_code, quantity_on_hand_milli, safety_stock_milli, updated_at FROM inventory_items WHERE id=$1 AND branch_id=$2 AND status='ACTIVE' FOR SHARE")
         .bind(request.material_item_id).bind(*request.branch_id.as_uuid()).fetch_optional(&mut **tx).await.map_err(RestError::db)?
         .ok_or_else(|| RestError::unavailable("material source is unavailable"))?;
     let on_hand: i64 = material
         .try_get("quantity_on_hand_milli")
         .map_err(RestError::db)?;
+    let material_product: String = material.try_get("iv_code").map_err(RestError::db)?;
+    if material_product != demand_product {
+        return Err(RestError::unavailable(
+            "material does not match the demand contract product",
+        ));
+    }
     let safety: i64 = material
         .try_get("safety_stock_milli")
         .map_err(RestError::db)?;
-    if on_hand <= safety {
+    if on_hand - safety < request.quantity {
         return Err(RestError::unavailable(
             "material source has no allocable stock",
         ));
     }
-    let capacity = sqlx::query("SELECT id, available_quantity, reserved_quantity, version, source_ref, evaluated_at FROM production_capacity_slots WHERE id=$1 AND branch_id=$2 AND capacity_date = $3::date FOR UPDATE")
+    let capacity = sqlx::query("SELECT id, available_quantity, reserved_quantity, version, source_system, source_id, source_version, evaluated_at FROM production_capacity_slots WHERE id=$1 AND branch_id=$2 AND capacity_date = $3::date FOR UPDATE")
         .bind(request.capacity_slot_id).bind(*request.branch_id.as_uuid()).bind(request.due_at.date()).fetch_optional(&mut **tx).await.map_err(RestError::db)?
         .ok_or_else(|| RestError::unavailable("capacity source is unavailable"))?;
     let available: i64 = capacity
@@ -568,8 +548,9 @@ async fn resolve_required_sources(
         ));
     }
     let approval =
-        sqlx::query("SELECT id, decided_at FROM gov_approvals WHERE id=$1 AND decision='approved'")
+        sqlx::query("SELECT id, decided_at FROM gov_approvals WHERE id=$1 AND decision='approved' AND kind='production_plan_create' AND target_ref=$2")
             .bind(request.approval_ref)
+            .bind(request.customer_demand_id)
             .fetch_optional(&mut **tx)
             .await
             .map_err(RestError::db)?
@@ -585,17 +566,33 @@ async fn resolve_required_sources(
             "capacity source changed while reserving plan",
         ));
     }
+    let material_updated = sqlx::query("UPDATE inventory_items SET quantity_on_hand_milli=quantity_on_hand_milli-$1, updated_at=now() WHERE id=$2 AND branch_id=$3 AND status='ACTIVE' AND updated_at=$4 AND quantity_on_hand_milli-safety_stock_milli >= $1")
+        .bind(request.quantity).bind(request.material_item_id).bind(*request.branch_id.as_uuid()).bind(material.try_get::<OffsetDateTime,_>("updated_at").map_err(RestError::db)?).execute(&mut **tx).await.map_err(RestError::db)?;
+    if material_updated.rows_affected() != 1 {
+        return Err(RestError::conflict(
+            "material source changed while reserving plan",
+        ));
+    }
+    sqlx::query(
+        "INSERT INTO gov_approval_consumptions (org_id,approval_id,consumed_by) VALUES ($1,$2,$3)",
+    )
+    .bind(org_id)
+    .bind(request.approval_ref)
+    .bind(actor_id)
+    .execute(&mut **tx)
+    .await
+    .map_err(RestError::db)?;
     let checks = serde_json::json!({"capacity_ok":true,"material_ok":true,"staffing_ok":true});
     Ok(ResolvedSources {
-        product_code: material.try_get("iv_code").map_err(RestError::db)?,
+        product_code: demand_product,
         checks,
         snapshot: serde_json::json!({
-          "demand":{"id":demand.try_get::<Uuid,_>("id").map_err(RestError::db)?,"evaluated_at":demand.try_get::<OffsetDateTime,_>("updated_at").map_err(RestError::db)?},
-          "capacity":{"id":request.capacity_slot_id,"source_ref":capacity.try_get::<String,_>("source_ref").map_err(RestError::db)?,"version":capacity_version,"evaluated_at":capacity.try_get::<OffsetDateTime,_>("evaluated_at").map_err(RestError::db)?},
-          "material":{"id":request.material_item_id,"version":material.try_get::<OffsetDateTime,_>("updated_at").map_err(RestError::db)?,"evaluated_at":OffsetDateTime::now_utc()},
-          "staffing":{"active_count":staffing,"evaluated_at":OffsetDateTime::now_utc()},
-          "approval":{"id":request.approval_ref,"evaluated_at":approval.try_get::<OffsetDateTime,_>("decided_at").map_err(RestError::db)?},
-          "ontology":{"id":request.ontology_type_id,"stable_key":ontology.try_get::<String,_>("stable_key").map_err(RestError::db)?,"version":ontology.try_get::<i64,_>("schema_version").map_err(RestError::db)?,"evaluated_at":ontology.try_get::<OffsetDateTime,_>("updated_at").map_err(RestError::db)?}
+          "demand":{"id":demand.try_get::<Uuid,_>("id").map_err(RestError::db)?,"source_id":demand.try_get::<String,_>("source_id").map_err(RestError::db)?,"version":demand.try_get::<String,_>("source_version").map_err(RestError::db)?,"evaluated_at":demand.try_get::<OffsetDateTime,_>("evaluated_at").map_err(RestError::db)?,"result":"matched"},
+          "capacity":{"id":request.capacity_slot_id,"source_id":capacity.try_get::<String,_>("source_id").map_err(RestError::db)?,"version":capacity.try_get::<String,_>("source_version").map_err(RestError::db)?,"evaluated_at":capacity.try_get::<OffsetDateTime,_>("evaluated_at").map_err(RestError::db)?,"result":"reserved"},
+          "material":{"id":request.material_item_id,"version":material.try_get::<OffsetDateTime,_>("updated_at").map_err(RestError::db)?,"evaluated_at":OffsetDateTime::now_utc(),"result":"reserved"},
+          "staffing":{"id":request.branch_id,"version":staffing,"evaluated_at":OffsetDateTime::now_utc(),"result":"available"},
+          "approval":{"id":request.approval_ref,"version":approval.try_get::<OffsetDateTime,_>("decided_at").map_err(RestError::db)?,"evaluated_at":approval.try_get::<OffsetDateTime,_>("decided_at").map_err(RestError::db)?,"result":"consumed"},
+          "ontology":{"id":request.ontology_type_id,"stable_key":ontology.try_get::<String,_>("stable_key").map_err(RestError::db)?,"version":ontology.try_get::<i64,_>("schema_version").map_err(RestError::db)?,"evaluated_at":ontology.try_get::<OffsetDateTime,_>("updated_at").map_err(RestError::db)?,"result":"published"}
         }),
     })
 }

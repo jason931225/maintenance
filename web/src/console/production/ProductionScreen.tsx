@@ -2,9 +2,13 @@ import { FormEvent, useCallback, useEffect, useId, useState } from "react";
 import { productionApi, type ProductionPlan, type ProductionPlanDetail } from "./productionApi";
 
 const key = () => crypto.randomUUID();
-type Props = { branchId: string; canPlan: boolean; canRelease: boolean; canRecord: boolean };
+/** Route adapter passes authenticated session roles; callers cannot forge action booleans. */
+type Props = { branchId: string; roles: readonly string[] };
 
-export function ProductionScreen({ branchId, canPlan, canRelease, canRecord }: Props) {
+export function ProductionScreen({ branchId, roles }: Props) {
+  const canPlan = roles.includes("ADMIN") || roles.includes("EXECUTIVE");
+  const canRelease = roles.includes("ADMIN") || roles.includes("EXECUTIVE");
+  const canRecord = canPlan || roles.includes("MECHANIC");
   const [plans, setPlans] = useState<ProductionPlan[]>([]); const [selected, setSelected] = useState<ProductionPlanDetail | null>(null);
   const [loading, setLoading] = useState(true); const [error, setError] = useState<string | null>(null); const [busy, setBusy] = useState(false);
   const demandId = useId(); const productId = useId(); const evidenceId = useId();

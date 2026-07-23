@@ -7183,7 +7183,7 @@ export interface paths {
         };
         get: operations["listProductionCapacitySlots"];
         put?: never;
-        post: operations["createProductionCapacitySlot"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -13371,15 +13371,6 @@ export interface components {
             source_ref: string;
             /** Format: date-time */
             evaluated_at: string;
-        };
-        CreateProductionCapacitySlot: {
-            branch_id: components["schemas"]["Uuid"];
-            site_id: components["schemas"]["Uuid"];
-            /** Format: date */
-            capacity_date: string;
-            /** Format: int64 */
-            available_quantity: number;
-            source_ref: string;
         };
         ProductionOperation: {
             id: components["schemas"]["Uuid"];
@@ -25871,32 +25862,6 @@ export interface operations {
                     "application/json": components["schemas"]["ProductionCapacitySlot"][];
                 };
             };
-        };
-    };
-    createProductionCapacitySlot: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["CreateProductionCapacitySlot"];
-            };
-        };
-        responses: {
-            /** @description Capacity control-plane slot created */
-            201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ProductionCapacitySlot"];
-                };
-            };
-            409: components["responses"]["Conflict"];
-            422: components["responses"]["ValidationError"];
         };
     };
     getProductionPlan: {

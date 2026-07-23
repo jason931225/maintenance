@@ -1,8 +1,24 @@
 -- Production subcontracting pilot: owns plan/operation execution and immutable
 -- lifecycle evidence only. Customer demand, people, inventory, approvals,
 -- ontology, and reporting remain referenced ports, never copied stores.
--- Capacity is a first-class control-plane fact, not a caller assertion. One
--- active slot reserves the executable units for one tenant/branch/site/date.
+-- Capacity and demand contracts are ingress-owned facts. Runtime planners can
+-- read and reserve them, but cannot forge availability or customer demand.
+CREATE TABLE production_demand_contracts (
+    id UUID PRIMARY KEY,
+    org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE RESTRICT,
+    inquiry_id UUID NOT NULL,
+    product_code TEXT NOT NULL CHECK (btrim(product_code) <> '' AND char_length(product_code) <= 80),
+    quantity BIGINT NOT NULL CHECK (quantity > 0),
+    due_at TIMESTAMPTZ NOT NULL,
+    source_system TEXT NOT NULL CHECK (btrim(source_system) <> '' AND char_length(source_system) <= 80),
+    source_id TEXT NOT NULL CHECK (btrim(source_id) <> '' AND char_length(source_id) <= 160),
+    source_version TEXT NOT NULL CHECK (btrim(source_version) <> '' AND char_length(source_version) <= 160),
+    evaluated_at TIMESTAMPTZ NOT NULL,
+    ingested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (id, org_id),
+    UNIQUE (org_id, source_system, source_id, source_version),
+    FOREIGN KEY (inquiry_id, org_id) REFERENCES customer_inquiries(id, org_id) ON DELETE RESTRICT
+);
 CREATE TABLE production_capacity_slots (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE RESTRICT,
@@ -12,16 +28,16 @@ CREATE TABLE production_capacity_slots (
     available_quantity BIGINT NOT NULL CHECK (available_quantity > 0),
     reserved_quantity BIGINT NOT NULL DEFAULT 0 CHECK (reserved_quantity >= 0 AND reserved_quantity <= available_quantity),
     version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),
-    source_ref TEXT NOT NULL CHECK (btrim(source_ref) <> '' AND char_length(source_ref) <= 160),
+    source_system TEXT NOT NULL CHECK (btrim(source_system) <> '' AND char_length(source_system) <= 80),
+    source_id TEXT NOT NULL CHECK (btrim(source_id) <> '' AND char_length(source_id) <= 160),
+    source_version TEXT NOT NULL CHECK (btrim(source_version) <> '' AND char_length(source_version) <= 160),
     evaluated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    created_by UUID NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    ingested_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (id, org_id),
     UNIQUE (org_id, branch_id, site_id, capacity_date),
     FOREIGN KEY (branch_id, org_id) REFERENCES branches(id, org_id) ON DELETE RESTRICT,
-    FOREIGN KEY (site_id, org_id) REFERENCES registry_sites(id, org_id) ON DELETE RESTRICT,
-    FOREIGN KEY (created_by, org_id) REFERENCES users(id, org_id) ON DELETE RESTRICT
+    FOREIGN KEY (site_id, org_id) REFERENCES registry_sites(id, org_id) ON DELETE RESTRICT
 );
 CREATE INDEX idx_production_capacity_slots_available ON production_capacity_slots (org_id, branch_id, capacity_date) WHERE reserved_quantity < available_quantity;
 
@@ -104,6 +120,10 @@ ALTER TABLE production_plans ENABLE ROW LEVEL SECURITY;
 ALTER TABLE production_plans FORCE ROW LEVEL SECURITY;
 CREATE POLICY org_isolation ON production_plans USING (org_id = NULLIF(current_setting('app.current_org', true), '')::uuid) WITH CHECK (org_id = NULLIF(current_setting('app.current_org', true), '')::uuid);
 CREATE TRIGGER trg_production_plans_org_immutable BEFORE UPDATE ON production_plans FOR EACH ROW EXECUTE FUNCTION enforce_org_id_immutable();
+ALTER TABLE production_demand_contracts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE production_demand_contracts FORCE ROW LEVEL SECURITY;
+CREATE POLICY org_isolation ON production_demand_contracts USING (org_id = NULLIF(current_setting('app.current_org', true), '')::uuid) WITH CHECK (org_id = NULLIF(current_setting('app.current_org', true), '')::uuid);
+CREATE TRIGGER trg_production_demand_contracts_org_immutable BEFORE UPDATE ON production_demand_contracts FOR EACH ROW EXECUTE FUNCTION enforce_org_id_immutable();
 ALTER TABLE production_capacity_slots ENABLE ROW LEVEL SECURITY;
 ALTER TABLE production_capacity_slots FORCE ROW LEVEL SECURITY;
 CREATE POLICY org_isolation ON production_capacity_slots USING (org_id = NULLIF(current_setting('app.current_org', true), '')::uuid) WITH CHECK (org_id = NULLIF(current_setting('app.current_org', true), '')::uuid);
@@ -119,9 +139,10 @@ ALTER TABLE production_idempotency_claims FORCE ROW LEVEL SECURITY;
 CREATE POLICY org_isolation ON production_idempotency_claims USING (org_id = NULLIF(current_setting('app.current_org', true), '')::uuid) WITH CHECK (org_id = NULLIF(current_setting('app.current_org', true), '')::uuid);
 
 GRANT SELECT, INSERT, UPDATE ON production_plans TO mnt_rt;
-GRANT SELECT, INSERT, UPDATE ON production_capacity_slots TO mnt_rt;
+GRANT SELECT ON production_demand_contracts, production_capacity_slots TO mnt_rt;
 GRANT SELECT, INSERT, UPDATE ON production_operations TO mnt_rt;
 GRANT SELECT, INSERT ON production_plan_events TO mnt_rt;
 GRANT SELECT, INSERT, UPDATE ON production_idempotency_claims TO mnt_rt;
 REVOKE DELETE ON production_plans, production_operations, production_plan_events FROM mnt_rt;
-REVOKE DELETE ON production_capacity_slots, production_idempotency_claims FROM mnt_rt;
+REVOKE INSERT, UPDATE, DELETE ON production_demand_contracts, production_capacity_slots FROM mnt_rt;
+REVOKE DELETE ON production_idempotency_claims FROM mnt_rt;
