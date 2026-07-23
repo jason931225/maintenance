@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type KeyboardEvent,
 } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -13,6 +14,7 @@ import { resolveRowTitle } from "../../../lib/rowTitle";
 import { StatusChip } from "../../components";
 import "../../tokens.css";
 import { screenHeaderStyle, screenTitleStyle } from "../screenHeader";
+import { MyWorkDetailPanel } from "./MyWorkDetailPanel";
 import type { MyWorkApi, TodoSummary } from "./myWorkApi";
 import {
   actionInboxDue,
@@ -41,6 +43,10 @@ interface ApiOwned<T> {
 
 function ownedBy<T>(api: object, value: T): ApiOwned<T> {
   return { api, value };
+}
+
+function assignedDetailId(itemId: string): string {
+  return `mywork-assigned-detail-${encodeURIComponent(itemId)}`;
 }
 
 export interface MyWorkBodyProps {
@@ -82,6 +88,8 @@ export function MyWorkBody({ api, now, onOpen }: MyWorkBodyProps) {
   );
   const [dayFilter, setDayFilter] = useState<DayFilter>("all");
   const [reloadKey, setReloadKey] = useState(0);
+  const [selectedItemId, setSelectedItemId] = useState<string>();
+  const assignedRowRefs = useRef(new Map<string, HTMLButtonElement>());
 
   const [todosStateOwned, setTodosStateOwned] = useState<ApiOwned<LoadState>>(() =>
     ownedBy(api, "loading"),
@@ -284,9 +292,70 @@ export function MyWorkBody({ api, now, onOpen }: MyWorkBodyProps) {
   const sameDay = (a: Date, b: Date) =>
     a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
   const rows = useMemo(() => filterAssigned(items, dayFilter), [items, dayFilter]);
+  const selectedItem = useMemo(
+    () => rows.find((item) => item.id === selectedItemId),
+    [rows, selectedItemId],
+  );
+
+  // The detail is always scoped to the visible queue. A day change retains a
+  // still-visible selection and immediately removes one that is filtered out.
+  useEffect(() => {
+    if (selectedItemId && !selectedItem) setSelectedItemId(undefined);
+  }, [selectedItem, selectedItemId]);
+
+  const setAssignedDayFilter = useCallback(
+    (nextFilter: DayFilter) => {
+      setDayFilter(nextFilter);
+      if (nextFilter === "all" || !selectedItem) return;
+      const selectedDue = actionInboxDue(selectedItem.due);
+      if (!selectedDue || !sameDay(selectedDue, nextFilter.day)) {
+        setSelectedItemId(undefined);
+      }
+    },
+    [selectedItem],
+  );
+
+  const closeDetail = useCallback(() => {
+    const previousId = selectedItemId;
+    setSelectedItemId(undefined);
+    if (previousId) assignedRowRefs.current.get(previousId)?.focus();
+  }, [selectedItemId]);
+
+  const moveAssignedFocus = useCallback(
+    (event: KeyboardEvent<HTMLUListElement>) => {
+      const key = event.key.toLowerCase();
+      const direction = key === "j" || key === "arrowdown" ? 1 : key === "k" || key === "arrowup" ? -1 : 0;
+      if (!direction) return;
+
+      const controls = rows
+        .map((item) => assignedRowRefs.current.get(item.id))
+        .filter((control): control is HTMLButtonElement => control !== undefined);
+      if (controls.length === 0) return;
+
+      const currentIndex = controls.findIndex((control) => control === document.activeElement);
+      const nextIndex =
+        currentIndex === -1
+          ? direction > 0
+            ? 0
+            : controls.length - 1
+          : (currentIndex + direction + controls.length) % controls.length;
+      event.preventDefault();
+      controls[nextIndex]?.focus();
+    },
+    [rows],
+  );
 
   return (
-    <div className="console" style={rootStyle}>
+    <div
+      className="console"
+      style={rootStyle}
+      onKeyDown={(event) => {
+        if (event.key === "Escape" && selectedItem) {
+          event.preventDefault();
+          closeDetail();
+        }
+      }}
+    >
       <header style={headerStyle}>
         <h1 style={titleStyle}>{S.title}</h1>
       </header>
@@ -414,7 +483,7 @@ export function MyWorkBody({ api, now, onOpen }: MyWorkBodyProps) {
               aria-pressed={dayFilter === "all"}
               style={allDayChipStyle(dayFilter === "all")}
               onClick={() => {
-                setDayFilter("all");
+                setAssignedDayFilter("all");
               }}
             >
               {S.assigned.allDays}
@@ -432,7 +501,7 @@ export function MyWorkBody({ api, now, onOpen }: MyWorkBodyProps) {
                   aria-label={`${dowFmt.format(day)} ${String(day.getDate())} · ${String(count)}`}
                   style={weekCellStyle(active, isToday)}
                   onClick={() => {
-                    setDayFilter({ day });
+                    setAssignedDayFilter({ day });
                   }}
                 >
                   <span style={weekDowStyle}>{dowFmt.format(day)}</span>
@@ -466,10 +535,15 @@ export function MyWorkBody({ api, now, onOpen }: MyWorkBodyProps) {
           ) : rows.length === 0 ? (
             <p style={emptyStyle}>{S.assigned.empty}</p>
           ) : (
-            <div style={{ display: "grid", gap: "var(--sp-3)" }}>
-              <ul style={listStyle}>
+            <div style={assignedWorkspaceStyle}>
+              <ul
+                style={listStyle}
+                aria-keyshortcuts="J K ArrowDown ArrowUp Enter Escape"
+                onKeyDown={moveAssignedFocus}
+              >
                 {rows.map((item) => {
                 const destination = actionInboxLinkRoute(item);
+                const selected = selectedItem?.id === item.id;
                 const due = actionInboxDue(item.due);
                 const resolved = resolveRowTitle(
                   item.title,
@@ -483,10 +557,25 @@ export function MyWorkBody({ api, now, onOpen }: MyWorkBodyProps) {
                     <StatusChip tone={actionInboxDoneTone(item.done)}>{kindLabel(item.kind, S)}</StatusChip>
                     <StatusChip tone={actionInboxTone(item.dueTone)}>{urgencyLabel(item.urg, S)}</StatusChip>
                     <div style={assignedContentStyle}>
-                      <div style={rowTitleStyle}>
-                        <span style={titleTextStyle}>{resolved.title}</span>
-                        {resolved.code ? <span style={rowCodeStyle}>{resolved.code}</span> : null}
-                      </div>
+                      <button
+                        ref={(control) => {
+                          if (control) assignedRowRefs.current.set(item.id, control);
+                          else assignedRowRefs.current.delete(item.id);
+                        }}
+                        type="button"
+                        data-window-control="true"
+                        aria-expanded={selected}
+                        aria-controls={selected ? assignedDetailId(item.id) : undefined}
+                        style={assignedSelectStyle(selected)}
+                        onClick={() => {
+                          setSelectedItemId(item.id);
+                        }}
+                      >
+                        <span style={rowTitleStyle}>
+                          <span style={titleTextStyle}>{resolved.title}</span>
+                          {resolved.code ? <span style={rowCodeStyle}>{resolved.code}</span> : null}
+                        </span>
+                      </button>
                       {meta ? <div style={rowMetaStyle}>{meta}</div> : null}
                     </div>
                     {due ? (
@@ -518,6 +607,16 @@ export function MyWorkBody({ api, now, onOpen }: MyWorkBodyProps) {
                 );
                 })}
               </ul>
+              {selectedItem ? (
+                <MyWorkDetailPanel
+                  detailId={assignedDetailId(selectedItem.id)}
+                  item={selectedItem}
+                  dueFmt={dueFmt}
+                  onClose={closeDetail}
+                  onOpen={openItem}
+                  strings={S}
+                />
+              ) : null}
               {nextCursor ? (
                 <button
                   type="button"
@@ -746,10 +845,33 @@ const assignedRowStyle: CSSProperties = {
   borderTop: "1px solid var(--border-soft)",
 };
 
+const assignedWorkspaceStyle: CSSProperties = {
+  display: "grid",
+  gridTemplateColumns: "repeat(auto-fit, minmax(min(100%, 18rem), 1fr))",
+  alignItems: "start",
+  gap: "var(--sp-4)",
+};
+
 const assignedContentStyle: CSSProperties = {
   flex: "1 1 12rem",
   minWidth: "min(100%, 12rem)",
 };
+
+function assignedSelectStyle(selected: boolean): CSSProperties {
+  return {
+    display: "block",
+    width: "100%",
+    padding: 0,
+    border: "none",
+    background: "transparent",
+    color: "inherit",
+    textAlign: "left",
+    cursor: "pointer",
+    borderRadius: "var(--radius-sm)",
+    outlineOffset: 2,
+    ...(selected ? { color: "var(--teal)" } : undefined),
+  };
+}
 
 const rowTitleStyle: CSSProperties = {
   display: "flex",

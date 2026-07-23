@@ -4,6 +4,7 @@ import { MemoryRouter, useLocation } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 
 import { MyWorkBody } from "./MyWorkBody";
+import { ko } from "../../../i18n/ko";
 import type { MyWorkApi, TodoSummary } from "./myWorkApi";
 import {
   myWorkStrings,
@@ -91,7 +92,7 @@ function stubApi(over?: Partial<MyWorkApi>): MyWorkApi {
 function LocationProbe() {
   const location = useLocation();
   return (
-    <output data-location>{`${location.pathname}${location.search}`}</output>
+    <output data-location data-testid="location">{`${location.pathname}${location.search}`}</output>
   );
 }
 
@@ -150,6 +151,118 @@ describe("MyWorkBody", () => {
       "dateTime",
       "2026-07-08T21:00:00Z",
     );
+  });
+
+  it("selects an assigned item with its exact server metadata and restores focus when closed", async () => {
+    const user = userEvent.setup();
+    renderBody(
+      stubApi({
+        loadInbox: vi.fn().mockResolvedValue({
+          total: 1,
+          items: [
+            item({
+              kind: "work",
+              id: "work:detail",
+              title: "현장 설비 점검",
+              ref: "20260708-004",
+              site: "평택 사업장",
+              who: "김정비",
+              due: "2026-07-08T12:00:00Z",
+              submitted: "2026-07-07T08:30:00Z",
+              links: [
+                { kind: "work_order", id: "wo-4" },
+                { kind: "unregistered", id: "opaque-1" },
+              ],
+            }),
+          ],
+        }),
+      }),
+    );
+
+    const select = await screen.findByRole("button", { name: /현장 설비 점검/ });
+    await user.click(select);
+
+    expect(select).toHaveAttribute("aria-expanded", "true");
+    const detail = screen.getByRole("complementary", { name: "현장 설비 점검" });
+    expect(select).toHaveAttribute("aria-controls", detail.id);
+    expect(within(detail).getByText(ko.equipment.detail.referenceTitle)).toBeVisible();
+    expect(screen.getAllByText("20260708-004")).toHaveLength(2);
+    expect(screen.getByText("평택 사업장")).toBeVisible();
+    expect(screen.getByText("김정비")).toBeVisible();
+    expect(screen.getByText("unregistered")).toBeVisible();
+    expect(screen.getByText("opaque-1")).toBeVisible();
+    expect(
+      screen
+        .getAllByRole("button", { name: S.assigned.open })
+        .find((button) => !button.hasAttribute("disabled")),
+    ).toBeEnabled();
+
+    await user.click(screen.getByRole("button", { name: "닫기" }));
+    expect(select).toHaveFocus();
+    expect(select).toHaveAttribute("aria-expanded", "false");
+    expect(select).not.toHaveAttribute("aria-controls");
+  });
+
+  it("supports queue keyboard navigation, Escape, and clears a filtered-out selection", async () => {
+    const user = userEvent.setup();
+    renderBody(stubApi());
+
+    const first = await screen.findByRole("button", { name: /정비 점검/ });
+    const second = screen.getByRole("button", { name: /예산 결재/ });
+    first.focus();
+    await user.keyboard("{ArrowDown}");
+    expect(second).toHaveFocus();
+    await user.keyboard("{Enter}");
+    expect(second).toHaveAttribute("aria-expanded", "true");
+
+    await user.keyboard("{Escape}");
+    expect(second).toHaveFocus();
+    expect(second).toHaveAttribute("aria-expanded", "false");
+
+    await user.click(first);
+    expect(first).toHaveAttribute("aria-expanded", "true");
+    await user.click(screen.getByRole("button", { name: /목 9/ }));
+    await user.click(screen.getByRole("button", { name: S.assigned.allDays }));
+    expect(screen.getByRole("button", { name: /정비 점검/ })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+  });
+
+  it("opens only an allowlisted source link from the selected detail", async () => {
+    const user = userEvent.setup();
+    renderBody(
+      stubApi({
+        loadInbox: vi.fn().mockResolvedValue({
+          total: 2,
+          items: [
+            item({
+              kind: "work",
+              id: "work:canonical",
+              title: "연결된 업무",
+              links: [{ kind: "work_order", id: "wo-allowlisted" }],
+            }),
+            item({
+              kind: "support",
+              id: "support:unregistered",
+              title: "미등록 연결",
+              links: [{ kind: "future_kind", id: "opaque-source" }],
+            }),
+          ],
+        }),
+      }),
+    );
+
+    await user.click(await screen.findByRole("button", { name: /연결된 업무/ }));
+    const canonicalDetail = screen.getByRole("complementary", { name: "연결된 업무" });
+    await user.click(within(canonicalDetail).getByRole("button", { name: S.assigned.open }));
+    expect(screen.getByTestId("location")).toHaveTextContent("/work-orders/wo-allowlisted");
+
+    await user.click(screen.getByRole("button", { name: /미등록 연결/ }));
+    const unregisteredDetail = screen.getByRole("complementary", { name: "미등록 연결" });
+    expect(
+      within(unregisteredDetail).getByRole("button", { name: S.assigned.open }),
+    ).toBeDisabled();
   });
 
   it("keeps malformed action-inbox fields neutral and inert instead of crashing or guessing", async () => {
