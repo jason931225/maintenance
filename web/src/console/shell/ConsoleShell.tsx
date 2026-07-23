@@ -78,7 +78,15 @@ export function ConsoleShell({
     const matchMediaFn = window.matchMedia as
       | ((query: string) => MediaQueryList)
       | undefined;
-    if (!matchMediaFn) return undefined;
+    const onResize = () => {
+      setViewportWidth(window.innerWidth);
+    };
+    window.addEventListener("resize", onResize);
+    if (!matchMediaFn) {
+      return () => {
+        window.removeEventListener("resize", onResize);
+      };
+    }
     const mq = matchMediaFn.call(window, "(max-width: 1279px)");
     const mobileMq = matchMediaFn.call(window, "(max-width: 767px)");
     const apply = () => {
@@ -96,6 +104,7 @@ export function ConsoleShell({
     return () => {
       mq.removeEventListener("change", onChange);
       mobileMq.removeEventListener("change", onChange);
+      window.removeEventListener("resize", onResize);
     };
   }, []);
   // The media query is authoritative in embedded/test environments where

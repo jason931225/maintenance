@@ -166,6 +166,23 @@ describe("ConsoleShell chrome", () => {
     expect(rail).toHaveAttribute("data-cshell-rail-open", "true");
   });
 
+  it("updates the desktop rail width from 336px to 300px after a resize without remounting", async () => {
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1600 });
+    stubViewport(1600);
+    renderConsole(ADMIN);
+    const rail = screen.getByRole("complementary", { name: "커뮤니케이션" });
+    expect(rail).toHaveStyle({ width: "336px" });
+
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1400 });
+    fireEvent(window, new Event("resize"));
+    await waitFor(() => {
+      expect(rail).toHaveStyle({ width: "300px" });
+    });
+
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
+  });
+
   it("promotes communication routes into the main panel and restores the rail state", async () => {
     renderConsole(ADMIN, ["/console/messenger"]);
 
