@@ -301,6 +301,7 @@ describe("MailScreen", () => {
     await user.click(composeTrigger as HTMLButtonElement);
     expect(surface).toHaveAttribute("data-mail-view", "compose");
     await user.type(screen.getByLabelText("받는 사람"), "ops@cossok.com");
+    await waitFor(() => { expect(screen.getByLabelText("받는 사람")).toHaveValue("ops@cossok.com"); });
     await user.click(screen.getByRole("button", { name: "메일 목록" }));
     expect(surface).toHaveAttribute("data-mail-view", "master");
     expect(screen.getByTestId("mail-location")).toHaveTextContent("mail_view=master");
@@ -394,7 +395,12 @@ describe("MailScreen", () => {
   });
 
   it("closes every compose mode, restores the selected detail, and manages the folder dialog focus", async () => {
+    const accountRequests = vi.fn();
     mockMailbox();
+    server.use(http.get("*/api/v1/mail/account", () => {
+      accountRequests();
+      return HttpResponse.json({ id: "acct", status: "ACTIVE" });
+    }));
     const user = userEvent.setup();
     renderMailScreen();
 
@@ -422,7 +428,13 @@ describe("MailScreen", () => {
     });
 
     await user.click(screen.getByRole("button", { name: "메일 폴더 열기" }));
-    fireEvent.click(surface.querySelector(".mail-screen__folder-backdrop") as HTMLElement);
+    const requestsBeforeBlockedRefresh = accountRequests.mock.calls.length;
+    const refresh = screen.getByRole("button", { name: "새로고침" });
+    expect(refresh.closest("header")).toBeTruthy();
+    await user.click(refresh);
+    expect(accountRequests).toHaveBeenCalledTimes(requestsBeforeBlockedRefresh);
+    expect(surface).toHaveAttribute("data-folder-open", "true");
+    fireEvent.click(document.querySelector(".mail-screen__folder-backdrop") as HTMLElement);
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "메일 폴더 열기" })).toHaveFocus();
     });
@@ -474,6 +486,7 @@ describe("MailScreen", () => {
     await user.click(await screen.findByRole("button", { name: "답장" }));
     await screen.findByRole("heading", { name: "답장 작성" });
     const replyComposer = await screen.findByRole("form", { name: "메일 작성" });
+    await waitFor(() => { expect(within(replyComposer).getByLabelText("제목")).toHaveValue("Re: 급여명세서 확인"); });
     await user.type(within(replyComposer).getByLabelText("본문"), "확인했습니다.");
     await user.click(within(replyComposer).getByRole("button", { name: "답장 보내기" }));
     await waitFor(() => { expect(replied).toHaveBeenCalledTimes(1); });
@@ -487,6 +500,7 @@ describe("MailScreen", () => {
     await user.click(await screen.findByRole("button", { name: "전달" }));
     await screen.findByRole("heading", { name: "전달 작성" });
     const forwardComposer = await screen.findByRole("form", { name: "메일 작성" });
+    await waitFor(() => { expect(within(forwardComposer).getByLabelText("제목")).toHaveValue("Fwd: 급여명세서 확인"); });
     await user.type(within(forwardComposer).getByLabelText("받는 사람"), "manager@example.com");
     await user.type(within(forwardComposer).getByLabelText("본문"), "검토 부탁드립니다.");
     await user.click(within(forwardComposer).getByRole("button", { name: "전달 보내기" }));
@@ -496,6 +510,34 @@ describe("MailScreen", () => {
       subject: "Fwd: 급여명세서 확인",
       in_reply_to: "<m1@example.com>",
       references: ["<previous@example.com>", "<m1@example.com>"],
+    });
+  });
+
+  it("does not erase a newer reply draft when an earlier send resolves", async () => {
+    const user = userEvent.setup();
+    let resolveSend: (response: HttpResponse) => void = () => {};
+    const pendingSend = new Promise<HttpResponse>((resolve) => { resolveSend = resolve; });
+    mockMailbox();
+    server.use(http.post("*/api/v1/mail/send", () => pendingSend));
+
+    renderMailScreen();
+    const composer = await screen.findByRole("form", { name: "메일 작성" });
+    await user.type(within(composer).getByLabelText("받는 사람"), "payroll@example.com");
+    await user.type(within(composer).getByLabelText("제목"), "정산 확인");
+    await user.type(within(composer).getByLabelText("본문"), "첫 번째 발송");
+    await user.click(within(composer).getByRole("button", { name: "메일 보내기" }));
+
+    await user.click(await screen.findByRole("button", { name: "답장" }));
+    await screen.findByRole("heading", { name: "답장 작성" });
+    const replyComposer = screen.getByRole("form", { name: "메일 작성" });
+    await waitFor(() => { expect(within(replyComposer).getByLabelText("제목")).toHaveValue("Re: 급여명세서 확인"); });
+    await user.type(within(replyComposer).getByLabelText("본문"), "답장 초안 유지");
+
+    resolveSend(HttpResponse.json({ message_id: "sent", rfc_message_id: "<sent@example.com>" }, { status: 201 }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("heading", { name: "답장 작성" })).toBeVisible();
+      expect(within(screen.getByRole("form", { name: "메일 작성" })).getByLabelText("본문")).toHaveValue("답장 초안 유지");
     });
   });
 

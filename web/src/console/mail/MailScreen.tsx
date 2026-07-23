@@ -134,6 +134,7 @@ export function MailScreen() {
   const folderNavRef = useRef<HTMLElement>(null);
   const threadListRef = useRef<HTMLElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+  const composeGenerationRef = useRef(0);
   const route = useMemo(() => parsedMailRoute(location.search), [location.search]);
   const folderId = route.folderId;
   const responsiveView = route.view;
@@ -141,7 +142,7 @@ export function MailScreen() {
     ? threads.some((thread) => thread.id === route.threadId) ? route.threadId : undefined
     : threads[0]?.id;
 
-  const updateMailRoute = useCallback((updates: MailRouteUpdate, options: { replace?: boolean; focus?: "master" | "content" } = {}) => {
+  const updateMailRoute = useCallback((updates: MailRouteUpdate, options: { replace?: boolean; focus?: "master" | "content"; preserveActiveFocus?: boolean } = {}) => {
     const params = new URLSearchParams(location.search);
     if ("folderId" in updates) {
       if (updates.folderId) params.set("mail_folder", updates.folderId);
@@ -158,14 +159,16 @@ export function MailScreen() {
       { replace: options.replace },
     );
     if (options.focus) {
+      const focusOrigin = document.activeElement;
       window.requestAnimationFrame(() => {
+        if (options.preserveActiveFocus && document.activeElement !== focusOrigin) return;
         (options.focus === "master" ? threadListRef.current : contentRef.current)?.focus();
       });
     }
   }, [location.hash, location.pathname, location.search, navigate]);
 
   const setMailView = useCallback((view: ResponsiveMailView) => {
-    updateMailRoute({ view }, { focus: view === "master" ? "master" : "content" });
+    updateMailRoute({ view }, { focus: view === "master" ? "master" : "content", preserveActiveFocus: true });
   }, [updateMailRoute]);
 
   const closeFolderNav = useCallback(() => {
@@ -283,6 +286,7 @@ export function MailScreen() {
 
   const updateCompose = useCallback(
     <K extends keyof MailComposerState>(key: K, value: MailComposerState[K]) => {
+      composeGenerationRef.current += 1;
       setCompose((prev) => ({ ...prev, [key]: value }));
       setEgressBlock(undefined);
     },
@@ -290,6 +294,7 @@ export function MailScreen() {
   );
 
   const resetCompose = useCallback(() => {
+    composeGenerationRef.current += 1;
     setCompose(EMPTY_COMPOSE);
     setComposeAttachments([]);
     setEgressBlock(undefined);
@@ -345,6 +350,7 @@ export function MailScreen() {
       setNotice(undefined);
       setError(undefined);
       setEgressBlock(undefined);
+      composeGenerationRef.current += 1;
       setCompose({
         mode,
         to: mode === "reply" ? replyRecipients(message) : "",
@@ -357,7 +363,7 @@ export function MailScreen() {
         classification: "normal",
       });
       setComposeAttachments([]);
-      updateMailRoute({ view: "compose" }, { focus: "content" });
+      updateMailRoute({ view: "compose" }, { focus: "content", preserveActiveFocus: true });
     },
     [T.composer.validation.threadingUnavailable, T.thread.noSubject, selectedThread?.subject, updateMailRoute],
   );
@@ -400,6 +406,7 @@ export function MailScreen() {
       setEgressBlock(block);
       return;
     }
+    const sendingGeneration = composeGenerationRef.current;
     setSending(true);
     try {
       const attachments = composeAttachments.length > 0
@@ -428,7 +435,7 @@ export function MailScreen() {
         return;
       }
       setNotice(compose.mode === "reply" ? T.composer.replySent : compose.mode === "forward" ? T.composer.forwardSent : T.composer.sent);
-      resetCompose();
+      if (composeGenerationRef.current === sendingGeneration) resetCompose();
     } catch {
       setError(compose.mode === "reply" ? T.composer.replyFailed : compose.mode === "forward" ? T.composer.forwardFailed : T.composer.failed);
     } finally {
@@ -482,7 +489,6 @@ export function MailScreen() {
         data-folder-open={folderNavOpen ? "true" : "false"}
         style={surfaceStyle}
       >
-      {folderNavOpen ? <div className="mail-screen__folder-backdrop" aria-hidden="true" onClick={closeFolderNav} /> : null}
       <MailFolderPane
         folders={folders}
         selectedFolderId={folderId}
@@ -544,8 +550,8 @@ export function MailScreen() {
             egressBlock={egressBlock}
             onComposeChange={updateCompose}
             onClassificationChange={(classification: MailClassification) => { updateCompose("classification", classification); }}
-            onFilesSelected={(files) => { setComposeAttachments((prev) => [...prev, ...files]); setEgressBlock(undefined); }}
-            onRemoveAttachment={(file) => { setComposeAttachments((prev) => prev.filter((item) => item !== file)); setEgressBlock(undefined); }}
+            onFilesSelected={(files) => { composeGenerationRef.current += 1; setComposeAttachments((prev) => [...prev, ...files]); setEgressBlock(undefined); }}
+            onRemoveAttachment={(file) => { composeGenerationRef.current += 1; setComposeAttachments((prev) => prev.filter((item) => item !== file)); setEgressBlock(undefined); }}
             onSubmit={() => { void sendCurrentMail(); }}
             onCancelThread={closeCompose}
           />
@@ -557,13 +563,14 @@ export function MailScreen() {
 
   return (
     <PolicyGated action={MAIL_ACTIONS.read} resource={{ kind: "mail_screen" }}>
-      <main className="console" style={rootStyle}>
+      <main className="console mail-screen__root" style={rootStyle}>
         <header style={headerStyle}>
           <h1 style={titleStyle}>{T.title}</h1>
-          <button type="button" style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-md)", background: "var(--surface)", color: "var(--ink)", padding: "0 var(--sp-4)", minHeight: "calc(var(--sp-6) * 2)", fontFamily: "var(--font-sans)", fontWeight: "var(--fw-strong)" }} onClick={() => { void loadMailbox(); }}>
+          <button type="button" style={{ border: "1px solid var(--border)", borderRadius: "var(--radius-md)", background: "var(--surface)", color: "var(--ink)", padding: "0 var(--sp-4)", minHeight: "calc(var(--sp-6) * 2)", fontFamily: "var(--font-sans)", fontWeight: "var(--fw-strong)" }} onClick={() => { if (!folderNavOpen) void loadMailbox(); }}>
             {T.state.refresh}
           </button>
         </header>
+        {folderNavOpen ? <div className="mail-screen__folder-backdrop" aria-hidden="true" onClick={closeFolderNav} /> : null}
         {notice ? <div role="status" style={successStyle}>{notice}</div> : null}
         {error ? <div role="alert" style={alertStyle}>{error}</div> : null}
         {content}

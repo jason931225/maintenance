@@ -6,6 +6,18 @@
   container-name: mail-surface;
 }
 
+.mail-screen__root {
+  isolation: isolate;
+  position: relative;
+}
+
+.mail-screen__folder-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 10;
+  background: color-mix(in srgb, var(--canvas) 52%, transparent);
+}
+
 .mail-screen__surface {
   grid-template-columns: minmax(184px, 232px) minmax(280px, 360px) minmax(0, 1fr) !important;
   position: relative;
@@ -46,19 +58,12 @@
     display: none;
   }
 
-  .mail-screen__folder-backdrop {
-    position: absolute;
-    inset: 0;
-    z-index: 1;
-    background: color-mix(in srgb, var(--canvas) 52%, transparent);
-  }
-
   .mail-screen__surface[data-folder-open="true"] .mail-screen__folders {
     display: grid;
     position: absolute;
     inset: 0 auto 0 0;
     width: min(20rem, calc(100% - 3.5rem));
-    z-index: 2;
+    z-index: 11;
     background: var(--surface);
     box-shadow: var(--shadow);
   }
