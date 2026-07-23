@@ -2894,6 +2894,7 @@ dependencies = [
  "mnt-kernel-core",
  "mnt-platform-db",
  "mnt-platform-request-context",
+ "mnt-platform-test-support",
  "serde_json",
  "sqlx 0.9.0",
  "thiserror 2.0.18",
