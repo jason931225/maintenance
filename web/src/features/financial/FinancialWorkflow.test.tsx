@@ -178,6 +178,18 @@ function purchase(
   };
 }
 
+function purchaseQueue(
+  items: components["schemas"]["PurchaseRequestSummary"][],
+  offset = 0,
+) {
+  return {
+    items,
+    limit: 50,
+    offset,
+    total: items.length,
+  };
+}
+
 const quoteSummary: components["schemas"]["RentalQuoteSummary"] = {
   id: quoteId,
   branch_id: branchId,
@@ -297,17 +309,106 @@ function fillPurchaseLine(
 }
 
 describe("financial purchase request workflow", () => {
+  it("loads the authenticated branch queue and sends a repeated status filter", async () => {
+    const user = userEvent.setup();
+    const seenQueries: URLSearchParams[] = [];
+    server.use(
+      http.get("*/api/v1/financial/purchase-requests", ({ request }) => {
+        seenQueries.push(new URL(request.url).searchParams);
+        return HttpResponse.json(purchaseQueue([purchase("REQUEST_SUBMITTED")]));
+      }),
+    );
+
+    await renderFinancialApp(makeAuthContext(adminSession));
+
+    expect(await screen.findByText("한빛부품")).toBeVisible();
+    await user.selectOptions(
+      screen.getByLabelText("상태"),
+      "REQUEST_SUBMITTED",
+    );
+
+    await waitFor(() => expect(seenQueries).toHaveLength(2));
+    expect(seenQueries[0]?.get("branch_id")).toBe(branchId);
+    expect(seenQueries[0]?.get("limit")).toBe("50");
+    expect(seenQueries[0]?.get("offset")).toBe("0");
+    expect(seenQueries[1]?.getAll("status")).toEqual(["REQUEST_SUBMITTED"]);
+  });
+
+  it("fences a stale queue response after the status filter changes", async () => {
+    const user = userEvent.setup();
+    let releaseInitial: (() => void) | undefined;
+    const initial = new Promise<void>((resolve) => {
+      releaseInitial = resolve;
+    });
+    server.use(
+      http.get("*/api/v1/financial/purchase-requests", async ({ request }) => {
+        const status = new URL(request.url).searchParams.get("status");
+        if (status === "REQUEST_SUBMITTED") {
+          return HttpResponse.json(
+            purchaseQueue([purchase("REQUEST_SUBMITTED", { vendor_name: "필터 결과" })]),
+          );
+        }
+        await initial;
+        return HttpResponse.json(
+          purchaseQueue([purchase("EXECUTED", { vendor_name: "오래된 결과" })]),
+        );
+      }),
+    );
+
+    await renderFinancialApp(makeAuthContext(adminSession));
+    await user.selectOptions(screen.getByLabelText("상태"), "REQUEST_SUBMITTED");
+    expect(await screen.findByText("필터 결과")).toBeVisible();
+    releaseInitial?.();
+    await waitFor(() => {
+      expect(screen.queryByText("오래된 결과")).not.toBeInTheDocument();
+    });
+  });
+
+  it("shows a truthful denied state and allows transient queue failures to retry", async () => {
+    const user = userEvent.setup();
+    let attempts = 0;
+    server.use(
+      http.get("*/api/v1/financial/purchase-requests", () => {
+        attempts += 1;
+        return attempts === 1
+          ? HttpResponse.json({ error: { code: "forbidden" } }, { status: 403 })
+          : HttpResponse.json(purchaseQueue([purchase("STATEMENT_ATTACHED")]));
+      }),
+    );
+    await renderFinancialApp(makeAuthContext(adminSession));
+    expect(await screen.findByText("이 페이지에 접근할 권한이 없습니다.")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "다시 시도" })).not.toBeInTheDocument();
+
+    server.use(
+      http.get("*/api/v1/financial/purchase-requests", () => {
+        attempts += 1;
+        return attempts === 2
+          ? HttpResponse.json({ error: { code: "unavailable" } }, { status: 503 })
+          : HttpResponse.json(purchaseQueue([purchase("STATEMENT_ATTACHED")]));
+      }),
+    );
+    await user.selectOptions(screen.getByLabelText("상태"), "STATEMENT_ATTACHED");
+    expect(await screen.findByText("데이터를 불러오지 못했습니다.")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "다시 시도" }));
+    expect(await screen.findByText("한빛부품")).toBeVisible();
+  });
+
   it("drives the request -> resolution -> execution chain", async () => {
     const user = userEvent.setup();
     const created = vi.fn();
     const adminApproved = vi.fn();
     const expenditurePrepared = vi.fn();
     const executed = vi.fn();
+    const queueRequests = vi.fn();
     let current = purchase("STATEMENT_ATTACHED");
 
     server.use(
       lookupHandler(),
       evidenceStatusHandler(),
+      http.get("*/api/v1/financial/purchase-requests", () => {
+        queueRequests();
+        return HttpResponse.json(purchaseQueue([current]));
+      }),
       http.post("*/api/v1/financial/purchase-requests", async ({ request }) => {
         created(await request.json());
         return HttpResponse.json(current, { status: 201 });
@@ -374,11 +475,13 @@ describe("financial purchase request workflow", () => {
       );
     });
     expect(await screen.findByText("구매요청서를 작성했습니다.")).toBeVisible();
+    await waitFor(() => expect(queueRequests.mock.calls.length).toBeGreaterThanOrEqual(2));
     const statementThumb = await screen.findByAltText("거래명세표 사진 미리보기");
     expect(statementThumb).toHaveAttribute("src", "https://example.test/statement.jpg");
 
     // STATEMENT_ATTACHED -> submit
     await user.click(await screen.findByRole("button", { name: "결재 상신" }));
+    await waitFor(() => expect(queueRequests.mock.calls.length).toBeGreaterThanOrEqual(3));
     // REQUEST_SUBMITTED -> admin approve
     await user.click(await screen.findByRole("button", { name: "관리자 승인" }));
     // ADMIN_APPROVED -> prepare expenditure (dialog)
@@ -502,7 +605,6 @@ describe("financial purchase request workflow", () => {
 
     const intake = await screen.findByRole("form", { name: "구매요청 작성" });
     expect(within(intake).getByLabelText("거래처명")).toBeVisible();
-    expect(within(intake).getByText("거래처명을 입력하면 기존 후보와 새 거래처 여부를 표시합니다.")).toBeVisible();
     expect(within(intake).getByLabelText("구매유형")).toBeVisible();
     expect(within(intake).getByText("현재 사용자")).toBeVisible();
     expect(within(intake).getByText("정책 체크")).toBeVisible();
@@ -520,7 +622,7 @@ describe("financial purchase request workflow", () => {
 
     await user.selectOptions(within(intake).getByLabelText("구매유형"), "OTHER");
     changeInput(within(intake).getByLabelText("거래처명"), "비장비 공급사");
-    expect(within(intake).getByText("새 거래처로 수기 입력합니다.")).toBeVisible();
+    expect(within(intake).queryByText("등록 거래처 후보와 일치합니다.")).not.toBeInTheDocument();
     changeInput(within(intake).getByLabelText("품목 1"), "사무실 소모품");
     changeInput(within(intake).getByLabelText("수량 1"), "2");
     changeInput(within(intake).getByLabelText("공급가액(단가) 1"), "100000");
