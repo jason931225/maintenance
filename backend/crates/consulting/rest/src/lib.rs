@@ -460,7 +460,10 @@ fn request_hash(body: &CreateEngagement) -> String {
         "ontology_instance_id": body.ontology_instance_id,
         "title": body.title.trim(),
     });
-    format!("{:x}", Sha256::digest(canonical.to_string().as_bytes()))
+    Sha256::digest(canonical.to_string().as_bytes())
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect()
 }
 async fn require_reference_kind(
     tx: &mut sqlx::Transaction<'_, Postgres>,
@@ -711,5 +714,33 @@ impl IntoResponse for RestError {
             }),
         )
             .into_response()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn request_hash_is_stable_lowercase_sha256() {
+        let body = CreateEngagement {
+            customer_id: Uuid::from_u128(0x22222222_2222_2222_2222_222222222222),
+            customer_document_id: Some(Uuid::from_u128(0x11111111_1111_1111_1111_111111111111)),
+            ontology_instance_id: Some(Uuid::from_u128(0x33333333_3333_3333_3333_333333333333)),
+            title: " Stabilize operations ".to_owned(),
+            idempotency_key: "stable-hash-fixture".to_owned(),
+        };
+
+        let hash = request_hash(&body);
+
+        assert_eq!(
+            hash,
+            "9b6be0adc1d8155f7b4f54313c7039792b8b31638f411ae7f041233dbe7e672c"
+        );
+        assert_eq!(hash.len(), 64);
+        assert!(
+            hash.bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        );
     }
 }
