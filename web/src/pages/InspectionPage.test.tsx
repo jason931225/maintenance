@@ -3,7 +3,15 @@ import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { MemoryRouter } from "react-router-dom";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import { AppRouter } from "../AppRouter";
 import { AuthContext } from "../context/auth";
@@ -88,6 +96,87 @@ const adminSession: AuthSession = {
 };
 
 describe("InspectionPage", () => {
+  it("keeps a transient schedule failure retryable and replaces it with the real response", async () => {
+    const user = userEvent.setup();
+    let listAttempts = 0;
+    server.use(
+      http.get("*/api/v1/inspections/schedules", () => {
+        listAttempts += 1;
+        if (listAttempts === 1) {
+          return HttpResponse.json(
+            { error: { message: "temporary" } },
+            { status: 503 },
+          );
+        }
+        return HttpResponse.json(inspectionSchedulePage([overdueSchedule]));
+      }),
+    );
+
+    renderApp(makeAuthContext(adminSession));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "정기 일정을 불러오지 못했습니다.",
+    );
+    await user.click(screen.getByRole("button", { name: "다시 시도" }));
+    expect((await screen.findAllByText(/본사현장/)).length).toBeGreaterThan(0);
+    expect(listAttempts).toBe(2);
+  });
+
+  it("lets only the assigned session submit a durable inspection round", async () => {
+    const user = userEvent.setup();
+    const completed = vi.fn();
+    server.use(
+      http.get("*/api/v1/inspections/schedules", () =>
+        HttpResponse.json(inspectionSchedulePage([overdueSchedule])),
+      ),
+      http.post(
+        "*/api/v1/inspections/schedules/:scheduleId/rounds",
+        async ({ request }) => {
+          completed(await request.json());
+          return HttpResponse.json(
+            {
+              id: "88888888-8888-4888-8888-888888888888",
+              schedule_id: scheduleId,
+              branch_id: branchId,
+              equipment_id: equipmentId,
+              mechanic_id: mechanicId,
+              completed_by: mechanicId,
+              outcome: "COMPLETED",
+              findings: "브레이크 작동 상태 확인",
+              note: null,
+              completed_at: "2026-07-23T01:00:00Z",
+            },
+            { status: 201 },
+          );
+        },
+      ),
+    );
+
+    renderApp(makeAuthContext({ ...adminSession, user_id: mechanicId }));
+
+    await user.click(
+      await screen.findByRole("button", { name: /290.*점검 완료/ }),
+    );
+    await user.type(
+      screen.getByLabelText("점검 내용"),
+      "브레이크 작동 상태 확인",
+    );
+    await user.click(screen.getByRole("button", { name: "완료 처리" }));
+
+    await waitFor(() => {
+      expect(completed).toHaveBeenCalledWith(
+        expect.objectContaining({
+          outcome: "COMPLETED",
+          findings: "브레이크 작동 상태 확인",
+          note: null,
+        }),
+      );
+    });
+    expect(
+      await screen.findByText("정기 점검 라운드를 완료 처리했습니다."),
+    ).toBeVisible();
+  });
+
   it("lists overdue schedules and creates a new recurring schedule", async () => {
     const user = userEvent.setup();
     const created = vi.fn();
@@ -140,10 +229,13 @@ describe("InspectionPage", () => {
     renderApp(makeAuthContext(adminSession));
 
     // The overdue (past-due, SCHEDULED) row is flagged.
-    expect(await screen.findByText("지연")).toBeVisible();
-    expect(screen.getByText(/본사현장/)).toBeVisible();
+    expect((await screen.findAllByText("지연")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/본사현장/).length).toBeGreaterThan(0);
+    expect(
+      screen.getByRole("complementary", { name: "정기 일정" }),
+    ).toBeVisible();
     // The assigned mechanic renders by display name (never a raw UUID).
-    expect(screen.getByText(/홍정비/)).toBeVisible();
+    expect(screen.getAllByText(/홍정비/).length).toBeGreaterThan(0);
     expect(screen.queryByLabelText("담당 정비사")).not.toBeInTheDocument();
 
     // Branch picker: type to filter, then pick the human-named option.
@@ -174,5 +266,11 @@ describe("InspectionPage", () => {
     expect(
       await screen.findByText("정기 예방정비 일정을 등록했습니다."),
     ).toBeVisible();
+    // An administrator can coordinate schedules but the backend requires the
+    // assigned prevention mechanic to complete a round. The UI must not expose
+    // an action that this session cannot durably finish.
+    expect(
+      screen.queryByRole("button", { name: /점검 완료/ }),
+    ).not.toBeInTheDocument();
   });
 });

@@ -1,5 +1,5 @@
 import { CalendarPlus, RefreshCw } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type {
   BranchSummary,
@@ -29,6 +29,13 @@ import { Textarea } from "../components/ui/textarea";
 import { ko } from "../i18n/ko";
 import { SUCCESS_DISMISS_MS, useAutoDismiss } from "../lib/useAutoDismiss";
 import { formatListCount, safeLabel, todayInSeoul } from "../lib/utils";
+import { InspectionScheduleDetail } from "../console/inspection/InspectionScheduleDetail";
+import {
+  type InspectionScheduleFilter,
+  filterInspectionSchedules,
+  inspectionScheduleMetrics,
+  isInspectionOverdue,
+} from "../console/inspection/inspectionModel";
 
 /** Schedule page size; matches the backend default and keeps the list bounded. */
 const SCHEDULES_PAGE_SIZE = 200;
@@ -103,13 +110,16 @@ function emptyForm(): FormState {
 }
 
 export function InspectionPage() {
-  const { api } = useAuth();
+  const { api, session } = useAuth();
   const [rangeStart, setRangeStart] = useState(today);
   const [rangeEnd, setRangeEnd] = useState(() => plusDays(30));
   const [schedules, setSchedules] = useState<InspectionScheduleSummary[]>();
   const [scheduleTotal, setScheduleTotal] = useState<number>();
+  const [selectedScheduleId, setSelectedScheduleId] = useState<string>();
+  const [scheduleFilter, setScheduleFilter] =
+    useState<InspectionScheduleFilter>("ALL");
   const [loadingMore, setLoadingMore] = useState(false);
-  const [loadError, setLoadError] = useState(false);
+  const [loadError, setLoadError] = useState<"retry" | "denied">();
   const [form, setForm] = useState<FormState>(emptyForm);
   const [creating, setCreating] = useState(false);
   const [notice, setNotice] = useState<string>();
@@ -125,6 +135,9 @@ export function InspectionPage() {
   // notice. There is one open round form at a time so the list stays compact.
   const [completingId, setCompletingId] = useState<string>();
   const [roundNotice, setRoundNotice] = useState<string>();
+  // A filter/date refresh may finish after a newer request. Keep only the
+  // newest server response so the visible branch-scoped list never rewinds.
+  const scheduleRequestVersion = useRef(0);
   // Transient success confirmations clear themselves so they do not linger.
   const clearRoundNotice = useCallback(() => {
     setRoundNotice(undefined);
@@ -137,7 +150,9 @@ export function InspectionPage() {
 
   const load = useCallback(
     async (range?: { start: string; end: string }) => {
-      setLoadError(false);
+      const requestVersion = ++scheduleRequestVersion.current;
+      setLoadError(undefined);
+      setLoadingMore(false);
       try {
         const response = await api.GET("/api/v1/inspections/schedules", {
           params: {
@@ -149,14 +164,21 @@ export function InspectionPage() {
             },
           },
         });
+        if (requestVersion !== scheduleRequestVersion.current) return;
         if (response.data) {
           setSchedules(response.data.items);
           setScheduleTotal(response.data.total);
+          setSelectedScheduleId((current) =>
+            response.data?.items.some((schedule) => schedule.id === current)
+              ? current
+              : response.data?.items[0]?.id,
+          );
         } else {
-          setLoadError(true);
+          setLoadError(response.response.status === 403 ? "denied" : "retry");
         }
       } catch {
-        setLoadError(true);
+        if (requestVersion === scheduleRequestVersion.current)
+          setLoadError("retry");
       }
     },
     [api, rangeStart, rangeEnd],
@@ -164,6 +186,7 @@ export function InspectionPage() {
 
   const loadMore = useCallback(async () => {
     if (schedules === undefined) return;
+    const requestVersion = ++scheduleRequestVersion.current;
     setLoadingMore(true);
     try {
       const response = await api.GET("/api/v1/inspections/schedules", {
@@ -176,13 +199,22 @@ export function InspectionPage() {
           },
         },
       });
+      if (requestVersion !== scheduleRequestVersion.current) return;
       if (response.data) {
         const next = response.data;
-        setSchedules((current) => [...(current ?? []), ...next.items]);
+        setSchedules((current) => {
+          const existing = current ?? [];
+          const seen = new Set(existing.map((schedule) => schedule.id));
+          return [
+            ...existing,
+            ...next.items.filter((schedule) => !seen.has(schedule.id)),
+          ];
+        });
         setScheduleTotal(next.total);
       }
     } finally {
-      setLoadingMore(false);
+      if (requestVersion === scheduleRequestVersion.current)
+        setLoadingMore(false);
     }
   }, [api, rangeStart, rangeEnd, schedules]);
 
@@ -265,7 +297,9 @@ export function InspectionPage() {
         due_date: dueDate,
         note: form.note.trim() || null,
       };
-      const response = await api.POST("/api/v1/inspections/schedules", { body });
+      const response = await api.POST("/api/v1/inspections/schedules", {
+        body,
+      });
       if (response.data) {
         setNotice(ko.inspection.createSuccess);
         setForm(emptyForm());
@@ -274,7 +308,8 @@ export function InspectionPage() {
         // created outside the current [start, end) range is immediately visible
         // (#19.22). The backend window is half-open, so end must be due_date + 1.
         const nextStart = dueDate < rangeStart ? dueDate : rangeStart;
-        const nextEnd = dueDate >= rangeEnd ? plusDaysFrom(dueDate, 1) : rangeEnd;
+        const nextEnd =
+          dueDate >= rangeEnd ? plusDaysFrom(dueDate, 1) : rangeEnd;
         setRangeStart(nextStart);
         setRangeEnd(nextEnd);
         await load({ start: nextStart, end: nextEnd });
@@ -323,13 +358,28 @@ export function InspectionPage() {
     !form.due_date ||
     Number.isNaN(Number(form.interval_days));
 
+  const businessDate = today();
+  const visibleSchedules = useMemo(
+    () =>
+      filterInspectionSchedules(schedules ?? [], scheduleFilter, businessDate),
+    [businessDate, scheduleFilter, schedules],
+  );
+  const scheduleMetrics = useMemo(
+    () => inspectionScheduleMetrics(schedules ?? [], businessDate),
+    [businessDate, schedules],
+  );
+  const selectedSchedule = useMemo(
+    () => schedules?.find((schedule) => schedule.id === selectedScheduleId),
+    [schedules, selectedScheduleId],
+  );
+
   return (
     <>
       <PageHeader
         title={ko.inspection.title}
         description={ko.inspection.description}
       />
-      <div className="grid max-w-4xl gap-5">
+      <div className="grid max-w-6xl gap-5">
         <Card className="grid gap-4">
           <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto] sm:items-end">
             <div className="grid gap-2">
@@ -378,6 +428,7 @@ export function InspectionPage() {
           {loadError ? (
             <PageError
               message={ko.inspection.loadFailed}
+              status={loadError === "denied" ? 403 : undefined}
               onRetry={() => {
                 void load();
               }}
@@ -397,7 +448,7 @@ export function InspectionPage() {
             </p>
           ) : null}
           {schedules && schedules.length > 0 ? (
-            <div className="grid gap-2">
+            <div className="grid gap-3">
               <div className="flex flex-wrap items-center gap-2">
                 <h2 className="text-base font-semibold text-ink">
                   {ko.inspection.listTitle}
@@ -406,75 +457,134 @@ export function InspectionPage() {
                   {formatListCount(scheduleTotal ?? schedules.length)}
                 </Badge>
               </div>
-              <ul className="grid gap-2">
-                {schedules.map((schedule) => (
-                  <li
-                    key={schedule.id}
-                    className="grid gap-3 rounded-md border border-line p-3"
+              <div className="grid grid-cols-3 gap-2">
+                <Metric
+                  label={ko.inspection.statuses.SCHEDULED}
+                  value={scheduleMetrics.scheduled}
+                />
+                <Metric
+                  label={ko.inspection.overdue}
+                  value={scheduleMetrics.overdue}
+                  danger
+                />
+                <Metric
+                  label={ko.inspection.statuses.COMPLETED}
+                  value={scheduleMetrics.completed}
+                />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {(
+                  [
+                    ["ALL", ko.inspection.listTitle],
+                    ["SCHEDULED", ko.inspection.statuses.SCHEDULED],
+                    ["OVERDUE", ko.inspection.overdue],
+                    ["COMPLETED", ko.inspection.statuses.COMPLETED],
+                  ] as const
+                ).map(([filter, label]) => (
+                  <Button
+                    key={filter}
+                    type="button"
+                    size="sm"
+                    variant={
+                      scheduleFilter === filter ? "default" : "secondary"
+                    }
+                    aria-pressed={scheduleFilter === filter}
+                    onClick={() => {
+                      setScheduleFilter(filter);
+                    }}
                   >
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                      <div className="grid gap-1">
-                        <span className="font-medium text-ink">
-                          {safeLabel(
-                            schedule.management_no,
-                            schedule.model,
-                            ko.common.noNumber,
-                          )}
-                          {schedule.model && schedule.management_no
-                            ? ` · ${schedule.model}`
-                            : ""}
-                        </span>
-                        <span className="text-sm text-steel">
-                          {schedule.site_name} ·{" "}
-                          {ko.inspection.cycles[schedule.cycle]} ·{" "}
-                          {schedule.due_date} ·{" "}
-                          {ko.inspection.fields.mechanic}:{" "}
-                          {safeLabel(schedule.mechanic_display_name)}
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2">
-                        {schedule.status === "SCHEDULED" &&
-                        schedule.due_date < today() ? (
-                          <Badge className="border-red-300 bg-red-50 text-red-800">
-                            {ko.inspection.overdue}
-                          </Badge>
-                        ) : (
-                          <Badge>
-                            {ko.inspection.statuses[schedule.status]}
-                          </Badge>
-                        )}
-                        {schedule.status === "SCHEDULED" ? (
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="secondary"
-                            aria-label={`${safeLabel(schedule.management_no, schedule.model, ko.common.noNumber)} ${ko.inspection.round.complete}`}
-                            onClick={() => {
-                              setRoundNotice(undefined);
-                              setCompletingId((current) =>
-                                current === schedule.id
-                                  ? undefined
-                                  : schedule.id,
-                              );
-                            }}
-                          >
-                            {ko.inspection.round.complete}
-                          </Button>
-                        ) : null}
-                      </div>
-                    </div>
-                    {completingId === schedule.id ? (
-                      <InspectionRoundForm
-                        scheduleId={schedule.id}
-                        onComplete={completeRound}
-                        onCancel={() => {
-                          setCompletingId(undefined);
-                        }}
-                      />
-                    ) : null}
-                  </li>
+                    {label}
+                  </Button>
                 ))}
-              </ul>
+              </div>
+              <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,0.72fr)]">
+                <ul className="grid gap-2" aria-label={ko.inspection.listTitle}>
+                  {visibleSchedules.map((schedule) => (
+                    <li
+                      key={schedule.id}
+                      className="grid gap-3 rounded-md border border-line p-3"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-3">
+                        <button
+                          type="button"
+                          className="grid min-w-0 flex-1 gap-1 text-left focus:outline-none focus:ring-2 focus:ring-brand-teal focus:ring-offset-2"
+                          aria-pressed={selectedScheduleId === schedule.id}
+                          onClick={() => {
+                            setSelectedScheduleId(schedule.id);
+                          }}
+                        >
+                          <span className="font-medium text-ink">
+                            {safeLabel(
+                              schedule.management_no,
+                              schedule.model,
+                              ko.common.noNumber,
+                            )}
+                            {schedule.model && schedule.management_no
+                              ? ` · ${schedule.model}`
+                              : ""}
+                          </span>
+                          <span className="text-sm text-steel">
+                            {schedule.site_name} ·{" "}
+                            {ko.inspection.cycles[schedule.cycle]} ·{" "}
+                            {schedule.due_date} ·{" "}
+                            {ko.inspection.fields.mechanic}:{" "}
+                            {safeLabel(schedule.mechanic_display_name)}
+                          </span>
+                        </button>
+                        <div className="flex items-center gap-2">
+                          {schedule.status === "SCHEDULED" &&
+                          isInspectionOverdue(schedule, businessDate) ? (
+                            <Badge className="border-red-300 bg-red-50 text-red-800">
+                              {ko.inspection.overdue}
+                            </Badge>
+                          ) : (
+                            <Badge>
+                              {ko.inspection.statuses[schedule.status]}
+                            </Badge>
+                          )}
+                          {schedule.status === "SCHEDULED" &&
+                          schedule.mechanic_id === session?.user_id ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="secondary"
+                              aria-label={`${safeLabel(schedule.management_no, schedule.model, ko.common.noNumber)} ${ko.inspection.round.complete}`}
+                              onClick={() => {
+                                setRoundNotice(undefined);
+                                setCompletingId((current) =>
+                                  current === schedule.id
+                                    ? undefined
+                                    : schedule.id,
+                                );
+                              }}
+                            >
+                              {ko.inspection.round.complete}
+                            </Button>
+                          ) : null}
+                        </div>
+                      </div>
+                      {completingId === schedule.id ? (
+                        <InspectionRoundForm
+                          scheduleId={schedule.id}
+                          onComplete={completeRound}
+                          onCancel={() => {
+                            setCompletingId(undefined);
+                          }}
+                        />
+                      ) : null}
+                    </li>
+                  ))}
+                </ul>
+                {selectedSchedule ? (
+                  <InspectionScheduleDetail
+                    schedule={selectedSchedule}
+                    overdue={isInspectionOverdue(
+                      selectedSchedule,
+                      businessDate,
+                    )}
+                  />
+                ) : null}
+              </div>
               {scheduleTotal !== undefined &&
               schedules.length < scheduleTotal ? (
                 <LoadMoreButton
@@ -629,6 +739,31 @@ export function InspectionPage() {
         </Card>
       </div>
     </>
+  );
+}
+
+function Metric({
+  label,
+  value,
+  danger = false,
+}: {
+  label: string;
+  value: number;
+  danger?: boolean;
+}) {
+  return (
+    <div className="rounded-md border border-line bg-muted-panel px-3 py-2">
+      <p className="text-xs text-steel">{label}</p>
+      <p
+        className={
+          danger
+            ? "text-lg font-semibold text-red-700"
+            : "text-lg font-semibold text-ink"
+        }
+      >
+        {value}
+      </p>
+    </div>
   );
 }
 
