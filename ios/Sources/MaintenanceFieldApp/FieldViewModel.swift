@@ -137,9 +137,11 @@ final class FieldViewModel: ObservableObject {
         loginState = await authRepository.login(userID: trimmedUserID)
         isLoading = false
         switch loginState {
-        case let .authenticated(_, _, deviceRegistration):
+        case let .authenticated(_, _, deviceRegistration, authenticationMessageKey):
             await refreshToday()
-            if case let .retryPending(retry) = deviceRegistration {
+            if let authenticationMessageKey {
+                messageKey = authenticationMessageKey
+            } else if case let .retryPending(retry) = deviceRegistration {
                 messageKey = retry.messageKey
             }
         case let .signedOut(messageKey):
@@ -150,7 +152,12 @@ final class FieldViewModel: ObservableObject {
     }
 
     func logout() async {
-        loginState = await authRepository.logout()
+        do {
+            loginState = try await authRepository.logout()
+        } catch {
+            messageKey = "operation_failed"
+            return
+        }
         today = []
         selectedWorkOrder = nil
         locationConsent = nil

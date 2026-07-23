@@ -10,8 +10,9 @@ import Foundation
 ///
 /// The string values are duplicated (not shared at compile time) by the UITests
 /// target, because an XCUITest bundle and the host app are separate modules. The
-/// duplication is intentional and asserted by `FieldAccessibilityIDParityTests`
-/// in the UITests target, which fails if the two lists drift.
+/// duplication is intentional and checked by the host-side
+/// `check-ios-ui-test-fail-closed.mjs` gate, which compares both enum declarations
+/// (including dynamic formatters) and fails if they drift.
 public enum FieldAccessibilityID {
     // Login
     public static let loginUserIDField = "login.userIDField"
@@ -20,7 +21,6 @@ public enum FieldAccessibilityID {
 
     // Authenticated shell
     public static let authenticatedTabs = "shell.authenticatedTabs"
-    public static let todayTab = "shell.todayTab"
     public static let workHubTab = "shell.workHubTab"
     public static let messengerTab = "shell.messengerTab"
     public static let operationsTab = "shell.operationsTab"
@@ -43,12 +43,16 @@ public enum FieldAccessibilityID {
     public static let todayRefreshButton = "today.refresh"
     public static let todayLogoutButton = "today.logout"
     public static let todayLoading = "today.loading"
+    public static let todayLocationConsentButton = "today.locationConsent"
+    public static let todayLocationConsentSheet = "today.locationConsent.sheet"
+    public static let todayLocationConsentCloseButton = "today.locationConsent.close"
 
     /// Per-row identifier for a dispatched work order, keyed by the work-order id.
     public static func workOrderRow(_ id: String) -> String { "today.workOrderRow.\(id)" }
 
     // Work-order detail
     public static let detailView = "detail.view"
+    public static let detailStatus = "detail.status"
     public static let detailStartWorkButton = "detail.startWork"
     public static let detailResultTypePicker = "detail.resultTypePicker"
     public static let detailDiagnosisField = "detail.diagnosisField"
@@ -57,6 +61,8 @@ public enum FieldAccessibilityID {
     public static let detailCaptureEvidenceButton = "detail.captureEvidence"
     public static let detailBackButton = "detail.back"
     public static let detailMessage = "detail.message"
+    public static let detailSymptomLabel = "detail.symptom.label"
+    public static let detailSymptomValue = "detail.symptom.value"
 
     // Camera capture
     public static let cameraShutterButton = "camera.shutter"
@@ -67,6 +73,11 @@ public enum FieldAccessibilityID {
     public static let cameraUnavailable = "camera.unavailable"
 
     // Location consent (shared section, present in Today + Detail)
+    public static let locationConsentTitle = "locationConsent.title"
+    public static let locationConsentStateLabel = "locationConsent.stateLabel"
+    public static let locationConsentStateValue = "locationConsent.stateValue"
+    public static let locationConsentCollectionLabel = "locationConsent.collectionLabel"
+    public static let locationConsentCollectionValue = "locationConsent.collectionValue"
     public static let locationConsentGrantButton = "locationConsent.grant"
     public static let locationConsentSuspendButton = "locationConsent.suspend"
     public static let locationConsentResumeButton = "locationConsent.resume"
@@ -86,16 +97,24 @@ public enum FieldAccessibilityID {
     /// Per-row identifier for a messenger thread, keyed by the thread id.
     public static func messengerThreadRow(_ id: String) -> String { "messenger.threadRow.\(id)" }
 
-    /// The full, stable list used by the UITests parity check. Adding a new
-    /// constant above without listing it here is allowed; the parity test only
-    /// guards the identifiers it knows about, so this is the authoritative set
-    /// the UI tests rely on.
+    /// Per-row identifier for a persisted messenger message, keyed by message id.
+    public static func messengerMessageRow(_ id: String) -> String { "messenger.messageRow.\(id)" }
+    public static func messengerMessageTimestamp(_ id: String) -> String { "messenger.messageTimestamp.\(id)" }
+
+    /// Per-row identifier for a messenger search result, keyed by message id.
+    ///
+    /// Search results and the selected thread can contain the same persisted
+    /// message. Keeping their section anchors distinct prevents an XCUITest
+    /// query from resolving the wrong visible row.
+    public static func messengerSearchResultRow(_ id: String) -> String { "messenger.searchResultRow.\(id)" }
+
+    /// Static identifiers exposed by the app. Dynamic formatters are intentionally
+    /// absent from this value list and are covered by the host-side parity gate.
     public static let allStableIdentifiers: [String] = [
         loginUserIDField,
         loginButton,
         loginErrorMessage,
         authenticatedTabs,
-        todayTab,
         workHubTab,
         messengerTab,
         operationsTab,
@@ -108,7 +127,10 @@ public enum FieldAccessibilityID {
         todayRefreshButton,
         todayLogoutButton,
         todayLoading,
+        todayLocationConsentButton,
+        todayLocationConsentCloseButton,
         detailView,
+        detailStatus,
         detailStartWorkButton,
         detailResultTypePicker,
         detailDiagnosisField,
@@ -117,12 +139,19 @@ public enum FieldAccessibilityID {
         detailCaptureEvidenceButton,
         detailBackButton,
         detailMessage,
+        detailSymptomLabel,
+        detailSymptomValue,
         cameraShutterButton,
         cameraCancelButton,
         cameraOpenSettingsButton,
         cameraPermissionDenied,
         cameraPermissionRequesting,
         cameraUnavailable,
+        locationConsentTitle,
+        locationConsentStateLabel,
+        locationConsentStateValue,
+        locationConsentCollectionLabel,
+        locationConsentCollectionValue,
         locationConsentGrantButton,
         locationConsentSuspendButton,
         locationConsentResumeButton,

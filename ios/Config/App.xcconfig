@@ -1,11 +1,10 @@
 // Build settings for the MaintenanceFieldApp host target (Xcode app wrapper used
 // only by CI's `xcodebuild test`; the day-to-day build is `swift build`).
 //
-// The bundle id is NOT hardcoded to a guessed value. CI populates
-// `MNT_IOS_BUNDLE_ID` (and `MNT_IOS_TEAM_ID`) from a repository variable/secret
-// that mirrors the registered app id behind `MNT_IOS_APP_IDS` in
-// deploy/apps/maintenance/base/configmap.yaml (Team ID 98Q89GFZWP). See
-// ios/Config/README.md for how CI generates the concrete values.
+// The hermetic Simulator gate uses the repository defaults below and does not
+// require an Apple identity secret. Signed device/distribution builds may
+// override `MNT_IOS_BUNDLE_ID` and `MNT_IOS_TEAM_ID` with their registered App
+// ID and Team ID. See ios/Config/README.md for the separate release boundary.
 //
 // Local fallbacks below let `xcodebuild` resolve the project when a developer
 // opens it without the CI variables. They are repo defaults for the CI/test
@@ -18,7 +17,7 @@
 // This is the App ID to register under Team 98Q89GFZWP in the Apple Developer
 // portal WITH the Associated Domains capability enabled (or let Xcode automatic
 // signing create it on first build). Overridable via the MNT_IOS_BUNDLE_ID /
-// MNT_IOS_TEAM_ID CI variables if a different identity is ever needed.
+// MNT_IOS_TEAM_ID build settings if a different identity is ever needed.
 MNT_IOS_BUNDLE_ID = $(MNT_IOS_BUNDLE_ID:default=com.maintenance.field)
 MNT_IOS_TEAM_ID = $(MNT_IOS_TEAM_ID:default=98Q89GFZWP)
 
@@ -26,19 +25,18 @@ PRODUCT_BUNDLE_IDENTIFIER = $(MNT_IOS_BUNDLE_ID)
 DEVELOPMENT_TEAM = $(MNT_IOS_TEAM_ID)
 
 // --- Shared Keychain access group ---
-// The no-fakes session seeding writes the real session token pair into the
-// Keychain from the UITests process; the app reads it back through its NORMAL
-// launch path (KeychainSessionTokenStore.init / restore()). For one process to
-// read another's Keychain item both must share this access group.
+// The separate CI-only seeder app writes the real session token pair into the
+// Keychain; the production app reads it back through its normal launch path
+// (KeychainSessionTokenStore.init / restore()). Those two app processes must
+// share this access group.
 //
-// IMPORTANT: this literal is only a CI override hint. On a properly-signed
-// device build "$(AppIdentifierPrefix)" is the Team ID, but on the ad-hoc-signed
-// Simulator build it is a placeholder, so both the app
-// (KeychainAccessGroup.resolveShared) and the test seeder
-// (RealSessionSeed.resolvedAccessGroup) resolve the ACTUAL granted group at
-// runtime by probing the Keychain — they never rely on this exact string
-// matching. The override below is used only if a probe write to it succeeds.
-MNT_IOS_KEYCHAIN_GROUP = $(MNT_IOS_TEAM_ID).com.maintenance.field.shared
+// The production app and separate CI-only UI-test seeder app omit the
+// access-group selector on a unique probe, then read and suffix-validate the
+// exact default group Keychain Services grants. CI proves both executable
+// Mach-O __TEXT,__entitlements sections contain the same group before tests
+// run; it never re-signs or mutates Xcode's generated UI-test Runner. No
+// runtime path guesses or reconstructs the signing prefix, and the production
+// app has no test-only authentication bypass.
 
 // --- Simulator test build: ad-hoc sign so entitlements actually embed ---
 // The shared keychain-access-group seeding requires the keychain-access-groups
@@ -47,8 +45,9 @@ MNT_IOS_KEYCHAIN_GROUP = $(MNT_IOS_TEAM_ID).com.maintenance.field.shared
 // errSecMissingEntitlement (-34018). The iOS Simulator honors ad-hoc signing
 // ("-") with entitlements, which is enough for cross-process keychain sharing
 // there — no real provisioning profile or registered bundle id needed. The
-// RealSessionSeed path skips honestly (XCTSkip) if the entitlement is still
-// absent, so this never produces a false green.
+// dedicated seeder app fails its protocol if the shared group is absent or
+// cannot be read back, so an entitlement/signing regression cannot produce a
+// false green.
 CODE_SIGN_STYLE = Manual
 CODE_SIGNING_REQUIRED = YES
 CODE_SIGNING_ALLOWED = YES
@@ -56,5 +55,8 @@ CODE_SIGN_IDENTITY = -
 
 INFOPLIST_KEY_NSCameraUsageDescription = 작업 증빙 사진을 촬영하기 위해 카메라 접근 권한이 필요합니다.
 
-SWIFT_VERSION = 6.1
+// SWIFT_VERSION is the language mode. Xcode 26.6 provides the pinned Swift
+// 6.3.3 compiler; all XcodeGen targets remain in strict Swift 6 mode.
+SWIFT_VERSION = 6.0
+SWIFT_STRICT_CONCURRENCY = complete
 IPHONEOS_DEPLOYMENT_TARGET = 17.0

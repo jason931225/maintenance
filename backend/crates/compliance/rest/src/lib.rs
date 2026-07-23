@@ -99,6 +99,10 @@ struct LocationPingRequest {
     latitude: f64,
     longitude: f64,
     accuracy_m: Option<f64>,
+    // OpenAPI exposes this as a date-time string. The default OffsetDateTime
+    // serde representation is an internal numeric tuple and rejects the ISO
+    // 8601 value sent by mobile clients.
+    #[serde(with = "time::serde::rfc3339")]
     recorded_at: Timestamp,
     on_duty: bool,
 }
@@ -714,5 +718,25 @@ impl IntoResponse for RestError {
             }),
         )
             .into_response()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::LocationPingRequest;
+
+    #[test]
+    fn location_ping_accepts_fractional_rfc3339_timestamp() {
+        let request: LocationPingRequest = serde_json::from_str(
+            r#"{
+                "latitude": 37.5665,
+                "longitude": 126.9780,
+                "recorded_at": "2026-07-22T12:34:56.123456789Z",
+                "on_duty": true
+            }"#,
+        )
+        .unwrap();
+
+        assert_eq!(request.recorded_at.nanosecond(), 123_456_789);
     }
 }

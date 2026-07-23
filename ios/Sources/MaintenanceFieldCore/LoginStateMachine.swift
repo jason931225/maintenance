@@ -51,7 +51,8 @@ public enum LoginState: Equatable, Sendable {
     case authenticated(
         accessToken: String,
         refreshToken: String,
-        deviceRegistration: DeviceRegistrationStatus = .registered
+        deviceRegistration: DeviceRegistrationStatus = .registered,
+        messageKey: String? = nil
     )
 }
 

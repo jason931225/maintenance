@@ -35,6 +35,102 @@ install -d -m 700 "${AUTH_DIR}"
 
 HTTP_ADDR="${E2E_HTTP_ADDR:-127.0.0.1:8080}"
 HTTP_PORT="${HTTP_ADDR##*:}"
+PORT_CONFLICT_MODE="${E2E_PORT_CONFLICT_MODE:-reclaim}"
+
+case "${PORT_CONFLICT_MODE}" in
+  reclaim|fail) ;;
+  *)
+    echo "boot-backend: unknown E2E_PORT_CONFLICT_MODE \"${PORT_CONFLICT_MODE}\" (expected reclaim or fail)" >&2
+    exit 2
+    ;;
+esac
+
+port_is_already_bound() {
+  # Bind rather than inspect process tables so the fail-closed mode works on
+  # both macOS and Linux even where lsof is unavailable. This intentionally
+  # tests the same TCP bind the API will need immediately before startup.
+  python3 - "${HTTP_ADDR}" <<'PY'
+import errno
+import socket
+import sys
+
+address = sys.argv[1]
+host, separator, port_text = address.rpartition(":")
+if not separator or not host or not port_text.isdecimal():
+    print(f"invalid E2E_HTTP_ADDR: {address!r}", file=sys.stderr)
+    raise SystemExit(2)
+host = host.removeprefix("[").removesuffix("]")
+
+try:
+    candidates = socket.getaddrinfo(host, int(port_text), type=socket.SOCK_STREAM)
+except OSError as error:
+    print(f"cannot resolve E2E_HTTP_ADDR {address!r}: {error}", file=sys.stderr)
+    raise SystemExit(2)
+
+for family, socktype, protocol, _, sockaddr in candidates:
+    probe = socket.socket(family, socktype, protocol)
+    try:
+        probe.bind(sockaddr)
+    except OSError as error:
+        if error.errno == errno.EADDRINUSE:
+            raise SystemExit(0)
+        print(f"cannot probe E2E_HTTP_ADDR {address!r}: {error}", file=sys.stderr)
+        raise SystemExit(2)
+    finally:
+        probe.close()
+
+raise SystemExit(1)
+PY
+}
+
+assert_port_is_available_or_reclaim() {
+  local probe_status stale_pids pid attempt
+
+  if port_is_already_bound; then
+    if [[ "${PORT_CONFLICT_MODE}" == "fail" ]]; then
+      echo "boot-backend: port ${HTTP_PORT} is already in use at ${HTTP_ADDR}; refusing to kill an unowned listener (set E2E_PORT_CONFLICT_MODE=reclaim only for legacy cleanup)" >&2
+      exit 1
+    fi
+
+    if ! command -v lsof >/dev/null 2>&1; then
+      echo "boot-backend: port ${HTTP_PORT} is already in use at ${HTTP_ADDR}, but lsof is unavailable for legacy reclaim; stop the listener or use a different E2E_HTTP_ADDR" >&2
+      exit 1
+    fi
+
+    stale_pids="$(lsof -ti -nP -iTCP:"${HTTP_PORT}" -sTCP:LISTEN 2>/dev/null || true)"
+    if [[ -z "${stale_pids}" ]]; then
+      echo "boot-backend: port ${HTTP_PORT} is already in use at ${HTTP_ADDR}, but its owning PID could not be determined; refusing unsafe reclaim" >&2
+      exit 1
+    fi
+
+    echo "boot-backend: freeing port ${HTTP_PORT} (killing: ${stale_pids})" >&2
+    while IFS= read -r pid; do
+      [[ -n "${pid}" ]] && kill -9 "${pid}" 2>/dev/null || true
+    done <<< "${stale_pids}"
+
+    for attempt in $(seq 1 10); do
+      if port_is_already_bound; then
+        :
+      else
+        probe_status=$?
+        if [[ "${probe_status}" -eq 1 ]]; then
+          return
+        fi
+        echo "boot-backend: cannot re-probe ${HTTP_ADDR} after reclaim" >&2
+        exit 1
+      fi
+      sleep 0.1
+    done
+    echo "boot-backend: port ${HTTP_PORT} remains in use after legacy reclaim" >&2
+    exit 1
+  else
+    probe_status=$?
+    if [[ "${probe_status}" -ne 1 ]]; then
+      echo "boot-backend: cannot probe ${HTTP_ADDR} for a port collision" >&2
+      exit 1
+    fi
+  fi
+}
 
 # Reap any backend we started previously, then free the port defensively so a
 # stale process from an earlier run cannot answer probes with the wrong JWT keys
@@ -46,14 +142,7 @@ if [[ -s "${PID_FILE}" ]]; then
     sleep 0.5
   fi
 fi
-if command -v lsof >/dev/null 2>&1; then
-  STALE_PIDS="$(lsof -ti ":${HTTP_PORT}" 2>/dev/null || true)"
-  if [[ -n "${STALE_PIDS}" ]]; then
-    echo "boot-backend: freeing port ${HTTP_PORT} (killing: ${STALE_PIDS})" >&2
-    echo "${STALE_PIDS}" | xargs -r kill -9 2>/dev/null || true
-    sleep 0.5
-  fi
-fi
+assert_port_is_available_or_reclaim
 
 PG_HOST="${E2E_PG_HOST:-localhost}"
 PG_PORT="${E2E_PG_PORT:-5432}"

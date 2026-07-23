@@ -2,11 +2,10 @@
 """Patch Xcode UI-test xctestrun metadata for CI.
 
 Xcode's build-for-testing action emits a .xctestrun plist that test-without-
-building consumes. On the GitHub macOS/Xcode 16.4 runner, XcodeGen's generated
-UI-test target relationship can produce an extensionless UITargetAppPath
-(`.../MaintenanceFieldApp`) even though the built host is
-`MaintenanceFieldApp.app`. This script makes the xctestrun explicit and injects
-the test-runner environment variables that the suite reads via ProcessInfo.
+building consumes. This script normalizes the app-host path to the verified
+built wrapper and injects only the test-runner environment variables that the
+suite reads via ProcessInfo. Keeping this mutation explicit makes the contract
+stable across xctestrun schema/toolchain changes.
 """
 
 from __future__ import annotations

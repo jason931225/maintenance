@@ -10,6 +10,7 @@ use p256::elliptic_curve::rand_core::OsRng;
 use p256::pkcs8::{EncodePrivateKey, EncodePublicKey, LineEnding};
 use serde_json::{Value, json};
 use sqlx::PgPool;
+use time::format_description::well_known::Rfc3339;
 use time::{Duration, OffsetDateTime};
 use tower::ServiceExt;
 
@@ -48,13 +49,13 @@ async fn mobile_sync_is_jwt_authorized_idempotent_and_reports_partial_failures(p
             {
                 "request_id": "missing-start-1",
                 "operation": "WORK_ORDER_START",
-                "created_at": OffsetDateTime::now_utc(),
+                "created_at": OffsetDateTime::now_utc().format(&Rfc3339).unwrap(),
                 "payload": { "work_order_id": missing_work_order_id }
             },
             {
                 "request_id": "start-1",
                 "operation": "WORK_ORDER_START",
-                "created_at": OffsetDateTime::now_utc(),
+                "created_at": OffsetDateTime::now_utc().format(&Rfc3339).unwrap(),
                 "payload": { "work_order_id": work_order_id }
             }
         ]

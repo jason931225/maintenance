@@ -10,10 +10,10 @@
 # The app target reuses the SAME source + resources as the SwiftPM app target, so
 # the UI under test is the real app, not a copy.
 #
-# Bundle id is NOT hardcoded: settings come from Config/App.xcconfig, whose
-# MNT_IOS_BUNDLE_ID / MNT_IOS_TEAM_ID are populated by CI from repo variables that
-# mirror MNT_IOS_APP_IDS in deploy/apps/maintenance/base/configmap.yaml. See
-# Config/README.md.
+# Identity settings come from Config/App.xcconfig. The hermetic Simulator job uses
+# its repository defaults; a separately governed distribution build may override
+# MNT_IOS_BUNDLE_ID / MNT_IOS_TEAM_ID only after proving its registered identity.
+# See Config/README.md.
 
 name: MaintenanceField
 options:
@@ -28,10 +28,14 @@ configFiles:
 
 settings:
   base:
-    SWIFT_VERSION: "6.1"
+    # SWIFT_VERSION selects a language mode, not the installed compiler's
+    # release number. Xcode 26.6 supplies Swift 6.3.3 and compiles every target
+    # below in strict Swift 6 mode.
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
     # Identity + signing are sourced from Config/App.xcconfig (xcconfig wins for
-    # values it sets); CI exports MNT_IOS_BUNDLE_ID / MNT_IOS_TEAM_ID into the
-    # environment which the xcconfig reads. No literal bundle id here.
+    # values it sets). Hermetic CI uses the xcconfig defaults; no workflow secret
+    # or repository variable is required for the Simulator wrapper.
 
 packages:
   MaintenanceField:
@@ -63,6 +67,23 @@ targets:
         CODE_SIGN_ENTITLEMENTS: Config/MaintenanceFieldApp.entitlements
         # PRODUCT_BUNDLE_IDENTIFIER / DEVELOPMENT_TEAM come from App.xcconfig.
 
+  MaintenanceFieldUITestSeeder:
+    type: application
+    platform: iOS
+    # A separately signed helper app. It uses the production Keychain store to
+    # establish the process-boundary proof required by the UI-test suite.
+    sources:
+      - path: Sources/MaintenanceFieldUITestSeeder
+    dependencies:
+      - package: MaintenanceField
+        product: MaintenanceFieldCore
+    settings:
+      base:
+        GENERATE_INFOPLIST_FILE: "YES"
+        INFOPLIST_KEY_CFBundleDisplayName: "MaintenanceField UITest Seeder"
+        CODE_SIGN_ENTITLEMENTS: Config/MaintenanceFieldUITestSeeder.entitlements
+        PRODUCT_BUNDLE_IDENTIFIER: "$(MNT_IOS_BUNDLE_ID).UITestSeeder"
+
   MaintenanceFieldUITests:
     type: bundle.ui-testing
     platform: iOS
@@ -72,26 +93,24 @@ targets:
     # target's "Target Application" relationship for a bundle.ui-testing target).
     dependencies:
       - target: MaintenanceFieldApp
+      # Build the separate, entitled seeder with every UI-test run. The actual
+      # target application remains MaintenanceFieldApp (TEST_TARGET_NAME below).
+      - target: MaintenanceFieldUITestSeeder
     settings:
       base:
-        # Xcode 16.4's XCTest UI APIs are MainActor-isolated in Swift 6 mode,
-        # while XCTest lifecycle hooks remain nonisolated. Keep the CI-only
-        # UI-test harness in Swift 5 compatibility mode; the app target and
-        # SwiftPM packages stay on Swift 6.1 via the global setting above.
-        SWIFT_VERSION: "5.0"
-        CODE_SIGN_ENTITLEMENTS: Config/MaintenanceFieldUITests.entitlements
+        # UI automation is MainActor-confined and compiles in the same strict
+        # Swift 6 language mode as the app and dedicated session seeder.
         GENERATE_INFOPLIST_FILE: "YES"
         INFOPLIST_KEY_CFBundleDisplayName: "MaintenanceFieldUITests"
         PRODUCT_BUNDLE_IDENTIFIER: "$(MNT_IOS_BUNDLE_ID).UITests"
         # Keep this as the Xcode target name (not the .app wrapper name) so
         # XcodeGen emits the UI-test Target Application relationship/TestTargetID.
-        # The GitHub runner's Xcode 16.4 xctestrun still records an extensionless
-        # UITargetAppPath, so the CI workflow patches the generated xctestrun
-        # after build-for-testing and before test-without-building.
+        # CI normalizes the generated xctestrun and injects each shard's
+        # one-use session only after build-for-testing.
         TEST_TARGET_NAME: "MaintenanceFieldApp"
-        # The UI-test bundle is signed, too, so Xcode 16.4 needs either an
-        # explicit plist or generated one. Keep it generated because the test
-        # bundle has no product-specific Info.plist keys.
+        # The UI-test bundle intentionally carries no shared-Keychain
+        # entitlement: only the app and separately signed seeder hold that
+        # capability, preserving the real process-boundary proof.
 
 schemes:
   MaintenanceFieldApp:

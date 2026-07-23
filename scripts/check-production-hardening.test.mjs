@@ -1503,7 +1503,7 @@ jobs:
           otp_hash="$(printf '%s' "$bootstrap_otp" | sha256sum | awk '{print $1}')"
           printf '::add-mask::%s\\n' "$bootstrap_otp"
           E2E_PG_HOST=127.0.0.1 e2e/harness/db.sh
-          psql -v otp_hash="$otp_hash" -f e2e/harness/seed-mobile-ci.sql
+          psql -v otp_hash="$otp_hash" -v fixture_profile=full -f e2e/harness/seed-mobile-ci.sql
           e2e/harness/boot-backend.sh
           backend_url="http://127.0.0.1:8080"
           response="$(printf '%s' "$bootstrap_otp" | jq -Rsc '{otp:.}' | curl -fsS -X POST "$backend_url/api/v1/auth/otp/redeem" --data-binary @-)"

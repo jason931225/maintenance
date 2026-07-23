@@ -953,6 +953,7 @@ jobs:
             --dbname "$E2E_DB_NAME" \
             --set ON_ERROR_STOP=1 \
             --set "otp_hash=$otp_hash" \
+            --set "fixture_profile=full" \
             --file e2e/harness/seed-mobile-ci.sql
 
           bash e2e/harness/boot-backend.sh

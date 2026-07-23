@@ -17,14 +17,14 @@ use p256::pkcs8::{EncodePrivateKey, EncodePublicKey, LineEnding};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use sqlx::PgPool;
+use time::format_description::well_known::Rfc3339;
 use time::macros::datetime;
 use time::{Duration, OffsetDateTime};
 use tower::ServiceExt;
 
-/// The mobile wire contract serializes `created_at` with `time`'s default serde
-/// (an array), so build it from a real `OffsetDateTime` for the test bodies.
+/// The mobile wire contract serializes `created_at` as an RFC 3339 string.
 fn created_at_value(dt: OffsetDateTime) -> Value {
-    serde_json::to_value(dt).unwrap()
+    Value::String(dt.format(&Rfc3339).unwrap())
 }
 
 #[path = "../../../../test_support/mobile_evidence_fixtures.rs"]
