@@ -573,7 +573,7 @@ async fn resolve_required_sources(
             "material source changed while reserving plan",
         ));
     }
-    sqlx::query(
+    if let Err(error) = sqlx::query(
         "INSERT INTO gov_approval_consumptions (org_id,approval_id,consumed_by) VALUES ($1,$2,$3)",
     )
     .bind(org_id)
@@ -581,7 +581,18 @@ async fn resolve_required_sources(
     .bind(actor_id)
     .execute(&mut **tx)
     .await
-    .map_err(RestError::db)?;
+    {
+        if error
+            .as_database_error()
+            .and_then(|database| database.code())
+            .is_some_and(|code| code == "23505")
+        {
+            return Err(RestError::conflict(
+                "production approval was already consumed",
+            ));
+        }
+        return Err(RestError::db(error));
+    }
     let checks = serde_json::json!({"capacity_ok":true,"material_ok":true,"staffing_ok":true});
     Ok(ResolvedSources {
         product_code: demand_product,
