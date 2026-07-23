@@ -565,6 +565,25 @@ describe("MailScreen", () => {
     expect(screen.queryByText("메일을 보내지 못했습니다.")).not.toBeInTheDocument();
   });
 
+  it("ignores a delayed thrown send failure after a successor classification edit", async () => {
+    const user = userEvent.setup();
+    let rejectFirst: (reason?: unknown) => void = () => {};
+    const first = new Promise<HttpResponse>((_resolve, reject) => { rejectFirst = reject; });
+    mockMailbox();
+    server.use(http.post("*/api/v1/mail/send", () => first));
+    renderMailScreen();
+    const composer = await screen.findByRole("form", { name: "메일 작성" });
+    await user.type(within(composer).getByLabelText("받는 사람"), "payroll@example.com");
+    await user.type(within(composer).getByLabelText("제목"), "A");
+    await user.type(within(composer).getByLabelText("본문"), "초안");
+    await user.click(within(composer).getByRole("button", { name: "메일 보내기" }));
+    await user.click(within(composer).getByRole("button", { name: "민감" }));
+    rejectFirst(new Error("network"));
+    await waitFor(() => { expect(within(screen.getByRole("form", { name: "메일 작성" })).getByRole("button", { name: "민감" })).toHaveAttribute("aria-pressed", "true"); });
+    expect(within(screen.getByRole("form", { name: "메일 작성" })).getByLabelText("본문")).toHaveValue("초안");
+    expect(screen.queryByText("메일을 보내지 못했습니다.")).not.toBeInTheDocument();
+  });
+
   it("omits policy-denied affordances and uses stable mail policy action names", async () => {
     const seen: string[] = [];
     const gate: PolicyGate = {
