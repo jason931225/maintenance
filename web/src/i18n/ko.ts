@@ -636,6 +636,7 @@ export const ko = {
       loadError: "인사 데이터를 불러올 수 없습니다.",
       createError: "직원을 등록할 수 없습니다. 입력 내용은 재시도를 위해 유지됩니다.",
       detailError: "직원 상세 정보를 불러올 수 없습니다.",
+      invalidBasePay: "기본급은 소수 둘째 자리까지의 0 이상 금액으로 입력하세요.",
       retry: "다시 시도",
       createTitle: "직원 등록",
       directoryTitle: "직원 명부",

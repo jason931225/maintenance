@@ -63,7 +63,20 @@ describe("PeopleWorkforceBody", () => {
       body: expect.objectContaining({ phone: "+821012345678", base_pay: "1000000" }),
     }));
     expect(screen.getByText("+821012345678")).toBeInTheDocument();
+    expect(screen.getByText("정규직", { selector: "dd" })).toBeInTheDocument();
     expect(screen.getByText("1,000,000 KRW")).toBeInTheDocument();
+  });
+
+  it.each(["1e2", "1.2.3", "-1", "1.001", "1,234.567"])("preserves and rejects invalid base-pay input %s", async (basePay: string) => {
+    render(<PeopleWorkforceBody />);
+    await screen.findByText("Kim");
+    fillRequiredForm();
+    fireEvent.change(screen.getByLabelText("기본급 (KRW)"), { target: { value: basePay } });
+    fireEvent.click(screen.getByRole("button", { name: "직원 등록" }));
+
+    expect(screen.getByLabelText("기본급 (KRW)")).toHaveValue(basePay);
+    expect(screen.getByText("기본급은 소수 둘째 자리까지의 0 이상 금액으로 입력하세요.")).toBeInTheDocument();
+    expect(post).not.toHaveBeenCalled();
   });
 
   it("keeps one idempotency identity while a failed form is retried", async () => {
@@ -74,8 +87,8 @@ describe("PeopleWorkforceBody", () => {
     fireEvent.click(screen.getByRole("button", { name: "직원 등록" }));
     await screen.findByText("Invalid phone");
     fireEvent.click(screen.getByRole("button", { name: "직원 등록" }));
-    await waitFor(() => expect(post).toHaveBeenCalledTimes(2));
-    expect(post.mock.calls[1][1].body.idempotency_key).toBe(post.mock.calls[0][1].body.idempotency_key);
+    await waitFor(() => { expect(post).toHaveBeenCalledTimes(2); });
+    expect(post.mock.calls[1]?.[1]).toEqual(post.mock.calls[0]?.[1]);
     expect(screen.getByLabelText("성명")).toHaveValue("Lee");
   });
 

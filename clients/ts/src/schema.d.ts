@@ -9323,7 +9323,7 @@ export interface components {
             position: string;
             site: string;
             home_branch_id: components["schemas"]["Uuid"];
-            /** @description Non-negative KRW decimal; only returned by privileged detail. */
+            /** @description Canonical non-negative KRW NUMERIC(14,2) decimal; only returned by privileged detail. */
             base_pay: string;
             idempotency_key: string;
         };
