@@ -284,7 +284,7 @@ describe("ApprovalBulkInbox", () => {
     resolveFirst?.();
   });
 
-  it("persists a cancelled operation per user and retries it with the original key after reload", async () => {
+  it("dismisses a cancelled receipt without losing its per-user retry key", async () => {
     const user = userEvent.setup();
     let started: (() => void) | undefined;
     const keys: string[] = [];
@@ -331,6 +331,9 @@ describe("ApprovalBulkInbox", () => {
       )[0],
     ).toBeVisible();
     await waitFor(() => { expect(window.localStorage.getItem(`maintenance.approval-bulk.operations.v1.${USER_ID}`)).toContain(keys[0]); });
+    await user.click(screen.getByRole("button", { name: "Dismiss receipt" }));
+    expect(screen.queryByLabelText("Latest approval operation receipt")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Retry unresolved (1)" })).toBeVisible();
 
     firstView.unmount();
     render(<ApprovalBulkInbox currentUserId={USER_ID} />);

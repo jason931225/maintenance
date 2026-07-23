@@ -107,6 +107,7 @@ export function ApprovalBulkInbox({ api, bearerToken, currentUserId }: ApprovalB
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [selectedTasks, setSelectedTasks] = useState<Partial<Record<string, WorkflowWaitingTask>>>({});
   const [receipt, setReceipt] = useState<Receipt>(() => Object.fromEntries(Object.entries(persistedRef.current?.operations ?? {}).map(([taskId, operation]) => [taskId, operation.outcome])));
+  const [receiptPresentationHidden, setReceiptPresentationHidden] = useState(false);
   const [pageCursors, setPageCursors] = useState<string[]>([""]);
   const [pageIndex, setPageIndex] = useState(0);
   const [hasMore, setHasMore] = useState(false);
@@ -151,6 +152,7 @@ export function ApprovalBulkInbox({ api, bearerToken, currentUserId }: ApprovalB
     const stored = loadOperations(currentUserId);
     keyByTaskRef.current = Object.fromEntries(Object.entries(stored?.operations ?? {}).map(([taskId, operation]) => [taskId, operation.idempotencyKey]));
     setReceipt(Object.fromEntries(Object.entries(stored?.operations ?? {}).map(([taskId, operation]) => [taskId, operation.outcome])));
+    setReceiptPresentationHidden(false);
     setSelected(new Set());
     setSelectedTasks({});
     setPageCursors([""]);
@@ -197,6 +199,7 @@ export function ApprovalBulkInbox({ api, bearerToken, currentUserId }: ApprovalB
       // the response path, but must never lose this immutable operation key.
       persistOperation(currentUserId, task.task_id, idempotencyKey, unconfirmed);
       setReceipt((previous) => ({ ...previous, [task.task_id]: unconfirmed }));
+      setReceiptPresentationHidden(false);
       try {
         const result = await workflowApi.decideTask(task.task_id, "approve", { idempotencyKey, signal: controller.signal });
         if (!isMounted() || execution !== executionRef.current) return;
@@ -234,6 +237,17 @@ export function ApprovalBulkInbox({ api, bearerToken, currentUserId }: ApprovalB
     setCancelled(true);
   }
 
+  function dismissReceipt() {
+    // Dismissal is presentation-only for unresolved operations. Their immutable
+    // idempotency identity must survive until the service confirms a terminal
+    // outcome, otherwise retry could duplicate a side effect.
+    const remaining = receiptEntries(receipt).filter(([, outcome]) => outcome.state !== "approved");
+    const unresolvedIds = new Set(remaining.map(([taskId]) => taskId));
+    keyByTaskRef.current = Object.fromEntries(Object.entries(keyByTaskRef.current).filter(([taskId]) => unresolvedIds.has(taskId)));
+    setReceipt(Object.fromEntries(remaining));
+    setReceiptPresentationHidden(true);
+  }
+
   useEffect(() => {
     const operations = receiptEntries(receipt).reduce<Record<string, PersistedOperation>>((stored, [taskId, outcome]) => {
       const idempotencyKey = keyByTaskRef.current[taskId];
@@ -251,7 +265,7 @@ export function ApprovalBulkInbox({ api, bearerToken, currentUserId }: ApprovalB
     {readState === "ready" && rows.length === 0 ? <p style={{ margin: 0, color: "var(--steel)" }}>There are no workflow-authorized approval tasks.</p> : null}
     {rows.length > 0 ? <ul style={{ display: "grid", gap: "var(--sp-2)", listStyle: "none", margin: 0, padding: 0 }} aria-label="Approval tasks">{rows.map(({ task, message }) => <li key={task.task_id} style={{ display: "grid", gap: "var(--sp-2)", padding: "var(--sp-3)", border: "1px solid var(--border-soft)", borderRadius: "var(--radius-md)", background: "var(--muted)" }}><div style={{ display: "flex", flexWrap: "wrap", gap: "var(--sp-3)", alignItems: "start" }}><input id={`approval-select-${task.task_id}`} type="checkbox" checked={selected.has(task.task_id)} disabled={Boolean(message) || running} aria-describedby={message ? `approval-guard-${task.task_id}` : undefined} onChange={() => { toggle(task); }} /><div style={{ display: "grid", gap: "var(--sp-1)", minWidth: 0, flex: "1 1 18rem" }}><label htmlFor={`approval-select-${task.task_id}`} style={{ color: "var(--ink)", fontWeight: "var(--fw-strong)", cursor: message || running ? "default" : "pointer" }}>{task.title}</label><span style={{ color: "var(--steel)", fontSize: "var(--text-sm)" }}>{task.waiting_key} · {task.assignee_role_key ?? "personal inbox"}</span>{task.due_at ? <span style={{ color: "var(--steel)", fontSize: "var(--text-xs)" }}>Due {new Date(task.due_at).toLocaleString()}</span> : null}</div><StatusChip tone={task.status === "CLAIMED" ? "info" : "neutral"}>{task.status}</StatusChip></div>{message ? <p id={`approval-guard-${task.task_id}`} style={{ margin: 0, color: "var(--danger-tx)", fontSize: "var(--text-sm)" }}>{message}</p> : null}<MaybeOutcomeStatus outcome={receipt[task.task_id]} /></li>)}</ul> : null}
     {pageIndex > 0 || hasMore ? <nav aria-label="Approval inbox pages" style={{ display: "flex", gap: "var(--sp-2)", alignItems: "center" }}><button type="button" style={pageIndex === 0 || running ? disabledButtonStyle : buttonStyle} disabled={pageIndex === 0 || running} onClick={() => { const previous = pageCursors[pageIndex - 1]; setPageIndex(pageIndex - 1); void load(previous || undefined); }}>Previous</button><span style={{ color: "var(--steel)", fontSize: "var(--text-sm)" }}>Page {pageIndex + 1}</span><button type="button" style={!hasMore || running ? disabledButtonStyle : buttonStyle} disabled={!hasMore || running} onClick={() => { const next = nextCursor; if (!next) return; const cursors = [...pageCursors.slice(0, pageIndex + 1), next]; setPageCursors(cursors); setPageIndex(pageIndex + 1); void load(next); }}>Next</button></nav> : null}
-    {Object.keys(receipt).length > 0 ? <section aria-label="Latest approval operation receipt" style={{ display: "grid", gap: "var(--sp-2)", padding: "var(--sp-3)", border: "1px solid var(--border-soft)", borderRadius: "var(--radius-md)" }}><div style={toolbarStyle}><strong>Latest approval operation receipt</strong><button type="button" style={buttonStyle} onClick={() => { keyByTaskRef.current = {}; setReceipt({}); }}>Dismiss receipt</button></div>{receiptEntries(receipt).map(([id, outcome]) => <div key={id}><code>{id}</code> <OutcomeStatus outcome={outcome} /></div>)}</section> : null}
+    {Object.keys(receipt).length > 0 && !receiptPresentationHidden ? <section aria-label="Latest approval operation receipt" style={{ display: "grid", gap: "var(--sp-2)", padding: "var(--sp-3)", border: "1px solid var(--border-soft)", borderRadius: "var(--radius-md)" }}><div style={toolbarStyle}><strong>Latest approval operation receipt</strong><button type="button" style={buttonStyle} onClick={dismissReceipt}>Dismiss receipt</button></div>{receiptEntries(receipt).map(([id, outcome]) => <div key={id}><code>{id}</code> <OutcomeStatus outcome={outcome} /></div>)}</section> : null}
     <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--sp-2)", alignItems: "center" }}><button type="button" style={freshSelected.length === 0 || running ? disabledButtonStyle : primaryButtonStyle} disabled={freshSelected.length === 0 || running} onClick={() => { void approve(freshSelected.map((task) => task.task_id), false); }}>Approve selected ({freshSelected.length})</button><button type="button" style={selected.size === 0 || running ? disabledButtonStyle : buttonStyle} disabled={selected.size === 0 || running} onClick={() => { setSelected(new Set()); }}>Clear selection</button>{running ? <button type="button" style={buttonStyle} onClick={cancel}>Cancel remaining</button> : null}{unresolvedIds.length > 0 && !running ? <button type="button" style={buttonStyle} onClick={() => { void approve(unresolvedIds, true); }}>Retry unresolved ({unresolvedIds.length})</button> : null}</div>
   </section>;
 }
