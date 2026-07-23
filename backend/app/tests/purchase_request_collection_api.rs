@@ -154,6 +154,17 @@ async fn purchase_request_collection_is_branch_scoped_requester_safe_and_tenant_
     assert_eq!(status_filtered["total"], 1);
     assert_eq!(status_filtered["items"][0]["id"], submitted_id.to_string());
 
+    let repeated_statuses = get(
+        service.clone(),
+        &format!(
+            "{PATH}?branch_id={branch_a}&status=STATEMENT_ATTACHED&status=REQUEST_SUBMITTED&limit=10&offset=0"
+        ),
+        &reader_token,
+    )
+    .await;
+    assert_eq!(repeated_statuses.status(), StatusCode::OK);
+    assert_eq!(body_json(repeated_statuses).await["total"], 2);
+
     let first = get(
         service.clone(),
         &format!("{PATH}?branch_id={branch_a}&limit=1&offset=0"),
@@ -227,12 +238,22 @@ async fn purchase_request_collection_is_branch_scoped_requester_safe_and_tenant_
     )
     .await;
     let invalid_page = get(
-        service,
+        service.clone(),
         &format!("{PATH}?branch_id={branch_a}&limit=101"),
         &reader_token,
     )
     .await;
     assert_error(invalid_page, StatusCode::UNPROCESSABLE_ENTITY, "validation").await;
+    for malformed in [
+        format!("{PATH}?branch_id=not-a-uuid"),
+        format!("{PATH}?branch_id={branch_a}&limit=one"),
+        format!("{PATH}?branch_id={branch_a}&offset=one"),
+        format!("{PATH}?branch_id={branch_a}&status[]=STATEMENT_ATTACHED"),
+        format!("{PATH}?branch_id={branch_a}&unexpected=value"),
+    ] {
+        let response = get(service.clone(), &malformed, &reader_token).await;
+        assert_error(response, StatusCode::UNPROCESSABLE_ENTITY, "validation").await;
+    }
 }
 
 async fn get(service: axum::Router, uri: &str, token: &str) -> axum::response::Response {

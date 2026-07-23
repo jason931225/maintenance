@@ -1,6 +1,8 @@
 //! Postgres financial adapter.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
+use std::collections::HashMap;
+
 use mnt_financial_application::{
     AppendCostLedgerEntryCommand, AssetLifecycleCostSummary,
     ConfirmPurchaseAttachmentUploadCommand, CostLedgerEntrySummary, CostLedgerSource,
@@ -1836,6 +1838,48 @@ async fn purchase_lines_tx(
         .collect()
 }
 
+/// Batch-hydrates normalized lines for one already-authorized page.  Together
+/// with the sibling attachment query this keeps a 100-row collection at four
+/// database queries total (count + rows + lines + attachments).
+async fn purchase_lines_for_page_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    purchase_ids: &[uuid::Uuid],
+) -> Result<HashMap<uuid::Uuid, Vec<PurchaseRequestLineSummary>>, PgFinancialError> {
+    if purchase_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let rows = sqlx::query(
+        r#"
+        SELECT purchase_request_id, id, line_no, item, quantity, unit_supply_price_won,
+               vat_won, vat_overridden, line_total_won
+        FROM financial_purchase_request_lines
+        WHERE purchase_request_id = ANY($1)
+        ORDER BY purchase_request_id, line_no
+        "#,
+    )
+    .bind(purchase_ids)
+    .fetch_all(tx.as_mut())
+    .await?;
+    let mut by_purchase = HashMap::<uuid::Uuid, Vec<PurchaseRequestLineSummary>>::new();
+    for row in rows {
+        let purchase_id: uuid::Uuid = row.try_get("purchase_request_id")?;
+        by_purchase
+            .entry(purchase_id)
+            .or_default()
+            .push(PurchaseRequestLineSummary {
+                id: row.try_get("id")?,
+                line_no: row.try_get("line_no")?,
+                item: row.try_get("item")?,
+                quantity: row.try_get("quantity")?,
+                unit_supply_price_won: row.try_get("unit_supply_price_won")?,
+                vat_won: row.try_get("vat_won")?,
+                vat_overridden: row.try_get("vat_overridden")?,
+                line_total_won: row.try_get("line_total_won")?,
+            });
+    }
+    Ok(by_purchase)
+}
+
 async fn purchase_attachments_tx(
     tx: &mut Transaction<'_, Postgres>,
     purchase_request_id: PurchaseRequestId,
@@ -1870,6 +1914,48 @@ async fn purchase_attachments_tx(
             })
         })
         .collect()
+}
+
+async fn purchase_attachments_for_page_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    purchase_ids: &[uuid::Uuid],
+) -> Result<HashMap<uuid::Uuid, Vec<PurchaseAttachmentSummary>>, PgFinancialError> {
+    if purchase_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let rows = sqlx::query(
+        r#"
+        SELECT purchase_request_id, id, file_name, content_type, size_bytes, role, created_at
+        FROM financial_purchase_attachments
+        WHERE purchase_request_id = ANY($1)
+          AND upload_state = 'CONFIRMED'
+        ORDER BY purchase_request_id, created_at DESC, id DESC
+        "#,
+    )
+    .bind(purchase_ids)
+    .fetch_all(tx.as_mut())
+    .await?;
+    let mut by_purchase = HashMap::<uuid::Uuid, Vec<PurchaseAttachmentSummary>>::new();
+    for row in rows {
+        let purchase_id: uuid::Uuid = row.try_get("purchase_request_id")?;
+        let id: uuid::Uuid = row.try_get("id")?;
+        by_purchase
+            .entry(purchase_id)
+            .or_default()
+            .push(PurchaseAttachmentSummary {
+                id,
+                file_name: row.try_get("file_name")?,
+                content_type: row.try_get("content_type")?,
+                size_bytes: row.try_get("size_bytes")?,
+                role: row.try_get("role")?,
+                download_url: format!(
+                    "/api/v1/financial/purchase-requests/{}/attachments/{}/download",
+                    purchase_id, id
+                ),
+                created_at: row.try_get("created_at")?,
+            });
+    }
+    Ok(by_purchase)
 }
 
 async fn attach_purchase_attachments_tx(
@@ -2204,10 +2290,18 @@ async fn list_purchase_requests_tx(
     .fetch_one(tx.as_mut())
     .await?;
 
-    let ids: Vec<uuid::Uuid> = sqlx::query_scalar(
+    // A page is hydrated in four bounded queries: count, purchase rows, lines,
+    // and confirmed attachments.  Do not regress this into per-row detail
+    // reads: a full 100-row page used to issue roughly 302 SQL queries.
+    let rows = sqlx::query(
         r#"
-        SELECT p.id
+        SELECT p.id, p.branch_id, p.equipment_id, p.work_order_id, p.statement_evidence_id,
+               p.purchase_type, p.vendor_name, p.amount_won, p.status,
+               p.requested_by, u.display_name AS requester_display_name,
+               p.price_anomaly, p.quote_update_required,
+               p.expenditure_no, p.rejection_memo, p.created_at, p.updated_at
         FROM financial_purchase_requests p
+        JOIN users u ON u.id = p.requested_by
         WHERE p.branch_id = $1
           AND (NOT $2 OR p.status = ANY($3))
           AND ($4::uuid IS NULL OR p.requested_by = $4)
@@ -2224,9 +2318,31 @@ async fn list_purchase_requests_tx(
     .fetch_all(tx.as_mut())
     .await?;
 
-    let mut items = Vec::with_capacity(ids.len());
-    for id in ids {
-        items.push(purchase_by_id_tx(tx, PurchaseRequestId::from_uuid(id)).await?);
+    let purchase_ids = rows
+        .iter()
+        .map(|row| row.try_get("id"))
+        .collect::<Result<Vec<uuid::Uuid>, sqlx::Error>>()?;
+    let lines_by_purchase = purchase_lines_for_page_tx(tx, &purchase_ids).await?;
+    let attachments_by_purchase = purchase_attachments_for_page_tx(tx, &purchase_ids).await?;
+    let org = current_org().map_err(KernelError::from)?;
+    let equipment_required = purchase_equipment_required(*org.as_uuid());
+    let mut items = Vec::with_capacity(rows.len());
+    for row in &rows {
+        let purchase_id: uuid::Uuid = row.try_get("id")?;
+        let lines = match lines_by_purchase.get(&purchase_id) {
+            Some(lines) => lines.clone(),
+            None => vec![legacy_purchase_line_from_row(row)?],
+        };
+        let attachments = attachments_by_purchase
+            .get(&purchase_id)
+            .cloned()
+            .unwrap_or_default();
+        items.push(purchase_from_parts(
+            row,
+            lines,
+            attachments,
+            equipment_required,
+        )?);
     }
     Ok(PurchaseRequestPage {
         items,
@@ -2253,6 +2369,20 @@ async fn purchase_from_row_tx(
     tx: &mut Transaction<'_, Postgres>,
     row: &sqlx::postgres::PgRow,
 ) -> Result<PurchaseRequestSummary, PgFinancialError> {
+    let purchase_id = PurchaseRequestId::from_uuid(row.try_get("id")?);
+    let lines = purchase_lines_tx(tx, purchase_id).await?;
+    let attachments = purchase_attachments_tx(tx, purchase_id).await?;
+    let org = current_org().map_err(KernelError::from)?;
+    let equipment_required = purchase_equipment_required(*org.as_uuid());
+    purchase_from_parts(row, lines, attachments, equipment_required)
+}
+
+fn purchase_from_parts(
+    row: &sqlx::postgres::PgRow,
+    lines: Vec<PurchaseRequestLineSummary>,
+    attachments: Vec<PurchaseAttachmentSummary>,
+    equipment_required: bool,
+) -> Result<PurchaseRequestSummary, PgFinancialError> {
     let status: String = row.try_get("status")?;
     let purchase_type_raw: String = row.try_get("purchase_type")?;
     let equipment_id: Option<uuid::Uuid> = row.try_get("equipment_id")?;
@@ -2261,10 +2391,6 @@ async fn purchase_from_row_tx(
     let purchase_id = PurchaseRequestId::from_uuid(row.try_get("id")?);
     let price_anomaly: bool = row.try_get("price_anomaly")?;
     let quote_update_required: bool = row.try_get("quote_update_required")?;
-    let lines = purchase_lines_tx(tx, purchase_id).await?;
-    let attachments = purchase_attachments_tx(tx, purchase_id).await?;
-    let org = current_org().map_err(KernelError::from)?;
-    let equipment_required = purchase_equipment_required(*org.as_uuid());
     let policy = PurchasePolicySummary {
         equipment_required,
         statement_evidence_required: equipment_id.is_some(),
@@ -2294,6 +2420,21 @@ async fn purchase_from_row_tx(
         rejection_memo: row.try_get("rejection_memo")?,
         created_at: row.try_get("created_at")?,
         updated_at: row.try_get("updated_at")?,
+    })
+}
+
+fn legacy_purchase_line_from_row(
+    row: &sqlx::postgres::PgRow,
+) -> Result<PurchaseRequestLineSummary, PgFinancialError> {
+    Ok(PurchaseRequestLineSummary {
+        id: uuid::Uuid::nil(),
+        line_no: 1,
+        item: "LEGACY_MANUAL".to_owned(),
+        quantity: 1,
+        unit_supply_price_won: row.try_get("amount_won")?,
+        vat_won: 0,
+        vat_overridden: true,
+        line_total_won: row.try_get("amount_won")?,
     })
 }
 
