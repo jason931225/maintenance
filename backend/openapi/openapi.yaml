@@ -13554,14 +13554,16 @@ paths:
       operationId: createConsultingEngagement
       security: [{ bearerAuth: [] }]
       requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ConsultingEngagementCreateRequest' } } } }
-      responses: { '201': { description: Created or idempotently replayed engagement, content: { application/json: { schema: { $ref: '#/components/schemas/ConsultingEngagement' } } } } }
+      responses:
+        '201': { description: Created or idempotently replayed original response for this exact idempotency key and request payload, content: { application/json: { schema: { $ref: '#/components/schemas/ConsultingEngagement' } } } }
+        '409': { description: Idempotency key was previously used with a different request payload, content: { application/json: { schema: { $ref: '#/components/schemas/ErrorBody' } } } }
   /api/v1/consulting/engagements/{engagement_id}:
     get:
       tags: [consulting]
       operationId: getConsultingEngagement
       security: [{ bearerAuth: [] }]
       parameters: [{ name: engagement_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
-      responses: { '200': { description: Evidence and KPI-lineage detail, content: { application/json: { schema: { $ref: '#/components/schemas/ConsultingEngagementDetail' } } } }, '404': { $ref: '#/components/responses/NotFound' } }
+      responses: { '200': { description: Evidence and KPI-lineage detail, content: { application/json: { schema: { $ref: '#/components/schemas/ConsultingEngagementDetail' } } } }, '401': { $ref: '#/components/responses/Unauthorized' }, '403': { $ref: '#/components/responses/Forbidden' }, '404': { $ref: '#/components/responses/NotFound' } }
   /api/v1/consulting/engagements/{engagement_id}/diagnostics:
     post:
       tags: [consulting]
@@ -13616,6 +13618,9 @@ paths:
               schema:
                 type: array
                 items: { $ref: '#/components/schemas/ConsultingHistoryEntry' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
 components:
   securitySchemes:
     bearerAuth:

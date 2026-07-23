@@ -19,6 +19,9 @@ CREATE TABLE consulting_engagements (
     status TEXT NOT NULL DEFAULT 'DRAFT' CHECK (status IN ('DRAFT','PROPOSED','APPROVED','IMPLEMENTED','MEASURED','SUSTAINED','CORRECTIVE')),
     approval_id UUID NULL, workflow_execution_id UUID NULL, version BIGINT NOT NULL DEFAULT 1 CHECK (version > 0),
     idempotency_key TEXT NOT NULL CHECK (btrim(idempotency_key) <> '' AND char_length(idempotency_key) <= 128),
+    idempotency_request_hash TEXT NOT NULL CHECK (idempotency_request_hash ~ '^[0-9a-f]{64}$'),
+    idempotency_response_status SMALLINT NOT NULL DEFAULT 201 CHECK (idempotency_response_status BETWEEN 200 AND 299),
+    idempotency_response JSONB NOT NULL DEFAULT '{}'::jsonb CHECK (jsonb_typeof(idempotency_response) = 'object'),
     created_by UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (org_id, idempotency_key), UNIQUE (id, org_id),
     FOREIGN KEY (customer_id, org_id) REFERENCES registry_customers(id, org_id) ON DELETE RESTRICT,
@@ -56,6 +59,38 @@ CREATE TABLE consulting_engagement_history (
 );
 CREATE INDEX idx_consulting_engagements_org_updated ON consulting_engagements(org_id, updated_at DESC, id);
 CREATE INDEX idx_consulting_history_engagement ON consulting_engagement_history(org_id, engagement_id, occurred_at);
+
+-- A tenant match alone is not enough: each control-plane reference has a
+-- distinct meaning. Keep that invariant in the database so every writer,
+-- including future non-REST writers, fails closed.
+CREATE OR REPLACE FUNCTION consulting_require_reference_kinds()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+DECLARE
+  pair_index INTEGER;
+  binding_id UUID;
+  actual_kind TEXT;
+BEGIN
+  FOR pair_index IN 0..(array_length(TG_ARGV, 1) / 2 - 1) LOOP
+    binding_id := NULLIF(to_jsonb(NEW)->>TG_ARGV[pair_index * 2], '')::uuid;
+    IF binding_id IS NULL THEN CONTINUE; END IF;
+    SELECT source_kind INTO actual_kind FROM consulting_reference_bindings WHERE id = binding_id AND org_id = NEW.org_id;
+    IF actual_kind IS DISTINCT FROM TG_ARGV[pair_index * 2 + 1] THEN
+      RAISE EXCEPTION 'consulting reference % must be a % binding', TG_ARGV[pair_index * 2], TG_ARGV[pair_index * 2 + 1];
+    END IF;
+  END LOOP;
+  RETURN NEW;
+END;
+$$;
+CREATE TRIGGER trg_consulting_engagement_reference_kinds BEFORE INSERT OR UPDATE ON consulting_engagements
+  FOR EACH ROW EXECUTE FUNCTION consulting_require_reference_kinds('customer_document_id', 'DOCUMENT', 'ontology_instance_id', 'ONTOLOGY_INSTANCE');
+CREATE TRIGGER trg_consulting_diagnostic_reference_kinds BEFORE INSERT OR UPDATE ON consulting_diagnostics
+  FOR EACH ROW EXECUTE FUNCTION consulting_require_reference_kinds('document_id', 'DOCUMENT');
+CREATE TRIGGER trg_consulting_finding_reference_kinds BEFORE INSERT OR UPDATE ON consulting_findings
+  FOR EACH ROW EXECUTE FUNCTION consulting_require_reference_kinds('evidence_id', 'EVIDENCE', 'document_id', 'DOCUMENT');
+CREATE TRIGGER trg_consulting_initiative_reference_kinds BEFORE INSERT OR UPDATE ON consulting_initiatives
+  FOR EACH ROW EXECUTE FUNCTION consulting_require_reference_kinds('kpi_definition_id', 'KPI_DEFINITION');
+CREATE TRIGGER trg_consulting_observation_reference_kinds BEFORE INSERT OR UPDATE ON consulting_benefit_observations
+  FOR EACH ROW EXECUTE FUNCTION consulting_require_reference_kinds('kpi_definition_id', 'KPI_DEFINITION', 'evidence_id', 'EVIDENCE');
 CREATE OR REPLACE FUNCTION consulting_reject_terminal_write()
 RETURNS TRIGGER LANGUAGE plpgsql AS $$
 BEGIN

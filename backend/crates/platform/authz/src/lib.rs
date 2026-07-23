@@ -270,7 +270,7 @@ pub enum Feature {
 }
 
 impl Feature {
-    pub const ALL: [Self; 65] = [
+    pub const ALL: [Self; 67] = [
         Self::Login,
         Self::WorkOrderCreate,
         Self::WorkOrderEditIntake,

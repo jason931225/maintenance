@@ -25896,13 +25896,22 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Created or idempotently replayed engagement */
+            /** @description Created or idempotently replayed original response for this exact idempotency key and request payload */
             201: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
                     "application/json": components["schemas"]["ConsultingEngagement"];
+                };
+            };
+            /** @description Idempotency key was previously used with a different request payload */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
                 };
             };
         };
@@ -25927,6 +25936,8 @@ export interface operations {
                     "application/json": components["schemas"]["ConsultingEngagementDetail"];
                 };
             };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
         };
     };
@@ -26081,6 +26092,9 @@ export interface operations {
                     "application/json": components["schemas"]["ConsultingHistoryEntry"][];
                 };
             };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
 }
