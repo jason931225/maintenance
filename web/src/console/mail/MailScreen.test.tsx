@@ -221,8 +221,8 @@ function LocationProbe() {
   const navigate = useNavigate();
   return (
     <>
-      <button type="button" data-testid="mail-history-back" onClick={() => { navigate(-1); }}>history back</button>
-      <button type="button" data-testid="mail-history-forward" onClick={() => { navigate(1); }}>history forward</button>
+      <button type="button" data-testid="mail-history-back" onClick={() => { void navigate(-1); }}>history back</button>
+      <button type="button" data-testid="mail-history-forward" onClick={() => { void navigate(1); }}>history forward</button>
       <output data-testid="mail-location">{`${location.pathname}${location.search}`}</output>
     </>
   );
@@ -373,6 +373,26 @@ describe("MailScreen", () => {
     expect(screen.getByTestId("mail-location")).toHaveTextContent(`mail_thread=${threads[1].id}`);
   });
 
+  it("replaces stale thread URLs reached through browser history with the loaded mailbox selection", async () => {
+    mockMailbox();
+    renderMailScreen(
+      allowAll,
+      makeAuthContext(),
+      [
+        "/console/mail?mail_thread=00000000-0000-4000-8000-000000000000&mail_view=detail",
+        `/console/mail?mail_thread=${threads[1].id}&mail_view=detail`,
+      ],
+    );
+
+    expect(await screen.findByText("월간 보고 본문")).toBeVisible();
+    await userEvent.click(screen.getByTestId("mail-history-back"));
+    expect(await screen.findByText("안전 HTML 본문")).toBeVisible();
+    await waitFor(() => {
+      expect(screen.getByTestId("mail-location")).toHaveTextContent(`mail_thread=${threads[0].id}`);
+      expect(screen.getByTestId("mail-location")).not.toHaveTextContent("00000000-0000-4000-8000-000000000000");
+    });
+  });
+
   it("closes every compose mode, restores the selected detail, and manages the folder dialog focus", async () => {
     mockMailbox();
     const user = userEvent.setup();
@@ -397,6 +417,12 @@ describe("MailScreen", () => {
       expect(screen.getByRole("button", { name: "메일 폴더 닫기" })).toHaveFocus();
     });
     fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "메일 폴더 열기" })).toHaveFocus();
+    });
+
+    await user.click(screen.getByRole("button", { name: "메일 폴더 열기" }));
+    fireEvent.click(surface.querySelector(".mail-screen__folder-backdrop") as HTMLElement);
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "메일 폴더 열기" })).toHaveFocus();
     });

@@ -46,6 +46,13 @@
     display: none;
   }
 
+  .mail-screen__folder-backdrop {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    background: color-mix(in srgb, var(--canvas) 52%, transparent);
+  }
+
   .mail-screen__surface[data-folder-open="true"] .mail-screen__folders {
     display: grid;
     position: absolute;

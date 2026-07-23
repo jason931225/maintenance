@@ -137,8 +137,8 @@ export function MailScreen() {
   const route = useMemo(() => parsedMailRoute(location.search), [location.search]);
   const folderId = route.folderId;
   const responsiveView = route.view;
-  const selectedThreadId = route.threadId && threads.some((thread) => thread.id === route.threadId)
-    ? route.threadId
+  const selectedThreadId = route.threadId
+    ? threads.some((thread) => thread.id === route.threadId) ? route.threadId : undefined
     : threads[0]?.id;
 
   const updateMailRoute = useCallback((updates: MailRouteUpdate, options: { replace?: boolean; focus?: "master" | "content" } = {}) => {
@@ -220,6 +220,17 @@ export function MailScreen() {
   useEffect(() => {
     void Promise.resolve().then(loadMailbox);
   }, [loadMailbox]);
+
+  useEffect(() => {
+    if (!route.threadId || (loadState !== "ready" && loadState !== "empty")) return;
+    if (threads.some((thread) => thread.id === route.threadId)) return;
+    updateMailRoute(
+      threads[0]
+        ? { threadId: threads[0].id }
+        : { threadId: undefined, view: "master" },
+      { replace: true },
+    );
+  }, [loadState, route.threadId, threads, updateMailRoute]);
 
   useEffect(() => {
     if (!folderNavOpen) return undefined;
@@ -471,6 +482,7 @@ export function MailScreen() {
         data-folder-open={folderNavOpen ? "true" : "false"}
         style={surfaceStyle}
       >
+      {folderNavOpen ? <div className="mail-screen__folder-backdrop" aria-hidden="true" onClick={closeFolderNav} /> : null}
       <MailFolderPane
         folders={folders}
         selectedFolderId={folderId}
