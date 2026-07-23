@@ -30,6 +30,8 @@ const TEST_AUDIENCE: &str = "mnt-api";
 const KEY: &str = "cas.http.proof";
 const POLICY_KEY: &str = "policycase";
 const ORG_B: Uuid = Uuid::from_u128(0x5555_5555_5555_5555_5555_5555_5555_5555);
+const MIGRATION_0169: &str =
+    include_str!("../../../platform/db/migrations/0169_add_normalized_catalog_policy_blocks.sql");
 
 struct TestAuth {
     token: String,
@@ -438,7 +440,7 @@ async fn instance_list_fails_closed_for_unsupported_or_malformed_enforced_policy
     )
     .await;
     let malformed = request_json(
-        service,
+        service.clone(),
         "GET",
         &format!("/api/v1/ontology/instances?type={type_id}"),
         &auth.token,
@@ -453,6 +455,266 @@ async fn instance_list_fails_closed_for_unsupported_or_malformed_enforced_policy
         "unable to evaluate object visibility policy"
     );
     assert!(!body_text(&malformed.body).contains("must-not-leak"));
+
+    // Every live row is revalidated, including metadata and canonical form. Each
+    // independent router request has a matching base permit, so a failure here
+    // proves an invalid sibling cannot be silently ignored to widen visibility.
+    for (key, effect, validation_status, blocks) in [
+        (
+            "policycanonical",
+            "permit",
+            "valid",
+            json!({
+                "effect": "permit", "action": "view", "resource_type": "policycanonical",
+                "conditions": [], "unexpected": "noncanonical"
+            }),
+        ),
+        (
+            "policystatus",
+            "permit",
+            "invalid",
+            json!({
+                "effect": "permit", "action": "view", "resource_type": "policystatus", "conditions": []
+            }),
+        ),
+        (
+            "policyaction",
+            "permit",
+            "valid",
+            json!({
+                "effect": "permit", "action": "delete_everything", "resource_type": "policyaction", "conditions": []
+            }),
+        ),
+        (
+            "policyresource",
+            "permit",
+            "valid",
+            json!({
+                "effect": "permit", "action": "view", "resource_type": "Bad-Key", "conditions": []
+            }),
+        ),
+        (
+            "policyattribute",
+            "permit",
+            "valid",
+            json!({
+                "effect": "permit", "action": "view", "resource_type": "policyattribute",
+                "conditions": [{
+                    "attr": "unapproved_attribute", "op": "eq",
+                    "value": { "kind": "literal", "value": "x" }
+                }]
+            }),
+        ),
+    ] {
+        let rejected = policy_validation_failure_response(
+            service.clone(),
+            &owner_pool,
+            &runtime_pool,
+            org,
+            actor,
+            &auth.token,
+            key,
+            effect,
+            validation_status,
+            blocks,
+        )
+        .await;
+        assert_eq!(rejected.status, StatusCode::INTERNAL_SERVER_ERROR, "{key}");
+        assert_eq!(rejected.body["error"]["code"], "internal", "{key}");
+        assert_eq!(
+            rejected.body["error"]["message"], "unable to evaluate object visibility policy",
+            "{key}"
+        );
+        assert!(
+            !body_text(&rejected.body).contains("must-not-leak"),
+            "{key}"
+        );
+    }
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn migration_0169_stages_existing_live_rows_without_inventing_normalized_policy_evidence(
+    owner_pool: PgPool,
+) {
+    // Rebuild the exact pre-0169 catalog shape inside the fully migrated fixture,
+    // then execute the shipped migration verbatim. This protects production
+    // upgrades, not merely fresh-schema behavior.
+    sqlx::raw_sql(
+        r#"
+        DROP TABLE cedar_policy_catalog_normalization_blockers;
+        ALTER TABLE cedar_policy_catalog_entries DROP COLUMN normalized_row;
+        "#,
+    )
+    .execute(&owner_pool)
+    .await
+    .expect("restore pre-0169 catalog shape");
+
+    let org = OrgId::knl();
+    seed_org_and_super_admin(&owner_pool, *org.as_uuid(), "migration-0169").await;
+    let resembles_no_code_shape: Uuid = sqlx::query_scalar(
+        r#"
+        INSERT INTO cedar_policy_catalog_entries
+            (org_id, stable_key, title, natural_language_rule, effect, status, source,
+             principal, action, resource, conditions, policy_version, schema_version,
+             bundle_digest, validation_status, generated_policy_text)
+        VALUES ($1, 'policy.legacy_reconstructable', 'Legacy reconstructable', 'legacy row',
+                'permit', 'enforced', 'no_code_draft', '{}'::jsonb,
+                '{"action_key":"view"}'::jsonb,
+                '{"resource_type":"work_order"}'::jsonb, '[]'::jsonb,
+                1, 'legacy-v1',
+                'sha256:0000000000000000000000000000000000000000000000000000000000000000',
+                'valid', 'permit(principal, action, resource);')
+        RETURNING id
+        "#,
+    )
+    .bind(*org.as_uuid())
+    .fetch_one(&owner_pool)
+    .await
+    .unwrap();
+    let unreconstructable: Uuid = sqlx::query_scalar(
+        r#"
+        INSERT INTO cedar_policy_catalog_entries
+            (org_id, stable_key, title, natural_language_rule, effect, status, source,
+             principal, action, resource, conditions, policy_version, schema_version,
+             bundle_digest, validation_status, generated_policy_text)
+        VALUES ($1, 'policy.legacy_unreconstructable', 'Legacy unreconstructable', 'legacy row',
+                'permit', 'shadow', 'imported_fixture', '{}'::jsonb, '{}'::jsonb,
+                '{}'::jsonb, '[]'::jsonb, 1, 'legacy-v1',
+                'sha256:0000000000000000000000000000000000000000000000000000000000000000',
+                'valid', 'permit(principal, action, resource);')
+        RETURNING id
+        "#,
+    )
+    .bind(*org.as_uuid())
+    .fetch_one(&owner_pool)
+    .await
+    .unwrap();
+
+    sqlx::raw_sql(MIGRATION_0169)
+        .execute(&owner_pool)
+        .await
+        .expect("0169 must upgrade pre-existing enforced and shadow rows safely");
+
+    let reconstructed: Option<Value> =
+        sqlx::query_scalar("SELECT normalized_row FROM cedar_policy_catalog_entries WHERE id = $1")
+            .bind(resembles_no_code_shape)
+            .fetch_one(&owner_pool)
+            .await
+            .unwrap();
+    assert!(
+        reconstructed.is_none(),
+        "legacy selector JSON is not canonical-policy evidence and must not be inferred"
+    );
+    let retained_status: String =
+        sqlx::query_scalar("SELECT status FROM cedar_policy_catalog_entries WHERE id = $1")
+            .bind(resembles_no_code_shape)
+            .fetch_one(&owner_pool)
+            .await
+            .unwrap();
+    assert_eq!(retained_status, "enforced");
+    let shadow_status: String =
+        sqlx::query_scalar("SELECT status FROM cedar_policy_catalog_entries WHERE id = $1")
+            .bind(unreconstructable)
+            .fetch_one(&owner_pool)
+            .await
+            .unwrap();
+    assert_eq!(shadow_status, "shadow");
+    let blocker: (String, String) = sqlx::query_as(
+        "SELECT prior_status, reason FROM cedar_policy_catalog_normalization_blockers WHERE catalog_entry_id = $1",
+    )
+    .bind(resembles_no_code_shape)
+    .fetch_one(&owner_pool)
+    .await
+    .unwrap();
+    assert_eq!(blocker.0, "enforced");
+    assert!(blocker.1.contains("missing a reviewed canonical"));
+    let blocker_statuses: Vec<String> = sqlx::query_scalar(
+        "SELECT prior_status FROM cedar_policy_catalog_normalization_blockers WHERE catalog_entry_id IN ($1, $2) ORDER BY prior_status",
+    )
+    .bind(resembles_no_code_shape)
+    .bind(unreconstructable)
+    .fetch_all(&owner_pool)
+    .await
+    .unwrap();
+    assert_eq!(blocker_statuses, vec!["enforced", "shadow"]);
+    let validated: bool = sqlx::query_scalar(
+        "SELECT convalidated FROM pg_constraint WHERE conname = 'cedar_policy_catalog_enforced_normalized_row'",
+    )
+    .fetch_one(&owner_pool)
+    .await
+    .unwrap();
+    assert!(
+        !validated,
+        "0169 must defer enforcement until reviewed backfill completes"
+    );
+}
+
+async fn policy_validation_failure_response(
+    service: axum::Router,
+    owner_pool: &PgPool,
+    runtime_pool: &PgPool,
+    org: OrgId,
+    actor: UserId,
+    token: &str,
+    key: &str,
+    effect: &str,
+    validation_status: &str,
+    blocks: Value,
+) -> HttpResponse {
+    let created = request_json(
+        service.clone(),
+        "POST",
+        "/api/v1/ontology/object-types",
+        token,
+        None,
+        policy_draft(key),
+    )
+    .await;
+    assert_eq!(
+        created.status,
+        StatusCode::CREATED,
+        "{key}: {:?}",
+        created.body
+    );
+    let type_id = created_object_type_id(&created.body);
+    let title = format!("{key}-must-not-leak");
+    let _instance_id = seed_instance(
+        runtime_pool,
+        org,
+        actor,
+        type_id,
+        &title,
+        json!({ "owner": actor.to_string(), "flagged": false }),
+    )
+    .await;
+    attach_enforced_policy(
+        owner_pool,
+        org,
+        type_id,
+        &format!("{key}.base"),
+        "permit",
+        owner_permit_blocks(key),
+    )
+    .await;
+    attach_enforced_policy_with_validation(
+        owner_pool,
+        org,
+        type_id,
+        &format!("{key}.invalid"),
+        effect,
+        validation_status,
+        blocks,
+    )
+    .await;
+    request_json(
+        service,
+        "GET",
+        &format!("/api/v1/ontology/instances?type={type_id}"),
+        token,
+        None,
+        Value::Null,
+    )
+    .await
 }
 
 fn policy_draft(key: &str) -> Value {
@@ -569,6 +831,21 @@ async fn attach_enforced_policy(
     effect: &str,
     blocks: Value,
 ) {
+    attach_enforced_policy_with_validation(
+        owner_pool, org, type_id, stable_key, effect, "valid", blocks,
+    )
+    .await;
+}
+
+async fn attach_enforced_policy_with_validation(
+    owner_pool: &PgPool,
+    org: OrgId,
+    type_id: mnt_ontology_domain::ObjectTypeId,
+    stable_key: &str,
+    effect: &str,
+    validation_status: &str,
+    blocks: Value,
+) {
     let policy_id: Uuid = sqlx::query_scalar(
         r#"
         INSERT INTO cedar_policy_catalog_entries
@@ -579,7 +856,7 @@ async fn attach_enforced_policy(
                 '{}'::jsonb, '{}'::jsonb, '{}'::jsonb, '[]'::jsonb, 1,
                 'ontology-runtime-filter-v1',
                 'sha256:0000000000000000000000000000000000000000000000000000000000000000',
-                'valid', $5, 'permit(principal, action, resource);')
+                $5, $6, 'permit(principal, action, resource);')
         RETURNING id
         "#,
     )
@@ -587,6 +864,7 @@ async fn attach_enforced_policy(
     .bind(stable_key)
     .bind(format!("Policy {stable_key}"))
     .bind(effect)
+    .bind(validation_status)
     .bind(blocks)
     // rls-arming: test fixture writes the protected catalog as DB owner before
     // the route exercises its genuine mnt_rt read role.

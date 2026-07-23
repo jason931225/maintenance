@@ -422,7 +422,7 @@ impl PgCedarPolicyStore {
             Box::pin(async move {
                 let rows = sqlx::query(
                     r#"
-                    SELECT c.normalized_row
+                    SELECT c.id, c.effect, c.validation_status, c.normalized_row
                     FROM ont_object_policies a
                     JOIN cedar_policy_catalog_entries c
                       ON c.id = a.cedar_policy_id AND c.org_id = a.org_id
@@ -435,12 +435,32 @@ impl PgCedarPolicyStore {
                 .await?;
                 rows.iter()
                     .map(|row| {
+                        let policy_id: Uuid = row.try_get("id")?;
+                        let effect: String = row.try_get("effect")?;
+                        let validation_status: String = row.try_get("validation_status")?;
                         let value: serde_json::Value = row.try_get("normalized_row")?;
-                        serde_json::from_value(value).map_err(|error| {
+                        let blocks: NoCodeBlocks = serde_json::from_value(value.clone()).map_err(|error| {
                             PgCedarError::Domain(KernelError::validation(format!(
-                                "invalid enforced object policy row: {error}"
+                                "invalid enforced object policy row {policy_id}: {error}"
                             )))
-                        })
+                        })?;
+                        let validation = authoring::validate_blocks(org, &blocks);
+                        if validation_status != "valid" || !validation.valid {
+                            return Err(PgCedarError::Domain(KernelError::validation(format!(
+                                "enforced object policy row {policy_id} is not valid"
+                            ))));
+                        }
+                        if validation.normalized_row != value {
+                            return Err(PgCedarError::Domain(KernelError::validation(format!(
+                                "enforced object policy row {policy_id} is not canonical"
+                            ))));
+                        }
+                        if blocks.effect.as_str() != effect {
+                            return Err(PgCedarError::Domain(KernelError::validation(format!(
+                                "enforced object policy row {policy_id} effect does not match catalog"
+                            ))));
+                        }
+                        Ok(blocks)
                     })
                     .collect()
             })

@@ -116,6 +116,12 @@ pub enum Effect {
 }
 
 impl Effect {
+    /// Database and canonical-wire representation of this effect.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        self.keyword()
+    }
+
     const fn keyword(self) -> &'static str {
         match self {
             Self::Permit => "permit",

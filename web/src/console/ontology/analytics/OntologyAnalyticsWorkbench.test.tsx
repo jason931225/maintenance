@@ -1,6 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -71,6 +72,24 @@ function mount(authorityKey = "tenant-a") {
         onDrill={onDrill}
       />
     </>,
+  );
+}
+
+function StatefulWorkbench() {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button type="button" onClick={() => setOpen(true)}>
+        Open analysis
+      </button>
+      <OntologyAnalyticsWorkbench
+        api={api}
+        authorityKey="tenant-a"
+        open={open}
+        onClose={() => setOpen(false)}
+        onDrill={onDrill}
+      />
+    </>
   );
 }
 
@@ -176,7 +195,7 @@ describe("OntologyAnalyticsWorkbench", () => {
     );
   });
 
-  it("fences an older authority response and restores focus on close", async () => {
+  it("fences an older authority response", async () => {
     const resolvers: Array<(value: (typeof summaryFixture)[]) => void> = [];
     apiReads.listObjectTypes.mockImplementation(
       () =>
@@ -185,8 +204,6 @@ describe("OntologyAnalyticsWorkbench", () => {
         }),
     );
     const { rerender } = mount("tenant-a");
-    const opener = screen.getByRole("button", { name: "Open analysis" });
-    opener.focus();
     rerender(
       <>
         <button type="button">Open analysis</button>
@@ -213,7 +230,32 @@ describe("OntologyAnalyticsWorkbench", () => {
         screen.getByText(/No authorized object types/i),
       ).toBeInTheDocument();
     });
-    await userEvent.setup().keyboard("{Escape}");
-    expect(onClose).toHaveBeenCalled();
+  });
+
+  it("restores the opener after Escape closes a stateful host", async () => {
+    apiReads.listObjectTypes.mockResolvedValue([]);
+    const user = userEvent.setup();
+    render(<StatefulWorkbench />);
+    const opener = screen.getByRole("button", { name: "Open analysis" });
+    await user.click(opener);
+    await screen.findByRole("dialog");
+    await user.keyboard("{Escape}");
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+    expect(document.activeElement).toBe(opener);
+  });
+
+  it("restores the opener after Close closes a stateful host", async () => {
+    apiReads.listObjectTypes.mockResolvedValue([]);
+    const user = userEvent.setup();
+    render(<StatefulWorkbench />);
+    const opener = screen.getByRole("button", { name: "Open analysis" });
+    await user.click(opener);
+    await user.click(await screen.findByRole("button", { name: "Close" }));
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    });
+    expect(document.activeElement).toBe(opener);
   });
 });
