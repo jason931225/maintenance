@@ -7581,8 +7581,8 @@ export interface components {
             metadata?: {
                 [key: string]: unknown;
             };
-            /** @default [] */
-            regulation_links: components["schemas"]["RegulationLinkRequest"][];
+            /** @description Omit to create no regulation links; the server treats omission as an empty list. */
+            regulation_links?: components["schemas"]["RegulationLinkRequest"][];
         };
         LinkObligationRegulationRequest: {
             obligation_id: components["schemas"]["Uuid"];
@@ -13370,6 +13370,15 @@ export interface components {
                 "application/json": components["schemas"]["ErrorBody"];
             };
         };
+        /** @description Unexpected server-side failure. */
+        InternalServerError: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorBody"];
+            };
+        };
         /** @description Webmail is not configured on this server (the master key MNT_MAIL_MASTER_KEY is absent), or JWT verification is not configured. The app is otherwise healthy. */
         MailUnavailable: {
             headers: {
@@ -16036,6 +16045,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             422: components["responses"]["ValidationError"];
+            500: components["responses"]["InternalServerError"];
             503: components["responses"]["ServiceUnavailable"];
         };
     };
@@ -16064,6 +16074,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             422: components["responses"]["ValidationError"];
+            500: components["responses"]["InternalServerError"];
             503: components["responses"]["ServiceUnavailable"];
         };
     };
@@ -16097,6 +16108,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             422: components["responses"]["ValidationError"];
+            500: components["responses"]["InternalServerError"];
             503: components["responses"]["ServiceUnavailable"];
         };
     };
@@ -16125,6 +16137,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             422: components["responses"]["ValidationError"];
+            500: components["responses"]["InternalServerError"];
             503: components["responses"]["ServiceUnavailable"];
         };
     };
@@ -16153,6 +16166,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             422: components["responses"]["ValidationError"];
+            500: components["responses"]["InternalServerError"];
             503: components["responses"]["ServiceUnavailable"];
         };
     };
@@ -16183,6 +16197,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             422: components["responses"]["ValidationError"];
+            500: components["responses"]["InternalServerError"];
             503: components["responses"]["ServiceUnavailable"];
         };
     };
@@ -16211,6 +16226,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             422: components["responses"]["ValidationError"];
+            500: components["responses"]["InternalServerError"];
             503: components["responses"]["ServiceUnavailable"];
         };
     };
@@ -16241,6 +16257,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             422: components["responses"]["ValidationError"];
+            500: components["responses"]["InternalServerError"];
             503: components["responses"]["ServiceUnavailable"];
         };
     };
@@ -16269,6 +16286,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             422: components["responses"]["ValidationError"];
+            500: components["responses"]["InternalServerError"];
             503: components["responses"]["ServiceUnavailable"];
         };
     };
@@ -16297,6 +16315,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             422: components["responses"]["ValidationError"];
+            500: components["responses"]["InternalServerError"];
             503: components["responses"]["ServiceUnavailable"];
         };
     };
@@ -16328,6 +16347,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             422: components["responses"]["ValidationError"];
+            500: components["responses"]["InternalServerError"];
             503: components["responses"]["ServiceUnavailable"];
         };
     };
@@ -16356,6 +16376,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             422: components["responses"]["ValidationError"];
+            500: components["responses"]["InternalServerError"];
             503: components["responses"]["ServiceUnavailable"];
         };
     };

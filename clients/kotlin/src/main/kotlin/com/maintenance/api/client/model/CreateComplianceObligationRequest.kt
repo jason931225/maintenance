@@ -46,7 +46,7 @@ import kotlinx.serialization.Contextual
  * @param reviewCadence
  * @param nextReviewOn
  * @param metadata
- * @param regulationLinks
+ * @param regulationLinks Omit to create no regulation links; the server treats omission as an empty list.
  */
 @Serializable
 
@@ -85,6 +85,7 @@ data class CreateComplianceObligationRequest (
     @Contextual @SerialName(value = "metadata")
     val metadata: kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>? = null,
 
+    /* Omit to create no regulation links; the server treats omission as an empty list. */
     @SerialName(value = "regulation_links")
     val regulationLinks: kotlin.collections.List<RegulationLinkRequest>? = null
 
