@@ -32,7 +32,8 @@ ALTER TABLE cedar_policy_catalog_normalization_blockers
     ADD CONSTRAINT fk_cedar_policy_catalog_normalization_blockers_catalog
     FOREIGN KEY (catalog_entry_id, org_id)
     REFERENCES cedar_policy_catalog_entries (id, org_id)
-    ON DELETE CASCADE;
+    ON DELETE CASCADE
+    NOT VALID;
 
 ALTER TABLE cedar_policy_catalog_normalization_blockers ENABLE ROW LEVEL SECURITY;
 ALTER TABLE cedar_policy_catalog_normalization_blockers FORCE ROW LEVEL SECURITY;

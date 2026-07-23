@@ -32,6 +32,12 @@ const POLICY_KEY: &str = "policycase";
 const ORG_B: Uuid = Uuid::from_u128(0x5555_5555_5555_5555_5555_5555_5555_5555);
 const MIGRATION_0169: &str =
     include_str!("../../../platform/db/migrations/0169_add_normalized_catalog_policy_blocks.sql");
+const MIGRATION_0170: &str = include_str!(
+    "../../../platform/db/migrations/0170_harden_object_policy_attachment_and_blockers.sql"
+);
+const MIGRATION_0171: &str = include_str!(
+    "../../../platform/db/migrations/0171_validate_catalog_normalization_blocker_fk.sql"
+);
 
 struct TestAuth {
     token: String,
@@ -531,7 +537,7 @@ async fn instance_list_fails_closed_for_unsupported_or_malformed_enforced_policy
         );
     }
 
-    let effect_mismatch = policy_attachment_effect_mismatch_response(
+    let (effect_mismatch, mismatch_instance_id) = policy_attachment_effect_mismatch_response(
         service,
         &owner_pool,
         &runtime_pool,
@@ -547,6 +553,9 @@ async fn instance_list_fails_closed_for_unsupported_or_malformed_enforced_policy
         "unable to evaluate object visibility policy"
     );
     assert!(!body_text(&effect_mismatch.body).contains("effect-mismatch-secret"));
+    assert!(!body_text(&effect_mismatch.body).contains(&mismatch_instance_id.to_string()));
+    assert!(effect_mismatch.body.get("instance").is_none());
+    assert!(effect_mismatch.body.get("instances").is_none());
 }
 
 async fn policy_attachment_effect_mismatch_response(
@@ -556,7 +565,7 @@ async fn policy_attachment_effect_mismatch_response(
     org: OrgId,
     actor: UserId,
     token: &str,
-) -> HttpResponse {
+) -> (HttpResponse, Uuid) {
     let key = "policyeffectmismatch";
     let created = request_json(
         service.clone(),
@@ -569,7 +578,7 @@ async fn policy_attachment_effect_mismatch_response(
     .await;
     assert_eq!(created.status, StatusCode::CREATED, "{:?}", created.body);
     let type_id = created_object_type_id(&created.body);
-    let _instance_id = seed_instance(
+    let instance_id = seed_instance(
         runtime_pool,
         org,
         actor,
@@ -605,7 +614,7 @@ async fn policy_attachment_effect_mismatch_response(
     .await
     .expect("restore invariant trigger after corrupt-row fixture");
 
-    request_json(
+    let response = request_json(
         service,
         "GET",
         &format!("/api/v1/ontology/instances?type={type_id}"),
@@ -613,7 +622,8 @@ async fn policy_attachment_effect_mismatch_response(
         None,
         Value::Null,
     )
-    .await
+    .await;
+    (response, instance_id)
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
@@ -829,26 +839,38 @@ async fn blocker_queue_is_tenant_scoped_cascades_and_attachment_effects_are_writ
     .unwrap();
 
     let runtime_pool = runtime_role_pool(&owner_pool).await;
-    let visible_to_a: Uuid = scope_org(org_a, async {
+    let visible_to_a: Vec<Uuid> = scope_org(org_a, async {
         sqlx::query_scalar(
             "SELECT catalog_entry_id FROM cedar_policy_catalog_normalization_blockers",
         )
-        .fetch_one(&runtime_pool)
+        .fetch_all(&runtime_pool)
         .await
         .unwrap()
     })
     .await;
-    assert_eq!(visible_to_a, catalog_a);
-    let visible_to_b: Uuid = scope_org(org_b, async {
+    assert_eq!(visible_to_a, vec![catalog_a]);
+    let visible_to_b: Vec<Uuid> = scope_org(org_b, async {
         sqlx::query_scalar(
             "SELECT catalog_entry_id FROM cedar_policy_catalog_normalization_blockers",
         )
-        .fetch_one(&runtime_pool)
+        .fetch_all(&runtime_pool)
         .await
         .unwrap()
     })
     .await;
-    assert_eq!(visible_to_b, catalog_b);
+    assert_eq!(visible_to_b, vec![catalog_b]);
+
+    let cross_org_blocker = sqlx::query(
+        "INSERT INTO cedar_policy_catalog_normalization_blockers (org_id, catalog_entry_id, prior_status, reason) VALUES ($1, $2, 'enforced', 'cross-org fixture')",
+    )
+    .bind(*org_b.as_uuid())
+    .bind(catalog_a)
+    .execute(&owner_pool)
+    .await;
+    assert!(
+        cross_org_blocker.is_err(),
+        "a blocker cannot reference another tenant's catalog entry"
+    );
 
     let mismatch = sqlx::query(
         "INSERT INTO ont_object_policies (org_id, object_type_id, cedar_policy_id, effect) VALUES ($1, $2, $3, 'forbid')",
@@ -876,6 +898,77 @@ async fn blocker_queue_is_tenant_scoped_cascades_and_attachment_effects_are_writ
             .await
             .unwrap();
     assert_eq!(orphan_count, 0);
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn migration_0170_stages_blocker_fk_and_0171_validates_only_after_preflight(
+    owner_pool: PgPool,
+) {
+    sqlx::raw_sql(
+        r#"
+        DROP TRIGGER trg_ont_object_policies_effect_matches_catalog ON ont_object_policies;
+        DROP FUNCTION enforce_ont_object_policy_effect_matches_catalog();
+        DROP TRIGGER trg_cedar_policy_catalog_normalization_blockers_org_immutable
+            ON cedar_policy_catalog_normalization_blockers;
+        DROP POLICY org_isolation ON cedar_policy_catalog_normalization_blockers;
+        ALTER TABLE cedar_policy_catalog_normalization_blockers NO FORCE ROW LEVEL SECURITY;
+        ALTER TABLE cedar_policy_catalog_normalization_blockers DISABLE ROW LEVEL SECURITY;
+        REVOKE SELECT ON cedar_policy_catalog_normalization_blockers FROM mnt_rt;
+        ALTER TABLE cedar_policy_catalog_normalization_blockers
+            DROP CONSTRAINT fk_cedar_policy_catalog_normalization_blockers_catalog;
+        "#,
+    )
+    .execute(&owner_pool)
+    .await
+    .expect("restore pre-0170 hardening shape");
+
+    let org = OrgId::knl();
+    seed_org_and_super_admin(&owner_pool, *org.as_uuid(), "migration-0170").await;
+    let orphan_id = Uuid::new_v4();
+    sqlx::query(
+        "INSERT INTO cedar_policy_catalog_normalization_blockers (org_id, catalog_entry_id, prior_status, reason) VALUES ($1, $2, 'enforced', 'preflight fixture')",
+    )
+    .bind(*org.as_uuid())
+    .bind(orphan_id)
+    .execute(&owner_pool)
+    .await
+    .unwrap();
+
+    sqlx::raw_sql(MIGRATION_0170)
+        .execute(&owner_pool)
+        .await
+        .expect("0170 must install an unvalidated FK without scanning legacy rows");
+    let staged: bool = sqlx::query_scalar(
+        "SELECT convalidated FROM pg_constraint WHERE conname = 'fk_cedar_policy_catalog_normalization_blockers_catalog'",
+    )
+    .fetch_one(&owner_pool)
+    .await
+    .unwrap();
+    assert!(!staged, "0170 FK must remain NOT VALID during the deploy");
+    let premature_validation = sqlx::raw_sql(MIGRATION_0171).execute(&owner_pool).await;
+    assert!(
+        premature_validation.is_err(),
+        "0171 preflight must reject orphan blockers rather than validating"
+    );
+
+    sqlx::query(
+        "DELETE FROM cedar_policy_catalog_normalization_blockers WHERE catalog_entry_id = $1",
+    )
+    .bind(orphan_id)
+    .execute(&owner_pool)
+    .await
+    .unwrap();
+    sqlx::raw_sql(MIGRATION_0171)
+        .execute(&owner_pool)
+        .await
+        .expect("0171 must validate once preflight is clean");
+    let validated: bool = sqlx::query_scalar(
+        "SELECT convalidated FROM pg_constraint WHERE conname = 'fk_cedar_policy_catalog_normalization_blockers_catalog'",
+    )
+    .fetch_one(&owner_pool)
+    .await
+    .unwrap();
+    assert!(validated);
 }
 
 fn policy_draft(key: &str) -> Value {
