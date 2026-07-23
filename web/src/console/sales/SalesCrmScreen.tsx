@@ -126,10 +126,18 @@ export function SalesCrmScreen({ api }: { api: ConsoleApiClient }) {
     return () => { mounted.current = false; };
   }, []);
 
-  const latchTerminalDenied = useCallback(() => {
+  /**
+   * A 401/403 is terminal only for the API/session incarnation that issued it.
+   * A replacement client represents a newer authenticated context, so a late
+   * denial from the old client must not erase the newer view. Within one client
+   * and generation, denial remains monotonic and fail-closed.
+   */
+  const latchTerminalDenied = useCallback((requestApi: ConsoleApiClient, generation: number) => {
+    if (apiRef.current !== requestApi || generation !== viewGeneration.current) return false;
     terminalDenied.current = true;
     inboxDenied.current = true;
     if (mounted.current) setInboxState("denied");
+    return true;
   }, []);
 
   const selectInquiry = useCallback((id: string, focus = false) => {
@@ -139,6 +147,7 @@ export function SalesCrmScreen({ api }: { api: ConsoleApiClient }) {
 
   const loadListings = useCallback(async (append = false, bypassCache = false, force = false) => {
     const generation = viewGeneration.current;
+    const requestApi = api;
     const listingOffset = append ? listingsRef.current.length : 0;
     if (listingsPendingRef.current && !force) return;
     const owner = ++listingRequestOwner.current;
@@ -150,7 +159,7 @@ export function SalesCrmScreen({ api }: { api: ConsoleApiClient }) {
         params: { query: { limit: PAGE_SIZE, offset: listingOffset } },
         ...(bypassCache ? { headers: { "Cache-Control": "no-cache" } } : {}),
       });
-      if (errorKind(listingResult) === "denied") { latchTerminalDenied(); return; }
+      if (errorKind(listingResult) === "denied") { latchTerminalDenied(requestApi, generation); return; }
       if (terminalDenied.current || generation !== viewGeneration.current || owner !== listingRequestOwner.current) return;
       if (!listingResult.data) {
         const failure = errorKind(listingResult);
@@ -174,6 +183,7 @@ export function SalesCrmScreen({ api }: { api: ConsoleApiClient }) {
 
   const loadInquiries = useCallback(async (append = false, bypassCache = false, force = false) => {
     const generation = viewGeneration.current;
+    const requestApi = api;
     const dataVersion = inboxDataVersion.current;
     const inquiryOffset = append ? inquiriesRef.current.length : 0;
     if (inquiriesPendingRef.current && !force) return;
@@ -186,7 +196,7 @@ export function SalesCrmScreen({ api }: { api: ConsoleApiClient }) {
         params: { query: { limit: PAGE_SIZE, offset: inquiryOffset, ...(filterRef.current === "ALL" ? {} : { status: filterRef.current }) } },
         ...(bypassCache ? { headers: { "Cache-Control": "no-cache" } } : {}),
       });
-      if (errorKind(inquiryResult) === "denied") { latchTerminalDenied(); return; }
+      if (errorKind(inquiryResult) === "denied") { latchTerminalDenied(requestApi, generation); return; }
       if (terminalDenied.current || generation !== viewGeneration.current || owner !== inquiryRequestOwner.current || dataVersion !== inboxDataVersion.current || inboxDenied.current) return;
       if (!inquiryResult.data) {
         setInboxState(inquiriesRef.current.length === 0 ? "error" : "stale-error");
@@ -257,7 +267,7 @@ export function SalesCrmScreen({ api }: { api: ConsoleApiClient }) {
           params: { path: { id: inquiry.id } },
           body: { status: next },
         });
-        if (errorKind(result) === "denied") { latchTerminalDenied(); return; }
+        if (errorKind(result) === "denied") { latchTerminalDenied(requestApi, generation); return; }
         const ownsCurrentView = mounted.current && apiRef.current === requestApi && generation === viewGeneration.current && operationOwner.current.get(inquiry.id) === owner && !terminalDenied.current;
         if (!ownsCurrentView) return;
         if (result.error || !result.response.ok) {

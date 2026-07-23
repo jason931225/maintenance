@@ -129,31 +129,42 @@ describe("AppRouter console rollout boundary", () => {
     vi.unstubAllEnvs();
   });
 
-  it("keeps the mounted console unreachable without consulting rollout authority when no screen has ADR-0025 evidence", () => {
+  it("admits an authorized user to the sole evidence-approved sales route through server rollout authority", async () => {
     isConsoleHost.mockReturnValue(false);
     const api = {
-      GET: vi.fn().mockResolvedValue({
-        data: {
-          flag_key: "console_carbon_copy",
-          org_enabled: true,
-          org_rollout_enabled: true,
-          user_opted_in: true,
-          legacy_kill_switch_enabled: false,
-          kill_switch_active: false,
-          effective_new_console: true,
-          effective_route: "new_console",
-          effective_route_for_opted_in_user: "new_console",
-          effective_route_for_opted_out_user: "legacy",
-          overrides_individual_toggles: false,
-        },
-      }),
+      GET: vi.fn((path: string) => Promise.resolve(path === "/api/v1/console/rollout"
+        ? {
+            data: {
+              flag_key: "console_carbon_copy",
+              org_enabled: true,
+              org_rollout_enabled: true,
+              user_opted_in: true,
+              legacy_kill_switch_enabled: false,
+              kill_switch_active: false,
+              effective_new_console: true,
+              effective_route: "new_console",
+              effective_route_for_opted_in_user: "new_console",
+              effective_route_for_opted_out_user: "legacy",
+              overrides_individual_toggles: false,
+            },
+          }
+        : path === "/api/v1/sales/listings"
+          ? { data: { items: [], limit: 50, offset: 0, total: 0 } }
+          : path === "/api/v1/sales/inquiries"
+            ? { data: { items: [], limit: 50, offset: 0, total: 0 } }
+            : { data: undefined })),
+      PATCH: vi.fn(),
+      POST: vi.fn(),
     } as unknown as ConsoleApiClient;
 
-    renderAt("/console/overview", { auth: authenticatedContext(api) });
+    renderAt("/console/sales", { auth: authenticatedContext(api) });
 
-    expect(screen.getByTestId("location")).toHaveTextContent("/overview");
-    expect(document.querySelector("[data-console-root]")).toBeNull();
-    expect(api.GET).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(document.querySelector("[data-console-root]")).not.toBeNull();
+    });
+    expect(await screen.findByText("장비 판매 목록")).toBeVisible();
+    expect(screen.getByTestId("location")).toHaveTextContent("/console/sales");
+    expect(api.GET).toHaveBeenCalledWith("/api/v1/console/rollout", expect.anything());
   });
 
   it("renders mounted inventory only with the explicit development preview opt-in", async () => {

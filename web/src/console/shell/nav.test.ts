@@ -31,12 +31,13 @@ function screens(
 }
 
 describe("console nav deny-by-omission", () => {
-  it("keeps every mounted screen DARK until its ADR-0025 evidence is approved", () => {
+  it("exposes only the ADR-0025-reviewed sales vertical slice", () => {
     const s = screens(grants([ROLES.MEMBER]));
     expect(MOUNTED_SCREEN_KEYS).toEqual(
       expect.arrayContaining(["overview", "mywork", "sales", "mail"]),
     );
-    expect(EXPOSED_SCREEN_KEYS).toEqual([]);
+    expect(EXPOSED_SCREEN_KEYS).toEqual(["sales"]);
+    // The sole exposed screen remains deny-by-omission for a no-grant member.
     expect(s).toEqual(new Set());
   });
 
@@ -121,8 +122,8 @@ describe("console nav deny-by-omission", () => {
     ).toBe(true);
   });
 
-  it("does not invent a default screen when no evidence-approved screen is exposed", () => {
-    expect(defaultScreen(grants([ROLES.ADMIN]))).toBeUndefined();
+  it("uses sales as the only approved default for an authorized persona", () => {
+    expect(defaultScreen(grants([ROLES.ADMIN]))).toBe("sales");
     expect(defaultScreen(grants([ROLES.MEMBER]))).toBeUndefined();
   });
 
@@ -152,6 +153,7 @@ describe("console nav deny-by-omission", () => {
   });
 
   it("narrows only production-visible screen keys", () => {
+    expect(isExposedScreenKey("sales")).toBe(true);
     expect(isExposedScreenKey("audit")).toBe(false);
     expect(isExposedScreenKey("docs")).toBe(false);
     expect(isExposedScreenKey("unknown")).toBe(false);

@@ -215,6 +215,40 @@ describe("SalesCrmScreen", () => {
     expect(await screen.findByText("판매 관리 권한이 없습니다.")).toBeVisible();
   });
 
+  it.each([
+    "/api/v1/sales/listings",
+    "/api/v1/sales/inquiries",
+  ] as const)("does not let a replaced API client's late 403 deny the current view (%s)", async (deniedPath) => {
+    const oldDeniedRead = deferred<unknown>();
+    const apiA = api();
+    const apiB = api();
+    const currentListing = { ...listing, model_name: "E35 최신 전동 지게차" };
+    const currentInquiry = { ...inquiry, name: "새 세션 고객" };
+    vi.mocked(apiA.GET).mockImplementation((path: string) =>
+      path === deniedPath ? oldDeniedRead.promise : new Promise(() => {}),
+    );
+    vi.mocked(apiB.GET).mockImplementation((path: string) => Promise.resolve(
+      path === "/api/v1/sales/listings"
+        ? ({ response: new Response(), data: { items: [currentListing], limit: 50, offset: 0, total: 1 } } as never)
+        : ({ response: new Response(), data: { items: [currentInquiry], limit: 50, offset: 0, total: 1 } } as never),
+    ));
+
+    const view = render(<SalesCrmScreen api={apiA} />);
+    await waitFor(() => { expect(apiA.GET).toHaveBeenCalledTimes(2); });
+    view.rerender(<SalesCrmScreen api={apiB} />);
+    expect(await screen.findByText("E35 최신 전동 지게차")).toBeVisible();
+    expect(await screen.findByRole("option", { name: /새 세션 고객/ })).toBeVisible();
+
+    await act(async () => {
+      oldDeniedRead.resolve({ response: new Response(null, { status: 403 }), error: { message: "forbidden" } });
+      await Promise.resolve();
+    });
+
+    expect(screen.queryByText("판매 관리 권한이 없습니다.")).not.toBeInTheDocument();
+    expect(screen.getByText("E35 최신 전동 지게차")).toBeVisible();
+    expect(screen.getByRole("option", { name: /새 세션 고객/ })).toBeVisible();
+  });
+
   it("does not let a GET rejection overwrite a PATCH denial", async () => {
     const rejectedRead = deferred<unknown>();
     let inquiryCalls = 0;
