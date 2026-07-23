@@ -463,6 +463,126 @@ async fn create_rejects_a_production_approval_after_its_single_consumption(pool:
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn concurrent_tenant_authorized_reservations_do_not_oversubscribe_material_or_capacity(
+    pool: PgPool,
+) {
+    let keys = keys();
+    let fixture = seed_fixture(&pool).await;
+    let token = bearer(
+        &keys,
+        fixture.planner,
+        fixture.org,
+        "SUPER_ADMIN",
+        fixture.branch,
+    );
+    let second_demand = Uuid::new_v4();
+    sqlx::query("INSERT INTO production_demand_contracts (id, org_id, inquiry_id, product_code, quantity, due_at, source_system, source_id, source_version, evaluated_at) SELECT $1, org_id, inquiry_id, product_code, quantity, due_at, source_system, $2, source_version, now() FROM production_demand_contracts WHERE id=$3")
+        .bind(second_demand)
+        .bind(format!("concurrent-demand-{}", Uuid::new_v4().simple()))
+        .bind(fixture.demand)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let second_approval = Uuid::new_v4();
+    sqlx::query("INSERT INTO gov_approvals (id,org_id,request_ref,kind,target_ref,requested_by,approver_id,decision) VALUES ($1,$2,$3,'production_plan_create',$4,$5,$6,'approved')")
+        .bind(second_approval)
+        .bind(*fixture.org.as_uuid())
+        .bind(Uuid::new_v4())
+        .bind(second_demand)
+        .bind(*fixture.planner.as_uuid())
+        .bind(*fixture.reviewer.as_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    sqlx::query("UPDATE production_capacity_slots SET available_quantity=10, reserved_quantity=0 WHERE id=$1")
+        .bind(fixture.capacity)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let first = create_body(&fixture, "production-concurrent-reservation-1");
+    let mut second = create_body(&fixture, "production-concurrent-reservation-2");
+    second["customer_demand_id"] = json!(second_demand);
+    second["approval_ref"] = json!(second_approval);
+
+    let mut capacity_lock = pool.begin().await.unwrap();
+    sqlx::query("SELECT id FROM production_capacity_slots WHERE id=$1 FOR UPDATE")
+        .bind(fixture.capacity)
+        .execute(&mut *capacity_lock)
+        .await
+        .unwrap();
+    let service = app(runtime_role_pool(&pool).await, &keys);
+    let first_token = token.clone();
+    let first_request = tokio::spawn(async move {
+        post(service.clone(), PRODUCTION_PLANS_PATH, &first_token, first).await
+    });
+    let second_request =
+        tokio::spawn(async move { post(service, PRODUCTION_PLANS_PATH, &token, second).await });
+
+    let mut both_reservations_blocked = false;
+    for _ in 0..1_000 {
+        let blocked: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock' AND (query LIKE '%production_capacity_slots%' OR query LIKE '%inventory_items%')",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        if blocked >= 2 {
+            both_reservations_blocked = true;
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
+    capacity_lock.commit().await.unwrap();
+    assert!(
+        both_reservations_blocked,
+        "both tenant-authorized reservations must reach the database lock boundary"
+    );
+
+    let (first_status, first_body) = first_request.await.unwrap();
+    let (second_status, second_body) = second_request.await.unwrap();
+    let mut statuses = [first_status, second_status];
+    statuses.sort();
+    assert_eq!(
+        statuses,
+        [StatusCode::CREATED, StatusCode::SERVICE_UNAVAILABLE],
+        "only one reservation may succeed without a generic server failure: {first_body:?}, {second_body:?}"
+    );
+    let reserved: i64 =
+        sqlx::query_scalar("SELECT reserved_quantity FROM production_capacity_slots WHERE id=$1")
+            .bind(fixture.capacity)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(reserved, 10, "capacity cannot be oversubscribed");
+    let on_hand: i64 =
+        sqlx::query_scalar("SELECT quantity_on_hand_milli FROM inventory_items WHERE id=$1")
+            .bind(fixture.material)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(on_hand, 90, "material cannot be oversubscribed");
+    let hashes: Vec<String> = sqlx::query_scalar("SELECT request_hash FROM production_idempotency_claims WHERE org_id=$1 AND operation='CREATE_PLAN' AND idempotency_key = ANY($2)")
+        .bind(*fixture.org.as_uuid())
+        .bind(vec!["production-concurrent-reservation-1", "production-concurrent-reservation-2"])
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        hashes.len(),
+        1,
+        "only the committed reservation retains its idempotency claim"
+    );
+    assert!(
+        hashes[0].len() == 64
+            && hashes[0]
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit() && !byte.is_ascii_uppercase()),
+        "the committed tenant-authorized reservation must retain its exact SHA-256 request hash"
+    );
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn operation_record_rejects_a_terminal_operation_write(pool: PgPool) {
     let keys = keys();
     let fixture = seed_fixture(&pool).await;

@@ -506,7 +506,7 @@ async fn resolve_required_sources(
             "demand contract does not match quantity and due date",
         ));
     }
-    let material = sqlx::query("SELECT id, iv_code, quantity_on_hand_milli, safety_stock_milli, updated_at FROM inventory_items WHERE id=$1 AND branch_id=$2 AND status='ACTIVE' FOR SHARE")
+    let material = sqlx::query("SELECT id, iv_code, quantity_on_hand_milli, safety_stock_milli, updated_at FROM inventory_items WHERE id=$1 AND branch_id=$2 AND status='ACTIVE' FOR UPDATE")
         .bind(request.material_item_id).bind(*request.branch_id.as_uuid()).fetch_optional(&mut **tx).await.map_err(RestError::db)?
         .ok_or_else(|| RestError::unavailable("material source is unavailable"))?;
     let on_hand: i64 = material
