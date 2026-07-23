@@ -10,6 +10,7 @@ import { useMemo } from "react";
 
 import { useAuth } from "../../context/auth";
 import { PolicyGateProvider, type PolicyGate } from "../policy";
+import { ApprovalBulkInbox } from "./ApprovalBulkInbox";
 import { ApprovalCompose } from "./ApprovalCompose";
 
 // The five granted operational roles plus MEMBER — everyone signed in can raise
@@ -44,6 +45,7 @@ export function ApprovalScreenBody() {
 
   return (
     <PolicyGateProvider gate={gate}>
+      <ApprovalBulkInbox bearerToken={session?.access_token} currentUserId={session?.user_id} />
       <ApprovalCompose bearerToken={session?.access_token} currentUserId={session?.user_id} />
     </PolicyGateProvider>
   );

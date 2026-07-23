@@ -78,12 +78,29 @@ export interface WorkflowDecisionResult {
   nextTask?: unknown;
 }
 
+/** Server-owned task fields. Eligibility is deliberately derived only from these fields. */
+export interface WorkflowWaitingTask {
+  task_id: string;
+  run_id: string;
+  waiting_key: string;
+  title: string;
+  assignee_role_key?: string;
+  required_policy?: string;
+  object_type?: string;
+  object_id?: string;
+  status: string;
+  claimed_by?: string;
+  due_at?: string;
+  form_payload: Record<string, unknown>;
+}
+
 export interface ApprWorkflowApi {
   listSubmittableDefinitions(): Promise<ApprTemplate[]>;
   searchObjects(query: string): Promise<ObjectLinkRef[]>;
   resolveObject(kind: string, id: string): Promise<ObjectLinkRef | undefined>;
   submitDraft(draft: ApprComposeDraft, options?: { idempotencyKey?: string; correlationId?: string }): Promise<SubmittedComposeRun>;
-  decideTask(taskId: string, decision: WorkflowDecision, options?: { comment?: string; idempotencyKey?: string }): Promise<WorkflowDecisionResult>;
+  listWaitingTasks(): Promise<WorkflowWaitingTask[]>;
+  decideTask(taskId: string, decision: WorkflowDecision, options?: { comment?: string; idempotencyKey?: string; signal?: AbortSignal }): Promise<WorkflowDecisionResult>;
   finalizeTask(taskId: string, mode: "author" | "delegate", options?: { reason?: string; idempotencyKey?: string }): Promise<CompletionResult>;
   postFinalizationReject(runId: string, reason: string, options?: { idempotencyKey?: string }): Promise<CompletionResult>;
 }
@@ -115,11 +132,12 @@ export function createApprWorkflowApi(options: ApprWorkflowApiOptions = {}): App
     });
   }
 
-  async function postJson<TData>(path: string, body: unknown): Promise<TData> {
+  async function postJson<TData>(path: string, body: unknown, signal?: AbortSignal): Promise<TData> {
     return requestJson<TData>(fetchImpl, baseUrl, path, {
       method: "POST",
       headers: headers(options.bearerToken, true),
       body: JSON.stringify(body),
+      signal,
     });
   }
 
@@ -169,6 +187,13 @@ export function createApprWorkflowApi(options: ApprWorkflowApiOptions = {}): App
       };
     },
 
+    async listWaitingTasks() {
+      const response = await getJson<{ items?: WorkflowWaitingTask[] }>(
+        "/api/v1/workflow-tasks?assignee=me&status=OPEN,CLAIMED",
+      );
+      return response.items ?? [];
+    },
+
     async decideTask(taskId, decision, decideOptions) {
       const response = await postJson<DecideWorkflowTaskResponse>(
         `/api/v1/workflow-tasks/${encodeURIComponent(taskId)}/decide`,
@@ -177,6 +202,7 @@ export function createApprWorkflowApi(options: ApprWorkflowApiOptions = {}): App
           comment: decideOptions?.comment,
           idempotency_key: decideOptions?.idempotencyKey ?? newIdempotencyKey(`appr-decide-${taskId}-${decision}`),
         },
+        decideOptions?.signal,
       );
       return {
         taskId: response.task.task_id,
