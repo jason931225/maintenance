@@ -257,11 +257,12 @@ async fn create_engagement(
     let actor_id = *actor.user_id.as_uuid();
     let id = Uuid::new_v4();
     let value = with_org_conn(&state.pool, org, |tx| Box::pin(async move {
-        let existing = sqlx::query("SELECT id, customer_id, customer_document_id, ontology_instance_id, title, status, approval_id, workflow_execution_id, version, created_at, updated_at FROM consulting_engagements WHERE idempotency_key = $1").bind(&body.idempotency_key).fetch_optional(tx.as_mut()).await?;
-        if let Some(row) = existing { return engagement(&row); }
-        let row = sqlx::query("INSERT INTO consulting_engagements (id, org_id, customer_id, customer_document_id, ontology_instance_id, title, idempotency_key, created_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, customer_id, customer_document_id, ontology_instance_id, title, status, approval_id, workflow_execution_id, version, created_at, updated_at")
-            .bind(id).bind(*org.as_uuid()).bind(body.customer_id).bind(body.customer_document_id).bind(body.ontology_instance_id).bind(body.title.trim()).bind(body.idempotency_key.trim()).bind(actor_id).fetch_one(tx.as_mut()).await?;
-        insert_history(tx, *org.as_uuid(), id, actor_id, "engagement.created", None, Some("DRAFT"), 1, serde_json::json!({"customer_id": body.customer_id})).await?; engagement(&row)
+        let row = sqlx::query("INSERT INTO consulting_engagements (id, org_id, customer_id, customer_document_id, ontology_instance_id, title, idempotency_key, created_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) ON CONFLICT (org_id, idempotency_key) DO NOTHING RETURNING id, customer_id, customer_document_id, ontology_instance_id, title, status, approval_id, workflow_execution_id, version, created_at, updated_at")
+            .bind(id).bind(*org.as_uuid()).bind(body.customer_id).bind(body.customer_document_id).bind(body.ontology_instance_id).bind(body.title.trim()).bind(body.idempotency_key.trim()).bind(actor_id).fetch_optional(tx.as_mut()).await?;
+        if let Some(row) = row { insert_history(tx, *org.as_uuid(), id, actor_id, "engagement.created", None, Some("DRAFT"), 1, serde_json::json!({"customer_id": body.customer_id})).await?; return engagement(&row); }
+        let replay = sqlx::query("SELECT id, customer_id, customer_document_id, ontology_instance_id, title, status, approval_id, workflow_execution_id, version, created_at, updated_at FROM consulting_engagements WHERE org_id=$1 AND idempotency_key=$2")
+            .bind(*org.as_uuid()).bind(body.idempotency_key.trim()).fetch_one(tx.as_mut()).await?;
+        engagement(&replay)
     })).await.map_err(RestError::db)?;
     Ok((StatusCode::CREATED, Json(value)))
 }
