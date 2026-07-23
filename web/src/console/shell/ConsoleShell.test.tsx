@@ -75,9 +75,28 @@ const SUPER_ADMIN: AuthSession = {
   roles: ["SUPER_ADMIN"],
 };
 
+function stubViewport(width: number) {
+  vi.stubGlobal("matchMedia", (query: string): MediaQueryList => ({
+    matches:
+      (query === "(max-width: 767px)" && width <= 767) ||
+      (query === "(max-width: 1279px)" && width <= 1279),
+    media: query,
+    onchange: null,
+    addListener: () => {},
+    removeListener: () => {},
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    dispatchEvent: () => false,
+  }) as MediaQueryList);
+}
+
 describe("ConsoleShell chrome", () => {
   beforeEach(() => {
     markConsoleRoute.mockClear();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it("renders the grouped nav, topbar and comms rail", () => {
@@ -296,6 +315,122 @@ describe("ConsoleShell chrome", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "메뉴 펼치기" }));
     expect(sidebar).toHaveAttribute("data-collapsed", "false");
+  });
+
+  it("uses a compact, non-dominant comms rail at tablet widths", () => {
+    stubViewport(1024);
+    renderConsole(ADMIN);
+
+    const rail = document.querySelector("[data-cshell-rail]");
+    expect(rail).not.toHaveAttribute("data-cshell-rail-open");
+    expect(screen.getByRole("button", { name: "커뮤니케이션 펼치기" })).toBeInTheDocument();
+  });
+
+  it("keeps the 768px tablet composition and switches to modal drawers at 767px", async () => {
+    stubViewport(768);
+    const tablet = renderConsole(ADMIN);
+    expect(screen.queryByRole("button", { name: "메뉴 열기" })).not.toBeInTheDocument();
+    expect(document.querySelector("[data-cshell-rail]")).not.toHaveAttribute(
+      "data-cshell-rail-open",
+    );
+    tablet.unmount();
+
+    stubViewport(767);
+    renderConsole(ADMIN);
+    const sidebar = document.querySelector("[data-cshell-sidebar]");
+    expect(sidebar).toHaveAttribute("inert");
+    expect(sidebar).toHaveAttribute("aria-hidden", "true");
+    expect(document.querySelector("[data-cshell-rail]")).toHaveAttribute("inert");
+
+    const opener = screen.getByRole("button", { name: "메뉴 열기" });
+    const outside = screen.getByLabelText("검색 팔레트", { selector: "button" });
+    await userEvent.click(opener);
+    const dialog = screen.getByRole("dialog", { name: "주 메뉴" });
+    expect(dialog).toHaveAttribute("aria-modal", "true");
+    expect(document.querySelector("main")).toHaveAttribute("inert");
+    const themeButton = within(dialog).getByRole("button", { name: "밝은 테마" });
+    expect(themeButton).toHaveFocus();
+    fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+    expect(screen.queryByRole("dialog", { name: "검색 팔레트" })).not.toBeInTheDocument();
+    expect(themeButton).toHaveFocus();
+    expect(themeButton).toHaveStyle({ width: "44px", height: "44px" });
+    expect(within(dialog).getByRole("button", { name: "통합 개요" })).toHaveStyle({
+      minHeight: "44px",
+    });
+    expect(within(dialog).getByRole("button", { name: "메뉴 접기" })).toHaveStyle({
+      minHeight: "44px",
+    });
+
+    outside.focus();
+    fireEvent.keyDown(window, { key: "Tab" });
+    expect(themeButton).toHaveFocus();
+
+    await userEvent.click(screen.getByLabelText("패널 닫기"));
+    expect(opener).toHaveFocus();
+    expect(sidebar).toHaveAttribute("inert");
+  });
+
+  it.each([390, 320])("keeps mobile shell controls inside a %ipx viewport", async (width) => {
+    stubViewport(width);
+    renderConsole(ADMIN);
+    const root = document.querySelector("[data-cshell-root]");
+    expect(root).toHaveStyle({ overflowX: "hidden" });
+
+    await userEvent.click(screen.getByRole("button", { name: "커뮤니케이션 열기" }));
+    const rail = screen.getByRole("dialog", { name: "커뮤니케이션" });
+    const close = within(rail).getByRole("button", { name: "커뮤니케이션 접기" });
+    expect(close).toHaveFocus();
+    fireEvent.keyDown(window, { key: "k", metaKey: true });
+    expect(screen.queryByRole("dialog", { name: "검색 팔레트" })).not.toBeInTheDocument();
+    expect(close).toHaveFocus();
+    expect(rail).toHaveStyle({ width: "86vw", maxWidth: "320px" });
+    expect(close).toHaveStyle({
+      width: "44px",
+      height: "44px",
+    });
+  });
+
+  it("opens exclusive mobile drawers, locks scrolling, returns focus, and preserves route state", async () => {
+    stubViewport(390);
+    renderConsole(ADMIN, ["/console/audit?keep=1#anchor"]);
+
+    const menu = screen.getByRole("button", { name: "메뉴 열기" });
+    const comms = screen.getByRole("button", { name: "커뮤니케이션 열기" });
+    await userEvent.click(menu);
+    const sidebar = document.querySelector("[data-cshell-sidebar]");
+    expect(sidebar).toHaveAttribute("data-cshell-drawer-open", "true");
+    expect(document.body.style.overflow).toBe("hidden");
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => {
+      expect(sidebar).not.toHaveAttribute("data-cshell-drawer-open");
+    });
+    expect(menu).toHaveFocus();
+
+    await userEvent.click(menu);
+    await userEvent.click(screen.getByLabelText("패널 닫기"));
+    expect(menu).toHaveFocus();
+
+    await userEvent.click(comms);
+    expect(sidebar).not.toHaveAttribute("data-cshell-drawer-open");
+    expect(sidebar).toHaveAttribute("inert");
+    expect(document.querySelector("[data-cshell-rail]")).toHaveAttribute(
+      "data-cshell-drawer-open",
+      "true",
+    );
+
+    await userEvent.click(screen.getByLabelText("패널 닫기"));
+    expect(document.body.style.overflow).toBe("");
+    expect(comms).toHaveFocus();
+
+    await userEvent.click(menu);
+    await userEvent.click(screen.getByRole("button", { name: "통합 개요" }));
+    await waitFor(() => {
+      expect(document.querySelector("[data-router-location]")).toHaveTextContent(
+        "/console/overview?keep=1#anchor",
+      );
+    });
+    expect(sidebar).not.toHaveAttribute("data-cshell-drawer-open");
   });
 
   it("opens the scope switcher listing only the union of authorized entities", async () => {

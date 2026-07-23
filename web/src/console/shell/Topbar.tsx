@@ -20,6 +20,8 @@ export function Topbar({
   userInitial,
   userRoleLabel,
   userTeamLabel,
+  onOpenNavigation,
+  onOpenComms,
 }: {
   kbdLabel: string;
   onOpenPalette: () => void;
@@ -35,6 +37,8 @@ export function Topbar({
   userRoleLabel: string;
   /** Team affiliation, rendered as `team · role` when present (else role only). */
   userTeamLabel?: string;
+  onOpenNavigation?: () => void;
+  onOpenComms?: () => void;
 }) {
   const scopeRef = useRef<HTMLDivElement>(null);
 
@@ -55,6 +59,7 @@ export function Topbar({
 
   return (
     <header
+      data-cshell-topbar
       style={{
         flex: "none",
         height: 56,
@@ -66,6 +71,16 @@ export function Topbar({
         background: "var(--surface)",
       }}
     >
+      {onOpenNavigation && (
+        <button
+          type="button"
+          onClick={onOpenNavigation}
+          aria-label={S.sidebar.open}
+          className="cshell-mobile-trigger cshell-hoverable cshell-focusable"
+        >
+          <Icon name="chevronsRight" size={18} strokeWidth={2} />
+        </button>
+      )}
       {/* search / palette trigger */}
       <button
         type="button"
@@ -222,6 +237,17 @@ export function Topbar({
       </div>
 
       <div style={{ flex: 1 }} />
+
+      {onOpenComms && (
+        <button
+          type="button"
+          onClick={onOpenComms}
+          aria-label={S.rail.open}
+          className="cshell-mobile-trigger cshell-hoverable cshell-focusable"
+        >
+          <Icon name="msg" size={18} strokeWidth={2} />
+        </button>
+      )}
 
       {/* user / role card — presentational identity chrome; the self personnel
           card modal (onClick target in the prototype) arrives in a later slice,

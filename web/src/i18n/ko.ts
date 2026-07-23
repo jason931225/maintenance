@@ -849,6 +849,7 @@ export const ko = {
         label: "주 메뉴",
         collapse: "메뉴 접기",
         expand: "메뉴 펼치기",
+        open: "메뉴 열기",
       },
       body: {
         label: "화면 본문",
@@ -886,6 +887,10 @@ export const ko = {
         notif: "알림",
         collapse: "커뮤니케이션 접기",
         expand: "커뮤니케이션 펼치기",
+        open: "커뮤니케이션 열기",
+      },
+      drawer: {
+        close: "패널 닫기",
       },
       nav: {
         groups: {

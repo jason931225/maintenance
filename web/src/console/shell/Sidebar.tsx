@@ -1,4 +1,5 @@
 import { ko } from "../../i18n/ko";
+import type { Ref } from "react";
 import { Icon } from "./icons";
 import type { VisibleNavGroup } from "./nav";
 import type { ThemeMode } from "./theme";
@@ -20,7 +21,15 @@ function get(obj: Record<string, unknown>, key: string): string {
   return key;
 }
 
-function ThemeButton({ theme, onCycle }: { theme: ThemeMode; onCycle: () => void }) {
+function ThemeButton({
+  theme,
+  onCycle,
+  mobile,
+}: {
+  theme: ThemeMode;
+  onCycle: () => void;
+  mobile: boolean;
+}) {
   const next = nextTheme(theme);
   const title =
     next === "light" ? S.theme.toLight : next === "dark" ? S.theme.toDark : S.theme.toSystem;
@@ -36,8 +45,8 @@ function ThemeButton({ theme, onCycle }: { theme: ThemeMode; onCycle: () => void
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        width: 28,
-        height: 28,
+        width: mobile ? 44 : 28,
+        height: mobile ? 44 : 28,
         borderRadius: 7,
         border: "none",
         background: "transparent",
@@ -58,6 +67,10 @@ export function Sidebar({
   onSelect,
   onToggleCollapse,
   onCycleTheme,
+  mobile = false,
+  drawerOpen = false,
+  drawerModal = false,
+  drawerRef,
 }: {
   collapsed: boolean;
   groups: VisibleNavGroup[];
@@ -67,6 +80,10 @@ export function Sidebar({
   onSelect: (screen: string) => void;
   onToggleCollapse: () => void;
   onCycleTheme: () => void;
+  mobile?: boolean;
+  drawerOpen?: boolean;
+  drawerModal?: boolean;
+  drawerRef?: Ref<HTMLDivElement>;
 }) {
   const collapseTitle = collapsed ? S.sidebar.expand : S.sidebar.collapse;
   // A plain container, not <aside>: the inner <nav> is the sole navigation
@@ -76,9 +93,17 @@ export function Sidebar({
     <div
       data-cshell-sidebar
       data-collapsed={collapsed}
+      data-cshell-drawer={mobile ? "left" : undefined}
+      data-cshell-drawer-open={mobile && drawerOpen ? "true" : undefined}
+      ref={drawerRef}
+      role={drawerModal ? "dialog" : undefined}
+      aria-modal={drawerModal ? "true" : undefined}
+      aria-label={drawerModal ? S.sidebar.label : undefined}
+      aria-hidden={mobile && !drawerOpen ? "true" : undefined}
+      inert={mobile && !drawerOpen ? true : undefined}
       style={{
         flex: "none",
-        width: collapsed ? 62 : 236,
+        width: mobile ? 244 : collapsed ? 62 : 236,
         transition: "width 0.18s ease",
         overflow: "hidden",
         borderRight: "1px solid var(--border)",
@@ -86,6 +111,15 @@ export function Sidebar({
         display: "flex",
         flexDirection: "column",
         minHeight: 0,
+        ...(mobile
+          ? {
+              position: "fixed" as const,
+              inset: "0 auto 0 0",
+              zIndex: 82,
+              transform: drawerOpen ? "translateX(0)" : "translateX(-101%)",
+              boxShadow: drawerOpen ? "var(--shadow-pop)" : "none",
+            }
+          : {}),
       }}
     >
       {/* brand band */}
@@ -143,7 +177,7 @@ export function Sidebar({
             </div>
           </div>
         )}
-        <ThemeButton theme={theme} onCycle={onCycleTheme} />
+        <ThemeButton theme={theme} onCycle={onCycleTheme} mobile={mobile} />
       </div>
 
       {/* nav groups */}
@@ -201,6 +235,7 @@ export function Sidebar({
                     alignItems: "center",
                     gap: 11,
                     width: "100%",
+                    minHeight: mobile ? 44 : undefined,
                     padding: "7.5px 12px",
                     borderRadius: 8,
                     border: "none",
@@ -288,6 +323,7 @@ export function Sidebar({
             alignItems: "center",
             gap: 11,
             width: "100%",
+            minHeight: mobile ? 44 : undefined,
             padding: "7px 12px",
             borderRadius: 8,
             border: "none",
