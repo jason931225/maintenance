@@ -43,9 +43,12 @@ export interface CommsRailPanelProps {
   /** Bearer for the default api; ignored when `api` is supplied (tests). */
   accessToken?: string;
   api?: CommsRailApi;
+  /** Opens only an API-issued messenger thread link; all other links stay inert
+   * until their owning surface provides an equally explicit route. */
+  onOpenMessengerThread?: (threadId: string) => void;
 }
 
-export function CommsRailPanel({ accessToken, api }: CommsRailPanelProps) {
+export function CommsRailPanel({ accessToken, api, onOpenMessengerThread }: CommsRailPanelProps) {
   const S = overviewStrings();
   const client = useMemo(() => api ?? createCommsRailApi(accessToken), [api, accessToken]);
   const [state, setState] = useState<LoadState>("loading");
@@ -120,6 +123,7 @@ export function CommsRailPanel({ accessToken, api }: CommsRailPanelProps) {
               : undefined
           }
           marking={marking}
+          onOpenMessengerThread={onOpenMessengerThread}
         />
       ))}
     </div>
@@ -132,12 +136,14 @@ function RailSection({
   unreadLabel,
   onMarkAllRead,
   marking,
+  onOpenMessengerThread,
 }: {
   group: RailGroup;
   emptyLabel: string;
   unreadLabel: (n: number) => string;
   onMarkAllRead?: () => void;
   marking: boolean;
+  onOpenMessengerThread?: (threadId: string) => void;
 }) {
   const unread = railGroupUnread(group.items);
   return (
@@ -170,7 +176,12 @@ function RailSection({
       ) : (
         <ul style={listStyle}>
           {group.items.map((item) => (
-            <RailRow key={item.id} item={item} showChip={group.key === "notification"} />
+            <RailRow
+              key={item.id}
+              item={item}
+              showChip={group.key === "notification"}
+              onOpenMessengerThread={onOpenMessengerThread}
+            />
           ))}
         </ul>
       )}
@@ -178,9 +189,19 @@ function RailSection({
   );
 }
 
-function RailRow({ item, showChip }: { item: RailItem; showChip: boolean }) {
-  return (
-    <li style={notifRowStyle} data-unread={item.unread || undefined}>
+function RailRow({
+  item,
+  showChip,
+  onOpenMessengerThread,
+}: {
+  item: RailItem;
+  showChip: boolean;
+  onOpenMessengerThread?: (threadId: string) => void;
+}) {
+  const threadId =
+    item.link?.type === "object" && item.link.kind === "messenger_thread" ? item.link.id : undefined;
+  const content = (
+    <>
       <Avatar text={item.text} />
       <div style={rowBodyStyle}>
         <div style={notifHeadStyle}>
@@ -195,9 +216,26 @@ function RailRow({ item, showChip }: { item: RailItem; showChip: boolean }) {
         </div>
         <div style={notifTextStyle}>{item.text}</div>
       </div>
-      {item.unread ? (
-        <span aria-label={ko.shell.commsRail.unread} style={unreadDotStyle} />
-      ) : null}
+      {item.unread ? <span aria-label={ko.shell.commsRail.unread} style={unreadDotStyle} /> : null}
+    </>
+  );
+  return (
+    <li style={notifRowStyle} data-unread={item.unread || undefined}>
+      {threadId && onOpenMessengerThread ? (
+        <button
+          type="button"
+          aria-label={item.text}
+          onClick={() => {
+            onOpenMessengerThread(threadId);
+          }}
+          className="cshell-hoverable cshell-focusable"
+          style={railRowButtonStyle}
+        >
+          {content}
+        </button>
+      ) : (
+        content
+      )}
     </li>
   );
 }
@@ -311,6 +349,20 @@ const notifRowStyle: CSSProperties = {
   gap: "var(--sp-2)",
   padding: "var(--sp-2) 0",
   borderTop: "1px solid var(--border-soft)",
+};
+
+const railRowButtonStyle: CSSProperties = {
+  display: "flex",
+  alignItems: "flex-start",
+  gap: "var(--sp-2)",
+  width: "100%",
+  border: "none",
+  padding: 0,
+  background: "transparent",
+  color: "inherit",
+  font: "inherit",
+  textAlign: "left",
+  cursor: "pointer",
 };
 
 const rowBodyStyle: CSSProperties = {

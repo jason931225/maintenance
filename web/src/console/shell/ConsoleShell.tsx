@@ -320,7 +320,15 @@ export function ConsoleShell({
               </button>
             </div>
             <ErrorBoundary fallback={<CommsRailFallback />}>
-              <CommsRailPanel accessToken={session?.access_token} />
+              <CommsRailPanel
+                accessToken={session?.access_token}
+                onOpenMessengerThread={(threadId) => {
+                  void navigate({
+                    pathname: consoleScreenPath("messenger"),
+                    search: `?thread=${encodeURIComponent(threadId)}`,
+                  });
+                }}
+              />
             </ErrorBoundary>
           </>
         ) : (

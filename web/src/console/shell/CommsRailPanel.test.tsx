@@ -61,6 +61,31 @@ describe("CommsRailPanel", () => {
     expect(screen.getByText("17:50")).toBeInTheDocument();
   });
 
+  it("opens a real messenger-thread notification in the registered messenger surface", async () => {
+    const onOpenMessengerThread = vi.fn();
+    render(
+      <CommsRailPanel
+        onOpenMessengerThread={onOpenMessengerThread}
+        api={stubApi({
+          loadNotifications: vi.fn().mockResolvedValue([
+            notif({
+              id: "mention-1",
+              category: "메신저",
+              text: "배차 관제에서 회원님을 멘션했습니다",
+              link: { type: "object", kind: "messenger_thread", id: "thread-channel" },
+            }),
+          ]),
+        })}
+      />,
+    );
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "배차 관제에서 회원님을 멘션했습니다" }),
+    );
+
+    expect(onOpenMessengerThread).toHaveBeenCalledWith("thread-channel");
+  });
+
   it("renders a row with a garbage created_at without throwing", async () => {
     const notifications: NotificationSummary[] = [
       {

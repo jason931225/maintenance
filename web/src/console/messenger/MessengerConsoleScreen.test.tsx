@@ -1,13 +1,13 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { PolicyGateProvider, type PolicyGate } from "../policy";
 import { OBJ_REF_MIME, objectRefToken } from "../window";
 import { MESSENGER_ACTIONS } from "./constants";
 import { MessengerConsoleScreen } from "./MessengerConsoleScreen";
-import type { ConsoleMessengerMessage, ConsoleMessengerThread } from "./types";
+import type { ConsoleMessengerMessage, ConsoleMessengerThread, MessengerConsoleApi } from "./types";
 
 const server = setupServer();
 const allowGate: PolicyGate = { can: () => true };
@@ -43,6 +43,144 @@ describe("MessengerConsoleScreen", () => {
     expect(within(conversation).getByText("새 메시지")).toBeVisible();
     expect(within(conversation).getByText("읽음 1/2")).toBeVisible();
     expect(screen.queryByText("배지 9")).not.toBeInTheDocument();
+  });
+
+  it("honors a rail deep link only after loading the caller's readable thread list", async () => {
+    installHandlers();
+
+    render(
+      <PolicyGateProvider gate={allowGate}>
+        <MessengerConsoleScreen
+          accessToken={accessToken}
+          branchId="branch-1"
+          currentUserId="user-me"
+          requestedThreadId="thread-dm"
+        />
+      </PolicyGateProvider>,
+    );
+
+    expect(await screen.findByRole("region", { name: "김성호 대화" })).toBeVisible();
+    expect(screen.getByRole("button", { name: /김성호/ })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("reselects when the rail target changes while the screen remains mounted", async () => {
+    installHandlers();
+    const view = render(
+      <PolicyGateProvider gate={allowGate}>
+        <MessengerConsoleScreen
+          accessToken={accessToken}
+          branchId="branch-1"
+          currentUserId="user-me"
+          requestedThreadId="thread-channel"
+        />
+      </PolicyGateProvider>,
+    );
+
+    expect(await screen.findByRole("region", { name: "배차 관제 대화" })).toBeVisible();
+    view.rerender(
+      <PolicyGateProvider gate={allowGate}>
+        <MessengerConsoleScreen
+          accessToken={accessToken}
+          branchId="branch-1"
+          currentUserId="user-me"
+          requestedThreadId="thread-dm"
+        />
+      </PolicyGateProvider>,
+    );
+
+    expect(await screen.findByRole("region", { name: "김성호 대화" })).toBeVisible();
+    expect(screen.getByRole("button", { name: /김성호/ })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it.each(["thread-missing", "thread-muted"])(
+    "fails closed for unavailable rail target %s without loading or reading another thread",
+    async (requestedThreadId) => {
+      const observed = installHandlers();
+      render(
+        <PolicyGateProvider gate={allowGate}>
+          <MessengerConsoleScreen
+            accessToken={accessToken}
+            branchId="branch-1"
+            currentUserId="user-me"
+            requestedThreadId={requestedThreadId}
+          />
+        </PolicyGateProvider>,
+      );
+
+      expect(await screen.findByRole("alert")).toHaveTextContent(
+        "요청한 대화에 접근할 수 없거나 더 이상 존재하지 않습니다.",
+      );
+      expect(observed.messageThreadIds).toEqual([]);
+      expect(observed.readThreadIds).toEqual([]);
+      expect(screen.queryByRole("region", { name: "배차 관제 대화" })).not.toBeInTheDocument();
+    },
+  );
+
+  it("does not let a deferred A message load overwrite a later B rail target or receipt", async () => {
+    const staleMessages = deferred<{ items: ConsoleMessengerMessage[]; next_cursor: null }>();
+    const observed = { messageThreadIds: [] as string[], readThreadIds: [] as string[] };
+    const channel = thread({ id: "thread-channel", title: "배차 관제" });
+    const direct = thread({ id: "thread-dm", kind: "dm", visibility: "direct", title: "김성호" });
+    const api = deferredApi({
+      listThreads: vi.fn().mockResolvedValue([channel, direct]),
+      listChannels: vi.fn().mockResolvedValue([]),
+      listMessages: vi.fn((threadId: string) => {
+        observed.messageThreadIds.push(threadId);
+        return threadId === "thread-channel"
+          ? staleMessages.promise
+          : Promise.resolve({ items: [message({ thread_id: threadId })], next_cursor: null });
+      }),
+      markRead: vi.fn(async (threadId: string) => {
+        observed.readThreadIds.push(threadId);
+      }),
+    });
+    const view = renderDeferredMessenger(api, "thread-channel");
+
+    await waitFor(() => expect(observed.messageThreadIds).toEqual(["thread-channel"]));
+    view.rerender(renderDeferredMessengerTree(api, "thread-dm"));
+    expect(await screen.findByRole("region", { name: "김성호 대화" })).toBeVisible();
+
+    staleMessages.resolve({ items: [message({ thread_id: "thread-channel" })], next_cursor: null });
+    await waitFor(() => {
+      expect(screen.getByRole("region", { name: "김성호 대화" })).toBeVisible();
+    });
+    expect(observed.messageThreadIds).toEqual(["thread-channel", "thread-dm"]);
+    expect(observed.readThreadIds).toEqual(["thread-dm"]);
+  });
+
+  it("does not let a deferred A message load overwrite a later unavailable rail target", async () => {
+    const staleMessages = deferred<{ items: ConsoleMessengerMessage[]; next_cursor: null }>();
+    const observed = { messageThreadIds: [] as string[], readThreadIds: [] as string[] };
+    const api = deferredApi({
+      listThreads: vi
+        .fn()
+        .mockResolvedValueOnce([thread({ id: "thread-channel", title: "배차 관제" })])
+        .mockResolvedValueOnce([]),
+      listChannels: vi.fn().mockResolvedValue([]),
+      listMessages: vi.fn((threadId: string) => {
+        observed.messageThreadIds.push(threadId);
+        return staleMessages.promise;
+      }),
+      markRead: vi.fn(async (threadId: string) => {
+        observed.readThreadIds.push(threadId);
+      }),
+    });
+    const view = renderDeferredMessenger(api, "thread-channel");
+
+    await waitFor(() => expect(observed.messageThreadIds).toEqual(["thread-channel"]));
+    view.rerender(renderDeferredMessengerTree(api, "thread-missing"));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "요청한 대화에 접근할 수 없거나 더 이상 존재하지 않습니다.",
+    );
+
+    staleMessages.resolve({ items: [message({ thread_id: "thread-channel" })], next_cursor: null });
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "요청한 대화에 접근할 수 없거나 더 이상 존재하지 않습니다.",
+      );
+    });
+    expect(observed.messageThreadIds).toEqual(["thread-channel"]);
+    expect(observed.readThreadIds).toEqual([]);
   });
 
   it("omits every messenger affordance when PolicyGated denies it", async () => {
@@ -181,13 +319,61 @@ function renderMessenger(gate: PolicyGate = allowGate) {
   );
 }
 
+function renderDeferredMessenger(api: MessengerConsoleApi, requestedThreadId: string) {
+  return render(renderDeferredMessengerTree(api, requestedThreadId));
+}
+
+function renderDeferredMessengerTree(api: MessengerConsoleApi, requestedThreadId: string) {
+  return (
+    <PolicyGateProvider gate={allowGate}>
+      <MessengerConsoleScreen
+        branchId="branch-1"
+        currentUserId="user-me"
+        requestedThreadId={requestedThreadId}
+        api={api}
+      />
+    </PolicyGateProvider>
+  );
+}
+
+function deferredApi(overrides: Partial<MessengerConsoleApi>): MessengerConsoleApi {
+  return {
+    listThreads: async () => [],
+    listChannels: async () => [],
+    joinChannel: async () => thread({}),
+    listMessages: async () => ({ items: [], next_cursor: null }),
+    markRead: async () => {},
+    listPresence: async () => [],
+    listMembers: async () => [],
+    searchMessages: async () => [],
+    sendMessage: async () => message({}),
+    toggleAck: async () => ({ message_id: "msg-1", thread_id: "thread-channel", acked: false, ack_count: 0 }),
+    setMute: async () => ({ thread_id: "thread-channel", muted: false }),
+    createTodo: async () => ({
+      id: "todo-1", owner_user_id: "user-me", text: "", scopes: [], links: [], done: false,
+      created_at: "2026-07-09T09:00:00Z", updated_at: "2026-07-09T09:00:00Z", done_at: null,
+    }),
+    ...overrides,
+  };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
 function installHandlers() {
   const observed: {
     ackPaths: string[];
     sentBodies: unknown[];
     muteBodies: unknown[];
     todoBodies: unknown[];
-  } = { ackPaths: [], sentBodies: [], muteBodies: [], todoBodies: [] };
+    messageThreadIds: string[];
+    readThreadIds: string[];
+  } = { ackPaths: [], sentBodies: [], muteBodies: [], todoBodies: [], messageThreadIds: [], readThreadIds: [] };
 
   const channel = thread({
     id: "thread-channel",
@@ -252,18 +438,20 @@ function installHandlers() {
     http.get("*/api/messenger/members", () =>
       HttpResponse.json({ items: [{ id: "user-1", display_name: "김성호", team: "정비" }] }),
     ),
-    http.get("*/api/messenger/threads/:threadId/messages", () =>
-      HttpResponse.json({ items: messages, next_cursor: null }),
-    ),
-    http.put("*/api/messenger/threads/:threadId/read-receipt", () =>
-      HttpResponse.json({
+    http.get("*/api/messenger/threads/:threadId/messages", ({ params }) => {
+      observed.messageThreadIds.push(String(params.threadId));
+      return HttpResponse.json({ items: messages, next_cursor: null });
+    }),
+    http.put("*/api/messenger/threads/:threadId/read-receipt", ({ params }) => {
+      observed.readThreadIds.push(String(params.threadId));
+      return HttpResponse.json({
         thread_id: "thread-channel",
         user_id: "user-me",
         last_read_message_id: "msg-3",
         read_at: "2026-07-09T09:03:00Z",
         updated_at: "2026-07-09T09:03:00Z",
-      }),
-    ),
+      });
+    }),
     http.get("*/api/messenger/threads/:threadId/presence", () =>
       HttpResponse.json({
         items: [

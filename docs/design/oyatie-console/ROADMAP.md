@@ -85,7 +85,7 @@
 | 정비 / maintenance | Maintenance/WO pages | work-orders | 없음 | PARTIAL | 새 body |
 | 고객·현장 / field | Intake/field pages | customers·work-orders | 없음 | PARTIAL | 새 body·모바일 폐루프 |
 | 메일 / mail | mail 화면 | comms/mail REST | main body 없음 | PARTIAL | rail→main 승격 |
-| 메신저 / messenger | messenger 화면 | messenger REST | main body 없음 | PARTIAL | rail→main 승격 |
+| 메신저 / messenger | MessengerConsoleScreen | messenger REST | registry body + server-linked rail→main thread deep link | PARTIAL | runtime/browser evidence·remaining product parity |
 | 알림 / notif | 일부 알림 | notifications | 없음 | PARTIAL | body |
 | 게시판·공지 / board | 없음 | mounted notices REST | 없음 | PARTIAL | 새 body·수령확인 UI |
 | 계약·조달 / contract | 일부 의도 | 3 C-chain seed types | 없음 | PARTIAL | 계약 workflow·Grant/Bid·body |

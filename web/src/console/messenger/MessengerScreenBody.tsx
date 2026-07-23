@@ -13,6 +13,7 @@
 // ConsoleModuleRoute (`/modules?screen=msgr`) already uses, so both entry
 // points agree; the backend re-authorizes every call.
 import { useMemo } from "react";
+import { useSearchParams } from "react-router-dom";
 
 import { useActiveBranchId, useAuth } from "../../context/auth";
 import { PolicyGateProvider, type PolicyGate } from "../policy";
@@ -35,6 +36,7 @@ const MESSENGER_ACTION_SET = new Set<string>(Object.values(MESSENGER_ACTIONS));
 export function MessengerScreenBody() {
   const { session } = useAuth();
   const activeBranchId = useActiveBranchId();
+  const [searchParams] = useSearchParams();
   const roles = session?.roles;
   const featureGrants = session?.feature_grants;
 
@@ -57,6 +59,7 @@ export function MessengerScreenBody() {
         accessToken={session?.access_token}
         branchId={activeBranchId}
         currentUserId={session?.user_id}
+        requestedThreadId={searchParams.get("thread") ?? undefined}
       />
     </PolicyGateProvider>
   );

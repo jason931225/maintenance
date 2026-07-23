@@ -247,6 +247,9 @@ export interface RailItem {
   text: string;
   createdAt: string;
   unread: boolean;
+  /** Preserve the server-issued destination instead of inferring a route from
+   * notification text. Consumers may expose only links they understand. */
+  link?: NotificationSummary["link"];
   /** Raw producer category (e.g. `결재`/`leave`/`메신저`) — the per-item chip
    * localizes it via `categoryLabel`; `mail` for the separate mail source. */
   category: string;
@@ -272,6 +275,7 @@ function notificationItems(
       createdAt: n.created_at,
       unread: n.unread,
       category: n.category,
+      link: n.link,
     }));
 }
 

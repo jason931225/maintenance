@@ -147,6 +147,41 @@ describe("ConsoleShell chrome", () => {
     expect(rail).toHaveAttribute("data-cshell-rail-open", "true");
   });
 
+  it("opens a server-linked messenger mention in the canonical registered screen URL", async () => {
+    server.use(
+      http.get("*/api/v1/me/notifications", () =>
+        HttpResponse.json({
+          items: [
+            {
+              id: "mention-1",
+              recipient_user_id: "u1",
+              category: "메신저",
+              kind: "mention",
+              text: "배차 관제에서 회원님을 멘션했습니다",
+              link: { type: "object", kind: "messenger_thread", id: "thread-channel" },
+              unread: true,
+              created_at: "2026-07-03T08:50:00Z",
+              read_at: null,
+              resolved_at: null,
+            },
+          ],
+        }),
+      ),
+      http.get("*/api/v1/mail/threads", () => HttpResponse.json([])),
+    );
+    renderConsole(ADMIN, ["/console/audit"]);
+
+    await userEvent.click(
+      await screen.findByRole("button", { name: "배차 관제에서 회원님을 멘션했습니다" }),
+    );
+
+    await waitFor(() => {
+      expect(document.querySelector("[data-router-location]")).toHaveTextContent(
+        "/console/messenger?thread=thread-channel",
+      );
+    });
+  });
+
   it("nav clicks switch the active screen (aria-current)", () => {
     renderConsole(ADMIN);
     const overview = screen.getByRole("button", { name: "통합 개요" });

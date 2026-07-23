@@ -36,7 +36,7 @@ import type {
 } from "./types";
 import "../tokens.css";
 
-type LoadState = "idle" | "loading" | "error" | "branch-required";
+type LoadState = "idle" | "loading" | "error" | "branch-required" | "target-unavailable";
 
 type MessageMap = Record<string, ConsoleMessengerMessage[] | undefined>;
 type CursorMap = Record<string, string | null | undefined>;
@@ -49,11 +49,15 @@ export function MessengerConsoleScreen({
   accessToken,
   branchId,
   currentUserId,
+  requestedThreadId,
   api,
 }: {
   accessToken?: string;
   branchId?: string;
   currentUserId?: string;
+  /** A URL/rail target. It is accepted only if the authenticated thread list
+   * contains it and the caller can read it; no client-side ID grants access. */
+  requestedThreadId?: string;
   api?: MessengerConsoleApi;
 }) {
   const client = useMemo(() => api ?? createMessengerConsoleApi(accessToken), [accessToken, api]);
@@ -77,6 +81,9 @@ export function MessengerConsoleScreen({
   const [statusChip, setStatusChip] = useState<string>();
   const paneRef = useRef<HTMLDivElement | null>(null);
   const selectedThreadIdRef = useRef<string | undefined>(undefined);
+  // Every route-target refresh owns a generation. A late response from an
+  // earlier URL must never select, render, or mark a different conversation.
+  const refreshGenerationRef = useRef(0);
 
   const selectedThread = threads.find((thread) => thread.id === selectedThreadId);
   const selectedMessages = useMemo(
@@ -115,16 +122,22 @@ export function MessengerConsoleScreen({
   });
 
   const loadThread = useCallback(
-    async (thread: ConsoleMessengerThread, beforeMessageId?: string | null) => {
+    async (
+      thread: ConsoleMessengerThread,
+      beforeMessageId?: string | null,
+      generation = ++refreshGenerationRef.current,
+    ) => {
+      const isCurrent = () => refreshGenerationRef.current === generation;
       if (thread.visibility === "channel" && thread.joined === false) return;
-      setSelectedThreadId(thread.id);
-      setDividerUnreadByThread((prev) =>
-        prev[thread.id] === undefined ? { ...prev, [thread.id]: thread.unread_count } : prev,
-      );
       const [page, presence] = await Promise.all([
         client.listMessages(thread.id, beforeMessageId),
         client.listPresence(thread.id).catch(() => [] as ConsoleMessengerPresence[]),
       ]);
+      if (!isCurrent()) return;
+      setSelectedThreadId(thread.id);
+      setDividerUnreadByThread((prev) =>
+        prev[thread.id] === undefined ? { ...prev, [thread.id]: thread.unread_count } : prev,
+      );
       setMessagesByThread((prev) => ({
         ...prev,
         [thread.id]: mergeMessages(prev[thread.id] ?? [], page.items),
@@ -133,7 +146,9 @@ export function MessengerConsoleScreen({
       setPresenceByThread((prev) => ({ ...prev, [thread.id]: presence }));
       const newest = newestMessage(page.items);
       if (newest) {
+        if (!isCurrent()) return;
         await client.markRead(thread.id, newest.id);
+        if (!isCurrent()) return;
         setThreads((prev) =>
           prev.map((item) => (item.id === thread.id ? { ...item, unread_count: 0 } : item)),
         );
@@ -143,7 +158,10 @@ export function MessengerConsoleScreen({
   );
 
   const refresh = useCallback(async () => {
+    const generation = ++refreshGenerationRef.current;
+    const isCurrent = () => refreshGenerationRef.current === generation;
     if (!branchId) {
+      if (!isCurrent()) return;
       setThreads([]);
       setMembers([]);
       setSelectedThreadId(undefined);
@@ -153,11 +171,13 @@ export function MessengerConsoleScreen({
     setLoadState("loading");
     try {
       const memberThreads = await client.listThreads();
+      if (!isCurrent()) return;
       const memberIds = new Set(memberThreads.map((thread) => thread.id));
       const [joinableChannels, branchMembers] = await Promise.all([
         client.listChannels().catch(() => [] as ConsoleMessengerThread[]),
         client.listMembers(branchId),
       ]);
+      if (!isCurrent()) return;
       const merged = mergeThreads(
         memberThreads.map((thread) => ({ ...thread, joined: true })),
         joinableChannels.map((thread) => ({ ...thread, joined: memberIds.has(thread.id) })),
@@ -168,17 +188,27 @@ export function MessengerConsoleScreen({
       const selectableThreads = merged.filter(
         (thread) => !(thread.visibility === "channel" && thread.joined === false),
       );
-      const nextSelected =
-        selectableThreads.find((thread) => thread.id === currentSelectedThreadId) ??
-        (selectableThreads.length > 0 ? selectableThreads[0] : undefined);
-      if (nextSelected) {
-        await loadThread(nextSelected);
+      // A URL target is authoritative for this refresh. Never fall through to
+      // the previously open/default thread: a stale, deleted, unjoined, or
+      // policy-filtered id must not cause a read receipt on an unrelated chat.
+      const nextSelected = requestedThreadId !== undefined
+        ? selectableThreads.find((thread) => thread.id === requestedThreadId)
+        : selectableThreads.find((thread) => thread.id === currentSelectedThreadId) ??
+          (selectableThreads.length > 0 ? selectableThreads[0] : undefined);
+      if (!nextSelected) {
+        if (!isCurrent()) return;
+        setSelectedThreadId(undefined);
+        setLoadState(requestedThreadId !== undefined ? "target-unavailable" : "idle");
+        return;
       }
+      await loadThread(nextSelected, undefined, generation);
+      if (!isCurrent()) return;
       setLoadState("idle");
     } catch {
+      if (!isCurrent()) return;
       setLoadState("error");
     }
-  }, [branchId, client, currentUserId, loadThread]);
+  }, [branchId, client, currentUserId, loadThread, requestedThreadId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -189,6 +219,7 @@ export function MessengerConsoleScreen({
     });
     return () => {
       cancelled = true;
+      refreshGenerationRef.current += 1;
     };
   }, [refresh]);
 
@@ -360,6 +391,9 @@ export function MessengerConsoleScreen({
           {loadState === "error" ? <StatusChip tone="danger" role="alert">{T.status.loadFailed}</StatusChip> : null}
           {loadState === "branch-required" ? (
             <StatusChip tone="danger" role="alert">{T.status.branchRequired}</StatusChip>
+          ) : null}
+          {loadState === "target-unavailable" ? (
+            <StatusChip tone="danger" role="alert">{T.status.targetUnavailable}</StatusChip>
           ) : null}
           {statusChip ? <StatusChip tone="ok" role="status">{statusChip}</StatusChip> : null}
           <button

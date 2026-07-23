@@ -7,6 +7,7 @@
 // by MessengerConsoleScreen.test.tsx; this only asserts the gate wiring.
 import { render, screen } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
+import { MemoryRouter } from "react-router-dom";
 import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
@@ -76,9 +77,11 @@ function makeAuthContext(session: AuthSession): AuthContextValue {
 
 function renderBody(session: AuthSession) {
   return render(
-    <AuthContext.Provider value={makeAuthContext(session)}>
-      <MessengerScreenBody />
-    </AuthContext.Provider>,
+    <MemoryRouter>
+      <AuthContext.Provider value={makeAuthContext(session)}>
+        <MessengerScreenBody />
+      </AuthContext.Provider>
+    </MemoryRouter>,
   );
 }
 

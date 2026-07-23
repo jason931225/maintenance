@@ -1547,6 +1547,7 @@ export const ko = {
         loading: "불러오는 중",
         loadFailed: "불러오기 실패",
         branchRequired: "메신저를 열 지점을 먼저 선택하세요.",
+        targetUnavailable: "요청한 대화에 접근할 수 없거나 더 이상 존재하지 않습니다.",
         muted: "무음",
         unreadDivider: "새 메시지",
       },
