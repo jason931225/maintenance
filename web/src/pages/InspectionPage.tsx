@@ -713,6 +713,7 @@ export function InspectionPage() {
                 {ko.inspection.fields.equipment}
               </label>
               <AsyncConsoleCombobox
+                key={form.equipment_id}
                 id="ins-equipment"
                 search={searchEquipment}
                 value={form.equipment_id}
@@ -897,7 +898,9 @@ function ConsoleCombobox({
     <ConsoleSelect
       id={id}
       value={value}
-      onChange={(event) => onChange(event.currentTarget.value)}
+      onChange={(event) => {
+        onChange(event.currentTarget.value);
+      }}
     >
       <option value="">{placeholder}</option>
       {options.map((option) => (
@@ -932,10 +935,6 @@ function AsyncConsoleCombobox({
   const [options, setOptions] = useState<ConsoleOption[]>([]);
   const requestVersion = useRef(0);
 
-  useEffect(() => {
-    setQuery(selectedOption?.label ?? "");
-  }, [selectedOption]);
-
   async function find(nextQuery: string) {
     setQuery(nextQuery);
     onChange("");
@@ -958,7 +957,9 @@ function AsyncConsoleCombobox({
         role="combobox"
         aria-controls={listId}
         aria-expanded={options.length > 0}
-        onChange={(event) => void find(event.currentTarget.value)}
+        onChange={(event) => {
+          void find(event.currentTarget.value);
+        }}
       />
       {options.length > 0 ? (
         <ul

@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import type {
-  InspectionRoundOutcome,
   InspectionScheduleSummary,
 } from "../../api/types";
 import { useAuth } from "../../context/auth";
@@ -64,7 +63,9 @@ export function MechanicInspectionWorkspace() {
         params: {
           query: {
             due_start: businessDate,
-            due_end: `${Number(businessDate.slice(0, 4)) + 1}${businessDate.slice(4)}`,
+            due_end:
+              String(Number(businessDate.slice(0, 4)) + 1) +
+              businessDate.slice(4),
             limit: PAGE_SIZE,
             offset: 0,
           },
@@ -101,7 +102,9 @@ export function MechanicInspectionWorkspace() {
         params: {
           query: {
             due_start: businessDate,
-            due_end: `${Number(businessDate.slice(0, 4)) + 1}${businessDate.slice(4)}`,
+            due_end:
+              String(Number(businessDate.slice(0, 4)) + 1) +
+              businessDate.slice(4),
             limit: PAGE_SIZE,
             offset,
           },
@@ -127,7 +130,7 @@ export function MechanicInspectionWorkspace() {
   }, [api, businessDate, canLoadMore, ownsListRequest, schedules]);
 
   useEffect(() => {
-    void load();
+    void Promise.resolve().then(load);
   }, [load]);
 
   const complete = useCallback(
@@ -143,7 +146,7 @@ export function MechanicInspectionWorkspace() {
           {
             params: { path: { schedule_id: scheduleId } },
             body: {
-              outcome: "COMPLETED" as InspectionRoundOutcome,
+              outcome: "COMPLETED",
               findings: trimmed,
               note: null,
             },
@@ -186,7 +189,12 @@ export function MechanicInspectionWorkspace() {
             : ko.inspection.loadFailed}
         </p>
         {loadError === "retry" ? (
-          <button type="button" onClick={() => void load()}>
+          <button
+            type="button"
+            onClick={() => {
+              void load();
+            }}
+          >
             {ko.page.retry}
           </button>
         ) : null}
@@ -198,7 +206,12 @@ export function MechanicInspectionWorkspace() {
     <section className="inspection-mechanic" aria-label={ko.inspection.title}>
       <div className="inspection-mechanic__toolbar">
         <strong>{ko.inspection.title}</strong>
-        <button type="button" onClick={() => void load()}>
+        <button
+          type="button"
+          onClick={() => {
+            void load();
+          }}
+        >
           {ko.inspection.refresh}
         </button>
       </div>
@@ -269,9 +282,9 @@ export function MechanicInspectionWorkspace() {
                       <textarea
                         id={`my-round-${schedule.id}`}
                         value={findings}
-                        onChange={(event) =>
-                          setFindings(event.currentTarget.value)
-                        }
+                        onChange={(event) => {
+                          setFindings(event.currentTarget.value);
+                        }}
                       />
                       <button
                         type="submit"

@@ -46,7 +46,9 @@ const assignedSchedule: InspectionScheduleSummary = {
   updated_at: "2026-06-01T00:00:00Z",
 };
 
-beforeAll(() => server.listen({ onUnhandledRequest: "bypass" }));
+beforeAll(() => {
+  server.listen({ onUnhandledRequest: "bypass" });
+});
 afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 

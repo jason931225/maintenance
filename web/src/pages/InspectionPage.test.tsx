@@ -202,7 +202,7 @@ describe("InspectionPage", () => {
     const firstPage = Array.from({ length: 100 }, (_, index) => ({
       ...overdueSchedule,
       id: `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
-      management_no: `M-${index}`,
+      management_no: `M-${String(index)}`,
     }));
     const nextPage = {
       ...overdueSchedule,
