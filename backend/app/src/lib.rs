@@ -100,6 +100,7 @@ use mnt_platform_storage::{
     EvidenceService, FfmpegMediaProcessor, S3ObjectStore, S3StorageConfig, SeaweedS3Storage,
     StorageError,
 };
+use mnt_production_rest::ProductionRestState;
 use mnt_registry_adapter_postgres::{PgRegistryError, PgRegistryStore};
 use mnt_registry_application::{UpdateEquipmentCommand, UpdateEquipmentFields};
 use mnt_registry_domain::EquipmentStatus;
@@ -264,6 +265,10 @@ pub const CONFIGURED_ROUTE_SURFACES: &[ConfiguredRouteSurface] = &[
     ConfiguredRouteSurface {
         name: "workorder-mobile",
         paths: mnt_workorder_rest::MOBILE_ROUTE_PATHS,
+    },
+    ConfiguredRouteSurface {
+        name: "production",
+        paths: mnt_production_rest::PRODUCTION_ROUTE_PATHS,
     },
     ConfiguredRouteSurface {
         name: "messenger",
@@ -2836,6 +2841,10 @@ pub fn build_router(state: AppState) -> Router {
                     ))
                     .with_job_queue(state.dispatch_job_queue.clone()),
                 ))
+                .merge(mnt_production_rest::router(ProductionRestState::new(
+                    pool.clone(),
+                    state.jwt_verifier.clone(),
+                )))
                 .merge(mnt_messenger_rest::router(MessengerRestState::new(
                     messenger_store,
                     state.jwt_verifier.clone(),

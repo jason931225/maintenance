@@ -122,6 +122,7 @@ mnt-workflow-runtime-adapter-postgres = { workspace = true }
 mnt-workorder-adapter-postgres = { workspace = true }
 mnt-workorder-application = { workspace = true }
 mnt-workorder-rest = { workspace = true }
+mnt-production-rest = { workspace = true }
 opentelemetry = { workspace = true }
 opentelemetry-otlp = { workspace = true, features = ["grpc-tonic"] }
 opentelemetry_sdk = { workspace = true }
