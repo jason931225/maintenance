@@ -31,6 +31,7 @@
     "check:dispatch-map": "node scripts/check-dispatch-map.mjs",
     "check:adrs": "node scripts/check-adrs.mjs",
     "check:foundation-gates": "node scripts/check-foundation-gates.mjs",
+    "check:ci-preflight": "node scripts/check-ci-preflight.mjs",
     "check:package-lock": "npm install --package-lock-only --ignore-scripts --no-audit --no-fund && git diff --exit-code -- package-lock.json",
     "check:root-workspaces": "node scripts/check-root-workspaces.mjs",
     "test:root-workspaces": "node --test scripts/check-root-workspaces.test.mjs",

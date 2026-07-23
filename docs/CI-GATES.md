@@ -64,6 +64,7 @@ for s in \
   check:root-workspaces \
   check:enterprise-ux-parity \
   check:browser-persona-matrix \
+  check:ci-preflight \
   check:ios-ui-test-fail-closed \
   check:android-e2e-fail-closed \
   check:g004-identity-foundation \
@@ -133,6 +134,10 @@ their prerequisites are available:
 - Swift client and iOS app gates require macOS/Swift; Linux developers should use
   CI or a macOS runner for those surfaces.
 
+The initial **CI preflight** job runs the foundation-gate, CI-preflight,
+workspace-integrity, and deterministic-lockfile contracts before the expensive
+backend, mobile, and browser jobs begin.
+
 `SQLX_OFFLINE=true` uses the committed `.sqlx/` query cache; regenerate it with
 `cargo sqlx prepare --workspace -- --all-targets` (note `--all-targets`, so test
 queries are cached too) against a database migrated to head.
@@ -163,6 +168,7 @@ names only, not incidental workflow prose or runner setup text.
 - `check:android-e2e-fail-closed`
 - `check:adrs`
 - `check:browser-persona-matrix`
+- `check:ci-preflight`
 - `check:cx-reporting-maturity`
 - `check:enterprise-ux-parity`
 - `check:financial-maturity`
