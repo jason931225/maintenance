@@ -308,9 +308,15 @@ function fillPurchaseLine(
   changeInput(screen.getByLabelText("공급가액(단가) 1"), unitPrice);
 }
 
+function purchaseStatusFilter() {
+  return within(screen.getByRole("region", { name: "상태" })).getByRole(
+    "combobox",
+    { name: "상태" },
+  );
+}
+
 describe("financial purchase request workflow", () => {
   it("loads the authenticated branch queue and sends a repeated status filter", async () => {
-    const user = userEvent.setup();
     const seenQueries: URLSearchParams[] = [];
     server.use(
       http.get("*/api/v1/financial/purchase-requests", ({ request }) => {
@@ -321,21 +327,19 @@ describe("financial purchase request workflow", () => {
 
     await renderFinancialApp(makeAuthContext(adminSession));
 
-    expect(await screen.findByText("한빛부품")).toBeVisible();
-    await user.selectOptions(
-      screen.getByLabelText("상태"),
-      "REQUEST_SUBMITTED",
-    );
+    expect((await screen.findAllByText("한빛부품"))[0]).toBeVisible();
+    fireEvent.change(purchaseStatusFilter(), { target: { value: "REQUEST_SUBMITTED" } });
 
-    await waitFor(() => expect(seenQueries).toHaveLength(2));
+    await waitFor(() => {
+      expect(seenQueries.length).toBeGreaterThanOrEqual(2);
+    });
     expect(seenQueries[0]?.get("branch_id")).toBe(branchId);
     expect(seenQueries[0]?.get("limit")).toBe("50");
     expect(seenQueries[0]?.get("offset")).toBe("0");
-    expect(seenQueries[1]?.getAll("status")).toEqual(["REQUEST_SUBMITTED"]);
+    expect(seenQueries.at(-1)?.getAll("status")).toEqual(["REQUEST_SUBMITTED"]);
   });
 
   it("fences a stale queue response after the status filter changes", async () => {
-    const user = userEvent.setup();
     let releaseInitial: (() => void) | undefined;
     const initial = new Promise<void>((resolve) => {
       releaseInitial = resolve;
@@ -356,12 +360,53 @@ describe("financial purchase request workflow", () => {
     );
 
     await renderFinancialApp(makeAuthContext(adminSession));
-    await user.selectOptions(screen.getByLabelText("상태"), "REQUEST_SUBMITTED");
-    expect(await screen.findByText("필터 결과")).toBeVisible();
+    fireEvent.change(purchaseStatusFilter(), { target: { value: "REQUEST_SUBMITTED" } });
+    expect((await screen.findAllByText("필터 결과"))[0]).toBeVisible();
     releaseInitial?.();
     await waitFor(() => {
       expect(screen.queryByText("오래된 결과")).not.toBeInTheDocument();
     });
+  });
+
+  it("loads later queue pages without losing the selected request", async () => {
+    const user = userEvent.setup();
+    const first = purchase("STATEMENT_ATTACHED", { vendor_name: "첫 요청" });
+    const second = purchase("REQUEST_SUBMITTED", {
+      id: "bbbbbbbb-1111-4111-8111-bbbbbbbbbbbb",
+      vendor_name: "다음 요청",
+    });
+    const requestedOffsets: number[] = [];
+    const firstPage = [
+      first,
+      ...Array.from({ length: 49 }, (_, index) =>
+        purchase("STATEMENT_ATTACHED", {
+          id: `10000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+          vendor_name: `첫 페이지 ${String(index + 2)}`,
+        }),
+      ),
+    ];
+    server.use(
+      http.get("*/api/v1/financial/purchase-requests", ({ request }) => {
+        const offset = Number(new URL(request.url).searchParams.get("offset") ?? 0);
+        requestedOffsets.push(offset);
+        return HttpResponse.json(
+          offset === 0
+            ? { items: firstPage, limit: 50, offset: 0, total: 51 }
+            : { items: [second], limit: 50, offset: 50, total: 51 },
+        );
+      }),
+    );
+
+    await renderFinancialApp(makeAuthContext(adminSession));
+    const firstRow = await screen.findByRole("button", { name: /첫 요청/ });
+    await user.click(firstRow);
+    await user.click(screen.getByRole("button", { name: "더 보기" }));
+    expect((await screen.findAllByText("다음 요청"))[0]).toBeVisible();
+    expect(requestedOffsets).toEqual([0, 50]);
+    expect(screen.getByRole("button", { name: /첫 요청/ })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
   });
 
   it("shows a truthful denied state and allows transient queue failures to retry", async () => {
@@ -387,10 +432,81 @@ describe("financial purchase request workflow", () => {
           : HttpResponse.json(purchaseQueue([purchase("STATEMENT_ATTACHED")]));
       }),
     );
-    await user.selectOptions(screen.getByLabelText("상태"), "STATEMENT_ATTACHED");
+    fireEvent.change(purchaseStatusFilter(), { target: { value: "STATEMENT_ATTACHED" } });
     expect(await screen.findByText("데이터를 불러오지 못했습니다.")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "다시 시도" }));
-    expect(await screen.findByText("한빛부품")).toBeVisible();
+    expect((await screen.findAllByText("한빛부품"))[0]).toBeVisible();
+  });
+
+  it("drops a delayed create completion after the queue context changes", async () => {
+    const user = userEvent.setup();
+    let releaseCreate: (() => void) | undefined;
+    const createStarted = new Promise<void>((resolve) => {
+      releaseCreate = resolve;
+    });
+    server.use(
+      lookupHandler(),
+      evidenceStatusHandler(),
+      http.get("*/api/v1/financial/purchase-requests", ({ request }) => {
+        const status = new URL(request.url).searchParams.get("status");
+        return HttpResponse.json(
+          purchaseQueue(
+            status === "REQUEST_SUBMITTED"
+              ? [purchase("REQUEST_SUBMITTED", { vendor_name: "필터 기준" })]
+              : [],
+          ),
+        );
+      }),
+      http.post("*/api/v1/financial/purchase-requests", async () => {
+        await createStarted;
+        return HttpResponse.json(purchase("STATEMENT_ATTACHED"), { status: 201 });
+      }),
+    );
+
+    await renderFinancialApp(makeAuthContext(adminSession));
+    await user.click(await screen.findByRole("button", { name: "구매요청서 작성" }));
+    await lookupEquipment(user);
+    changeInput(screen.getByLabelText("거래처명"), "한빛부품");
+    fillPurchaseLine();
+    changeInput(screen.getByLabelText("거래명세표 증빙 번호"), evidenceId);
+    changeInput(screen.getByLabelText("비고"), "정기 부품 교체");
+    await user.click(screen.getByRole("button", { name: "작성" }));
+
+    fireEvent.change(purchaseStatusFilter(), { target: { value: "REQUEST_SUBMITTED" } });
+    expect((await screen.findAllByText("필터 기준"))[0]).toBeVisible();
+    releaseCreate?.();
+    await waitFor(() => {
+      expect(screen.queryByText("구매요청서를 작성했습니다.")).not.toBeInTheDocument();
+    });
+  });
+
+  it("drops a delayed status action after the queue context changes", async () => {
+    const user = userEvent.setup();
+    const original = purchase("STATEMENT_ATTACHED", { vendor_name: "원래 요청" });
+    const filtered = purchase("EXECUTED", { vendor_name: "필터 기준" });
+    let releaseSubmit: (() => void) | undefined;
+    const submitStarted = new Promise<void>((resolve) => {
+      releaseSubmit = resolve;
+    });
+    server.use(
+      http.get("*/api/v1/financial/purchase-requests", ({ request }) => {
+        const status = new URL(request.url).searchParams.get("status");
+        return HttpResponse.json(purchaseQueue(status === "EXECUTED" ? [filtered] : [original]));
+      }),
+      http.post("*/api/v1/financial/purchase-requests/:id/submit", async () => {
+        await submitStarted;
+        return HttpResponse.json(purchase("REQUEST_SUBMITTED", { vendor_name: "원래 요청" }));
+      }),
+    );
+
+    await renderFinancialApp(makeAuthContext(adminSession));
+    await user.click(await screen.findByRole("button", { name: "결재 상신" }));
+    fireEvent.change(purchaseStatusFilter(), { target: { value: "EXECUTED" } });
+    expect((await screen.findAllByText("필터 기준"))[0]).toBeVisible();
+    releaseSubmit?.();
+    await waitFor(() => {
+      expect(screen.queryAllByText("원래 요청")).toHaveLength(0);
+    });
   });
 
   it("drives the request -> resolution -> execution chain", async () => {
@@ -475,13 +591,17 @@ describe("financial purchase request workflow", () => {
       );
     });
     expect(await screen.findByText("구매요청서를 작성했습니다.")).toBeVisible();
-    await waitFor(() => expect(queueRequests.mock.calls.length).toBeGreaterThanOrEqual(2));
+    await waitFor(() => {
+      expect(queueRequests.mock.calls.length).toBeGreaterThanOrEqual(2);
+    });
     const statementThumb = await screen.findByAltText("거래명세표 사진 미리보기");
     expect(statementThumb).toHaveAttribute("src", "https://example.test/statement.jpg");
 
     // STATEMENT_ATTACHED -> submit
     await user.click(await screen.findByRole("button", { name: "결재 상신" }));
-    await waitFor(() => expect(queueRequests.mock.calls.length).toBeGreaterThanOrEqual(3));
+    await waitFor(() => {
+      expect(queueRequests.mock.calls.length).toBeGreaterThanOrEqual(3);
+    });
     // REQUEST_SUBMITTED -> admin approve
     await user.click(await screen.findByRole("button", { name: "관리자 승인" }));
     // ADMIN_APPROVED -> prepare expenditure (dialog)

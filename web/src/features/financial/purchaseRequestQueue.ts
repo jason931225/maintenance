@@ -1,12 +1,10 @@
-import type { ConsoleApiClient } from "../../api/client";
-import type { PurchaseRequestSummary, PurchaseStatus } from "../../api/types";
+import type { components } from "@maintenance/api-client-ts";
 
-export interface PurchaseRequestQueuePage {
-  items: PurchaseRequestSummary[];
-  limit: number;
-  offset: number;
-  total?: number;
-}
+import type { ConsoleApiClient } from "../../api/client";
+import type { PurchaseStatus } from "../../api/types";
+
+export type PurchaseRequestQueuePage =
+  components["schemas"]["PurchaseRequestPage"];
 
 export interface PurchaseRequestQueueFilter {
   branchId: string;
@@ -15,38 +13,16 @@ export interface PurchaseRequestQueueFilter {
   offset: number;
 }
 
-type PurchaseRequestQueueApi = ConsoleApiClient & {
-  GET(
-    path: "/api/v1/financial/purchase-requests",
-    options: {
-      params: {
-        query: {
-          branch_id: string;
-          /** openapi-fetch serializes this as repeated plain `status` keys. */
-          status?: PurchaseStatus[];
-          limit: number;
-          offset: number;
-        };
-      };
-    },
-  ): Promise<{
-    data?: PurchaseRequestQueuePage;
-    error?: unknown;
-    response?: Response;
-  }>;
-};
-
 /**
- * The only temporary collection-route boundary until the backend lane owns the
- * generated-client update. `status` is intentionally an array so the client
- * emits `status=A&status=B`, never the rejected `status[]` convention.
+ * Generated OpenAPI now owns this route and page schema. An array value is
+ * serialized by the shared client as repeated plain `status` query keys.
  */
 export function listPurchaseRequestQueue(
   api: ConsoleApiClient,
   filter: PurchaseRequestQueueFilter,
+  signal?: AbortSignal,
 ) {
-  const queueApi = api as PurchaseRequestQueueApi;
-  return queueApi.GET("/api/v1/financial/purchase-requests", {
+  return api.GET("/api/v1/financial/purchase-requests", {
     params: {
       query: {
         branch_id: filter.branchId,
@@ -55,5 +31,6 @@ export function listPurchaseRequestQueue(
         offset: filter.offset,
       },
     },
+    signal,
   });
 }

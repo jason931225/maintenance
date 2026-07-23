@@ -39,6 +39,14 @@ interface PurchaseRequestPanelProps {
 
 type WriteState = "idle" | "saving" | "error";
 type QueueState = "loading" | "ready" | "error";
+type QueueMoreState = "idle" | "loading" | "error";
+type OperationKind = "create" | "lookup" | "action";
+interface OperationToken {
+  kind: OperationKind;
+  id: number;
+  context: number;
+  controller: AbortController;
+}
 type Dialog = "expenditure" | "reject" | "restart" | "execute" | undefined;
 type PurchaseTypeValue = CreatePurchaseRequest["purchase_type"];
 type Density = "compact" | "comfortable";
@@ -229,9 +237,20 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
   const [selectedId, setSelectedId] = useState<string>();
   const selected = requests.find((item) => item.id === selectedId);
   const [queueState, setQueueState] = useState<QueueState>("loading");
+  const [queueMoreState, setQueueMoreState] = useState<QueueMoreState>("idle");
   const [queueStatus, setQueueStatus] = useState<PurchaseStatus>();
   const [queueErrorStatus, setQueueErrorStatus] = useState<number>();
+  const [queuePage, setQueuePage] = useState({ limit: PURCHASE_QUEUE_LIMIT, offset: 0, total: 0 });
   const queueRequestRef = useRef(0);
+  const mountedRef = useRef(true);
+  const contextRef = useRef(0);
+  const operationRef = useRef<Record<OperationKind, number>>({
+    create: 0,
+    lookup: 0,
+    action: 0,
+  });
+  const operationControllersRef = useRef(new Set<AbortController>());
+  const operationControllerByKindRef = useRef<Partial<Record<OperationKind, AbortController>>>({});
 
   const [creating, setCreating] = useState(false);
   const [equipment, setEquipment] = useState<SelectedEquipment>();
@@ -258,8 +277,39 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
   const [actionState, setActionState] = useState<WriteState>("idle");
   const [actionError, setActionError] = useState<string>();
 
+  function beginOperation(kind: OperationKind) {
+    operationControllerByKindRef.current[kind]?.abort();
+    const controller = new AbortController();
+    operationControllersRef.current.add(controller);
+    operationControllerByKindRef.current[kind] = controller;
+    const token = {
+      kind,
+      id: operationRef.current[kind] + 1,
+      context: contextRef.current,
+      controller,
+    };
+    operationRef.current[kind] = token.id;
+    return token;
+  }
+
+  function ownsOperation(token: OperationToken) {
+    return (
+      mountedRef.current &&
+      contextRef.current === token.context &&
+      operationRef.current[token.kind] === token.id &&
+      !token.controller.signal.aborted
+    );
+  }
+
+  function endOperation(token: OperationToken) {
+    operationControllersRef.current.delete(token.controller);
+    if (operationControllerByKindRef.current[token.kind] === token.controller) {
+      operationControllerByKindRef.current[token.kind] = undefined;
+    }
+  }
+
   const loadQueue = useCallback(
-    async (preferredId?: string) => {
+    async (preferredId?: string, offset = 0) => {
       if (!activeBranchId) {
         setRequests([]);
         setSelectedId(undefined);
@@ -269,46 +319,82 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
       }
       const requestId = queueRequestRef.current + 1;
       queueRequestRef.current = requestId;
-      setQueueState("loading");
-      setQueueErrorStatus(undefined);
+      if (offset === 0) {
+        setQueueState("loading");
+        setQueueErrorStatus(undefined);
+      } else {
+        setQueueMoreState("loading");
+      }
       try {
         const response = await listPurchaseRequestQueue(api, {
           branchId: activeBranchId,
           statuses: queueStatus ? [queueStatus] : undefined,
           limit: PURCHASE_QUEUE_LIMIT,
-          offset: 0,
+          offset,
         });
         if (queueRequestRef.current !== requestId) return;
-        if (response.error || !response.data) {
-          setQueueErrorStatus(response.response?.status);
-          setQueueState("error");
+        if (response.error) {
+          if (offset === 0) {
+            setQueueErrorStatus(response.response.status);
+            setQueueState("error");
+          } else {
+            setQueueMoreState("error");
+          }
           return;
         }
         const items = response.data.items;
-        setRequests(items);
+        setRequests((current) =>
+          offset === 0
+            ? items
+            : [...current, ...items.filter((item) => !current.some((known) => known.id === item.id))],
+        );
+        setQueuePage({
+          limit: response.data.limit,
+          offset: response.data.offset,
+          total: response.data.total,
+        });
         setSelectedId((current) => {
           if (preferredId && items.some((item) => item.id === preferredId)) {
             return preferredId;
           }
           if (current && items.some((item) => item.id === current)) return current;
-          return items[0]?.id;
+          // A replacement page defines the visible selection. Appended pages
+          // preserve a selection from an earlier page, but an active filter
+          // must never leave detail UI pointing at a request no longer shown.
+          return offset === 0 ? items[0]?.id : current ?? items[0]?.id;
         });
-        setQueueState("ready");
+        if (offset === 0) setQueueState("ready");
+        setQueueMoreState("idle");
       } catch {
         if (queueRequestRef.current !== requestId) return;
-        setQueueErrorStatus(undefined);
-        setQueueState("error");
+        if (offset === 0) {
+          setQueueErrorStatus(undefined);
+          setQueueState("error");
+        } else {
+          setQueueMoreState("error");
+        }
       }
     },
     [activeBranchId, api, queueStatus],
   );
 
   useEffect(() => {
+    contextRef.current += 1;
+    mountedRef.current = true;
+    const operationControllers = operationControllersRef.current;
+    // The queue is the external system this effect synchronizes with. Keep the
+    // initial fetch immediate so a context replacement cannot briefly display
+    // an empty operational queue.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadQueue();
     return () => {
       // Invalidate an in-flight response when the filter/api context changes
       // or the panel unmounts; only the latest queue may update UI state.
       queueRequestRef.current += 1;
+      for (const controller of operationControllers) controller.abort();
+      operationControllers.clear();
+      operationControllerByKindRef.current = {};
+      mountedRef.current = false;
     };
   }, [loadQueue]);
 
@@ -465,6 +551,7 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
 
   async function handleCreate() {
     if (!branchId) return;
+    const operation = beginOperation("create");
     setWriteState("saving");
     setCreateError(undefined);
     try {
@@ -491,6 +578,7 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
       const response = await api.POST("/api/v1/financial/purchase-requests", {
         body,
       });
+      if (!ownsOperation(operation)) return;
       if (response.error) {
         setCreateError(errorMessage(response.error));
         setWriteState("error");
@@ -504,14 +592,18 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
       resetCreate();
       await loadQueue(response.data.id);
     } catch {
+      if (!ownsOperation(operation)) return;
       setCreateError(undefined);
       setWriteState("error");
+    } finally {
+      endOperation(operation);
     }
   }
 
   async function handleLookup() {
     const id = lookupId.trim();
     if (!id) return;
+    const operation = beginOperation("lookup");
     setLookupError(false);
     try {
       const response = await api.GET(
@@ -519,11 +611,15 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
         { params: { path: { purchaseRequestId: id } } },
       );
       if (!response.data) throw new Error("purchase request not found");
+      if (!ownsOperation(operation)) return;
       setRequests((prev) => upsert(prev, response.data));
       setSelectedId(response.data.id);
       setLookupId("");
     } catch {
+      if (!ownsOperation(operation)) return;
       setLookupError(true);
+    } finally {
+      endOperation(operation);
     }
   }
 
@@ -551,13 +647,19 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
     fn: () => Promise<ActionResponse>,
     failureMessage: string,
   ) {
+    const operation = beginOperation("action");
     setActionState("saving");
     setActionError(undefined);
     try {
-      applyActionResponse(await fn(), failureMessage);
+      const response = await fn();
+      if (!ownsOperation(operation)) return;
+      applyActionResponse(response, failureMessage);
     } catch {
+      if (!ownsOperation(operation)) return;
       setActionState("error");
       setActionError(failureMessage);
+    } finally {
+      endOperation(operation);
     }
   }
 
@@ -565,22 +667,29 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
     fn: (stepUp: FinancialStepUpProof) => Promise<ActionResponse>,
     failureMessage: string,
   ) {
+    const operation = beginOperation("action");
     setActionState("saving");
     setActionError(undefined);
-    let stepUp: FinancialStepUpProof;
     try {
-      stepUp = await assertPasskeyStepUp(api);
-    } catch (error) {
-      setActionState("error");
-      setActionError(stepUpFailureMessage(error));
-      return;
-    }
-
-    try {
-      applyActionResponse(await fn(stepUp), failureMessage);
+      let stepUp: FinancialStepUpProof;
+      try {
+        stepUp = await assertPasskeyStepUp(api);
+      } catch (error) {
+        if (!ownsOperation(operation)) return;
+        setActionState("error");
+        setActionError(stepUpFailureMessage(error));
+        return;
+      }
+      if (!ownsOperation(operation)) return;
+      const response = await fn(stepUp);
+      if (!ownsOperation(operation)) return;
+      applyActionResponse(response, failureMessage);
     } catch {
+      if (!ownsOperation(operation)) return;
       setActionState("error");
       setActionError(failureMessage);
+    } finally {
+      endOperation(operation);
     }
   }
 
@@ -600,6 +709,7 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
     (equipmentScoped && (!equipment || !form.statementEvidenceId.trim()));
 
   const densityClass = density === "compact" ? "gap-3 p-3" : "gap-4 p-4";
+  const canLoadMore = requests.length < queuePage.total;
 
   return (
     <Card className="grid gap-4">
@@ -672,6 +782,7 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
                   listId="purchase-vendor-options"
                   datalistOptions={vendorSuggestions}
                 />
+                <p className="text-xs text-steel">{PURCHASE_TEXT.visibleHistoryHint}</p>
               </div>
               <SelectField
                 id="pr-purchase-type"
@@ -881,7 +992,7 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
         </form>
       ) : null}
 
-      <section aria-label={PURCHASE_TEXT.recentAria} className="flex flex-wrap items-end gap-3 rounded-md border border-line bg-muted-panel p-3">
+      <section aria-label={ko.common.status} className="flex flex-wrap items-end gap-3 rounded-md border border-line bg-muted-panel p-3">
         <div className="grid gap-1.5">
           <label className="text-sm font-medium text-steel" htmlFor="purchase-status-filter">{ko.common.status}</label>
           <select
@@ -988,6 +1099,34 @@ export function PurchaseRequestPanel({ api, roles }: PurchaseRequestPanelProps) 
             </button>
           ))
         )}
+        {queueState === "ready" && canLoadMore ? (
+          <div className="flex justify-center pt-1">
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              disabled={queueMoreState === "loading"}
+              onClick={() => {
+                void loadQueue(undefined, queuePage.offset + queuePage.limit);
+              }}
+            >
+              {queueMoreState === "loading" ? ko.common.loadingMore : ko.common.loadMore}
+            </Button>
+          </div>
+        ) : null}
+        {queueMoreState === "error" ? (
+          <div role="alert" className="flex items-center justify-between gap-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+            <span>{ko.page.loadFailed}</span>
+            <Button
+              type="button"
+              size="sm"
+              variant="secondary"
+              onClick={() => { void loadQueue(undefined, queuePage.offset + queuePage.limit); }}
+            >
+              {ko.page.retry}
+            </Button>
+          </div>
+        ) : null}
       </section>
 
       {selected ? (
