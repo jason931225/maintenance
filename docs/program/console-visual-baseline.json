@@ -1,0 +1,101 @@
+{
+  "schema_version": "console-visual-baseline-v1",
+  "captured_at": "2026-07-23",
+  "status": "provisional_baseline_not_release_evidence",
+  "reference": {
+    "project_url": "https://claude.ai/design/p/9c7c313a-2187-4cf1-bb35-7c07ad0a4d9d",
+    "project_id": "9c7c313a-2187-4cf1-bb35-7c07ad0a4d9d",
+    "html_etag": "1784835511327971",
+    "documentation_etag": "1784835569492493",
+    "html_bytes": 2110720,
+    "html_sha256": "7af45931d383bc64f1fa80079ece34e07914f0392d738024c63993e07673894b",
+    "image_path": "docs/evidence/console/visual/mywork-claude-reference-2026-07-23.png",
+    "image_sha256": "64a3fcfb81a645862af31dcd2ba2bb00ecc7b56f33c36250030109e2425f8d22",
+    "image_dimensions": {
+      "width": 1280,
+      "height": 720
+    }
+  },
+  "candidate": {
+    "branch": "codex/console-integration-20260723",
+    "commit_at_capture": "a729afcf",
+    "route": "/console/mywork",
+    "viewport": {
+      "width": 937,
+      "height": 912
+    },
+    "theme": "light",
+    "image_path": "docs/evidence/console/visual/mywork-live-baseline-2026-07-23.png",
+    "image_sha256": "7c6f513267584801dc95efe1b3a7f4e1fd61957219961ba37eb3a1a1d312f772",
+    "image_dimensions": {
+      "width": 937,
+      "height": 912
+    }
+  },
+  "evaluation": {
+    "method": "native_vision_review",
+    "tool_version": null,
+    "score": 46,
+    "score_scale": 100,
+    "comparison_note": "The reference and candidate captures have different native dimensions; the score is an orientation baseline, not a pixel-perfect or Visual Ralph gate.",
+    "material_gaps": [
+      "Information architecture differs: todo and timeline versus the reference task table and selected-detail workspace.",
+      "The expanded communication rail dominates the available workspace.",
+      "Summary, view, create, and workflow tools required by the reference are missing.",
+      "Density and scan hierarchy are materially weaker than the reference.",
+      "Generic heavy cards replace the reference's compact operational composition."
+    ]
+  },
+  "latest_candidate": {
+    "branch": "codex/console-integration-20260723",
+    "commit_at_capture": "397e1e59",
+    "route": "/console/mywork",
+    "viewport": {
+      "width": 937,
+      "height": 912
+    },
+    "theme": "light",
+    "image_path": "docs/evidence/console/visual/mywork-live-after-shell-2026-07-23.png",
+    "image_sha256": "366ed61c7a5fd51bc21f4516a59bdb2fe5f68e5f3caf9c576029a68cb4f6a15d",
+    "image_dimensions": {
+      "width": 937,
+      "height": 912
+    }
+  },
+  "latest_evaluation": {
+    "method": "native_vision_review",
+    "tool_version": null,
+    "score": 42,
+    "score_scale": 100,
+    "comparison_note": "The responsive shell is materially safer and more usable, but this medium-width capture keeps the communications rail compact and the todo-only My Work body remains far from the 1280x720 reference. Unequal viewports prevent desktop-parity proof.",
+    "shell_improvements": [
+      "Stable top bar and global search.",
+      "Compact persistent left navigation with active state.",
+      "Usable central region at medium width."
+    ],
+    "highest_leverage_gaps": [
+      "Replace the todo-only body with a real queue, selected-task detail, and today/calendar/timeline workspace.",
+      "Complete the real Messenger, Mail, notification, and activity rail with an accessible medium-width drawer trigger.",
+      "Render real task type, status, priority/SLA, assignee, due time, linked object, workflow, and audit fields.",
+      "Add real-filter operational summary counts that drill into evidence.",
+      "Move typography, metadata density, card chrome, and desktop grid toward the pinned Claude reference."
+    ]
+  },
+  "candidate_gate_requirements": [
+    "exact_candidate_commit",
+    "reference_etag_and_sha256",
+    "tool_and_model_version",
+    "scoring_rubric",
+    "viewport_theme_and_state_matrix",
+    "candidate_and_reference_images",
+    "accessibility_deltas",
+    "findings_and_dispositions",
+    "approved_waivers",
+    "visual_ralph_score_at_least_90"
+  ],
+  "invalidation_rules": [
+    "A Claude Design ETag or export digest change requires impact classification and re-evaluation of affected states.",
+    "A candidate source change after capture invalidates candidate visual approval.",
+    "A missing tool version, state matrix, image, or rubric prevents release use."
+  ]
+}

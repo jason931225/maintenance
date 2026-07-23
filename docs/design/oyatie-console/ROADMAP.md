@@ -1,7 +1,16 @@
 # Acme Group 콘솔 — ROADMAP (마스터 빌드 블루프린트)
 
-> 목적: 콘솔 **전 모듈을 엔터프라이즈 프로덕션 목업 품질**로 완성한다 — no stubs·no filler·no "good for now". 모든 화면이 상호작용하고, **온톨로지·데이터 상관·워크플로·자동화**를 실증한다. "배선(백엔드 연결)만 하면 되는" 상태가 목표.
-> 이 문서는 실행 계획의 단일 출처다. 설계 원칙=DESIGN.md, 백엔드 계약=HANDOFF.md, 세션 작업목록=TODO.md, 운영노트=AGENTS.md. 매 모듈 완료 시 본 문서의 상태표를 갱신한다.
+> **Authority boundary (2026-07-23):** this file is a Claude Design
+> visual/interaction reference and prototype history. Its mock rows, executable
+> prototype actions, and `완료` labels are not repository implementation,
+> backend, review, test, release, or deployment evidence. The repository-native
+> implementation authority is
+> [`docs/program/console-enterprise-roadmap.md`](../../program/console-enterprise-roadmap.md).
+> No Hermes, Hermes Kanban, OMX, OMC, GJC, or untracked agent state is required
+> to interpret that roadmap.
+>
+> 역사적 목적: 콘솔 **전 모듈을 엔터프라이즈 프로덕션 목업 품질**로 표현한다 — no stubs·no filler·no "good for now". 모든 화면이 상호작용하고, **온톨로지·데이터 상관·워크플로·자동화**의 목표 경험을 표현한다.
+> 이 문서의 상태표와 완료 기록은 설계 프로토타입의 이력이며 현재 구현 큐나 완료 증거가 아니다. 현재 실행 상태는 `docs/program/console-enterprise-roadmap.md`와 그 기계 판독 레지스트리에서만 갱신한다.
 > **권한 연대기(문서 범위 상태 구분):** 이 문서의 Cedar/PBAC 항목과 완료 로그는 목업·작성·시뮬레이션·목표 계약을 기록한다. 별도 공존 맵 승격 증거가 없는 한 이 문서가 전제하는 상태는 레거시 서버 권한/미들웨어와 PostgreSQL RLS 집행, Cedar target/shadow다. 이 상태 구분은 배포·런타임 검증 증거가 아니며, 실제 집행 상태는 별도 운영 증거로 검증해야 한다.
 >
 > **ADR-0025 프로덕션 상태 오버레이 (2026-07-20):** 아래의 `완료`·`검증` 기록은 개발 인벤토리와 해당 시점의 제한된 검증을 뜻하며 프로덕션 준비도 승격이 아니다. 화면 상태는 (1) 정보구조에만 있는 `DECLARED/UNMOUNTED/DARK`, (2) 소스에 본문이 연결됐지만 증거 승인을 받지 않은 `MOUNTED/DARK`, (3) ADR-0025 전체 증거 요건을 승인받아 매니페스트에 포함된 `EXPOSED`로 구분한다. 현재 `EXPOSED_SCREEN_KEYS`는 비어 있다. `/console/*`는 서버 소유 롤아웃 응답과 증거 승인 매니페스트가 모두 허용할 때만 열리며, 그 외에는 작동하는 레거시 `/overview`로 fail closed한다.

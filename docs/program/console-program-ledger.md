@@ -1,5 +1,15 @@
 # Oyatie Console — Design-Implementation Program (disjoint parallel lanes)
 
+> **Historical record only (2026-07-23):** this ledger preserves earlier
+> decisions, experiments, Cargo-era commands, `.omc` references, and prototype
+> phases for traceability. It is not the current implementation authority,
+> dispatch queue, completion evidence, or build policy. Do not resume work from
+> its `IN FLIGHT`, `DONE`, stub-first, Cargo, model-routing, or merge claims.
+> Current authority is
+> [`console-enterprise-roadmap.md`](console-enterprise-roadmap.md), its
+> machine-readable capability and jurisdiction registers, current repository
+> contracts, and exact-candidate evidence.
+
 Authority model (2026-07-09 directive):
 - **Frontend design authority** = Claude Design project `9c7c313a` (dc.html prototype + design-system grammar) + `docs/design/oyatie-console/*`.
 - **Backend design authority** = the referenced markdowns (`AGENTS/CLAUDE/DESIGN/README/ROADMAP/TODO`) **+ `HANDOFF.md`** — they define the backend contract required to make the frontend fully functional (DX- ingest, WORM evidence, mox mail, office editor, DLP, lifecycle engine §15, guardrails §16, enterprise standard §17, ontology engine §18, CRUD matrix §20).
