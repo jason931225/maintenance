@@ -12,7 +12,24 @@ the HR-manager-only `GET /api/v1/employees/{id}` detail endpoint. Both paths
 authorize before querying and query through tenant RLS, so a caller receives
 neither cross-tenant data nor a count/object existence signal.
 
-The console body in `web/src/console/people` uses these real endpoints for its
-directory, branch selection, create flow, retry states, and refresh. Its
-integration owner mounts it in the console screen registry; it does not carry
-prototype data or masked compensation.
+## Delivered workflow
+
+`web/src/console/people/PeopleWorkforceBody.tsx` calls only those real
+endpoints. It loads an authorized directory and active branch identities,
+offers bounded suggestions derived from the authorized directory while keeping
+the contract's direct-entry fields available, and creates the employee with a
+stable idempotency key retained across a failed retry. Korean local phone input
+is normalized to E.164 and KRW input to the canonical decimal before submit;
+the server remains the authoritative validator.
+
+A successful create and a deliberate directory-record open both render the
+persisted privileged detail returned by the backend, including normalized phone
+and base pay. The directory itself never receives or synthesizes those fields.
+
+## Completion boundary
+
+This module owns the create/list/detail workflow, migration `0172`, OpenAPI,
+and generated clients. Mounting this body into the console screen registry and
+its route/nav authorization is owned by the integration lane; this module does
+not claim that route seam as complete until it is mounted and end-to-end tested
+there.
