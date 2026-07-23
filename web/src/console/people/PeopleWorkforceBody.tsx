@@ -55,7 +55,7 @@ function formatKrwInput(value: string): string {
   const numeric = value.replaceAll(",", "");
   if (!/^(?:0|[1-9]\d*)(?:\.\d{0,2})?$/.test(numeric)) return value;
   const [whole, ...fraction] = numeric.split(".");
-  const formattedWhole = whole ? Number(whole).toLocaleString("ko-KR") : "";
+  const formattedWhole = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
   return fraction.length ? `${formattedWhole}.${fraction.join("")}` : formattedWhole;
 }
 

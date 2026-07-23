@@ -79,6 +79,18 @@ describe("PeopleWorkforceBody", () => {
     expect(post).not.toHaveBeenCalled();
   });
 
+  it("preserves oversized pasted digits exactly and never posts a rounded value", async () => {
+    render(<PeopleWorkforceBody />);
+    await screen.findByText("Kim");
+    fillRequiredForm();
+    fireEvent.change(screen.getByLabelText("기본급 (KRW)"), { target: { value: "9007199254740993" } });
+    fireEvent.click(screen.getByRole("button", { name: "직원 등록" }));
+
+    expect(screen.getByLabelText("기본급 (KRW)")).toHaveValue("9,007,199,254,740,993");
+    expect(screen.getByText("기본급은 소수 둘째 자리까지의 0 이상 금액으로 입력하세요.")).toBeInTheDocument();
+    expect(post).not.toHaveBeenCalled();
+  });
+
   it("keeps one idempotency identity while a failed form is retried", async () => {
     post.mockResolvedValue({ response: { status: 422 }, error: { message: "Invalid phone" } });
     render(<PeopleWorkforceBody />);
