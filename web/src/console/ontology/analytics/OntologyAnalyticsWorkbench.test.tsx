@@ -79,14 +79,21 @@ function StatefulWorkbench() {
   const [open, setOpen] = useState(false);
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)}>
+      <button
+        type="button"
+        onClick={() => {
+          setOpen(true);
+        }}
+      >
         Open analysis
       </button>
       <OntologyAnalyticsWorkbench
         api={api}
         authorityKey="tenant-a"
         open={open}
-        onClose={() => setOpen(false)}
+        onClose={() => {
+          setOpen(false);
+        }}
         onDrill={onDrill}
       />
     </>
