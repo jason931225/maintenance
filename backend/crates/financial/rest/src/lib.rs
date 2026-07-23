@@ -2,7 +2,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 use axum::body::Bytes;
-use axum::extract::{Path, State};
+use axum::extract::{Path, RawQuery, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -11,11 +11,12 @@ use mnt_financial_adapter_postgres::{PgFinancialError, PgFinancialStore};
 use mnt_financial_application::{
     AppendCostLedgerEntryCommand, ConfirmPurchaseAttachmentUploadCommand, CostLedgerSource,
     CreatePurchaseRequestCommand, CreateRentalQuoteCommand, ExecutePurchaseCommand,
-    FinancialConfigSnapshot, PrepareExpenditureCommand, PreparePurchaseAttachmentUploadCommand,
-    PurchaseApprovalCommand, PurchaseRequestLineInput, PurchaseRestartCommand,
-    PurchaseSubmitCommand, PurchaseType, RejectPurchaseCommand, financial_audit_event,
+    FinancialConfigSnapshot, ListPurchaseRequestsQuery, PrepareExpenditureCommand,
+    PreparePurchaseAttachmentUploadCommand, PurchaseApprovalCommand, PurchaseRequestLineInput,
+    PurchaseRestartCommand, PurchaseSubmitCommand, PurchaseType, RejectPurchaseCommand,
+    financial_audit_event,
 };
-use mnt_financial_domain::{MoneyInput, RentalQuoteInput, compute_rental_quote};
+use mnt_financial_domain::{MoneyInput, PurchaseStatus, RentalQuoteInput, compute_rental_quote};
 use mnt_kernel_core::{
     BranchId, EquipmentId, ErrorKind, EvidenceId, KernelError, PurchaseRequestId, QuoteId,
     TraceContext, WorkOrderId,
@@ -141,7 +142,7 @@ pub fn router(state: FinancialRestState) -> Router {
         )
         .route(
             FINANCIAL_PURCHASE_REQUESTS_PATH,
-            post(create_purchase_request),
+            get(list_purchase_requests).post(create_purchase_request),
         )
         .route(
             FINANCIAL_PURCHASE_REQUEST_PREFERENCES_PATH,
@@ -233,6 +234,135 @@ struct CreatePurchaseRequest {
     quote_attachment_ids: Vec<uuid::Uuid>,
     memo: String,
     config: FinancialConfigSnapshot,
+}
+
+async fn list_purchase_requests(
+    State(state): State<FinancialRestState>,
+    headers: HeaderMap,
+    RawQuery(raw_query): RawQuery,
+) -> Result<impl IntoResponse, RestError> {
+    let query = parse_purchase_request_list_query(raw_query.as_deref())?;
+    let principal = principal_from_headers(&state, &headers).await?;
+    authorize(
+        &principal,
+        Action::limited(Feature::PurchaseRequestRead),
+        query.branch_id,
+    )
+    .map_err(RestError::from_kernel)?;
+    let page = state
+        .store
+        .list_purchase_requests(query)
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(Json(page))
+}
+
+fn parse_purchase_request_list_query(
+    raw_query: Option<&str>,
+) -> Result<ListPurchaseRequestsQuery, RestError> {
+    let mut branch_id = None;
+    let mut statuses = Vec::new();
+    let mut limit = None;
+    let mut offset = None;
+    for pair in raw_query.unwrap_or_default().split('&') {
+        if pair.is_empty() {
+            continue;
+        }
+        let (raw_key, raw_value) = pair.split_once('=').ok_or_else(|| {
+            RestError::validation("purchase-request query values must use key=value syntax")
+        })?;
+        let key = decode_purchase_request_query_component(raw_key)?;
+        let value = decode_purchase_request_query_component(raw_value)?;
+        match key.as_str() {
+            "branch_id" if branch_id.is_none() => {
+                branch_id = Some(
+                    value
+                        .parse::<BranchId>()
+                        .map_err(|_| RestError::validation("branch_id must be a UUID"))?,
+                );
+            }
+            "status" => {
+                if value.is_empty() || value.contains(',') {
+                    return Err(RestError::validation(
+                        "status must be one non-empty lifecycle state per plain status key",
+                    ));
+                }
+                statuses.push(PurchaseStatus::from_db_str(&value).map_err(RestError::from_kernel)?);
+            }
+            "limit" if limit.is_none() => limit = Some(parse_purchase_request_i64("limit", value)?),
+            "offset" if offset.is_none() => {
+                offset = Some(parse_purchase_request_i64("offset", value)?)
+            }
+            "branch_id" | "limit" | "offset" => {
+                return Err(RestError::validation(format!("{key} must not be repeated")));
+            }
+            _ => {
+                return Err(RestError::validation(format!(
+                    "unknown purchase-request query key {key:?}"
+                )));
+            }
+        }
+    }
+    let branch_id = branch_id.ok_or_else(|| RestError::validation("branch_id is required"))?;
+    let limit = limit.unwrap_or(25);
+    if !(1..=100).contains(&limit) {
+        return Err(RestError::validation("limit must be between 1 and 100"));
+    }
+    let offset = offset.unwrap_or(0);
+    if offset < 0 {
+        return Err(RestError::validation("offset must be zero or greater"));
+    }
+    Ok(ListPurchaseRequestsQuery {
+        branch_id,
+        statuses,
+        limit,
+        offset,
+    })
+}
+
+fn parse_purchase_request_i64(name: &str, value: String) -> Result<i64, RestError> {
+    value
+        .parse()
+        .map_err(|_| RestError::validation(format!("{name} must be an integer")))
+}
+
+fn decode_purchase_request_query_component(input: &str) -> Result<String, RestError> {
+    let bytes = input.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'+' => decoded.push(b' '),
+            b'%' if index + 2 < bytes.len() => {
+                let high = purchase_request_hex(bytes[index + 1]).ok_or_else(|| {
+                    RestError::validation("query contains an invalid percent-escape")
+                })?;
+                let low = purchase_request_hex(bytes[index + 2]).ok_or_else(|| {
+                    RestError::validation("query contains an invalid percent-escape")
+                })?;
+                decoded.push((high << 4) | low);
+                index += 2;
+            }
+            b'%' => {
+                return Err(RestError::validation(
+                    "query contains an incomplete percent-escape",
+                ));
+            }
+            byte => decoded.push(byte),
+        }
+        index += 1;
+    }
+    String::from_utf8(decoded)
+        .map_err(|_| RestError::validation("query contains invalid UTF-8 data"))
+}
+
+const fn purchase_request_hex(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
 }
 
 #[derive(Debug, Deserialize)]

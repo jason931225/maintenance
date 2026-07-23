@@ -431,6 +431,22 @@ pub struct PurchaseRequestSummary {
     pub updated_at: Timestamp,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ListPurchaseRequestsQuery {
+    pub branch_id: BranchId,
+    pub statuses: Vec<PurchaseStatus>,
+    pub limit: i64,
+    pub offset: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PurchaseRequestPage {
+    pub items: Vec<PurchaseRequestSummary>,
+    pub limit: i64,
+    pub offset: i64,
+    pub total: i64,
+}
+
 pub fn financial_audit_event(
     action: &str,
     actor: UserId,

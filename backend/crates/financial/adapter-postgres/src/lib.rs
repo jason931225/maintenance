@@ -5,12 +5,13 @@ use mnt_financial_application::{
     AppendCostLedgerEntryCommand, AssetLifecycleCostSummary,
     ConfirmPurchaseAttachmentUploadCommand, CostLedgerEntrySummary, CostLedgerSource,
     CreatePurchaseRequestCommand, CreateRentalQuoteCommand, ExecutePurchaseCommand,
-    FinancialConfigSnapshot, PrepareExpenditureCommand, PreparePurchaseAttachmentUploadCommand,
-    PurchaseApprovalCommand, PurchaseAttachmentDownload, PurchaseAttachmentSummary,
-    PurchaseAttachmentUploadRecord, PurchaseFeaturePreferences, PurchasePolicySummary,
-    PurchaseRequestLineInput, PurchaseRequestLineSummary, PurchaseRequestSummary,
-    PurchaseRequesterSummary, PurchaseRestartCommand, PurchaseSubmitCommand, PurchaseType,
-    RejectPurchaseCommand, RentalQuoteSummary, financial_audit_event,
+    FinancialConfigSnapshot, ListPurchaseRequestsQuery, PrepareExpenditureCommand,
+    PreparePurchaseAttachmentUploadCommand, PurchaseApprovalCommand, PurchaseAttachmentDownload,
+    PurchaseAttachmentSummary, PurchaseAttachmentUploadRecord, PurchaseFeaturePreferences,
+    PurchasePolicySummary, PurchaseRequestLineInput, PurchaseRequestLineSummary,
+    PurchaseRequestPage, PurchaseRequestSummary, PurchaseRequesterSummary, PurchaseRestartCommand,
+    PurchaseSubmitCommand, PurchaseType, RejectPurchaseCommand, RentalQuoteSummary,
+    financial_audit_event,
 };
 use mnt_financial_domain::{
     AcquisitionAnchor, MoneyInput, PurchaseActor, PurchaseStatus, PurchaseTransition,
@@ -24,7 +25,7 @@ use mnt_kernel_core::{
 };
 use mnt_platform_db::{DbError, with_audit, with_audits, with_org_conn};
 use mnt_platform_request_context::current_org;
-use sqlx::{PgConnection, PgPool, Postgres, Row, Transaction};
+use sqlx::{Connection, PgConnection, PgPool, Postgres, Row, Transaction};
 use time::{Date, OffsetDateTime};
 
 #[derive(Debug, thiserror::Error)]
@@ -896,6 +897,46 @@ impl PgFinancialStore {
         purchase_request_id: PurchaseRequestId,
     ) -> Result<PurchaseRequestSummary, PgFinancialError> {
         purchase_by_id(&self.pool, purchase_request_id).await
+    }
+
+    pub async fn list_purchase_requests(
+        &self,
+        query: ListPurchaseRequestsQuery,
+    ) -> Result<PurchaseRequestPage, PgFinancialError> {
+        let org = current_org().map_err(KernelError::from)?;
+        with_org_conn::<_, _, PgFinancialError>(&self.pool, org, move |conn| {
+            Box::pin(async move {
+                let mut tx = conn.begin().await?;
+                let statuses = query
+                    .statuses
+                    .iter()
+                    .map(|status| status.as_db_str().to_owned())
+                    .collect::<Vec<_>>();
+                let total: i64 = sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM financial_purchase_requests WHERE branch_id = $1 AND ($2::TEXT[] = ARRAY[]::TEXT[] OR status = ANY($2))",
+                )
+                .bind(*query.branch_id.as_uuid())
+                .bind(&statuses)
+                .fetch_one(tx.as_mut())
+                .await?;
+                let rows = sqlx::query(
+                    "SELECT p.id, p.branch_id, p.equipment_id, p.work_order_id, p.statement_evidence_id, p.purchase_type, p.vendor_name, p.amount_won, p.status, p.requested_by, u.display_name AS requester_display_name, p.price_anomaly, p.quote_update_required, p.expenditure_no, p.rejection_memo, p.created_at, p.updated_at FROM financial_purchase_requests p JOIN users u ON u.id = p.requested_by WHERE p.branch_id = $1 AND ($2::TEXT[] = ARRAY[]::TEXT[] OR p.status = ANY($2)) ORDER BY p.created_at DESC, p.id DESC LIMIT $3 OFFSET $4",
+                )
+                .bind(*query.branch_id.as_uuid())
+                .bind(&statuses)
+                .bind(query.limit)
+                .bind(query.offset)
+                .fetch_all(tx.as_mut())
+                .await?;
+                let mut items = Vec::with_capacity(rows.len());
+                for row in rows {
+                    items.push(purchase_from_row_tx(&mut tx, &row).await?);
+                }
+                tx.commit().await?;
+                Ok(PurchaseRequestPage { items, limit: query.limit, offset: query.offset, total })
+            })
+        })
+        .await
     }
 
     pub async fn rental_quote(
