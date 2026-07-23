@@ -7529,7 +7529,6 @@ export interface components {
             /** Format: int64 */
             expectedVersion: number;
             approvalId?: components["schemas"]["Uuid"];
-            workflowExecutionId?: components["schemas"]["Uuid"];
             reason: string;
         };
         ConsultingHistoryEntry: {

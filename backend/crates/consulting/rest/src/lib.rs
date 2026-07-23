@@ -9,7 +9,7 @@ use axum::routing::get;
 use axum::{Json, Router};
 use mnt_kernel_core::{BranchScope, ErrorKind, KernelError, OrgId, UserId};
 use mnt_platform_auth::JwtVerifier;
-use mnt_platform_authz::{Action, Feature, Principal, authorize, authorize_org_wide};
+use mnt_platform_authz::{Action, Feature, Principal, authorize_org_wide};
 use mnt_platform_db::with_org_conn;
 use mnt_platform_request_context::{RequestContextError, current_org};
 use serde::{Deserialize, Serialize};
@@ -213,7 +213,6 @@ struct Transition {
     to_status: String,
     expected_version: i64,
     approval_id: Option<Uuid>,
-    workflow_execution_id: Option<Uuid>,
     reason: String,
 }
 #[derive(Deserialize)]
@@ -349,7 +348,7 @@ async fn transition(
     required(&body.reason, "reason")?;
     let org = current_org().map_err(RestError::kernel)?;
     let actor_id = *actor.user_id.as_uuid();
-    let value=with_org_conn(&state.pool,org,|tx|Box::pin(async move { let current=ensure_engagement(tx,id).await?; if !allowed(&current.status,&body.to_status){return Err(sqlx::Error::Protocol("invalid consulting transition".into()))} if body.to_status=="APPROVED"&&body.approval_id.is_none(){return Err(sqlx::Error::Protocol("approvalId is required for APPROVED".into()))} let row=sqlx::query("UPDATE consulting_engagements SET status=$1, approval_id=COALESCE($2,approval_id), workflow_execution_id=COALESCE($3,workflow_execution_id), version=version+1, updated_at=now() WHERE id=$4 AND version=$5 RETURNING id,customer_id,customer_document_id,ontology_instance_id,title,status,approval_id,workflow_execution_id,version,created_at,updated_at").bind(&body.to_status).bind(body.approval_id).bind(body.workflow_execution_id).bind(id).bind(body.expected_version).fetch_optional(tx.as_mut()).await?; let row=row.ok_or(sqlx::Error::RowNotFound)?;let value=engagement(&row)?;insert_history(tx,*org.as_uuid(),id,actor_id,"engagement.transitioned",Some(&current.status),Some(&value.status),value.version,serde_json::json!({"reason":body.reason,"approval_id":body.approval_id,"workflow_execution_id":body.workflow_execution_id})).await?;Ok(value)})).await.map_err(RestError::conflict_or_db)?;
+    let value=with_org_conn(&state.pool,org,|tx|Box::pin(async move { let current=ensure_engagement(tx,id).await?; if !allowed(&current.status,&body.to_status){return Err(sqlx::Error::Protocol("invalid consulting transition".into()))} if body.to_status=="APPROVED" { let approval_id=body.approval_id.ok_or_else(|| sqlx::Error::Protocol("approvalId is required for APPROVED".into()))?; let consumed: Option<Uuid>=sqlx::query_scalar("INSERT INTO gov_approval_consumptions (org_id, approval_id, consumed_by) SELECT $1, a.id, $2 FROM gov_approvals a WHERE a.id=$3 AND a.org_id=$1 AND a.decision='approved' AND a.kind='consulting.engagement.approval' AND a.target_ref=$4 AND NOT EXISTS (SELECT 1 FROM gov_approval_consumptions c WHERE c.org_id=$1 AND c.approval_id=a.id) ON CONFLICT (org_id, approval_id) DO NOTHING RETURNING approval_id").bind(*org.as_uuid()).bind(actor_id).bind(approval_id).bind(id).fetch_optional(tx.as_mut()).await?; if consumed.is_none(){return Err(sqlx::Error::Protocol("approval is not an unused authorization for this engagement".into()))} } if body.to_status=="IMPLEMENTED" { let ready: bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM consulting_initiatives WHERE engagement_id=$1)").bind(id).fetch_one(tx.as_mut()).await?; if !ready{return Err(sqlx::Error::Protocol("an initiative is required before implementation closure".into()))} } if matches!(body.to_status.as_str(), "SUSTAINED"|"CORRECTIVE") { let ready: bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM consulting_benefit_observations WHERE engagement_id=$1)").bind(id).fetch_one(tx.as_mut()).await?; if !ready{return Err(sqlx::Error::Protocol("a benefit observation is required before outcome closure".into()))} } let row=sqlx::query("UPDATE consulting_engagements SET status=$1, approval_id=COALESCE($2,approval_id), version=version+1, updated_at=now() WHERE id=$3 AND version=$4 RETURNING id,customer_id,customer_document_id,ontology_instance_id,title,status,approval_id,workflow_execution_id,version,created_at,updated_at").bind(&body.to_status).bind(body.approval_id).bind(id).bind(body.expected_version).fetch_optional(tx.as_mut()).await?; let row=row.ok_or(sqlx::Error::RowNotFound)?;let value=engagement(&row)?;insert_history(tx,*org.as_uuid(),id,actor_id,"engagement.transitioned",Some(&current.status),Some(&value.status),value.version,serde_json::json!({"reason":body.reason,"approval_id":body.approval_id})).await?;Ok(value)})).await.map_err(RestError::conflict_or_db)?;
     Ok(Json(value))
 }
 
@@ -522,10 +521,11 @@ fn require(principal: &Principal, write: bool) -> Result<(), RestError> {
     let action = Action::new(feature);
     let allowed = match &principal.branch_scope {
         BranchScope::All => authorize_org_wide(principal, action),
-        BranchScope::Branches(branches) => branches.iter().next().map_or_else(
-            || Err(KernelError::forbidden("principal has no branch scope")),
-            |branch| authorize(principal, action, *branch),
-        ),
+        // Engagements do not carry a branch/site key. Allowing any one branch to
+        // authorize an org-wide row would widen that branch's authority.
+        BranchScope::Branches(_) => Err(KernelError::forbidden(
+            "consulting engagements require organization-wide authority",
+        )),
     };
     allowed.map_err(RestError::kernel)
 }

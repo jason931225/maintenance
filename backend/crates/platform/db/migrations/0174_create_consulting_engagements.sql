@@ -9,7 +9,8 @@ CREATE TABLE consulting_engagements (
     approval_id UUID NULL, workflow_execution_id UUID NULL, version BIGINT NOT NULL DEFAULT 1 CHECK (version > 0),
     idempotency_key TEXT NOT NULL CHECK (btrim(idempotency_key) <> '' AND char_length(idempotency_key) <= 128),
     created_by UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT, created_at TIMESTAMPTZ NOT NULL DEFAULT now(), updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    UNIQUE (org_id, idempotency_key), UNIQUE (id, org_id)
+    UNIQUE (org_id, idempotency_key), UNIQUE (id, org_id),
+    FOREIGN KEY (customer_id, org_id) REFERENCES registry_customers(id, org_id) ON DELETE RESTRICT
 );
 CREATE TABLE consulting_diagnostics (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(), org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE RESTRICT,
@@ -43,5 +44,12 @@ DO $$ DECLARE t TEXT; BEGIN FOREACH t IN ARRAY ARRAY['consulting_engagements','c
   EXECUTE format('CREATE POLICY org_isolation ON %I USING (org_id = NULLIF(current_setting(''app.current_org'', true), '''')::uuid) WITH CHECK (org_id = NULLIF(current_setting(''app.current_org'', true), '''')::uuid)', t);
   EXECUTE format('CREATE TRIGGER trg_%I_org_immutable BEFORE UPDATE ON %I FOR EACH ROW EXECUTE FUNCTION enforce_org_id_immutable()', t, t);
 END LOOP; END $$;
-GRANT SELECT, INSERT, UPDATE ON consulting_engagements, consulting_diagnostics, consulting_findings, consulting_initiatives, consulting_benefit_observations, consulting_engagement_history TO mnt_rt;
+CREATE TRIGGER trg_consulting_history_no_update BEFORE UPDATE ON consulting_engagement_history
+    FOR EACH ROW EXECUTE FUNCTION governance_append_only_record();
+CREATE TRIGGER trg_consulting_history_no_delete BEFORE DELETE ON consulting_engagement_history
+    FOR EACH ROW EXECUTE FUNCTION governance_append_only_record();
+
+GRANT SELECT, INSERT, UPDATE ON consulting_engagements, consulting_diagnostics, consulting_findings, consulting_initiatives, consulting_benefit_observations TO mnt_rt;
+GRANT SELECT, INSERT ON consulting_engagement_history TO mnt_rt;
 REVOKE DELETE ON consulting_engagements, consulting_diagnostics, consulting_findings, consulting_initiatives, consulting_benefit_observations, consulting_engagement_history FROM mnt_rt;
+REVOKE UPDATE ON consulting_engagement_history FROM mnt_rt;
