@@ -187,7 +187,7 @@ function conditions(values: EditorValues): BenefitCatalogCondition[] {
   ];
 }
 
-function valid(values: EditorValues): string | undefined {
+function valid(values: EditorValues, includesChildren: boolean): string | undefined {
   if (
     !values.name.trim() ||
     !values.coverageLabel.trim() ||
@@ -195,14 +195,19 @@ function valid(values: EditorValues): string | undefined {
   )
     return "정책명, 적용 범위, 비용 설명은 필수입니다.";
   if (
-    !values.tierBasis.trim() ||
-    !values.tierKey.trim() ||
-    !values.tierValue.trim()
+    includesChildren &&
+    (!values.tierBasis.trim() ||
+      !values.tierKey.trim() ||
+      !values.tierValue.trim())
   )
     return "등급의 기준, 키, 설명은 필수입니다.";
-  if (!values.conditionKey.trim() || !values.conditionLabel.trim())
+  if (
+    includesChildren &&
+    (!values.conditionKey.trim() || !values.conditionLabel.trim())
+  )
     return "적격성 키와 설명은 필수입니다.";
-  if (!values.conditionValue.trim()) return "적격성 값은 필수입니다.";
+  if (includesChildren && !values.conditionValue.trim())
+    return "적격성 값은 필수입니다.";
   return undefined;
 }
 
@@ -229,7 +234,7 @@ function CatalogEditor({
   };
   const submit = async (event: SyntheticEvent<HTMLFormElement>) => {
     event.preventDefault();
-    const message = valid(values);
+    const message = valid(values, !item);
     if (message) {
       setValidation(message);
       return;
@@ -253,18 +258,8 @@ function CatalogEditor({
     >
       <div>
         <h2 style={{ margin: 0, fontSize: "var(--text-body)" }}>
-          {item ? "정책·등급·적격성 수정" : "새 복리후생 정책 등록"}
+          {item ? "복리후생 정책 수정" : "새 복리후생 정책 등록"}
         </h2>
-        <p
-          style={{
-            margin: "var(--sp-1) 0 0",
-            color: "var(--ink-muted)",
-            fontSize: "var(--text-caption)",
-          }}
-        >
-          저장하면 정책, 활성 등급, 적격성 조건이 감사 로그와 함께 실제 백엔드에
-          반영됩니다.
-        </p>
       </div>
       {validation ? (
         <p role="alert" style={{ margin: 0, color: "var(--danger)" }}>
@@ -325,67 +320,73 @@ function CatalogEditor({
             style={fieldStyle}
           />
         </label>
-        <label>
-          등급 기준
-          <input
-            value={values.tierBasis}
-            onChange={(event) => {
-              update("tierBasis", event.target.value);
-            }}
-            style={fieldStyle}
-          />
-        </label>
-        <label>
-          등급 키
-          <input
-            value={values.tierKey}
-            onChange={(event) => {
-              update("tierKey", event.target.value);
-            }}
-            style={fieldStyle}
-          />
-        </label>
-        <label>
-          등급 설명
-          <input
-            value={values.tierValue}
-            onChange={(event) => {
-              update("tierValue", event.target.value);
-            }}
-            style={fieldStyle}
-          />
-        </label>
-        <label>
-          적격성 키
-          <input
-            value={values.conditionKey}
-            onChange={(event) => {
-              update("conditionKey", event.target.value);
-            }}
-            style={fieldStyle}
-          />
-        </label>
-        <label>
-          적격성 설명
-          <input
-            value={values.conditionLabel}
-            onChange={(event) => {
-              update("conditionLabel", event.target.value);
-            }}
-            style={fieldStyle}
-          />
-        </label>
+        {!item ? (
+          <>
+            <label>
+              등급 기준
+              <input
+                value={values.tierBasis}
+                onChange={(event) => {
+                  update("tierBasis", event.target.value);
+                }}
+                style={fieldStyle}
+              />
+            </label>
+            <label>
+              등급 키
+              <input
+                value={values.tierKey}
+                onChange={(event) => {
+                  update("tierKey", event.target.value);
+                }}
+                style={fieldStyle}
+              />
+            </label>
+            <label>
+              등급 설명
+              <input
+                value={values.tierValue}
+                onChange={(event) => {
+                  update("tierValue", event.target.value);
+                }}
+                style={fieldStyle}
+              />
+            </label>
+            <label>
+              적격성 키
+              <input
+                value={values.conditionKey}
+                onChange={(event) => {
+                  update("conditionKey", event.target.value);
+                }}
+                style={fieldStyle}
+              />
+            </label>
+            <label>
+              적격성 설명
+              <input
+                value={values.conditionLabel}
+                onChange={(event) => {
+                  update("conditionLabel", event.target.value);
+                }}
+                style={fieldStyle}
+              />
+            </label>
+          </>
+        ) : null}
       </div>
-      <label>
-        적격성 값
-        <input
-          value={values.conditionValue}
-          onChange={(event) => {
-            update("conditionValue", event.target.value);
-          }}
-          style={fieldStyle}
-        />
-      </label>
+      {!item ? (
+        <label>
+          적격성 값
+          <input
+            value={values.conditionValue}
+            onChange={(event) => {
+              update("conditionValue", event.target.value);
+            }}
+            style={fieldStyle}
+          />
+        </label>
+      ) : null}
       <div style={{ display: "flex", gap: "var(--sp-2)", flexWrap: "wrap" }}>
         <button type="submit" disabled={busy} style={buttonStyle}>
           {busy ? "저장 중…" : item ? "변경 저장" : "정책 등록"}
@@ -531,20 +532,6 @@ export function BenefitBody() {
             },
           })
           .catch(() => undefined);
-        if (result?.data)
-          result = await authority
-            .PUT("/api/v1/benefit-catalog/items/{benefit_id}/tiers", {
-              params: { path: { benefit_id: editing.id } },
-              body: { tiers: tiers(values) },
-            })
-            .catch(() => undefined);
-        if (result?.data)
-          result = await authority
-            .PUT("/api/v1/benefit-catalog/items/{benefit_id}/conditions", {
-              params: { path: { benefit_id: editing.id } },
-              body: { conditions: conditions(values) },
-            })
-            .catch(() => undefined);
       }
       setSaving(false);
       if (!result?.data) {

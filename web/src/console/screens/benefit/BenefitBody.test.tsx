@@ -226,7 +226,7 @@ describe("BenefitBody", () => {
     });
   });
 
-  it("updates the catalog and atomically replaces active tiers and eligibility conditions", async () => {
+  it("edits only item fields and preserves every existing tier and condition", async () => {
     const { PATCH, PUT } = setup();
     render(<BenefitBody />);
     await screen.findByText("국민연금");
@@ -243,13 +243,49 @@ describe("BenefitBody", () => {
         }),
       );
     });
-    await waitFor(() => {
-      expect(PUT).toHaveBeenCalledWith(
-        "/api/v1/benefit-catalog/items/{benefit_id}/conditions",
-        expect.objectContaining({
-          body: expect.objectContaining({ conditions: expect.any(Array) }),
-        }),
-      );
+    expect(PUT).not.toHaveBeenCalled();
+  });
+
+  it("does not retire a multi-child catalog when an item-only save fails", async () => {
+    const multiChild = item({
+      tiers: [
+        item().tiers[0],
+        {
+          ...item().tiers[0],
+          id: "tier-2",
+          tier_key: "manager",
+          value_label: "관리자 기준",
+        },
+      ],
+      conditions: [
+        item().conditions[0],
+        {
+          ...item().conditions[0],
+          id: "condition-2",
+          condition_key: "employment_type",
+          display_label: "정규직",
+        },
+      ],
     });
+    const { PATCH, PUT } = setup({
+      data: { items: [multiChild], total: 1, limit: 50, offset: 0 },
+    });
+    PATCH.mockResolvedValueOnce({
+      error: { error: { message: "정책 저장 실패" } },
+    });
+    render(<BenefitBody />);
+    await screen.findByText("국민연금");
+    fireEvent.click(screen.getByRole("button", { name: "정책 수정" }));
+    expect(screen.queryByLabelText("등급 설명")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("적격성 설명")).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("정책명"), {
+      target: { value: "국민연금 개정" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "변경 저장" }));
+    await waitFor(() => {
+      expect(PATCH).toHaveBeenCalledOnce();
+    });
+    expect(PUT).not.toHaveBeenCalled();
+    expect(await screen.findByRole("alert")).toHaveTextContent("정책 저장 실패");
   });
 });

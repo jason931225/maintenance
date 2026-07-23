@@ -265,7 +265,7 @@ async fn benefit_catalog_writes_are_rls_scoped_audited_and_retire_children_as_ru
     );
 
     let audit_actions: Vec<String> = sqlx::query(
-        "SELECT action FROM audit_events WHERE object_type = 'benefit_catalog_item' AND object_id = $1 ORDER BY occurred_at",
+        "SELECT action FROM audit_events WHERE target_type = 'benefit_catalog_item' AND target_id = $1 ORDER BY occurred_at",
     )
     .bind(item_id.to_string())
     .fetch_all(&owner_pool)
