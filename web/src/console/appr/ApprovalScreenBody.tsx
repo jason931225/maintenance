@@ -45,7 +45,12 @@ export function ApprovalScreenBody() {
 
   return (
     <PolicyGateProvider gate={gate}>
-      <ApprovalBulkInbox bearerToken={session?.access_token} currentUserId={session?.user_id} />
+      <ApprovalBulkInbox
+        bearerToken={session?.access_token}
+        currentUserId={session?.user_id}
+        currentOrgId={session?.org_id}
+        clientSessionIncarnation={session?.client_session_incarnation}
+      />
       <ApprovalCompose bearerToken={session?.access_token} currentUserId={session?.user_id} />
     </PolicyGateProvider>
   );

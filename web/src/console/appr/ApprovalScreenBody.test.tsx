@@ -23,7 +23,13 @@ afterAll(() => {
 
 function renderBody(roles: string[]) {
   const authValue = {
-    session: { access_token: "appr-token", user_id: "user-9", roles },
+    session: {
+      access_token: "appr-token",
+      user_id: "user-9",
+      org_id: "org-9",
+      client_session_incarnation: "approval-screen-session",
+      roles,
+    },
     restoring: false,
     login: vi.fn(),
     logout: vi.fn(),

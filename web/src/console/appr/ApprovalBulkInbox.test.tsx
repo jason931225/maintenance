@@ -2,11 +2,18 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
-import { ApprovalBulkInbox } from "./ApprovalBulkInbox";
+import { ApprovalBulkInbox, type ApprovalBulkInboxProps } from "./ApprovalBulkInbox";
 
 const USER_ID = "10000000-0000-4000-8000-000000000001";
+const ORG_ID = "00000000-0000-4000-8000-000000000001";
+const SESSION_INCARNATION = "approval-session-a";
+function operationStorageKey(orgId: string, userId = USER_ID, incarnation = SESSION_INCARNATION) {
+  return `maintenance.approval-bulk.operations.v2.${encodeURIComponent(orgId)}.${encodeURIComponent(userId)}.${encodeURIComponent(incarnation)}`;
+}
+
+const OPERATION_STORAGE_KEY = operationStorageKey(ORG_ID);
 const TASK_ONE = "20000000-0000-4000-8000-000000000001";
 const TASK_TWO = "20000000-0000-4000-8000-000000000002";
 const TASK_THREE = "20000000-0000-4000-8000-000000000003";
@@ -14,7 +21,7 @@ const TASK_THREE = "20000000-0000-4000-8000-000000000003";
 const server = setupServer();
 
 beforeAll(() => { server.listen({ onUnhandledRequest: "error" }); });
-afterEach(() => { server.resetHandlers(); window.localStorage.clear(); });
+afterEach(() => { server.resetHandlers(); window.localStorage.clear(); vi.restoreAllMocks(); });
 afterAll(() => { server.close(); });
 
 function task(overrides: Record<string, unknown> = {}) {
@@ -44,6 +51,10 @@ function installList(items = [task()]) {
   );
 }
 
+function renderInbox(overrides: Partial<ApprovalBulkInboxProps> = {}) {
+  return render(<ApprovalBulkInbox currentUserId={USER_ID} currentOrgId={ORG_ID} clientSessionIncarnation={SESSION_INCARNATION} {...overrides} />);
+}
+
 describe("ApprovalBulkInbox", () => {
   it("keeps server-guarded rows individually reviewable and never invents an amount", async () => {
     const user = userEvent.setup();
@@ -68,7 +79,7 @@ describe("ApprovalBulkInbox", () => {
       }),
     ]);
 
-    render(<ApprovalBulkInbox currentUserId={USER_ID} />);
+    renderInbox();
     const selectable = await screen.findByRole("checkbox", {
       name: "Equipment replacement approval",
     });
@@ -135,7 +146,7 @@ describe("ApprovalBulkInbox", () => {
       ),
     );
 
-    render(<ApprovalBulkInbox currentUserId={USER_ID} />);
+    renderInbox();
     await user.click(
       await screen.findByRole("checkbox", {
         name: "Equipment replacement approval",
@@ -183,7 +194,7 @@ describe("ApprovalBulkInbox", () => {
       ),
     );
 
-    render(<ApprovalBulkInbox currentUserId={USER_ID} />);
+    renderInbox();
     await user.click(
       await screen.findByRole("checkbox", {
         name: "Equipment replacement approval",
@@ -208,7 +219,7 @@ describe("ApprovalBulkInbox", () => {
       ),
     );
 
-    render(<ApprovalBulkInbox currentUserId={USER_ID} />);
+    renderInbox();
     const first = await screen.findByRole("checkbox", {
       name: "Approval task 1",
     });
@@ -236,7 +247,7 @@ describe("ApprovalBulkInbox", () => {
           }),
       ),
     );
-    const view = render(<ApprovalBulkInbox currentUserId={USER_ID} />);
+    const view = renderInbox();
     view.unmount();
     resolveRequest?.(HttpResponse.json({ items: [task()], has_more: false }));
     await Promise.resolve();
@@ -269,19 +280,51 @@ describe("ApprovalBulkInbox", () => {
       ),
     );
 
-    const firstView = render(<ApprovalBulkInbox currentUserId={USER_ID} />);
+    const firstView = renderInbox();
     await user.click(await screen.findByRole("checkbox", { name: "Equipment replacement approval" }));
     await user.click(screen.getByRole("button", { name: "Approve selected (1)" }));
     await waitFor(() => { expect(resolveFirst).toBeTypeOf("function"); });
-    expect(window.localStorage.getItem(`maintenance.approval-bulk.operations.v1.${USER_ID}`)).toContain(keys[0]);
+    expect(window.localStorage.getItem(OPERATION_STORAGE_KEY)).toContain(keys[0]);
 
     firstView.unmount();
-    render(<ApprovalBulkInbox currentUserId={USER_ID} />);
+    renderInbox();
     expect(await screen.findByText("Decision submitted; outcome is unconfirmed. Retry uses the same idempotency key.")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Retry unresolved (1)" }));
     await waitFor(() => { expect(keys).toHaveLength(2); });
     expect(keys[1]).toBe(keys[0]);
     resolveFirst?.();
+  });
+
+  it("retains an unresolved retry key beyond the receipt TTL", async () => {
+    const user = userEvent.setup();
+    const keys: string[] = [];
+    const now = Date.now();
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(now);
+    installList();
+    server.use(
+      http.post("*/api/v1/workflow-tasks/:taskId/decide", async ({ request }) => {
+        const body = (await request.json()) as { idempotency_key: string };
+        keys.push(body.idempotency_key);
+        if (keys.length === 1) return HttpResponse.json({ message: "unconfirmed transport outcome" }, { status: 409 });
+        return HttpResponse.json({
+          task: { task_id: TASK_ONE, status: "APPROVED" },
+          run: { id: "30000000-0000-4000-8000-000000000001", status: "SUCCEEDED" },
+        });
+      }),
+    );
+
+    const view = renderInbox();
+    await user.click(await screen.findByRole("checkbox", { name: "Equipment replacement approval" }));
+    await user.click(screen.getByRole("button", { name: "Approve selected (1)" }));
+    await screen.findAllByText("unconfirmed transport outcome");
+    nowSpy.mockReturnValue(now + (25 * 60 * 60 * 1000));
+
+    view.unmount();
+    renderInbox();
+    await screen.findByRole("button", { name: "Retry unresolved (1)" });
+    await user.click(screen.getByRole("button", { name: "Retry unresolved (1)" }));
+    await waitFor(() => { expect(keys).toHaveLength(2); });
+    expect(keys[1]).toBe(keys[0]);
   });
 
   it("dismisses a cancelled receipt without losing its per-user retry key", async () => {
@@ -308,7 +351,7 @@ describe("ApprovalBulkInbox", () => {
       ),
     );
 
-    const firstView = render(<ApprovalBulkInbox currentUserId={USER_ID} />);
+    const firstView = renderInbox();
     await user.click(
       await screen.findByRole("checkbox", {
         name: "Equipment replacement approval",
@@ -330,21 +373,27 @@ describe("ApprovalBulkInbox", () => {
         "No confirmed result after cancellation. Retry uses the same idempotency key.",
       )[0],
     ).toBeVisible();
-    await waitFor(() => { expect(window.localStorage.getItem(`maintenance.approval-bulk.operations.v1.${USER_ID}`)).toContain(keys[0]); });
+    await waitFor(() => { expect(window.localStorage.getItem(OPERATION_STORAGE_KEY)).toContain(keys[0]); });
     await user.click(screen.getByRole("button", { name: "Dismiss receipt" }));
     expect(screen.queryByLabelText("Latest approval operation receipt")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Retry unresolved (1)" })).toBeVisible();
 
-    firstView.unmount();
-    render(<ApprovalBulkInbox currentUserId={USER_ID} />);
+    firstView.rerender(<ApprovalBulkInbox currentUserId={USER_ID} currentOrgId="tenant-b" clientSessionIncarnation={SESSION_INCARNATION} />);
+    await screen.findByRole("checkbox", { name: "Equipment replacement approval" });
+    await waitFor(() => { expect(screen.queryByRole("button", { name: "Retry unresolved (1)" })).not.toBeInTheDocument(); });
+    expect(window.localStorage.getItem(operationStorageKey("tenant-b"))).toBeNull();
+    firstView.rerender(<ApprovalBulkInbox currentUserId={USER_ID} currentOrgId={ORG_ID} clientSessionIncarnation="approval-session-b" />);
+    await waitFor(() => { expect(screen.queryByRole("button", { name: "Retry unresolved (1)" })).not.toBeInTheDocument(); });
+    expect(window.localStorage.getItem(operationStorageKey(ORG_ID, USER_ID, "approval-session-b"))).toBeNull();
+    firstView.rerender(<ApprovalBulkInbox currentUserId={USER_ID} currentOrgId={ORG_ID} clientSessionIncarnation={SESSION_INCARNATION} />);
     await screen.findByRole("button", { name: "Retry unresolved (1)" });
     await user.click(screen.getByRole("button", { name: "Retry unresolved (1)" }));
     await waitFor(() => { expect(keys).toHaveLength(2); });
     expect(keys[1]).toBe(keys[0]);
 
     const otherUserId = "10000000-0000-4000-8000-000000000099";
-    render(<ApprovalBulkInbox currentUserId={otherUserId} />);
-    await screen.findAllByRole("checkbox", { name: "Equipment replacement approval" });
+    firstView.rerender(<ApprovalBulkInbox currentUserId={otherUserId} currentOrgId={ORG_ID} clientSessionIncarnation={SESSION_INCARNATION} />);
+    await screen.findByRole("checkbox", { name: "Equipment replacement approval" });
     expect(screen.queryByRole("button", { name: "Retry unresolved (1)" })).not.toBeInTheDocument();
     started?.();
   });

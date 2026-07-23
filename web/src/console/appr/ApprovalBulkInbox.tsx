@@ -24,16 +24,31 @@ function receiptEntries(receipt: Receipt): Array<[string, Outcome]> {
   return Object.entries(receipt).filter((entry): entry is [string, Outcome] => entry[1] !== undefined);
 }
 
-function operationStorageKey(currentUserId: string | undefined): string | undefined {
-  return currentUserId ? `maintenance.approval-bulk.operations.v1.${currentUserId}` : undefined;
+export interface ApprovalBulkOperationContext {
+  currentUserId?: string;
+  currentOrgId?: string;
+  clientSessionIncarnation?: string;
 }
 
-function loadOperations(currentUserId: string | undefined): PersistedApprovalOperations | undefined {
-  const key = operationStorageKey(currentUserId);
+function operationStorageKey(context: ApprovalBulkOperationContext): string | undefined {
+  const { currentOrgId, currentUserId, clientSessionIncarnation } = context;
+  if (!currentOrgId || !currentUserId || !clientSessionIncarnation) return undefined;
+  return `maintenance.approval-bulk.operations.v2.${encodeURIComponent(currentOrgId)}.${encodeURIComponent(currentUserId)}.${encodeURIComponent(clientSessionIncarnation)}`;
+}
+
+function loadOperations(context: ApprovalBulkOperationContext): PersistedApprovalOperations | undefined {
+  const key = operationStorageKey(context);
   if (!key || typeof window === "undefined") return undefined;
   try {
     const parsed = JSON.parse(window.localStorage.getItem(key) ?? "null") as Partial<PersistedApprovalOperations> | null;
-    if (!parsed || parsed.version !== 1 || typeof parsed.expiresAt !== "number" || parsed.expiresAt <= Date.now() || !parsed.operations) {
+    if (!parsed || parsed.version !== 1 || typeof parsed.expiresAt !== "number" || !parsed.operations) {
+      window.localStorage.removeItem(key);
+      return undefined;
+    }
+    // An expired presentation receipt can be discarded only when every
+    // operation is service-confirmed. Unknown/failed entries retain their
+    // immutable idempotency identity until authoritative resolution.
+    if (parsed.expiresAt <= Date.now() && Object.values(parsed.operations).every(({ outcome }) => outcome.state === "approved")) {
       window.localStorage.removeItem(key);
       return undefined;
     }
@@ -44,8 +59,8 @@ function loadOperations(currentUserId: string | undefined): PersistedApprovalOpe
   }
 }
 
-function saveOperations(currentUserId: string | undefined, operations: Record<string, PersistedOperation>) {
-  const key = operationStorageKey(currentUserId);
+function saveOperations(context: ApprovalBulkOperationContext, operations: Record<string, PersistedOperation>) {
+  const key = operationStorageKey(context);
   if (!key || typeof window === "undefined") return;
   if (Object.keys(operations).length === 0) {
     window.localStorage.removeItem(key);
@@ -54,15 +69,17 @@ function saveOperations(currentUserId: string | undefined, operations: Record<st
   window.localStorage.setItem(key, JSON.stringify({ version: 1, expiresAt: Date.now() + OPERATION_TTL_MS, operations } satisfies PersistedApprovalOperations));
 }
 
-function persistOperation(currentUserId: string | undefined, taskId: string, idempotencyKey: string, outcome: Outcome) {
-  const operations = { ...(loadOperations(currentUserId)?.operations ?? {}), [taskId]: { idempotencyKey, outcome } };
-  saveOperations(currentUserId, operations);
+function persistOperation(context: ApprovalBulkOperationContext, taskId: string, idempotencyKey: string, outcome: Outcome) {
+  const operations = { ...(loadOperations(context)?.operations ?? {}), [taskId]: { idempotencyKey, outcome } };
+  saveOperations(context, operations);
 }
 
 export interface ApprovalBulkInboxProps {
   api?: ApprWorkflowApi;
   bearerToken?: string;
   currentUserId?: string;
+  currentOrgId?: string;
+  clientSessionIncarnation?: string;
 }
 
 const sectionStyle: CSSProperties = { display: "grid", gap: "var(--sp-4)", padding: "var(--sp-5)", border: "1px solid var(--border)", borderRadius: "var(--radius-card)", background: "var(--surface)", boxShadow: "var(--shadow)" };
@@ -93,20 +110,23 @@ function capabilityMessage(task: WorkflowWaitingTask): string | undefined {
  * its immutable idempotency identity until the service confirms a terminal
  * result, including across a cancellation or an interleaved new operation.
  */
-export function ApprovalBulkInbox({ api, bearerToken, currentUserId }: ApprovalBulkInboxProps) {
+export function ApprovalBulkInbox({ api, bearerToken, currentUserId, currentOrgId, clientSessionIncarnation }: ApprovalBulkInboxProps) {
+  const operationContext = useMemo<ApprovalBulkOperationContext>(() => ({ currentUserId, currentOrgId, clientSessionIncarnation }), [clientSessionIncarnation, currentOrgId, currentUserId]);
+  const operationContextKey = operationStorageKey(operationContext);
   const workflowApi = useMemo(() => api ?? createApprWorkflowApi({ bearerToken }), [api, bearerToken]);
   const mountedRef = useRef(false as boolean);
   const loadGenerationRef = useRef(0);
   const executionRef = useRef(0);
   const controllerRef = useRef<AbortController | undefined>(undefined);
   const currentTaskRef = useRef<string | undefined>(undefined);
-  const persistedRef = useRef<PersistedApprovalOperations | undefined>(loadOperations(currentUserId));
-  const persistedUserRef = useRef(currentUserId);
+  const persistedRef = useRef<PersistedApprovalOperations | undefined>(loadOperations(operationContext));
+  const persistedContextRef = useRef(operationContextKey);
   const keyByTaskRef = useRef<Partial<Record<string, string>>>(Object.fromEntries(Object.entries(persistedRef.current?.operations ?? {}).map(([taskId, operation]) => [taskId, operation.idempotencyKey])));
   const [tasks, setTasks] = useState<WorkflowWaitingTask[]>([]);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [selectedTasks, setSelectedTasks] = useState<Partial<Record<string, WorkflowWaitingTask>>>({});
   const [receipt, setReceipt] = useState<Receipt>(() => Object.fromEntries(Object.entries(persistedRef.current?.operations ?? {}).map(([taskId, operation]) => [taskId, operation.outcome])));
+  const [receiptContextKey, setReceiptContextKey] = useState(operationContextKey);
   const [receiptPresentationHidden, setReceiptPresentationHidden] = useState(false);
   const [pageCursors, setPageCursors] = useState<string[]>([""]);
   const [pageIndex, setPageIndex] = useState(0);
@@ -147,18 +167,27 @@ export function ApprovalBulkInbox({ api, bearerToken, currentUserId }: ApprovalB
   // A role/persona switch can reuse this mounted component. Never carry a
   // prior user's receipt or idempotency key into that new security context.
   useEffect(() => {
-    if (persistedUserRef.current === currentUserId) return;
-    persistedUserRef.current = currentUserId;
-    const stored = loadOperations(currentUserId);
+    if (persistedContextRef.current === operationContextKey) return;
+    // Context changes are a hard authority boundary: abort any old request,
+    // invalidate its response generation, and hydrate only the new context.
+    executionRef.current += 1;
+    controllerRef.current?.abort();
+    controllerRef.current = undefined;
+    currentTaskRef.current = undefined;
+    setRunning(false);
+    setCancelled(false);
+    persistedContextRef.current = operationContextKey;
+    const stored = loadOperations(operationContext);
     keyByTaskRef.current = Object.fromEntries(Object.entries(stored?.operations ?? {}).map(([taskId, operation]) => [taskId, operation.idempotencyKey]));
     setReceipt(Object.fromEntries(Object.entries(stored?.operations ?? {}).map(([taskId, operation]) => [taskId, operation.outcome])));
+    setReceiptContextKey(operationContextKey);
     setReceiptPresentationHidden(false);
     setSelected(new Set());
     setSelectedTasks({});
     setPageCursors([""]);
     setPageIndex(0);
     void load();
-  }, [currentUserId, load]);
+  }, [load, operationContext, operationContextKey]);
 
   const rows = useMemo(() => tasks.map((task) => ({ task, message: capabilityMessage(task) })), [tasks]);
   const selectedRows = useMemo(() => [...selected].map((id) => selectedTasks[id]).filter((task): task is WorkflowWaitingTask => task !== undefined), [selected, selectedTasks]);
@@ -197,7 +226,7 @@ export function ApprovalBulkInbox({ api, bearerToken, currentUserId }: ApprovalB
       const unconfirmed: Outcome = { state: "unknown", message: UNCONFIRMED_SUBMISSION };
       // Write before issuing the request: a browser refresh/unmount may abort
       // the response path, but must never lose this immutable operation key.
-      persistOperation(currentUserId, task.task_id, idempotencyKey, unconfirmed);
+      persistOperation(operationContext, task.task_id, idempotencyKey, unconfirmed);
       setReceipt((previous) => ({ ...previous, [task.task_id]: unconfirmed }));
       setReceiptPresentationHidden(false);
       try {
@@ -229,7 +258,7 @@ export function ApprovalBulkInbox({ api, bearerToken, currentUserId }: ApprovalB
     if (taskId) {
       const outcome: Outcome = { state: "unknown", message: "No confirmed result after cancellation. Retry uses the same idempotency key." };
       const idempotencyKey = keyByTaskRef.current[taskId];
-      if (idempotencyKey) persistOperation(currentUserId, taskId, idempotencyKey, outcome);
+      if (idempotencyKey) persistOperation(operationContext, taskId, idempotencyKey, outcome);
       setReceipt((previous) => ({ ...previous, [taskId]: outcome }));
       setSelected((previous) => new Set([...previous, taskId]));
     }
@@ -249,13 +278,16 @@ export function ApprovalBulkInbox({ api, bearerToken, currentUserId }: ApprovalB
   }
 
   useEffect(() => {
+    // The old receipt may still be rendered during the context-switch commit;
+    // never serialize it into the new tenant/session partition.
+    if (receiptContextKey !== operationContextKey) return;
     const operations = receiptEntries(receipt).reduce<Record<string, PersistedOperation>>((stored, [taskId, outcome]) => {
       const idempotencyKey = keyByTaskRef.current[taskId];
       if (idempotencyKey) stored[taskId] = { idempotencyKey, outcome };
       return stored;
     }, {});
-    saveOperations(currentUserId, operations);
-  }, [currentUserId, receipt]);
+    saveOperations(operationContext, operations);
+  }, [operationContext, operationContextKey, receipt, receiptContextKey]);
 
   return <section className="console" style={sectionStyle} aria-labelledby="approval-bulk-inbox-title">
     <div style={toolbarStyle}><div><h2 id="approval-bulk-inbox-title" style={{ margin: 0, fontSize: "var(--text-card-title)" }}>Approval inbox</h2><p style={{ margin: "var(--sp-1) 0 0", color: "var(--steel)", fontSize: "var(--text-sm)" }}>Bulk approval sends one audited, idempotent decision per workflow-authorized task.</p></div><button type="button" style={running ? disabledButtonStyle : buttonStyle} onClick={() => { void load(pageCursors[pageIndex] || undefined); }} disabled={running || readState === "loading"}>Refresh</button></div>
