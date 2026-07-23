@@ -38,12 +38,10 @@ test("role switcher mints a real session and pages render real (non-fixture) dat
   // (here: empty) API response must render instead — never the old fixture
   // names, and never the load-failed error state.
   //
-  // In-app (SPA) navigation, not `page.goto` — a hard reload re-triggers the
-  // boot-time silent refresh, which correctly recomputes
-  // `requires_passkey_setup` from the DB for this dev-auth persona (it has no
-  // real passkey, exactly like a real never-enrolled employee) and forces
-  // onboarding. That is real backend behavior working as intended, not
-  // something this switcher should route around.
+  // Use the same in-app navigation a developer exercises manually. Silent
+  // refresh now preserves this authenticated synthetic persona's dev-only
+  // passkey bypass, so a hard reload is also safe; ordinary zero-passkey users
+  // in the same binary still enter production-shaped onboarding.
   await page.getByRole("link", { name: "연차관리" }).click();
   await expect(page.getByRole("heading", { name: "연차관리" })).toBeVisible({
     timeout: 15_000,

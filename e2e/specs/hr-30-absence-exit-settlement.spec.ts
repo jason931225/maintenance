@@ -128,10 +128,9 @@ test("G009 absence gap → exit report → HR confirm → HQ confirm (distinct a
 
   // --- Actor A (최고 관리자): sees the absence alert and reports the exit. ---
   await loginAs(page, "최고 관리자");
-  // SPA navigation (not page.goto): a hard reload of a dev-auth session re-runs
-  // boot silent-refresh, which recomputes requires_passkey_setup from the DB and
-  // forces the onboarding screen (the persona has no real passkey) — see
-  // auth-09-dev-role-switcher.spec.ts.
+  // SPA navigation matches the normal operator path. A hard reload is also
+  // supported: silent refresh preserves the authenticated synthetic persona's
+  // dev-only passkey bypass without changing ordinary-user onboarding.
   await navigateByHref(page, "/hr/insurance");
   await expect(
     page.getByRole("heading", { name: "보험신고 지원", level: 1 }),

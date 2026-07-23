@@ -587,8 +587,10 @@ struct PrivacyConsentStatusResponse {
 /// transport (web) — the refresh token rides in the HttpOnly `mnt_refresh`
 /// cookie instead — and `Some` in the body transport (mobile). The access token
 /// is ALWAYS in the body: it stays a short-lived in-memory bearer token, never a
-/// cookie. `requires_passkey_setup` is true only for an OTP-created session whose
+/// cookie. `requires_passkey_setup` is true only for an ordinary session whose
 /// user still has zero passkeys, so a refresh cannot bypass initial enrollment.
+/// A `dev-auth` build exempts only its authenticated synthetic role-switch
+/// personas; ordinary users keep this production behavior in the same binary.
 #[derive(Debug, Serialize)]
 struct TokenPairResponse {
     access_token: String,
@@ -2150,12 +2152,21 @@ async fn refresh_token(
     // Refresh is a pre-auth route (no tenant middleware): arm the GUC with the org
     // the rotated token belongs to so the `users` read runs under that tenant.
     let user = load_user_auth_context_in_org(&state.pool, issue.org_id, issue.user_id).await?;
-    let requires_passkey_setup = services
+    let has_no_passkeys = services
         .passkeys
         .count_user_passkeys(&state.pool, issue.org_id, issue.user_id)
         .await
         .map_err(|err| RestError::internal(err.to_string()))?
         == 0;
+    // A synthetic role-switch persona is a local development instrument, not a
+    // real employee awaiting first-login enrollment. Preserve the production
+    // zero-passkey rule for every ordinary user, including ordinary users in a
+    // dev-auth binary; only the exact provisioner-owned persona identity bypasses
+    // onboarding, and this branch does not exist in default/release builds.
+    #[cfg(feature = "dev-auth")]
+    let requires_passkey_setup = has_no_passkeys && !is_synthetic_dev_auth_persona(&user);
+    #[cfg(not(feature = "dev-auth"))]
+    let requires_passkey_setup = has_no_passkeys;
     let access_token = issue_access_token(services, &user)?;
     if cookie_mode {
         let max_age = (issue.expires_at - now).whole_seconds();
@@ -2179,6 +2190,22 @@ async fn refresh_token(
         })
         .into_response())
     }
+}
+
+/// Return whether this authenticated database user is the one synthetic
+/// role-switch principal provisioned for its exact `(org, role)` tuple.
+///
+/// `DevPrincipalProvisioner` owns this collision-proof phone key. Refresh has
+/// already authenticated and rotated a token family for `user`, and the user
+/// context was reloaded under that token family's tenant before this predicate
+/// runs. Requiring one role plus an exact marker (rather than a broad prefix)
+/// prevents the dev-auth build from exempting ordinary zero-passkey users.
+#[cfg(feature = "dev-auth")]
+fn is_synthetic_dev_auth_persona(user: &UserAuthContext) -> bool {
+    let [role] = user.roles.as_slice() else {
+        return false;
+    };
+    user.username == format!("dev-auth:{}:{role}", user.org_id.as_uuid())
 }
 
 async fn logout(

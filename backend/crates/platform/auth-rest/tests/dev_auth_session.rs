@@ -15,6 +15,7 @@
 use axum::body::{Body, to_bytes};
 use axum::http::{Request, StatusCode, header};
 use mnt_kernel_core::OrgId;
+use mnt_platform_auth::RefreshTokenStore;
 use mnt_platform_auth_rest::{AuthRestConfig, AuthRestState, router};
 use p256::ecdsa::SigningKey;
 use p256::elliptic_curve::rand_core::OsRng;
@@ -34,6 +35,7 @@ const TEST_AUDIENCE: &str = "mnt-api";
 struct SessionResponse {
     access_token: String,
     refresh_token: Option<String>,
+    requires_passkey_setup: bool,
 }
 
 async fn runtime_role_pool(owner_pool: &PgPool) -> PgPool {
@@ -126,6 +128,53 @@ async fn post(app: axum::Router, org_id: Uuid, body: serde_json::Value) -> http:
     .unwrap()
 }
 
+async fn post_cookie_session(
+    app: axum::Router,
+    org_id: Uuid,
+    body: serde_json::Value,
+) -> http::Response<Body> {
+    let _ = org_id;
+    app.oneshot(
+        Request::builder()
+            .method("POST")
+            .uri("/api/v1/dev-auth/session")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header("x-auth-transport", "cookie")
+            .body(Body::from(body.to_string()))
+            .unwrap(),
+    )
+    .await
+    .unwrap()
+}
+
+async fn post_cookie_refresh(app: axum::Router, cookie: &str) -> http::Response<Body> {
+    app.oneshot(
+        Request::builder()
+            .method("POST")
+            .uri("/api/v1/auth/token/refresh")
+            .header(header::CONTENT_TYPE, "application/json")
+            .header("x-auth-transport", "cookie")
+            .header(header::COOKIE, cookie)
+            .body(Body::from("{}"))
+            .unwrap(),
+    )
+    .await
+    .unwrap()
+}
+
+fn refresh_cookie(response: &http::Response<Body>) -> String {
+    response
+        .headers()
+        .get(header::SET_COOKIE)
+        .expect("cookie transport must set a refresh cookie")
+        .to_str()
+        .unwrap()
+        .split(';')
+        .next()
+        .unwrap()
+        .to_owned()
+}
+
 #[sqlx::test(migrations = "../db/migrations")]
 async fn mints_a_real_session_and_backs_it_with_a_real_user(pool: PgPool) {
     let (org_id, branch_id) = seed_org_and_branch(&pool).await;
@@ -149,6 +198,7 @@ async fn mints_a_real_session_and_backs_it_with_a_real_user(pool: PgPool) {
     let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     let session: SessionResponse = serde_json::from_slice(&bytes).unwrap();
     assert!(!session.access_token.is_empty());
+    assert!(!session.requires_passkey_setup);
     assert!(
         session.refresh_token.is_some(),
         "body-transport (mobile) request must return a refresh token"
@@ -201,6 +251,91 @@ async fn mints_a_real_session_and_backs_it_with_a_real_user(pool: PgPool) {
         .await
         .unwrap();
     assert_eq!(renamed, "Dev Mechanic (renamed)");
+}
+
+#[sqlx::test(migrations = "../db/migrations")]
+async fn cookie_refresh_keeps_synthetic_dev_persona_out_of_passkey_onboarding(pool: PgPool) {
+    let (org_id, branch_id) = seed_org_and_branch(&pool).await;
+    let rt_pool = runtime_role_pool(&pool).await;
+    let app = router(test_state(rt_pool));
+
+    let minted = post_cookie_session(
+        app.clone(),
+        org_id,
+        json!({
+            "org_id": org_id,
+            "role": "MECHANIC",
+            "branch_ids": [branch_id],
+            "display_name": "Refreshable Dev Mechanic",
+        }),
+    )
+    .await;
+    assert_eq!(minted.status(), StatusCode::OK);
+    let minted_cookie = refresh_cookie(&minted);
+    let minted_body: SessionResponse =
+        serde_json::from_slice(&to_bytes(minted.into_body(), usize::MAX).await.unwrap()).unwrap();
+    assert!(!minted_body.requires_passkey_setup);
+    assert!(
+        minted_body.refresh_token.is_none(),
+        "cookie transport must not expose the refresh token in JSON"
+    );
+
+    let refreshed = post_cookie_refresh(app, &minted_cookie).await;
+    assert_eq!(refreshed.status(), StatusCode::OK);
+    let refreshed_body: SessionResponse =
+        serde_json::from_slice(&to_bytes(refreshed.into_body(), usize::MAX).await.unwrap())
+            .unwrap();
+    assert!(
+        !refreshed_body.requires_passkey_setup,
+        "an authenticated synthetic dev persona must remain outside production passkey onboarding"
+    );
+}
+
+#[sqlx::test(migrations = "../db/migrations")]
+async fn cookie_refresh_still_requires_passkey_for_ordinary_zero_passkey_user(pool: PgPool) {
+    let (org_id, branch_id) = seed_org_and_branch(&pool).await;
+    let user_id: Uuid = sqlx::query_scalar(
+        r#"
+        INSERT INTO users (display_name, phone, roles, is_active, org_id)
+        VALUES ('Ordinary User', '010-9000-0000', ARRAY['MECHANIC'], true, $1)
+        RETURNING id
+        "#,
+    )
+    .bind(org_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    sqlx::query("INSERT INTO user_branches (user_id, branch_id, org_id) VALUES ($1, $2, $3)")
+        .bind(user_id)
+        .bind(branch_id)
+        .bind(org_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let rt_pool = runtime_role_pool(&pool).await;
+    let issued = RefreshTokenStore
+        .issue_family(
+            &rt_pool,
+            user_id,
+            OrgId::from_uuid(org_id),
+            time::OffsetDateTime::now_utc(),
+            Duration::days(30),
+        )
+        .await
+        .unwrap();
+    let app = router(test_state(rt_pool));
+    let cookie = format!("mnt_refresh={}", issued.token.as_str());
+
+    let refreshed = post_cookie_refresh(app, &cookie).await;
+    assert_eq!(refreshed.status(), StatusCode::OK);
+    let refreshed_body: SessionResponse =
+        serde_json::from_slice(&to_bytes(refreshed.into_body(), usize::MAX).await.unwrap())
+            .unwrap();
+    assert!(
+        refreshed_body.requires_passkey_setup,
+        "dev-auth builds must preserve passkey onboarding for ordinary zero-passkey users"
+    );
 }
 
 #[sqlx::test(migrations = "../db/migrations")]
