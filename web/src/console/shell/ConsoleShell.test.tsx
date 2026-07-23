@@ -166,6 +166,17 @@ describe("ConsoleShell chrome", () => {
     expect(rail).toHaveAttribute("data-cshell-rail-open", "true");
   });
 
+  it("promotes communication routes into the main panel and restores the rail state", async () => {
+    renderConsole(ADMIN, ["/console/messenger"]);
+
+    expect(screen.queryByRole("complementary", { name: "커뮤니케이션" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "커뮤니케이션 열기" })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "통합 개요" }));
+    const rail = screen.getByRole("complementary", { name: "커뮤니케이션" });
+    expect(rail).toHaveAttribute("data-cshell-rail-open", "true");
+  });
+
   it("opens a server-linked messenger mention in the canonical registered screen URL", async () => {
     server.use(
       http.get("*/api/v1/me/notifications", () =>

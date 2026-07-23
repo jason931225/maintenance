@@ -68,6 +68,7 @@ export function Sidebar({
   onToggleCollapse,
   onCycleTheme,
   mobile = false,
+  width,
   drawerOpen = false,
   drawerModal = false,
   drawerRef,
@@ -81,6 +82,8 @@ export function Sidebar({
   onToggleCollapse: () => void;
   onCycleTheme: () => void;
   mobile?: boolean;
+  /** Resolved shell chrome width outside the mobile drawer. */
+  width?: number;
   drawerOpen?: boolean;
   drawerModal?: boolean;
   drawerRef?: Ref<HTMLDivElement>;
@@ -103,7 +106,7 @@ export function Sidebar({
       inert={mobile && !drawerOpen ? true : undefined}
       style={{
         flex: "none",
-        width: mobile ? 244 : collapsed ? 62 : 236,
+        width: mobile ? 244 : width ?? (collapsed ? 62 : 236),
         transition: "width 0.18s ease",
         overflow: "hidden",
         borderRight: "1px solid var(--border)",

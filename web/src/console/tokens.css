@@ -278,7 +278,8 @@
   .cshell-pop {
     animation: none;
   }
-  [data-cshell-sidebar] {
+  [data-cshell-sidebar],
+  [data-cshell-rail] {
     transition: none !important;
   }
 }

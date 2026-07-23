@@ -20,6 +20,7 @@ import { useNavBadges } from "./navBadges";
 import { Sidebar } from "./Sidebar";
 import { useSelfProfile } from "./useSelfProfile";
 import { Topbar } from "./Topbar";
+import { isCommunicationScreen, resolveShellLayout } from "./shellLayout";
 import { markConsoleRoute } from "../rum/rum";
 import { SCREEN_REGISTRY } from "../screens/registry";
 import type { ThemeMode } from "./theme";
@@ -63,6 +64,9 @@ export function ConsoleShell({
   const { options: scopeOptions } = useConsoleScopes(S.scope.all);
 
   const [drawer, setDrawer] = useState<"left" | "right" | null>(null);
+  const [viewportWidth, setViewportWidth] = useState(() =>
+    typeof window === "undefined" ? 1280 : window.innerWidth,
+  );
 
   // Responsive auto-collapse under 1280px, overridable by the user.
   const [sbUser, setSbUser] = useState<boolean | null>(null);
@@ -80,6 +84,7 @@ export function ConsoleShell({
     const apply = () => {
       setNarrow(mq.matches);
       setMobile(mobileMq.matches);
+      setViewportWidth(window.innerWidth);
     };
     const onChange = () => {
       if (!mobileMq.matches) setDrawer(null);
@@ -93,13 +98,16 @@ export function ConsoleShell({
       mobileMq.removeEventListener("change", onChange);
     };
   }, []);
+  // The media query is authoritative in embedded/test environments where
+  // `innerWidth` is not kept in sync with the visual viewport.
+  const shellLayout = resolveShellLayout(mobile ? 0 : viewportWidth);
   const collapsed = mobile ? false : sbUser ?? narrow;
 
   // The comms rail is expanded on desktop, compact by default on tablet, and
   // becomes an explicit drawer on mobile. The user's desktop/tablet toggle is
   // intentionally session-local until there is a product preference contract.
   const [railUser, setRailUser] = useState<boolean | null>(null);
-  const railOpen = railUser ?? !narrow;
+  const railOpen = !narrow && (railUser ?? true);
   const activeDrawer = mobile ? drawer : null;
   const sidebarRef = useRef<HTMLDivElement>(null);
   const railRef = useRef<HTMLElement>(null);
@@ -171,6 +179,7 @@ export function ConsoleShell({
       ? routeScreen
       : defaultScreen(grants, screenKeys);
   const ScreenBody = activeScreen ? SCREEN_REGISTRY[activeScreen] : undefined;
+  const communicationScreen = activeScreen ? isCommunicationScreen(activeScreen) : false;
 
   // Canonicalize bare, invalid, unshipped, and unauthorized destinations. A
   // replacement avoids trapping Back on a location the user cannot render.
@@ -265,6 +274,7 @@ export function ConsoleShell({
     <div
       data-cshell-root
       data-cshell-mobile={mobile || undefined}
+      data-cshell-layout={mobile ? "mobile" : narrow ? "compact" : "desktop"}
       style={{ flex: "1 1 auto", display: "flex", minHeight: 0, minWidth: 0, overflowX: "hidden" }}
     >
       {mobile && activeDrawer && (
@@ -294,6 +304,7 @@ export function ConsoleShell({
         }}
         onCycleTheme={onCycleTheme}
         mobile={mobile}
+        width={shellLayout.sidebar}
         drawerOpen={activeDrawer === "left"}
         drawerRef={sidebarRef}
         drawerModal={activeDrawer === "left"}
@@ -340,7 +351,7 @@ export function ConsoleShell({
               : undefined
           }
           onOpenComms={
-            mobile
+            mobile && !communicationScreen
               ? () => {
                   openDrawer("right");
                 }
@@ -361,7 +372,7 @@ export function ConsoleShell({
       {/* Comms rail — shell-level, default-expanded on every screen (round 5).
           The single "커뮤니케이션" complementary landmark stays exactly as
           deduped in #459: this is still the only element carrying that name. */}
-      <aside
+      {!communicationScreen && <aside
         aria-label={S.rail.label}
         data-cshell-rail
         data-cshell-rail-open={(mobile || railOpen) || undefined}
@@ -374,7 +385,9 @@ export function ConsoleShell({
         inert={mobile && activeDrawer !== "right" ? true : undefined}
         style={{
           flex: "none",
-          width: mobile ? "86vw" : railOpen ? 320 : 54,
+          // `width` + `maxWidth` is equivalent to the prototype's
+          // min(320px, 86vw) and remains measurable in jsdom/browser tests.
+          width: mobile ? "86vw" : railOpen ? shellLayout.rail : 54,
           maxWidth: mobile ? 320 : undefined,
           borderLeft: "1px solid var(--border)",
           background: "var(--surface)",
@@ -488,7 +501,7 @@ export function ConsoleShell({
             <RailGlyph name="bell" label={S.rail.notif} />
           </div>
         )}
-      </aside>
+      </aside>}
 
       {paletteOpen && (
         <div
