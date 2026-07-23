@@ -177,6 +177,32 @@ describe("InspectionPage", () => {
     ).toBeVisible();
   });
 
+  it("does not retain a schedule detail that the active status filter hides", async () => {
+    const completedSchedule: InspectionScheduleSummary = {
+      ...overdueSchedule,
+      id: "88888888-8888-4888-8888-888888888888",
+      status: "COMPLETED",
+      completed_at: "2026-07-23T01:00:00Z",
+      management_no: "291",
+    };
+    server.use(
+      http.get("*/api/v1/inspections/schedules", () =>
+        HttpResponse.json(
+          inspectionSchedulePage([overdueSchedule, completedSchedule]),
+        ),
+      ),
+    );
+
+    renderApp(makeAuthContext(adminSession));
+    await screen.findByText("290");
+    await userEvent.setup().click(screen.getByRole("button", { name: "완료" }));
+
+    expect(
+      screen.queryByRole("complementary", { name: "정기 일정" }),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText(/291/)).toBeVisible();
+  });
+
   it("lists overdue schedules and creates a new recurring schedule", async () => {
     const user = userEvent.setup();
     const created = vi.fn();

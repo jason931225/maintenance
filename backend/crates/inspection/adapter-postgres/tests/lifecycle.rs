@@ -3,6 +3,7 @@
 use mnt_inspection_adapter_postgres::PgInspectionStore;
 use mnt_inspection_application::{
     CompleteInspectionRoundCommand, CreateInspectionScheduleCommand, ListInspectionSchedulesQuery,
+    ListMyInspectionSchedulesQuery,
 };
 use mnt_inspection_domain::{InspectionCycle, InspectionRoundOutcome};
 use mnt_kernel_core::{BranchId, BranchScope, EquipmentId, OrgId, TraceContext, UserId};
@@ -182,6 +183,20 @@ async fn due_schedule_listing_respects_branch_scope(pool: PgPool) {
             "expected mechanic_display_name to resolve to 예방A, got {:?}",
             visible.items[0].mechanic_display_name
         );
+
+        let mine = store
+            .list_my_due_schedules(ListMyInspectionSchedulesQuery {
+                branch_scope: BranchScope::All,
+                mechanic_id: mechanic_a,
+                due_start: time::macros::date!(2026 - 06 - 01),
+                due_end: time::macros::date!(2026 - 07 - 01),
+                limit: 50,
+                offset: 0,
+            })
+            .await
+            .unwrap();
+        assert_eq!(mine.total, 1);
+        assert_eq!(mine.items[0].mechanic_id, mechanic_a);
 
         // Offset paging: a second page past the only row is empty, but total
         // still reflects the full match count.

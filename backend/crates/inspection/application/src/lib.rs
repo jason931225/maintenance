@@ -47,6 +47,19 @@ pub struct ListInspectionSchedulesQuery {
     pub offset: i64,
 }
 
+/// A mechanic's own branch-scoped schedules. The caller identity is part of
+/// the query rather than a client-controlled filter, so the adapter cannot
+/// accidentally return a colleague's assignment.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ListMyInspectionSchedulesQuery {
+    pub branch_scope: BranchScope,
+    pub mechanic_id: UserId,
+    pub due_start: Date,
+    pub due_end: Date,
+    pub limit: i64,
+    pub offset: i64,
+}
+
 /// One page of inspection schedules plus the unpaged `total` for the matching
 /// date range, so the console can show an honest count and page beyond the cap.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

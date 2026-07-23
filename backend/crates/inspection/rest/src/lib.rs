@@ -9,6 +9,7 @@ use axum::{Json, Router};
 use mnt_inspection_adapter_postgres::{PgInspectionError, PgInspectionStore};
 use mnt_inspection_application::{
     CompleteInspectionRoundCommand, CreateInspectionScheduleCommand, ListInspectionSchedulesQuery,
+    ListMyInspectionSchedulesQuery,
 };
 use mnt_inspection_domain::{InspectionCycle, InspectionRoundOutcome};
 use mnt_kernel_core::{
@@ -29,10 +30,14 @@ use time::{Date, OffsetDateTime};
 time::serde::format_description!(iso_date, Date, "[year]-[month]-[day]");
 
 pub const INSPECTION_SCHEDULES_PATH: &str = "/api/v1/inspections/schedules";
+pub const MY_INSPECTION_SCHEDULES_PATH: &str = "/api/v1/inspections/my-schedules";
 pub const INSPECTION_ROUNDS_PATH_TEMPLATE: &str =
     "/api/v1/inspections/schedules/{schedule_id}/rounds";
-pub const INSPECTION_ROUTE_PATHS: &[&str] =
-    &[INSPECTION_SCHEDULES_PATH, INSPECTION_ROUNDS_PATH_TEMPLATE];
+pub const INSPECTION_ROUTE_PATHS: &[&str] = &[
+    INSPECTION_SCHEDULES_PATH,
+    MY_INSPECTION_SCHEDULES_PATH,
+    INSPECTION_ROUNDS_PATH_TEMPLATE,
+];
 
 #[derive(Debug, Clone)]
 pub struct InspectionRestState {
@@ -58,6 +63,7 @@ pub fn router(state: InspectionRestState) -> Router {
             INSPECTION_SCHEDULES_PATH,
             get(list_schedules).post(create_schedule),
         )
+        .route(MY_INSPECTION_SCHEDULES_PATH, get(list_my_schedules))
         .route(
             "/api/v1/inspections/schedules/{schedule_id}/rounds",
             post(complete_round),
@@ -165,6 +171,39 @@ async fn list_schedules(
         .store
         .list_due_schedules(ListInspectionSchedulesQuery {
             branch_scope: principal.branch_scope,
+            due_start: parse_date(&query.due_start)?,
+            due_end: parse_date(&query.due_end)?,
+            limit: query.limit.unwrap_or(DEFAULT_SCHEDULE_LIMIT),
+            offset,
+        })
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(Json(page))
+}
+
+async fn list_my_schedules(
+    State(state): State<InspectionRestState>,
+    headers: HeaderMap,
+    Query(query): Query<ListSchedulesRequest>,
+) -> Result<impl IntoResponse, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    authorize(
+        &principal,
+        Action::new(Feature::InspectionRoundComplete),
+        representative_branch(&principal.branch_scope)?,
+    )
+    .map_err(RestError::from_kernel)?;
+    let offset = query.offset.unwrap_or(0);
+    if offset < 0 {
+        return Err(RestError::from_kernel(KernelError::validation(
+            "offset must be non-negative",
+        )));
+    }
+    let page = state
+        .store
+        .list_my_due_schedules(ListMyInspectionSchedulesQuery {
+            branch_scope: principal.branch_scope,
+            mechanic_id: principal.user_id,
             due_start: parse_date(&query.due_start)?,
             due_end: parse_date(&query.due_end)?,
             limit: query.limit.unwrap_or(DEFAULT_SCHEDULE_LIMIT),

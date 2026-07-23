@@ -36,6 +36,7 @@ import {
   inspectionScheduleMetrics,
   isInspectionOverdue,
 } from "../console/inspection/inspectionModel";
+import "../console/inspection/inspection.css";
 
 /** Schedule page size; matches the backend default and keeps the list bounded. */
 const SCHEDULES_PAGE_SIZE = 200;
@@ -138,6 +139,13 @@ export function InspectionPage() {
   // A filter/date refresh may finish after a newer request. Keep only the
   // newest server response so the visible branch-scoped list never rewinds.
   const scheduleRequestVersion = useRef(0);
+  const scopeEpoch = useRef(0);
+  useEffect(() => {
+    scopeEpoch.current += 1;
+    return () => {
+      scopeEpoch.current += 1;
+    };
+  }, [api, session?.user_id]);
   // Transient success confirmations clear themselves so they do not linger.
   const clearRoundNotice = useCallback(() => {
     setRoundNotice(undefined);
@@ -151,6 +159,7 @@ export function InspectionPage() {
   const load = useCallback(
     async (range?: { start: string; end: string }) => {
       const requestVersion = ++scheduleRequestVersion.current;
+      const epoch = scopeEpoch.current;
       setLoadError(undefined);
       setLoadingMore(false);
       try {
@@ -164,20 +173,28 @@ export function InspectionPage() {
             },
           },
         });
-        if (requestVersion !== scheduleRequestVersion.current) return;
+        if (
+          requestVersion !== scheduleRequestVersion.current ||
+          epoch !== scopeEpoch.current
+        )
+          return;
         if (response.data) {
-          setSchedules(response.data.items);
-          setScheduleTotal(response.data.total);
+          const page = response.data;
+          setSchedules(page.items);
+          setScheduleTotal(page.total);
           setSelectedScheduleId((current) =>
-            response.data?.items.some((schedule) => schedule.id === current)
+            page.items.some((schedule) => schedule.id === current)
               ? current
-              : response.data?.items[0]?.id,
+              : page.items[0]?.id,
           );
         } else {
           setLoadError(response.response.status === 403 ? "denied" : "retry");
         }
       } catch {
-        if (requestVersion === scheduleRequestVersion.current)
+        if (
+          requestVersion === scheduleRequestVersion.current &&
+          epoch === scopeEpoch.current
+        )
           setLoadError("retry");
       }
     },
@@ -187,6 +204,7 @@ export function InspectionPage() {
   const loadMore = useCallback(async () => {
     if (schedules === undefined) return;
     const requestVersion = ++scheduleRequestVersion.current;
+    const epoch = scopeEpoch.current;
     setLoadingMore(true);
     try {
       const response = await api.GET("/api/v1/inspections/schedules", {
@@ -199,7 +217,11 @@ export function InspectionPage() {
           },
         },
       });
-      if (requestVersion !== scheduleRequestVersion.current) return;
+      if (
+        requestVersion !== scheduleRequestVersion.current ||
+        epoch !== scopeEpoch.current
+      )
+        return;
       if (response.data) {
         const next = response.data;
         setSchedules((current) => {
@@ -213,7 +235,10 @@ export function InspectionPage() {
         setScheduleTotal(next.total);
       }
     } finally {
-      if (requestVersion === scheduleRequestVersion.current)
+      if (
+        requestVersion === scheduleRequestVersion.current &&
+        epoch === scopeEpoch.current
+      )
         setLoadingMore(false);
     }
   }, [api, rangeStart, rangeEnd, schedules]);
@@ -227,6 +252,7 @@ export function InspectionPage() {
 
   // Load the branch + mechanic option sources once for the create-form pickers.
   const loadOptions = useCallback(async () => {
+    const epoch = scopeEpoch.current;
     const [branchRes, userRes] = await Promise.all([
       api.GET("/api/v1/branches").catch(() => undefined),
       api
@@ -235,6 +261,7 @@ export function InspectionPage() {
         })
         .catch(() => undefined),
     ]);
+    if (epoch !== scopeEpoch.current) return;
     if (branchRes?.data) setBranches(branchRes.data);
     if (userRes?.data) {
       setMechanics(
@@ -283,6 +310,7 @@ export function InspectionPage() {
   }
 
   async function handleCreate() {
+    const epoch = scopeEpoch.current;
     setCreating(true);
     setNotice(undefined);
     setCreateError(undefined);
@@ -300,6 +328,7 @@ export function InspectionPage() {
       const response = await api.POST("/api/v1/inspections/schedules", {
         body,
       });
+      if (epoch !== scopeEpoch.current) return;
       if (response.data) {
         setNotice(ko.inspection.createSuccess);
         setForm(emptyForm());
@@ -317,9 +346,11 @@ export function InspectionPage() {
         setCreateError(ko.inspection.createFailed);
       }
     } catch {
-      setCreateError(ko.inspection.createFailed);
+      if (epoch === scopeEpoch.current) {
+        setCreateError(ko.inspection.createFailed);
+      }
     } finally {
-      setCreating(false);
+      if (epoch === scopeEpoch.current) setCreating(false);
     }
   }
 
@@ -329,6 +360,7 @@ export function InspectionPage() {
     findings: string,
     note: string,
   ): Promise<boolean> {
+    const epoch = scopeEpoch.current;
     setRoundNotice(undefined);
     try {
       const body: CompleteInspectionRoundRequest = {
@@ -340,7 +372,7 @@ export function InspectionPage() {
         "/api/v1/inspections/schedules/{schedule_id}/rounds",
         { params: { path: { schedule_id: scheduleId } }, body },
       );
-      if (!response.data) return false;
+      if (!response.data || epoch !== scopeEpoch.current) return false;
       setRoundNotice(ko.inspection.round.done);
       setCompletingId(undefined);
       await load();
@@ -369,8 +401,9 @@ export function InspectionPage() {
     [businessDate, schedules],
   );
   const selectedSchedule = useMemo(
-    () => schedules?.find((schedule) => schedule.id === selectedScheduleId),
-    [schedules, selectedScheduleId],
+    () =>
+      visibleSchedules.find((schedule) => schedule.id === selectedScheduleId),
+    [selectedScheduleId, visibleSchedules],
   );
 
   return (
@@ -457,7 +490,7 @@ export function InspectionPage() {
                   {formatListCount(scheduleTotal ?? schedules.length)}
                 </Badge>
               </div>
-              <div className="grid grid-cols-3 gap-2">
+              <div className="inspection-summary">
                 <Metric
                   label={ko.inspection.statuses.SCHEDULED}
                   value={scheduleMetrics.scheduled}
@@ -472,7 +505,7 @@ export function InspectionPage() {
                   value={scheduleMetrics.completed}
                 />
               </div>
-              <div className="flex flex-wrap gap-2">
+              <div className="inspection-filter-bar">
                 {(
                   [
                     ["ALL", ko.inspection.listTitle],
@@ -575,6 +608,11 @@ export function InspectionPage() {
                     </li>
                   ))}
                 </ul>
+                {visibleSchedules.length === 0 ? (
+                  <p className="inspection-filter-empty" role="status">
+                    {ko.inspection.empty}
+                  </p>
+                ) : null}
                 {selectedSchedule ? (
                   <InspectionScheduleDetail
                     schedule={selectedSchedule}
@@ -752,15 +790,9 @@ function Metric({
   danger?: boolean;
 }) {
   return (
-    <div className="rounded-md border border-line bg-muted-panel px-3 py-2">
-      <p className="text-xs text-steel">{label}</p>
-      <p
-        className={
-          danger
-            ? "text-lg font-semibold text-red-700"
-            : "text-lg font-semibold text-ink"
-        }
-      >
+    <div className="inspection-metric">
+      <p>{label}</p>
+      <p className={danger ? "inspection-metric--danger" : undefined}>
         {value}
       </p>
     </div>

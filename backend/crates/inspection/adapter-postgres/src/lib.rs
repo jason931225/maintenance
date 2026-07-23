@@ -4,7 +4,7 @@
 use mnt_inspection_application::{
     CompleteInspectionRoundCommand, CreateInspectionScheduleCommand, InspectionRoundSummary,
     InspectionSchedulePage, InspectionScheduleSummary, ListInspectionSchedulesQuery,
-    inspection_audit_event,
+    ListMyInspectionSchedulesQuery, inspection_audit_event,
 };
 use mnt_inspection_domain::{
     InspectionRoundOutcome, InspectionScheduleStatus, validate_interval_days,
@@ -252,24 +252,63 @@ impl PgInspectionStore {
         &self,
         query: ListInspectionSchedulesQuery,
     ) -> Result<InspectionSchedulePage, PgInspectionError> {
-        if query.due_start >= query.due_end {
+        self.list_due_schedules_inner(
+            query.branch_scope,
+            None,
+            query.due_start,
+            query.due_end,
+            query.limit,
+            query.offset,
+        )
+        .await
+    }
+
+    pub async fn list_my_due_schedules(
+        &self,
+        query: ListMyInspectionSchedulesQuery,
+    ) -> Result<InspectionSchedulePage, PgInspectionError> {
+        self.list_due_schedules_inner(
+            query.branch_scope,
+            Some(query.mechanic_id),
+            query.due_start,
+            query.due_end,
+            query.limit,
+            query.offset,
+        )
+        .await
+    }
+
+    async fn list_due_schedules_inner(
+        &self,
+        branch_scope: BranchScope,
+        mechanic_id: Option<UserId>,
+        due_start: time::Date,
+        due_end: time::Date,
+        requested_limit: i64,
+        requested_offset: i64,
+    ) -> Result<InspectionSchedulePage, PgInspectionError> {
+        if due_start >= due_end {
             return Err(
                 KernelError::validation("inspection due_start must be before due_end").into(),
             );
         }
-        let limit = query.limit.clamp(1, MAX_SCHEDULE_LIMIT);
-        let offset = query.offset.max(0);
+        let limit = requested_limit.clamp(1, MAX_SCHEDULE_LIMIT);
+        let offset = requested_offset.max(0);
 
         // Unpaged total for the same date range + branch scope, so the console
         // can show an honest count and page beyond the cap.
         let mut count_builder = QueryBuilder::<Postgres>::new(
             "SELECT COUNT(*) FROM regular_inspection_schedules s WHERE s.due_date >= ",
         );
-        count_builder.push_bind(query.due_start);
+        count_builder.push_bind(due_start);
         count_builder.push(" AND s.due_date < ");
-        count_builder.push_bind(query.due_end);
+        count_builder.push_bind(due_end);
         count_builder.push(" AND s.status <> 'CANCELLED' AND ");
-        push_branch_column_filter(&mut count_builder, &query.branch_scope, "s.branch_id");
+        push_branch_column_filter(&mut count_builder, &branch_scope, "s.branch_id");
+        if let Some(mechanic_id) = mechanic_id.as_ref() {
+            count_builder.push(" AND s.mechanic_id = ");
+            count_builder.push_bind(*mechanic_id.as_uuid());
+        }
 
         let mut builder = QueryBuilder::<Postgres>::new(
             r#"
@@ -289,11 +328,15 @@ impl PgInspectionStore {
             WHERE s.due_date >=
             "#,
         );
-        builder.push_bind(query.due_start);
+        builder.push_bind(due_start);
         builder.push(" AND s.due_date < ");
-        builder.push_bind(query.due_end);
+        builder.push_bind(due_end);
         builder.push(" AND s.status <> 'CANCELLED' AND ");
-        push_branch_column_filter(&mut builder, &query.branch_scope, "s.branch_id");
+        push_branch_column_filter(&mut builder, &branch_scope, "s.branch_id");
+        if let Some(mechanic_id) = mechanic_id.as_ref() {
+            builder.push(" AND s.mechanic_id = ");
+            builder.push_bind(*mechanic_id.as_uuid());
+        }
         builder.push(" ORDER BY s.due_date, site.name, e.management_no, s.id LIMIT ");
         builder.push_bind(limit);
         builder.push(" OFFSET ");
