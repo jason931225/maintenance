@@ -33,13 +33,25 @@ import kotlinx.serialization.Contextual
  *
  *
  * @param items
+ * @param total
+ * @param limit
+ * @param offset
  */
 @Serializable
 
 data class WorkflowTaskListResponse (
 
     @SerialName(value = "items")
-    val items: kotlin.collections.List<WorkflowTaskSummary>
+    val items: kotlin.collections.List<WorkflowTaskSummary>,
+
+    @SerialName(value = "total")
+    val total: kotlin.Long,
+
+    @SerialName(value = "limit")
+    val limit: kotlin.Int,
+
+    @SerialName(value = "offset")
+    val offset: kotlin.Int
 
 ) {
 

@@ -10599,6 +10599,27 @@ paths:
         description: Comma-separated task statuses (e.g. OPEN,CLAIMED). Defaults to OPEN.
         schema:
           type: string
+      - name: limit
+        in: query
+        required: false
+        description: Page size, clamped to 1..200 (default 50).
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 200
+      - name: offset
+        in: query
+        required: false
+        description: Zero-based page offset.
+        schema:
+          type: integer
+          minimum: 0
+      - name: bulk_decision_only
+        in: query
+        required: false
+        description: Restrict results to the canonical approval-decision workflow contract. Unknown task kinds are excluded.
+        schema:
+          type: boolean
       responses:
         '200':
           description: The visible waiting tasks.
@@ -17332,6 +17353,7 @@ components:
       - title
       - status
       - form_payload
+      - bulk_decision
       properties:
         task_id:
           $ref: '#/components/schemas/Uuid'
@@ -17358,6 +17380,22 @@ components:
         form_payload:
           type: object
           additionalProperties: true
+        bulk_decision:
+          $ref: '#/components/schemas/WorkflowBulkDecisionCapability'
+    WorkflowBulkDecisionCapability:
+      type: object
+      required:
+      - decidable
+      properties:
+        decidable:
+          type: boolean
+        reason:
+          type: string
+          enum:
+          - NOT_APPROVAL_DECISION_TASK
+          - NOT_OPEN
+          - CLAIMED_BY_ANOTHER_USER
+          - SELF_APPROVAL
     StartWorkflowRunResponse:
       type: object
       required:
@@ -17371,11 +17409,25 @@ components:
       type: object
       required:
       - items
+      - total
+      - limit
+      - offset
       properties:
         items:
           type: array
           items:
             $ref: '#/components/schemas/WorkflowTaskSummary'
+        total:
+          type: integer
+          format: int64
+          minimum: 0
+        limit:
+          type: integer
+          minimum: 1
+          maximum: 200
+        offset:
+          type: integer
+          minimum: 0
     WorkflowRunListItem:
       type: object
       required:

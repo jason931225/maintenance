@@ -1072,6 +1072,68 @@ struct RunSummaryResponse {
 }
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+enum BulkDecisionIneligibilityReason {
+    NotApprovalDecisionTask,
+    NotOpen,
+    ClaimedByAnotherUser,
+    SelfApproval,
+}
+
+#[derive(Debug, Serialize)]
+struct BulkDecisionCapability {
+    decidable: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reason: Option<BulkDecisionIneligibilityReason>,
+}
+
+impl BulkDecisionCapability {
+    fn unavailable() -> Self {
+        Self {
+            decidable: false,
+            reason: Some(BulkDecisionIneligibilityReason::NotApprovalDecisionTask),
+        }
+    }
+}
+
+fn bulk_decision_capability(item: &WaitingTaskListItem, actor: UserId) -> BulkDecisionCapability {
+    // This is a narrowly named workflow capability, not a client-side heuristic.
+    // Unknown policies and task kinds are deliberately denied until the workflow
+    // boundary explicitly designates them as approval decisions.
+    if item.required_policy.as_deref() != Some("approval_decide") {
+        return BulkDecisionCapability::unavailable();
+    }
+    if item.status != WaitingTaskStatus::Open && item.status != WaitingTaskStatus::Claimed {
+        return BulkDecisionCapability {
+            decidable: false,
+            reason: Some(BulkDecisionIneligibilityReason::NotOpen),
+        };
+    }
+    if item
+        .claimed_by
+        .is_some_and(|claimed_by| claimed_by != *actor.as_uuid())
+    {
+        return BulkDecisionCapability {
+            decidable: false,
+            reason: Some(BulkDecisionIneligibilityReason::ClaimedByAnotherUser),
+        };
+    }
+    if item
+        .initiated_by
+        .is_some_and(|initiated_by| initiated_by == *actor.as_uuid())
+    {
+        return BulkDecisionCapability {
+            decidable: false,
+            reason: Some(BulkDecisionIneligibilityReason::SelfApproval),
+        };
+    }
+    BulkDecisionCapability {
+        decidable: true,
+        reason: None,
+    }
+}
+
+#[derive(Debug, Serialize)]
 struct TaskSummaryResponse {
     task_id: Uuid,
     run_id: Uuid,
@@ -1086,10 +1148,11 @@ struct TaskSummaryResponse {
     #[serde(with = "time::serde::rfc3339::option")]
     due_at: Option<OffsetDateTime>,
     form_payload: Value,
+    bulk_decision: BulkDecisionCapability,
 }
 
-impl From<WaitingTaskListItem> for TaskSummaryResponse {
-    fn from(item: WaitingTaskListItem) -> Self {
+impl TaskSummaryResponse {
+    fn from_item(item: WaitingTaskListItem, actor: UserId) -> Self {
         Self {
             task_id: item.task_id,
             run_id: item.run_id,
@@ -1103,6 +1166,7 @@ impl From<WaitingTaskListItem> for TaskSummaryResponse {
             claimed_by: item.claimed_by,
             due_at: item.due_at,
             form_payload: item.form_payload,
+            bulk_decision: bulk_decision_capability(&item, actor),
         }
     }
 }
@@ -1110,6 +1174,9 @@ impl From<WaitingTaskListItem> for TaskSummaryResponse {
 #[derive(Debug, Serialize)]
 struct WorkflowTaskListResponse {
     items: Vec<TaskSummaryResponse>,
+    total: i64,
+    limit: i64,
+    offset: i64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1120,6 +1187,16 @@ struct TaskListQuery {
     assignee: Option<String>,
     #[serde(default)]
     status: Option<String>,
+    #[serde(default = "default_task_list_limit")]
+    limit: i64,
+    #[serde(default)]
+    offset: i64,
+    #[serde(default)]
+    bulk_decision_only: bool,
+}
+
+const fn default_task_list_limit() -> i64 {
+    50
 }
 
 #[derive(Debug, Serialize)]
@@ -1705,6 +1782,7 @@ async fn load_run_view(
                         claimed_by: task.try_get("claimed_by")?,
                         due_at: task.try_get("due_at")?,
                         form_payload: task.try_get("form_payload")?,
+                        bulk_decision: BulkDecisionCapability::unavailable(),
                     }),
                 };
                 Ok((summary, next_task))
@@ -1890,40 +1968,56 @@ async fn list_workflow_tasks(
     let statuses = parse_task_statuses(query.status.as_deref())?;
     let org = principal.org_id;
     let branch = guard_branch(&principal);
+    let limit = query.limit.clamp(1, 200);
+    let offset = query.offset.max(0);
 
     // Group inbox (security M3): a `role_key=` query returns rows only when the
     // caller holds that role. Deny-by-omission — a caller who does not is handed
-    // an empty list (200), never a 403 (never leaks the queue's existence).
+    // an empty page (200), never a 403 (never leaks the queue's existence).
     if let Some(role_key) = query.role_key.as_deref()
         && !holds_group_inbox_role(&principal, org, branch, role_key)
     {
         record_workflow_studio_request("task_list", "success");
-        return Ok(Json(WorkflowTaskListResponse { items: vec![] }));
+        return Ok(Json(WorkflowTaskListResponse {
+            items: vec![],
+            total: 0,
+            limit,
+            offset,
+        }));
     }
 
     let store = PgWorkflowRuntimeStore::new(state.pool.clone());
-    let items = store
-        .list_waiting_tasks(
+    let page = store
+        .list_waiting_tasks_page(
             org,
             principal.user_id,
             WaitingTaskListFilter {
                 role_key: query.role_key.clone(),
                 assignee_me,
-                // Personal inbox OPEN-task gate (security M3): the authority role
-                // keys this caller holds. Ownership-keyed OPEN tasks bind to the
-                // run initiator in SQL instead.
                 authority_role_keys: held_authority_role_keys(&principal, org, branch),
                 statuses,
+                canonical_approval_decisions_only: query.bulk_decision_only,
             },
+            limit,
+            offset,
         )
         .await?;
-    let items = items
+    let items = page
+        .items
         .into_iter()
         .filter(|item| task_visible(&principal, org, branch, item))
-        .map(TaskSummaryResponse::from)
+        .filter(|item| {
+            !query.bulk_decision_only || item.required_policy.as_deref() == Some("approval_decide")
+        })
+        .map(|item| TaskSummaryResponse::from_item(item, principal.user_id))
         .collect();
     record_workflow_studio_request("task_list", "success");
-    Ok(Json(WorkflowTaskListResponse { items }))
+    Ok(Json(WorkflowTaskListResponse {
+        items,
+        total: page.total,
+        limit,
+        offset,
+    }))
 }
 
 /// The caller's actionable approval/workflow tasks for the unified action inbox
@@ -1946,6 +2040,7 @@ pub(crate) async fn my_action_inbox_tasks_page(
         assignee_me: true,
         authority_role_keys: held_authority_role_keys(principal, org, branch),
         statuses: vec![WaitingTaskStatus::Open, WaitingTaskStatus::Claimed],
+        canonical_approval_decisions_only: false,
     };
     let mut visible = Vec::new();
     let mut cursor = after;
@@ -2008,6 +2103,7 @@ pub(crate) async fn my_action_inbox_task_count(
         assignee_me: true,
         authority_role_keys: held_authority_role_keys(principal, org, branch),
         statuses: vec![WaitingTaskStatus::Open, WaitingTaskStatus::Claimed],
+        canonical_approval_decisions_only: false,
     };
     let mut count = 0usize;
     let mut scanned = 0usize;
@@ -2286,6 +2382,7 @@ async fn get_workflow_run(
                             claimed_by: task.try_get("claimed_by")?,
                             due_at: task.try_get("due_at")?,
                             form_payload: task.try_get("form_payload")?,
+                            bulk_decision: BulkDecisionCapability::unavailable(),
                         })
                     })
                     .collect::<Result<Vec<_>, sqlx::Error>>()?;
@@ -2513,7 +2610,9 @@ async fn decide_workflow_task(
             id: decided.run_id,
             status: decided.run_status.as_db_str().to_owned(),
         },
-        next_task: decided.next_task.map(TaskSummaryResponse::from),
+        next_task: decided
+            .next_task
+            .map(|item| TaskSummaryResponse::from_item(item, principal.user_id)),
     }))
 }
 
@@ -8872,5 +8971,39 @@ mod tests {
         assert_eq!(err.status, StatusCode::CONFLICT);
         assert_eq!(err.code, "invalid_transition");
         Ok(())
+    }
+
+    fn bulk_capability_task(policy: Option<&str>) -> WaitingTaskListItem {
+        WaitingTaskListItem {
+            task_id: Uuid::nil(),
+            run_id: Uuid::nil(),
+            waiting_key: "approval.manager".to_owned(),
+            title: "Approval decision".to_owned(),
+            assignee_role_key: Some("manager_approver".to_owned()),
+            required_policy: policy.map(ToOwned::to_owned),
+            object_type: None,
+            object_id: None,
+            initiated_by: None,
+            status: WaitingTaskStatus::Open,
+            claimed_by: None,
+            due_at: None,
+            created_at: OffsetDateTime::UNIX_EPOCH,
+            form_payload: json!({}),
+        }
+    }
+
+    #[test]
+    fn bulk_decision_capability_is_explicit_and_default_deny() {
+        let actor = UserId::from_uuid(Uuid::new_v4());
+        assert!(
+            bulk_decision_capability(&bulk_capability_task(Some("approval_decide")), actor,)
+                .decidable
+        );
+        assert!(!bulk_decision_capability(&bulk_capability_task(None), actor).decidable);
+        assert!(!bulk_decision_capability(
+            &bulk_capability_task(Some("future_unreviewed_task")),
+            actor,
+        )
+        .decidable);
     }
 }

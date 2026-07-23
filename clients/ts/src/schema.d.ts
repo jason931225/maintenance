@@ -8865,6 +8865,12 @@ export interface components {
             form_payload: {
                 [key: string]: unknown;
             };
+            bulk_decision: components["schemas"]["WorkflowBulkDecisionCapability"];
+        };
+        WorkflowBulkDecisionCapability: {
+            decidable: boolean;
+            /** @enum {string} */
+            reason?: "NOT_APPROVAL_DECISION_TASK" | "NOT_OPEN" | "CLAIMED_BY_ANOTHER_USER" | "SELF_APPROVAL";
         };
         StartWorkflowRunResponse: {
             run: components["schemas"]["WorkflowRunSummary"];
@@ -8872,6 +8878,10 @@ export interface components {
         };
         WorkflowTaskListResponse: {
             items: components["schemas"]["WorkflowTaskSummary"][];
+            /** Format: int64 */
+            total: number;
+            limit: number;
+            offset: number;
         };
         WorkflowRunListItem: {
             run_id: components["schemas"]["Uuid"];
@@ -22752,6 +22762,12 @@ export interface operations {
                 assignee?: string;
                 /** @description Comma-separated task statuses (e.g. OPEN,CLAIMED). Defaults to OPEN. */
                 status?: string;
+                /** @description Page size, clamped to 1..200 (default 50). */
+                limit?: number;
+                /** @description Zero-based page offset. */
+                offset?: number;
+                /** @description Restrict results to the canonical approval-decision workflow contract. Unknown task kinds are excluded. */
+                bulk_decision_only?: boolean;
             };
             header?: never;
             path?: never;

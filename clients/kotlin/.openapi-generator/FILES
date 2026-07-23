@@ -769,6 +769,7 @@ src/main/kotlin/com/maintenance/api/client/model/WorkOrderStatus.kt
 src/main/kotlin/com/maintenance/api/client/model/WorkOrderSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/WorkResultType.kt
 src/main/kotlin/com/maintenance/api/client/model/WorkflowActionAllowlistEntry.kt
+src/main/kotlin/com/maintenance/api/client/model/WorkflowBulkDecisionCapability.kt
 src/main/kotlin/com/maintenance/api/client/model/WorkflowConnectorDescriptor.kt
 src/main/kotlin/com/maintenance/api/client/model/WorkflowDefinitionEventResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/WorkflowDefinitionHistoryResponse.kt

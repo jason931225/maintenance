@@ -302,6 +302,9 @@ open class WorkflowTasksApi(basePath: kotlin.String = defaultBasePath, client: C
      * @param roleKey Group-inbox filter matched against assignee_role_key. (optional)
      * @param assignee Set to \&quot;me\&quot; for the personal inbox (the caller&#39;s CLAIMED tasks plus claimable OPEN ones). (optional)
      * @param status Comma-separated task statuses (e.g. OPEN,CLAIMED). Defaults to OPEN. (optional)
+     * @param limit Page size, clamped to 1..200 (default 50). (optional)
+     * @param offset Zero-based page offset. (optional)
+     * @param bulkDecisionOnly Restrict results to the canonical approval-decision workflow contract. Unknown task kinds are excluded. (optional)
      * @return WorkflowTaskListResponse
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
@@ -311,8 +314,8 @@ open class WorkflowTasksApi(basePath: kotlin.String = defaultBasePath, client: C
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun listWorkflowTasks(roleKey: kotlin.String? = null, assignee: kotlin.String? = null, status: kotlin.String? = null) : WorkflowTaskListResponse = withContext(Dispatchers.IO) {
-        val localVarResponse = listWorkflowTasksWithHttpInfo(roleKey = roleKey, assignee = assignee, status = status)
+    suspend fun listWorkflowTasks(roleKey: kotlin.String? = null, assignee: kotlin.String? = null, status: kotlin.String? = null, limit: kotlin.Int? = null, offset: kotlin.Int? = null, bulkDecisionOnly: kotlin.Boolean? = null) : WorkflowTaskListResponse = withContext(Dispatchers.IO) {
+        val localVarResponse = listWorkflowTasksWithHttpInfo(roleKey = roleKey, assignee = assignee, status = status, limit = limit, offset = offset, bulkDecisionOnly = bulkDecisionOnly)
 
         return@withContext when (localVarResponse.responseType) {
             ResponseType.Success -> (localVarResponse as Success<*>).data as WorkflowTaskListResponse
@@ -336,14 +339,17 @@ open class WorkflowTasksApi(basePath: kotlin.String = defaultBasePath, client: C
      * @param roleKey Group-inbox filter matched against assignee_role_key. (optional)
      * @param assignee Set to \&quot;me\&quot; for the personal inbox (the caller&#39;s CLAIMED tasks plus claimable OPEN ones). (optional)
      * @param status Comma-separated task statuses (e.g. OPEN,CLAIMED). Defaults to OPEN. (optional)
+     * @param limit Page size, clamped to 1..200 (default 50). (optional)
+     * @param offset Zero-based page offset. (optional)
+     * @param bulkDecisionOnly Restrict results to the canonical approval-decision workflow contract. Unknown task kinds are excluded. (optional)
      * @return ApiResponse<WorkflowTaskListResponse?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun listWorkflowTasksWithHttpInfo(roleKey: kotlin.String?, assignee: kotlin.String?, status: kotlin.String?) : ApiResponse<WorkflowTaskListResponse?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = listWorkflowTasksRequestConfig(roleKey = roleKey, assignee = assignee, status = status)
+    suspend fun listWorkflowTasksWithHttpInfo(roleKey: kotlin.String?, assignee: kotlin.String?, status: kotlin.String?, limit: kotlin.Int?, offset: kotlin.Int?, bulkDecisionOnly: kotlin.Boolean?) : ApiResponse<WorkflowTaskListResponse?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listWorkflowTasksRequestConfig(roleKey = roleKey, assignee = assignee, status = status, limit = limit, offset = offset, bulkDecisionOnly = bulkDecisionOnly)
 
         return@withContext request<Unit, WorkflowTaskListResponse>(
             localVariableConfig
@@ -356,9 +362,12 @@ open class WorkflowTasksApi(basePath: kotlin.String = defaultBasePath, client: C
      * @param roleKey Group-inbox filter matched against assignee_role_key. (optional)
      * @param assignee Set to \&quot;me\&quot; for the personal inbox (the caller&#39;s CLAIMED tasks plus claimable OPEN ones). (optional)
      * @param status Comma-separated task statuses (e.g. OPEN,CLAIMED). Defaults to OPEN. (optional)
+     * @param limit Page size, clamped to 1..200 (default 50). (optional)
+     * @param offset Zero-based page offset. (optional)
+     * @param bulkDecisionOnly Restrict results to the canonical approval-decision workflow contract. Unknown task kinds are excluded. (optional)
      * @return RequestConfig
      */
-    fun listWorkflowTasksRequestConfig(roleKey: kotlin.String?, assignee: kotlin.String?, status: kotlin.String?) : RequestConfig<Unit> {
+    fun listWorkflowTasksRequestConfig(roleKey: kotlin.String?, assignee: kotlin.String?, status: kotlin.String?, limit: kotlin.Int?, offset: kotlin.Int?, bulkDecisionOnly: kotlin.Boolean?) : RequestConfig<Unit> {
         val localVariableBody = null
         val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
             .apply {
@@ -370,6 +379,15 @@ open class WorkflowTasksApi(basePath: kotlin.String = defaultBasePath, client: C
                 }
                 if (status != null) {
                     put("status", listOf(status.toString()))
+                }
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+                if (offset != null) {
+                    put("offset", listOf(offset.toString()))
+                }
+                if (bulkDecisionOnly != null) {
+                    put("bulk_decision_only", listOf(bulkDecisionOnly.toString()))
                 }
             }
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()

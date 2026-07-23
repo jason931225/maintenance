@@ -100,6 +100,8 @@ pub struct WaitingTaskListFilter {
     pub authority_role_keys: Vec<String>,
     /// Statuses to include (defaults to `[OPEN]` at the REST layer).
     pub statuses: Vec<WaitingTaskStatus>,
+    /// Restrict the bulk inbox surface to the explicit approval-decision contract.
+    pub canonical_approval_decisions_only: bool,
 }
 
 /// One waiting-task inbox row (approval inbox / group inbox).
@@ -113,11 +115,21 @@ pub struct WaitingTaskListItem {
     pub required_policy: Option<String>,
     pub object_type: Option<String>,
     pub object_id: Option<Uuid>,
+    pub initiated_by: Option<Uuid>,
     pub status: WaitingTaskStatus,
     pub claimed_by: Option<Uuid>,
     pub due_at: Option<time::OffsetDateTime>,
     pub created_at: time::OffsetDateTime,
     pub form_payload: serde_json::Value,
+}
+
+/// A bounded, tenant-scoped waiting-task page. `total` is computed under the
+/// same RLS transaction and filter as `items`, so callers never mistake a
+/// transport cap for a complete inbox.
+#[derive(Debug, Clone)]
+pub struct WaitingTaskListPage {
+    pub items: Vec<WaitingTaskListItem>,
+    pub total: i64,
 }
 
 /// Filter for the submission box (`GET /api/v1/workflow-runs/mine`).
@@ -1142,27 +1154,28 @@ impl PgWorkflowRuntimeStore {
     /// (`assignee=me`) inbox. A plain tenant-scoped read: the REST layer applies the
     /// per-row policy guard and OMITS forbidden rows (deny-by-omission), so this
     /// returns every candidate matching the query filter.
-    pub async fn list_waiting_tasks(
+    pub async fn list_waiting_tasks_page(
         &self,
         org: OrgId,
         me: mnt_kernel_core::UserId,
         filter: WaitingTaskListFilter,
-    ) -> Result<Vec<WaitingTaskListItem>, KernelError> {
+        limit: i64,
+        offset: i64,
+    ) -> Result<WaitingTaskListPage, KernelError> {
+        let limit = limit.clamp(1, 200);
+        let offset = offset.max(0);
         let statuses: Vec<String> = filter
             .statuses
             .iter()
             .map(|status| status.as_db_str().to_owned())
             .collect();
-        with_org_conn::<_, Vec<WaitingTaskListItem>, PgWorkflowRuntimeError>(
+        with_org_conn::<_, WaitingTaskListPage, PgWorkflowRuntimeError>(
             &self.pool,
             org,
             move |tx| {
                 Box::pin(async move {
-                    let rows = sqlx::query(
-                        "SELECT t.id AS task_id, t.run_id, t.waiting_key, t.title, \
-                                t.assignee_role_key, t.required_policy, t.status, \
-                                t.claimed_by, t.due_at, t.created_at, t.form_payload, \
-                                r.object_type, r.object_id \
+                    let total: i64 = sqlx::query_scalar(
+                        "SELECT count(*) \
                          FROM workflow_waiting_tasks t \
                          JOIN workflow_runs r ON r.id = t.run_id AND r.org_id = t.org_id \
                          WHERE t.status = ANY($1) \
@@ -1172,17 +1185,46 @@ impl PgWorkflowRuntimeStore {
                                     AND (t.assignee_role_key = ANY($5) \
                                          OR (t.assignee_role_key = 'initiator' \
                                              AND r.initiated_by = $4)))) \
-                         ORDER BY t.created_at DESC, t.id DESC \
-                         LIMIT 200",
+                           AND (NOT $6 OR t.required_policy = 'approval_decide')",
                     )
                     .bind(&statuses)
                     .bind(filter.role_key.as_deref())
                     .bind(filter.assignee_me)
                     .bind(*me.as_uuid())
                     .bind(&filter.authority_role_keys)
+                    .bind(filter.canonical_approval_decisions_only)
+                    .fetch_one(tx.as_mut())
+                    .await?;
+                    let rows = sqlx::query(
+                        "SELECT t.id AS task_id, t.run_id, t.waiting_key, t.title, \
+                                t.assignee_role_key, t.required_policy, t.status, \
+                                t.claimed_by, t.due_at, t.created_at, t.form_payload, \
+                                r.object_type, r.object_id, r.initiated_by \
+                         FROM workflow_waiting_tasks t \
+                         JOIN workflow_runs r ON r.id = t.run_id AND r.org_id = t.org_id \
+                         WHERE t.status = ANY($1) \
+                           AND ($2::text IS NULL OR t.assignee_role_key = $2) \
+                           AND (NOT $3 OR t.claimed_by = $4 \
+                                OR (t.status = 'OPEN' \
+                                    AND (t.assignee_role_key = ANY($5) \
+                                         OR (t.assignee_role_key = 'initiator' \
+                                             AND r.initiated_by = $4)))) \
+                           AND (NOT $6 OR t.required_policy = 'approval_decide') \
+                         ORDER BY t.created_at DESC, t.id DESC \
+                         LIMIT $7 OFFSET $8",
+                    )
+                    .bind(&statuses)
+                    .bind(filter.role_key.as_deref())
+                    .bind(filter.assignee_me)
+                    .bind(*me.as_uuid())
+                    .bind(&filter.authority_role_keys)
+                    .bind(filter.canonical_approval_decisions_only)
+                    .bind(limit)
+                    .bind(offset)
                     .fetch_all(tx.as_mut())
                     .await?;
-                    rows.iter()
+                    let items = rows
+                        .iter()
                         .map(|row| {
                             let status: String = row.try_get("status")?;
                             Ok(WaitingTaskListItem {
@@ -1194,6 +1236,7 @@ impl PgWorkflowRuntimeStore {
                                 required_policy: row.try_get("required_policy")?,
                                 object_type: row.try_get("object_type")?,
                                 object_id: row.try_get("object_id")?,
+                                initiated_by: row.try_get("initiated_by")?,
                                 status: WaitingTaskStatus::from_db_str(&status)?,
                                 claimed_by: row.try_get("claimed_by")?,
                                 due_at: row.try_get("due_at")?,
@@ -1201,7 +1244,8 @@ impl PgWorkflowRuntimeStore {
                                 form_payload: row.try_get("form_payload")?,
                             })
                         })
-                        .collect()
+                        .collect::<Result<Vec<_>, PgWorkflowRuntimeError>>()?;
+                    Ok(WaitingTaskListPage { items, total })
                 })
             },
         )
@@ -1239,7 +1283,7 @@ impl PgWorkflowRuntimeStore {
                         "SELECT t.id AS task_id, t.run_id, t.waiting_key, t.title, \
                             t.assignee_role_key, t.required_policy, t.status, \
                             t.claimed_by, t.due_at, t.created_at, t.form_payload, \
-                            r.object_type, r.object_id \
+                            r.object_type, r.object_id, r.initiated_by \
                      FROM workflow_waiting_tasks t \
                      JOIN workflow_runs r ON r.id = t.run_id AND r.org_id = t.org_id \
                      WHERE t.status = ANY($1) \
@@ -1281,6 +1325,7 @@ impl PgWorkflowRuntimeStore {
                                 required_policy: row.try_get("required_policy")?,
                                 object_type: row.try_get("object_type")?,
                                 object_id: row.try_get("object_id")?,
+                                initiated_by: row.try_get("initiated_by")?,
                                 status: WaitingTaskStatus::from_db_str(&status)?,
                                 claimed_by: row.try_get("claimed_by")?,
                                 due_at: row.try_get("due_at")?,

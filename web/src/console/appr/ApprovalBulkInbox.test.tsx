@@ -9,6 +9,7 @@ import { ApprovalBulkInbox } from "./ApprovalBulkInbox";
 const USER_ID = "10000000-0000-4000-8000-000000000001";
 const TASK_ONE = "20000000-0000-4000-8000-000000000001";
 const TASK_TWO = "20000000-0000-4000-8000-000000000002";
+const TASK_THREE = "20000000-0000-4000-8000-000000000003";
 
 const server = setupServer();
 
@@ -26,6 +27,7 @@ function task(overrides: Record<string, unknown> = {}) {
     required_policy: "approval_decide",
     status: "OPEN",
     form_payload: {},
+    bulk_decision: { decidable: true },
     ...overrides,
   };
 }
@@ -36,7 +38,9 @@ function installList(items = [task()]) {
       const url = new URL(request.url);
       expect(url.searchParams.get("assignee")).toBe("me");
       expect(url.searchParams.get("status")).toBe("OPEN,CLAIMED");
-      return HttpResponse.json({ items });
+      const limit = Number(url.searchParams.get("limit") ?? 50);
+      const offset = Number(url.searchParams.get("offset") ?? 0);
+      return HttpResponse.json({ items: items.slice(offset, offset + limit), total: items.length, limit, offset });
     }),
   );
 }
@@ -49,18 +53,19 @@ describe("ApprovalBulkInbox", () => {
       task({
         task_id: TASK_TWO,
         title: "Author receipt",
-        waiting_key: "receipt.target",
+        bulk_decision: { decidable: false, reason: "NOT_APPROVAL_DECISION_TASK" },
       }),
       task({
         task_id: "20000000-0000-4000-8000-000000000003",
         title: "Legacy task",
-        required_policy: undefined,
+        bulk_decision: { decidable: false, reason: "SERVER_CAPABILITY_UNAVAILABLE" },
       }),
       task({
         task_id: "20000000-0000-4000-8000-000000000004",
         title: "Claimed task",
         status: "CLAIMED",
         claimed_by: "10000000-0000-4000-8000-000000000099",
+        bulk_decision: { decidable: false, reason: "CLAIMED_BY_ANOTHER_USER" },
       }),
     ]);
 
@@ -71,24 +76,13 @@ describe("ApprovalBulkInbox", () => {
     await user.click(selectable);
 
     expect(screen.getByText("1 selected")).toBeVisible();
+    expect(screen.getAllByText("NOT_APPROVAL_DECISION_TASK")).toHaveLength(1);
     expect(
       screen.getByText(
-        "Amount unavailable: this inbox does not expose an authoritative amount field.",
+        "SERVER_CAPABILITY_UNAVAILABLE",
       ),
     ).toBeVisible();
-    expect(
-      screen.getByText(
-        "This is a finalization or receipt task and must remain individually reviewable.",
-      ),
-    ).toBeVisible();
-    expect(
-      screen.getByText(
-        "This task has no server policy boundary and cannot be bulk decided.",
-      ),
-    ).toBeVisible();
-    expect(
-      screen.getByText("This task is claimed by another user."),
-    ).toBeVisible();
+    expect(screen.getByText("CLAIMED_BY_ANOTHER_USER")).toBeVisible();
     expect(
       screen.getByRole("checkbox", { name: "Author receipt" }),
     ).toBeDisabled();
@@ -107,6 +101,11 @@ describe("ApprovalBulkInbox", () => {
         task_id: TASK_TWO,
         run_id: "30000000-0000-4000-8000-000000000002",
         title: "Payroll approval",
+      }),
+      task({
+        task_id: TASK_THREE,
+        run_id: "30000000-0000-4000-8000-000000000003",
+        title: "Vendor approval",
       }),
     ]);
     server.use(
@@ -151,21 +150,25 @@ describe("ApprovalBulkInbox", () => {
     );
 
     expect(
-      await screen.findByText("Approved · APPROVED · SUCCEEDED"),
+      (await screen.findAllByText("Approved · APPROVED · SUCCEEDED"))[0],
     ).toBeVisible();
-    expect(await screen.findByText("stale task")).toBeVisible();
-    await user.click(
-      screen.getByRole("button", { name: "Retry unresolved (1)" }),
-    );
-
+    expect((await screen.findAllByText("stale task"))[0]).toBeVisible();
+    // A new operation is allowed while the failed task remains unresolved, but
+    // it must not replace that task's original idempotency identity.
+    await user.click(screen.getByRole("checkbox", { name: "Vendor approval" }));
+    await user.click(screen.getByRole("button", { name: "Approve selected (1)" }));
     await waitFor(() => expect(decisions).toHaveLength(3));
+    await user.click(screen.getByRole("button", { name: "Retry unresolved (1)" }));
+
+    await waitFor(() => expect(decisions).toHaveLength(4));
     expect(decisions.map((entry) => entry.taskId)).toEqual([
       TASK_ONE,
       TASK_TWO,
+      TASK_THREE,
       TASK_TWO,
     ]);
     expect(decisions[1]?.body.idempotency_key).toBe(
-      decisions[2]?.body.idempotency_key,
+      decisions[3]?.body.idempotency_key,
     );
   });
 
@@ -191,14 +194,14 @@ describe("ApprovalBulkInbox", () => {
       screen.getByRole("button", { name: "Approve selected (1)" }),
     );
 
-    expect(await screen.findByText("self approval prohibited")).toBeVisible();
+    expect((await screen.findAllByText("self approval prohibited"))[0]).toBeVisible();
     expect(screen.queryByText(/Approved ·/)).not.toBeInTheDocument();
   });
 
   it("preserves selection across client pages and supports keyboard selection", async () => {
     const user = userEvent.setup();
     installList(
-      Array.from({ length: 11 }, (_, index) =>
+      Array.from({ length: 51 }, (_, index) =>
         task({
           task_id: `20000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`,
           title: `Approval task ${String(index + 1)}`,
@@ -214,7 +217,7 @@ describe("ApprovalBulkInbox", () => {
     await user.keyboard(" ");
     await user.click(screen.getByRole("button", { name: "Next" }));
     await user.click(
-      screen.getByRole("checkbox", { name: "Approval task 11" }),
+      screen.getByRole("checkbox", { name: "Approval task 51" }),
     );
     expect(screen.getByText("2 selected")).toBeVisible();
     await user.click(screen.getByRole("button", { name: "Previous" }));
@@ -236,7 +239,7 @@ describe("ApprovalBulkInbox", () => {
     );
     const view = render(<ApprovalBulkInbox currentUserId={USER_ID} />);
     view.unmount();
-    resolveRequest?.(HttpResponse.json({ items: [task()] }));
+    resolveRequest?.(HttpResponse.json({ items: [task()], total: 1, limit: 50, offset: 0 }));
     await Promise.resolve();
     expect(
       screen.queryByText("Equipment replacement approval"),
@@ -275,9 +278,9 @@ describe("ApprovalBulkInbox", () => {
       ),
     ).toBeVisible();
     expect(
-      screen.getByText(
+      screen.getAllByText(
         "No confirmed result after cancellation. Retry uses the same idempotency key.",
-      ),
+      )[0],
     ).toBeVisible();
     started?.();
   });

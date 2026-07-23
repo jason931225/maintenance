@@ -79,6 +79,11 @@ export interface WorkflowDecisionResult {
 }
 
 /** Server-owned task fields. Eligibility is deliberately derived only from these fields. */
+export interface WorkflowBulkDecisionCapability {
+  decidable: boolean;
+  reason?: string;
+}
+
 export interface WorkflowWaitingTask {
   task_id: string;
   run_id: string;
@@ -92,6 +97,14 @@ export interface WorkflowWaitingTask {
   claimed_by?: string;
   due_at?: string;
   form_payload: Record<string, unknown>;
+  bulk_decision?: WorkflowBulkDecisionCapability;
+}
+
+export interface WorkflowWaitingTaskPage {
+  items: WorkflowWaitingTask[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 export interface ApprWorkflowApi {
@@ -99,7 +112,7 @@ export interface ApprWorkflowApi {
   searchObjects(query: string): Promise<ObjectLinkRef[]>;
   resolveObject(kind: string, id: string): Promise<ObjectLinkRef | undefined>;
   submitDraft(draft: ApprComposeDraft, options?: { idempotencyKey?: string; correlationId?: string }): Promise<SubmittedComposeRun>;
-  listWaitingTasks(): Promise<WorkflowWaitingTask[]>;
+  listWaitingTasks(options?: { limit?: number; offset?: number }): Promise<WorkflowWaitingTaskPage>;
   decideTask(taskId: string, decision: WorkflowDecision, options?: { comment?: string; idempotencyKey?: string; signal?: AbortSignal }): Promise<WorkflowDecisionResult>;
   finalizeTask(taskId: string, mode: "author" | "delegate", options?: { reason?: string; idempotencyKey?: string }): Promise<CompletionResult>;
   postFinalizationReject(runId: string, reason: string, options?: { idempotencyKey?: string }): Promise<CompletionResult>;
@@ -187,11 +200,18 @@ export function createApprWorkflowApi(options: ApprWorkflowApiOptions = {}): App
       };
     },
 
-    async listWaitingTasks() {
-      const response = await getJson<{ items?: WorkflowWaitingTask[] }>(
-        "/api/v1/workflow-tasks?assignee=me&status=OPEN,CLAIMED",
+    async listWaitingTasks(listOptions) {
+      const limit = Math.min(Math.max(listOptions?.limit ?? 50, 1), 200);
+      const offset = Math.max(listOptions?.offset ?? 0, 0);
+      const response = await getJson<Partial<WorkflowWaitingTaskPage>>(
+        `/api/v1/workflow-tasks?assignee=me&status=OPEN,CLAIMED&bulk_decision_only=true&limit=${String(limit)}&offset=${String(offset)}`,
       );
-      return response.items ?? [];
+      return {
+        items: response.items ?? [],
+        total: response.total ?? 0,
+        limit: response.limit ?? limit,
+        offset: response.offset ?? offset,
+      };
     },
 
     async decideTask(taskId, decision, decideOptions) {
