@@ -188,6 +188,7 @@ export function OntologyAnalyticsWorkbench({
   const closeRef = useRef<HTMLButtonElement>(null);
   const restoreFocusRef = useRef<HTMLElement | null>(null);
   const requestRef = useRef(0);
+  const activeControllerRef = useRef<AbortController | undefined>(undefined);
   const [types, setTypes] = useState<ObjectTypeSummaryWire[]>([]);
   const [selectedTypeId, setSelectedTypeId] = useState<string>("");
   const [detail, setDetail] = useState<ObjectTypeDetailWire>();
@@ -209,7 +210,7 @@ export function OntologyAnalyticsWorkbench({
     async (signal: AbortSignal, token: number) => {
       setState("loading");
       try {
-        const next = await listObjectTypes(api);
+        const next = await listObjectTypes(api, { signal, forceRefresh: true });
         if (signal.aborted || requestRef.current !== token) return;
         setTypes(next);
         setSelectedTypeId((current) =>
@@ -237,8 +238,11 @@ export function OntologyAnalyticsWorkbench({
       setDimension("lifecycle");
       try {
         const [nextDetail, nextInstances] = await Promise.all([
-          getObjectType(api, type.stable_key),
-          listInstances(api, type.id),
+          getObjectType(api, type.stable_key, undefined, {
+            signal,
+            forceRefresh: true,
+          }),
+          listInstances(api, type.id, { signal, forceRefresh: true }),
         ]);
         if (signal.aborted || requestRef.current !== token) return;
         setDetail(nextDetail);
@@ -252,6 +256,13 @@ export function OntologyAnalyticsWorkbench({
     [api],
   );
 
+  const replaceController = useCallback(() => {
+    activeControllerRef.current?.abort();
+    const controller = new AbortController();
+    activeControllerRef.current = controller;
+    return controller;
+  }, []);
+
   useEffect(() => {
     if (!open) return;
     restoreFocusRef.current =
@@ -259,28 +270,32 @@ export function OntologyAnalyticsWorkbench({
         ? document.activeElement
         : null;
     closeRef.current?.focus();
-    const controller = new AbortController();
+    const controller = replaceController();
     const token = ++requestRef.current;
     void loadTypes(controller.signal, token);
     return () => {
       controller.abort();
+      if (activeControllerRef.current === controller)
+        activeControllerRef.current = undefined;
       requestRef.current += 1;
       restoreFocusRef.current?.focus();
     };
-  }, [authorityKey, loadTypes, open]);
+  }, [authorityKey, loadTypes, open, replaceController]);
 
   useEffect(() => {
     if (!open || !selectedType) return;
-    const controller = new AbortController();
+    const controller = replaceController();
     const token = ++requestRef.current;
     void loadSelectedType(selectedType, controller.signal, token);
     return () => {
       controller.abort();
+      if (activeControllerRef.current === controller)
+        activeControllerRef.current = undefined;
     };
-  }, [loadSelectedType, open, selectedType]);
+  }, [loadSelectedType, open, replaceController, selectedType]);
 
   function retry(): void {
-    const controller = new AbortController();
+    const controller = replaceController();
     const token = ++requestRef.current;
     if (selectedType)
       void loadSelectedType(selectedType, controller.signal, token);

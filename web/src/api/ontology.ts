@@ -167,10 +167,12 @@ function throwing(status: number, error: ErrorBody | undefined): never {
 /** GET /api/v1/ontology/object-types — the tenant's registry heads. */
 export async function listObjectTypes(
   api: ConsoleApiClient,
+  options: { signal?: AbortSignal; forceRefresh?: boolean } = {},
 ): Promise<ObjectTypeSummaryWire[]> {
-  const { data, error, response } = await api.GET(
-    "/api/v1/ontology/object-types",
-  );
+  const { data, error, response } = await api.GET("/api/v1/ontology/object-types", {
+    ...(options.signal ? { signal: options.signal } : {}),
+    ...(options.forceRefresh ? { headers: { "Cache-Control": "no-store" } } : {}),
+  });
   if (!data) throwing(response.status, error);
   return data as unknown as ObjectTypeSummaryWire[];
 }
@@ -180,6 +182,7 @@ export async function getObjectType(
   api: ConsoleApiClient,
   key: string,
   version?: number,
+  options: { signal?: AbortSignal; forceRefresh?: boolean } = {},
 ): Promise<ObjectTypeDetailWire> {
   const { data, error, response } = await api.GET(
     "/api/v1/ontology/object-types/{key}",
@@ -188,6 +191,8 @@ export async function getObjectType(
         path: { key },
         query: version === undefined ? {} : { version },
       },
+      ...(options.signal ? { signal: options.signal } : {}),
+      ...(options.forceRefresh ? { headers: { "Cache-Control": "no-store" } } : {}),
     },
   );
   if (!data) throwing(response.status, error);
@@ -259,11 +264,16 @@ export async function stageObjectTypeRevision(
 export async function listInstances(
   api: ConsoleApiClient,
   objectTypeVersionId: string,
+  options: { signal?: AbortSignal; forceRefresh?: boolean } = {},
 ): Promise<InstanceStateWire[]> {
   const { data, error, response } = await api.GET(
     "/api/v1/ontology/instances",
     {
       params: { query: { type: objectTypeVersionId } },
+      ...(options.signal ? { signal: options.signal } : {}),
+      ...(options.forceRefresh
+        ? { headers: { "Cache-Control": "no-store" } }
+        : {}),
     },
   );
   if (!data) throwing(response.status, error);

@@ -140,6 +140,42 @@ describe("OntologyAnalyticsWorkbench", () => {
     ).toBeInTheDocument();
   });
 
+  it("aborts a hung request before replacing it for a new authority", async () => {
+    const requests: Array<{ signal: AbortSignal; forceRefresh: boolean }> = [];
+    apiReads.listObjectTypes.mockImplementation(
+      (
+        _api: unknown,
+        options: { signal: AbortSignal; forceRefresh: boolean },
+      ) => {
+        requests.push(options);
+        return new Promise(() => undefined);
+      },
+    );
+    const { rerender } = mount("tenant-a");
+    rerender(
+      <>
+        <button type="button">Open analysis</button>
+        <OntologyAnalyticsWorkbench
+          api={api}
+          authorityKey="tenant-b"
+          open
+          onClose={onClose}
+          onDrill={onDrill}
+        />
+      </>,
+    );
+    await waitFor(() => {
+      expect(requests).toHaveLength(2);
+    });
+    expect(requests[0]).toEqual(
+      expect.objectContaining({ forceRefresh: true }),
+    );
+    expect(requests[0].signal.aborted).toBe(true);
+    expect(requests[1]).toEqual(
+      expect.objectContaining({ forceRefresh: true }),
+    );
+  });
+
   it("fences an older authority response and restores focus on close", async () => {
     const resolvers: Array<(value: (typeof summaryFixture)[]) => void> = [];
     apiReads.listObjectTypes.mockImplementation(

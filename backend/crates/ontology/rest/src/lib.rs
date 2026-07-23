@@ -50,10 +50,15 @@ use mnt_ontology_application::{
 };
 use mnt_ontology_domain::{InstanceId, InstanceLifecycleState, LinkTypeId, ObjectTypeId};
 use mnt_platform_auth::JwtVerifier;
+use mnt_platform_authz::cedar_pbac::authoring::{ConditionOp, ConditionValue, NoCodeBlocks};
 use mnt_platform_authz::cedar_pbac::evaluate_legacy_contract;
+use mnt_platform_authz::cedar_pbac::residual::{
+    ObjectPolicy, Predicate, PredicateValue, ResidualOp, SqlValue, SubjectAttrs,
+};
 use mnt_platform_authz::{
     Action, AuthorizationRequest, AuthorizationResource, Feature, Principal, authorize_org_wide,
 };
+use mnt_platform_authz_rest::PgCedarPolicyStore;
 use mnt_platform_db::{DbError, with_audits};
 use mnt_platform_request_context::current_org;
 use serde::{Deserialize, Serialize};
@@ -74,6 +79,7 @@ pub struct OntologyRestState {
     registry: PgOntologyStore,
     instances: PgInstanceStore,
     governance: PgGovernanceStore,
+    policies: PgCedarPolicyStore,
     jwt_verifier: Option<JwtVerifier>,
     /// Routes a `projected_usecase` action to the OWNING domain crate's use-case.
     /// Empty by default ⇒ every projected dispatch fails closed (`NotWiredYet`),
@@ -90,9 +96,11 @@ impl OntologyRestState {
         governance: PgGovernanceStore,
         jwt_verifier: Option<JwtVerifier>,
     ) -> Self {
+        let policies = PgCedarPolicyStore::new(registry.pool().clone());
         Self {
             registry,
             instances,
+            policies,
             governance,
             jwt_verifier,
             projected_dispatch: ProjectedDispatchRegistry::new(),
@@ -393,13 +401,89 @@ async fn list_instances(
     headers: HeaderMap,
     Query(query): Query<InstanceListQuery>,
 ) -> Result<Json<Vec<InstanceState>>, RestError> {
-    authorize_ontology(&state, &headers).await?;
+    let principal = authorize_ontology(&state, &headers).await?;
+    let object_type = state
+        .registry
+        .list_object_types()
+        .await
+        .map_err(RestError::from_ontology)?
+        .into_iter()
+        .find(|candidate| candidate.id == ObjectTypeId::from_uuid(query.r#type))
+        .ok_or_else(|| {
+            RestError::from_kernel(KernelError::not_found("object type was not found"))
+        })?;
+    let blocks = state
+        .policies
+        .load_enforced_object_policy_blocks(query.r#type)
+        .await
+        .map_err(|error| {
+            tracing::error!(%error, "ontology object-policy load failed");
+            RestError::internal("unable to evaluate object visibility policy")
+        })?;
+    let policies = applicable_object_policies(&blocks, &object_type.stable_key);
+    let subject = ontology_subject(&principal);
     let list = state
         .instances
-        .list_instances(ObjectTypeId::from_uuid(query.r#type))
+        .list_instances_filtered(ObjectTypeId::from_uuid(query.r#type), &subject, &policies)
         .await
         .map_err(RestError::from_ontology)?;
     Ok(Json(list))
+}
+
+/// Convert only the already-validated no-code row-policy subset into the SQL
+/// residual grammar. A condition unsupported by residual lowering is retained
+/// as an intentionally untranslatable predicate, making the adapter return
+/// `WHERE FALSE`; it can never silently widen a list.
+fn applicable_object_policies(blocks: &[NoCodeBlocks], stable_key: &str) -> Vec<ObjectPolicy> {
+    blocks
+        .iter()
+        .filter(|block| block.action == "view" && block.resource_type == stable_key)
+        .map(|block| ObjectPolicy {
+            effect: block.effect,
+            predicates: block.conditions.iter().map(residual_predicate).collect(),
+        })
+        .collect()
+}
+
+fn residual_predicate(
+    condition: &mnt_platform_authz::cedar_pbac::authoring::Condition,
+) -> Predicate {
+    let op = match condition.op {
+        ConditionOp::Eq => ResidualOp::Eq,
+        ConditionOp::Ne => ResidualOp::Ne,
+        // `contains` has no row-field equivalent. Use a deliberately missing
+        // subject attribute so lowering fails closed for the whole request.
+        ConditionOp::Contains => ResidualOp::In,
+    };
+    let value = match (&condition.op, &condition.value) {
+        (ConditionOp::Contains, _) => {
+            PredicateValue::SubjectAttr("__unsupported_contains__".to_owned())
+        }
+        (_, ConditionValue::Literal(value)) => {
+            PredicateValue::Literal(SqlValue::Text(value.clone()))
+        }
+        (_, ConditionValue::Bool(value)) => PredicateValue::Literal(SqlValue::Bool(*value)),
+        (_, ConditionValue::SubjectAttr(value)) => PredicateValue::SubjectAttr(value.clone()),
+    };
+    Predicate {
+        field: condition.attr.clone(),
+        op,
+        value,
+    }
+}
+
+fn ontology_subject(principal: &Principal) -> SubjectAttrs {
+    SubjectAttrs::default()
+        .with_scalar("user_id", principal.user_id.to_string())
+        .with_scalar("org", principal.org_id.to_string())
+        .with_set(
+            "roles",
+            principal
+                .roles
+                .iter()
+                .map(|role| role.as_str().to_owned())
+                .collect(),
+        )
 }
 
 #[derive(Debug, Deserialize)]

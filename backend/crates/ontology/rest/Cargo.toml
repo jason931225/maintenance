@@ -15,6 +15,7 @@ mnt-governance-domain = { path = "../../governance/domain" }
 mnt-kernel-core.workspace = true
 mnt-platform-auth = { path = "../../platform/auth" }
 mnt-platform-authz.workspace = true
+mnt-platform-authz-rest.workspace = true
 mnt-platform-db.workspace = true
 mnt-platform-request-context = { workspace = true }
 serde.workspace = true

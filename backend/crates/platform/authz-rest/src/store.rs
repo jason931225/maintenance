@@ -409,6 +409,45 @@ impl PgCedarPolicyStore {
         Ok(authoring::simulate(&policies, request))
     }
 
+    /// Load the enforced no-code blocks attached to an ontology object type.
+    /// The ontology read path lowers these into the SQL residual under the
+    /// already-armed RLS tenant floor; malformed persisted rows are a hard error
+    /// rather than an optimistic unfiltered read.
+    pub async fn load_enforced_object_policy_blocks(
+        &self,
+        object_type_id: Uuid,
+    ) -> Result<Vec<NoCodeBlocks>, PgCedarError> {
+        let org = current_org().map_err(KernelError::from)?;
+        with_org_conn::<_, _, PgCedarError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                let rows = sqlx::query(
+                    r#"
+                    SELECT c.normalized_row
+                    FROM ont_object_policies a
+                    JOIN cedar_policy_catalog_entries c
+                      ON c.id = a.cedar_policy_id AND c.org_id = a.org_id
+                    WHERE a.object_type_id = $1
+                      AND c.status = 'enforced'
+                    "#,
+                )
+                .bind(object_type_id)
+                .fetch_all(tx.as_mut())
+                .await?;
+                rows.iter()
+                    .map(|row| {
+                        let value: serde_json::Value = row.try_get("normalized_row")?;
+                        serde_json::from_value(value).map_err(|error| {
+                            PgCedarError::Domain(KernelError::validation(format!(
+                                "invalid enforced object policy row: {error}"
+                            )))
+                        })
+                    })
+                    .collect()
+            })
+        })
+        .await
+    }
+
     /// Live property-policy decision for `property_def_id`.
     pub async fn authorize_property_field(
         &self,
