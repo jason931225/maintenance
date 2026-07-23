@@ -1,5 +1,6 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useEffect, useState } from "react";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { MemoryRouter } from "react-router-dom";
@@ -78,14 +79,49 @@ function makeAuthContext(session: AuthSession): AuthContextValue {
   };
 }
 
-function renderApp(ctx: AuthContextValue) {
-  return render(
+function app(ctx: AuthContextValue) {
+  return (
     <AuthContext.Provider value={ctx}>
       <MemoryRouter initialEntries={["/inspection"]}>
         <AppRouter />
       </MemoryRouter>
-    </AuthContext.Provider>,
+    </AuthContext.Provider>
   );
+}
+
+function renderApp(ctx: AuthContextValue) {
+  return render(app(ctx));
+}
+
+function SessionSwapApp({
+  initial,
+  next,
+}: {
+  initial: AuthContextValue;
+  next: AuthContextValue;
+}) {
+  const [context, setContext] = useState(initial);
+  return (
+    <AuthContext.Provider value={context}>
+      <MemoryRouter initialEntries={["/inspection"]}>
+        <AppRouter />
+        <SessionSwitcher next={next} onSwitch={setContext} />
+      </MemoryRouter>
+    </AuthContext.Provider>
+  );
+}
+
+function SessionSwitcher({
+  next,
+  onSwitch,
+}: {
+  next: AuthContextValue;
+  onSwitch: (context: AuthContextValue) => void;
+}) {
+  useEffect(() => {
+    onSwitch(next);
+  }, [next, onSwitch]);
+  return null;
 }
 
 const adminSession: AuthSession = {
@@ -96,6 +132,104 @@ const adminSession: AuthSession = {
 };
 
 describe("InspectionPage", () => {
+  it("keeps newer option sources when an old-session request resolves last", async () => {
+    let resolveOld: (() => void) | undefined;
+    let oldRequests = 0;
+    let oldResponses = 0;
+    const oldResponse = new Promise<void>((resolve) => {
+      resolveOld = resolve;
+    });
+    server.use(
+      http.get("*/api/v1/inspections/schedules", () =>
+        HttpResponse.json(inspectionSchedulePage([])),
+      ),
+      http.get("*/api/v1/branches", async ({ request }) => {
+        if (request.headers.get("authorization") === "Bearer old-token") {
+          oldRequests += 1;
+          await oldResponse;
+          oldResponses += 1;
+          return HttpResponse.json([
+            {
+              id: branchId,
+              region_id: "11111111-1111-4111-8111-111111111110",
+              name: "이전 지점",
+              deactivated_at: null,
+              created_at: "2026-06-01T00:00:00Z",
+            },
+          ]);
+        }
+        return HttpResponse.json([
+          {
+            id: branchId,
+            region_id: "11111111-1111-4111-8111-111111111110",
+            name: "새 지점",
+            deactivated_at: null,
+            created_at: "2026-06-01T00:00:00Z",
+          },
+        ]);
+      }),
+      http.get("*/api/v1/users", async ({ request }) => {
+        if (request.headers.get("authorization") === "Bearer old-token") {
+          oldRequests += 1;
+          await oldResponse;
+          oldResponses += 1;
+        }
+        return HttpResponse.json(userPage([]));
+      }),
+    );
+
+    render(
+      <SessionSwapApp
+        initial={makeAuthContext({
+          ...adminSession,
+          access_token: "old-token",
+        })}
+        next={makeAuthContext({ ...adminSession, access_token: "new-token" })}
+      />,
+    );
+
+    expect(await screen.findByRole("option", { name: "새 지점" })).toBeVisible();
+    expect(oldRequests).toBeGreaterThan(0);
+    resolveOld?.();
+    await waitFor(() => expect(oldResponses).toBe(1));
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("option", { name: "이전 지점" }),
+      ).not.toBeInTheDocument();
+    });
+  });
+
+  it("keeps the equipment query focused after selection so it can be replaced", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get("*/api/v1/inspections/schedules", () =>
+        HttpResponse.json(inspectionSchedulePage([])),
+      ),
+      http.get("*/api/v1/branches", () => HttpResponse.json([])),
+      http.get("*/api/v1/users", () => HttpResponse.json(userPage([]))),
+      http.get("*/api/v1/equipment", ({ request }) => {
+        const query = new URL(request.url).searchParams.get("q");
+        return HttpResponse.json({
+          items:
+            query === "291"
+              ? [{ ...equipmentLookup, id: "equipment-291", management_no: "291" }]
+              : [equipmentLookup],
+          limit: 8,
+        });
+      }),
+    );
+
+    renderApp(makeAuthContext(adminSession));
+    const equipment = await screen.findByLabelText("장비 (호기 번호)");
+    await user.type(equipment, "290");
+    await user.click(await screen.findByRole("option", { name: /290/ }));
+
+    expect(equipment).toHaveFocus();
+    await user.keyboard("{Control>}a{/Control}291");
+    expect(equipment).toHaveValue("291");
+    expect(await screen.findByRole("option", { name: /291/ })).toBeVisible();
+  });
+
   it("keeps a transient schedule failure retryable and replaces it with the real response", async () => {
     const user = userEvent.setup();
     let listAttempts = 0;

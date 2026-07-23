@@ -2,6 +2,7 @@ import { CalendarPlus, RefreshCw } from "lucide-react";
 import {
   useCallback,
   useEffect,
+  forwardRef,
   useId,
   useMemo,
   useRef,
@@ -119,6 +120,9 @@ export function InspectionPage() {
   const [loadMoreError, setLoadMoreError] = useState(false);
   const [loadError, setLoadError] = useState<"retry" | "denied">();
   const [form, setForm] = useState<FormState>(emptyForm);
+  // Reset the async picker only when the whole create form is intentionally
+  // reset. Selection itself must not remount its input and drop focus.
+  const [formResetGeneration, setFormResetGeneration] = useState(0);
   const [creating, setCreating] = useState(false);
   const [notice, setNotice] = useState<string>();
   const [createError, setCreateError] = useState<string>();
@@ -264,8 +268,7 @@ export function InspectionPage() {
   }, [load]);
 
   // Load the branch + mechanic option sources once for the create-form pickers.
-  const loadOptions = useCallback(async () => {
-    const epoch = scopeEpoch.current;
+  const loadOptions = useCallback(async (epoch: number) => {
     const [branchRes, userRes] = await Promise.all([
       api.GET("/api/v1/branches").catch(() => undefined),
       api
@@ -284,7 +287,11 @@ export function InspectionPage() {
   }, [api]);
 
   useEffect(() => {
-    void Promise.resolve().then(loadOptions);
+    // Capture the scope while this effect owns its session and API client. A
+    // context switch before this microtask runs must not give its old client
+    // the newer scope epoch.
+    const epoch = scopeEpoch.current;
+    void Promise.resolve().then(() => loadOptions(epoch));
   }, [loadOptions]);
 
   const branchOptions = useMemo<ConsoleOption[]>(
@@ -345,6 +352,7 @@ export function InspectionPage() {
       if (response.data) {
         setNotice(ko.inspection.createSuccess);
         setForm(emptyForm());
+        setFormResetGeneration((generation) => generation + 1);
         setEquipmentOption(undefined);
         // Snap the visible window to include the new due_date so a schedule
         // created outside the current [start, end) range is immediately visible
@@ -713,7 +721,7 @@ export function InspectionPage() {
                 {ko.inspection.fields.equipment}
               </label>
               <AsyncConsoleCombobox
-                key={form.equipment_id}
+                key={formResetGeneration}
                 id="ins-equipment"
                 search={searchEquipment}
                 value={form.equipment_id}
@@ -824,17 +832,18 @@ function ConsoleButton({
   );
 }
 
-function ConsoleInput({
-  className,
-  ...props
-}: InputHTMLAttributes<HTMLInputElement>) {
+const ConsoleInput = forwardRef<
+  HTMLInputElement,
+  InputHTMLAttributes<HTMLInputElement>
+>(function ConsoleInput({ className, ...props }, ref) {
   return (
     <input
+      ref={ref}
       className={["inspection-input", className].filter(Boolean).join(" ")}
       {...props}
     />
   );
-}
+});
 
 function ConsoleTextarea({
   className,
@@ -934,6 +943,7 @@ function AsyncConsoleCombobox({
   const [query, setQuery] = useState(selectedOption?.label ?? "");
   const [options, setOptions] = useState<ConsoleOption[]>([]);
   const requestVersion = useRef(0);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   async function find(nextQuery: string) {
     setQuery(nextQuery);
@@ -951,6 +961,7 @@ function AsyncConsoleCombobox({
   return (
     <div className="inspection-async-combobox">
       <ConsoleInput
+        ref={inputRef}
         id={id}
         value={query}
         placeholder={placeholder}
@@ -978,6 +989,7 @@ function AsyncConsoleCombobox({
                   onSelectOption(option);
                   setQuery(option.label);
                   setOptions([]);
+                  inputRef.current?.focus();
                 }}
               >
                 {option.label}
