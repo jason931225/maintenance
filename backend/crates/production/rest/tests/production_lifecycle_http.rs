@@ -330,6 +330,23 @@ async fn planner_reviewer_operator_complete_a_durable_production_lifecycle(pool:
     assert_eq!(status, StatusCode::CREATED, "{plan:?}");
     let plan_id = plan["id"].as_str().unwrap();
     let operation_id = plan["first_operation_id"].as_str().unwrap();
+    let reserved: i64 =
+        sqlx::query_scalar("SELECT reserved_quantity FROM production_capacity_slots WHERE id = $1")
+            .bind(fixture.capacity)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(reserved, 10, "the real create handler reserves capacity");
+    let material_after_reservation: i64 =
+        sqlx::query_scalar("SELECT quantity_on_hand_milli FROM inventory_items WHERE id = $1")
+            .bind(fixture.material)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        material_after_reservation, 90,
+        "the real create handler reserves the requested material quantity"
+    );
 
     let (status, replay) = post(service.clone(), PRODUCTION_PLANS_PATH, &planner_token, body).await;
     assert_eq!(status, StatusCode::OK, "{replay:?}");
@@ -380,6 +397,34 @@ async fn create_rejects_a_reused_idempotency_key_with_a_different_request(pool: 
     changed["quantity"] = json!(9);
     let (status, conflict) = post(service, PRODUCTION_PLANS_PATH, &token, changed).await;
     assert_eq!(status, StatusCode::CONFLICT, "{conflict:?}");
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn create_rejects_a_demand_quantity_or_due_date_that_does_not_match_the_ingested_contract(
+    pool: PgPool,
+) {
+    let keys = keys();
+    let fixture = seed_fixture(&pool).await;
+    let service = app(runtime_role_pool(&pool).await, &keys);
+    let token = bearer(
+        &keys,
+        fixture.planner,
+        fixture.org,
+        "SUPER_ADMIN",
+        fixture.branch,
+    );
+    let mut body = create_body(&fixture, "production-demand-due-mismatch");
+    body["due_at"] = json!(fixture.due_at + Duration::days(1));
+    let (status, unavailable) = post(service, PRODUCTION_PLANS_PATH, &token, body).await;
+    assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE, "{unavailable:?}");
+    let created: i64 = sqlx::query_scalar("SELECT count(*) FROM production_plans")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        created, 0,
+        "a rejected demand contract cannot create a plan"
+    );
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
