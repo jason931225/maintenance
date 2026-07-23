@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
+import { ko } from "../../i18n/ko";
 import { StatusChip } from "../components";
 import {
   ApprWorkflowApiError,
@@ -9,6 +10,7 @@ import {
 } from "./composeApi";
 
 const PAGE_SIZE = 50;
+const T = ko.console.appr.bulkInbox;
 
 type Outcome =
   | { state: "approved"; taskStatus: string; runStatus: string }
@@ -18,7 +20,7 @@ type Receipt = Partial<Record<string, Outcome>>;
 type PersistedOperation = { idempotencyKey: string; outcome: Outcome };
 type PersistedApprovalOperations = { version: 1; expiresAt: number; operations: Record<string, PersistedOperation> };
 const OPERATION_TTL_MS = 24 * 60 * 60 * 1000;
-const UNCONFIRMED_SUBMISSION = "Decision submitted; outcome is unconfirmed. Retry uses the same idempotency key.";
+const UNCONFIRMED_SUBMISSION = T.receipt.unconfirmed;
 
 function receiptEntries(receipt: Receipt): Array<[string, Outcome]> {
   return Object.entries(receipt).filter((entry): entry is [string, Outcome] => entry[1] !== undefined);
@@ -34,6 +36,14 @@ function operationStorageKey(context: ApprovalBulkOperationContext): string | un
   const { currentOrgId, currentUserId, clientSessionIncarnation } = context;
   if (!currentOrgId || !currentUserId || !clientSessionIncarnation) return undefined;
   return `maintenance.approval-bulk.operations.v2.${encodeURIComponent(currentOrgId)}.${encodeURIComponent(currentUserId)}.${encodeURIComponent(clientSessionIncarnation)}`;
+}
+
+function securityContextFingerprint(context: ApprovalBulkOperationContext): string {
+  return JSON.stringify([context.currentOrgId ?? null, context.currentUserId ?? null, context.clientSessionIncarnation ?? null]);
+}
+
+function hasCompleteOperationContext(context: ApprovalBulkOperationContext): boolean {
+  return Boolean(context.currentOrgId && context.currentUserId && context.clientSessionIncarnation);
 }
 
 function loadOperations(context: ApprovalBulkOperationContext): PersistedApprovalOperations | undefined {
@@ -95,8 +105,8 @@ function newOperationId(): string {
 
 function errorMessage(error: unknown): string {
   if (error instanceof ApprWorkflowApiError) return error.message;
-  if (error instanceof DOMException && error.name === "AbortError") return "No confirmed result after cancellation. Retry uses the same idempotency key.";
-  return "No confirmed result. Retry uses the same idempotency key.";
+  if (error instanceof DOMException && error.name === "AbortError") return T.receipt.cancelledUnconfirmed;
+  return T.receipt.unconfirmed;
 }
 
 function capabilityMessage(task: WorkflowWaitingTask): string | undefined {
@@ -112,7 +122,8 @@ function capabilityMessage(task: WorkflowWaitingTask): string | undefined {
  */
 export function ApprovalBulkInbox({ api, bearerToken, currentUserId, currentOrgId, clientSessionIncarnation }: ApprovalBulkInboxProps) {
   const operationContext = useMemo<ApprovalBulkOperationContext>(() => ({ currentUserId, currentOrgId, clientSessionIncarnation }), [clientSessionIncarnation, currentOrgId, currentUserId]);
-  const operationContextKey = operationStorageKey(operationContext);
+  const contextFingerprint = securityContextFingerprint(operationContext);
+  const contextComplete = hasCompleteOperationContext(operationContext);
   const workflowApi = useMemo(() => api ?? createApprWorkflowApi({ bearerToken }), [api, bearerToken]);
   const mountedRef = useRef(false as boolean);
   const loadGenerationRef = useRef(0);
@@ -120,14 +131,23 @@ export function ApprovalBulkInbox({ api, bearerToken, currentUserId, currentOrgI
   const controllerRef = useRef<AbortController | undefined>(undefined);
   const currentTaskRef = useRef<string | undefined>(undefined);
   const persistedRef = useRef<PersistedApprovalOperations | undefined>(loadOperations(operationContext));
-  const persistedContextRef = useRef(operationContextKey);
+  const securityContextRef = useRef(contextFingerprint);
+  const renderedContextRef = useRef(contextFingerprint);
+  if (renderedContextRef.current !== contextFingerprint) {
+    // A render with a different (including incomplete) identity must fence
+    // old data before effects run; a discarded render can only fail closed.
+    renderedContextRef.current = contextFingerprint;
+    loadGenerationRef.current += 1;
+    executionRef.current += 1;
+    controllerRef.current?.abort();
+  }
   const keyByTaskRef = useRef<Partial<Record<string, string>>>(Object.fromEntries(Object.entries(persistedRef.current?.operations ?? {}).map(([taskId, operation]) => [taskId, operation.idempotencyKey])));
   const [tasks, setTasks] = useState<WorkflowWaitingTask[]>([]);
   const [selected, setSelected] = useState<Set<string>>(() => new Set());
   const [selectedTasks, setSelectedTasks] = useState<Partial<Record<string, WorkflowWaitingTask>>>({});
   const [receipt, setReceipt] = useState<Receipt>(() => Object.fromEntries(Object.entries(persistedRef.current?.operations ?? {}).map(([taskId, operation]) => [taskId, operation.outcome])));
-  const [receiptContextKey, setReceiptContextKey] = useState(operationContextKey);
-  const [loadedContextKey, setLoadedContextKey] = useState<string | undefined>(undefined);
+  const [receiptContextFingerprint, setReceiptContextFingerprint] = useState(contextFingerprint);
+  const [loadedContextFingerprint, setLoadedContextFingerprint] = useState<string | undefined>(undefined);
   const [receiptPresentationHidden, setReceiptPresentationHidden] = useState(false);
   const [pageCursors, setPageCursors] = useState<string[]>([""]);
   const [pageIndex, setPageIndex] = useState(0);
@@ -140,40 +160,41 @@ export function ApprovalBulkInbox({ api, bearerToken, currentUserId, currentOrgI
   const isMounted = () => mountedRef.current;
 
   const load = useCallback(async (cursor?: string) => {
-    const requestContextKey = operationContextKey;
+    const requestFingerprint = contextFingerprint;
+    if (!contextComplete) return;
     const generation = loadGenerationRef.current + 1;
     loadGenerationRef.current = generation;
     setReadState("loading");
     try {
       const page = await workflowApi.listWaitingTasks({ limit: PAGE_SIZE, cursor });
-      if (!isMounted() || generation !== loadGenerationRef.current || persistedContextRef.current !== requestContextKey) return;
+      if (!isMounted() || generation !== loadGenerationRef.current || securityContextRef.current !== requestFingerprint || renderedContextRef.current !== requestFingerprint) return;
       setTasks(page.items);
       setHasMore(page.has_more);
       setNextCursor(page.next_cursor);
-      setLoadedContextKey(requestContextKey);
+      setLoadedContextFingerprint(requestFingerprint);
       setReadState("ready");
     } catch {
-      if (isMounted() && generation === loadGenerationRef.current && persistedContextRef.current === requestContextKey) {
-        setLoadedContextKey(requestContextKey);
+      if (isMounted() && generation === loadGenerationRef.current && securityContextRef.current === requestFingerprint && renderedContextRef.current === requestFingerprint) {
+        setLoadedContextFingerprint(requestFingerprint);
         setReadState("error");
       }
     }
-  }, [operationContextKey, workflowApi]);
+  }, [contextComplete, contextFingerprint, workflowApi]);
 
   useEffect(() => {
     mountedRef.current = true;
-    void load();
+    if (contextComplete) void load();
     return () => {
       mountedRef.current = false;
       executionRef.current += 1;
       controllerRef.current?.abort();
     };
-  }, [load]);
+  }, [contextComplete, load]);
 
   // A role/persona switch can reuse this mounted component. Never carry a
   // prior user's receipt or idempotency key into that new security context.
   useEffect(() => {
-    if (persistedContextRef.current === operationContextKey) return;
+    if (securityContextRef.current === contextFingerprint) return;
     // Context changes are a hard authority boundary: abort any old request,
     // invalidate its response generation, and hydrate only the new context.
     executionRef.current += 1;
@@ -182,12 +203,12 @@ export function ApprovalBulkInbox({ api, bearerToken, currentUserId, currentOrgI
     currentTaskRef.current = undefined;
     setRunning(false);
     setCancelled(false);
-    persistedContextRef.current = operationContextKey;
-    const stored = loadOperations(operationContext);
+    securityContextRef.current = contextFingerprint;
+    const stored = contextComplete ? loadOperations(operationContext) : undefined;
     keyByTaskRef.current = Object.fromEntries(Object.entries(stored?.operations ?? {}).map(([taskId, operation]) => [taskId, operation.idempotencyKey]));
     setReceipt(Object.fromEntries(Object.entries(stored?.operations ?? {}).map(([taskId, operation]) => [taskId, operation.outcome])));
-    setReceiptContextKey(operationContextKey);
-    setLoadedContextKey(undefined);
+    setReceiptContextFingerprint(contextFingerprint);
+    setLoadedContextFingerprint(undefined);
     setTasks([]);
     setHasMore(false);
     setNextCursor(undefined);
@@ -196,11 +217,11 @@ export function ApprovalBulkInbox({ api, bearerToken, currentUserId, currentOrgI
     setSelectedTasks({});
     setPageCursors([""]);
     setPageIndex(0);
-    void load();
-  }, [load, operationContext, operationContextKey]);
+    if (contextComplete) void load();
+  }, [contextComplete, contextFingerprint, load, operationContext]);
 
   const rows = useMemo(() => tasks.map((task) => ({ task, message: capabilityMessage(task) })), [tasks]);
-  const contextReady = loadedContextKey === operationContextKey && receiptContextKey === operationContextKey;
+  const contextReady = contextComplete && loadedContextFingerprint === contextFingerprint && receiptContextFingerprint === contextFingerprint;
   const selectedRows = useMemo(() => [...selected].map((id) => selectedTasks[id]).filter((task): task is WorkflowWaitingTask => task !== undefined), [selected, selectedTasks]);
   const unresolvedIds = useMemo(() => receiptEntries(receipt).flatMap(([id, outcome]) => outcome.state === "approved" ? [] : [id]), [receipt]);
   const freshSelected = useMemo(() => selectedRows.filter((task) => task.bulk_decision.decidable && !keyByTaskRef.current[task.task_id]), [selectedRows]);
@@ -216,20 +237,21 @@ export function ApprovalBulkInbox({ api, bearerToken, currentUserId, currentOrgI
   }
 
   async function approve(ids: string[], retrying: boolean) {
-    if (running) return;
+    if (running || !contextComplete || renderedContextRef.current !== contextFingerprint) return;
     const candidates = ids.map((id) => selectedTasks[id] ?? tasks.find((task) => task.task_id === id)).filter((task): task is WorkflowWaitingTask => task !== undefined && task.bulk_decision.decidable);
     const actionable = candidates.filter((task) => retrying ? Boolean(keyByTaskRef.current[task.task_id]) : !keyByTaskRef.current[task.task_id]);
     if (actionable.length === 0) return;
 
     const execution = executionRef.current + 1;
     executionRef.current = execution;
+    const executionContext = contextFingerprint;
     const controller = new AbortController();
     controllerRef.current = controller;
     setCancelled(false);
     setRunning(true);
     const unresolved = new Set<string>();
     for (const task of actionable) {
-      if (!isMounted() || execution !== executionRef.current || controller.signal.aborted) { unresolved.add(task.task_id); break; }
+      if (!isMounted() || execution !== executionRef.current || securityContextRef.current !== executionContext || renderedContextRef.current !== executionContext || controller.signal.aborted) { unresolved.add(task.task_id); break; }
       currentTaskRef.current = task.task_id;
       const existingKey = keyByTaskRef.current[task.task_id];
       const idempotencyKey = existingKey ?? `approval-bulk-${newOperationId()}-${task.task_id}`;
@@ -242,17 +264,17 @@ export function ApprovalBulkInbox({ api, bearerToken, currentUserId, currentOrgI
       setReceiptPresentationHidden(false);
       try {
         const result = await workflowApi.decideTask(task.task_id, "approve", { idempotencyKey, signal: controller.signal });
-        if (!isMounted() || execution !== executionRef.current) return;
+        if (!isMounted() || execution !== executionRef.current || securityContextRef.current !== executionContext || renderedContextRef.current !== executionContext) return;
         setReceipt((previous) => ({ ...previous, [task.task_id]: { state: "approved", taskStatus: result.taskStatus, runStatus: result.runStatus } }));
       } catch (error) {
-        if (!isMounted() || execution !== executionRef.current) return;
+        if (!isMounted() || execution !== executionRef.current || securityContextRef.current !== executionContext || renderedContextRef.current !== executionContext) return;
         const unknown = error instanceof DOMException && error.name === "AbortError";
         unresolved.add(task.task_id);
         setReceipt((previous) => ({ ...previous, [task.task_id]: { state: unknown ? "unknown" : "failed", message: errorMessage(error) } }));
         if (unknown) break;
       }
     }
-    if (!isMounted() || execution !== executionRef.current) return;
+    if (!isMounted() || execution !== executionRef.current || securityContextRef.current !== executionContext || renderedContextRef.current !== executionContext) return;
     currentTaskRef.current = undefined;
     controllerRef.current = undefined;
     setRunning(false);
@@ -261,13 +283,13 @@ export function ApprovalBulkInbox({ api, bearerToken, currentUserId, currentOrgI
   }
 
   function cancel() {
-    if (!running) return;
+    if (!running || !contextComplete || renderedContextRef.current !== contextFingerprint) return;
     const taskId = currentTaskRef.current;
     controllerRef.current?.abort();
     executionRef.current += 1;
     currentTaskRef.current = undefined;
     if (taskId) {
-      const outcome: Outcome = { state: "unknown", message: "No confirmed result after cancellation. Retry uses the same idempotency key." };
+      const outcome: Outcome = { state: "unknown", message: T.receipt.cancelledUnconfirmed };
       const idempotencyKey = keyByTaskRef.current[taskId];
       if (idempotencyKey) persistOperation(operationContext, taskId, idempotencyKey, outcome);
       setReceipt((previous) => ({ ...previous, [taskId]: outcome }));
@@ -291,30 +313,30 @@ export function ApprovalBulkInbox({ api, bearerToken, currentUserId, currentOrgI
   useEffect(() => {
     // The old receipt may still be rendered during the context-switch commit;
     // never serialize it into the new tenant/session partition.
-    if (receiptContextKey !== operationContextKey) return;
+    if (!contextComplete || receiptContextFingerprint !== contextFingerprint || renderedContextRef.current !== contextFingerprint) return;
     const operations = receiptEntries(receipt).reduce<Record<string, PersistedOperation>>((stored, [taskId, outcome]) => {
       const idempotencyKey = keyByTaskRef.current[taskId];
       if (idempotencyKey) stored[taskId] = { idempotencyKey, outcome };
       return stored;
     }, {});
     saveOperations(operationContext, operations);
-  }, [operationContext, operationContextKey, receipt, receiptContextKey]);
+  }, [contextComplete, contextFingerprint, operationContext, receipt, receiptContextFingerprint]);
 
   return <section className="console" style={sectionStyle} aria-labelledby="approval-bulk-inbox-title">
-    <div style={toolbarStyle}><div><h2 id="approval-bulk-inbox-title" style={{ margin: 0, fontSize: "var(--text-card-title)" }}>Approval inbox</h2><p style={{ margin: "var(--sp-1) 0 0", color: "var(--steel)", fontSize: "var(--text-sm)" }}>Bulk approval sends one audited, idempotent decision per workflow-authorized task.</p></div><button type="button" style={running || !contextReady ? disabledButtonStyle : buttonStyle} onClick={() => { void load(pageCursors[pageIndex] || undefined); }} disabled={running || !contextReady || readState === "loading"}>Refresh</button></div>
-    {!contextReady ? <p style={{ margin: 0, color: "var(--steel)" }}>Loading approval context…</p> : <><div style={{ display: "flex", flexWrap: "wrap", gap: "var(--sp-2)", alignItems: "center" }} aria-live="polite"><StatusChip tone="info">{selectedRows.length} selected</StatusChip>{cancelled ? <StatusChip tone="warn">Cancelled. The in-flight result is unconfirmed until retried.</StatusChip> : null}</div>
-    {readState === "error" ? <div role="alert"><StatusChip tone="danger">The approval inbox could not be loaded.</StatusChip> <button type="button" style={buttonStyle} onClick={() => { void load(pageCursors[pageIndex] || undefined); }}>Retry loading</button></div> : null}
-    {readState === "loading" && tasks.length === 0 ? <p style={{ margin: 0, color: "var(--steel)" }}>Loading approval tasks…</p> : null}
-    {readState === "ready" && rows.length === 0 ? <p style={{ margin: 0, color: "var(--steel)" }}>There are no workflow-authorized approval tasks.</p> : null}
-    {rows.length > 0 ? <ul style={{ display: "grid", gap: "var(--sp-2)", listStyle: "none", margin: 0, padding: 0 }} aria-label="Approval tasks">{rows.map(({ task, message }) => <li key={task.task_id} style={{ display: "grid", gap: "var(--sp-2)", padding: "var(--sp-3)", border: "1px solid var(--border-soft)", borderRadius: "var(--radius-md)", background: "var(--muted)" }}><div style={{ display: "flex", flexWrap: "wrap", gap: "var(--sp-3)", alignItems: "start" }}><input id={`approval-select-${task.task_id}`} type="checkbox" checked={selected.has(task.task_id)} disabled={Boolean(message) || running} aria-describedby={message ? `approval-guard-${task.task_id}` : undefined} onChange={() => { toggle(task); }} /><div style={{ display: "grid", gap: "var(--sp-1)", minWidth: 0, flex: "1 1 18rem" }}><label htmlFor={`approval-select-${task.task_id}`} style={{ color: "var(--ink)", fontWeight: "var(--fw-strong)", cursor: message || running ? "default" : "pointer" }}>{task.title}</label><span style={{ color: "var(--steel)", fontSize: "var(--text-sm)" }}>{task.waiting_key} · {task.assignee_role_key ?? "personal inbox"}</span>{task.due_at ? <span style={{ color: "var(--steel)", fontSize: "var(--text-xs)" }}>Due {new Date(task.due_at).toLocaleString()}</span> : null}</div><StatusChip tone={task.status === "CLAIMED" ? "info" : "neutral"}>{task.status}</StatusChip></div>{message ? <p id={`approval-guard-${task.task_id}`} style={{ margin: 0, color: "var(--danger-tx)", fontSize: "var(--text-sm)" }}>{message}</p> : null}<MaybeOutcomeStatus outcome={receipt[task.task_id]} /></li>)}</ul> : null}
-    {pageIndex > 0 || hasMore ? <nav aria-label="Approval inbox pages" style={{ display: "flex", gap: "var(--sp-2)", alignItems: "center" }}><button type="button" style={pageIndex === 0 || running ? disabledButtonStyle : buttonStyle} disabled={pageIndex === 0 || running} onClick={() => { const previous = pageCursors[pageIndex - 1]; setPageIndex(pageIndex - 1); void load(previous || undefined); }}>Previous</button><span style={{ color: "var(--steel)", fontSize: "var(--text-sm)" }}>Page {pageIndex + 1}</span><button type="button" style={!hasMore || running ? disabledButtonStyle : buttonStyle} disabled={!hasMore || running} onClick={() => { const next = nextCursor; if (!next) return; const cursors = [...pageCursors.slice(0, pageIndex + 1), next]; setPageCursors(cursors); setPageIndex(pageIndex + 1); void load(next); }}>Next</button></nav> : null}
-    {Object.keys(receipt).length > 0 && !receiptPresentationHidden ? <section aria-label="Latest approval operation receipt" style={{ display: "grid", gap: "var(--sp-2)", padding: "var(--sp-3)", border: "1px solid var(--border-soft)", borderRadius: "var(--radius-md)" }}><div style={toolbarStyle}><strong>Latest approval operation receipt</strong><button type="button" style={buttonStyle} onClick={dismissReceipt}>Dismiss receipt</button></div>{receiptEntries(receipt).map(([id, outcome]) => <div key={id}><code>{id}</code> <OutcomeStatus outcome={outcome} /></div>)}</section> : null}
-    <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--sp-2)", alignItems: "center" }}><button type="button" style={freshSelected.length === 0 || running ? disabledButtonStyle : primaryButtonStyle} disabled={freshSelected.length === 0 || running} onClick={() => { void approve(freshSelected.map((task) => task.task_id), false); }}>Approve selected ({freshSelected.length})</button><button type="button" style={selected.size === 0 || running ? disabledButtonStyle : buttonStyle} disabled={selected.size === 0 || running} onClick={() => { setSelected(new Set()); }}>Clear selection</button>{running ? <button type="button" style={buttonStyle} onClick={cancel}>Cancel remaining</button> : null}{unresolvedIds.length > 0 && !running ? <button type="button" style={buttonStyle} onClick={() => { void approve(unresolvedIds, true); }}>Retry unresolved ({unresolvedIds.length})</button> : null}</div></>}
+    <div style={toolbarStyle}><div><h2 id="approval-bulk-inbox-title" style={{ margin: 0, fontSize: "var(--text-card-title)" }}>{T.title}</h2><p style={{ margin: "var(--sp-1) 0 0", color: "var(--steel)", fontSize: "var(--text-sm)" }}>{T.description}</p></div><button type="button" style={running || !contextReady ? disabledButtonStyle : buttonStyle} onClick={() => { void load(pageCursors[pageIndex] || undefined); }} disabled={running || !contextReady || readState === "loading"}>{T.refresh}</button></div>
+    {!contextReady ? <p style={{ margin: 0, color: "var(--steel)" }}>{contextComplete ? T.contextLoading : T.contextUnavailable}</p> : <><div style={{ display: "flex", flexWrap: "wrap", gap: "var(--sp-2)", alignItems: "center" }} aria-live="polite"><StatusChip tone="info">{T.selected(selectedRows.length)}</StatusChip>{cancelled ? <StatusChip tone="warn">{T.cancelled}</StatusChip> : null}</div>
+    {readState === "error" ? <div role="alert"><StatusChip tone="danger">{T.loadFailed}</StatusChip> <button type="button" style={buttonStyle} onClick={() => { void load(pageCursors[pageIndex] || undefined); }}>{T.retryLoading}</button></div> : null}
+    {readState === "loading" && tasks.length === 0 ? <p style={{ margin: 0, color: "var(--steel)" }}>{T.loadingTasks}</p> : null}
+    {readState === "ready" && rows.length === 0 ? <p style={{ margin: 0, color: "var(--steel)" }}>{T.empty}</p> : null}
+    {rows.length > 0 ? <ul style={{ display: "grid", gap: "var(--sp-2)", listStyle: "none", margin: 0, padding: 0 }} aria-label={T.tasksAria}>{rows.map(({ task, message }) => <li key={task.task_id} style={{ display: "grid", gap: "var(--sp-2)", padding: "var(--sp-3)", border: "1px solid var(--border-soft)", borderRadius: "var(--radius-md)", background: "var(--muted)" }}><div style={{ display: "flex", flexWrap: "wrap", gap: "var(--sp-3)", alignItems: "start" }}><input id={`approval-select-${task.task_id}`} type="checkbox" checked={selected.has(task.task_id)} disabled={Boolean(message) || running} aria-describedby={message ? `approval-guard-${task.task_id}` : undefined} onChange={() => { toggle(task); }} /><div style={{ display: "grid", gap: "var(--sp-1)", minWidth: 0, flex: "1 1 18rem" }}><label htmlFor={`approval-select-${task.task_id}`} style={{ color: "var(--ink)", fontWeight: "var(--fw-strong)", cursor: message || running ? "default" : "pointer" }}>{task.title}</label><span style={{ color: "var(--steel)", fontSize: "var(--text-sm)" }}>{task.waiting_key} · {task.assignee_role_key ?? T.personalInbox}</span>{task.due_at ? <span style={{ color: "var(--steel)", fontSize: "var(--text-xs)" }}>{T.due(new Date(task.due_at).toLocaleString())}</span> : null}</div><StatusChip tone={task.status === "CLAIMED" ? "info" : "neutral"}>{task.status}</StatusChip></div>{message ? <p id={`approval-guard-${task.task_id}`} style={{ margin: 0, color: "var(--danger-tx)", fontSize: "var(--text-sm)" }}>{message}</p> : null}<MaybeOutcomeStatus outcome={receipt[task.task_id]} /></li>)}</ul> : null}
+    {pageIndex > 0 || hasMore ? <nav aria-label={T.pagesAria} style={{ display: "flex", gap: "var(--sp-2)", alignItems: "center" }}><button type="button" style={pageIndex === 0 || running ? disabledButtonStyle : buttonStyle} disabled={pageIndex === 0 || running} onClick={() => { const previous = pageCursors[pageIndex - 1]; setPageIndex(pageIndex - 1); void load(previous || undefined); }}>{T.previous}</button><span style={{ color: "var(--steel)", fontSize: "var(--text-sm)" }}>{T.page(pageIndex + 1)}</span><button type="button" style={!hasMore || running ? disabledButtonStyle : buttonStyle} disabled={!hasMore || running} onClick={() => { const next = nextCursor; if (!next) return; const cursors = [...pageCursors.slice(0, pageIndex + 1), next]; setPageCursors(cursors); setPageIndex(pageIndex + 1); void load(next); }}>{T.next}</button></nav> : null}
+    {Object.keys(receipt).length > 0 && !receiptPresentationHidden ? <section aria-label={T.receiptAria} style={{ display: "grid", gap: "var(--sp-2)", padding: "var(--sp-3)", border: "1px solid var(--border-soft)", borderRadius: "var(--radius-md)" }}><div style={toolbarStyle}><strong>{T.receiptTitle}</strong><button type="button" style={buttonStyle} onClick={dismissReceipt}>{T.dismissReceipt}</button></div>{receiptEntries(receipt).map(([id, outcome]) => <div key={id}><code>{id}</code> <OutcomeStatus outcome={outcome} /></div>)}</section> : null}
+    <div style={{ display: "flex", flexWrap: "wrap", gap: "var(--sp-2)", alignItems: "center" }}><button type="button" style={freshSelected.length === 0 || running ? disabledButtonStyle : primaryButtonStyle} disabled={freshSelected.length === 0 || running} onClick={() => { void approve(freshSelected.map((task) => task.task_id), false); }}>{T.approveSelected(freshSelected.length)}</button><button type="button" style={selected.size === 0 || running ? disabledButtonStyle : buttonStyle} disabled={selected.size === 0 || running} onClick={() => { setSelected(new Set()); }}>{T.clearSelection}</button>{running ? <button type="button" style={buttonStyle} onClick={cancel}>{T.cancelRemaining}</button> : null}{unresolvedIds.length > 0 && !running ? <button type="button" style={buttonStyle} onClick={() => { void approve(unresolvedIds, true); }}>{T.retryUnresolved(unresolvedIds.length)}</button> : null}</div></>}
   </section>;
 }
 
 function OutcomeStatus({ outcome }: { outcome: Outcome }) {
-  if (outcome.state === "approved") return <StatusChip tone="ok">Approved · {outcome.taskStatus} · {outcome.runStatus}</StatusChip>;
+  if (outcome.state === "approved") return <StatusChip tone="ok">{T.receipt.approved(outcome.taskStatus, outcome.runStatus)}</StatusChip>;
   return <StatusChip tone={outcome.state === "unknown" ? "warn" : "danger"}>{outcome.message}</StatusChip>;
 }
 

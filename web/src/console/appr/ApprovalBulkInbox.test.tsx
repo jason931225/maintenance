@@ -4,7 +4,10 @@ import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
+import { ko } from "../../i18n/ko";
 import { ApprovalBulkInbox, type ApprovalBulkInboxProps } from "./ApprovalBulkInbox";
+
+const T = ko.console.appr.bulkInbox;
 
 const USER_ID = "10000000-0000-4000-8000-000000000001";
 const ORG_ID = "00000000-0000-4000-8000-000000000001";
@@ -85,7 +88,7 @@ describe("ApprovalBulkInbox", () => {
     });
     await user.click(selectable);
 
-    expect(screen.getByText("1 selected")).toBeVisible();
+    expect(screen.getByText(T.selected(1))).toBeVisible();
     expect(screen.getAllByText("NOT_APPROVAL_DECISION_TASK")).toHaveLength(1);
     expect(
       screen.getByText(
@@ -156,19 +159,19 @@ describe("ApprovalBulkInbox", () => {
       screen.getByRole("checkbox", { name: "Payroll approval" }),
     );
     await user.click(
-      screen.getByRole("button", { name: "Approve selected (2)" }),
+      screen.getByRole("button", { name: T.approveSelected(2) }),
     );
 
     expect(
-      (await screen.findAllByText("Approved · APPROVED · SUCCEEDED"))[0],
+      (await screen.findAllByText(T.receipt.approved("APPROVED", "SUCCEEDED")))[0],
     ).toBeVisible();
     expect((await screen.findAllByText("stale task"))[0]).toBeVisible();
     // A new operation is allowed while the failed task remains unresolved, but
     // it must not replace that task's original idempotency identity.
     await user.click(screen.getByRole("checkbox", { name: "Vendor approval" }));
-    await user.click(screen.getByRole("button", { name: "Approve selected (1)" }));
+    await user.click(screen.getByRole("button", { name: T.approveSelected(1) }));
     await waitFor(() => { expect(decisions).toHaveLength(3); });
-    await user.click(screen.getByRole("button", { name: "Retry unresolved (1)" }));
+    await user.click(screen.getByRole("button", { name: T.retryUnresolved(1) }));
 
     await waitFor(() => { expect(decisions).toHaveLength(4); });
     expect(decisions.map((entry) => entry.taskId)).toEqual([
@@ -201,11 +204,11 @@ describe("ApprovalBulkInbox", () => {
       }),
     );
     await user.click(
-      screen.getByRole("button", { name: "Approve selected (1)" }),
+      screen.getByRole("button", { name: T.approveSelected(1) }),
     );
 
     expect((await screen.findAllByText("self approval prohibited"))[0]).toBeVisible();
-    expect(screen.queryByText(/Approved ·/)).not.toBeInTheDocument();
+    expect(screen.queryByText(T.receipt.approved("APPROVED", "SUCCEEDED"))).not.toBeInTheDocument();
   });
 
   it("preserves selection across client pages and supports keyboard selection", async () => {
@@ -225,12 +228,12 @@ describe("ApprovalBulkInbox", () => {
     });
     first.focus();
     await user.keyboard(" ");
-    await user.click(screen.getByRole("button", { name: "Next" }));
+    await user.click(screen.getByRole("button", { name: T.next }));
     await user.click(
       screen.getByRole("checkbox", { name: "Approval task 51" }),
     );
-    expect(screen.getByText("2 selected")).toBeVisible();
-    await user.click(screen.getByRole("button", { name: "Previous" }));
+    expect(screen.getByText(T.selected(2))).toBeVisible();
+    await user.click(screen.getByRole("button", { name: T.previous }));
     expect(
       screen.getByRole("checkbox", { name: "Approval task 1" }),
     ).toBeChecked();
@@ -282,14 +285,14 @@ describe("ApprovalBulkInbox", () => {
 
     const firstView = renderInbox();
     await user.click(await screen.findByRole("checkbox", { name: "Equipment replacement approval" }));
-    await user.click(screen.getByRole("button", { name: "Approve selected (1)" }));
+    await user.click(screen.getByRole("button", { name: T.approveSelected(1) }));
     await waitFor(() => { expect(resolveFirst).toBeTypeOf("function"); });
     expect(window.localStorage.getItem(OPERATION_STORAGE_KEY)).toContain(keys[0]);
 
     firstView.unmount();
     renderInbox();
-    expect((await screen.findAllByText("Decision submitted; outcome is unconfirmed. Retry uses the same idempotency key."))[0]).toBeVisible();
-    await user.click(screen.getByRole("button", { name: "Retry unresolved (1)" }));
+    expect((await screen.findAllByText(T.receipt.unconfirmed))[0]).toBeVisible();
+    await user.click(screen.getByRole("button", { name: T.retryUnresolved(1) }));
     await waitFor(() => { expect(keys).toHaveLength(2); });
     expect(keys[1]).toBe(keys[0]);
     resolveFirst?.();
@@ -315,14 +318,14 @@ describe("ApprovalBulkInbox", () => {
 
     const view = renderInbox();
     await user.click(await screen.findByRole("checkbox", { name: "Equipment replacement approval" }));
-    await user.click(screen.getByRole("button", { name: "Approve selected (1)" }));
+    await user.click(screen.getByRole("button", { name: T.approveSelected(1) }));
     await screen.findAllByText("unconfirmed transport outcome");
     nowSpy.mockReturnValue(now + (25 * 60 * 60 * 1000));
 
     view.unmount();
     renderInbox();
-    await screen.findByRole("button", { name: "Retry unresolved (1)" });
-    await user.click(screen.getByRole("button", { name: "Retry unresolved (1)" }));
+    await screen.findByRole("button", { name: T.retryUnresolved(1) });
+    await user.click(screen.getByRole("button", { name: T.retryUnresolved(1) }));
     await waitFor(() => { expect(keys).toHaveLength(2); });
     expect(keys[1]).toBe(keys[0]);
   });
@@ -335,7 +338,7 @@ describe("ApprovalBulkInbox", () => {
 
     const seedView = renderInbox();
     await user.click(await screen.findByRole("checkbox", { name: "Context A approval" }));
-    await user.click(screen.getByRole("button", { name: "Approve selected (1)" }));
+    await user.click(screen.getByRole("button", { name: T.approveSelected(1) }));
     await screen.findAllByText("Context A decision failed");
     seedView.unmount();
     server.resetHandlers();
@@ -355,16 +358,53 @@ describe("ApprovalBulkInbox", () => {
       // absent before the replacement fetch settles.
       view.rerender(<ApprovalBulkInbox currentUserId={USER_ID} currentOrgId={ORG_ID} clientSessionIncarnation={SESSION_INCARNATION} {...alternateContext} />);
 
-      expect(screen.getByText("Loading approval context…")).toBeVisible();
+      expect(screen.getByText(T.contextLoading)).toBeVisible();
       expect(screen.queryByRole("checkbox", { name: "Context A approval" })).not.toBeInTheDocument();
       expect(screen.queryByText("Context A decision failed")).not.toBeInTheDocument();
-      expect(screen.queryByLabelText("Latest approval operation receipt")).not.toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: "Approve selected (0)" })).not.toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: "Clear selection" })).not.toBeInTheDocument();
-      expect(screen.queryByRole("button", { name: "Retry unresolved (1)" })).not.toBeInTheDocument();
+      expect(screen.queryByLabelText(T.receiptAria)).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: T.approveSelected(0) })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: T.clearSelection })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: T.retryUnresolved(1) })).not.toBeInTheDocument();
       view.unmount();
       server.resetHandlers();
     }
+  });
+
+  it("fails closed without an incarnation across org and user switches, including late reads", async () => {
+    const user = userEvent.setup();
+    let requests = 0;
+    let resolveLate: ((value: Response) => void) | undefined;
+    server.use(http.get("*/api/v1/approval-inbox/bulk-tasks", () => {
+      requests += 1;
+      if (requests === 1) return HttpResponse.json({ items: [task({ title: "Current approval" })], has_more: false });
+      return new Promise<Response>((resolve) => { resolveLate = resolve; });
+    }));
+
+    const view = renderInbox();
+    await screen.findByRole("checkbox", { name: "Current approval" });
+    await user.click(screen.getByRole("button", { name: T.refresh }));
+    await waitFor(() => { expect(resolveLate).toBeTypeOf("function"); });
+
+    view.rerender(<ApprovalBulkInbox currentOrgId="00000000-0000-4000-8000-000000000099" currentUserId="10000000-0000-4000-8000-000000000099" />);
+    expect(screen.getByText(T.contextUnavailable)).toBeVisible();
+    expect(screen.queryByRole("checkbox", { name: "Current approval" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: T.approveSelected(0) })).not.toBeInTheDocument();
+    expect(requests).toBe(2);
+
+    view.rerender(<ApprovalBulkInbox currentOrgId="00000000-0000-4000-8000-000000000098" currentUserId="10000000-0000-4000-8000-000000000098" />);
+    expect(screen.getByText(T.contextUnavailable)).toBeVisible();
+    expect(requests).toBe(2);
+
+    resolveLate?.(HttpResponse.json({ items: [task({ title: "Late approval" })], has_more: false }));
+    await Promise.resolve();
+    await waitFor(() => { expect(screen.queryByRole("checkbox", { name: "Late approval" })).not.toBeInTheDocument(); });
+    expect(requests).toBe(2);
+
+    view.unmount();
+    render(<ApprovalBulkInbox currentOrgId="00000000-0000-4000-8000-000000000097" currentUserId="10000000-0000-4000-8000-000000000097" />);
+    expect(screen.getByText(T.contextUnavailable)).toBeVisible();
+    await Promise.resolve();
+    expect(requests).toBe(2);
   });
 
   it("dismisses a cancelled receipt without losing its per-user retry key", async () => {
@@ -398,43 +438,43 @@ describe("ApprovalBulkInbox", () => {
       }),
     );
     await user.click(
-      screen.getByRole("button", { name: "Approve selected (1)" }),
+      screen.getByRole("button", { name: T.approveSelected(1) }),
     );
     await waitFor(() => { expect(started).toBeTypeOf("function"); });
-    await user.click(screen.getByRole("button", { name: "Cancel remaining" }));
+    await user.click(screen.getByRole("button", { name: T.cancelRemaining }));
 
     expect(
       screen.getByText(
-        "Cancelled. The in-flight result is unconfirmed until retried.",
+        T.cancelled,
       ),
     ).toBeVisible();
     expect(
       screen.getAllByText(
-        "No confirmed result after cancellation. Retry uses the same idempotency key.",
+        T.receipt.cancelledUnconfirmed,
       )[0],
     ).toBeVisible();
     await waitFor(() => { expect(window.localStorage.getItem(OPERATION_STORAGE_KEY)).toContain(keys[0]); });
-    await user.click(screen.getByRole("button", { name: "Dismiss receipt" }));
-    expect(screen.queryByLabelText("Latest approval operation receipt")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Retry unresolved (1)" })).toBeVisible();
+    await user.click(screen.getByRole("button", { name: T.dismissReceipt }));
+    expect(screen.queryByLabelText(T.receiptAria)).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: T.retryUnresolved(1) })).toBeVisible();
 
     firstView.rerender(<ApprovalBulkInbox currentUserId={USER_ID} currentOrgId="tenant-b" clientSessionIncarnation={SESSION_INCARNATION} />);
     await screen.findByRole("checkbox", { name: "Equipment replacement approval" });
-    await waitFor(() => { expect(screen.queryByRole("button", { name: "Retry unresolved (1)" })).not.toBeInTheDocument(); });
+    await waitFor(() => { expect(screen.queryByRole("button", { name: T.retryUnresolved(1) })).not.toBeInTheDocument(); });
     expect(window.localStorage.getItem(operationStorageKey("tenant-b"))).toBeNull();
     firstView.rerender(<ApprovalBulkInbox currentUserId={USER_ID} currentOrgId={ORG_ID} clientSessionIncarnation="approval-session-b" />);
-    await waitFor(() => { expect(screen.queryByRole("button", { name: "Retry unresolved (1)" })).not.toBeInTheDocument(); });
+    await waitFor(() => { expect(screen.queryByRole("button", { name: T.retryUnresolved(1) })).not.toBeInTheDocument(); });
     expect(window.localStorage.getItem(operationStorageKey(ORG_ID, USER_ID, "approval-session-b"))).toBeNull();
     firstView.rerender(<ApprovalBulkInbox currentUserId={USER_ID} currentOrgId={ORG_ID} clientSessionIncarnation={SESSION_INCARNATION} />);
-    await screen.findByRole("button", { name: "Retry unresolved (1)" });
-    await user.click(screen.getByRole("button", { name: "Retry unresolved (1)" }));
+    await screen.findByRole("button", { name: T.retryUnresolved(1) });
+    await user.click(screen.getByRole("button", { name: T.retryUnresolved(1) }));
     await waitFor(() => { expect(keys).toHaveLength(2); });
     expect(keys[1]).toBe(keys[0]);
 
     const otherUserId = "10000000-0000-4000-8000-000000000099";
     firstView.rerender(<ApprovalBulkInbox currentUserId={otherUserId} currentOrgId={ORG_ID} clientSessionIncarnation={SESSION_INCARNATION} />);
     await screen.findByRole("checkbox", { name: "Equipment replacement approval" });
-    expect(screen.queryByRole("button", { name: "Retry unresolved (1)" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: T.retryUnresolved(1) })).not.toBeInTheDocument();
     started?.();
   });
 });
