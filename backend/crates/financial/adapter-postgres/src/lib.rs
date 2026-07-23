@@ -5,12 +5,13 @@ use mnt_financial_application::{
     AppendCostLedgerEntryCommand, AssetLifecycleCostSummary,
     ConfirmPurchaseAttachmentUploadCommand, CostLedgerEntrySummary, CostLedgerSource,
     CreatePurchaseRequestCommand, CreateRentalQuoteCommand, ExecutePurchaseCommand,
-    FinancialConfigSnapshot, PrepareExpenditureCommand, PreparePurchaseAttachmentUploadCommand,
-    PurchaseApprovalCommand, PurchaseAttachmentDownload, PurchaseAttachmentSummary,
-    PurchaseAttachmentUploadRecord, PurchaseFeaturePreferences, PurchasePolicySummary,
-    PurchaseRequestLineInput, PurchaseRequestLineSummary, PurchaseRequestSummary,
-    PurchaseRequesterSummary, PurchaseRestartCommand, PurchaseSubmitCommand, PurchaseType,
-    RejectPurchaseCommand, RentalQuoteSummary, financial_audit_event,
+    FinancialConfigSnapshot, ListPurchaseRequestsQuery, PrepareExpenditureCommand,
+    PreparePurchaseAttachmentUploadCommand, PurchaseApprovalCommand, PurchaseAttachmentDownload,
+    PurchaseAttachmentSummary, PurchaseAttachmentUploadRecord, PurchaseFeaturePreferences,
+    PurchasePolicySummary, PurchaseRequestLineInput, PurchaseRequestLineSummary,
+    PurchaseRequestPage, PurchaseRequestSummary, PurchaseRequesterSummary, PurchaseRestartCommand,
+    PurchaseSubmitCommand, PurchaseType, RejectPurchaseCommand, RentalQuoteSummary,
+    financial_audit_event,
 };
 use mnt_financial_domain::{
     AcquisitionAnchor, MoneyInput, PurchaseActor, PurchaseStatus, PurchaseTransition,
@@ -896,6 +897,19 @@ impl PgFinancialStore {
         purchase_request_id: PurchaseRequestId,
     ) -> Result<PurchaseRequestSummary, PgFinancialError> {
         purchase_by_id(&self.pool, purchase_request_id).await
+    }
+
+    /// Lists only rows already narrowed by the caller's tenant RLS context and
+    /// by the branch/requester predicate supplied at the authorization boundary.
+    pub async fn list_purchase_requests(
+        &self,
+        query: ListPurchaseRequestsQuery,
+    ) -> Result<PurchaseRequestPage, PgFinancialError> {
+        let org = current_org().map_err(KernelError::from)?;
+        with_org_conn::<_, _, PgFinancialError>(&self.pool, org, move |tx| {
+            Box::pin(async move { list_purchase_requests_tx(tx, query).await })
+        })
+        .await
     }
 
     pub async fn rental_quote(
@@ -2159,6 +2173,67 @@ async fn purchase_by_id_tx(
         .fetch_one(tx.as_mut())
         .await?;
     purchase_from_row_tx(tx, &row).await
+}
+
+async fn list_purchase_requests_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    query: ListPurchaseRequestsQuery,
+) -> Result<PurchaseRequestPage, PgFinancialError> {
+    let statuses: Vec<&str> = query
+        .statuses
+        .iter()
+        .map(|status| status.as_db_str())
+        .collect();
+    let filter_status = !statuses.is_empty();
+    let branch_id = *query.branch_id.as_uuid();
+    let requester_id = query.requester_id.map(|id| *id.as_uuid());
+
+    let total: i64 = sqlx::query_scalar(
+        r#"
+        SELECT COUNT(*)
+        FROM financial_purchase_requests p
+        WHERE p.branch_id = $1
+          AND (NOT $2 OR p.status = ANY($3))
+          AND ($4::uuid IS NULL OR p.requested_by = $4)
+        "#,
+    )
+    .bind(branch_id)
+    .bind(filter_status)
+    .bind(&statuses)
+    .bind(requester_id)
+    .fetch_one(tx.as_mut())
+    .await?;
+
+    let ids: Vec<uuid::Uuid> = sqlx::query_scalar(
+        r#"
+        SELECT p.id
+        FROM financial_purchase_requests p
+        WHERE p.branch_id = $1
+          AND (NOT $2 OR p.status = ANY($3))
+          AND ($4::uuid IS NULL OR p.requested_by = $4)
+        ORDER BY p.updated_at DESC, p.id DESC
+        LIMIT $5 OFFSET $6
+        "#,
+    )
+    .bind(branch_id)
+    .bind(filter_status)
+    .bind(&statuses)
+    .bind(requester_id)
+    .bind(query.limit)
+    .bind(query.offset)
+    .fetch_all(tx.as_mut())
+    .await?;
+
+    let mut items = Vec::with_capacity(ids.len());
+    for id in ids {
+        items.push(purchase_by_id_tx(tx, PurchaseRequestId::from_uuid(id)).await?);
+    }
+    Ok(PurchaseRequestPage {
+        items,
+        limit: query.limit,
+        offset: query.offset,
+        total,
+    })
 }
 
 fn purchase_select_sql() -> &'static str {

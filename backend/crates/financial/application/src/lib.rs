@@ -431,6 +431,30 @@ pub struct PurchaseRequestSummary {
     pub updated_at: Timestamp,
 }
 
+/// A branch-scoped, server-normalized purchase-request collection query.
+///
+/// `requester_id` is set by the REST authorization boundary when a caller may
+/// only read requests that they submitted themselves.  It is deliberately an
+/// application query rather than a client-side filter so disallowed rows never
+/// leave Postgres.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ListPurchaseRequestsQuery {
+    pub branch_id: BranchId,
+    pub statuses: Vec<PurchaseStatus>,
+    pub requester_id: Option<UserId>,
+    pub limit: i64,
+    pub offset: i64,
+}
+
+/// Stable offset page for the purchase-request queue.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PurchaseRequestPage {
+    pub items: Vec<PurchaseRequestSummary>,
+    pub limit: i64,
+    pub offset: i64,
+    pub total: i64,
+}
+
 pub fn financial_audit_event(
     action: &str,
     actor: UserId,

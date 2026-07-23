@@ -2,7 +2,7 @@
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
 use axum::body::Bytes;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -11,11 +11,12 @@ use mnt_financial_adapter_postgres::{PgFinancialError, PgFinancialStore};
 use mnt_financial_application::{
     AppendCostLedgerEntryCommand, ConfirmPurchaseAttachmentUploadCommand, CostLedgerSource,
     CreatePurchaseRequestCommand, CreateRentalQuoteCommand, ExecutePurchaseCommand,
-    FinancialConfigSnapshot, PrepareExpenditureCommand, PreparePurchaseAttachmentUploadCommand,
-    PurchaseApprovalCommand, PurchaseRequestLineInput, PurchaseRestartCommand,
-    PurchaseSubmitCommand, PurchaseType, RejectPurchaseCommand, financial_audit_event,
+    FinancialConfigSnapshot, ListPurchaseRequestsQuery, PrepareExpenditureCommand,
+    PreparePurchaseAttachmentUploadCommand, PurchaseApprovalCommand, PurchaseRequestLineInput,
+    PurchaseRestartCommand, PurchaseSubmitCommand, PurchaseType, RejectPurchaseCommand,
+    financial_audit_event,
 };
-use mnt_financial_domain::{MoneyInput, RentalQuoteInput, compute_rental_quote};
+use mnt_financial_domain::{MoneyInput, PurchaseStatus, RentalQuoteInput, compute_rental_quote};
 use mnt_kernel_core::{
     BranchId, EquipmentId, ErrorKind, EvidenceId, KernelError, PurchaseRequestId, QuoteId,
     TraceContext, WorkOrderId,
@@ -141,7 +142,7 @@ pub fn router(state: FinancialRestState) -> Router {
         )
         .route(
             FINANCIAL_PURCHASE_REQUESTS_PATH,
-            post(create_purchase_request),
+            get(list_purchase_requests).post(create_purchase_request),
         )
         .route(
             FINANCIAL_PURCHASE_REQUEST_PREFERENCES_PATH,
@@ -233,6 +234,18 @@ struct CreatePurchaseRequest {
     quote_attachment_ids: Vec<uuid::Uuid>,
     memo: String,
     config: FinancialConfigSnapshot,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PurchaseRequestListParams {
+    /// Collection reads are deliberately branch-explicit: no unbounded tenant
+    /// queue exists at this endpoint.
+    branch_id: BranchId,
+    #[serde(default)]
+    status: Vec<String>,
+    limit: Option<i64>,
+    offset: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -501,6 +514,61 @@ async fn create_purchase_request(
         .await
         .map_err(RestError::from_store)?;
     Ok((StatusCode::CREATED, Json(purchase)))
+}
+
+async fn list_purchase_requests(
+    State(state): State<FinancialRestState>,
+    headers: HeaderMap,
+    Query(params): Query<PurchaseRequestListParams>,
+) -> Result<impl IntoResponse, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    if !principal.branch_scope.allows(params.branch_id) {
+        return Err(RestError::from_kernel(KernelError::forbidden(
+            "resource branch is outside principal scope",
+        )));
+    }
+
+    // The individual GET endpoint permits a requester to read their own
+    // request without the broader PurchaseRequestRead grant.  Preserve that
+    // contract here without materializing other requesters' branch rows.
+    let requester_id = authorize(
+        &principal,
+        Action::limited(Feature::PurchaseRequestRead),
+        params.branch_id,
+    )
+    .is_err()
+    .then_some(principal.user_id);
+    let statuses = params
+        .status
+        .iter()
+        .map(|status| PurchaseStatus::from_db_str(status))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(RestError::from_kernel)?;
+    let limit = params.limit.unwrap_or(25);
+    if !(1..=100).contains(&limit) {
+        return Err(RestError::from_kernel(KernelError::validation(
+            "limit must be between 1 and 100",
+        )));
+    }
+    let offset = params.offset.unwrap_or(0);
+    if offset < 0 {
+        return Err(RestError::from_kernel(KernelError::validation(
+            "offset must not be negative",
+        )));
+    }
+
+    let page = state
+        .store
+        .list_purchase_requests(ListPurchaseRequestsQuery {
+            branch_id: params.branch_id,
+            statuses,
+            requester_id,
+            limit,
+            offset,
+        })
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(Json(page))
 }
 
 async fn get_purchase_preferences(
