@@ -379,18 +379,29 @@ describe("ConsoleShell chrome", () => {
   });
 
   it("collapses and expands the sidebar", () => {
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1400 });
+    stubViewport(1400);
     renderConsole(ADMIN);
     const sidebar = document.querySelector("[data-cshell-sidebar]");
+    const main = document.querySelector("main");
     expect(sidebar).toHaveAttribute("data-collapsed", "false");
+    expect(sidebar).toHaveStyle({ width: "236px" });
 
     fireEvent.click(screen.getByRole("button", { name: "메뉴 접기" }));
     expect(sidebar).toHaveAttribute("data-collapsed", "true");
+    expect(sidebar).toHaveStyle({ width: "62px" });
+    // The central band remains the flexible sibling, so the released 174px is
+    // immediately available to content rather than being held by a spacer.
+    expect(main).toHaveStyle({ flex: "1 1 auto" });
     // collapsed hides group headers + labels, but still keeps the theme switch reachable.
     expect(screen.queryByText("개요")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "밝은 테마" })).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "메뉴 펼치기" }));
     expect(sidebar).toHaveAttribute("data-collapsed", "false");
+    expect(sidebar).toHaveStyle({ width: "236px" });
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
   });
 
   it("uses a compact, non-dominant comms rail at tablet widths", () => {
