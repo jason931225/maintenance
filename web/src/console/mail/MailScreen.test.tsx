@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { MemoryRouter, useLocation } from "react-router-dom";
 
 import { createConsoleApiClient } from "../../api/client";
 import { AuthContext, type AuthContextValue, type AuthSession } from "../../context/auth";
@@ -215,13 +216,25 @@ function mockMailbox() {
   );
 }
 
-function renderMailScreen(gate: PolicyGate = allowAll, ctx = makeAuthContext()) {
+function LocationProbe() {
+  const location = useLocation();
+  return <output data-testid="mail-location">{`${location.pathname}${location.search}`}</output>;
+}
+
+function renderMailScreen(
+  gate: PolicyGate = allowAll,
+  ctx = makeAuthContext(),
+  initialEntry = "/console/mail",
+) {
   return render(
-    <AuthContext.Provider value={ctx}>
-      <PolicyGateProvider gate={gate}>
-        <MailScreen />
-      </PolicyGateProvider>
-    </AuthContext.Provider>,
+    <MemoryRouter initialEntries={[initialEntry]}>
+      <AuthContext.Provider value={ctx}>
+        <PolicyGateProvider gate={gate}>
+          <MailScreen />
+          <LocationProbe />
+        </PolicyGateProvider>
+      </AuthContext.Provider>
+    </MemoryRouter>,
   );
 }
 
@@ -261,6 +274,35 @@ describe("MailScreen", () => {
     const safeLink = within(body).getByRole("link", { name: "공식 링크" });
     expect(safeLink).toHaveAttribute("target", "_blank");
     expect(safeLink).toHaveAttribute("rel", "noopener noreferrer");
+  });
+
+  it("keeps selection and draft in URL-backed explicit master, detail, and compose mobile states", async () => {
+    mockMailbox();
+    const user = userEvent.setup();
+    renderMailScreen(allowAll, makeAuthContext(), "/console/mail?scope=union&mail_thread=22222222-2222-4222-8222-333333333333&mail_view=detail");
+
+    const surface = await screen.findByTestId("mail-responsive-surface");
+    await waitFor(() => {
+      expect(surface).toHaveAttribute("data-mail-view", "detail");
+      expect(screen.getByTestId("mail-location")).toHaveTextContent("mail_thread=22222222-2222-4222-8222-333333333333");
+    });
+    expect(await screen.findByText("월간 보고 본문")).toBeVisible();
+
+    const composeTrigger = surface.querySelector<HTMLButtonElement>(".mail-screen__compose-trigger");
+    expect(composeTrigger).not.toBeNull();
+    await user.click(composeTrigger as HTMLButtonElement);
+    expect(surface).toHaveAttribute("data-mail-view", "compose");
+    await user.type(screen.getByLabelText("받는 사람"), "ops@cossok.com");
+    await user.click(screen.getByRole("button", { name: "메일 목록" }));
+    expect(surface).toHaveAttribute("data-mail-view", "master");
+    expect(screen.getByTestId("mail-location")).toHaveTextContent("mail_view=master");
+
+    const selectedThread = within(screen.getByRole("list", { name: "메일 스레드" })).getByText("월간 보고").closest("button");
+    expect(selectedThread).not.toBeNull();
+    await user.click(selectedThread as HTMLButtonElement);
+    expect(surface).toHaveAttribute("data-mail-view", "detail");
+    await user.click(composeTrigger as HTMLButtonElement);
+    expect(screen.getByLabelText("받는 사람")).toHaveValue("ops@cossok.com");
   });
 
   it("supports J/K thread selection, Enter read-state, and explicit mark-read calls", async () => {
@@ -332,8 +374,9 @@ describe("MailScreen", () => {
     });
 
     await user.click(await screen.findByRole("button", { name: "답장" }));
-    await user.type(within(composer).getByLabelText("본문"), "확인했습니다.");
-    await user.click(within(composer).getByRole("button", { name: "답장 보내기" }));
+    const replyComposer = await screen.findByRole("form", { name: "메일 작성" });
+    await user.type(within(replyComposer).getByLabelText("본문"), "확인했습니다.");
+    await user.click(within(replyComposer).getByRole("button", { name: "답장 보내기" }));
     await waitFor(() => { expect(replied).toHaveBeenCalledTimes(1); });
     expect(replied.mock.calls[0][0]).toMatchObject({
       to: [{ address: "hr@example.com" }],
@@ -343,9 +386,10 @@ describe("MailScreen", () => {
     });
 
     await user.click(await screen.findByRole("button", { name: "전달" }));
-    await user.type(within(composer).getByLabelText("받는 사람"), "manager@example.com");
-    await user.type(within(composer).getByLabelText("본문"), "검토 부탁드립니다.");
-    await user.click(within(composer).getByRole("button", { name: "전달 보내기" }));
+    const forwardComposer = await screen.findByRole("form", { name: "메일 작성" });
+    await user.type(within(forwardComposer).getByLabelText("받는 사람"), "manager@example.com");
+    await user.type(within(forwardComposer).getByLabelText("본문"), "검토 부탁드립니다.");
+    await user.click(within(forwardComposer).getByRole("button", { name: "전달 보내기" }));
     await waitFor(() => { expect(forwarded).toHaveBeenCalledTimes(1); });
     expect(forwarded.mock.calls[0][0]).toMatchObject({
       to: [{ address: "manager@example.com" }],

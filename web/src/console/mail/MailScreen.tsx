@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 
 import { ko } from "../../i18n/ko";
 import { useAuth } from "../../context/auth";
@@ -60,6 +61,11 @@ const EMPTY_COMPOSE: MailComposerState = {
 };
 
 type LoadState = "loading" | "ready" | "empty" | "error" | "unavailable" | "not_configured";
+type ResponsiveMailView = "master" | "detail" | "compose";
+
+function responsiveMailView(value: string | null): ResponsiveMailView {
+  return value === "detail" || value === "compose" ? value : "master";
+}
 
 function hasExternalRecipient(values: string[]): boolean {
   return values.some((address) => {
@@ -91,15 +97,17 @@ function blockedEgress(
 
 export function MailScreen() {
   const { api } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
   const T = ko.console.mail;
   const [loadState, setLoadState] = useState<LoadState>("loading");
   const [folders, setFolders] = useState<ConsoleMailFolder[]>([]);
   const [threads, setThreads] = useState<ConsoleMailThread[]>([]);
-  const [folderId, setFolderId] = useState<string>();
+  const [folderId, setFolderId] = useState<string | undefined>(() => new URLSearchParams(location.search).get("mail_folder")?.trim() || undefined);
   const [query, setQuery] = useState("");
   const [queryDraft, setQueryDraft] = useState("");
   const [unreadOnly, setUnreadOnly] = useState(false);
-  const [selectedThreadId, setSelectedThreadId] = useState<string>();
+  const [selectedThreadId, setSelectedThreadId] = useState<string | undefined>(() => new URLSearchParams(location.search).get("mail_thread")?.trim() || undefined);
   const [detail, setDetail] = useState<ConsoleMailThreadDetail>();
   const [detailLoading, setDetailLoading] = useState(false);
   const [compose, setCompose] = useState<MailComposerState>(EMPTY_COMPOSE);
@@ -108,6 +116,47 @@ export function MailScreen() {
   const [notice, setNotice] = useState<string>();
   const [error, setError] = useState<string>();
   const [egressBlock, setEgressBlock] = useState<MailEgressBlock>();
+  const [responsiveView, setResponsiveView] = useState<ResponsiveMailView>(() => responsiveMailView(new URLSearchParams(location.search).get("mail_view")));
+  const [folderNavOpen, setFolderNavOpen] = useState(false);
+  const folderTriggerRef = useRef<HTMLButtonElement>(null);
+  const folderCloseRef = useRef<HTMLButtonElement>(null);
+  const threadListRef = useRef<HTMLElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+
+  const updateMailRoute = useCallback((updates: {
+    folderId?: string | undefined;
+    threadId?: string | undefined;
+    view?: ResponsiveMailView;
+  }, replace = false) => {
+    const params = new URLSearchParams(location.search);
+    if ("folderId" in updates) {
+      if (updates.folderId) params.set("mail_folder", updates.folderId);
+      else params.delete("mail_folder");
+    }
+    if ("threadId" in updates) {
+      if (updates.threadId) params.set("mail_thread", updates.threadId);
+      else params.delete("mail_thread");
+    }
+    if ("view" in updates) params.set("mail_view", updates.view ?? "master");
+    const search = params.toString();
+    void navigate(
+      { pathname: location.pathname, search: search ? `?${search}` : "", hash: location.hash },
+      { replace },
+    );
+  }, [location.hash, location.pathname, location.search, navigate]);
+
+  const setMailView = useCallback((view: ResponsiveMailView) => {
+    setResponsiveView(view);
+    updateMailRoute({ view });
+    window.requestAnimationFrame(() => {
+      (view === "master" ? threadListRef.current : contentRef.current)?.focus();
+    });
+  }, [updateMailRoute]);
+
+  const closeFolderNav = useCallback(() => {
+    setFolderNavOpen(false);
+    window.requestAnimationFrame(() => { folderTriggerRef.current?.focus(); });
+  }, []);
 
   const selectedThread = useMemo(
     () => threads.find((thread) => thread.id === selectedThreadId),
@@ -163,6 +212,18 @@ export function MailScreen() {
   useEffect(() => {
     void Promise.resolve().then(loadMailbox);
   }, [loadMailbox]);
+
+  useEffect(() => {
+    if (!folderNavOpen) return undefined;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeFolderNav();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => { window.removeEventListener("keydown", onKeyDown); };
+  }, [closeFolderNav, folderNavOpen]);
 
   useEffect(() => {
     let ignore = false;
@@ -234,9 +295,11 @@ export function MailScreen() {
   const openThread = useCallback(
     (thread: ConsoleMailThread) => {
       setSelectedThreadId(thread.id);
+      setMailView("detail");
+      updateMailRoute({ threadId: thread.id, view: "detail" });
       if (thread.unread_count > 0) void setThreadSeen(thread.id, true);
     },
-    [setThreadSeen],
+    [setMailView, setThreadSeen, updateMailRoute],
   );
 
   const startThreadedCompose = useCallback(
@@ -262,8 +325,9 @@ export function MailScreen() {
         classification: "normal",
       });
       setComposeAttachments([]);
+      setMailView("compose");
     },
-    [T.composer.validation.threadingUnavailable, T.thread.noSubject, selectedThread?.subject],
+    [T.composer.validation.threadingUnavailable, T.thread.noSubject, selectedThread?.subject, setMailView],
   );
 
   const sendCurrentMail = useCallback(async () => {
@@ -373,8 +437,28 @@ export function MailScreen() {
       <p>{T.state.notConfigured}</p>
     </div>
   ) : (
-    <div className="mail-screen__surface" style={surfaceStyle}>
-      <MailFolderPane folders={folders} selectedFolderId={folderId} onSelectFolder={setFolderId} />
+    <div className="mail-screen__frame">
+      <div
+        className="mail-screen__surface"
+        data-testid="mail-responsive-surface"
+        data-mail-view={responsiveView}
+        data-folder-open={folderNavOpen ? "true" : "false"}
+        style={surfaceStyle}
+      >
+      <MailFolderPane
+        folders={folders}
+        selectedFolderId={folderId}
+        onClose={closeFolderNav}
+        closeButtonRef={folderCloseRef}
+        onSelectFolder={(nextFolderId) => {
+          setFolderId(nextFolderId);
+          setSelectedThreadId(undefined);
+          setDetail(undefined);
+          setFolderNavOpen(false);
+          setResponsiveView("master");
+          updateMailRoute({ folderId: nextFolderId, threadId: undefined, view: "master" });
+        }}
+      />
       <MailThreadList
         threads={threads}
         selectedThreadId={selectedThreadId}
@@ -386,8 +470,24 @@ export function MailScreen() {
         onUnreadOnlyChange={setUnreadOnly}
         onSelectThread={(thread) => { setSelectedThreadId(thread.id); }}
         onOpenThread={openThread}
+        onOpenFolders={() => {
+          setFolderNavOpen(true);
+          window.requestAnimationFrame(() => { folderCloseRef.current?.focus(); });
+        }}
+        onCompose={() => { setMailView("compose"); }}
+        folderNavOpen={folderNavOpen}
+        folderTriggerRef={folderTriggerRef}
+        threadListRef={threadListRef}
       />
-      <div className="mail-screen__content" style={{ display: "grid", minWidth: 0, alignContent: "start" }}>
+      <div ref={contentRef} className="mail-screen__content" style={{ display: "grid", minWidth: 0, alignContent: "start" }} tabIndex={-1}>
+        <div className="mail-screen__mobile-navigation" aria-label={T.title}>
+          <button type="button" style={{ minHeight: "calc(var(--sp-6) * 2)" }} onClick={() => { setMailView("master"); }}>
+            {T.responsive.backToThreads}
+          </button>
+          <button type="button" style={{ minHeight: "calc(var(--sp-6) * 2)" }} onClick={() => { setMailView("compose"); }}>
+            {T.responsive.compose}
+          </button>
+        </div>
         <MailReadPane
           selectedThread={selectedThread}
           detail={detail}
@@ -413,6 +513,7 @@ export function MailScreen() {
             onCancelThread={resetCompose}
           />
         </div>
+      </div>
       </div>
     </div>
   );

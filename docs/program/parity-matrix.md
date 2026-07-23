@@ -100,7 +100,7 @@ Each row: intended capability (one line) · verdict · evidence (path/tag). "REG
 
 | Module | Intended | Verdict | Evidence |
 |---|---|---|---|
-| mail | Gmail/mox: Mail·threading·litigation hold | **PARTIAL** | `console/mail/*` uses typed account/folder/thread/read-state/send/reply/forward/download APIs, governance/egress states, and responsive 3→2→1 panes; inactive object/ingest/evidence controls removed pending contracts; rail summary via `CommsRailPanel`; **main full-view not in REGISTRY** (§4.8 promotion missing) |
+| mail | Gmail/mox: Mail·threading·litigation hold | **PARTIAL** | `console/mail/*` uses typed account/folder/thread/read-state/send/reply/forward/download APIs, governance/egress states, and container-scoped 3→2→1 panes with URL-backed master/detail/compose state; inactive object/ingest/evidence controls removed pending contracts; rail summary via `CommsRailPanel`; **main full-view not in REGISTRY** (§4.8 promotion missing) |
 | messenger (msgr) | Slack/Teams parity: Thread·presence·unfurl | **PARTIAL** | `console/messenger/*` built + backend `messenger(13)` + migs `0133-0143`; rail wired; **main full-view not in REGISTRY** |
 | notif (알림) | notification pointers | **PARTIAL** | backend `notifications` mounted; no console body |
 | board (게시판·공지) | Confluence/Slack: Notice NT-·수령확인 | **PARTIAL** | mounted notices REST provides draft/list/get/publish/ack/progress and recipient snapshots; no new-console board body |

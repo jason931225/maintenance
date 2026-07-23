@@ -1805,6 +1805,12 @@ export const ko = {
         retry: "다시 시도",
         refresh: "새로고침",
       },
+      responsive: {
+        openFolders: "메일 폴더 열기",
+        closeFolders: "메일 폴더 닫기",
+        backToThreads: "메일 목록",
+        compose: "메일 작성",
+      },
     },
     modules: {
       common: {

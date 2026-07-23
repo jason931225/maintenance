@@ -1,3 +1,5 @@
+import type { RefObject } from "react";
+
 import { ko } from "../../i18n/ko";
 import { PolicyGated } from "../policy";
 import { folderRoleLabel, MAIL_ACTIONS } from "./mailScreenConfig";
@@ -8,12 +10,17 @@ export function MailFolderPane({
   folders,
   selectedFolderId,
   onSelectFolder,
+  onClose,
+  closeButtonRef,
 }: {
   folders: ConsoleMailFolder[];
   selectedFolderId?: string;
   onSelectFolder: (folderId: string | undefined) => void;
+  onClose: () => void;
+  closeButtonRef: RefObject<HTMLButtonElement | null>;
 }) {
   const T = ko.console.mail.folder;
+  const responsive = ko.console.mail.responsive;
   const rows: Array<{ id?: string; label: string; unread: number; total: number }> = [
     {
       label: T.all,
@@ -28,8 +35,13 @@ export function MailFolderPane({
     })),
   ];
   return (
-    <nav className="mail-screen__folders" aria-label={T.navLabel} style={separatorPaneStyle}>
-      <h2 style={sectionTitleStyle}>{T.navLabel}</h2>
+    <nav id="mail-folder-navigation" className="mail-screen__folders" aria-label={T.navLabel} style={separatorPaneStyle}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "var(--sp-2)" }}>
+        <h2 style={sectionTitleStyle}>{T.navLabel}</h2>
+        <button ref={closeButtonRef} className="mail-screen__folder-close" type="button" style={buttonBaseStyle} onClick={onClose}>
+          {responsive.closeFolders}
+        </button>
+      </div>
       <div style={stackStyle}>
         {rows.map((row) => {
           const selected = row.id === selectedFolderId || (!row.id && !selectedFolderId);

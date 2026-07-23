@@ -1,8 +1,14 @@
-/* Mail owns its pane breakpoints rather than relying on shell width.  This
- * keeps the authenticated product surface usable when the left navigation and
- * communication rail are both present. */
+/* The mail module responds to the space it actually receives inside ConsoleShell
+ * rather than to the browser viewport.  This keeps the three working panes
+ * usable with both shell rails expanded. */
+.mail-screen__frame {
+  container-type: inline-size;
+  container-name: mail-surface;
+}
+
 .mail-screen__surface {
   grid-template-columns: minmax(184px, 232px) minmax(280px, 360px) minmax(0, 1fr) !important;
+  position: relative;
 }
 
 .mail-screen__folders,
@@ -21,39 +27,93 @@
   min-width: 0;
 }
 
-@media (max-width: 1180px) {
+.mail-screen__folder-trigger,
+.mail-screen__compose-trigger,
+.mail-screen__folder-close,
+.mail-screen__mobile-navigation {
+  display: none;
+}
+
+/* Medium module width is a real two-pane list/detail workflow.  Folders are
+ * still available through an on-demand drawer, so no filtering capability is
+ * removed merely because a shell rail consumed width. */
+@container mail-surface (width < 1040px) {
   .mail-screen__surface {
-    grid-template-columns: minmax(184px, 232px) minmax(0, 1fr) !important;
+    grid-template-columns: minmax(280px, 360px) minmax(0, 1fr) !important;
   }
 
-  .mail-screen__content {
-    grid-column: 1 / -1;
-    border-top: 1px solid var(--border-soft);
+  .mail-screen__folders {
+    display: none;
   }
 
-  .mail-screen__reader {
-    max-width: 980px;
-    margin: 0 auto;
-    width: 100%;
+  .mail-screen__surface[data-folder-open="true"] .mail-screen__folders {
+    display: grid;
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: min(20rem, calc(100% - 3.5rem));
+    z-index: 2;
+    background: var(--surface);
+    box-shadow: var(--shadow);
+  }
+
+  .mail-screen__folder-trigger,
+  .mail-screen__folder-close {
+    display: inline-flex;
+    align-items: center;
   }
 }
 
-@media (max-width: 760px) {
+/* A narrow module is explicit master/detail/compose, not a long collapsed
+ * column.  The selected thread and draft live in React state and the URL; only
+ * the currently useful surface is exposed to keyboard users. */
+@container mail-surface (width < 700px) {
   .mail-screen__surface {
     grid-template-columns: minmax(0, 1fr) !important;
     min-height: 0 !important;
   }
 
-  .mail-screen__folders,
   .mail-screen__threads,
   .mail-screen__content {
-    grid-column: auto;
+    grid-column: 1;
     border-right: 0 !important;
     border-top: 1px solid var(--border-soft);
   }
 
-  .mail-screen__folders {
-    border-top: 0;
+  .mail-screen__surface[data-mail-view="master"] .mail-screen__threads {
+    display: grid;
+  }
+
+  .mail-screen__surface[data-mail-view="master"] .mail-screen__content,
+  .mail-screen__surface[data-mail-view="detail"] .mail-screen__threads,
+  .mail-screen__surface[data-mail-view="compose"] .mail-screen__threads {
+    display: none !important;
+  }
+
+  .mail-screen__surface[data-mail-view="detail"] .mail-screen__content,
+  .mail-screen__surface[data-mail-view="compose"] .mail-screen__content {
+    display: grid !important;
+  }
+
+  .mail-screen__surface[data-mail-view="compose"] .mail-screen__reader,
+  .mail-screen__surface[data-mail-view="detail"] .mail-screen__composer {
+    display: none;
+  }
+
+  .mail-screen__surface[data-mail-view="detail"] .mail-screen__reader,
+  .mail-screen__surface[data-mail-view="compose"] .mail-screen__composer {
+    display: grid;
+  }
+
+  .mail-screen__compose-trigger,
+  .mail-screen__mobile-navigation {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--sp-2);
+  }
+
+  .mail-screen__mobile-navigation {
+    padding: var(--sp-3) var(--sp-5) 0;
   }
 
   .mail-screen__threads [role="list"] {

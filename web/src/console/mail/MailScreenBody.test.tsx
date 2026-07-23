@@ -8,6 +8,7 @@ import { render, screen } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { MemoryRouter } from "react-router-dom";
 
 import { createConsoleApiClient } from "../../api/client";
 import { AuthContext, type AuthContextValue, type AuthSession } from "../../context/auth";
@@ -53,7 +54,9 @@ function makeAuthContext(session: AuthSession): AuthContextValue {
 function renderBody(session: AuthSession) {
   return render(
     <AuthContext.Provider value={makeAuthContext(session)}>
-      <MailScreenBody />
+      <MemoryRouter initialEntries={["/console/mail"]}>
+        <MailScreenBody />
+      </MemoryRouter>
     </AuthContext.Provider>,
   );
 }
