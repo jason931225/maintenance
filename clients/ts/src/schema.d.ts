@@ -801,6 +801,30 @@ export interface paths {
          */
         get: operations["listEmployees"];
         put?: never;
+        /**
+         * Create an employee and governed employment profile
+         * @description HR directory managers only. Creates the stable employee identity, employment profile, ONBOARD lifecycle event, and audit record atomically. Reusing an idempotency key replays the same payload; a different payload conflicts.
+         */
+        post: operations["createEmployee"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/employees/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read privileged employee employment detail
+         * @description HR directory managers only. Includes compensation and normalized phone; the ordinary directory never includes these fields.
+         */
+        get: operations["getEmployeeDetail"];
+        put?: never;
         post?: never;
         delete?: never;
         options?: never;
@@ -9287,6 +9311,34 @@ export interface components {
             /** Format: int64 */
             offset: number;
         };
+        CreateEmployeeRequest: {
+            employee_number: string;
+            name: string;
+            company: string;
+            /** @enum {string} */
+            employment_type: "REGULAR" | "CONTRACT" | "PART_TIME" | "INTERN";
+            /** @description Phone number normalized by the server to E.164. */
+            phone: string;
+            org_unit: string;
+            position: string;
+            site: string;
+            home_branch_id: components["schemas"]["Uuid"];
+            /** @description Non-negative KRW decimal; only returned by privileged detail. */
+            base_pay: string;
+            idempotency_key: string;
+        };
+        EmployeeEmploymentDetail: {
+            /** @enum {string} */
+            employment_type: "REGULAR" | "CONTRACT" | "PART_TIME" | "INTERN";
+            phone_e164: string;
+            base_pay: string;
+            /** @enum {string} */
+            currency: "KRW";
+        };
+        EmployeeDetail: {
+            employee: components["schemas"]["Employee"];
+            employment: components["schemas"]["EmployeeEmploymentDetail"];
+        };
         EmployeeLifecycleSignoffs: {
             /** @description Confirms the employee was notified of personal-data processing for this HR action. */
             privacy_notice_ack: boolean;
@@ -14898,6 +14950,8 @@ export interface operations {
             query?: {
                 /** @description Filter by workbook sheet/company name. */
                 company?: string;
+                /** @description Case-insensitive name or employee-number typeahead query. */
+                search?: string;
                 /** @description Filter to employees whose active authoritative home branch is missing/inactive (true) or usable (false). */
                 home_branch_review_required?: boolean;
                 limit?: number;
@@ -14920,6 +14974,69 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+        };
+    };
+    createEmployee: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateEmployeeRequest"];
+            };
+        };
+        responses: {
+            /** @description Idempotent replay of the original employee create. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmployeeDetail"];
+                };
+            };
+            /** @description Employee created. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmployeeDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getEmployeeDetail: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Privileged employee detail. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EmployeeDetail"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
         };
     };
     setEmployeeHomeBranch: {

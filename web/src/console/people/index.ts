@@ -1,0 +1,1 @@
+export { PeopleWorkforceBody } from "./PeopleWorkforceBody";

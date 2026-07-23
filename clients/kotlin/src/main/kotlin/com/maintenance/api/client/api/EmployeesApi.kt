@@ -28,6 +28,8 @@ import okhttp3.Call
 import okhttp3.HttpUrl
 
 import com.maintenance.api.client.model.CreateEmployeeLifecycleEventRequest
+import com.maintenance.api.client.model.CreateEmployeeRequest
+import com.maintenance.api.client.model.EmployeeDetail
 import com.maintenance.api.client.model.EmployeeHomeBranch
 import com.maintenance.api.client.model.EmployeeImportDryRunSummary
 import com.maintenance.api.client.model.EmployeeImportPreviewResponse
@@ -137,6 +139,80 @@ open class EmployeesApi(basePath: kotlin.String = defaultBasePath, client: Call.
         return RequestConfig(
             method = RequestMethod.POST,
             path = "/api/v1/employees/import/{run_id}/apply".replace("{"+"run_id"+"}", encodeURIComponent(runId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * POST /api/v1/employees
+     * Create an employee and governed employment profile
+     * HR directory managers only. Creates the stable employee identity, employment profile, ONBOARD lifecycle event, and audit record atomically. Reusing an idempotency key replays the same payload; a different payload conflicts.
+     * @param createEmployeeRequest
+     * @return EmployeeDetail
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun createEmployee(createEmployeeRequest: CreateEmployeeRequest) : EmployeeDetail = withContext(Dispatchers.IO) {
+        val localVarResponse = createEmployeeWithHttpInfo(createEmployeeRequest = createEmployeeRequest)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as EmployeeDetail
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * POST /api/v1/employees
+     * Create an employee and governed employment profile
+     * HR directory managers only. Creates the stable employee identity, employment profile, ONBOARD lifecycle event, and audit record atomically. Reusing an idempotency key replays the same payload; a different payload conflicts.
+     * @param createEmployeeRequest
+     * @return ApiResponse<EmployeeDetail?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun createEmployeeWithHttpInfo(createEmployeeRequest: CreateEmployeeRequest) : ApiResponse<EmployeeDetail?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = createEmployeeRequestConfig(createEmployeeRequest = createEmployeeRequest)
+
+        return@withContext request<CreateEmployeeRequest, EmployeeDetail>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation createEmployee
+     *
+     * @param createEmployeeRequest
+     * @return RequestConfig
+     */
+    fun createEmployeeRequestConfig(createEmployeeRequest: CreateEmployeeRequest) : RequestConfig<CreateEmployeeRequest> {
+        val localVariableBody = createEmployeeRequest
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.POST,
+            path = "/api/v1/employees",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,
@@ -365,6 +441,79 @@ open class EmployeesApi(basePath: kotlin.String = defaultBasePath, client: Call.
     }
 
     /**
+     * GET /api/v1/employees/{id}
+     * Read privileged employee employment detail
+     * HR directory managers only. Includes compensation and normalized phone; the ordinary directory never includes these fields.
+     * @param id
+     * @return EmployeeDetail
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun getEmployeeDetail(id: java.util.UUID) : EmployeeDetail = withContext(Dispatchers.IO) {
+        val localVarResponse = getEmployeeDetailWithHttpInfo(id = id)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as EmployeeDetail
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/employees/{id}
+     * Read privileged employee employment detail
+     * HR directory managers only. Includes compensation and normalized phone; the ordinary directory never includes these fields.
+     * @param id
+     * @return ApiResponse<EmployeeDetail?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun getEmployeeDetailWithHttpInfo(id: java.util.UUID) : ApiResponse<EmployeeDetail?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = getEmployeeDetailRequestConfig(id = id)
+
+        return@withContext request<Unit, EmployeeDetail>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation getEmployeeDetail
+     *
+     * @param id
+     * @return RequestConfig
+     */
+    fun getEmployeeDetailRequestConfig(id: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/employees/{id}".replace("{"+"id"+"}", encodeURIComponent(id.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
      * POST /api/v1/employees/import
      * Import payroll workbook sheets into the employee directory
      * Admin/super-admin multipart .xlsx upload. Each worksheet is treated as a company, row 1 as headers, and rows with non-empty 성명 are upserted by deterministic source filename/sheet/row key. Raw row values and source metadata are preserved as JSONB.
@@ -516,6 +665,7 @@ open class EmployeesApi(basePath: kotlin.String = defaultBasePath, client: Call.
      * Paginated tenant HR employee directory
      * Executive/admin/super-admin read of first-class employee rows. Employees are not auth users.
      * @param company Filter by workbook sheet/company name. (optional)
+     * @param search Case-insensitive name or employee-number typeahead query. (optional)
      * @param homeBranchReviewRequired Filter to employees whose active authoritative home branch is missing/inactive (true) or usable (false). (optional)
      * @param limit  (optional, default to 500L)
      * @param offset  (optional, default to 0L)
@@ -528,8 +678,8 @@ open class EmployeesApi(basePath: kotlin.String = defaultBasePath, client: Call.
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun listEmployees(company: kotlin.String? = null, homeBranchReviewRequired: kotlin.Boolean? = null, limit: kotlin.Long? = 500L, offset: kotlin.Long? = 0L) : EmployeePage = withContext(Dispatchers.IO) {
-        val localVarResponse = listEmployeesWithHttpInfo(company = company, homeBranchReviewRequired = homeBranchReviewRequired, limit = limit, offset = offset)
+    suspend fun listEmployees(company: kotlin.String? = null, search: kotlin.String? = null, homeBranchReviewRequired: kotlin.Boolean? = null, limit: kotlin.Long? = 500L, offset: kotlin.Long? = 0L) : EmployeePage = withContext(Dispatchers.IO) {
+        val localVarResponse = listEmployeesWithHttpInfo(company = company, search = search, homeBranchReviewRequired = homeBranchReviewRequired, limit = limit, offset = offset)
 
         return@withContext when (localVarResponse.responseType) {
             ResponseType.Success -> (localVarResponse as Success<*>).data as EmployeePage
@@ -551,6 +701,7 @@ open class EmployeesApi(basePath: kotlin.String = defaultBasePath, client: Call.
      * Paginated tenant HR employee directory
      * Executive/admin/super-admin read of first-class employee rows. Employees are not auth users.
      * @param company Filter by workbook sheet/company name. (optional)
+     * @param search Case-insensitive name or employee-number typeahead query. (optional)
      * @param homeBranchReviewRequired Filter to employees whose active authoritative home branch is missing/inactive (true) or usable (false). (optional)
      * @param limit  (optional, default to 500L)
      * @param offset  (optional, default to 0L)
@@ -560,8 +711,8 @@ open class EmployeesApi(basePath: kotlin.String = defaultBasePath, client: Call.
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun listEmployeesWithHttpInfo(company: kotlin.String?, homeBranchReviewRequired: kotlin.Boolean?, limit: kotlin.Long?, offset: kotlin.Long?) : ApiResponse<EmployeePage?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = listEmployeesRequestConfig(company = company, homeBranchReviewRequired = homeBranchReviewRequired, limit = limit, offset = offset)
+    suspend fun listEmployeesWithHttpInfo(company: kotlin.String?, search: kotlin.String?, homeBranchReviewRequired: kotlin.Boolean?, limit: kotlin.Long?, offset: kotlin.Long?) : ApiResponse<EmployeePage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listEmployeesRequestConfig(company = company, search = search, homeBranchReviewRequired = homeBranchReviewRequired, limit = limit, offset = offset)
 
         return@withContext request<Unit, EmployeePage>(
             localVariableConfig
@@ -572,17 +723,21 @@ open class EmployeesApi(basePath: kotlin.String = defaultBasePath, client: Call.
      * To obtain the request config of the operation listEmployees
      *
      * @param company Filter by workbook sheet/company name. (optional)
+     * @param search Case-insensitive name or employee-number typeahead query. (optional)
      * @param homeBranchReviewRequired Filter to employees whose active authoritative home branch is missing/inactive (true) or usable (false). (optional)
      * @param limit  (optional, default to 500L)
      * @param offset  (optional, default to 0L)
      * @return RequestConfig
      */
-    fun listEmployeesRequestConfig(company: kotlin.String?, homeBranchReviewRequired: kotlin.Boolean?, limit: kotlin.Long?, offset: kotlin.Long?) : RequestConfig<Unit> {
+    fun listEmployeesRequestConfig(company: kotlin.String?, search: kotlin.String?, homeBranchReviewRequired: kotlin.Boolean?, limit: kotlin.Long?, offset: kotlin.Long?) : RequestConfig<Unit> {
         val localVariableBody = null
         val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
             .apply {
                 if (company != null) {
                     put("company", listOf(company.toString()))
+                }
+                if (search != null) {
+                    put("search", listOf(search.toString()))
                 }
                 if (homeBranchReviewRequired != null) {
                     put("home_branch_review_required", listOf(homeBranchReviewRequired.toString()))

@@ -29,6 +29,7 @@ use time::{Date, Month, OffsetDateTime};
 use uuid::Uuid;
 
 pub const EMPLOYEES_PATH: &str = "/api/v1/employees";
+pub const EMPLOYEE_DETAIL_PATH_TEMPLATE: &str = "/api/v1/employees/{id}";
 pub const EMPLOYEES_IMPORT_PATH: &str = "/api/v1/employees/import";
 pub const EMPLOYEES_IMPORT_PREVIEW_PATH: &str = "/api/v1/employees/import/preview";
 pub const EMPLOYEES_IMPORT_DRY_RUN_PATH_TEMPLATE: &str =
@@ -56,6 +57,7 @@ pub const HR_EXIT_CASE_APPROVAL_DRAFT_PATH_TEMPLATE: &str =
     "/api/v1/hr/exit-cases/{id}/approval-draft";
 pub const HR_ROUTE_PATHS: &[&str] = &[
     EMPLOYEES_PATH,
+    EMPLOYEE_DETAIL_PATH_TEMPLATE,
     EMPLOYEES_IMPORT_PATH,
     EMPLOYEES_IMPORT_PREVIEW_PATH,
     EMPLOYEES_IMPORT_DRY_RUN_PATH_TEMPLATE,
@@ -111,7 +113,8 @@ pub fn router(state: HrState) -> Router {
     let verifier = state.jwt_verifier.clone();
     let pool = state.pool.clone();
     let router = Router::new()
-        .route(EMPLOYEES_PATH, get(list_employees))
+        .route(EMPLOYEES_PATH, get(list_employees).post(create_employee))
+        .route(EMPLOYEE_DETAIL_PATH_TEMPLATE, get(get_employee_detail))
         .route(HR_ORG_CHART_PATH, get(get_hr_org_chart))
         .route(HR_LEAVE_BALANCES_PATH, get(list_leave_balances))
         .route(HR_ATTENDANCE_SUMMARY_PATH, get(list_attendance_summary))
@@ -182,6 +185,7 @@ pub fn router(state: HrState) -> Router {
 #[derive(Debug, Deserialize)]
 struct EmployeeListQuery {
     company: Option<String>,
+    search: Option<String>,
     home_branch_review_required: Option<bool>,
     limit: Option<i64>,
     offset: Option<i64>,
@@ -235,6 +239,36 @@ struct EmployeeResponse {
     identity_name_only_merge: bool,
     created_at: time::OffsetDateTime,
     updated_at: time::OffsetDateTime,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct CreateEmployeeRequest {
+    employee_number: String,
+    name: String,
+    company: String,
+    employment_type: String,
+    phone: String,
+    org_unit: String,
+    position: String,
+    site: String,
+    home_branch_id: Uuid,
+    base_pay: String,
+    idempotency_key: String,
+}
+
+#[derive(Debug, Serialize)]
+struct EmployeeEmploymentDetail {
+    employment_type: String,
+    phone_e164: String,
+    base_pay: String,
+    currency: String,
+}
+
+#[derive(Debug, Serialize)]
+struct EmployeeDetailResponse {
+    employee: EmployeeResponse,
+    employment: EmployeeEmploymentDetail,
 }
 
 #[derive(Debug, Deserialize)]
@@ -735,6 +769,10 @@ async fn list_employees(
         .company
         .map(|value| value.trim().to_owned())
         .filter(|value| !value.is_empty());
+    let search = query
+        .search
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty());
     let home_branch_review_required = query.home_branch_review_required;
 
     let (items, total) = with_org_conn::<_, _, HrError>(&state.pool, org, move |tx| {
@@ -749,6 +787,13 @@ async fn list_employees(
                 count.push(" AND e.company = ");
                 count.push_bind(company);
             }
+            if let Some(search) = search.as_deref() {
+                count.push(" AND (e.name ILIKE ");
+                count.push_bind(format!("%{search}%"));
+                count.push(" OR e.employee_number ILIKE ");
+                count.push_bind(format!("%{search}%"));
+                count.push(")");
+            }
             if let Some(required) = home_branch_review_required {
                 count.push(" AND (b.id IS NULL) = ");
                 count.push_bind(required);
@@ -761,6 +806,13 @@ async fn list_employees(
             if let Some(company) = company.as_deref() {
                 rows.push(" AND e.company = ");
                 rows.push_bind(company);
+            }
+            if let Some(search) = search.as_deref() {
+                rows.push(" AND (e.name ILIKE ");
+                rows.push_bind(format!("%{search}%"));
+                rows.push(" OR e.employee_number ILIKE ");
+                rows.push_bind(format!("%{search}%"));
+                rows.push(")");
             }
             if let Some(required) = home_branch_review_required {
                 rows.push(" AND (b.id IS NULL) = ");
@@ -789,6 +841,150 @@ async fn list_employees(
         limit,
         offset,
     }))
+}
+
+async fn create_employee(
+    State(state): State<HrState>,
+    Extension(principal): Extension<Principal>,
+    Json(body): Json<CreateEmployeeRequest>,
+) -> Result<(StatusCode, Json<EmployeeDetailResponse>), HrError> {
+    authorize_hr_org_wide(&principal, Feature::EmployeeDirectoryManage)?;
+    let request = normalize_create_employee_request(body)?;
+    let org = principal.org_id;
+    let org_uuid = *org.as_uuid();
+    let actor = principal.user_id;
+    let request_hash = sha256_hex(
+        serde_json::to_string(&request)
+            .map_err(|_| HrError::validation("employee request could not be serialized"))?
+            .as_bytes(),
+    );
+    let replay = with_org_conn::<_, _, HrError>(&state.pool, org, {
+        let request = &request;
+        let request_hash = &request_hash;
+        move |tx| {
+            Box::pin(async move {
+                let row = sqlx::query(
+                    "SELECT employee_id, request_hash FROM employee_employment_profiles WHERE org_id = $1 AND idempotency_key = $2",
+                )
+                .bind(org_uuid)
+                .bind(&request.idempotency_key)
+                .fetch_optional(tx.as_mut())
+                .await?;
+                match row {
+                    None => Ok(None),
+                    Some(row) => {
+                        let stored_hash: String = row.try_get("request_hash")?;
+                        if stored_hash != *request_hash {
+                            return Err(HrError::from_kernel(KernelError::conflict(
+                                "idempotency key already used with a different employee payload",
+                            )));
+                        }
+                        let employee_id: Uuid = row.try_get("employee_id")?;
+                        Ok(Some(load_employee_detail(tx, org_uuid, employee_id).await?))
+                    }
+                }
+            })
+        }
+    })
+    .await?;
+    if let Some(detail) = replay {
+        return Ok((StatusCode::OK, Json(detail)));
+    }
+    let employee_id = Uuid::new_v4();
+    let audit = AuditEvent::new(
+        Some(actor),
+        AuditAction::new("employee.create").map_err(HrError::from_kernel)?,
+        "employee",
+        employee_id.to_string(),
+        TraceContext::generate(),
+        OffsetDateTime::now_utc(),
+    )
+    .with_org(org)
+    .with_branch(BranchId::from_uuid(request.home_branch_id))
+    .with_snapshots(
+        None,
+        Some(json!({
+            "employee_number": &request.employee_number,
+            "employment_type": &request.employment_type,
+            "home_branch_id": request.home_branch_id,
+            "compensation_recorded": true,
+            "phone_recorded": true
+        })),
+    );
+
+    let detail = with_audit::<_, _, HrError>(&state.pool, audit, |tx| {
+        Box::pin(async move {
+            let branch_exists: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM branches WHERE org_id = $1 AND id = $2 AND deactivated_at IS NULL)",
+            )
+            .bind(org_uuid)
+            .bind(request.home_branch_id)
+            .fetch_one(tx.as_mut())
+            .await?;
+            if !branch_exists {
+                return Err(HrError::from_kernel(KernelError::not_found(
+                    "active home branch was not found in this organization",
+                )));
+            }
+
+            sqlx::query(
+                r#"INSERT INTO employees (
+                    id, org_id, company, name, employee_number, org_unit, position,
+                    worksite_name, home_branch_id, source_filename, source_sheet,
+                    source_row, source_key, raw_row, source_metadata,
+                    identity_resolution_strategy, identity_resolution_confidence,
+                    identity_review_required, identity_name_only_merge
+                ) VALUES (
+                    $1, $2, $3, $4, $5, $6, $7, $8, $9, 'console', 'people', 1,
+                    $10, '{}'::jsonb, '{}'::jsonb, 'employee_number', 'high', FALSE, FALSE
+                )"#,
+            )
+            .bind(employee_id).bind(org_uuid).bind(&request.company).bind(&request.name)
+            .bind(&request.employee_number).bind(&request.org_unit).bind(&request.position)
+            .bind(&request.site).bind(request.home_branch_id)
+            .bind(format!("console:{}", request.employee_number))
+            .execute(tx.as_mut()).await?;
+            sqlx::query(
+                r#"INSERT INTO employee_employment_profiles (
+                    employee_id, org_id, employment_type, phone_e164, base_pay,
+                    idempotency_key, request_hash, created_by
+                ) VALUES ($1, $2, $3, $4, $5::numeric, $6, $7, $8)"#,
+            )
+            .bind(employee_id).bind(org_uuid).bind(&request.employment_type).bind(&request.phone_e164)
+            .bind(&request.base_pay).bind(&request.idempotency_key).bind(&request_hash).bind(*actor.as_uuid())
+            .execute(tx.as_mut()).await?;
+            sqlx::query(
+                r#"INSERT INTO employee_lifecycle_events (
+                    id, org_id, employee_id, event_type, to_status, to_company,
+                    to_org_unit, to_position, effective_date, comment, signoffs, created_by
+                ) VALUES ($1, $2, $3, 'ONBOARD', 'ACTIVE', $4, $5, $6, $7,
+                    'Created through People & Workforce',
+                    '{"privacy_notice_ack":true,"korean_labor_law_ack":true,"payroll_cutoff_ack":true,"retirement_settlement_ack":true}'::jsonb,
+                    $8)"#,
+            )
+            .bind(Uuid::new_v4()).bind(org_uuid).bind(employee_id).bind(&request.company)
+            .bind(&request.org_unit).bind(&request.position).bind(OffsetDateTime::now_utc().date().to_string())
+            .bind(*actor.as_uuid()).execute(tx.as_mut()).await?;
+            load_employee_detail(tx, org_uuid, employee_id).await
+        })
+    })
+    .await?;
+    Ok((StatusCode::CREATED, Json(detail)))
+}
+
+async fn get_employee_detail(
+    State(state): State<HrState>,
+    Extension(principal): Extension<Principal>,
+    Path(employee_id): Path<Uuid>,
+) -> Result<Json<EmployeeDetailResponse>, HrError> {
+    authorize_hr_org_wide(&principal, Feature::EmployeeDirectoryManage)?;
+    let org = principal.org_id;
+    let org_uuid = *org.as_uuid();
+    let detail = with_org_conn::<_, _, HrError>(&state.pool, org, move |tx| {
+        Box::pin(async move { load_employee_detail(tx, org_uuid, employee_id).await })
+    })
+    .await?;
+    Ok(Json(detail))
 }
 
 /// Assign the employee's authoritative approval-routing branch. No inference is
@@ -7251,6 +7447,122 @@ fn normalize_optional_text(value: Option<String>) -> Option<String> {
     value
         .map(|value| value.trim().to_owned())
         .filter(|value| !value.is_empty())
+}
+
+#[derive(Debug, Serialize)]
+struct NormalizedCreateEmployeeRequest {
+    employee_number: String,
+    name: String,
+    company: String,
+    employment_type: String,
+    phone_e164: String,
+    org_unit: String,
+    position: String,
+    site: String,
+    home_branch_id: Uuid,
+    base_pay: String,
+    idempotency_key: String,
+}
+
+fn required_employee_text(value: String, field: &str) -> Result<String, HrError> {
+    let normalized = value.trim().to_owned();
+    if normalized.is_empty() || normalized.len() > 200 {
+        return Err(HrError::validation(format!(
+            "{field} is required and must be 200 characters or fewer"
+        )));
+    }
+    Ok(normalized)
+}
+
+fn normalize_phone_e164(value: String) -> Result<String, HrError> {
+    let compact: String = value
+        .chars()
+        .filter(|c| c.is_ascii_digit() || *c == '+')
+        .collect();
+    let phone = if compact.starts_with('+') {
+        compact
+    } else {
+        format!("+{compact}")
+    };
+    let valid = phone.len() >= 9
+        && phone.len() <= 16
+        && phone.starts_with('+')
+        && phone[1..].chars().next().is_some_and(|c| c != '0')
+        && phone[1..].chars().all(|c| c.is_ascii_digit());
+    if !valid {
+        return Err(HrError::validation("phone must be an E.164 number"));
+    }
+    Ok(phone)
+}
+
+fn normalize_create_employee_request(
+    body: CreateEmployeeRequest,
+) -> Result<NormalizedCreateEmployeeRequest, HrError> {
+    let employment_type = normalize_enum_text(body.employment_type);
+    if !matches!(
+        employment_type.as_str(),
+        "REGULAR" | "CONTRACT" | "PART_TIME" | "INTERN"
+    ) {
+        return Err(HrError::validation(
+            "employment_type must be REGULAR, CONTRACT, PART_TIME, or INTERN",
+        ));
+    }
+    let base_pay = required_employee_text(body.base_pay, "base_pay")?;
+    if base_pay
+        .parse::<f64>()
+        .ok()
+        .filter(|pay| pay.is_finite() && *pay >= 0.0)
+        .is_none()
+    {
+        return Err(HrError::validation(
+            "base_pay must be a non-negative number",
+        ));
+    }
+    Ok(NormalizedCreateEmployeeRequest {
+        employee_number: required_employee_text(body.employee_number, "employee_number")?,
+        name: required_employee_text(body.name, "name")?,
+        company: required_employee_text(body.company, "company")?,
+        employment_type,
+        phone_e164: normalize_phone_e164(body.phone)?,
+        org_unit: required_employee_text(body.org_unit, "org_unit")?,
+        position: required_employee_text(body.position, "position")?,
+        site: required_employee_text(body.site, "site")?,
+        home_branch_id: body.home_branch_id,
+        base_pay,
+        idempotency_key: normalize_idempotency_key(body.idempotency_key)?,
+    })
+}
+
+async fn load_employee_detail(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    org_id: Uuid,
+    employee_id: Uuid,
+) -> Result<EmployeeDetailResponse, HrError> {
+    let row = sqlx::query(
+        r#"SELECT e.id, e.company, e.name, e.employee_number, e.org_unit, e.job,
+            e.position, e.worksite_name, e.worksite_address, e.hire_date, e.exit_date,
+            e.employment_status, e.leave_accrued::TEXT AS leave_accrued,
+            e.leave_used::TEXT AS leave_used, e.leave_remaining::TEXT AS leave_remaining,
+            b.id AS home_branch_id, b.name AS home_branch_name,
+            e.identity_resolution_strategy, e.identity_resolution_confidence,
+            e.identity_review_required, e.identity_name_only_merge, e.created_at, e.updated_at,
+            p.employment_type, p.phone_e164, p.base_pay::TEXT AS base_pay, p.currency
+        FROM employees e
+        JOIN employee_employment_profiles p ON p.employee_id = e.id AND p.org_id = e.org_id
+        LEFT JOIN branches b ON b.id = e.home_branch_id AND b.org_id = e.org_id AND b.deactivated_at IS NULL
+        WHERE e.org_id = $1 AND e.id = $2"#,
+    ).bind(org_id).bind(employee_id).fetch_optional(tx.as_mut()).await?
+        .ok_or_else(|| HrError::from_kernel(KernelError::not_found("employee was not found in this organization")))?;
+    let employment = EmployeeEmploymentDetail {
+        employment_type: row.try_get("employment_type")?,
+        phone_e164: row.try_get("phone_e164")?,
+        base_pay: row.try_get("base_pay")?,
+        currency: row.try_get("currency")?,
+    };
+    Ok(EmployeeDetailResponse {
+        employee: employee_from_row(row)?,
+        employment,
+    })
 }
 
 fn employee_from_row(row: sqlx::postgres::PgRow) -> Result<EmployeeResponse, HrError> {

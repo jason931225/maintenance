@@ -213,6 +213,7 @@ src/main/kotlin/com/maintenance/api/client/model/CreateDailyPlanRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateDailyPlanRequestItemsInner.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateEmployeeAttendanceRecordRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateEmployeeLifecycleEventRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/CreateEmployeeRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateEquipmentRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateEquipmentResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/CreateEvidenceBindingRequest.kt
@@ -287,6 +288,8 @@ src/main/kotlin/com/maintenance/api/client/model/DraftEmployeeExitApprovalReques
 src/main/kotlin/com/maintenance/api/client/model/Employee.kt
 src/main/kotlin/com/maintenance/api/client/model/EmployeeAttendanceRecord.kt
 src/main/kotlin/com/maintenance/api/client/model/EmployeeAttendanceRecordPage.kt
+src/main/kotlin/com/maintenance/api/client/model/EmployeeDetail.kt
+src/main/kotlin/com/maintenance/api/client/model/EmployeeEmploymentDetail.kt
 src/main/kotlin/com/maintenance/api/client/model/EmployeeHomeBranch.kt
 src/main/kotlin/com/maintenance/api/client/model/EmployeeImportColumn.kt
 src/main/kotlin/com/maintenance/api/client/model/EmployeeImportCompanySummary.kt
