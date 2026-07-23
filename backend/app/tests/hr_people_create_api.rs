@@ -13,6 +13,11 @@ fn people_create_contract_keeps_compensation_out_of_directory() {
     assert!(openapi.contains("$ref: '#/components/schemas/EmployeeDetail'"));
     assert!(handler.contains("get(list_employees).post(create_employee)"));
     assert!(handler.contains("JOIN employee_employment_profiles p"));
+    assert!(handler.contains("employee_create_idempotency"));
+    assert!(handler.contains("FOR UPDATE"));
+    assert!(handler.contains("employee_create_db_error"));
+    assert!(handler.contains("StatusCode::OK"));
+    assert!(handler.contains("StatusCode::CREATED"));
     assert!(handler.contains("employee.lifecycle.record") || handler.contains("employee.create"));
     assert!(!handler[handler.find("struct EmployeeResponse").unwrap()..handler.find("struct SetEmployeeHomeBranchRequest").unwrap()].contains("base_pay"));
     assert!(!handler[handler.find("struct EmployeeResponse").unwrap()..handler.find("struct SetEmployeeHomeBranchRequest").unwrap()].contains("phone_e164"));

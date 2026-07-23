@@ -4,7 +4,9 @@
 tenant-scoped employee identity and employment profile, an `ONBOARD` lifecycle
 event, and the audit event in one database transaction. `idempotency_key`
 replays the original payload; a reused key with different normalized content is
-a conflict.
+a conflict. A tenant-scoped reservation row is inserted and locked before any
+employee write, so concurrent same-key requests create one employee, lifecycle
+event, and audit event; the waiter receives the persisted replay.
 
 The ordinary `GET /api/v1/employees` directory is paginated and intentionally
 does not return phone or compensation. Those values are available only from
@@ -33,3 +35,7 @@ and generated clients. Mounting this body into the console screen registry and
 its route/nav authorization is owned by the integration lane; this module does
 not claim that route seam as complete until it is mounted and end-to-end tested
 there.
+
+`PEOPLE_WORKFORCE_ROUTE` exports the exact `people` screen key,
+`/console/people` path, and component for that root-owned mount without
+duplicating shell routing.

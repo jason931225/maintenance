@@ -858,38 +858,6 @@ async fn create_employee(
             .map_err(|_| HrError::validation("employee request could not be serialized"))?
             .as_bytes(),
     );
-    let replay = with_org_conn::<_, _, HrError>(&state.pool, org, {
-        let request = &request;
-        let request_hash = &request_hash;
-        move |tx| {
-            Box::pin(async move {
-                let row = sqlx::query(
-                    "SELECT employee_id, request_hash FROM employee_employment_profiles WHERE org_id = $1 AND idempotency_key = $2",
-                )
-                .bind(org_uuid)
-                .bind(&request.idempotency_key)
-                .fetch_optional(tx.as_mut())
-                .await?;
-                match row {
-                    None => Ok(None),
-                    Some(row) => {
-                        let stored_hash: String = row.try_get("request_hash")?;
-                        if stored_hash != *request_hash {
-                            return Err(HrError::from_kernel(KernelError::conflict(
-                                "idempotency key already used with a different employee payload",
-                            )));
-                        }
-                        let employee_id: Uuid = row.try_get("employee_id")?;
-                        Ok(Some(load_employee_detail(tx, org_uuid, employee_id).await?))
-                    }
-                }
-            })
-        }
-    })
-    .await?;
-    if let Some(detail) = replay {
-        return Ok((StatusCode::OK, Json(detail)));
-    }
     let employee_id = Uuid::new_v4();
     let audit = AuditEvent::new(
         Some(actor),
@@ -912,8 +880,33 @@ async fn create_employee(
         })),
     );
 
-    let detail = with_audit::<_, _, HrError>(&state.pool, audit, |tx| {
+    let (detail, replayed) = with_audits::<_, _, HrError>(&state.pool, org, |tx| {
         Box::pin(async move {
+            sqlx::query(
+                "INSERT INTO employee_create_idempotency (org_id, idempotency_key, request_hash) VALUES ($1, $2, $3) ON CONFLICT (org_id, idempotency_key) DO NOTHING",
+            )
+            .bind(org_uuid)
+            .bind(&request.idempotency_key)
+            .bind(&request_hash)
+            .execute(tx.as_mut())
+            .await
+            .map_err(employee_create_db_error)?;
+            let reservation = sqlx::query(
+                "SELECT request_hash, employee_id FROM employee_create_idempotency WHERE org_id = $1 AND idempotency_key = $2 FOR UPDATE",
+            )
+            .bind(org_uuid)
+            .bind(&request.idempotency_key)
+            .fetch_one(tx.as_mut())
+            .await?;
+            let stored_hash: String = reservation.try_get("request_hash")?;
+            if stored_hash != request_hash {
+                return Err(HrError::from_kernel(KernelError::conflict(
+                    "idempotency key already used with a different employee payload",
+                )));
+            }
+            if let Some(existing_id) = reservation.try_get::<Option<Uuid>, _>("employee_id")? {
+                return Ok(((load_employee_detail(tx, org_uuid, existing_id).await?, true), Vec::new()));
+            }
             let branch_exists: bool = sqlx::query_scalar(
                 "SELECT EXISTS(SELECT 1 FROM branches WHERE org_id = $1 AND id = $2 AND deactivated_at IS NULL)",
             )
@@ -943,7 +936,7 @@ async fn create_employee(
             .bind(&request.employee_number).bind(&request.org_unit).bind(&request.position)
             .bind(&request.site).bind(request.home_branch_id)
             .bind(format!("console:{}", request.employee_number))
-            .execute(tx.as_mut()).await?;
+            .execute(tx.as_mut()).await.map_err(employee_create_db_error)?;
             sqlx::query(
                 r#"INSERT INTO employee_employment_profiles (
                     employee_id, org_id, employment_type, phone_e164, base_pay,
@@ -952,7 +945,7 @@ async fn create_employee(
             )
             .bind(employee_id).bind(org_uuid).bind(&request.employment_type).bind(&request.phone_e164)
             .bind(&request.base_pay).bind(&request.idempotency_key).bind(&request_hash).bind(*actor.as_uuid())
-            .execute(tx.as_mut()).await?;
+            .execute(tx.as_mut()).await.map_err(employee_create_db_error)?;
             sqlx::query(
                 r#"INSERT INTO employee_lifecycle_events (
                     id, org_id, employee_id, event_type, to_status, to_company,
@@ -964,12 +957,24 @@ async fn create_employee(
             )
             .bind(Uuid::new_v4()).bind(org_uuid).bind(employee_id).bind(&request.company)
             .bind(&request.org_unit).bind(&request.position).bind(OffsetDateTime::now_utc().date().to_string())
-            .bind(*actor.as_uuid()).execute(tx.as_mut()).await?;
-            load_employee_detail(tx, org_uuid, employee_id).await
+            .bind(*actor.as_uuid()).execute(tx.as_mut()).await.map_err(employee_create_db_error)?;
+            sqlx::query(
+                "UPDATE employee_create_idempotency SET employee_id = $3 WHERE org_id = $1 AND idempotency_key = $2",
+            )
+            .bind(org_uuid).bind(&request.idempotency_key).bind(employee_id)
+            .execute(tx.as_mut()).await?;
+            Ok(((load_employee_detail(tx, org_uuid, employee_id).await?, false), vec![audit]))
         })
     })
     .await?;
-    Ok((StatusCode::CREATED, Json(detail)))
+    Ok((
+        if replayed {
+            StatusCode::OK
+        } else {
+            StatusCode::CREATED
+        },
+        Json(detail),
+    ))
 }
 
 async fn get_employee_detail(
@@ -7479,7 +7484,16 @@ fn normalize_phone_e164(value: String) -> Result<String, HrError> {
         .chars()
         .filter(|c| c.is_ascii_digit() || *c == '+')
         .collect();
-    let phone = if compact.starts_with('+') {
+    let phone = if let Some(local) = compact.strip_prefix("+82") {
+        format!("+82{}", local.strip_prefix('0').unwrap_or(local))
+    } else if let Some(international) = compact.strip_prefix("82") {
+        format!(
+            "+82{}",
+            international.strip_prefix('0').unwrap_or(international)
+        )
+    } else if let Some(local) = compact.strip_prefix('0') {
+        format!("+82{local}")
+    } else if compact.starts_with('+') {
         compact
     } else {
         format!("+{compact}")
@@ -7493,6 +7507,19 @@ fn normalize_phone_e164(value: String) -> Result<String, HrError> {
         return Err(HrError::validation("phone must be an E.164 number"));
     }
     Ok(phone)
+}
+
+fn employee_create_db_error(error: sqlx::Error) -> HrError {
+    if error
+        .as_database_error()
+        .and_then(|database| database.code())
+        .is_some_and(|code| code == "23505")
+    {
+        return HrError::from_kernel(KernelError::conflict(
+            "employee number or idempotency key is already in use",
+        ));
+    }
+    HrError::from(error)
 }
 
 fn normalize_create_employee_request(

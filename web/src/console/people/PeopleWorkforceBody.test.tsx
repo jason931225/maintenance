@@ -7,6 +7,7 @@ const api = { GET: get, POST: post };
 vi.mock("../../context/auth", () => ({ useAuth: () => ({ api }) }));
 
 import { PeopleWorkforceBody } from "./PeopleWorkforceBody";
+import { PEOPLE_WORKFORCE_ROUTE } from ".";
 
 function fillRequiredForm() {
   for (const [label, value] of [["사번", "E-1"], ["성명", "Lee"], ["법인", "KnL"], ["전화번호", "010-1234-5678"], ["조직", "HR"], ["직책", "Manager"], ["근무지", "Seoul"], ["기본급 (KRW)", "1,000,000"]]) {
@@ -28,6 +29,13 @@ describe("PeopleWorkforceBody", () => {
       ? { response: { status: 200 }, data: [{ id: "branch-1", name: "Seoul" }] }
       : { response: { status: 200 }, data: { items: [{ id: "employee-1", name: "Kim", company: "KnL", org_unit: "HR", position: "Manager" }] } }));
     post.mockResolvedValue({ response: { status: 201 }, data: detail });
+  });
+
+  it("publishes the route-ready authorized People screen contract", () => {
+    expect(PEOPLE_WORKFORCE_ROUTE.screen).toBe("people");
+    expect(PEOPLE_WORKFORCE_ROUTE.pathname).toBe("/console/people");
+    expect(PEOPLE_WORKFORCE_ROUTE.authorization.manageFeature).toBe("employee_directory_manage");
+    expect(PEOPLE_WORKFORCE_ROUTE.Component).toBe(PeopleWorkforceBody);
   });
 
   it("normalizes Korean phone and currency input, then renders persisted privileged detail", async () => {

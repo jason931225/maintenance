@@ -76,21 +76,26 @@ export function PeopleWorkforceBody() {
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const idempotencyKey = useRef(crypto.randomUUID());
+  const directoryEpoch = useRef(0);
+  const detailEpoch = useRef(0);
 
   const load = useCallback(async () => {
+    const epoch = ++directoryEpoch.current;
     setLoading(true); setError(undefined); setDenied(false);
     try {
       const [directory, branchResult] = await Promise.all([
         api.GET("/api/v1/employees", { params: { query: { limit: 25, offset: 0, search: query || undefined } } }),
         api.GET("/api/v1/branches"),
       ]);
+      if (epoch !== directoryEpoch.current) return;
       if (directory.response.status === 403 || branchResult.response.status === 403) { setDenied(true); setEmployees([]); setBranches([]); }
       else if (!directory.data || !branchResult.data) setError(errorText(directory.error ?? branchResult.error, "People data could not be loaded."));
       else { setEmployees(directory.data.items as Employee[]); setBranches(branchResult.data as Branch[]); }
     } catch (loadError) {
+      if (epoch !== directoryEpoch.current) return;
       setError(errorText(loadError, "People data could not be loaded."));
     } finally {
-      setLoading(false);
+      if (epoch === directoryEpoch.current) setLoading(false);
     }
   }, [api, query]);
 
@@ -114,15 +119,18 @@ export function PeopleWorkforceBody() {
     }
   };
   const openDetail = async (employee: Employee) => {
+    const epoch = ++detailEpoch.current;
     setOpeningDetail(true); setError(undefined); setNotice(undefined);
     try {
       const response = await api.GET("/api/v1/employees/{id}", { params: { path: { id: employee.id } } });
+      if (epoch !== detailEpoch.current) return;
       if (!response.data) { setError(errorText(response.error, "Employee detail could not be loaded.")); return; }
       setDetail(response.data as EmployeeDetail);
     } catch (detailError) {
+      if (epoch !== detailEpoch.current) return;
       setError(errorText(detailError, "Employee detail could not be loaded."));
     } finally {
-      setOpeningDetail(false);
+      if (epoch === detailEpoch.current) setOpeningDetail(false);
     }
   };
   const suggestions = useMemo(() => ({

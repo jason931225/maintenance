@@ -21,6 +21,24 @@ CREATE UNIQUE INDEX employees_org_employee_number_unique
 CREATE INDEX employee_employment_profiles_org_employee_idx
     ON employee_employment_profiles (org_id, employee_id);
 
+-- Reserving the key before any employee row is written makes same-key retries
+-- serializable: a concurrent caller waits on this row, then replays the one
+-- committed employee instead of racing the employee-number uniqueness rule.
+CREATE TABLE employee_create_idempotency (
+    org_id          UUID NOT NULL REFERENCES organizations(id) ON DELETE RESTRICT,
+    idempotency_key TEXT NOT NULL CHECK (btrim(idempotency_key) <> ''),
+    request_hash    TEXT NOT NULL CHECK (request_hash ~ '^[0-9a-f]{64}$'),
+    employee_id     UUID REFERENCES employees(id) ON DELETE RESTRICT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (org_id, idempotency_key)
+);
+ALTER TABLE employee_create_idempotency ENABLE ROW LEVEL SECURITY;
+ALTER TABLE employee_create_idempotency FORCE ROW LEVEL SECURITY;
+CREATE POLICY org_isolation ON employee_create_idempotency
+    USING (org_id = NULLIF(current_setting('app.current_org', true), '')::uuid)
+    WITH CHECK (org_id = NULLIF(current_setting('app.current_org', true), '')::uuid);
+GRANT SELECT, INSERT, UPDATE ON employee_create_idempotency TO mnt_rt;
+
 ALTER TABLE employee_employment_profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE employee_employment_profiles FORCE ROW LEVEL SECURITY;
 CREATE POLICY org_isolation ON employee_employment_profiles
