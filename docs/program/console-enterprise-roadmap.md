@@ -305,6 +305,40 @@ Rust-backed row remains blocked from completion until its exact targets and
 toolchain are committed and pass. The installed Buck2 binary alone is not
 evidence.
 
+### Buck2 reconstruction plan
+
+The historical `/Users/jasonlee/Developer/maintenance-buck2` worktree is a
+salvage source, not a merge candidate. At the 2026-07-23 checkpoint it is 453
+`origin/main` commits behind and 50 commits ahead, and its Buck2 series is
+interleaved with obsolete product, migration, OpenAPI, mobile, and CI changes.
+It must not be merged or cherry-picked wholesale into the console train.
+
+Reconstruct the Buck2 lane from the exact current integration train in four
+separable strata so module implementation can continue in parallel:
+
+1. Pin the repository toolchain to Meta's 2026-07-15 Buck2 release through its
+   official dotslash manifest; do not rely on the developer's globally
+   installed 2026-06-09 binary.
+2. Port only the reviewed Buck2 configuration, Rust toolchain, Reindeer
+   configuration/fixups, deterministic first-party target generator, and
+   batched test runner. Preserve current product source and resource ownership.
+3. Regenerate third-party and first-party targets from the current
+   `backend/Cargo.toml` workspace and lockfile. Never copy stale generated
+   targets, migrations, OpenAPI files, or product-source workarounds from the
+   historical branch.
+4. Prove the graph progressively: target enumeration, foundational libraries,
+   all non-test backend targets, hermetic Rust tests, PostgreSQL-dependent
+   integration shards, then the composed application. Each stage records exact
+   target sets and a generated-diff check.
+
+CI runs cheap lockfile, generator-drift, target-enumeration, and policy gates
+before expensive compilation. Independent Buck2 target groups execute
+concurrently and remain eligible for remote action cache/execution; database
+tests shard by isolated database fixture rather than sharing mutable state.
+Web, Android, and iOS retain their native build lanes until a separately proven
+Buck2 rule set is faster and behaviorally equivalent. The historical attempted
+web genrule is not accepted as a production build migration.
+
 ## Visual parity gate
 
 Approved composition: dense Korean operations cockpit with compact typography,
