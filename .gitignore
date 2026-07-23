@@ -58,3 +58,8 @@ deploy/talos/_out/
 deploy/talos/**/secrets.yaml
 deploy/talos/**/talosconfig
 *.kubeconfig
+
+# Buck2 local outputs and host-specific linker configuration.
+/buck-out/
+**/buck-out/
+.buckconfig.local
