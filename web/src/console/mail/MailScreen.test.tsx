@@ -422,6 +422,8 @@ describe("MailScreen", () => {
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "메일 폴더 닫기" })).toHaveFocus();
     });
+    screen.getByRole("button", { name: "새로고침", hidden: true }).focus();
+    await waitFor(() => { expect(screen.getByRole("button", { name: "메일 폴더 닫기" })).toHaveFocus(); });
     fireEvent.keyDown(window, { key: "Escape" });
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "메일 폴더 열기" })).toHaveFocus();
@@ -539,6 +541,28 @@ describe("MailScreen", () => {
       expect(screen.getByRole("heading", { name: "답장 작성" })).toBeVisible();
       expect(within(screen.getByRole("form", { name: "메일 작성" })).getByLabelText("본문")).toHaveValue("답장 초안 유지");
     });
+  });
+
+  it("ignores delayed 503 and thrown send failures after a successor draft starts", async () => {
+    const user = userEvent.setup();
+    let resolveFirst: (response: HttpResponse) => void = () => {};
+    const first = new Promise<HttpResponse>((resolve) => { resolveFirst = resolve; });
+    mockMailbox();
+    server.use(http.post("*/api/v1/mail/send", () => first));
+    renderMailScreen();
+    const composer = await screen.findByRole("form", { name: "메일 작성" });
+    await user.type(within(composer).getByLabelText("받는 사람"), "payroll@example.com");
+    await user.type(within(composer).getByLabelText("제목"), "A");
+    await user.type(within(composer).getByLabelText("본문"), "A");
+    await user.click(within(composer).getByRole("button", { name: "메일 보내기" }));
+    await user.click(await screen.findByRole("button", { name: "답장" }));
+    const successor = screen.getByRole("form", { name: "메일 작성" });
+    await waitFor(() => { expect(within(successor).getByLabelText("제목")).toHaveValue("Re: 급여명세서 확인"); });
+    await user.type(within(successor).getByLabelText("본문"), "후속 초안");
+    resolveFirst(new HttpResponse(null, { status: 503 }));
+    await waitFor(() => { expect(within(screen.getByRole("form", { name: "메일 작성" })).getByLabelText("본문")).toHaveValue("후속 초안"); });
+    expect(screen.queryByText("회사 메일함 준비 중")).not.toBeInTheDocument();
+    expect(screen.queryByText("메일을 보내지 못했습니다.")).not.toBeInTheDocument();
   });
 
   it("omits policy-denied affordances and uses stable mail policy action names", async () => {
