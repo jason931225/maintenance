@@ -102,13 +102,15 @@ async fn compliance_catalog_enforces_real_scope_and_audits(pool: PgPool) {
             "citation": "Serious Accidents Punishment Act",
             "impact_area": "safety",
             "impact_summary": "Assign accountable control owners.",
-            "risk_level": "High",
+            "risk_level": "HIGH",
             "metadata": {"source": "integration-test"}
         })),
     )
     .await;
     assert_eq!(regulation.status, StatusCode::OK, "{:?}", regulation.json);
     assert_eq!(regulation.json["created_by"], super_admin.to_string());
+    assert_eq!(regulation.json["risk_level"], "HIGH");
+    assert_eq!(regulation.json["status"], "DRAFT");
     assert_eq!(
         audit_count(&pool, "compliance.regulation_impact.create").await,
         1
@@ -140,6 +142,10 @@ async fn compliance_catalog_enforces_real_scope_and_audits(pool: PgPool) {
     .await;
     assert_eq!(created.status, StatusCode::OK, "{:?}", created.json);
     assert_eq!(created.json["created_by"], admin.to_string());
+    assert_eq!(created.json["obligation_type"], "LEGAL");
+    assert_eq!(created.json["scope"]["kind"], "BRANCH");
+    assert_eq!(created.json["severity"], "HIGH");
+    assert_eq!(created.json["status"], "DRAFT");
     assert_eq!(audit_count(&pool, "compliance.obligation.create").await, 1);
 
     let outside_scope = request(
@@ -163,14 +169,14 @@ fn obligation_body(branch_id: BranchId) -> Value {
     json!({
         "title": "Branch safety inspection",
         "description": "Document the monthly safety control review.",
-        "obligation_type": "Legal",
+        "obligation_type": "LEGAL",
         "scope": {
-            "kind": "Branch",
+            "kind": "BRANCH",
             "scope_ref": branch_id.as_uuid().to_string(),
             "branch_id": branch_id.as_uuid().to_string(),
             "site_id": null
         },
-        "severity": "High",
+        "severity": "HIGH",
         "metadata": {}
     })
 }

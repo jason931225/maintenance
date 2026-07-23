@@ -539,7 +539,7 @@ macro_rules! compliance_enum {
             serde::Serialize, serde::Deserialize,
         )]
         pub enum $name {
-            $($variant,)+
+            $(#[serde(rename = $wire)] $variant,)+
         }
 
         impl $name {
@@ -1113,6 +1113,38 @@ fn validate_transition(
 #[cfg(test)]
 mod compliance_domain_tests {
     use super::*;
+
+    macro_rules! assert_enum_wire {
+        ($($value:path => $wire:literal),+ $(,)?) => {
+            $(
+                assert_eq!(serde_json::to_string(&$value).unwrap(), concat!("\"", $wire, "\""));
+                assert_eq!(serde_json::from_str(&format!("\"{}\"", $wire)).unwrap(), $value);
+            )+
+        };
+    }
+
+    #[test]
+    fn compliance_enums_use_persisted_wire_values_for_json() {
+        assert_enum_wire!(
+            ComplianceRiskLevel::Info => "INFO", ComplianceRiskLevel::Low => "LOW", ComplianceRiskLevel::Medium => "MEDIUM", ComplianceRiskLevel::High => "HIGH", ComplianceRiskLevel::Critical => "CRITICAL",
+            RegulationImpactStatus::Draft => "DRAFT", RegulationImpactStatus::Active => "ACTIVE", RegulationImpactStatus::Superseded => "SUPERSEDED", RegulationImpactStatus::Archived => "ARCHIVED",
+            ObligationType::Legal => "LEGAL", ObligationType::Regulatory => "REGULATORY", ObligationType::Contractual => "CONTRACTUAL", ObligationType::InternalPolicy => "INTERNAL_POLICY", ObligationType::ControlRequirement => "CONTROL_REQUIREMENT",
+            ComplianceScopeKind::Org => "ORG", ComplianceScopeKind::Branch => "BRANCH", ComplianceScopeKind::Site => "SITE", ComplianceScopeKind::Team => "TEAM", ComplianceScopeKind::Role => "ROLE",
+            ObligationStatus::Draft => "DRAFT", ObligationStatus::Active => "ACTIVE", ObligationStatus::Waived => "WAIVED", ObligationStatus::Superseded => "SUPERSEDED", ObligationStatus::Archived => "ARCHIVED",
+            ReviewCadence::Monthly => "MONTHLY", ReviewCadence::Quarterly => "QUARTERLY", ReviewCadence::SemiAnnual => "SEMI_ANNUAL", ReviewCadence::Annual => "ANNUAL", ReviewCadence::EventDriven => "EVENT_DRIVEN",
+            FrameworkKind::LegalBaseline => "LEGAL_BASELINE", FrameworkKind::InternalControl => "INTERNAL_CONTROL", FrameworkKind::CustomerControl => "CUSTOMER_CONTROL", FrameworkKind::SecurityStandard => "SECURITY_STANDARD", FrameworkKind::SafetyStandard => "SAFETY_STANDARD", FrameworkKind::AuditProgram => "AUDIT_PROGRAM",
+            FrameworkStatus::Draft => "DRAFT", FrameworkStatus::Active => "ACTIVE", FrameworkStatus::Retired => "RETIRED", FrameworkStatus::Archived => "ARCHIVED",
+            ControlType::Preventive => "PREVENTIVE", ControlType::Detective => "DETECTIVE", ControlType::Corrective => "CORRECTIVE", ControlType::Directive => "DIRECTIVE", ControlType::Compensating => "COMPENSATING",
+            ControlCadence::Continuous => "CONTINUOUS", ControlCadence::Daily => "DAILY", ControlCadence::Weekly => "WEEKLY", ControlCadence::Monthly => "MONTHLY", ControlCadence::Quarterly => "QUARTERLY", ControlCadence::Annual => "ANNUAL", ControlCadence::EventDriven => "EVENT_DRIVEN",
+            ControlStatus::Draft => "DRAFT", ControlStatus::Active => "ACTIVE", ControlStatus::Retired => "RETIRED", ControlStatus::Archived => "ARCHIVED",
+            ObligationRegulationRelationship::DerivedFrom => "DERIVED_FROM", ObligationRegulationRelationship::AmendedBy => "AMENDED_BY", ObligationRegulationRelationship::SupersededBy => "SUPERSEDED_BY", ObligationRegulationRelationship::Interprets => "INTERPRETS", ObligationRegulationRelationship::Evidences => "EVIDENCES",
+            CoverageLevel::Primary => "PRIMARY", CoverageLevel::Partial => "PARTIAL", CoverageLevel::Supporting => "SUPPORTING", CoverageLevel::Compensating => "COMPENSATING",
+            CoverageStatus::Active => "ACTIVE", CoverageStatus::Retired => "RETIRED",
+            EvidenceTargetType::AuditEvent => "audit_event", EvidenceTargetType::EvidenceMedia => "evidence_media", EvidenceTargetType::WorkflowRun => "workflow_run", EvidenceTargetType::WorkflowTask => "workflow_task", EvidenceTargetType::ObjectLink => "object_link", EvidenceTargetType::GovernanceFinding => "governance_finding", EvidenceTargetType::ExternalDocument => "external_document", EvidenceTargetType::FutureEvObject => "future_ev_object",
+            EvidenceBindingStatus::Proposed => "PROPOSED", EvidenceBindingStatus::Accepted => "ACCEPTED", EvidenceBindingStatus::Rejected => "REJECTED", EvidenceBindingStatus::Expired => "EXPIRED", EvidenceBindingStatus::Retracted => "RETRACTED",
+            EvidenceConfidence::Low => "LOW", EvidenceConfidence::Medium => "MEDIUM", EvidenceConfidence::High => "HIGH", EvidenceConfidence::System => "SYSTEM",
+        );
+    }
 
     #[test]
     fn org_scope_rejects_resource_refs() {
