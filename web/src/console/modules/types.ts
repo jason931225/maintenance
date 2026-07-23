@@ -226,6 +226,9 @@ export interface ModuleRow {
   detail?: Record<string, ModuleDetailValue>;
   linkChips?: ModuleLinkChipValue[];
   actions?: ModuleActionConfig[];
+  /** Authenticated source record retained by the data adapter for detail hydration.
+   * It is never rendered directly; adapters must validate its shape before use. */
+  sourceRecord?: unknown;
   statValues?: Record<string, ModuleStatValue | undefined>;
 }
 

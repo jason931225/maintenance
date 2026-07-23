@@ -6,11 +6,14 @@
 import { readComplianceCatalog, readFrameworkDetail } from "./complianceApi";
 import { catalogStats, COMPLIANCE_ACTIONS, filterRows, toRows } from "./complianceModel";
 import type { ModuleDataAdapter, ModuleScreenConfig } from "../modules/types";
-import type { ComplianceCatalogItem } from "./types";
+import type { ComplianceFramework } from "./types";
 
 const NS = "console.modules.compliance";
 
-let latestCatalog: ComplianceCatalogItem[] = [];
+function isFrameworkCatalogItem(item: unknown): item is ComplianceFramework {
+  return typeof item === "object" && item !== null && (item as { kind?: unknown }).kind === "framework";
+}
+
 
 const complianceDataAdapter: ModuleDataAdapter = {
   async loadRows({ api, query, hasPolicy }) {
@@ -20,7 +23,6 @@ const complianceDataAdapter: ModuleDataAdapter = {
       regulations: hasPolicy(COMPLIANCE_ACTIONS.regulationRead),
       frameworks: hasPolicy(COMPLIANCE_ACTIONS.frameworkRead),
     });
-    latestCatalog = items;
     const rows = filterRows(toRows(items), query);
     const stats = catalogStats(items);
     return {
@@ -30,10 +32,9 @@ const complianceDataAdapter: ModuleDataAdapter = {
     };
   },
   async loadDetail({ api, row }) {
-    const item = latestCatalog.find((catalogItem) => catalogItem.id === row.id);
-    if (!item || item.kind !== "framework") return { row };
+    const item = row.sourceRecord;
+    if (!isFrameworkCatalogItem(item)) return { row };
     const hydrated = await readFrameworkDetail(api, item);
-    latestCatalog = latestCatalog.map((catalogItem) => catalogItem.id === hydrated.id ? hydrated : catalogItem);
     return { row: toRows([hydrated])[0] };
   },
 };

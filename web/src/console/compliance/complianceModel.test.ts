@@ -112,6 +112,23 @@ describe("complianceModel", () => {
       expect(ledger.entries).toHaveLength(1);
       expect(ledger.entries[0]).toMatchObject({ tone: "ok", amount: 1 });
     });
+
+    it("uses the most urgent evidence state regardless of response order", () => {
+      const isms = framework();
+      const mixed = {
+        ...isms,
+        controls: [{
+          ...isms.controls[0],
+          evidenceBindings: [
+            { ...isms.controls[0].evidenceBindings[0], status: "ACCEPTED" as const },
+            { ...isms.controls[0].evidenceBindings[0], id: "rejected", status: "REJECTED" as const },
+          ],
+        }],
+      };
+      const reversed = { ...mixed, controls: [{ ...mixed.controls[0], evidenceBindings: [...mixed.controls[0].evidenceBindings].reverse() }] };
+      expect(controlEvidenceLedger(mixed).entries[0]?.tone).toBe("danger");
+      expect(controlEvidenceLedger(reversed).entries[0]?.tone).toBe("danger");
+    });
   });
 
   describe("filterRows", () => {

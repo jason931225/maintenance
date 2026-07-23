@@ -137,6 +137,23 @@ const EVIDENCE_TONE: Record<string, ModuleChipTone> = {
   RETRACTED: "danger",
 };
 
+const EVIDENCE_TONE_SEVERITY: Record<ModuleChipTone, number> = {
+  neutral: 0,
+  info: 1,
+  ok: 2,
+  warn: 3,
+  danger: 4,
+  accent: 1,
+  purple: 4,
+};
+
+function evidenceToneFor(bindings: ComplianceFramework["controls"][number]["evidenceBindings"]): ModuleChipTone {
+  return bindings.reduce<ModuleChipTone>((current, binding) => {
+    const candidate = EVIDENCE_TONE[binding.status] ?? "neutral";
+    return EVIDENCE_TONE_SEVERITY[candidate] > EVIDENCE_TONE_SEVERITY[current] ? candidate : current;
+  }, "neutral");
+}
+
 /** FW- control→evidence coverage matrix, reusing the ledger detail variant. */
 export function controlEvidenceLedger(framework: ComplianceFramework): ModuleLedgerValue {
   const accepted = framework.controls.filter((control) => control.evidenceBindings.some((binding) => binding.status === "ACCEPTED")).length;
@@ -147,7 +164,7 @@ export function controlEvidenceLedger(framework: ComplianceFramework): ModuleLed
       label: `${control.controlKey} · ${control.title}`,
       amount: control.evidenceBindings.length,
       meta: control.objective,
-      tone: EVIDENCE_TONE[control.evidenceBindings[0]?.status ?? ""] ?? "neutral",
+      tone: evidenceToneFor(control.evidenceBindings),
     })),
   };
 }
@@ -203,6 +220,7 @@ function toRow(item: ComplianceCatalogItem): ModuleRow {
     cells,
     detail,
     linkChips,
+    sourceRecord: item,
   };
 }
 

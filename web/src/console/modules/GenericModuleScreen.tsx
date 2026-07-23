@@ -885,13 +885,10 @@ function moduleRuntimeReducer(
       };
     }
     case "listFailed":
-      return {
-        ...state,
-        selectedRowId: undefined,
-        loadedRows: [],
-        listStats: {},
-        listState: "error",
-      };
+      // A refresh failure does not make the last authenticated, scoped result
+      // untrue. Keep it visible and offer recovery; an initial failure still
+      // has no rows and therefore renders only the error state.
+      return { ...state, listState: "error" };
     case "detailIdle":
       return { ...state, detailStats: {}, detailState: "idle" };
     case "detailLoading":
@@ -1035,6 +1032,10 @@ function GenericModuleScreenBody({
       active = false;
     };
   }, [api, gate.can, loadRows, query, refreshToken]);
+
+  const retryList = useCallback(() => {
+    setRefreshToken((token) => token + 1);
+  }, []);
 
   const selectedRow = rows.find((row) => row.id === runtime.selectedRowId) ?? rows.at(0);
 
@@ -1255,7 +1256,12 @@ function GenericModuleScreenBody({
               <StatusChip role="status" tone="info">{T.loading}</StatusChip>
             ) : null}
             {runtime.listState === "error" ? (
-              <StatusChip role="alert" tone="danger">{T.loadFailed}</StatusChip>
+              <div role="alert" style={chipRowStyle}>
+                <StatusChip tone="danger">{T.loadFailed}</StatusChip>
+                <button type="button" onClick={retryList} style={ghostButtonStyle}>
+                  {ko.page.retry}
+                </button>
+              </div>
             ) : null}
           </section>
 
@@ -1298,7 +1304,12 @@ function GenericModuleScreenBody({
                   <StatusChip role="status" tone="info">{T.loading}</StatusChip>
                 ) : null}
                 {runtime.detailState === "error" ? (
-                  <StatusChip role="alert" tone="danger">{T.loadFailed}</StatusChip>
+                  <div role="alert" style={chipRowStyle}>
+                    <StatusChip tone="danger">{T.loadFailed}</StatusChip>
+                    <button type="button" onClick={retryList} style={ghostButtonStyle}>
+                      {ko.page.retry}
+                    </button>
+                  </div>
                 ) : null}
                 {selectedRow.linkChips && selectedRow.linkChips.length > 0 ? (
                   <span style={chipRowStyle}>

@@ -33,7 +33,7 @@ export interface ComplianceObligation {
   description: string;
   obligationType: ObligationType;
   scopeKind: ComplianceScopeKind;
-  scope: { scope_type: ComplianceScopeKind; scope_ref: string | null; branch_id: string | null; site_id: string | null };
+  scope: { kind: ComplianceScopeKind; scopeRef?: string; branchId?: string; siteId?: string };
   ownerName?: string;
   ownerUserId?: string;
   severity: ComplianceRiskLevel;
