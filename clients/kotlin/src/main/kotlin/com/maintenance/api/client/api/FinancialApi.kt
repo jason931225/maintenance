@@ -42,7 +42,9 @@ import com.maintenance.api.client.model.PurchaseAttachmentPresignRequest
 import com.maintenance.api.client.model.PurchaseAttachmentPresignResponse
 import com.maintenance.api.client.model.PurchaseAttachmentUploadRecord
 import com.maintenance.api.client.model.PurchaseFeaturePreferences
+import com.maintenance.api.client.model.PurchaseRequestPage
 import com.maintenance.api.client.model.PurchaseRequestSummary
+import com.maintenance.api.client.model.PurchaseStatus
 import com.maintenance.api.client.model.RejectPurchaseRequest
 import com.maintenance.api.client.model.RentalQuoteSummary
 import com.maintenance.api.client.model.RestartPurchaseRequest
@@ -1110,6 +1112,100 @@ open class FinancialApi(basePath: kotlin.String = defaultBasePath, client: Call.
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/v1/financial/equipment/{equipmentId}/cost-ledger".replace("{"+"equipmentId"+"}", encodeURIComponent(equipmentId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/financial/purchase-requests
+     * List a branch-scoped purchase-request queue
+     * Returns only purchase requests visible to the caller in the required branch. Repeat the plain &#x60;status&#x60; query key to filter lifecycle states; &#x60;status[]&#x60;, comma-delimited values, unknown keys, and malformed values are rejected. The response is an offset page with required metadata.
+     * @param branchId Branch whose purchase-request queue is requested.
+     * @param status Repeat this plain key to filter one or more lifecycle states. (optional)
+     * @param limit Page size; defaults to 25 and must be between 1 and 100. (optional, default to 25L)
+     * @param offset Zero-based offset; defaults to 0. (optional, default to 0L)
+     * @return PurchaseRequestPage
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listPurchaseRequests(branchId: java.util.UUID, status: kotlin.collections.List<PurchaseStatus>? = null, limit: kotlin.Long? = 25L, offset: kotlin.Long? = 0L) : PurchaseRequestPage = withContext(Dispatchers.IO) {
+        val localVarResponse = listPurchaseRequestsWithHttpInfo(branchId = branchId, status = status, limit = limit, offset = offset)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as PurchaseRequestPage
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/financial/purchase-requests
+     * List a branch-scoped purchase-request queue
+     * Returns only purchase requests visible to the caller in the required branch. Repeat the plain &#x60;status&#x60; query key to filter lifecycle states; &#x60;status[]&#x60;, comma-delimited values, unknown keys, and malformed values are rejected. The response is an offset page with required metadata.
+     * @param branchId Branch whose purchase-request queue is requested.
+     * @param status Repeat this plain key to filter one or more lifecycle states. (optional)
+     * @param limit Page size; defaults to 25 and must be between 1 and 100. (optional, default to 25L)
+     * @param offset Zero-based offset; defaults to 0. (optional, default to 0L)
+     * @return ApiResponse<PurchaseRequestPage?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listPurchaseRequestsWithHttpInfo(branchId: java.util.UUID, status: kotlin.collections.List<PurchaseStatus>?, limit: kotlin.Long?, offset: kotlin.Long?) : ApiResponse<PurchaseRequestPage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listPurchaseRequestsRequestConfig(branchId = branchId, status = status, limit = limit, offset = offset)
+
+        return@withContext request<Unit, PurchaseRequestPage>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listPurchaseRequests
+     *
+     * @param branchId Branch whose purchase-request queue is requested.
+     * @param status Repeat this plain key to filter one or more lifecycle states. (optional)
+     * @param limit Page size; defaults to 25 and must be between 1 and 100. (optional, default to 25L)
+     * @param offset Zero-based offset; defaults to 0. (optional, default to 0L)
+     * @return RequestConfig
+     */
+    fun listPurchaseRequestsRequestConfig(branchId: java.util.UUID, status: kotlin.collections.List<PurchaseStatus>?, limit: kotlin.Long?, offset: kotlin.Long?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                put("branch_id", listOf(branchId.toString()))
+                if (status != null) {
+                    put("status", toMultiValue(status.toList(), "multi"))
+                }
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+                if (offset != null) {
+                    put("offset", listOf(offset.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/financial/purchase-requests",
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

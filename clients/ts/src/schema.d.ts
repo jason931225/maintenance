@@ -2916,7 +2916,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * List a branch-scoped purchase-request queue
+         * @description Returns only purchase requests visible to the caller in the required branch. Repeat the plain `status` query key to filter lifecycle states; `status[]`, comma-delimited values, unknown keys, and malformed values are rejected. The response is an offset page with required metadata.
+         */
+        get: operations["listPurchaseRequests"];
         put?: never;
         /** Attach a 거래명세표 evidence record and open a purchase request */
         post: operations["createPurchaseRequest"];
@@ -10744,6 +10748,16 @@ export interface components {
             created_at: components["schemas"]["Timestamp"];
             updated_at: components["schemas"]["Timestamp"];
         };
+        /** @description Stable offset page for the branch-scoped purchase-request queue. */
+        PurchaseRequestPage: {
+            items: components["schemas"]["PurchaseRequestSummary"][];
+            /** Format: int64 */
+            limit: number;
+            /** Format: int64 */
+            offset: number;
+            /** Format: int64 */
+            total: number;
+        };
         /** @description Fresh passkey step-up evidence required before sensitive financial state transitions. */
         FinancialStepUpRequest: {
             step_up: components["schemas"]["PasskeyStepUpAssertion"];
@@ -16714,6 +16728,47 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    listPurchaseRequests: {
+        parameters: {
+            query: {
+                /** @description Branch whose purchase-request queue is requested. */
+                branch_id: components["schemas"]["Uuid"];
+                /** @description Repeat this plain key to filter one or more lifecycle states. */
+                status?: components["schemas"]["PurchaseStatus"][];
+                /** @description Page size; defaults to 25 and must be between 1 and 100. */
+                limit?: number;
+                /** @description Zero-based offset; defaults to 0. */
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Branch-scoped purchase-request page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["PurchaseRequestPage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            /** @description An unexpected persistence or infrastructure error occurred. */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
+            };
         };
     };
     createPurchaseRequest: {

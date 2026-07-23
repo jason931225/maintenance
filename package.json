@@ -17,7 +17,7 @@
     "gen:api:portable": "npm run gen:api:ts && npm run gen:api:kotlin",
     "gen:api": "npm run gen:api:portable && npm run gen:api:swift",
     "check:ts": "tsc -p tsconfig.json",
-    "test:api-client-contract:ts": "tsx --test clients/ts/test/leave-request-view.contract.test.ts",
+    "test:api-client-contract:ts": "tsx --test clients/ts/test/leave-request-view.contract.test.ts clients/ts/test/purchase-request-page.contract.test.ts",
     "check:kotlin": "node scripts/run-kotlin-build.mjs",
     "check:swift": "swift build --package-path clients/swift",
     "test:api-client-contract:swift": "swift run --package-path clients/swift MaintenanceAPIClientContractTests",
