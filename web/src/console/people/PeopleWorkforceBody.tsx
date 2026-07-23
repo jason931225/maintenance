@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent } from "react";
 
 import { useAuth } from "../../context/auth";
 
@@ -33,8 +33,8 @@ function errorText(error: unknown, fallback: string): string {
 function normalizePhoneInput(value: string): string {
   const compact = value.trim().replace(/[^+\d]/g, "");
   if (!compact) return "";
-  if (compact.startsWith("+82")) return compact;
-  if (compact.startsWith("82")) return `+${compact}`;
+  if (compact.startsWith("+82")) return `+82${compact.slice(3).replace(/^0/, "")}`;
+  if (compact.startsWith("82")) return `+82${compact.slice(2).replace(/^0/, "")}`;
   if (compact.startsWith("0")) return `+82${compact.slice(1)}`;
   return compact.startsWith("+") ? compact : `+${compact}`;
 }
@@ -63,7 +63,8 @@ function directEntrySuggestions(employees: readonly Employee[], key: "company" |
  * use the ordinary list contract; compensation is only read from the privileged
  * detail response and is never fabricated in client state. */
 export function PeopleWorkforceBody() {
-  const { api } = useAuth();
+  const { api, session } = useAuth();
+  const authorityKey = [session?.org_id, session?.user_id, session?.access_token, session?.client_session_incarnation].join(":");
   const [form, setForm] = useState<Form>(initialForm);
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [branches, setBranches] = useState<Branch[]>([]);
@@ -76,6 +77,7 @@ export function PeopleWorkforceBody() {
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const idempotencyKey = useRef(crypto.randomUUID());
+  const authorityEpoch = useRef(0);
   const directoryEpoch = useRef(0);
   const detailEpoch = useRef(0);
 
@@ -89,46 +91,62 @@ export function PeopleWorkforceBody() {
       ]);
       if (epoch !== directoryEpoch.current) return;
       if (directory.response.status === 403 || branchResult.response.status === 403) { setDenied(true); setEmployees([]); setBranches([]); }
-      else if (!directory.data || !branchResult.data) setError(errorText(directory.error ?? branchResult.error, "People data could not be loaded."));
+      else if (!directory.data || !branchResult.data) setError(errorText(directory.error ?? branchResult.error, "인사 데이터를 불러올 수 없습니다."));
       else { setEmployees(directory.data.items as Employee[]); setBranches(branchResult.data as Branch[]); }
     } catch (loadError) {
       if (epoch !== directoryEpoch.current) return;
-      setError(errorText(loadError, "People data could not be loaded."));
+      setError(errorText(loadError, "인사 데이터를 불러올 수 없습니다."));
     } finally {
       if (epoch === directoryEpoch.current) setLoading(false);
     }
-  }, [api, query]);
+  }, [api, authorityKey, query]);
 
-  useEffect(() => { void load(); }, [load]);
+  useLayoutEffect(() => {
+    authorityEpoch.current += 1;
+    directoryEpoch.current += 1;
+    detailEpoch.current += 1;
+    setDetail(undefined);
+    setEmployees([]);
+    setBranches([]);
+    setError(undefined);
+    setNotice(undefined);
+  }, [authorityKey]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
   const update = (key: keyof Form, value: string) => setForm((current) => ({ ...current, [key]: value } as Form));
   const submit = async (event: FormEvent) => {
-    event.preventDefault(); setSubmitting(true); setError(undefined); setNotice(undefined);
+    event.preventDefault();
+    const epoch = authorityEpoch.current;
+    setSubmitting(true); setError(undefined); setNotice(undefined);
     const body = { ...form, phone: normalizePhoneInput(form.phone), base_pay: canonicalPay(form.base_pay), idempotency_key: idempotencyKey.current };
     try {
       const response = await api.POST("/api/v1/employees", { body });
-      if (!response.data) { setError(errorText(response.error, "Employee could not be created. Your entries were kept for retry.")); return; }
+      if (epoch !== authorityEpoch.current) return;
+      if (!response.data) { setError(errorText(response.error, "직원을 등록할 수 없습니다. 입력 내용은 재시도를 위해 유지됩니다.")); return; }
       setDetail(response.data as EmployeeDetail);
-      setNotice(`${response.data.employee.name} was saved.`);
+      setNotice(`${response.data.employee.name} 직원 정보를 저장했습니다.`);
       setForm(initialForm);
       idempotencyKey.current = crypto.randomUUID();
       await load();
     } catch (submitError) {
-      setError(errorText(submitError, "Employee could not be created. Your entries were kept for retry."));
+      if (epoch === authorityEpoch.current) setError(errorText(submitError, "직원을 등록할 수 없습니다. 입력 내용은 재시도를 위해 유지됩니다."));
     } finally {
-      setSubmitting(false);
+      if (epoch === authorityEpoch.current) setSubmitting(false);
     }
   };
   const openDetail = async (employee: Employee) => {
     const epoch = ++detailEpoch.current;
-    setOpeningDetail(true); setError(undefined); setNotice(undefined);
+    setDetail(undefined); setOpeningDetail(true); setError(undefined); setNotice(undefined);
     try {
       const response = await api.GET("/api/v1/employees/{id}", { params: { path: { id: employee.id } } });
       if (epoch !== detailEpoch.current) return;
-      if (!response.data) { setError(errorText(response.error, "Employee detail could not be loaded.")); return; }
+      if (!response.data) { setError(errorText(response.error, "직원 상세 정보를 불러올 수 없습니다.")); return; }
       setDetail(response.data as EmployeeDetail);
     } catch (detailError) {
       if (epoch !== detailEpoch.current) return;
-      setError(errorText(detailError, "Employee detail could not be loaded."));
+      setError(errorText(detailError, "직원 상세 정보를 불러올 수 없습니다."));
     } finally {
       if (epoch === detailEpoch.current) setOpeningDetail(false);
     }

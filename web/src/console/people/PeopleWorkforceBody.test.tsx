@@ -4,7 +4,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const get = vi.fn();
 const post = vi.fn();
 const api = { GET: get, POST: post };
-vi.mock("../../context/auth", () => ({ useAuth: () => ({ api }) }));
+let session = { org_id: "org-1", user_id: "user-1", access_token: "token-1", client_session_incarnation: 1 };
+vi.mock("../../context/auth", () => ({ useAuth: () => ({ api, session }) }));
 
 import { PeopleWorkforceBody } from "./PeopleWorkforceBody";
 import { PEOPLE_WORKFORCE_ROUTE } from ".";
@@ -23,6 +24,7 @@ const detail = {
 
 describe("PeopleWorkforceBody", () => {
   beforeEach(() => {
+    session = { org_id: "org-1", user_id: "user-1", access_token: "token-1", client_session_incarnation: 1 };
     get.mockReset();
     post.mockReset();
     get.mockImplementation((path: string) => Promise.resolve(path === "/api/v1/branches"
@@ -38,10 +40,11 @@ describe("PeopleWorkforceBody", () => {
     expect(PEOPLE_WORKFORCE_ROUTE.Component).toBe(PeopleWorkforceBody);
   });
 
-  it("normalizes Korean phone and currency input, then renders persisted privileged detail", async () => {
+  it("normalizes Korean +82 optional trunk zero and currency input, then renders persisted privileged detail", async () => {
     render(<PeopleWorkforceBody />);
     await screen.findByText("Kim");
     fillRequiredForm();
+    fireEvent.change(screen.getByLabelText("전화번호"), { target: { value: "+82010-1234-5678" } });
     fireEvent.click(screen.getByRole("button", { name: "직원 등록" }));
 
     await screen.findByRole("heading", { name: "직원 상세" });
@@ -76,5 +79,17 @@ describe("PeopleWorkforceBody", () => {
     fireEvent.click(screen.getByRole("button", { name: /Kim/ }));
     await screen.findByText("+821012345678");
     expect(get).toHaveBeenCalledWith("/api/v1/employees/{id}", expect.anything());
+  });
+
+  it("clears privileged detail synchronously when the authority context changes", async () => {
+    const { rerender } = render(<PeopleWorkforceBody />);
+    await screen.findByText("Kim");
+    fillRequiredForm();
+    fireEvent.click(screen.getByRole("button", { name: "직원 등록" }));
+    await screen.findByText("+821012345678");
+
+    session = { ...session, access_token: "token-2", client_session_incarnation: 2 };
+    rerender(<PeopleWorkforceBody />);
+    expect(screen.queryByText("+821012345678")).not.toBeInTheDocument();
   });
 });
