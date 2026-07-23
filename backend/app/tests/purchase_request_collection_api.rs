@@ -91,6 +91,96 @@ async fn purchase_request_collection_is_branch_scoped_requester_safe_and_tenant_
     )
     .await;
 
+    // Seed lines out of order and attachment states at distinct timestamps so
+    // the assembled collection proves its batch hydration contracts.
+    seed_purchase_line(&owner_pool, org_a, own_id, 2, "Own replacement filter", 12).await;
+    seed_purchase_line(&owner_pool, org_a, own_id, 1, "Own pump assembly", 11).await;
+    seed_purchase_line(
+        &owner_pool,
+        org_a,
+        submitted_id,
+        2,
+        "Submitted safety valve",
+        22,
+    )
+    .await;
+    seed_purchase_line(
+        &owner_pool,
+        org_a,
+        submitted_id,
+        1,
+        "Submitted control panel",
+        21,
+    )
+    .await;
+
+    seed_purchase_attachment(
+        &owner_pool,
+        org_a,
+        branch_a,
+        requester,
+        own_id,
+        "own-confirmed-old.pdf",
+        "CONFIRMED",
+        31,
+    )
+    .await;
+    seed_purchase_attachment(
+        &owner_pool,
+        org_a,
+        branch_a,
+        requester,
+        own_id,
+        "own-confirmed-new.pdf",
+        "CONFIRMED",
+        32,
+    )
+    .await;
+    seed_purchase_attachment(
+        &owner_pool,
+        org_a,
+        branch_a,
+        requester,
+        own_id,
+        "own-pending.pdf",
+        "PENDING",
+        33,
+    )
+    .await;
+    seed_purchase_attachment(
+        &owner_pool,
+        org_a,
+        branch_a,
+        other_requester,
+        submitted_id,
+        "submitted-confirmed-old.pdf",
+        "CONFIRMED",
+        41,
+    )
+    .await;
+    seed_purchase_attachment(
+        &owner_pool,
+        org_a,
+        branch_a,
+        other_requester,
+        submitted_id,
+        "submitted-confirmed-new.pdf",
+        "CONFIRMED",
+        42,
+    )
+    .await;
+    seed_purchase_attachment(
+        &owner_pool,
+        org_a,
+        branch_a,
+        other_requester,
+        submitted_id,
+        "submitted-pending.pdf",
+        "PENDING",
+        43,
+    )
+    .await;
+
     let requester_token = issue_token(
         private_pem.as_bytes(),
         public_pem.as_bytes(),
@@ -142,6 +232,13 @@ async fn purchase_request_collection_is_branch_scoped_requester_safe_and_tenant_
         requester_page["items"][0]["requester"]["display_name"],
         "Requester"
     );
+    assert_purchase_item_hydration(
+        &requester_page["items"][0],
+        own_id,
+        &["Own pump assembly", "Own replacement filter"],
+        &["own-confirmed-new.pdf", "own-confirmed-old.pdf"],
+        "own-pending.pdf",
+    );
 
     let status_filtered = get(
         service.clone(),
@@ -163,7 +260,24 @@ async fn purchase_request_collection_is_branch_scoped_requester_safe_and_tenant_
     )
     .await;
     assert_eq!(repeated_statuses.status(), StatusCode::OK);
-    assert_eq!(body_json(repeated_statuses).await["total"], 2);
+    let repeated_statuses = body_json(repeated_statuses).await;
+    assert_eq!(repeated_statuses["total"], 2);
+    let repeated_items = repeated_statuses["items"].as_array().unwrap();
+    assert_eq!(repeated_items.len(), 2);
+    assert_purchase_item_hydration(
+        purchase_item(&repeated_statuses, own_id),
+        own_id,
+        &["Own pump assembly", "Own replacement filter"],
+        &["own-confirmed-new.pdf", "own-confirmed-old.pdf"],
+        "own-pending.pdf",
+    );
+    assert_purchase_item_hydration(
+        purchase_item(&repeated_statuses, submitted_id),
+        submitted_id,
+        &["Submitted control panel", "Submitted safety valve"],
+        &["submitted-confirmed-new.pdf", "submitted-confirmed-old.pdf"],
+        "submitted-pending.pdf",
+    );
 
     let first = get(
         service.clone(),
@@ -254,6 +368,61 @@ async fn purchase_request_collection_is_branch_scoped_requester_safe_and_tenant_
         let response = get(service.clone(), &malformed, &reader_token).await;
         assert_error(response, StatusCode::UNPROCESSABLE_ENTITY, "validation").await;
     }
+}
+
+fn purchase_item(page: &Value, id: uuid::Uuid) -> &Value {
+    page["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["id"] == id.to_string())
+        .unwrap()
+}
+
+fn assert_purchase_item_hydration(
+    item: &Value,
+    purchase_id: uuid::Uuid,
+    expected_line_items: &[&str],
+    expected_attachment_names: &[&str],
+    excluded_attachment_name: &str,
+) {
+    let lines = item["lines"].as_array().unwrap();
+    assert_eq!(lines.len(), expected_line_items.len());
+    assert_eq!(
+        lines
+            .iter()
+            .map(|line| line["line_no"].as_i64().unwrap())
+            .collect::<Vec<_>>(),
+        (1..=expected_line_items.len() as i64).collect::<Vec<_>>()
+    );
+    assert_eq!(
+        lines
+            .iter()
+            .map(|line| line["item"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        expected_line_items
+    );
+
+    let attachments = item["quote_attachments"].as_array().unwrap();
+    assert_eq!(attachments.len(), expected_attachment_names.len());
+    assert_eq!(
+        attachments
+            .iter()
+            .map(|attachment| attachment["file_name"].as_str().unwrap())
+            .collect::<Vec<_>>(),
+        expected_attachment_names
+    );
+    assert!(attachments.iter().all(|attachment| {
+        attachment["download_url"]
+            .as_str()
+            .unwrap()
+            .contains(&format!("/purchase-requests/{purchase_id}/attachments/"))
+    }));
+    assert!(
+        attachments
+            .iter()
+            .all(|attachment| attachment["file_name"] != excluded_attachment_name)
+    );
 }
 
 async fn get(service: axum::Router, uri: &str, token: &str) -> axum::response::Response {
@@ -365,6 +534,66 @@ async fn seed_purchase(
     .fetch_one(pool)
     .await
     .unwrap()
+}
+
+async fn seed_purchase_line(
+    pool: &PgPool,
+    org: OrgId,
+    purchase_request_id: uuid::Uuid,
+    line_no: i32,
+    item: &str,
+    sequence: i64,
+) {
+    sqlx::query(
+        r#"
+        INSERT INTO financial_purchase_request_lines (
+            purchase_request_id, line_no, item, quantity, unit_supply_price_won,
+            vat_won, vat_overridden, line_total_won, org_id
+        ) VALUES ($1, $2, $3, 1, $4, 0, false, $4, $5)
+        "#,
+    )
+    .bind(purchase_request_id)
+    .bind(line_no)
+    .bind(item)
+    .bind(sequence * 1_000)
+    .bind(*org.as_uuid())
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+async fn seed_purchase_attachment(
+    pool: &PgPool,
+    org: OrgId,
+    branch: BranchId,
+    uploaded_by: UserId,
+    purchase_request_id: uuid::Uuid,
+    file_name: &str,
+    upload_state: &str,
+    sequence: i64,
+) {
+    sqlx::query(
+        r#"
+        INSERT INTO financial_purchase_attachments (
+            branch_id, purchase_request_id, uploaded_by, role, file_name,
+            content_type, size_bytes, s3_bucket, s3_key, upload_state, created_at, org_id
+        ) VALUES (
+            $1, $2, $3, 'QUOTE', $4, 'application/pdf', 1024, 'collection-fixtures',
+            $5, $6, now() + ($7 * interval '1 second'), $8
+        )
+        "#,
+    )
+    .bind(*branch.as_uuid())
+    .bind(purchase_request_id)
+    .bind(*uploaded_by.as_uuid())
+    .bind(file_name)
+    .bind(format!("collection/{purchase_request_id}/{file_name}"))
+    .bind(upload_state)
+    .bind(sequence)
+    .bind(*org.as_uuid())
+    .execute(pool)
+    .await
+    .unwrap();
 }
 
 async fn mnt_rt_pool(owner_pool: &PgPool) -> PgPool {
