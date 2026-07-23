@@ -229,6 +229,54 @@ describe("ConsoleShell chrome", () => {
     });
   });
 
+  it("closes the mobile comms drawer before promoting a rail row into the main route", async () => {
+    stubViewport(390);
+    server.use(
+      http.get("*/api/v1/me/notifications", () =>
+        HttpResponse.json({
+          items: [
+            {
+              id: "mention-mobile",
+              recipient_user_id: "u1",
+              category: "메신저",
+              kind: "mention",
+              text: "모바일 배차 관제 멘션",
+              link: { type: "object", kind: "messenger_thread", id: "thread-mobile" },
+              unread: true,
+              created_at: "2026-07-03T08:50:00Z",
+              read_at: null,
+              resolved_at: null,
+            },
+          ],
+        }),
+      ),
+      http.get("*/api/v1/mail/threads", () => HttpResponse.json([])),
+    );
+    renderConsole(ADMIN, ["/console/audit"]);
+
+    await userEvent.click(screen.getByRole("button", { name: "커뮤니케이션 열기" }));
+    const drawer = screen.getByRole("dialog", { name: "커뮤니케이션" });
+    expect(document.body.style.overflow).toBe("hidden");
+    expect(document.querySelector("main")).toHaveAttribute("inert");
+
+    await userEvent.click(
+      await within(drawer).findByRole("button", { name: "모바일 배차 관제 멘션" }),
+    );
+
+    await waitFor(() => {
+      expect(document.querySelector("[data-router-location]")).toHaveTextContent(
+        "/console/messenger?thread=thread-mobile",
+      );
+    });
+    expect(screen.queryByRole("dialog", { name: "커뮤니케이션" })).not.toBeInTheDocument();
+    expect(document.querySelector("[data-cshell-drawer-backdrop]")).not.toBeInTheDocument();
+    expect(document.querySelector("main")).not.toHaveAttribute("inert");
+    expect(document.querySelector("main")).not.toHaveAttribute("aria-hidden");
+    expect(document.body.style.overflow).toBe("");
+    expect(screen.getByLabelText("화면 본문")).not.toHaveAttribute("aria-hidden");
+    expect(document.querySelector("main")).toHaveFocus();
+  });
+
   it("nav clicks switch the active screen (aria-current)", () => {
     renderConsole(ADMIN);
     const overview = screen.getByRole("button", { name: "통합 개요" });

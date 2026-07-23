@@ -120,7 +120,9 @@ export function ConsoleShell({
   const activeDrawer = mobile ? drawer : null;
   const sidebarRef = useRef<HTMLDivElement>(null);
   const railRef = useRef<HTMLElement>(null);
+  const mainRef = useRef<HTMLElement>(null);
   const drawerReturnRef = useRef<HTMLElement | null>(null);
+  const focusMainAfterDrawerCloseRef = useRef(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const paletteInputRef = useRef<HTMLInputElement>(null);
 
@@ -133,7 +135,8 @@ export function ConsoleShell({
     setPaletteOpen(false);
     setDrawer(next);
   }, []);
-  const closeDrawer = useCallback(() => {
+  const closeDrawer = useCallback((restoreFocus = true) => {
+    if (!restoreFocus) drawerReturnRef.current = null;
     setDrawer(null);
   }, []);
 
@@ -189,6 +192,12 @@ export function ConsoleShell({
       : defaultScreen(grants, screenKeys);
   const ScreenBody = activeScreen ? SCREEN_REGISTRY[activeScreen] : undefined;
   const communicationScreen = activeScreen ? isCommunicationScreen(activeScreen) : false;
+
+  useEffect(() => {
+    if (!focusMainAfterDrawerCloseRef.current || activeDrawer) return;
+    focusMainAfterDrawerCloseRef.current = false;
+    mainRef.current?.focus();
+  }, [activeDrawer, activeScreen]);
 
   // Canonicalize bare, invalid, unshipped, and unauthorized destinations. A
   // replacement avoids trapping Back on a location the user cannot render.
@@ -291,7 +300,7 @@ export function ConsoleShell({
           type="button"
           aria-label={S.drawer.close}
           data-cshell-drawer-backdrop
-          onClick={closeDrawer}
+          onClick={() => closeDrawer()}
         />
       )}
       <Sidebar
@@ -320,6 +329,8 @@ export function ConsoleShell({
       />
 
       <main
+        ref={mainRef}
+        tabIndex={-1}
         inert={activeDrawer ? true : undefined}
         aria-hidden={activeDrawer ? "true" : undefined}
         style={{
@@ -459,6 +470,10 @@ export function ConsoleShell({
               <CommsRailPanel
                 accessToken={session?.access_token}
                 onOpenMessengerThread={(threadId) => {
+                  if (activeDrawer) {
+                    focusMainAfterDrawerCloseRef.current = true;
+                    closeDrawer(false);
+                  }
                   void navigate({
                     pathname: consoleScreenPath("messenger"),
                     search: `?thread=${encodeURIComponent(threadId)}`,
