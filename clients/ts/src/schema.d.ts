@@ -7278,28 +7278,6 @@ export interface components {
             conditions: components["schemas"]["BenefitCatalogCondition"][];
             lifecycle: components["schemas"]["BenefitCatalogLifecycleBinding"];
         };
-        /** @description A self-service leave-request filing. The subject employee and branch are NOT accepted here — they are resolved from the authenticated caller. */
-        LeaveCreateRequest: {
-            /**
-             * Format: uuid
-             * @description Stable client submission id. Reuse it only to retry the same canonical client intent after an unknown or lost response.
-             */
-            idempotency_key: string;
-            /**
-             * @description Full-day or partial-day intent; quantity is resolved only from evidence.
-             * @enum {string}
-             */
-            leave_type: "annual" | "half_day";
-            /**
-             * @description Required exactly when leave_type is half_day.
-             * @enum {string|null}
-             */
-            partial_day_period?: "am" | "pm" | null;
-            /**
-             * Format: date
-             * @description YYYY-MM-DD. A half-day request must use the same start and end date.
-             */
-            start_date: string;
         /** @enum {string} */
         ComplianceRiskLevel: "INFO" | "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
         /** @enum {string} */
