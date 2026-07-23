@@ -78,7 +78,7 @@ export interface WorkflowDecisionResult {
   nextTask?: unknown;
 }
 
-/** Server-owned task fields. Eligibility is deliberately derived only from these fields. */
+/** Server-owned fields returned only by the canonical bulk-approval endpoint. */
 export interface WorkflowBulkDecisionCapability {
   decidable: boolean;
   reason?: string;
@@ -90,21 +90,16 @@ export interface WorkflowWaitingTask {
   waiting_key: string;
   title: string;
   assignee_role_key?: string;
-  required_policy?: string;
-  object_type?: string;
-  object_id?: string;
   status: string;
   claimed_by?: string;
   due_at?: string;
-  form_payload: Record<string, unknown>;
-  bulk_decision?: WorkflowBulkDecisionCapability;
+  bulk_decision: WorkflowBulkDecisionCapability;
 }
 
 export interface WorkflowWaitingTaskPage {
   items: WorkflowWaitingTask[];
-  total: number;
-  limit: number;
-  offset: number;
+  has_more: boolean;
+  next_cursor?: string;
 }
 
 export interface ApprWorkflowApi {
@@ -112,7 +107,7 @@ export interface ApprWorkflowApi {
   searchObjects(query: string): Promise<ObjectLinkRef[]>;
   resolveObject(kind: string, id: string): Promise<ObjectLinkRef | undefined>;
   submitDraft(draft: ApprComposeDraft, options?: { idempotencyKey?: string; correlationId?: string }): Promise<SubmittedComposeRun>;
-  listWaitingTasks(options?: { limit?: number; offset?: number }): Promise<WorkflowWaitingTaskPage>;
+  listWaitingTasks(options?: { limit?: number; cursor?: string }): Promise<WorkflowWaitingTaskPage>;
   decideTask(taskId: string, decision: WorkflowDecision, options?: { comment?: string; idempotencyKey?: string; signal?: AbortSignal }): Promise<WorkflowDecisionResult>;
   finalizeTask(taskId: string, mode: "author" | "delegate", options?: { reason?: string; idempotencyKey?: string }): Promise<CompletionResult>;
   postFinalizationReject(runId: string, reason: string, options?: { idempotencyKey?: string }): Promise<CompletionResult>;
@@ -202,16 +197,11 @@ export function createApprWorkflowApi(options: ApprWorkflowApiOptions = {}): App
 
     async listWaitingTasks(listOptions) {
       const limit = Math.min(Math.max(listOptions?.limit ?? 50, 1), 200);
-      const offset = Math.max(listOptions?.offset ?? 0, 0);
-      const response = await getJson<Partial<WorkflowWaitingTaskPage>>(
-        `/api/v1/workflow-tasks?assignee=me&status=OPEN,CLAIMED&bulk_decision_only=true&limit=${String(limit)}&offset=${String(offset)}`,
+      const cursor = listOptions?.cursor ? `&cursor=${encodeURIComponent(listOptions.cursor)}` : "";
+      const response = await getJson<WorkflowWaitingTaskPage>(
+        `/api/v1/approval-inbox/bulk-tasks?limit=${String(limit)}${cursor}`,
       );
-      return {
-        items: response.items ?? [],
-        total: response.total ?? 0,
-        limit: response.limit ?? limit,
-        offset: response.offset ?? offset,
-      };
+      return response;
     },
 
     async decideTask(taskId, decision, decideOptions) {

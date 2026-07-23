@@ -13,9 +13,9 @@ const TASK_THREE = "20000000-0000-4000-8000-000000000003";
 
 const server = setupServer();
 
-beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
-afterEach(() => server.resetHandlers());
-afterAll(() => server.close());
+beforeAll(() => { server.listen({ onUnhandledRequest: "error" }); });
+afterEach(() => { server.resetHandlers(); window.localStorage.clear(); });
+afterAll(() => { server.close(); });
 
 function task(overrides: Record<string, unknown> = {}) {
   return {
@@ -34,13 +34,12 @@ function task(overrides: Record<string, unknown> = {}) {
 
 function installList(items = [task()]) {
   server.use(
-    http.get("*/api/v1/workflow-tasks", ({ request }) => {
+    http.get("*/api/v1/approval-inbox/bulk-tasks", ({ request }) => {
       const url = new URL(request.url);
-      expect(url.searchParams.get("assignee")).toBe("me");
-      expect(url.searchParams.get("status")).toBe("OPEN,CLAIMED");
       const limit = Number(url.searchParams.get("limit") ?? 50);
-      const offset = Number(url.searchParams.get("offset") ?? 0);
-      return HttpResponse.json({ items: items.slice(offset, offset + limit), total: items.length, limit, offset });
+      const offset = Number(url.searchParams.get("cursor") ?? "0");
+      const nextOffset = offset + limit;
+      return HttpResponse.json({ items: items.slice(offset, nextOffset), has_more: nextOffset < items.length, next_cursor: nextOffset < items.length ? String(nextOffset) : undefined });
     }),
   );
 }
@@ -157,10 +156,10 @@ describe("ApprovalBulkInbox", () => {
     // it must not replace that task's original idempotency identity.
     await user.click(screen.getByRole("checkbox", { name: "Vendor approval" }));
     await user.click(screen.getByRole("button", { name: "Approve selected (1)" }));
-    await waitFor(() => expect(decisions).toHaveLength(3));
+    await waitFor(() => { expect(decisions).toHaveLength(3); });
     await user.click(screen.getByRole("button", { name: "Retry unresolved (1)" }));
 
-    await waitFor(() => expect(decisions).toHaveLength(4));
+    await waitFor(() => { expect(decisions).toHaveLength(4); });
     expect(decisions.map((entry) => entry.taskId)).toEqual([
       TASK_ONE,
       TASK_TWO,
@@ -230,7 +229,7 @@ describe("ApprovalBulkInbox", () => {
     let resolveRequest: ((value: Response) => void) | undefined;
     server.use(
       http.get(
-        "*/api/v1/workflow-tasks",
+        "*/api/v1/approval-inbox/bulk-tasks",
         () =>
           new Promise<Response>((resolve) => {
             resolveRequest = resolve;
@@ -239,28 +238,38 @@ describe("ApprovalBulkInbox", () => {
     );
     const view = render(<ApprovalBulkInbox currentUserId={USER_ID} />);
     view.unmount();
-    resolveRequest?.(HttpResponse.json({ items: [task()], total: 1, limit: 50, offset: 0 }));
+    resolveRequest?.(HttpResponse.json({ items: [task()], has_more: false }));
     await Promise.resolve();
     expect(
       screen.queryByText("Equipment replacement approval"),
     ).not.toBeInTheDocument();
   });
 
-  it("cancels remaining decisions and marks the in-flight task unconfirmed", async () => {
+  it("persists a cancelled operation per user and retries it with the original key after reload", async () => {
     const user = userEvent.setup();
     let started: (() => void) | undefined;
+    const keys: string[] = [];
     installList();
     server.use(
       http.post(
         "*/api/v1/workflow-tasks/:taskId/decide",
-        () =>
-          new Promise<Response>((resolve) => {
-            started = () => resolve(HttpResponse.json({}));
-          }),
+        async ({ request }) => {
+          const body = (await request.json()) as { idempotency_key: string };
+          keys.push(body.idempotency_key);
+          if (keys.length === 1) {
+            return new Promise<Response>((resolve) => {
+              started = () => { resolve(HttpResponse.json({})); };
+            });
+          }
+          return HttpResponse.json({
+            task: { task_id: TASK_ONE, status: "APPROVED" },
+            run: { id: "30000000-0000-4000-8000-000000000001", status: "SUCCEEDED" },
+          });
+        },
       ),
     );
 
-    render(<ApprovalBulkInbox currentUserId={USER_ID} />);
+    const firstView = render(<ApprovalBulkInbox currentUserId={USER_ID} />);
     await user.click(
       await screen.findByRole("checkbox", {
         name: "Equipment replacement approval",
@@ -269,7 +278,7 @@ describe("ApprovalBulkInbox", () => {
     await user.click(
       screen.getByRole("button", { name: "Approve selected (1)" }),
     );
-    await waitFor(() => expect(started).toBeTypeOf("function"));
+    await waitFor(() => { expect(started).toBeTypeOf("function"); });
     await user.click(screen.getByRole("button", { name: "Cancel remaining" }));
 
     expect(
@@ -282,6 +291,19 @@ describe("ApprovalBulkInbox", () => {
         "No confirmed result after cancellation. Retry uses the same idempotency key.",
       )[0],
     ).toBeVisible();
+    await waitFor(() => { expect(window.localStorage.getItem(`maintenance.approval-bulk.operations.v1.${USER_ID}`)).toContain(keys[0]); });
+
+    firstView.unmount();
+    render(<ApprovalBulkInbox currentUserId={USER_ID} />);
+    await screen.findByRole("button", { name: "Retry unresolved (1)" });
+    await user.click(screen.getByRole("button", { name: "Retry unresolved (1)" }));
+    await waitFor(() => { expect(keys).toHaveLength(2); });
+    expect(keys[1]).toBe(keys[0]);
+
+    const otherUserId = "10000000-0000-4000-8000-000000000099";
+    render(<ApprovalBulkInbox currentUserId={otherUserId} />);
+    await screen.findAllByRole("checkbox", { name: "Equipment replacement approval" });
+    expect(screen.queryByRole("button", { name: "Retry unresolved (1)" })).not.toBeInTheDocument();
     started?.();
   });
 });

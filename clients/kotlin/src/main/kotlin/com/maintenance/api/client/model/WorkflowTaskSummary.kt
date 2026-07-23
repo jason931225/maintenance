@@ -23,7 +23,6 @@
 
 package com.maintenance.api.client.model
 
-import com.maintenance.api.client.model.WorkflowBulkDecisionCapability
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerialName
@@ -38,7 +37,6 @@ import kotlinx.serialization.Contextual
  * @param title
  * @param status
  * @param formPayload
- * @param bulkDecision
  * @param assigneeRoleKey
  * @param requiredPolicy
  * @param objectType
@@ -67,9 +65,6 @@ data class WorkflowTaskSummary (
 
     @Contextual @SerialName(value = "form_payload")
     val formPayload: kotlin.collections.Map<kotlin.String, kotlinx.serialization.json.JsonElement>,
-
-    @SerialName(value = "bulk_decision")
-    val bulkDecision: WorkflowBulkDecisionCapability,
 
     @SerialName(value = "assignee_role_key")
     val assigneeRoleKey: kotlin.String? = null,

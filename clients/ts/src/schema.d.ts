@@ -5592,6 +5592,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/approval-inbox/bulk-tasks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List canonical bulk-approval tasks
+         * @description A keyset-paginated, authorization-filtered personal inbox. Only explicit approval_decide workflow tasks are exposed; omitted rows do not affect page cardinality.
+         */
+        get: operations["listBulkApprovalInbox"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workflow-tasks/{task_id}/claim": {
         parameters: {
             query?: never;
@@ -8865,12 +8885,27 @@ export interface components {
             form_payload: {
                 [key: string]: unknown;
             };
-            bulk_decision: components["schemas"]["WorkflowBulkDecisionCapability"];
         };
-        WorkflowBulkDecisionCapability: {
+        BulkApprovalCapability: {
             decidable: boolean;
             /** @enum {string} */
-            reason?: "NOT_APPROVAL_DECISION_TASK" | "NOT_OPEN" | "CLAIMED_BY_ANOTHER_USER" | "SELF_APPROVAL";
+            reason?: "CLAIMED_BY_ANOTHER_USER";
+        };
+        BulkApprovalTask: {
+            task_id: components["schemas"]["Uuid"];
+            run_id: components["schemas"]["Uuid"];
+            waiting_key: string;
+            title: string;
+            assignee_role_key?: string;
+            status: string;
+            claimed_by?: components["schemas"]["Uuid"];
+            due_at?: components["schemas"]["Timestamp"];
+            bulk_decision: components["schemas"]["BulkApprovalCapability"];
+        };
+        BulkApprovalInboxResponse: {
+            items: components["schemas"]["BulkApprovalTask"][];
+            has_more: boolean;
+            next_cursor?: string;
         };
         StartWorkflowRunResponse: {
             run: components["schemas"]["WorkflowRunSummary"];
@@ -8878,10 +8913,6 @@ export interface components {
         };
         WorkflowTaskListResponse: {
             items: components["schemas"]["WorkflowTaskSummary"][];
-            /** Format: int64 */
-            total: number;
-            limit: number;
-            offset: number;
         };
         WorkflowRunListItem: {
             run_id: components["schemas"]["Uuid"];
@@ -22762,12 +22793,6 @@ export interface operations {
                 assignee?: string;
                 /** @description Comma-separated task statuses (e.g. OPEN,CLAIMED). Defaults to OPEN. */
                 status?: string;
-                /** @description Page size, clamped to 1..200 (default 50). */
-                limit?: number;
-                /** @description Zero-based page offset. */
-                offset?: number;
-                /** @description Restrict results to the canonical approval-decision workflow contract. Unknown task kinds are excluded. */
-                bulk_decision_only?: boolean;
             };
             header?: never;
             path?: never;
@@ -22786,6 +22811,31 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    listBulkApprovalInbox: {
+        parameters: {
+            query?: {
+                cursor?: string;
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A page of authorization-filtered canonical approval tasks. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BulkApprovalInboxResponse"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
             422: components["responses"]["ValidationError"];
         };
     };

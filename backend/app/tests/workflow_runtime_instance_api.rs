@@ -881,6 +881,94 @@ async fn assignee_me_open_tasks_scoped_by_role_and_ownership(pool: PgPool) {
 }
 
 // ===========================================================================
+// 9b. Bulk approval inbox: authorization filtering happens before page shape.
+// ==========================================================================
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn bulk_approval_inbox_keysets_past_interspersed_denied_tasks(pool: PgPool) {
+    let keys = keys();
+    let branch = seed_branch(&pool).await;
+    let approver = UserId::new();
+    seed_user(&pool, approver, "SUPER_ADMIN", branch).await;
+    let definition_id = seed_approval_definition(&pool, "approval.bulk.keyset").await;
+    let base = OffsetDateTime::now_utc() - Duration::hours(1);
+
+    // 205 authorized rows are deliberately interspersed with 205 rows that
+    // this endpoint must omit. A raw 200-row source page therefore cannot be
+    // used as a public page or count without creating a hidden-data side
+    // channel or a trailing empty client page.
+    for index in 0..410_i64 {
+        let required_policy = if index % 2 == 0 {
+            Some("approval_decide")
+        } else {
+            Some("approval_review")
+        };
+        let (_run_id, task_id) = seed_run_with_open_task(
+            &pool,
+            definition_id,
+            approver,
+            if index % 2 == 0 {
+                "manager_approver"
+            } else {
+                "hr_reviewer"
+            },
+            required_policy,
+        )
+        .await;
+        sqlx::query("UPDATE workflow_waiting_tasks SET created_at = $2 WHERE id = $1")
+            .bind(task_id)
+            .bind(base + Duration::milliseconds(index))
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+
+    let service =
+        build_router(app_state(runtime_role_pool(&pool).await, keys.public_pem.clone()).unwrap());
+    let token = bearer(&keys, approver, "SUPER_ADMIN", branch);
+    let first = get(
+        service.clone(),
+        "/api/v1/approval-inbox/bulk-tasks?limit=200",
+        &token,
+    )
+    .await;
+    assert_eq!(first.status, StatusCode::OK, "{:?}", first.json);
+    assert_eq!(first.json["items"].as_array().map(Vec::len), Some(200));
+    assert!(
+        first.json.get("total").is_none(),
+        "denied rows must not affect a public total"
+    );
+    let cursor = first.json["next_cursor"]
+        .as_str()
+        .expect("five authorized rows remain");
+    let query = url::form_urlencoded::Serializer::new(String::new())
+        .append_pair("limit", "200")
+        .append_pair("cursor", cursor)
+        .finish();
+    let second = get(
+        service,
+        &format!("/api/v1/approval-inbox/bulk-tasks?{query}"),
+        &token,
+    )
+    .await;
+    assert_eq!(second.status, StatusCode::OK, "{:?}", second.json);
+    assert_eq!(second.json["items"].as_array().map(Vec::len), Some(5));
+    assert_eq!(
+        second.json["has_more"], false,
+        "no denied-only trailing page"
+    );
+    assert!(second.json["next_cursor"].is_null());
+    assert!(
+        second.json["items"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|item| item["bulk_decision"]["decidable"] == true),
+        "the endpoint must authorize/filter before exposing every public row: {:?}",
+        second.json
+    );
+}
+
+// ===========================================================================
 // 10. Security L5: an over-long decision comment is a 422.
 // ===========================================================================
 #[sqlx::test(migrations = "../crates/platform/db/migrations")]

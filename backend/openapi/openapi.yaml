@@ -10599,27 +10599,6 @@ paths:
         description: Comma-separated task statuses (e.g. OPEN,CLAIMED). Defaults to OPEN.
         schema:
           type: string
-      - name: limit
-        in: query
-        required: false
-        description: Page size, clamped to 1..200 (default 50).
-        schema:
-          type: integer
-          minimum: 1
-          maximum: 200
-      - name: offset
-        in: query
-        required: false
-        description: Zero-based page offset.
-        schema:
-          type: integer
-          minimum: 0
-      - name: bulk_decision_only
-        in: query
-        required: false
-        description: Restrict results to the canonical approval-decision workflow contract. Unknown task kinds are excluded.
-        schema:
-          type: boolean
       responses:
         '200':
           description: The visible waiting tasks.
@@ -10631,6 +10610,39 @@ paths:
           $ref: '#/components/responses/Unauthorized'
         '403':
           $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+  /api/v1/approval-inbox/bulk-tasks:
+    get:
+      tags:
+        - workflow-tasks
+      operationId: listBulkApprovalInbox
+      summary: List canonical bulk-approval tasks
+      description: A keyset-paginated, authorization-filtered personal inbox. Only explicit approval_decide workflow tasks are exposed; omitted rows do not affect page cardinality.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: cursor
+        in: query
+        required: false
+        schema:
+          type: string
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 200
+      responses:
+        '200':
+          description: A page of authorization-filtered canonical approval tasks.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/BulkApprovalInboxResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
         '422':
           $ref: '#/components/responses/ValidationError'
   /api/v1/workflow-tasks/{task_id}/claim:
@@ -17353,7 +17365,6 @@ components:
       - title
       - status
       - form_payload
-      - bulk_decision
       properties:
         task_id:
           $ref: '#/components/schemas/Uuid'
@@ -17380,9 +17391,7 @@ components:
         form_payload:
           type: object
           additionalProperties: true
-        bulk_decision:
-          $ref: '#/components/schemas/WorkflowBulkDecisionCapability'
-    WorkflowBulkDecisionCapability:
+    BulkApprovalCapability:
       type: object
       required:
       - decidable
@@ -17392,10 +17401,49 @@ components:
         reason:
           type: string
           enum:
-          - NOT_APPROVAL_DECISION_TASK
-          - NOT_OPEN
           - CLAIMED_BY_ANOTHER_USER
-          - SELF_APPROVAL
+    BulkApprovalTask:
+      type: object
+      required:
+      - task_id
+      - run_id
+      - waiting_key
+      - title
+      - status
+      - bulk_decision
+      properties:
+        task_id:
+          $ref: '#/components/schemas/Uuid'
+        run_id:
+          $ref: '#/components/schemas/Uuid'
+        waiting_key:
+          type: string
+        title:
+          type: string
+        assignee_role_key:
+          type: string
+        status:
+          type: string
+        claimed_by:
+          $ref: '#/components/schemas/Uuid'
+        due_at:
+          $ref: '#/components/schemas/Timestamp'
+        bulk_decision:
+          $ref: '#/components/schemas/BulkApprovalCapability'
+    BulkApprovalInboxResponse:
+      type: object
+      required:
+      - items
+      - has_more
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/BulkApprovalTask'
+        has_more:
+          type: boolean
+        next_cursor:
+          type: string
     StartWorkflowRunResponse:
       type: object
       required:
@@ -17409,25 +17457,11 @@ components:
       type: object
       required:
       - items
-      - total
-      - limit
-      - offset
       properties:
         items:
           type: array
           items:
             $ref: '#/components/schemas/WorkflowTaskSummary'
-        total:
-          type: integer
-          format: int64
-          minimum: 0
-        limit:
-          type: integer
-          minimum: 1
-          maximum: 200
-        offset:
-          type: integer
-          minimum: 0
     WorkflowRunListItem:
       type: object
       required:

@@ -161,6 +161,9 @@ src/main/kotlin/com/maintenance/api/client/model/BenefitCatalogTier.kt
 src/main/kotlin/com/maintenance/api/client/model/BenefitCatalogUpdateRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/BranchScope.kt
 src/main/kotlin/com/maintenance/api/client/model/BranchSummary.kt
+src/main/kotlin/com/maintenance/api/client/model/BulkApprovalCapability.kt
+src/main/kotlin/com/maintenance/api/client/model/BulkApprovalInboxResponse.kt
+src/main/kotlin/com/maintenance/api/client/model/BulkApprovalTask.kt
 src/main/kotlin/com/maintenance/api/client/model/BulkAuthorizeBody.kt
 src/main/kotlin/com/maintenance/api/client/model/BulkAuthorizeBodyChecksInner.kt
 src/main/kotlin/com/maintenance/api/client/model/BulkDecisionResponse.kt
@@ -769,7 +772,6 @@ src/main/kotlin/com/maintenance/api/client/model/WorkOrderStatus.kt
 src/main/kotlin/com/maintenance/api/client/model/WorkOrderSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/WorkResultType.kt
 src/main/kotlin/com/maintenance/api/client/model/WorkflowActionAllowlistEntry.kt
-src/main/kotlin/com/maintenance/api/client/model/WorkflowBulkDecisionCapability.kt
 src/main/kotlin/com/maintenance/api/client/model/WorkflowConnectorDescriptor.kt
 src/main/kotlin/com/maintenance/api/client/model/WorkflowDefinitionEventResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/WorkflowDefinitionHistoryResponse.kt
