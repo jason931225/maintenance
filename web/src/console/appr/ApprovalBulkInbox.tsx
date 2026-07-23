@@ -18,6 +18,7 @@ type Receipt = Partial<Record<string, Outcome>>;
 type PersistedOperation = { idempotencyKey: string; outcome: Outcome };
 type PersistedApprovalOperations = { version: 1; expiresAt: number; operations: Record<string, PersistedOperation> };
 const OPERATION_TTL_MS = 24 * 60 * 60 * 1000;
+const UNCONFIRMED_SUBMISSION = "Decision submitted; outcome is unconfirmed. Retry uses the same idempotency key.";
 
 function receiptEntries(receipt: Receipt): Array<[string, Outcome]> {
   return Object.entries(receipt).filter((entry): entry is [string, Outcome] => entry[1] !== undefined);
@@ -41,6 +42,21 @@ function loadOperations(currentUserId: string | undefined): PersistedApprovalOpe
     window.localStorage.removeItem(key);
     return undefined;
   }
+}
+
+function saveOperations(currentUserId: string | undefined, operations: Record<string, PersistedOperation>) {
+  const key = operationStorageKey(currentUserId);
+  if (!key || typeof window === "undefined") return;
+  if (Object.keys(operations).length === 0) {
+    window.localStorage.removeItem(key);
+    return;
+  }
+  window.localStorage.setItem(key, JSON.stringify({ version: 1, expiresAt: Date.now() + OPERATION_TTL_MS, operations } satisfies PersistedApprovalOperations));
+}
+
+function persistOperation(currentUserId: string | undefined, taskId: string, idempotencyKey: string, outcome: Outcome) {
+  const operations = { ...(loadOperations(currentUserId)?.operations ?? {}), [taskId]: { idempotencyKey, outcome } };
+  saveOperations(currentUserId, operations);
 }
 
 export interface ApprovalBulkInboxProps {
@@ -176,6 +192,11 @@ export function ApprovalBulkInbox({ api, bearerToken, currentUserId }: ApprovalB
       const existingKey = keyByTaskRef.current[task.task_id];
       const idempotencyKey = existingKey ?? `approval-bulk-${newOperationId()}-${task.task_id}`;
       if (!existingKey) keyByTaskRef.current[task.task_id] = idempotencyKey;
+      const unconfirmed: Outcome = { state: "unknown", message: UNCONFIRMED_SUBMISSION };
+      // Write before issuing the request: a browser refresh/unmount may abort
+      // the response path, but must never lose this immutable operation key.
+      persistOperation(currentUserId, task.task_id, idempotencyKey, unconfirmed);
+      setReceipt((previous) => ({ ...previous, [task.task_id]: unconfirmed }));
       try {
         const result = await workflowApi.decideTask(task.task_id, "approve", { idempotencyKey, signal: controller.signal });
         if (!isMounted() || execution !== executionRef.current) return;
@@ -203,7 +224,10 @@ export function ApprovalBulkInbox({ api, bearerToken, currentUserId }: ApprovalB
     executionRef.current += 1;
     currentTaskRef.current = undefined;
     if (taskId) {
-      setReceipt((previous) => ({ ...previous, [taskId]: { state: "unknown", message: "No confirmed result after cancellation. Retry uses the same idempotency key." } }));
+      const outcome: Outcome = { state: "unknown", message: "No confirmed result after cancellation. Retry uses the same idempotency key." };
+      const idempotencyKey = keyByTaskRef.current[taskId];
+      if (idempotencyKey) persistOperation(currentUserId, taskId, idempotencyKey, outcome);
+      setReceipt((previous) => ({ ...previous, [taskId]: outcome }));
       setSelected((previous) => new Set([...previous, taskId]));
     }
     setRunning(false);
@@ -211,15 +235,12 @@ export function ApprovalBulkInbox({ api, bearerToken, currentUserId }: ApprovalB
   }
 
   useEffect(() => {
-    const key = operationStorageKey(currentUserId);
-    if (!key || typeof window === "undefined") return;
     const operations = receiptEntries(receipt).reduce<Record<string, PersistedOperation>>((stored, [taskId, outcome]) => {
       const idempotencyKey = keyByTaskRef.current[taskId];
       if (idempotencyKey) stored[taskId] = { idempotencyKey, outcome };
       return stored;
     }, {});
-    if (Object.keys(operations).length === 0) { window.localStorage.removeItem(key); return; }
-    window.localStorage.setItem(key, JSON.stringify({ version: 1, expiresAt: Date.now() + OPERATION_TTL_MS, operations } satisfies PersistedApprovalOperations));
+    saveOperations(currentUserId, operations);
   }, [currentUserId, receipt]);
 
   return <section className="console" style={sectionStyle} aria-labelledby="approval-bulk-inbox-title">

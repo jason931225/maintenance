@@ -245,6 +245,45 @@ describe("ApprovalBulkInbox", () => {
     ).not.toBeInTheDocument();
   });
 
+  it("keeps an in-flight operation key and unknown receipt across an unmount before retry", async () => {
+    const user = userEvent.setup();
+    let resolveFirst: (() => void) | undefined;
+    const keys: string[] = [];
+    installList();
+    server.use(
+      http.post(
+        "*/api/v1/workflow-tasks/:taskId/decide",
+        async ({ request }) => {
+          const body = (await request.json()) as { idempotency_key: string };
+          keys.push(body.idempotency_key);
+          if (keys.length === 1) {
+            return new Promise<Response>((resolve) => {
+              resolveFirst = () => { resolve(HttpResponse.json({})); };
+            });
+          }
+          return HttpResponse.json({
+            task: { task_id: TASK_ONE, status: "APPROVED" },
+            run: { id: "30000000-0000-4000-8000-000000000001", status: "SUCCEEDED" },
+          });
+        },
+      ),
+    );
+
+    const firstView = render(<ApprovalBulkInbox currentUserId={USER_ID} />);
+    await user.click(await screen.findByRole("checkbox", { name: "Equipment replacement approval" }));
+    await user.click(screen.getByRole("button", { name: "Approve selected (1)" }));
+    await waitFor(() => { expect(resolveFirst).toBeTypeOf("function"); });
+    expect(window.localStorage.getItem(`maintenance.approval-bulk.operations.v1.${USER_ID}`)).toContain(keys[0]);
+
+    firstView.unmount();
+    render(<ApprovalBulkInbox currentUserId={USER_ID} />);
+    expect(await screen.findByText("Decision submitted; outcome is unconfirmed. Retry uses the same idempotency key.")).toBeVisible();
+    await user.click(screen.getByRole("button", { name: "Retry unresolved (1)" }));
+    await waitFor(() => { expect(keys).toHaveLength(2); });
+    expect(keys[1]).toBe(keys[0]);
+    resolveFirst?.();
+  });
+
   it("persists a cancelled operation per user and retries it with the original key after reload", async () => {
     const user = userEvent.setup();
     let started: (() => void) | undefined;
