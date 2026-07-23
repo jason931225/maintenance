@@ -32,6 +32,17 @@ implementation evidence. A reference change may add or refine acceptance
 criteria; it cannot turn prototype rows, actions, or checklist claims into
 verified product behavior.
 
+The 2026-07-23T21:25:46Z rolling sync changed the HTML reference to ETag
+`1784841196051073` and SHA-256
+`659b8328719a1df27c1c16708d7749f5a4c34167240d052370bc0e2842c6bb45`.
+Its material product deltas are an actionable attendance-close blocker link,
+explicit attendance-to-payroll gate reasons, zero-state reconstruction
+coverage, and dispatch counts derived from live rows. These become acceptance
+criteria for workforce/payroll, overview/dispatch, and role-story testing.
+The prototype's session-only seed-clearing control is not a production feature;
+the product implementation uses isolated dev-auth provisioning and end-to-end
+fixtures instead.
+
 ## Business coverage
 
 The console is an enterprise operating system for all documented COSS business

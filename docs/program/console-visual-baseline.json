@@ -34,30 +34,40 @@
     "prototype_completion_is_product_evidence": false
   },
   "latest_reference_sync": {
-    "synced_at": "2026-07-23T20:45:52Z",
+    "synced_at": "2026-07-23T21:25:46Z",
     "project_id": "9c7c313a-2187-4cf1-bb35-7c07ad0a4d9d",
-    "html_etag": "1784839181802800",
-    "roadmap_etag": "1784838665301415",
-    "todo_etag": "1784838665301415",
-    "agents_etag": "1784838665301415",
-    "html_bytes": 2122516,
-    "html_sha256": "7630157ba85828f332402fff4ee8447cde4497e446cb0128e18c9ad1a1d96508",
+    "html_etag": "1784841196051073",
+    "roadmap_etag": "1784841405899933",
+    "todo_etag": "1784841405899933",
+    "agents_etag": "1784841405899933",
+    "html_bytes": 2126070,
+    "html_sha256": "659b8328719a1df27c1c16708d7749f5a4c34167240d052370bc0e2842c6bb45",
     "baseline_changed": true,
     "impact_classification": {
       "material_additions": [
-        "guarded multi-select and bulk approval with per-item audit",
-        "ontology ad-hoc chart builder with live grouping and analysis-object save",
-        "human-resources issue counts derived from the canonical collection length"
+        "attendance close blocker links directly to the first unresolved exception",
+        "attendance-to-payroll golden-path gates expose blocking reasons before close, calculation, exception handling, and approval submission",
+        "zero-state reconstruction and restore exercise for queue, notifications, schedule, and composer-driven recovery",
+        "dispatch unassigned and SLA counts derive from the active row collection instead of fixed prototype numbers"
       ],
       "affected_future_lanes": [
-        "approvals",
-        "ontology_analytics"
+        "workforce_attendance_payroll",
+        "overview_dispatch",
+        "zero_state_user_story_reconstruction"
       ],
       "unaffected_active_contracts": [
         "compliance_catalog",
         "procurement_purchase_requests",
         "sales_crm",
-        "inspection_ehs"
+        "inspection_ehs",
+        "approvals_bulk",
+        "ontology_analytics"
+      ],
+      "product_interpretation": [
+        "blocking fix links require a real routable source object and may not be copied as inert prototype controls",
+        "session-only seed clearing is prototype test support, not a production settings capability",
+        "zero-state reconstruction belongs in isolated dev-auth provisioning and end-to-end tests",
+        "operational counts must derive from authorized backend collections or aggregate contracts"
       ],
       "requires_new_reference_capture_before_release": true
     }
