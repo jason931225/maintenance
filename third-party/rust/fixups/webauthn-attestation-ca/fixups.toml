@@ -1,0 +1,4 @@
+# See the matching webauthn-rs-core fixup. Running this Cargo-only OpenSSL
+# metadata check under Reindeer would fail even when the linked toolchain is
+# OpenSSL 3.
+buildscript.run = false

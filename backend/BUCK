@@ -1,0 +1,6 @@
+export_file(
+    name = "sqlx-offline",
+    src = ".sqlx",
+    mode = "reference",
+    visibility = ["PUBLIC"],
+)

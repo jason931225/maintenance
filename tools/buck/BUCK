@@ -1,0 +1,5 @@
+export_file(
+    name = "rust_source_layout.bzl",
+    src = "rust_source_layout.bzl",
+    visibility = ["PUBLIC"],
+)

@@ -1,0 +1,3 @@
+# rustix build.rs selects backend cfgs (libc vs linux_raw) from the target.
+[buildscript]
+run = true

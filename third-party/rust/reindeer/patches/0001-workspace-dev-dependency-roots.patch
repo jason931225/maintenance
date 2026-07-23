@@ -1,0 +1,142 @@
+--- a/src/config.rs
++++ b/src/config.rs
+@@ -85,6 +85,12 @@
+     /// Cargo.toml and its generated BUCK file in the same directory.
+     #[serde(default)]
+     pub include_workspace_members: bool,
++
++    /// Include direct dev-dependencies of workspace members as test-only roots.
++    /// Their normal and build dependency closures are emitted, but dev-dependencies
++    /// of third-party packages remain excluded.
++    #[serde(default)]
++    pub include_workspace_dev_dependencies: bool,
+-
++
+     /// Generate "third-party.metadata" metadata on every `rust_library` and
+     /// `rust_binary` target.
+--- a/src/index.rs
++++ b/src/index.rs
+@@ -207,6 +207,12 @@
+                     resolve.enable_feature_for_platform(pkg.id, platform_name, "default")?;
+                 }
+             }
++            if config.include_workspace_dev_dependencies {
++                for pkg in &index.workspace_members {
++                    resolve
++                        .enable_workspace_dev_dependencies_for_platform(pkg.id, platform_name)?;
++                }
++            }
+         }
+-
++
+         Ok(index)
+@@ -225,6 +231,26 @@
+         self.public_packages.contains_key(&pkg.id)
+     }
+-
++
++    /// Direct dev-dependency packages of workspace members. These are the only
++    /// dev roots that may be emitted when workspace dev dependencies are enabled.
++    pub fn workspace_dev_dependency_roots(&self) -> BTreeSet<&'meta Manifest> {
++        if !self.config.include_workspace_dev_dependencies {
++            return BTreeSet::new();
++        }
++
++        self.workspace_members
++            .iter()
++            .flat_map(|member| &self.pkgid_to_node[&member.id].deps)
++            .filter(|node_dep| {
++                node_dep
++                    .dep_kinds
++                    .iter()
++                    .any(|kind| kind.kind == DepKind::Dev)
++            })
++            .map(|node_dep| self.pkgid_to_pkg[&node_dep.pkg])
++            .collect()
++    }
++
+     /// Test if this is a workspace member
+     pub fn is_workspace_package(&self, pkg: &Manifest) -> bool {
+         self.workspace_packages.contains(&pkg.id)
+@@ -448,6 +474,63 @@
+         Ok(())
+     }
+-
++
++    /// Add only direct workspace dev-dependencies as test roots. The existing
++    /// normal/build resolver owns their transitive closure, so this never pulls
++    /// a third-party package's own dev-dependencies into the generated graph.
++    fn enable_workspace_dev_dependencies_for_platform(
++        &mut self,
++        pkgid: PackageId,
++        platform_name: &'meta PlatformName,
++    ) -> anyhow::Result<()> {
++        let pkg = self.pkgid_to_pkg[&pkgid];
++        let fixups = self.fixups.get(pkg)?;
++
++        for manifest_dep in &pkg.dependencies {
++            if manifest_dep.optional
++                || manifest_dep.kind != DepKind::Dev
++                || !self.evaluate_target_cfg(&manifest_dep.target, platform_name, &fixups)
++                || fixups.omit_dep(
++                    platform_name,
++                    manifest_dep.rename.as_ref().unwrap_or(&manifest_dep.name),
++                )
++            {
++                continue;
++            }
++
++            let node_dep = self.resolve_dep(pkgid, manifest_dep)?;
++            for dep_kind in &node_dep.dep_kinds {
++                if dep_kind.kind == DepKind::Dev {
++                    self.pkgid_platform_features
++                        .entry((pkgid, platform_name))
++                        .or_insert_with(ResolvedFeatures::default)
++                        .deps
++                        .insert((
++                            node_dep
++                                .name
++                                .as_deref()
++                                .or(dep_kind.extern_name.as_deref())
++                                .unwrap(),
++                            dep_kind,
++                            node_dep.pkg,
++                        ));
++                }
++            }
++
++            self.enable_crate_for_platform(node_dep.pkg, platform_name)?;
++            if manifest_dep.uses_default_features
++                && self.pkgid_to_pkg[&node_dep.pkg]
++                    .features
++                    .contains_key("default")
++            {
++                self.enable_feature_for_platform(node_dep.pkg, platform_name, "default")?;
++            }
++            for required_feature in &manifest_dep.features {
++                self.enable_feature_for_platform(node_dep.pkg, platform_name, required_feature)?;
++            }
++        }
++        Ok(())
++    }
++
+     fn enable_feature_for_platform(
+         &mut self,
+         pkgid: PackageId,
+--- a/src/buckify.rs
++++ b/src/buckify.rs
+@@ -1509,6 +1509,14 @@
+                         (workspace_member, TargetReq::Lib),
+                         (workspace_member, TargetReq::EveryBin),
+                     ],
++                );
++            }
++            for workspace_dev_root in context.index.workspace_dev_dependency_roots() {
++                generate_dep_rules(
++                    context,
++                    scope,
++                    tx.clone(),
++                    [(workspace_dev_root, TargetReq::Lib)],
+                 );
+             }
+         });

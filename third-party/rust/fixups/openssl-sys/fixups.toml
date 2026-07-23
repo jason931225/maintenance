@@ -1,0 +1,7 @@
+# openssl-sys builds the lockfile-pinned openssl-src closure. Capture the build
+# script's static lib names and generated output link-search path so Buck links
+# exactly those artifacts rather than a host SDK or Homebrew installation.
+[buildscript.run]
+rustc_link_lib = true
+rustc_link_search = true
+env = { OPENSSL_RUST_USE_NASM = "0" }

@@ -1,0 +1,50 @@
+# ring 0.17.14. Its build.rs calls cc-rs directly to compile the BoringSSL-derived
+# C + pregenerated perlasm into libring_core; it never emits cargo:rustc-link-lib,
+# so reindeer's buildscript_run can't propagate that static lib and dependents'
+# final links fail with undefined _ring_core_0_17_14__* symbols. The canonical
+# reindeer fix (see the blake3 example): disable the build script and re-express
+# the C/asm as a Buck cxx_library, which reindeer adds as a dep of ring's
+# rust_library so it propagates as a native linkable to every dependent (binary /
+# proc-macro dylib / test).
+#
+# Symbol prefixing (ring_core_0_17_14__*) comes from the headers ring ships in
+# pregenerated/ring_core_generated/ (prefix_symbols.h / prefix_symbols_asm.h),
+# resolved via the `pregenerated` include path; the public <ring-core/*.h> headers
+# via `include`. cargo_env is global (reindeer.toml) so ring's
+# env!("CARGO_PKG_VERSION_*") still resolves at rustc time without a per-crate one.
+#
+# C sources are the explicit 12 (aarch64 set: 11 always-compiled + the
+# AARCH64/X86_64-gated p256-nistz.c) — NOT a crypto/**/*.c glob, which would pull
+# in the test-only constant_time_test.c and x86-only files. asm is the pregenerated
+# *-ios64.S variant (perlasm_format="ios64" for apple aarch64). Pinned to 0.17.14
+# (the symbol prefix embeds the version); other ring versions need matching srcs.
+# CI on Linux will need additional per-cfg sections (-elf.S / -linux64.S asm).
+buildscript.run = false
+
+[['cfg(all(target_arch = "aarch64", target_os = "macos"))'.cxx_library]]
+name = "ring-c-asm"
+srcs = [
+    "crypto/curve25519/curve25519.c",
+    "crypto/fipsmodule/aes/aes_nohw.c",
+    "crypto/fipsmodule/bn/montgomery.c",
+    "crypto/fipsmodule/bn/montgomery_inv.c",
+    "crypto/fipsmodule/ec/ecp_nistz.c",
+    "crypto/fipsmodule/ec/gfp_p256.c",
+    "crypto/fipsmodule/ec/gfp_p384.c",
+    "crypto/fipsmodule/ec/p256.c",
+    "crypto/fipsmodule/ec/p256-nistz.c",
+    "crypto/limbs/limbs.c",
+    "crypto/mem.c",
+    "crypto/poly1305/poly1305.c",
+    "pregenerated/*armv8*-ios64.S",
+    "pregenerated/*armx*-ios64.S",
+]
+headers = [
+    "include/**/*.h",
+    "crypto/**/*.h",
+    "crypto/**/*.inl",
+    "third_party/**/*.h",
+    "pregenerated/**/*.h",
+]
+include_paths = ["include", "pregenerated"]
+compiler_flags = ["-std=c1x", "-fvisibility=hidden", "-DNDEBUG"]

@@ -1,0 +1,5 @@
+# The upstream build script only validates DEP_OPENSSL_VERSION_NUMBER. Reindeer
+# cannot propagate `links` metadata between build scripts; the vendored
+# openssl-sys closure is already version-pinned and provides the real link
+# evidence, so do not execute this redundant host-environment probe.
+buildscript.run = false

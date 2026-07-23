@@ -1,0 +1,6 @@
+export_file(
+    name = "cedar-pbac-map",
+    src = "cedar-pbac-coexistence-map.json",
+    mode = "reference",
+    visibility = ["PUBLIC"],
+)

@@ -1,0 +1,6 @@
+export_file(
+    name = "tree",
+    src = ".",
+    mode = "reference",
+    visibility = ["PUBLIC"],
+)

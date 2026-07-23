@@ -1,0 +1,3 @@
+# Build script generates an OUT_DIR file the crate include!()s.
+[buildscript]
+run = true

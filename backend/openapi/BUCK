@@ -1,0 +1,6 @@
+export_file(
+    name = "openapi.yaml",
+    src = "openapi.yaml",
+    mode = "reference",
+    visibility = ["PUBLIC"],
+)

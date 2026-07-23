@@ -1,6 +1,12 @@
-# Backend Rust vendor patches
+# Rust third-party vendor patches
 
 Temporary crates.io patches used only when the published dependency graph cannot satisfy CI/security policy.
+
+This directory is the single repository-owned source boundary for those
+patches. Cargo references it from `backend/Cargo.toml`; Reindeer and Buck2 can
+materialize it without crossing out of `third-party/rust`; and the backend
+image copies the same audited bytes. Do not create a second backend-local
+vendor copy.
 
 ## quick-xml RUSTSEC unblock
 

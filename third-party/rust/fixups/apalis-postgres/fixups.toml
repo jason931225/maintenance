@@ -1,0 +1,2 @@
+# The script only emits Cargo rerun metadata; there is no compile/link output.
+buildscript.run = false

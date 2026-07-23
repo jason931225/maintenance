@@ -1,0 +1,17 @@
+# openssl's build.rs normally derives version cfgs from openssl-sys `links`
+# metadata, which Reindeer does not propagate between build scripts. The
+# vendored OpenSSL 3.x closure therefore supplies the stable 3.0-3.5 cfg range
+# plus the configuration disables emitted by openssl-sys's vendored build.
+cfgs = [
+    "ossl101", "ossl102", "ossl110", "ossl110g", "ossl110h",
+    "ossl111", "ossl111d",
+    "ossl300", "ossl310", "ossl320", "ossl330", "ossl340", "ossl350",
+    'osslconf="OPENSSL_NO_IDEA"',
+    'osslconf="OPENSSL_NO_CAMELLIA"',
+    'osslconf="OPENSSL_NO_COMP"',
+    'osslconf="OPENSSL_NO_SSL3_METHOD"',
+    'osslconf="OPENSSL_NO_SEED"',
+]
+
+[buildscript]
+run = true

@@ -24,6 +24,10 @@ webauthn-rs = { version = "0.5.5", features = [
 jsonwebtoken = { version = "10.4.0", default-features = false, features = ["rust_crypto", "use_pem"] }
 sha2 = "0.11.0"
 url = "2.5.8"
+# Force the lockfile-pinned OpenSSL source into the auth test closure. The
+# `vendored` feature makes openssl-sys build and link its own static OpenSSL
+# rather than consulting the host SDK or Homebrew.
+openssl = { version = "0.10.80", features = ["vendored"] }
 
 [dev-dependencies]
 p256 = { version = "0.13.2", features = ["ecdsa", "pkcs8", "pem"] }

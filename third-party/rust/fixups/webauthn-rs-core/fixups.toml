@@ -1,0 +1,4 @@
+# The build script only rejects OpenSSL <3 by reading Cargo `links` metadata.
+# Reindeer does not propagate that metadata between build scripts; the shared
+# OpenSSL fixup and toolchain own the version/link contract instead.
+buildscript.run = false

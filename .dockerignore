@@ -9,6 +9,10 @@
 
 !backend
 !docs
+!third-party
+!third-party/rust
+!third-party/rust/vendor
+!third-party/rust/vendor/**
 
 # Web console image inputs (web/Dockerfile): the npm workspace root + its two
 # member packages. api-client-ts is consumed as TS source by the web build.
