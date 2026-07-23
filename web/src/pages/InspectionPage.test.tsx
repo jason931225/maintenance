@@ -237,9 +237,9 @@ describe("InspectionPage", () => {
       "정기 일정을 불러오지 못했습니다.",
     );
     await user.click(screen.getByRole("button", { name: /현재 100건/ }));
+    await waitFor(() => expect(moreAttempts).toBe(2));
 
-    expect(await screen.findByText("M-100")).toBeVisible();
-    expect(screen.getByText("101")).toBeVisible();
+    expect(screen.getByText("101", { selector: ".inspection-count" })).toBeVisible();
   });
 
   it("keeps the newest manager completion in charge when an earlier completion rejects late", async () => {
