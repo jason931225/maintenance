@@ -7,7 +7,10 @@ import {
 } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { ko } from "../../../i18n/ko";
 import { BenefitBody } from "./BenefitBody";
+
+const S = ko.console.benefit;
 
 const mockUseAuth = vi.fn();
 
@@ -149,10 +152,10 @@ describe("BenefitBody", () => {
     render(<BenefitBody />);
 
     expect(
-      await screen.findByRole("heading", { name: "복리후생" }),
+      await screen.findByRole("heading", { name: S.title }),
     ).toBeVisible();
     expect(screen.getByText("국민연금")).toBeVisible();
-    expect(screen.getByText("전사 적용")).toBeVisible();
+    expect(screen.getByText(S.scope.org)).toBeVisible();
     expect(screen.getByText(/가입 기준/)).toBeVisible();
     expect(GET).toHaveBeenCalledWith("/api/v1/benefit-catalog/items", {
       params: { query: { category: "legal", limit: 50, offset: 0 } },
@@ -163,7 +166,7 @@ describe("BenefitBody", () => {
     setup({ error: { error: { message: "benefit API unavailable" } } });
     render(<BenefitBody />);
     expect(await screen.findByText("benefit API unavailable")).toBeVisible();
-    expect(screen.getByRole("button", { name: "다시 시도" })).toBeVisible();
+    expect(screen.getByRole("button", { name: S.retry })).toBeVisible();
   });
 
   it("uses the generic lifecycle transition endpoint and refreshes the catalog", async () => {
@@ -191,23 +194,23 @@ describe("BenefitBody", () => {
     const { POST } = setup();
     render(<BenefitBody />);
     await screen.findByText("국민연금");
-    fireEvent.click(screen.getByRole("button", { name: "정책 등록" }));
-    fireEvent.change(screen.getByLabelText("정책명"), {
+    fireEvent.click(screen.getByRole("button", { name: S.editor.create }));
+    fireEvent.change(screen.getByLabelText(S.editor.name), {
       target: { value: "건강 검진" },
     });
-    fireEvent.change(screen.getByLabelText("적용 범위 설명"), {
+    fireEvent.change(screen.getByLabelText(S.editor.coverage), {
       target: { value: "전 직원" },
     });
-    fireEvent.change(screen.getByLabelText("비용 설명"), {
+    fireEvent.change(screen.getByLabelText(S.editor.cost), {
       target: { value: "회사 부담" },
     });
-    fireEvent.change(screen.getByLabelText("등급 설명"), {
+    fireEvent.change(screen.getByLabelText(S.editor.tierValue), {
       target: { value: "기본 검진" },
     });
     fireEvent.click(
       within(
-        screen.getByRole("form", { name: "복리후생 정책 등록" }),
-      ).getByRole("button", { name: "정책 등록" }),
+        screen.getByRole("form", { name: S.editor.createForm }),
+      ).getByRole("button", { name: S.editor.create }),
     );
     await waitFor(() => {
       expect(POST).toHaveBeenCalledWith(
@@ -230,11 +233,11 @@ describe("BenefitBody", () => {
     const { PATCH, PUT } = setup();
     render(<BenefitBody />);
     await screen.findByText("국민연금");
-    fireEvent.click(screen.getByRole("button", { name: "정책 수정" }));
-    fireEvent.change(screen.getByLabelText("정책명"), {
+    fireEvent.click(screen.getByRole("button", { name: S.edit }));
+    fireEvent.change(screen.getByLabelText(S.editor.name), {
       target: { value: "국민연금 개정" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "변경 저장" }));
+    fireEvent.click(screen.getByRole("button", { name: S.editor.saveEdit }));
     await waitFor(() => {
       expect(PATCH).toHaveBeenCalledWith(
         "/api/v1/benefit-catalog/items/{benefit_id}",
@@ -275,13 +278,13 @@ describe("BenefitBody", () => {
     });
     render(<BenefitBody />);
     await screen.findByText("국민연금");
-    fireEvent.click(screen.getByRole("button", { name: "정책 수정" }));
-    expect(screen.queryByLabelText("등급 설명")).not.toBeInTheDocument();
-    expect(screen.queryByLabelText("적격성 설명")).not.toBeInTheDocument();
-    fireEvent.change(screen.getByLabelText("정책명"), {
+    fireEvent.click(screen.getByRole("button", { name: S.edit }));
+    expect(screen.queryByLabelText(S.editor.tierValue)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(S.editor.conditionLabel)).not.toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText(S.editor.name), {
       target: { value: "국민연금 개정" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "변경 저장" }));
+    fireEvent.click(screen.getByRole("button", { name: S.editor.saveEdit }));
     await waitFor(() => {
       expect(PATCH).toHaveBeenCalledOnce();
     });

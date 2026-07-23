@@ -10,6 +10,7 @@ import {
 import type { components } from "@maintenance/api-client-ts";
 
 import { useAuth } from "../../../context/auth";
+import { ko } from "../../../i18n/ko";
 import {
   DENY_ALL_PROJECTION,
   fetchAuthzProjection,
@@ -37,6 +38,8 @@ type EditorValues = {
   conditionLabel: string;
   conditionValue: string;
 };
+
+const S = ko.console.benefit;
 
 const pageStyle: CSSProperties = {
   height: "100%",
@@ -87,7 +90,7 @@ const fieldStyle: CSSProperties = {
 
 function errorMessage(
   error: unknown,
-  fallback = "복리후생 요청을 처리하지 못했습니다.",
+  fallback: string = S.errors.request,
 ): string {
   if (error && typeof error === "object" && "error" in error) {
     const nested = (error as { error?: { message?: unknown } }).error;
@@ -113,23 +116,23 @@ function lifecycleLabel(state: string | null | undefined): string {
   return (
     (
       {
-        draft: "초안",
-        pending: "승인 대기",
-        finalized: "시행 예정",
-        implemented: "시행 중",
-        retiring: "폐지 예정",
-        retired: "폐지됨",
+        draft: S.lifecycle.draft,
+        pending: S.lifecycle.pending,
+        finalized: S.lifecycle.finalized,
+        implemented: S.lifecycle.implemented,
+        retiring: S.lifecycle.retiring,
+        retired: S.lifecycle.retired,
       } as Record<string, string>
-    )[state ?? ""] ?? "상태 미등록"
+    )[state ?? ""] ?? S.lifecycle.unregistered
   );
 }
 
 function scopeLabel(item: BenefitItem): string {
-  if (item.scope.site_id) return "사업장 적용";
-  if (item.scope.branch_id) return "법인 적용";
+  if (item.scope.site_id) return S.scope.site;
+  if (item.scope.branch_id) return S.scope.branch;
   return item.scope.scope_type === "ORG"
-    ? "전사 적용"
-    : `${item.scope.scope_type} 적용`;
+    ? S.scope.org
+    : S.scope.fallback(item.scope.scope_type);
 }
 
 function editorValues(
@@ -143,11 +146,11 @@ function editorValues(
     name: item?.name ?? "",
     coverageLabel: item?.coverage_label ?? "",
     costLabel: item?.cost_label ?? "",
-    tierBasis: tier?.tier_basis ?? "적용 기준",
-    tierKey: tier?.tier_key ?? "전체",
+    tierBasis: tier?.tier_basis ?? S.defaults.tierBasis,
+    tierKey: tier?.tier_key ?? S.defaults.all,
     tierValue: tier?.value_label ?? "",
     conditionKey: condition?.condition_key ?? "employee",
-    conditionLabel: condition?.display_label ?? "전사 적용",
+    conditionLabel: condition?.display_label ?? S.defaults.conditionLabel,
     conditionValue: conditionValueText(condition?.condition_value),
   };
 }
@@ -156,7 +159,7 @@ function conditionValueText(
   value: Record<string, unknown> | undefined,
 ): string {
   const candidate = value?.value;
-  return typeof candidate === "string" ? candidate : "전체";
+  return typeof candidate === "string" ? candidate : S.defaults.all;
 }
 
 function tiers(values: EditorValues): BenefitCatalogTier[] {
@@ -193,21 +196,21 @@ function valid(values: EditorValues, includesChildren: boolean): string | undefi
     !values.coverageLabel.trim() ||
     !values.costLabel.trim()
   )
-    return "정책명, 적용 범위, 비용 설명은 필수입니다.";
+    return S.errors.requiredItem;
   if (
     includesChildren &&
     (!values.tierBasis.trim() ||
       !values.tierKey.trim() ||
       !values.tierValue.trim())
   )
-    return "등급의 기준, 키, 설명은 필수입니다.";
+    return S.errors.requiredTier;
   if (
     includesChildren &&
     (!values.conditionKey.trim() || !values.conditionLabel.trim())
   )
-    return "적격성 키와 설명은 필수입니다.";
+    return S.errors.requiredCondition;
   if (includesChildren && !values.conditionValue.trim())
-    return "적격성 값은 필수입니다.";
+    return S.errors.requiredConditionValue;
   return undefined;
 }
 
@@ -244,7 +247,7 @@ function CatalogEditor({
   };
   return (
     <form
-      aria-label={item ? "복리후생 정책 수정" : "복리후생 정책 등록"}
+      aria-label={item ? S.editor.editForm : S.editor.createForm}
       onSubmit={(event) => {
         void submit(event);
       }}
@@ -258,7 +261,7 @@ function CatalogEditor({
     >
       <div>
         <h2 style={{ margin: 0, fontSize: "var(--text-body)" }}>
-          {item ? "복리후생 정책 수정" : "새 복리후생 정책 등록"}
+          {item ? S.editor.editTitle : S.editor.createTitle}
         </h2>
       </div>
       {validation ? (
@@ -274,9 +277,9 @@ function CatalogEditor({
         }}
       >
         <label>
-          분류
+          {S.editor.category}
           <select
-            aria-label="분류"
+            aria-label={S.editor.category}
             value={values.category}
             onChange={(event) => {
               update(
@@ -286,12 +289,12 @@ function CatalogEditor({
             }}
             style={fieldStyle}
           >
-            <option value="legal">법정</option>
-            <option value="extra">선택</option>
+            <option value="legal">{S.categories.legal}</option>
+            <option value="extra">{S.categories.extra}</option>
           </select>
         </label>
         <label>
-          정책명
+          {S.editor.name}
           <input
             value={values.name}
             onChange={(event) => {
@@ -301,7 +304,7 @@ function CatalogEditor({
           />
         </label>
         <label>
-          적용 범위 설명
+          {S.editor.coverage}
           <input
             value={values.coverageLabel}
             onChange={(event) => {
@@ -311,7 +314,7 @@ function CatalogEditor({
           />
         </label>
         <label>
-          비용 설명
+          {S.editor.cost}
           <input
             value={values.costLabel}
             onChange={(event) => {
@@ -323,7 +326,7 @@ function CatalogEditor({
         {!item ? (
           <>
             <label>
-              등급 기준
+              {S.editor.tierBasis}
               <input
                 value={values.tierBasis}
                 onChange={(event) => {
@@ -333,7 +336,7 @@ function CatalogEditor({
               />
             </label>
             <label>
-              등급 키
+              {S.editor.tierKey}
               <input
                 value={values.tierKey}
                 onChange={(event) => {
@@ -343,7 +346,7 @@ function CatalogEditor({
               />
             </label>
             <label>
-              등급 설명
+              {S.editor.tierValue}
               <input
                 value={values.tierValue}
                 onChange={(event) => {
@@ -353,7 +356,7 @@ function CatalogEditor({
               />
             </label>
             <label>
-              적격성 키
+              {S.editor.conditionKey}
               <input
                 value={values.conditionKey}
                 onChange={(event) => {
@@ -363,7 +366,7 @@ function CatalogEditor({
               />
             </label>
             <label>
-              적격성 설명
+              {S.editor.conditionLabel}
               <input
                 value={values.conditionLabel}
                 onChange={(event) => {
@@ -377,7 +380,7 @@ function CatalogEditor({
       </div>
       {!item ? (
         <label>
-          적격성 값
+          {S.editor.conditionValue}
           <input
             value={values.conditionValue}
             onChange={(event) => {
@@ -389,7 +392,7 @@ function CatalogEditor({
       ) : null}
       <div style={{ display: "flex", gap: "var(--sp-2)", flexWrap: "wrap" }}>
         <button type="submit" disabled={busy} style={buttonStyle}>
-          {busy ? "저장 중…" : item ? "변경 저장" : "정책 등록"}
+          {busy ? S.editor.saving : item ? S.editor.saveEdit : S.editor.create}
         </button>
         <button
           type="button"
@@ -402,7 +405,7 @@ function CatalogEditor({
             border: "var(--border-hairline)",
           }}
         >
-          취소
+          {S.editor.cancel}
         </button>
       </div>
     </form>
@@ -434,7 +437,7 @@ export function BenefitBody() {
     if (!result?.data) {
       setPage(undefined);
       setError(
-        errorMessage(result?.error, "복리후생 목록을 불러오지 못했습니다."),
+        errorMessage(result?.error, S.errors.load),
       );
       setLoading(false);
       return;
@@ -545,7 +548,7 @@ export function BenefitBody() {
   );
 
   return (
-    <section aria-label="복리후생" style={pageStyle}>
+    <section aria-label={S.title} style={pageStyle}>
       <header
         style={{
           display: "flex",
@@ -564,7 +567,7 @@ export function BenefitBody() {
               letterSpacing: "-0.02em",
             }}
           >
-            복리후생
+            {S.title}
           </h1>
         </div>
         <div
@@ -575,10 +578,10 @@ export function BenefitBody() {
             alignItems: "center",
           }}
         >
-          <span style={chipStyle}>{page?.total ?? 0}개 정책</span>
+          <span style={chipStyle}>{S.itemCount(page?.total ?? 0)}</span>
           {annualCost > 0 ? (
             <span style={chipStyle}>
-              연 ₩{annualCost.toLocaleString("ko-KR")}
+              {S.annualCost(annualCost.toLocaleString("ko-KR"))}
             </span>
           ) : null}
           {canManage ? (
@@ -588,14 +591,14 @@ export function BenefitBody() {
               }}
               style={buttonStyle}
             >
-              정책 등록
+              {S.editor.create}
             </button>
           ) : null}
         </div>
       </header>
       <div
         role="tablist"
-        aria-label="복리후생 분류"
+        aria-label={S.categoryTabs}
         style={{
           display: "flex",
           gap: "var(--sp-2)",
@@ -604,8 +607,8 @@ export function BenefitBody() {
       >
         {(
           [
-            ["legal", "법정"],
-            ["extra", "선택"],
+            ["legal", S.categories.legal],
+            ["extra", S.categories.extra],
           ] as const
         ).map(([value, label]) => (
           <button
@@ -647,7 +650,7 @@ export function BenefitBody() {
       ) : null}
       {loading ? (
         <div style={{ ...panelStyle, padding: "var(--sp-5)" }} role="status">
-          복리후생 정책을 불러오는 중…
+          {S.loading}
         </div>
       ) : null}
       {error ? (
@@ -673,13 +676,13 @@ export function BenefitBody() {
               border: "var(--border-hairline)",
             }}
           >
-            다시 시도
+            {S.retry}
           </button>
         </div>
       ) : null}
       {!loading && !error && page?.items.length === 0 ? (
         <div style={{ ...panelStyle, padding: "var(--sp-6)" }} role="status">
-          이 분류에 등록된 복리후생 정책이 없습니다.
+          {S.empty}
         </div>
       ) : null}
       {!loading && !error && page?.items.length ? (
@@ -758,21 +761,21 @@ export function BenefitBody() {
                           border: "var(--border-hairline)",
                         }}
                       >
-                        정책 수정
+                        {S.edit}
                       </button>
                     ) : null}
                     {canAdvanceLifecycle &&
                     next &&
                     !item.lifecycle.legal_hold ? (
                       <button
-                        aria-label="다음 상태"
+                        aria-label={S.nextState}
                         disabled={advancing === item.id}
                         onClick={() => {
                           void advance(item);
                         }}
                         style={buttonStyle}
                       >
-                        {advancing === item.id ? "처리 중…" : "다음 상태"}
+                        {advancing === item.id ? S.processing : S.nextState}
                       </button>
                     ) : null}
                   </div>
@@ -787,7 +790,7 @@ export function BenefitBody() {
                   }}
                 >
                   <div>
-                    <b style={{ fontSize: "var(--text-caption)" }}>적격성</b>
+                    <b style={{ fontSize: "var(--text-caption)" }}>{S.eligibility}</b>
                     <div
                       style={{
                         display: "flex",
@@ -809,13 +812,13 @@ export function BenefitBody() {
                             fontSize: "var(--text-caption)",
                           }}
                         >
-                          등록된 조건 없음
+                          {S.noConditions}
                         </span>
                       )}
                     </div>
                   </div>
                   <div>
-                    <b style={{ fontSize: "var(--text-caption)" }}>등급</b>
+                    <b style={{ fontSize: "var(--text-caption)" }}>{S.tiers}</b>
                     <div
                       style={{
                         display: "grid",
@@ -842,13 +845,13 @@ export function BenefitBody() {
                             fontSize: "var(--text-caption)",
                           }}
                         >
-                          등록된 등급 없음
+                          {S.noTiers}
                         </span>
                       )}
                     </div>
                   </div>
                   <div>
-                    <b style={{ fontSize: "var(--text-caption)" }}>근거·연결</b>
+                    <b style={{ fontSize: "var(--text-caption)" }}>{S.basis}</b>
                     <div
                       style={{
                         marginTop: "var(--sp-1)",
@@ -856,7 +859,7 @@ export function BenefitBody() {
                         fontSize: "var(--text-caption)",
                       }}
                     >
-                      {item.legal_basis ?? item.note ?? "등록된 근거 없음"}
+                      {item.legal_basis ?? item.note ?? S.noBasis}
                       {item.related_domain ? ` · ${item.related_domain}` : ""}
                     </div>
                   </div>
