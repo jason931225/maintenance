@@ -413,6 +413,21 @@ describe("ConsoleShell chrome", () => {
     expect(screen.getByRole("button", { name: "커뮤니케이션 펼치기" })).toBeInTheDocument();
   });
 
+  it("lets a compact sidebar expand to the full 236px navigation width", () => {
+    stubViewport(1024);
+    renderConsole(ADMIN);
+
+    const sidebar = document.querySelector("[data-cshell-sidebar]");
+    expect(sidebar).toHaveAttribute("data-collapsed", "true");
+    expect(sidebar).toHaveStyle({ width: "62px" });
+    expect(screen.queryByText("개요")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "메뉴 펼치기" }));
+    expect(sidebar).toHaveAttribute("data-collapsed", "false");
+    expect(sidebar).toHaveStyle({ width: "236px" });
+    expect(screen.getByText("개요")).toBeInTheDocument();
+  });
+
   it("keeps the 768px tablet composition and switches to modal drawers at 767px", async () => {
     stubViewport(768);
     const tablet = renderConsole(ADMIN);

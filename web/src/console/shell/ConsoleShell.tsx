@@ -322,7 +322,7 @@ export function ConsoleShell({
         }}
         onCycleTheme={onCycleTheme}
         mobile={mobile}
-        width={collapsed ? 62 : shellLayout.sidebar}
+        width={collapsed ? 62 : 236}
         drawerOpen={activeDrawer === "left"}
         drawerRef={sidebarRef}
         drawerModal={activeDrawer === "left"}
