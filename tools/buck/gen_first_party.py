@@ -20,7 +20,7 @@ Test targets:
                              library + dev-deps; non-test helper files in tests/
                              are added to srcs so `mod common;` resolves).
   - DB-backed tests (sqlx::test / PgPool / DATABASE_URL / mnt_rt) get
-    labels=["needs-postgres"] so `buck2 test //backend/... -- --exclude
+    labels=["needs-postgres"] so `buck2 test //backend/... --exclude
     needs-postgres` runs the hermetic subset, mirroring cargo test minus the DB
     suites (which need a live Postgres + the mnt_rt runtime role, same as cargo).
 """
