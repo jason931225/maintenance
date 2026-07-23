@@ -354,12 +354,18 @@ pub fn validate_metadata_object(value: &Value) -> Result<(), KernelError> {
 }
 
 /// # Errors
-/// Returns `KernelError::validation` when the condition value is null.
+/// Returns `KernelError::validation` unless the condition value is a JSON object.
+///
+/// The OpenAPI and generated Kotlin, Swift, and TypeScript clients all expose
+/// `condition_value` as an object. Keeping the server at the same boundary
+/// prevents a write accepted by REST from becoming unreadable by a typed client.
 pub fn validate_condition_value(value: &Value) -> Result<(), KernelError> {
-    if value.is_null() {
-        Err(KernelError::validation("condition_value cannot be null"))
-    } else {
+    if value.is_object() {
         Ok(())
+    } else {
+        Err(KernelError::validation(
+            "condition_value must be a JSON object",
+        ))
     }
 }
 
@@ -387,8 +393,10 @@ mod tests {
     }
 
     #[test]
-    fn condition_value_must_be_present() {
+    fn condition_value_matches_the_typed_openapi_contract() {
         assert!(validate_condition_value(&serde_json::json!(null)).is_err());
+        assert!(validate_condition_value(&serde_json::json!("site-a")).is_err());
+        assert!(validate_condition_value(&serde_json::json!(["site-a"])).is_err());
         assert!(validate_condition_value(&serde_json::json!({"site": "A"})).is_ok());
     }
 }

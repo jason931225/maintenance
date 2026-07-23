@@ -22,7 +22,7 @@ use mnt_kernel_core::{
     BenefitCatalogConditionId, BenefitCatalogItemId, BenefitCatalogTierId, BranchId, BranchScope,
     ErrorKind, KernelError, OrgId, SiteId,
 };
-use mnt_platform_db::{DbError, with_audits, with_org_conn};
+use mnt_platform_db::{DbError, lifecycle::INITIAL_STATE, with_audits, with_org_conn};
 use mnt_platform_request_context::current_org;
 use serde_json::Value;
 use sqlx::{PgPool, Postgres, QueryBuilder, Row, Transaction, postgres::PgRow};
@@ -172,6 +172,7 @@ impl PgBenefitCatalogStore {
             Box::pin(async move {
                 let benefit_code = issue_benefit_code_tx(tx, org_uuid).await?;
                 insert_item_tx(tx, org_uuid, item_id, &benefit_code, &input).await?;
+                create_lifecycle_tx(tx, org_uuid, item_id).await?;
                 insert_tiers_tx(
                     tx,
                     org_uuid,
@@ -824,6 +825,24 @@ async fn issue_benefit_code_tx(
     Ok(BenefitCode::new(format!("BF-{issued:04}"))?.into_string())
 }
 
+async fn create_lifecycle_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    org_id: Uuid,
+    item_id: BenefitCatalogItemId,
+) -> Result<(), PgBenefitCatalogError> {
+    sqlx::query(
+        "INSERT INTO object_lifecycles (org_id, object_type, object_id, current_state) \
+         VALUES ($1, 'benefit_catalog_item', $2, $3) \
+         ON CONFLICT (org_id, object_type, object_id) DO NOTHING",
+    )
+    .bind(org_id)
+    .bind(*item_id.as_uuid())
+    .bind(INITIAL_STATE)
+    .execute(tx.as_mut())
+    .await?;
+    Ok(())
+}
+
 async fn insert_item_tx(
     tx: &mut Transaction<'_, Postgres>,
     org_uuid: Uuid,
@@ -1155,7 +1174,34 @@ async fn hydrate_item_tx(
 ) -> Result<BenefitCatalogItemView, PgBenefitCatalogError> {
     item.tiers = fetch_tiers_tx(tx, item.id).await?;
     item.conditions = fetch_conditions_tx(tx, item.id).await?;
+    item.lifecycle = fetch_lifecycle_binding_tx(tx, item.id).await?;
     Ok(item)
+}
+
+async fn fetch_lifecycle_binding_tx(
+    tx: &mut Transaction<'_, Postgres>,
+    item_id: BenefitCatalogItemId,
+) -> Result<BenefitCatalogLifecycleBinding, PgBenefitCatalogError> {
+    let row = sqlx::query(
+        "SELECT current_state, legal_hold, retention_until \
+         FROM object_lifecycles \
+         WHERE object_type = 'benefit_catalog_item' AND object_id = $1",
+    )
+    .bind(*item_id.as_uuid())
+    .fetch_optional(tx.as_mut())
+    .await?;
+    let Some(row) = row else {
+        return Ok(BenefitCatalogLifecycleBinding::new(item_id));
+    };
+    let retention_until: Option<Date> = row.try_get("retention_until")?;
+    Ok(BenefitCatalogLifecycleBinding {
+        object_type: "benefit_catalog_item".to_owned(),
+        object_id: item_id,
+        current_state: Some(row.try_get("current_state")?),
+        legal_hold: Some(row.try_get("legal_hold")?),
+        retention_until: retention_until
+            .map(|date| date.with_time(time::Time::MIDNIGHT).assume_utc()),
+    })
 }
 
 async fn fetch_tiers_tx(

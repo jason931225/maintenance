@@ -56,7 +56,7 @@ Each row: intended capability (one line) · verdict · evidence (path/tag). "REG
 | att (근태) | Kronos/Deputy: 계획/실적·대근·주52h·월마감 | **PARTIAL** | backend `daily-work-plans(6)`; legacy `AttendancePage`; no REGISTRY body |
 | pay (급여) | Workday Payroll: PayrollRun·PayItem·PS-·셀프서비스 | **PARTIAL** | mounted read-only payroll REST exposes draft-run readiness and self-scoped draft lines; it is not a persisted payroll calculation/payslip engine. Legacy `PayrollPage`; no console body |
 | leave (연차) | Workday Absence: Leave·촉진·거부권 | **PARTIAL** | REGISTRY body has source-observed request/balance reads and source-wired decision/promotion calls; request creation is unwired and closed-loop E2E is absent. The round-labelled notice/receipt substrate lacks statutory timing and sequence enforcement |
-| benefit (복리후생) | Workday Benefits: 제도 수명주기·tier | **PARTIAL** | tenant-scoped catalog REST is mounted with PBAC/RLS/audit substrate; development-mounted REGISTRY body uses the typed client and generic governed lifecycle route. Production exposure remains disabled pending independent runtime and closed-loop evidence |
+| benefit (복리후생) | Workday Benefits: 제도 수명주기·tier | **PARTIAL** | tenant-scoped catalog REST materializes/hydrates generic lifecycle state and supports audited catalog/tier/eligibility replacement under PBAC/RLS; development-mounted REGISTRY body uses typed CRUD and the generic governed lifecycle route. Production exposure remains disabled pending independent runtime and closed-loop evidence |
 
 ### Governance / docs / policy
 
@@ -166,7 +166,7 @@ Mounted routers in `backend/app/src/lib.rs build_router` at the audited revision
 | §19 | 구성 가능 콘솔 (DashComponent/console_view 영속) | **BUILT-WIRED (partial)** | `console_view` seeded through engine + governance deploy approval |
 | §20 | 전면 CRUD 거버넌스 (override four-eyes) | **BUILT-WIRED** | `gov_approval_requests` `0158`; override reason+four-eyes |
 | plain | payroll REST | **BUILT-WIRED (read-only partial)** | mounted list/get/self routes expose draft readiness; no persisted calculation-result/payslip amount engine |
-| plain | inventory · benefit REST | **PARTIAL** | inventory remains built-dark; benefit catalog REST is mounted with an unexposed development REGISTRY body. Benefit production exposure still requires independent runtime and closed-loop evidence |
+| plain | inventory · benefit REST | **PARTIAL** | inventory remains built-dark; benefit catalog REST materializes/hydrates lifecycle state and has an unexposed development REGISTRY typed CRUD body. Benefit production exposure still requires independent runtime and closed-loop evidence |
 | plain | notices / board backend | **BUILT-WIRED (UI partial)** | mounted draft/list/get/publish/ack/progress routes; no board body |
 | plain | analytics quant | **BUILT-WIRED (narrow)** | mounted authenticated stateless projection endpoint; no claim of Monte-Carlo/EVT or forecast-product completeness |
 | plain | C-chain / recruiting | **PARTIAL / MISSING** | C-chain ontology types are seeded; contract product workflow and UI remain partial, while recruiting REST remains missing |
@@ -180,7 +180,7 @@ These are the **latest shipped state in the `.dc.html` design prototype** — ea
 | AGENTS | Prototype feature | Built-console status |
 |---|---|---|
 | (91) leave 카드 존 (window-model) | window-zone wrap of leave sections | **PARTIAL** — LeaveBody wired; window-zone retrofit breadth is the §4.7 gap |
-| (92)(93) benefit·docs 카드 존 | single card-zone retrofit | **PARTIAL (benefit/docs)** — benefit has a development-mounted catalog card body with server data and governed lifecycle drill; production exposure and closed-loop runtime evidence remain absent. Evidence list/detail/verify/hold is wired but custody/durability proof is incomplete |
+| (92)(93) benefit·docs 카드 존 | single card-zone retrofit | **PARTIAL (benefit/docs)** — benefit has a development-mounted typed catalog CRUD body with server data, child replacement, and governed lifecycle drill; production exposure and independently executed closed-loop runtime evidence remain absent. Evidence list/detail/verify/hold is wired but custody/durability proof is incomplete |
 | (94) dashboard 위젯 제네릭 바인딩 | count/trend/dist widgets on ONT query | **PARTIAL** — DashboardBody wired; generic widget-add scope partial |
 | (95) 기안 §68 투영 + fail-closed | structured 기안 + projection panel | **PARTIAL** — ApprovalCompose built, not in new shell |
 | (96) 대시보드 실데이터 파생 | source-computed stats | **PARITY** — DashboardBody real-API |
