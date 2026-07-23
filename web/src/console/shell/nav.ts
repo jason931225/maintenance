@@ -87,6 +87,7 @@ export const MOUNTED_SCREEN_KEYS = [
   "inbox",
   "leave",
   "benefit",
+  "consulting",
   "finance",
   "asset",
   "appr",

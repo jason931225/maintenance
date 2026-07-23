@@ -10,6 +10,7 @@ members = [
   "crates/action-inbox/*",
   "crates/kernel/*",
   "crates/benefit/*",
+  "crates/consulting/*",
   "crates/compliance/*",
   "crates/docs/*",
   "crates/financial/*",
@@ -178,6 +179,7 @@ mnt-benefit-domain = { path = "crates/benefit/domain" }
 mnt-benefit-application = { path = "crates/benefit/application" }
 mnt-benefit-adapter-postgres = { path = "crates/benefit/adapter-postgres" }
 mnt-benefit-rest = { path = "crates/benefit/rest" }
+mnt-consulting-rest = { path = "crates/consulting/rest" }
 mnt-compliance-domain = { path = "crates/compliance/domain" }
 mnt-compliance-application = { path = "crates/compliance/application" }
 mnt-compliance-adapter-postgres = { path = "crates/compliance/adapter-postgres" }

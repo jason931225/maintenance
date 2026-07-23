@@ -23,6 +23,7 @@ import OverviewScreen from "./overview/OverviewScreen";
 import { PolicyBody } from "./policy/PolicyBody";
 import { SupportBody } from "./support/SupportBody";
 import { BenefitBody } from "./benefit/BenefitBody";
+import { ConsultingEngagementBody } from "../consulting/ConsultingEngagementBody";
 
 export const SCREEN_REGISTRY: Readonly<Record<MountedScreenKey, ComponentType>> = {
   overview: OverviewScreen,
@@ -37,6 +38,7 @@ export const SCREEN_REGISTRY: Readonly<Record<MountedScreenKey, ComponentType>> 
   audit: AuditScreenBody,
   leave: LeaveBody,
   benefit: BenefitBody,
+  consulting: ConsultingEngagementBody,
   policy: PolicyBody,
   // nav label "객체 탐색" — the read-only graph explorer (no type authoring).
   objectExplorer: ExploreScreen,

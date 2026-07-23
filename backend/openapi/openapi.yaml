@@ -13539,6 +13539,83 @@ paths:
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
         '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/consulting/engagements:
+    get:
+      tags: [consulting]
+      operationId: listConsultingEngagements
+      security: [{ bearerAuth: [] }]
+      parameters:
+      - { name: q, in: query, schema: { type: string } }
+      - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100 } }
+      - { name: offset, in: query, schema: { type: integer, minimum: 0 } }
+      responses: { '200': { description: Tenant-visible engagements, content: { application/json: { schema: { $ref: '#/components/schemas/ConsultingEngagementPage' } } } } }
+    post:
+      tags: [consulting]
+      operationId: createConsultingEngagement
+      security: [{ bearerAuth: [] }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ConsultingEngagementCreateRequest' } } } }
+      responses: { '201': { description: Created or idempotently replayed engagement, content: { application/json: { schema: { $ref: '#/components/schemas/ConsultingEngagement' } } } } }
+  /api/v1/consulting/engagements/{engagement_id}:
+    get:
+      tags: [consulting]
+      operationId: getConsultingEngagement
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: engagement_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      responses: { '200': { description: Evidence and KPI-lineage detail, content: { application/json: { schema: { $ref: '#/components/schemas/ConsultingEngagementDetail' } } } }, '404': { $ref: '#/components/responses/NotFound' } }
+  /api/v1/consulting/engagements/{engagement_id}/diagnostics:
+    post:
+      tags: [consulting]
+      operationId: createConsultingDiagnostic
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: engagement_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ConsultingDiagnosticCreateRequest' } } } }
+      responses: { '201': { description: Created diagnostic, content: { application/json: { schema: { $ref: '#/components/schemas/ConsultingDiagnostic' } } } } }
+  /api/v1/consulting/engagements/{engagement_id}/findings:
+    post:
+      tags: [consulting]
+      operationId: createConsultingFinding
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: engagement_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ConsultingFindingCreateRequest' } } } }
+      responses: { '201': { description: Created evidence-linked finding, content: { application/json: { schema: { $ref: '#/components/schemas/ConsultingFinding' } } } } }
+  /api/v1/consulting/engagements/{engagement_id}/initiatives:
+    post:
+      tags: [consulting]
+      operationId: createConsultingInitiative
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: engagement_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ConsultingInitiativeCreateRequest' } } } }
+      responses: { '201': { description: Created KPI-referenced initiative, content: { application/json: { schema: { $ref: '#/components/schemas/ConsultingInitiative' } } } } }
+  /api/v1/consulting/engagements/{engagement_id}/transition:
+    post:
+      tags: [consulting]
+      operationId: transitionConsultingEngagement
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: engagement_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ConsultingTransitionRequest' } } } }
+      responses: { '200': { description: Transitioned engagement, content: { application/json: { schema: { $ref: '#/components/schemas/ConsultingEngagement' } } } }, '409': { $ref: '#/components/responses/Conflict' } }
+  /api/v1/consulting/engagements/{engagement_id}/observations:
+    post:
+      tags: [consulting]
+      operationId: createConsultingBenefitObservation
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: engagement_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      requestBody: { required: true, content: { application/json: { schema: { $ref: '#/components/schemas/ConsultingObservationCreateRequest' } } } }
+      responses: { '201': { description: KPI/evidence lineage reference, content: { application/json: { schema: { $ref: '#/components/schemas/ConsultingBenefitObservation' } } } } }
+  /api/v1/consulting/engagements/{engagement_id}/history:
+    get:
+      tags: [consulting]
+      operationId: listConsultingEngagementHistory
+      security: [{ bearerAuth: [] }]
+      parameters: [{ name: engagement_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
+      responses:
+        '200':
+          description: Append-only engagement history
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/ConsultingHistoryEntry' }
 components:
   securitySchemes:
     bearerAuth:
@@ -13881,6 +13958,50 @@ components:
         tiers: { type: array, items: { $ref: '#/components/schemas/BenefitCatalogTier' } }
         conditions: { type: array, items: { $ref: '#/components/schemas/BenefitCatalogCondition' } }
         lifecycle: { $ref: '#/components/schemas/BenefitCatalogLifecycleBinding' }
+    ConsultingEngagement:
+      type: object
+      required: [id, customer_id, title, status, version, created_at, updated_at]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        customer_id: { $ref: '#/components/schemas/Uuid' }
+        customer_document_id: { $ref: '#/components/schemas/Uuid', nullable: true }
+        ontology_instance_id: { $ref: '#/components/schemas/Uuid', nullable: true }
+        title: { type: string }
+        status: { type: string, enum: [DRAFT, PROPOSED, APPROVED, IMPLEMENTED, MEASURED, SUSTAINED, CORRECTIVE] }
+        approval_id: { $ref: '#/components/schemas/Uuid', nullable: true }
+        workflow_execution_id: { $ref: '#/components/schemas/Uuid', nullable: true }
+        version: { type: integer, format: int64 }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+    ConsultingEngagementPage:
+      type: object
+      required: [items, limit, offset, total]
+      properties: { items: { type: array, items: { $ref: '#/components/schemas/ConsultingEngagement' } }, limit: { type: integer }, offset: { type: integer }, total: { type: integer } }
+    ConsultingEngagementDetail:
+      allOf:
+      - { $ref: '#/components/schemas/ConsultingEngagement' }
+      - type: object
+        required: [diagnostics, findings, initiatives, observations]
+        properties:
+          diagnostics: { type: array, items: { $ref: '#/components/schemas/ConsultingDiagnostic' } }
+          findings: { type: array, items: { $ref: '#/components/schemas/ConsultingFinding' } }
+          initiatives: { type: array, items: { $ref: '#/components/schemas/ConsultingInitiative' } }
+          observations: { type: array, items: { $ref: '#/components/schemas/ConsultingBenefitObservation' } }
+    ConsultingEngagementCreateRequest:
+      type: object
+      additionalProperties: false
+      required: [customerId, title, idempotencyKey]
+      properties: { customerId: { $ref: '#/components/schemas/Uuid' }, customerDocumentId: { $ref: '#/components/schemas/Uuid', nullable: true }, ontologyInstanceId: { $ref: '#/components/schemas/Uuid', nullable: true }, title: { type: string, minLength: 1 }, idempotencyKey: { type: string, minLength: 1 } }
+    ConsultingDiagnostic: { type: object, required: [id, summary, created_at], properties: { id: { $ref: '#/components/schemas/Uuid' }, summary: { type: string }, document_id: { $ref: '#/components/schemas/Uuid', nullable: true }, created_at: { type: string, format: date-time } } }
+    ConsultingDiagnosticCreateRequest: { type: object, additionalProperties: false, required: [summary], properties: { summary: { type: string, minLength: 1 }, documentId: { $ref: '#/components/schemas/Uuid', nullable: true } } }
+    ConsultingFinding: { type: object, required: [id, diagnostic_id, statement, evidence_id, created_at], properties: { id: { $ref: '#/components/schemas/Uuid' }, diagnostic_id: { $ref: '#/components/schemas/Uuid' }, statement: { type: string }, evidence_id: { $ref: '#/components/schemas/Uuid' }, document_id: { $ref: '#/components/schemas/Uuid', nullable: true }, created_at: { type: string, format: date-time } } }
+    ConsultingFindingCreateRequest: { type: object, additionalProperties: false, required: [diagnosticId, statement, evidenceId], properties: { diagnosticId: { $ref: '#/components/schemas/Uuid' }, statement: { type: string, minLength: 1 }, evidenceId: { $ref: '#/components/schemas/Uuid' }, documentId: { $ref: '#/components/schemas/Uuid', nullable: true } } }
+    ConsultingInitiative: { type: object, required: [id, finding_id, title, hypothesis, kpi_definition_id, target_direction, created_at], properties: { id: { $ref: '#/components/schemas/Uuid' }, finding_id: { $ref: '#/components/schemas/Uuid' }, title: { type: string }, hypothesis: { type: string }, kpi_definition_id: { $ref: '#/components/schemas/Uuid' }, target_direction: { type: string, enum: [INCREASE, DECREASE] }, created_at: { type: string, format: date-time } } }
+    ConsultingInitiativeCreateRequest: { type: object, additionalProperties: false, required: [findingId, title, hypothesis, kpiDefinitionId, targetDirection], properties: { findingId: { $ref: '#/components/schemas/Uuid' }, title: { type: string, minLength: 1 }, hypothesis: { type: string, minLength: 1 }, kpiDefinitionId: { $ref: '#/components/schemas/Uuid' }, targetDirection: { type: string, enum: [INCREASE, DECREASE] } } }
+    ConsultingBenefitObservation: { type: object, required: [id, initiative_id, kpi_definition_id, evidence_id, observed_at, note, created_at], properties: { id: { $ref: '#/components/schemas/Uuid' }, initiative_id: { $ref: '#/components/schemas/Uuid' }, kpi_definition_id: { $ref: '#/components/schemas/Uuid' }, evidence_id: { $ref: '#/components/schemas/Uuid' }, observed_at: { type: string, format: date-time }, note: { type: string }, created_at: { type: string, format: date-time } } }
+    ConsultingObservationCreateRequest: { type: object, additionalProperties: false, required: [initiativeId, kpiDefinitionId, evidenceId, observedAt, note], properties: { initiativeId: { $ref: '#/components/schemas/Uuid' }, kpiDefinitionId: { $ref: '#/components/schemas/Uuid' }, evidenceId: { $ref: '#/components/schemas/Uuid' }, observedAt: { type: string, format: date-time }, note: { type: string, minLength: 1 } } }
+    ConsultingTransitionRequest: { type: object, additionalProperties: false, required: [toStatus, expectedVersion, reason], properties: { toStatus: { type: string, enum: [PROPOSED, APPROVED, IMPLEMENTED, MEASURED, SUSTAINED, CORRECTIVE] }, expectedVersion: { type: integer, format: int64, minimum: 1 }, approvalId: { $ref: '#/components/schemas/Uuid', nullable: true }, workflowExecutionId: { $ref: '#/components/schemas/Uuid', nullable: true }, reason: { type: string, minLength: 1 } } }
+    ConsultingHistoryEntry: { type: object, required: [id, event_type, version, payload, occurred_at], properties: { id: { $ref: '#/components/schemas/Uuid' }, event_type: { type: string }, from_status: { type: string, nullable: true }, to_status: { type: string, nullable: true }, version: { type: integer, format: int64 }, payload: { type: object, additionalProperties: true }, occurred_at: { type: string, format: date-time } } }
     ComplianceRiskLevel:
       type: string
       enum: [INFO, LOW, MEDIUM, HIGH, CRITICAL]

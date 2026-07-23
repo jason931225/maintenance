@@ -1,0 +1,648 @@
+//! Tenant-scoped consulting engagement API. KPI values are intentionally never
+//! copied here: observations retain KPI-definition and evidence references only.
+#![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
+
+use axum::extract::{Path, Query, State};
+use axum::http::{HeaderMap, StatusCode};
+use axum::response::{IntoResponse, Response};
+use axum::routing::get;
+use axum::{Json, Router};
+use mnt_kernel_core::{BranchScope, ErrorKind, KernelError, OrgId, UserId};
+use mnt_platform_auth::JwtVerifier;
+use mnt_platform_authz::{Action, Feature, Principal, authorize, authorize_org_wide};
+use mnt_platform_db::with_org_conn;
+use mnt_platform_request_context::{RequestContextError, current_org};
+use serde::{Deserialize, Serialize};
+use sqlx::{PgPool, Postgres, QueryBuilder, Row};
+use time::OffsetDateTime;
+use uuid::Uuid;
+
+pub const CONSULTING_ENGAGEMENTS_PATH: &str = "/api/v1/consulting/engagements";
+pub const CONSULTING_ENGAGEMENT_PATH: &str = "/api/v1/consulting/engagements/{engagement_id}";
+pub const CONSULTING_DIAGNOSTICS_PATH: &str =
+    "/api/v1/consulting/engagements/{engagement_id}/diagnostics";
+pub const CONSULTING_FINDINGS_PATH: &str =
+    "/api/v1/consulting/engagements/{engagement_id}/findings";
+pub const CONSULTING_INITIATIVES_PATH: &str =
+    "/api/v1/consulting/engagements/{engagement_id}/initiatives";
+pub const CONSULTING_TRANSITION_PATH: &str =
+    "/api/v1/consulting/engagements/{engagement_id}/transition";
+pub const CONSULTING_OBSERVATIONS_PATH: &str =
+    "/api/v1/consulting/engagements/{engagement_id}/observations";
+pub const CONSULTING_HISTORY_PATH: &str = "/api/v1/consulting/engagements/{engagement_id}/history";
+pub const CONSULTING_ROUTE_PATHS: &[&str] = &[
+    CONSULTING_ENGAGEMENTS_PATH,
+    CONSULTING_ENGAGEMENT_PATH,
+    CONSULTING_DIAGNOSTICS_PATH,
+    CONSULTING_FINDINGS_PATH,
+    CONSULTING_INITIATIVES_PATH,
+    CONSULTING_TRANSITION_PATH,
+    CONSULTING_OBSERVATIONS_PATH,
+    CONSULTING_HISTORY_PATH,
+];
+
+#[derive(Clone)]
+pub struct ConsultingRestState {
+    pool: PgPool,
+    jwt_verifier: Option<JwtVerifier>,
+}
+impl ConsultingRestState {
+    #[must_use]
+    pub fn new(pool: PgPool, jwt_verifier: Option<JwtVerifier>) -> Self {
+        Self { pool, jwt_verifier }
+    }
+}
+pub fn router(state: ConsultingRestState) -> Router {
+    let verifier = state.jwt_verifier.clone();
+    let pool = state.pool.clone();
+    let router = Router::new()
+        .route(
+            CONSULTING_ENGAGEMENTS_PATH,
+            get(list_engagements).post(create_engagement),
+        )
+        .route(CONSULTING_ENGAGEMENT_PATH, get(get_engagement))
+        .route(
+            CONSULTING_DIAGNOSTICS_PATH,
+            axum::routing::post(create_diagnostic),
+        )
+        .route(
+            CONSULTING_FINDINGS_PATH,
+            axum::routing::post(create_finding),
+        )
+        .route(
+            CONSULTING_INITIATIVES_PATH,
+            axum::routing::post(create_initiative),
+        )
+        .route(CONSULTING_TRANSITION_PATH, axum::routing::post(transition))
+        .route(
+            CONSULTING_OBSERVATIONS_PATH,
+            axum::routing::post(record_observation),
+        )
+        .route(CONSULTING_HISTORY_PATH, get(list_history))
+        .with_state(state);
+    mnt_platform_request_context::with_request_context(router, verifier, pool)
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ListParams {
+    limit: Option<i64>,
+    offset: Option<i64>,
+    q: Option<String>,
+}
+#[derive(Serialize)]
+#[serde(rename_all = "snake_case")]
+struct Page {
+    items: Vec<Engagement>,
+    limit: i64,
+    offset: i64,
+    total: i64,
+}
+#[derive(Serialize)]
+#[serde(rename_all = "snake_case")]
+struct Engagement {
+    id: Uuid,
+    customer_id: Uuid,
+    customer_document_id: Option<Uuid>,
+    ontology_instance_id: Option<Uuid>,
+    title: String,
+    status: String,
+    approval_id: Option<Uuid>,
+    workflow_execution_id: Option<Uuid>,
+    version: i64,
+    created_at: OffsetDateTime,
+    updated_at: OffsetDateTime,
+}
+#[derive(Serialize)]
+#[serde(rename_all = "snake_case")]
+struct EngagementDetail {
+    #[serde(flatten)]
+    engagement: Engagement,
+    diagnostics: Vec<Diagnostic>,
+    findings: Vec<Finding>,
+    initiatives: Vec<Initiative>,
+    observations: Vec<Observation>,
+}
+#[derive(Serialize)]
+#[serde(rename_all = "snake_case")]
+struct Diagnostic {
+    id: Uuid,
+    summary: String,
+    document_id: Option<Uuid>,
+    created_at: OffsetDateTime,
+}
+#[derive(Serialize)]
+#[serde(rename_all = "snake_case")]
+struct Finding {
+    id: Uuid,
+    diagnostic_id: Uuid,
+    statement: String,
+    evidence_id: Uuid,
+    document_id: Option<Uuid>,
+    created_at: OffsetDateTime,
+}
+#[derive(Serialize)]
+#[serde(rename_all = "snake_case")]
+struct Initiative {
+    id: Uuid,
+    finding_id: Uuid,
+    title: String,
+    hypothesis: String,
+    kpi_definition_id: Uuid,
+    target_direction: String,
+    created_at: OffsetDateTime,
+}
+#[derive(Serialize)]
+#[serde(rename_all = "snake_case")]
+struct Observation {
+    id: Uuid,
+    initiative_id: Uuid,
+    kpi_definition_id: Uuid,
+    evidence_id: Uuid,
+    observed_at: OffsetDateTime,
+    note: String,
+    created_at: OffsetDateTime,
+}
+#[derive(Serialize)]
+#[serde(rename_all = "snake_case")]
+struct History {
+    id: Uuid,
+    event_type: String,
+    from_status: Option<String>,
+    to_status: Option<String>,
+    version: i64,
+    payload: serde_json::Value,
+    occurred_at: OffsetDateTime,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CreateEngagement {
+    customer_id: Uuid,
+    customer_document_id: Option<Uuid>,
+    ontology_instance_id: Option<Uuid>,
+    title: String,
+    idempotency_key: String,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CreateDiagnostic {
+    summary: String,
+    document_id: Option<Uuid>,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CreateFinding {
+    diagnostic_id: Uuid,
+    statement: String,
+    evidence_id: Uuid,
+    document_id: Option<Uuid>,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CreateInitiative {
+    finding_id: Uuid,
+    title: String,
+    hypothesis: String,
+    kpi_definition_id: Uuid,
+    target_direction: String,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct Transition {
+    to_status: String,
+    expected_version: i64,
+    approval_id: Option<Uuid>,
+    workflow_execution_id: Option<Uuid>,
+    reason: String,
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct CreateObservation {
+    initiative_id: Uuid,
+    kpi_definition_id: Uuid,
+    evidence_id: Uuid,
+    observed_at: OffsetDateTime,
+    note: String,
+}
+
+async fn list_engagements(
+    State(state): State<ConsultingRestState>,
+    headers: HeaderMap,
+    Query(params): Query<ListParams>,
+) -> Result<Json<Page>, RestError> {
+    let principal = principal(&state, &headers).await?;
+    require(&principal, false)?;
+    let limit = params.limit.unwrap_or(25).clamp(1, 100);
+    let offset = params.offset.unwrap_or(0).max(0);
+    let org = current_org().map_err(RestError::kernel)?;
+    let q = params.q.filter(|v| !v.trim().is_empty());
+    let page = with_org_conn(&state.pool, org, |tx| Box::pin(async move {
+        let total: i64 = sqlx::query_scalar("SELECT count(*) FROM consulting_engagements WHERE ($1::text IS NULL OR title ILIKE '%' || $1 || '%')").bind(q.as_deref()).fetch_one(tx.as_mut()).await?;
+        let rows = sqlx::query("SELECT id, customer_id, customer_document_id, ontology_instance_id, title, status, approval_id, workflow_execution_id, version, created_at, updated_at FROM consulting_engagements WHERE ($1::text IS NULL OR title ILIKE '%' || $1 || '%') ORDER BY updated_at DESC, id LIMIT $2 OFFSET $3").bind(q.as_deref()).bind(limit).bind(offset).fetch_all(tx.as_mut()).await?;
+        Ok::<_, sqlx::Error>(Page { items: rows.iter().map(engagement).collect::<Result<_,_>>()?, limit, offset, total })
+    })).await.map_err(RestError::db)?;
+    Ok(Json(page))
+}
+
+async fn create_engagement(
+    State(state): State<ConsultingRestState>,
+    headers: HeaderMap,
+    Json(body): Json<CreateEngagement>,
+) -> Result<(StatusCode, Json<Engagement>), RestError> {
+    let actor = principal(&state, &headers).await?;
+    require(&actor, true)?;
+    required(&body.title, "title")?;
+    required(&body.idempotency_key, "idempotencyKey")?;
+    let org = current_org().map_err(RestError::kernel)?;
+    let actor_id = *actor.user_id.as_uuid();
+    let id = Uuid::new_v4();
+    let value = with_org_conn(&state.pool, org, |tx| Box::pin(async move {
+        let existing = sqlx::query("SELECT id, customer_id, customer_document_id, ontology_instance_id, title, status, approval_id, workflow_execution_id, version, created_at, updated_at FROM consulting_engagements WHERE idempotency_key = $1").bind(&body.idempotency_key).fetch_optional(tx.as_mut()).await?;
+        if let Some(row) = existing { return engagement(&row); }
+        let row = sqlx::query("INSERT INTO consulting_engagements (id, org_id, customer_id, customer_document_id, ontology_instance_id, title, idempotency_key, created_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING id, customer_id, customer_document_id, ontology_instance_id, title, status, approval_id, workflow_execution_id, version, created_at, updated_at")
+            .bind(id).bind(*org.as_uuid()).bind(body.customer_id).bind(body.customer_document_id).bind(body.ontology_instance_id).bind(body.title.trim()).bind(body.idempotency_key.trim()).bind(actor_id).fetch_one(tx.as_mut()).await?;
+        insert_history(tx, *org.as_uuid(), id, actor_id, "engagement.created", None, Some("DRAFT"), 1, serde_json::json!({"customer_id": body.customer_id})).await?; engagement(&row)
+    })).await.map_err(RestError::db)?;
+    Ok((StatusCode::CREATED, Json(value)))
+}
+
+async fn get_engagement(
+    State(state): State<ConsultingRestState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> Result<Json<EngagementDetail>, RestError> {
+    let actor = principal(&state, &headers).await?;
+    require(&actor, false)?;
+    let org = current_org().map_err(RestError::kernel)?;
+    let result = with_org_conn(&state.pool, org, |tx| {
+        Box::pin(async move { detail(tx, id).await })
+    })
+    .await
+    .map_err(RestError::db)?;
+    result.map(Json).ok_or_else(|| {
+        RestError::kernel(KernelError::not_found(
+            "consulting engagement was not found",
+        ))
+    })
+}
+
+async fn create_diagnostic(
+    State(state): State<ConsultingRestState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+    Json(body): Json<CreateDiagnostic>,
+) -> Result<(StatusCode, Json<Diagnostic>), RestError> {
+    let actor = principal(&state, &headers).await?;
+    require(&actor, true)?;
+    required(&body.summary, "summary")?;
+    let org = current_org().map_err(RestError::kernel)?;
+    let actor_id = *actor.user_id.as_uuid();
+    let item = with_org_conn(&state.pool, org, |tx| Box::pin(async move { ensure_engagement(tx, id).await?; let row = sqlx::query("INSERT INTO consulting_diagnostics (org_id, engagement_id, summary, document_id, created_by) VALUES ($1,$2,$3,$4,$5) RETURNING id, summary, document_id, created_at").bind(*org.as_uuid()).bind(id).bind(body.summary.trim()).bind(body.document_id).bind(actor_id).fetch_one(tx.as_mut()).await?; insert_history(tx,*org.as_uuid(),id,actor_id,"diagnostic.recorded",None,None,version(tx,id).await?,serde_json::json!({"diagnostic_id": row.try_get::<Uuid,_>("id")?})).await?; diagnostic(&row) })).await.map_err(RestError::db)?;
+    Ok((StatusCode::CREATED, Json(item)))
+}
+
+async fn create_finding(
+    State(state): State<ConsultingRestState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+    Json(body): Json<CreateFinding>,
+) -> Result<(StatusCode, Json<Finding>), RestError> {
+    let actor = principal(&state, &headers).await?;
+    require(&actor, true)?;
+    required(&body.statement, "statement")?;
+    let org = current_org().map_err(RestError::kernel)?;
+    let actor_id = *actor.user_id.as_uuid();
+    let item=with_org_conn(&state.pool,org,|tx|Box::pin(async move { ensure_engagement(tx,id).await?; let exists: bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM consulting_diagnostics WHERE id=$1 AND engagement_id=$2)").bind(body.diagnostic_id).bind(id).fetch_one(tx.as_mut()).await?; if !exists{return Err(sqlx::Error::RowNotFound)}; let row=sqlx::query("INSERT INTO consulting_findings (org_id,engagement_id,diagnostic_id,statement,evidence_id,document_id,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING id,diagnostic_id,statement,evidence_id,document_id,created_at").bind(*org.as_uuid()).bind(id).bind(body.diagnostic_id).bind(body.statement.trim()).bind(body.evidence_id).bind(body.document_id).bind(actor_id).fetch_one(tx.as_mut()).await?; insert_history(tx,*org.as_uuid(),id,actor_id,"finding.recorded",None,None,version(tx,id).await?,serde_json::json!({"finding_id":row.try_get::<Uuid,_>("id")?,"evidence_id":body.evidence_id})).await?; finding(&row)})).await.map_err(RestError::db)?;
+    Ok((StatusCode::CREATED, Json(item)))
+}
+
+async fn create_initiative(
+    State(state): State<ConsultingRestState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+    Json(body): Json<CreateInitiative>,
+) -> Result<(StatusCode, Json<Initiative>), RestError> {
+    let actor = principal(&state, &headers).await?;
+    require(&actor, true)?;
+    required(&body.title, "title")?;
+    required(&body.hypothesis, "hypothesis")?;
+    if !matches!(body.target_direction.as_str(), "INCREASE" | "DECREASE") {
+        return Err(RestError::kernel(KernelError::validation(
+            "targetDirection must be INCREASE or DECREASE",
+        )));
+    }
+    let org = current_org().map_err(RestError::kernel)?;
+    let actor_id = *actor.user_id.as_uuid();
+    let item=with_org_conn(&state.pool,org,|tx|Box::pin(async move {ensure_engagement(tx,id).await?; let exists:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM consulting_findings WHERE id=$1 AND engagement_id=$2)").bind(body.finding_id).bind(id).fetch_one(tx.as_mut()).await?; if !exists{return Err(sqlx::Error::RowNotFound)} let row=sqlx::query("INSERT INTO consulting_initiatives (org_id,engagement_id,finding_id,title,hypothesis,kpi_definition_id,target_direction,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id,finding_id,title,hypothesis,kpi_definition_id,target_direction,created_at").bind(*org.as_uuid()).bind(id).bind(body.finding_id).bind(body.title.trim()).bind(body.hypothesis.trim()).bind(body.kpi_definition_id).bind(body.target_direction).bind(actor_id).fetch_one(tx.as_mut()).await?;insert_history(tx,*org.as_uuid(),id,actor_id,"initiative.proposed",None,None,version(tx,id).await?,serde_json::json!({"initiative_id":row.try_get::<Uuid,_>("id")?,"kpi_definition_id":body.kpi_definition_id})).await?; initiative(&row)})).await.map_err(RestError::db)?;
+    Ok((StatusCode::CREATED, Json(item)))
+}
+
+async fn transition(
+    State(state): State<ConsultingRestState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+    Json(body): Json<Transition>,
+) -> Result<Json<Engagement>, RestError> {
+    let actor = principal(&state, &headers).await?;
+    require(&actor, true)?;
+    required(&body.reason, "reason")?;
+    let org = current_org().map_err(RestError::kernel)?;
+    let actor_id = *actor.user_id.as_uuid();
+    let value=with_org_conn(&state.pool,org,|tx|Box::pin(async move { let current=ensure_engagement(tx,id).await?; if !allowed(&current.status,&body.to_status){return Err(sqlx::Error::Protocol("invalid consulting transition".into()))} if body.to_status=="APPROVED"&&body.approval_id.is_none(){return Err(sqlx::Error::Protocol("approvalId is required for APPROVED".into()))} let row=sqlx::query("UPDATE consulting_engagements SET status=$1, approval_id=COALESCE($2,approval_id), workflow_execution_id=COALESCE($3,workflow_execution_id), version=version+1, updated_at=now() WHERE id=$4 AND version=$5 RETURNING id,customer_id,customer_document_id,ontology_instance_id,title,status,approval_id,workflow_execution_id,version,created_at,updated_at").bind(&body.to_status).bind(body.approval_id).bind(body.workflow_execution_id).bind(id).bind(body.expected_version).fetch_optional(tx.as_mut()).await?; let row=row.ok_or(sqlx::Error::RowNotFound)?;let value=engagement(&row)?;insert_history(tx,*org.as_uuid(),id,actor_id,"engagement.transitioned",Some(&current.status),Some(&value.status),value.version,serde_json::json!({"reason":body.reason,"approval_id":body.approval_id,"workflow_execution_id":body.workflow_execution_id})).await?;Ok(value)})).await.map_err(RestError::conflict_or_db)?;
+    Ok(Json(value))
+}
+
+async fn record_observation(
+    State(state): State<ConsultingRestState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+    Json(body): Json<CreateObservation>,
+) -> Result<(StatusCode, Json<Observation>), RestError> {
+    let actor = principal(&state, &headers).await?;
+    require(&actor, true)?;
+    required(&body.note, "note")?;
+    let org = current_org().map_err(RestError::kernel)?;
+    let actor_id = *actor.user_id.as_uuid();
+    let item=with_org_conn(&state.pool,org,|tx|Box::pin(async move {let e=ensure_engagement(tx,id).await?;if e.status!="IMPLEMENTED" {return Err(sqlx::Error::Protocol("implementation review must be completed before a benefit observation".into()))}let valid:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM consulting_initiatives WHERE id=$1 AND engagement_id=$2 AND kpi_definition_id=$3)").bind(body.initiative_id).bind(id).bind(body.kpi_definition_id).fetch_one(tx.as_mut()).await?;if !valid{return Err(sqlx::Error::RowNotFound)}let row=sqlx::query("INSERT INTO consulting_benefit_observations (org_id,engagement_id,initiative_id,kpi_definition_id,evidence_id,observed_at,note,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id,initiative_id,kpi_definition_id,evidence_id,observed_at,note,created_at").bind(*org.as_uuid()).bind(id).bind(body.initiative_id).bind(body.kpi_definition_id).bind(body.evidence_id).bind(body.observed_at).bind(body.note.trim()).bind(actor_id).fetch_one(tx.as_mut()).await?;let item=observation(&row)?;insert_history(tx,*org.as_uuid(),id,actor_id,"benefit.observed",None,None,version(tx,id).await?,serde_json::json!({"observation_id":item.id,"kpi_definition_id":item.kpi_definition_id,"evidence_id":item.evidence_id})).await?;Ok(item)})).await.map_err(RestError::db)?;
+    Ok((StatusCode::CREATED, Json(item)))
+}
+
+async fn list_history(
+    State(state): State<ConsultingRestState>,
+    headers: HeaderMap,
+    Path(id): Path<Uuid>,
+) -> Result<Json<Vec<History>>, RestError> {
+    let actor = principal(&state, &headers).await?;
+    require(&actor, false)?;
+    let org = current_org().map_err(RestError::kernel)?;
+    let value=with_org_conn(&state.pool,org,|tx|Box::pin(async move{ensure_engagement(tx,id).await?;let rows=sqlx::query("SELECT id,event_type,from_status,to_status,version,payload,occurred_at FROM consulting_engagement_history WHERE engagement_id=$1 ORDER BY occurred_at,id").bind(id).fetch_all(tx.as_mut()).await?;rows.iter().map(history).collect::<Result<Vec<_>,_>>() })).await.map_err(RestError::db)?;
+    Ok(Json(value))
+}
+
+async fn detail(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    id: Uuid,
+) -> Result<Option<EngagementDetail>, sqlx::Error> {
+    let row=sqlx::query("SELECT id,customer_id,customer_document_id,ontology_instance_id,title,status,approval_id,workflow_execution_id,version,created_at,updated_at FROM consulting_engagements WHERE id=$1").bind(id).fetch_optional(tx.as_mut()).await?;
+    let Some(row) = row else { return Ok(None) };
+    let diagnostics=sqlx::query("SELECT id,summary,document_id,created_at FROM consulting_diagnostics WHERE engagement_id=$1 ORDER BY created_at").bind(id).fetch_all(tx.as_mut()).await?.iter().map(diagnostic).collect::<Result<_,_>>()?;
+    let findings=sqlx::query("SELECT id,diagnostic_id,statement,evidence_id,document_id,created_at FROM consulting_findings WHERE engagement_id=$1 ORDER BY created_at").bind(id).fetch_all(tx.as_mut()).await?.iter().map(finding).collect::<Result<_,_>>()?;
+    let initiatives=sqlx::query("SELECT id,finding_id,title,hypothesis,kpi_definition_id,target_direction,created_at FROM consulting_initiatives WHERE engagement_id=$1 ORDER BY created_at").bind(id).fetch_all(tx.as_mut()).await?.iter().map(initiative).collect::<Result<_,_>>()?;
+    let observations=sqlx::query("SELECT id,initiative_id,kpi_definition_id,evidence_id,observed_at,note,created_at FROM consulting_benefit_observations WHERE engagement_id=$1 ORDER BY observed_at").bind(id).fetch_all(tx.as_mut()).await?.iter().map(observation).collect::<Result<_,_>>()?;
+    Ok(Some(EngagementDetail {
+        engagement: engagement(&row)?,
+        diagnostics,
+        findings,
+        initiatives,
+        observations,
+    }))
+}
+async fn ensure_engagement(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    id: Uuid,
+) -> Result<Engagement, sqlx::Error> {
+    let row=sqlx::query("SELECT id,customer_id,customer_document_id,ontology_instance_id,title,status,approval_id,workflow_execution_id,version,created_at,updated_at FROM consulting_engagements WHERE id=$1").bind(id).fetch_optional(tx.as_mut()).await?;
+    row.map(|r| engagement(&r))
+        .transpose()?
+        .ok_or(sqlx::Error::RowNotFound)
+}
+async fn version(tx: &mut sqlx::Transaction<'_, Postgres>, id: Uuid) -> Result<i64, sqlx::Error> {
+    sqlx::query_scalar("SELECT version FROM consulting_engagements WHERE id=$1")
+        .bind(id)
+        .fetch_one(tx.as_mut())
+        .await
+}
+async fn insert_history(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+    org: Uuid,
+    id: Uuid,
+    actor: Uuid,
+    event: &str,
+    from: Option<&str>,
+    to: Option<&str>,
+    version: i64,
+    payload: serde_json::Value,
+) -> Result<(), sqlx::Error> {
+    sqlx::query("INSERT INTO consulting_engagement_history (org_id,engagement_id,actor_id,event_type,from_status,to_status,version,payload) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)").bind(org).bind(id).bind(actor).bind(event).bind(from).bind(to).bind(version).bind(payload).execute(tx.as_mut()).await?;
+    Ok(())
+}
+fn engagement(row: &sqlx::postgres::PgRow) -> Result<Engagement, sqlx::Error> {
+    Ok(Engagement {
+        id: row.try_get("id")?,
+        customer_id: row.try_get("customer_id")?,
+        customer_document_id: row.try_get("customer_document_id")?,
+        ontology_instance_id: row.try_get("ontology_instance_id")?,
+        title: row.try_get("title")?,
+        status: row.try_get("status")?,
+        approval_id: row.try_get("approval_id")?,
+        workflow_execution_id: row.try_get("workflow_execution_id")?,
+        version: row.try_get("version")?,
+        created_at: row.try_get("created_at")?,
+        updated_at: row.try_get("updated_at")?,
+    })
+}
+fn diagnostic(row: &sqlx::postgres::PgRow) -> Result<Diagnostic, sqlx::Error> {
+    Ok(Diagnostic {
+        id: row.try_get("id")?,
+        summary: row.try_get("summary")?,
+        document_id: row.try_get("document_id")?,
+        created_at: row.try_get("created_at")?,
+    })
+}
+fn finding(row: &sqlx::postgres::PgRow) -> Result<Finding, sqlx::Error> {
+    Ok(Finding {
+        id: row.try_get("id")?,
+        diagnostic_id: row.try_get("diagnostic_id")?,
+        statement: row.try_get("statement")?,
+        evidence_id: row.try_get("evidence_id")?,
+        document_id: row.try_get("document_id")?,
+        created_at: row.try_get("created_at")?,
+    })
+}
+fn initiative(row: &sqlx::postgres::PgRow) -> Result<Initiative, sqlx::Error> {
+    Ok(Initiative {
+        id: row.try_get("id")?,
+        finding_id: row.try_get("finding_id")?,
+        title: row.try_get("title")?,
+        hypothesis: row.try_get("hypothesis")?,
+        kpi_definition_id: row.try_get("kpi_definition_id")?,
+        target_direction: row.try_get("target_direction")?,
+        created_at: row.try_get("created_at")?,
+    })
+}
+fn observation(row: &sqlx::postgres::PgRow) -> Result<Observation, sqlx::Error> {
+    Ok(Observation {
+        id: row.try_get("id")?,
+        initiative_id: row.try_get("initiative_id")?,
+        kpi_definition_id: row.try_get("kpi_definition_id")?,
+        evidence_id: row.try_get("evidence_id")?,
+        observed_at: row.try_get("observed_at")?,
+        note: row.try_get("note")?,
+        created_at: row.try_get("created_at")?,
+    })
+}
+fn history(row: &sqlx::postgres::PgRow) -> Result<History, sqlx::Error> {
+    Ok(History {
+        id: row.try_get("id")?,
+        event_type: row.try_get("event_type")?,
+        from_status: row.try_get("from_status")?,
+        to_status: row.try_get("to_status")?,
+        version: row.try_get("version")?,
+        payload: row.try_get("payload")?,
+        occurred_at: row.try_get("occurred_at")?,
+    })
+}
+fn allowed(from: &str, to: &str) -> bool {
+    matches!(
+        (from, to),
+        ("DRAFT", "PROPOSED")
+            | ("PROPOSED", "APPROVED")
+            | ("APPROVED", "IMPLEMENTED")
+            | ("IMPLEMENTED", "MEASURED")
+            | ("MEASURED", "SUSTAINED")
+            | ("MEASURED", "CORRECTIVE")
+    )
+}
+fn required(value: &str, field: &str) -> Result<(), RestError> {
+    if value.trim().is_empty() {
+        Err(RestError::kernel(KernelError::validation(format!(
+            "{field} is required"
+        ))))
+    } else {
+        Ok(())
+    }
+}
+fn require(principal: &Principal, write: bool) -> Result<(), RestError> {
+    let feature = if write {
+        Feature::BenefitCatalogManage
+    } else {
+        Feature::BenefitCatalogRead
+    };
+    let action = Action::new(feature);
+    let allowed = match &principal.branch_scope {
+        BranchScope::All => authorize_org_wide(principal, action),
+        BranchScope::Branches(branches) => branches.iter().next().map_or_else(
+            || Err(KernelError::forbidden("principal has no branch scope")),
+            |branch| authorize(principal, action, *branch),
+        ),
+    };
+    allowed.map_err(RestError::kernel)
+}
+async fn principal(
+    state: &ConsultingRestState,
+    headers: &HeaderMap,
+) -> Result<Principal, RestError> {
+    let verifier = state.jwt_verifier.as_ref().ok_or_else(|| {
+        RestError::new(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "unavailable",
+            "JWT verification is not configured for consulting",
+        )
+    })?;
+    mnt_platform_request_context::resolve_principal(verifier, &state.pool, headers)
+        .await
+        .map_err(|error| match error {
+            RequestContextError::MissingBearer
+            | RequestContextError::InvalidToken
+            | RequestContextError::InvalidClaim(_) => RestError::new(
+                StatusCode::UNAUTHORIZED,
+                "unauthorized",
+                "missing, malformed, or invalid bearer token",
+            ),
+            RequestContextError::WrongTokenTier | RequestContextError::AccessScope(_) => {
+                RestError::kernel(KernelError::forbidden(
+                    "token is not authorized for consulting",
+                ))
+            }
+            RequestContextError::VerifierUnavailable => RestError::new(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "unavailable",
+                "JWT verification is not configured for consulting",
+            ),
+            RequestContextError::BranchScope(message)
+            | RequestContextError::EffectivePolicy(message) => {
+                RestError::new(StatusCode::INTERNAL_SERVER_ERROR, "internal", message)
+            }
+            RequestContextError::MissingOrg => RestError::new(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "internal",
+                "no tenant context is bound",
+            ),
+        })
+}
+#[derive(Serialize)]
+struct ErrorBody {
+    error: ErrorPayload,
+}
+#[derive(Serialize)]
+struct ErrorPayload {
+    code: &'static str,
+    message: String,
+}
+struct RestError {
+    status: StatusCode,
+    code: &'static str,
+    message: String,
+}
+impl RestError {
+    fn new(status: StatusCode, code: &'static str, message: impl Into<String>) -> Self {
+        Self {
+            status,
+            code,
+            message: message.into(),
+        }
+    }
+    fn kernel(error: KernelError) -> Self {
+        let status = match error.kind {
+            ErrorKind::Validation => StatusCode::UNPROCESSABLE_ENTITY,
+            ErrorKind::NotFound => StatusCode::NOT_FOUND,
+            ErrorKind::Forbidden => StatusCode::FORBIDDEN,
+            ErrorKind::Conflict | ErrorKind::InvalidTransition => StatusCode::CONFLICT,
+            ErrorKind::Internal => StatusCode::INTERNAL_SERVER_ERROR,
+        };
+        Self::new(
+            status,
+            if status == StatusCode::CONFLICT {
+                "conflict"
+            } else {
+                "error"
+            },
+            error.message,
+        )
+    }
+    fn db(_: mnt_platform_db::DbError) -> Self {
+        Self::new(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "internal",
+            "internal server error",
+        )
+    }
+    fn conflict_or_db(error: mnt_platform_db::DbError) -> Self {
+        match error {
+            mnt_platform_db::DbError::Sqlx(sqlx::Error::RowNotFound) => Self::new(
+                StatusCode::CONFLICT,
+                "conflict",
+                "engagement changed or was not found; reload before retrying",
+            ),
+            mnt_platform_db::DbError::Sqlx(sqlx::Error::Protocol(message)) => {
+                Self::new(StatusCode::CONFLICT, "conflict", message)
+            }
+            _ => Self::db(error),
+        }
+    }
+}
+impl IntoResponse for RestError {
+    fn into_response(self) -> Response {
+        (
+            self.status,
+            Json(ErrorBody {
+                error: ErrorPayload {
+                    code: self.code,
+                    message: self.message,
+                },
+            }),
+        )
+            .into_response()
+    }
+}
