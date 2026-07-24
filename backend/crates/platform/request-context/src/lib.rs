@@ -85,10 +85,12 @@ impl TrustedClientIp {
 /// configures one or more trusted proxy hops *and* Axum supplied the direct
 /// transport peer. `trusted_proxy_count` includes that direct peer; every
 /// remaining expected proxy hop is validated right-to-left against the trusted
-/// CIDRs before the client value immediately to its left is accepted. Malformed
-/// or incomplete chains fall back to that peer; they never promote an
-/// attacker-controlled header value. This is the only place that interprets
-/// `X-Forwarded-For` in the HTTP process.
+/// CIDRs before the client value immediately to its left is accepted. There must
+/// be exactly one `X-Forwarded-For` field and every comma-delimited token must
+/// be a non-empty IP address. Duplicate fields, malformed or incomplete chains
+/// fall back to the direct peer; they never promote an attacker-controlled
+/// header value. This is the only place that interprets `X-Forwarded-For` in the
+/// HTTP process.
 #[must_use]
 pub fn resolve_trusted_client_ip(
     headers: &HeaderMap,
@@ -104,8 +106,13 @@ pub fn resolve_trusted_client_ip(
         return peer.ip();
     }
 
-    let Some(forwarded) = headers
-        .get("x-forwarded-for")
+    let forwarded_values = headers.get_all("x-forwarded-for");
+    if forwarded_values.iter().count() != 1 {
+        return peer.ip();
+    }
+    let Some(forwarded) = forwarded_values
+        .iter()
+        .next()
         .and_then(|value| value.to_str().ok())
     else {
         return peer.ip();
@@ -114,8 +121,13 @@ pub fn resolve_trusted_client_ip(
     let entries = forwarded
         .split(',')
         .map(str::trim)
-        .filter(|entry| !entry.is_empty())
-        .map(str::parse::<IpAddr>)
+        .map(|entry| {
+            if entry.is_empty() {
+                Err(())
+            } else {
+                entry.parse::<IpAddr>().map_err(|_| ())
+            }
+        })
         .collect::<Result<Vec<_>, _>>();
     let Ok(entries) = entries else {
         return peer.ip();
@@ -722,6 +734,56 @@ mod tests {
         assert_eq!(
             resolve_trusted_client_ip(&headers, peer, 2, &["10.0.0.0/8".parse().unwrap()]),
             "198.51.100.250".parse().unwrap()
+        );
+    }
+
+    #[test]
+    fn ingress_resolver_rejects_duplicate_forwarded_fields() {
+        let mut headers = HeaderMap::new();
+        headers.append(
+            "x-forwarded-for",
+            "198.51.100.250, 10.0.0.2".parse().unwrap(),
+        );
+        headers.append(
+            "x-forwarded-for",
+            "198.51.100.251, 10.0.0.2".parse().unwrap(),
+        );
+        let peer = "10.0.0.3:443".parse().unwrap();
+
+        assert_eq!(
+            resolve_trusted_client_ip(&headers, peer, 2, &["10.0.0.0/8".parse().unwrap()]),
+            peer.ip(),
+            "ambiguous repeated forwarding fields must fail closed"
+        );
+    }
+
+    #[test]
+    fn ingress_resolver_rejects_empty_forwarded_tokens() {
+        let headers = HeaderMap::from_iter([(
+            "x-forwarded-for",
+            "198.51.100.250, , 10.0.0.2".parse().unwrap(),
+        )]);
+        let peer = "10.0.0.3:443".parse().unwrap();
+
+        assert_eq!(
+            resolve_trusted_client_ip(&headers, peer, 2, &["10.0.0.0/8".parse().unwrap()]),
+            peer.ip(),
+            "empty forwarded tokens must not be silently discarded"
+        );
+    }
+
+    #[test]
+    fn ingress_resolver_rejects_malformed_forwarded_tokens() {
+        let headers = HeaderMap::from_iter([(
+            "x-forwarded-for",
+            "198.51.100.250, not-an-ip, 10.0.0.2".parse().unwrap(),
+        )]);
+        let peer = "10.0.0.3:443".parse().unwrap();
+
+        assert_eq!(
+            resolve_trusted_client_ip(&headers, peer, 2, &["10.0.0.0/8".parse().unwrap()]),
+            peer.ip(),
+            "malformed forwarded tokens must fail closed"
         );
     }
 
