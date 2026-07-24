@@ -4,6 +4,7 @@ import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
+import type { ConsoleAuthz, ScopeOption } from "./authz";
 
 import { AuthTestProvider } from "../../test/AuthTestProvider";
 import { useAuth } from "../../context/auth";
@@ -40,10 +41,13 @@ vi.mock("../rum/rum", () => ({
 // Shell chrome is synchronous presentation over the session's deny-by-omission
 // grants. Keep it independent from the async authz transport, which is covered
 // by authz.ts tests and otherwise leaves a one-render empty shell in jsdom.
-vi.mock("./authz", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("./authz")>();
+vi.mock("./authz", () => {
   return {
-    ...actual,
+    UNION_SCOPE_ID: "__union__",
+    useConsoleScopes: (unionLabel: string) => ({
+      options: [{ id: "__union__", label: unionLabel, memberIds: [], isUnion: true }] satisfies ScopeOption[],
+      loading: false,
+    }),
     ConsoleAuthzProvider: ({ children }: { children: ReactNode }) => <>{children}</>,
     useConsoleAuthz: () => {
       const { session } = useAuth();
@@ -54,7 +58,7 @@ vi.mock("./authz", async (importOriginal) => {
         },
         source: "jwt" as const,
         ready: true,
-      };
+      } satisfies ConsoleAuthz;
     },
   };
 });

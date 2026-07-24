@@ -62,6 +62,17 @@ describe("GraphExplorer", () => {
     expect(screen.getByText(G.zoomLevel(110))).toBeInTheDocument();
   });
 
+  it("stacks the graph and contextual rail below the narrow viewport breakpoint", () => {
+    const originalWidth = window.innerWidth;
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 800 });
+    render(<GraphExplorer model={model} />);
+
+    expect(screen.getByLabelText(G.pane)).toHaveStyle({
+      gridTemplateColumns: "minmax(0, 1fr)",
+    });
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: originalWidth });
+  });
+
   it("resolves the focus-node inspector card on mount, before any click", async () => {
     const resolve = vi.fn((node: ObjectExplorerNode) => Promise.resolve(resolvedDescriptor(node)));
     render(<GraphExplorer model={model} resolveNodeDescriptor={resolve} />);

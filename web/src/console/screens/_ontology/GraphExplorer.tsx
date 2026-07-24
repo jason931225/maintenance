@@ -366,12 +366,24 @@ export function GraphExplorer({
   const [cardRefreshEpoch, setCardRefreshEpoch] = useState(0);
   const [scale, setScale] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
+  const [narrow, setNarrow] = useState(
+    () => typeof window !== "undefined" && window.innerWidth < 960,
+  );
   const panDrag = useRef<{ px: number; py: number; ox: number; oy: number } | null>(null);
   const nodeButtons = useRef(new Map<string, HTMLButtonElement>());
   const resolverEpochRef = useRef(0);
   useEffect(() => {
     resolverEpochRef.current += 1;
   }, [resolveNodeDescriptor]);
+  useEffect(() => {
+    const onResize = () => {
+      setNarrow(window.innerWidth < 960);
+    };
+    window.addEventListener("resize", onResize);
+    return () => {
+      window.removeEventListener("resize", onResize);
+    };
+  }, []);
   const requestedNode = useMemo(
     () => model.nodes.find((node) => node.id === requestedFocusId),
     [model.nodes, requestedFocusId],
@@ -451,7 +463,6 @@ export function GraphExplorer({
       const index = view.nodes.findIndex((candidate) => candidate.id === node.id);
       const direction = event.key === "ArrowDown" || event.key === "ArrowRight" ? 1 : -1;
       const next = view.nodes[(index + direction + view.nodes.length) % view.nodes.length];
-      if (!next) return;
       onNodeActivate(next);
       nodeButtons.current.get(next.id)?.focus();
     },
@@ -478,7 +489,7 @@ export function GraphExplorer({
   const showProjected = isProjected(selectedNode);
   const zoomPct = Math.round(scale * 100);
 
-  const refreshSelectedCard = useCallback(() => {
+  function refreshSelectedCard(): void {
     // Re-mount the governed card after a commit so its dynamic acting read is
     // server-fresh alongside the descriptor, traversal, and history refreshes.
     setCardRefreshEpoch((current) => current + 1);
@@ -494,7 +505,7 @@ export function GraphExplorer({
     });
     onFocusChange?.(selectedNode.id);
     resolve(selectedNode, true);
-  }, [onFocusChange, resolve, selectedNode]);
+  }
 
   function zoomBy(delta: number): void {
     setScale((current) => Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, Math.round((current + delta) * 10) / 10)));
@@ -517,7 +528,13 @@ export function GraphExplorer({
   }
 
   return (
-    <section aria-label={G.pane} style={wrapStyle}>
+    <section
+      aria-label={G.pane}
+      style={{
+        ...wrapStyle,
+        gridTemplateColumns: narrow ? "minmax(0, 1fr)" : wrapStyle.gridTemplateColumns,
+      }}
+    >
       <div style={viewportStyle}>
         <div style={bgCatcherStyle} onPointerDown={onPanDown} aria-hidden="true" />
 

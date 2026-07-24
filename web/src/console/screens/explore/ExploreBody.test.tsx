@@ -38,9 +38,13 @@ function seedRegistry(): void {
   mocked.getObjectType.mockResolvedValue(detailFixture);
   mocked.listInstances.mockResolvedValue([instanceFixture]);
   mocked.traverseInstance.mockResolvedValue(graphFixture);
+  mocked.getInstance.mockResolvedValue(instanceFixture);
+  mocked.getInstanceHistory.mockResolvedValue([]);
   // Supplementary acting read: reload .catch-degrades it, but the auto-mock
   // returns undefined which throws on .catch — seed a resolved empty list.
   mocked.getObjectTypeActing.mockResolvedValue([]);
+  // The governed graph card reads the instance dynamic layer directly.
+  mocked.getInstanceActing.mockResolvedValue([]);
 }
 
 afterEach(() => {
@@ -76,6 +80,58 @@ describe("ExploreBody", () => {
 
     // The explorer is read-only: no 타입·매니저 authoring tablist.
     expect(screen.queryByRole("tablist")).not.toBeInTheDocument();
+  });
+
+  it("runs the graph card through server preflight, executes with exact ids, and reads back history", async () => {
+    const gates = {
+      gates: [
+        { gate: "authority", status: { status: "satisfied" } },
+        { gate: "self_checklist", status: { status: "not_required" } },
+        { gate: "four_eyes", status: { status: "not_required" } },
+        { gate: "egress_dlp", status: { status: "not_required" } },
+      ],
+      allow: true,
+    };
+    const post = vi.fn((path: string) => ({
+        data: path.endsWith("/preflight")
+          ? { gates, criteria_ok: true, would_execute: true }
+          : { instance: instanceFixture, gates },
+        response: { status: 200 },
+      }));
+    const actionApi = {
+      POST: post,
+    } as unknown as ConsoleApiClient;
+    render(<ExploreBody api={actionApi} authorityKey="tenant-1" />);
+
+    await screen.findByRole("button", {
+      name: ko.console.objectcard.actionAria(detailFixture.actions[0].title),
+    });
+    mocked.getInstanceHistory.mockClear();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: ko.console.objectcard.actionAria(detailFixture.actions[0].title),
+      }),
+    );
+    fireEvent.click(
+      await screen.findByRole("button", {
+        name: ko.console.objectcardGov.preflight.execute,
+      }),
+    );
+
+    await waitFor(() => {
+      expect(post).toHaveBeenCalledTimes(2);
+      expect(mocked.getInstanceHistory).toHaveBeenCalledWith(
+        actionApi,
+        instanceFixture.instance.id,
+      );
+    });
+    const [, preflightOptions] = post.mock.calls[0] ?? [];
+    expect(preflightOptions).toMatchObject({
+      body: {
+        object_type_id: detailFixture.object_type.id,
+        instance_id: instanceFixture.instance.id,
+      },
+    });
   });
 
   it("drills from a stat without crashing (graph stays mounted)", async () => {
