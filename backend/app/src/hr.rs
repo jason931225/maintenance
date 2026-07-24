@@ -12,7 +12,7 @@ use mnt_kernel_core::{
     AuditAction, AuditEvent, BranchId, BranchScope, ErrorKind, KernelError, OrgId, TraceContext,
     UserId,
 };
-use mnt_leave_adapter_postgres::{PgLeaveError, PgLeaveStore};
+use mnt_leave_adapter_postgres::{CreateEmployeeCommand, PgLeaveError, PgLeaveStore};
 use mnt_leave_domain::LeaveBalanceAmount;
 use mnt_payroll_domain::{
     ProfessionalReviewerKind, ProfessionalValidation, SeverancePayInput, build_severance_pay_draft,
@@ -849,6 +849,11 @@ async fn create_employee(
     Json(body): Json<CreateEmployeeRequest>,
 ) -> Result<(StatusCode, Json<EmployeeDetailResponse>), HrError> {
     authorize_hr_org_wide(&principal, Feature::EmployeeDirectoryManage)?;
+    let command_store = state.leave_command_store.clone().ok_or_else(|| {
+        HrError::unavailable(
+            "leave command database is not configured; employee creation is unavailable",
+        )
+    })?;
     let request = normalize_create_employee_request(body)?;
     let org = principal.org_id;
     let org_uuid = *org.as_uuid();
@@ -859,116 +864,35 @@ async fn create_employee(
             .as_bytes(),
     );
     let employee_id = Uuid::new_v4();
-    let audit = AuditEvent::new(
-        Some(actor),
-        AuditAction::new("employee.create").map_err(HrError::from_kernel)?,
-        "employee",
-        employee_id.to_string(),
-        TraceContext::generate(),
-        OffsetDateTime::now_utc(),
-    )
-    .with_org(org)
-    .with_branch(BranchId::from_uuid(request.home_branch_id))
-    .with_snapshots(
-        None,
-        Some(json!({
-            "employee_number": &request.employee_number,
-            "employment_type": &request.employment_type,
-            "home_branch_id": request.home_branch_id,
-            "compensation_recorded": true,
-            "phone_recorded": true
-        })),
-    );
-
-    let (detail, replayed) = with_audits::<_, _, HrError>(&state.pool, org, |tx| {
-        Box::pin(async move {
-            sqlx::query(
-                "INSERT INTO employee_create_idempotency (org_id, idempotency_key, request_hash) VALUES ($1, $2, $3) ON CONFLICT (org_id, idempotency_key) DO NOTHING",
-            )
-            .bind(org_uuid)
-            .bind(&request.idempotency_key)
-            .bind(&request_hash)
-            .execute(tx.as_mut())
+    let result = mnt_platform_request_context::scope_org(org, async move {
+        command_store
+            .create_employee(CreateEmployeeCommand {
+                employee_id,
+                employee_number: request.employee_number,
+                name: request.name,
+                company: request.company,
+                employment_type: request.employment_type,
+                phone_e164: request.phone_e164,
+                org_unit: request.org_unit,
+                position: request.position,
+                site: request.site,
+                home_branch_id: request.home_branch_id,
+                base_pay: request.base_pay,
+                idempotency_key: request.idempotency_key,
+                request_hash,
+                actor,
+                trace: TraceContext::generate(),
+            })
             .await
-            .map_err(employee_create_db_error)?;
-            let reservation = sqlx::query(
-                "SELECT request_hash, employee_id FROM employee_create_idempotency WHERE org_id = $1 AND idempotency_key = $2 FOR UPDATE",
-            )
-            .bind(org_uuid)
-            .bind(&request.idempotency_key)
-            .fetch_one(tx.as_mut())
-            .await?;
-            let stored_hash: String = reservation.try_get("request_hash")?;
-            if stored_hash != request_hash {
-                return Err(HrError::from_kernel(KernelError::conflict(
-                    "idempotency key already used with a different employee payload",
-                )));
-            }
-            if let Some(existing_id) = reservation.try_get::<Option<Uuid>, _>("employee_id")? {
-                return Ok(((load_employee_detail(tx, org_uuid, existing_id).await?, true), Vec::new()));
-            }
-            let branch_exists: bool = sqlx::query_scalar(
-                "SELECT EXISTS(SELECT 1 FROM branches WHERE org_id = $1 AND id = $2 AND deactivated_at IS NULL)",
-            )
-            .bind(org_uuid)
-            .bind(request.home_branch_id)
-            .fetch_one(tx.as_mut())
-            .await?;
-            if !branch_exists {
-                return Err(HrError::from_kernel(KernelError::not_found(
-                    "active home branch was not found in this organization",
-                )));
-            }
-
-            sqlx::query(
-                r#"INSERT INTO employees (
-                    id, org_id, company, name, employee_number, org_unit, position,
-                    worksite_name, home_branch_id, source_filename, source_sheet,
-                    source_row, source_key, raw_row, source_metadata,
-                    identity_resolution_strategy, identity_resolution_confidence,
-                    identity_review_required, identity_name_only_merge
-                ) VALUES (
-                    $1, $2, $3, $4, $5, $6, $7, $8, $9, 'console', 'people', 1,
-                    $10, '{}'::jsonb, '{}'::jsonb, 'employee_number', 'high', FALSE, FALSE
-                )"#,
-            )
-            .bind(employee_id).bind(org_uuid).bind(&request.company).bind(&request.name)
-            .bind(&request.employee_number).bind(&request.org_unit).bind(&request.position)
-            .bind(&request.site).bind(request.home_branch_id)
-            .bind(format!("console:{}", request.employee_number))
-            .execute(tx.as_mut()).await.map_err(employee_create_db_error)?;
-            sqlx::query(
-                r#"INSERT INTO employee_employment_profiles (
-                    employee_id, org_id, employment_type, phone_e164, base_pay,
-                    idempotency_key, request_hash, created_by
-                ) VALUES ($1, $2, $3, $4, $5::numeric, $6, $7, $8)"#,
-            )
-            .bind(employee_id).bind(org_uuid).bind(&request.employment_type).bind(&request.phone_e164)
-            .bind(&request.base_pay).bind(&request.idempotency_key).bind(&request_hash).bind(*actor.as_uuid())
-            .execute(tx.as_mut()).await.map_err(employee_create_db_error)?;
-            sqlx::query(
-                r#"INSERT INTO employee_lifecycle_events (
-                    id, org_id, employee_id, event_type, to_status, to_company,
-                    to_org_unit, to_position, effective_date, comment, signoffs, created_by
-                ) VALUES ($1, $2, $3, 'ONBOARD', 'ACTIVE', $4, $5, $6, $7,
-                    'Created through People & Workforce',
-                    '{}'::jsonb,
-                    $8)"#,
-            )
-            .bind(Uuid::new_v4()).bind(org_uuid).bind(employee_id).bind(&request.company)
-            .bind(&request.org_unit).bind(&request.position).bind(OffsetDateTime::now_utc().date().to_string())
-            .bind(*actor.as_uuid()).execute(tx.as_mut()).await.map_err(employee_create_db_error)?;
-            sqlx::query(
-                "UPDATE employee_create_idempotency SET employee_id = $3 WHERE org_id = $1 AND idempotency_key = $2",
-            )
-            .bind(org_uuid).bind(&request.idempotency_key).bind(employee_id)
-            .execute(tx.as_mut()).await?;
-            Ok(((load_employee_detail(tx, org_uuid, employee_id).await?, false), vec![audit]))
-        })
+    })
+    .await
+    .map_err(HrError::from_leave_store)?;
+    let detail = with_org_conn::<_, _, HrError>(&state.pool, org, move |tx| {
+        Box::pin(async move { load_employee_detail(tx, org_uuid, result.employee_id).await })
     })
     .await?;
     Ok((
-        if replayed {
+        if result.replayed {
             StatusCode::OK
         } else {
             StatusCode::CREATED
@@ -7507,19 +7431,6 @@ fn normalize_phone_e164(value: String) -> Result<String, HrError> {
         return Err(HrError::validation("phone must be an E.164 number"));
     }
     Ok(phone)
-}
-
-fn employee_create_db_error(error: sqlx::Error) -> HrError {
-    if error
-        .as_database_error()
-        .and_then(|database| database.code())
-        .is_some_and(|code| code == "23505")
-    {
-        return HrError::from_kernel(KernelError::conflict(
-            "employee number or idempotency key is already in use",
-        ));
-    }
-    HrError::from(error)
 }
 
 fn normalize_create_employee_request(

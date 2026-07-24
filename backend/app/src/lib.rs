@@ -1357,6 +1357,16 @@ impl AppState {
         })
     }
 
+    /// Attach the isolated `mnt_leave_cmd` command pool used for protected
+    /// leave and People mutations. Production configuration constructs this
+    /// pool only from `LEAVE_COMMAND_DATABASE_URL`; this builder supports
+    /// explicit dependency injection for integration composition.
+    #[must_use]
+    pub fn with_leave_command_database(mut self, pool: PgPool) -> Self {
+        self.leave_command_database = DatabaseDependency::Postgres(pool);
+        self
+    }
+
     pub async fn from_config(config: AppConfig) -> Result<Self, AppError> {
         let database = match config.database_url.as_deref() {
             Some(url) => {
