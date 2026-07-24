@@ -7253,8 +7253,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /** List the facilities cases the caller may observe */
         get: operations["listFacilitiesCases"];
         put?: never;
+        /** Create or replay an idempotent due facilities case */
         post: operations["createDueFacilitiesCase"];
         delete?: never;
         options?: never;
@@ -7269,6 +7271,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /** Get one facilities case with its derived service readback */
         get: operations["getFacilitiesCase"];
         put?: never;
         post?: never;
@@ -7287,6 +7290,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /** Schedule a due facilities case for service */
         post: operations["triageFacilitiesCase"];
         delete?: never;
         options?: never;
@@ -7303,6 +7307,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /** Assign a scheduled facilities case to a technician */
         post: operations["assignFacilitiesCase"];
         delete?: never;
         options?: never;
@@ -7319,6 +7324,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /** Start assigned facilities execution after safety acknowledgement */
         post: operations["startFacilitiesCase"];
         delete?: never;
         options?: never;
@@ -7335,6 +7341,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /** Submit execution evidence and await customer acceptance */
         post: operations["submitFacilitiesExecution"];
         delete?: never;
         options?: never;
@@ -7351,6 +7358,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /** Record customer acceptance or rejection of completed facilities work */
         post: operations["decideFacilitiesAcceptance"];
         delete?: never;
         options?: never;
@@ -7367,6 +7375,7 @@ export interface paths {
         };
         get?: never;
         put?: never;
+        /** Record facilities energy or cost observations and return the case readback */
         post: operations["recordFacilitiesObservation"];
         delete?: never;
         options?: never;
@@ -14296,7 +14305,8 @@ export interface components {
             id: components["schemas"]["Uuid"];
             /** @enum {string} */
             status: "DUE" | "TRIAGED" | "SCHEDULED" | "ASSIGNED" | "IN_PROGRESS" | "SUBMITTED" | "REWORK_REQUIRED" | "AWAITING_ACCEPTANCE" | "CLOSED";
-            assigneeId?: components["schemas"]["Uuid"] | null;
+            /** Format: uuid */
+            assigneeId?: string | null;
             /** Format: date-time */
             responseDueAt: string;
             /** Format: date-time */
@@ -27000,7 +27010,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Cases */
+            /** @description Facilities cases ordered by creation time */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -27011,6 +27021,9 @@ export interface operations {
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+            500: components["responses"]["InternalServerError"];
+            503: components["responses"]["ServiceUnavailable"];
         };
     };
     createDueFacilitiesCase: {
@@ -27026,7 +27039,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Idempotent case */
+            /** @description Newly created case or the prior idempotent result */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -27035,14 +27048,13 @@ export interface operations {
                     "application/json": components["schemas"]["FacilitiesCase"];
                 };
             };
-            /** @description Idempotency payload mismatch */
-            409: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content?: never;
-            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             422: components["responses"]["ValidationError"];
+            500: components["responses"]["InternalServerError"];
+            503: components["responses"]["ServiceUnavailable"];
         };
     };
     getFacilitiesCase: {
@@ -27065,7 +27077,12 @@ export interface operations {
                     "application/json": components["schemas"]["FacilitiesCase"];
                 };
             };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            422: components["responses"]["ValidationError"];
+            500: components["responses"]["InternalServerError"];
+            503: components["responses"]["ServiceUnavailable"];
         };
     };
     triageFacilitiesCase: {
@@ -27088,16 +27105,17 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
-            };
-            /** @description Illegal transition */
-            409: {
-                headers: {
-                    [name: string]: unknown;
+                content: {
+                    "application/json": components["schemas"]["FacilitiesCase"];
                 };
-                content?: never;
             };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             422: components["responses"]["ValidationError"];
+            500: components["responses"]["InternalServerError"];
+            503: components["responses"]["ServiceUnavailable"];
         };
     };
     assignFacilitiesCase: {
@@ -27120,15 +27138,17 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
-            };
-            /** @description Illegal transition */
-            409: {
-                headers: {
-                    [name: string]: unknown;
+                content: {
+                    "application/json": components["schemas"]["FacilitiesCase"];
                 };
-                content?: never;
             };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            500: components["responses"]["InternalServerError"];
+            503: components["responses"]["ServiceUnavailable"];
         };
     };
     startFacilitiesCase: {
@@ -27142,21 +27162,22 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Safety-acknowledged execution started */
+            /** @description Safety-acknowledged case in progress */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
-            };
-            403: components["responses"]["Forbidden"];
-            /** @description Illegal transition */
-            409: {
-                headers: {
-                    [name: string]: unknown;
+                content: {
+                    "application/json": components["schemas"]["FacilitiesCase"];
                 };
-                content?: never;
             };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            500: components["responses"]["InternalServerError"];
+            503: components["responses"]["ServiceUnavailable"];
         };
     };
     submitFacilitiesExecution: {
@@ -27174,27 +27195,31 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Awaiting customer acceptance */
+            /** @description Case awaiting customer acceptance */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
-            };
-            /** @description Illegal transition */
-            409: {
-                headers: {
-                    [name: string]: unknown;
+                content: {
+                    "application/json": components["schemas"]["FacilitiesCase"];
                 };
-                content?: never;
             };
-            /** @description Required evidence is not confirmed */
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            /** @description Required execution evidence is not confirmed */
             412: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["ErrorBody"];
+                };
             };
+            422: components["responses"]["ValidationError"];
+            500: components["responses"]["InternalServerError"];
+            503: components["responses"]["ServiceUnavailable"];
         };
     };
     decideFacilitiesAcceptance: {
@@ -27212,21 +27237,22 @@ export interface operations {
             };
         };
         responses: {
-            /** @description CLOSED or REWORK_REQUIRED */
+            /** @description Closed or rework-required case */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
-            };
-            /** @description Illegal transition */
-            409: {
-                headers: {
-                    [name: string]: unknown;
+                content: {
+                    "application/json": components["schemas"]["FacilitiesCase"];
                 };
-                content?: never;
             };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             422: components["responses"]["ValidationError"];
+            500: components["responses"]["InternalServerError"];
+            503: components["responses"]["ServiceUnavailable"];
         };
     };
     recordFacilitiesObservation: {
@@ -27244,14 +27270,22 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Case with derived energy/cost readback */
+            /** @description Case with derived energy and cost readback */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["FacilitiesCase"];
+                };
             };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
             422: components["responses"]["ValidationError"];
+            500: components["responses"]["InternalServerError"];
+            503: components["responses"]["ServiceUnavailable"];
         };
     };
     createLogisticsAsn: {

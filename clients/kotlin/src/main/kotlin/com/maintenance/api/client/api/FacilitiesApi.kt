@@ -66,23 +66,24 @@ open class FacilitiesApi(basePath: kotlin.String = defaultBasePath, client: Call
 
     /**
      * POST /api/v1/facilities/cases/{case_id}/assign
-     *
+     * Assign a scheduled facilities case to a technician
      *
      * @param caseId
      * @param facilitiesAssignRequest
-     * @return void
+     * @return FacilitiesCase
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      * @throws UnsupportedOperationException If the API returns an informational or redirection response
      * @throws ClientException If the API returns a client error response
      * @throws ServerException If the API returns a server error response
      */
+    @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun assignFacilitiesCase(caseId: java.util.UUID, facilitiesAssignRequest: FacilitiesAssignRequest) : Unit = withContext(Dispatchers.IO) {
+    suspend fun assignFacilitiesCase(caseId: java.util.UUID, facilitiesAssignRequest: FacilitiesAssignRequest) : FacilitiesCase = withContext(Dispatchers.IO) {
         val localVarResponse = assignFacilitiesCaseWithHttpInfo(caseId = caseId, facilitiesAssignRequest = facilitiesAssignRequest)
 
         return@withContext when (localVarResponse.responseType) {
-            ResponseType.Success -> Unit
+            ResponseType.Success -> (localVarResponse as Success<*>).data as FacilitiesCase
             ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
             ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
             ResponseType.ClientError -> {
@@ -98,19 +99,20 @@ open class FacilitiesApi(basePath: kotlin.String = defaultBasePath, client: Call
 
     /**
      * POST /api/v1/facilities/cases/{case_id}/assign
-     *
+     * Assign a scheduled facilities case to a technician
      *
      * @param caseId
      * @param facilitiesAssignRequest
-     * @return ApiResponse<Unit?>
+     * @return ApiResponse<FacilitiesCase?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
+    @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun assignFacilitiesCaseWithHttpInfo(caseId: java.util.UUID, facilitiesAssignRequest: FacilitiesAssignRequest) : ApiResponse<Unit?> = withContext(Dispatchers.IO) {
+    suspend fun assignFacilitiesCaseWithHttpInfo(caseId: java.util.UUID, facilitiesAssignRequest: FacilitiesAssignRequest) : ApiResponse<FacilitiesCase?> = withContext(Dispatchers.IO) {
         val localVariableConfig = assignFacilitiesCaseRequestConfig(caseId = caseId, facilitiesAssignRequest = facilitiesAssignRequest)
 
-        return@withContext request<FacilitiesAssignRequest, Unit>(
+        return@withContext request<FacilitiesAssignRequest, FacilitiesCase>(
             localVariableConfig
         )
     }
@@ -127,6 +129,7 @@ open class FacilitiesApi(basePath: kotlin.String = defaultBasePath, client: Call
         val localVariableQuery: MultiValueMap = mutableMapOf()
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
         localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
 
         return RequestConfig(
             method = RequestMethod.POST,
@@ -140,7 +143,7 @@ open class FacilitiesApi(basePath: kotlin.String = defaultBasePath, client: Call
 
     /**
      * POST /api/v1/facilities/cases
-     *
+     * Create or replay an idempotent due facilities case
      *
      * @param facilitiesDueCaseRequest
      * @return FacilitiesCase
@@ -172,7 +175,7 @@ open class FacilitiesApi(basePath: kotlin.String = defaultBasePath, client: Call
 
     /**
      * POST /api/v1/facilities/cases
-     *
+     * Create or replay an idempotent due facilities case
      *
      * @param facilitiesDueCaseRequest
      * @return ApiResponse<FacilitiesCase?>
@@ -214,23 +217,24 @@ open class FacilitiesApi(basePath: kotlin.String = defaultBasePath, client: Call
 
     /**
      * POST /api/v1/facilities/cases/{case_id}/acceptance
-     *
+     * Record customer acceptance or rejection of completed facilities work
      *
      * @param caseId
      * @param facilitiesAcceptanceRequest
-     * @return void
+     * @return FacilitiesCase
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      * @throws UnsupportedOperationException If the API returns an informational or redirection response
      * @throws ClientException If the API returns a client error response
      * @throws ServerException If the API returns a server error response
      */
+    @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun decideFacilitiesAcceptance(caseId: java.util.UUID, facilitiesAcceptanceRequest: FacilitiesAcceptanceRequest) : Unit = withContext(Dispatchers.IO) {
+    suspend fun decideFacilitiesAcceptance(caseId: java.util.UUID, facilitiesAcceptanceRequest: FacilitiesAcceptanceRequest) : FacilitiesCase = withContext(Dispatchers.IO) {
         val localVarResponse = decideFacilitiesAcceptanceWithHttpInfo(caseId = caseId, facilitiesAcceptanceRequest = facilitiesAcceptanceRequest)
 
         return@withContext when (localVarResponse.responseType) {
-            ResponseType.Success -> Unit
+            ResponseType.Success -> (localVarResponse as Success<*>).data as FacilitiesCase
             ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
             ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
             ResponseType.ClientError -> {
@@ -246,19 +250,20 @@ open class FacilitiesApi(basePath: kotlin.String = defaultBasePath, client: Call
 
     /**
      * POST /api/v1/facilities/cases/{case_id}/acceptance
-     *
+     * Record customer acceptance or rejection of completed facilities work
      *
      * @param caseId
      * @param facilitiesAcceptanceRequest
-     * @return ApiResponse<Unit?>
+     * @return ApiResponse<FacilitiesCase?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
+    @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun decideFacilitiesAcceptanceWithHttpInfo(caseId: java.util.UUID, facilitiesAcceptanceRequest: FacilitiesAcceptanceRequest) : ApiResponse<Unit?> = withContext(Dispatchers.IO) {
+    suspend fun decideFacilitiesAcceptanceWithHttpInfo(caseId: java.util.UUID, facilitiesAcceptanceRequest: FacilitiesAcceptanceRequest) : ApiResponse<FacilitiesCase?> = withContext(Dispatchers.IO) {
         val localVariableConfig = decideFacilitiesAcceptanceRequestConfig(caseId = caseId, facilitiesAcceptanceRequest = facilitiesAcceptanceRequest)
 
-        return@withContext request<FacilitiesAcceptanceRequest, Unit>(
+        return@withContext request<FacilitiesAcceptanceRequest, FacilitiesCase>(
             localVariableConfig
         )
     }
@@ -289,7 +294,7 @@ open class FacilitiesApi(basePath: kotlin.String = defaultBasePath, client: Call
 
     /**
      * GET /api/v1/facilities/cases/{case_id}
-     *
+     * Get one facilities case with its derived service readback
      *
      * @param caseId
      * @return FacilitiesCase
@@ -321,7 +326,7 @@ open class FacilitiesApi(basePath: kotlin.String = defaultBasePath, client: Call
 
     /**
      * GET /api/v1/facilities/cases/{case_id}
-     *
+     * Get one facilities case with its derived service readback
      *
      * @param caseId
      * @return ApiResponse<FacilitiesCase?>
@@ -362,7 +367,7 @@ open class FacilitiesApi(basePath: kotlin.String = defaultBasePath, client: Call
 
     /**
      * GET /api/v1/facilities/cases
-     *
+     * List the facilities cases the caller may observe
      *
      * @return kotlin.collections.List<FacilitiesCase>
      * @throws IllegalStateException If the request is not correctly configured
@@ -393,7 +398,7 @@ open class FacilitiesApi(basePath: kotlin.String = defaultBasePath, client: Call
 
     /**
      * GET /api/v1/facilities/cases
-     *
+     * List the facilities cases the caller may observe
      *
      * @return ApiResponse<kotlin.collections.List<FacilitiesCase>?>
      * @throws IllegalStateException If the request is not correctly configured
@@ -432,23 +437,24 @@ open class FacilitiesApi(basePath: kotlin.String = defaultBasePath, client: Call
 
     /**
      * POST /api/v1/facilities/cases/{case_id}/observations
-     *
+     * Record facilities energy or cost observations and return the case readback
      *
      * @param caseId
      * @param facilitiesObservationRequest
-     * @return void
+     * @return FacilitiesCase
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      * @throws UnsupportedOperationException If the API returns an informational or redirection response
      * @throws ClientException If the API returns a client error response
      * @throws ServerException If the API returns a server error response
      */
+    @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun recordFacilitiesObservation(caseId: java.util.UUID, facilitiesObservationRequest: FacilitiesObservationRequest) : Unit = withContext(Dispatchers.IO) {
+    suspend fun recordFacilitiesObservation(caseId: java.util.UUID, facilitiesObservationRequest: FacilitiesObservationRequest) : FacilitiesCase = withContext(Dispatchers.IO) {
         val localVarResponse = recordFacilitiesObservationWithHttpInfo(caseId = caseId, facilitiesObservationRequest = facilitiesObservationRequest)
 
         return@withContext when (localVarResponse.responseType) {
-            ResponseType.Success -> Unit
+            ResponseType.Success -> (localVarResponse as Success<*>).data as FacilitiesCase
             ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
             ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
             ResponseType.ClientError -> {
@@ -464,19 +470,20 @@ open class FacilitiesApi(basePath: kotlin.String = defaultBasePath, client: Call
 
     /**
      * POST /api/v1/facilities/cases/{case_id}/observations
-     *
+     * Record facilities energy or cost observations and return the case readback
      *
      * @param caseId
      * @param facilitiesObservationRequest
-     * @return ApiResponse<Unit?>
+     * @return ApiResponse<FacilitiesCase?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
+    @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun recordFacilitiesObservationWithHttpInfo(caseId: java.util.UUID, facilitiesObservationRequest: FacilitiesObservationRequest) : ApiResponse<Unit?> = withContext(Dispatchers.IO) {
+    suspend fun recordFacilitiesObservationWithHttpInfo(caseId: java.util.UUID, facilitiesObservationRequest: FacilitiesObservationRequest) : ApiResponse<FacilitiesCase?> = withContext(Dispatchers.IO) {
         val localVariableConfig = recordFacilitiesObservationRequestConfig(caseId = caseId, facilitiesObservationRequest = facilitiesObservationRequest)
 
-        return@withContext request<FacilitiesObservationRequest, Unit>(
+        return@withContext request<FacilitiesObservationRequest, FacilitiesCase>(
             localVariableConfig
         )
     }
@@ -507,22 +514,23 @@ open class FacilitiesApi(basePath: kotlin.String = defaultBasePath, client: Call
 
     /**
      * POST /api/v1/facilities/cases/{case_id}/start
-     *
+     * Start assigned facilities execution after safety acknowledgement
      *
      * @param caseId
-     * @return void
+     * @return FacilitiesCase
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      * @throws UnsupportedOperationException If the API returns an informational or redirection response
      * @throws ClientException If the API returns a client error response
      * @throws ServerException If the API returns a server error response
      */
+    @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun startFacilitiesCase(caseId: java.util.UUID) : Unit = withContext(Dispatchers.IO) {
+    suspend fun startFacilitiesCase(caseId: java.util.UUID) : FacilitiesCase = withContext(Dispatchers.IO) {
         val localVarResponse = startFacilitiesCaseWithHttpInfo(caseId = caseId)
 
         return@withContext when (localVarResponse.responseType) {
-            ResponseType.Success -> Unit
+            ResponseType.Success -> (localVarResponse as Success<*>).data as FacilitiesCase
             ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
             ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
             ResponseType.ClientError -> {
@@ -538,18 +546,19 @@ open class FacilitiesApi(basePath: kotlin.String = defaultBasePath, client: Call
 
     /**
      * POST /api/v1/facilities/cases/{case_id}/start
-     *
+     * Start assigned facilities execution after safety acknowledgement
      *
      * @param caseId
-     * @return ApiResponse<Unit?>
+     * @return ApiResponse<FacilitiesCase?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
+    @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun startFacilitiesCaseWithHttpInfo(caseId: java.util.UUID) : ApiResponse<Unit?> = withContext(Dispatchers.IO) {
+    suspend fun startFacilitiesCaseWithHttpInfo(caseId: java.util.UUID) : ApiResponse<FacilitiesCase?> = withContext(Dispatchers.IO) {
         val localVariableConfig = startFacilitiesCaseRequestConfig(caseId = caseId)
 
-        return@withContext request<Unit, Unit>(
+        return@withContext request<Unit, FacilitiesCase>(
             localVariableConfig
         )
     }
@@ -578,23 +587,24 @@ open class FacilitiesApi(basePath: kotlin.String = defaultBasePath, client: Call
 
     /**
      * POST /api/v1/facilities/cases/{case_id}/submit
-     *
+     * Submit execution evidence and await customer acceptance
      *
      * @param caseId
      * @param facilitiesSubmitRequest
-     * @return void
+     * @return FacilitiesCase
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      * @throws UnsupportedOperationException If the API returns an informational or redirection response
      * @throws ClientException If the API returns a client error response
      * @throws ServerException If the API returns a server error response
      */
+    @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun submitFacilitiesExecution(caseId: java.util.UUID, facilitiesSubmitRequest: FacilitiesSubmitRequest) : Unit = withContext(Dispatchers.IO) {
+    suspend fun submitFacilitiesExecution(caseId: java.util.UUID, facilitiesSubmitRequest: FacilitiesSubmitRequest) : FacilitiesCase = withContext(Dispatchers.IO) {
         val localVarResponse = submitFacilitiesExecutionWithHttpInfo(caseId = caseId, facilitiesSubmitRequest = facilitiesSubmitRequest)
 
         return@withContext when (localVarResponse.responseType) {
-            ResponseType.Success -> Unit
+            ResponseType.Success -> (localVarResponse as Success<*>).data as FacilitiesCase
             ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
             ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
             ResponseType.ClientError -> {
@@ -610,19 +620,20 @@ open class FacilitiesApi(basePath: kotlin.String = defaultBasePath, client: Call
 
     /**
      * POST /api/v1/facilities/cases/{case_id}/submit
-     *
+     * Submit execution evidence and await customer acceptance
      *
      * @param caseId
      * @param facilitiesSubmitRequest
-     * @return ApiResponse<Unit?>
+     * @return ApiResponse<FacilitiesCase?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
+    @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun submitFacilitiesExecutionWithHttpInfo(caseId: java.util.UUID, facilitiesSubmitRequest: FacilitiesSubmitRequest) : ApiResponse<Unit?> = withContext(Dispatchers.IO) {
+    suspend fun submitFacilitiesExecutionWithHttpInfo(caseId: java.util.UUID, facilitiesSubmitRequest: FacilitiesSubmitRequest) : ApiResponse<FacilitiesCase?> = withContext(Dispatchers.IO) {
         val localVariableConfig = submitFacilitiesExecutionRequestConfig(caseId = caseId, facilitiesSubmitRequest = facilitiesSubmitRequest)
 
-        return@withContext request<FacilitiesSubmitRequest, Unit>(
+        return@withContext request<FacilitiesSubmitRequest, FacilitiesCase>(
             localVariableConfig
         )
     }
@@ -639,6 +650,7 @@ open class FacilitiesApi(basePath: kotlin.String = defaultBasePath, client: Call
         val localVariableQuery: MultiValueMap = mutableMapOf()
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
         localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
 
         return RequestConfig(
             method = RequestMethod.POST,
@@ -652,23 +664,24 @@ open class FacilitiesApi(basePath: kotlin.String = defaultBasePath, client: Call
 
     /**
      * POST /api/v1/facilities/cases/{case_id}/triage
-     *
+     * Schedule a due facilities case for service
      *
      * @param caseId
      * @param facilitiesTriageRequest
-     * @return void
+     * @return FacilitiesCase
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      * @throws UnsupportedOperationException If the API returns an informational or redirection response
      * @throws ClientException If the API returns a client error response
      * @throws ServerException If the API returns a server error response
      */
+    @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun triageFacilitiesCase(caseId: java.util.UUID, facilitiesTriageRequest: FacilitiesTriageRequest) : Unit = withContext(Dispatchers.IO) {
+    suspend fun triageFacilitiesCase(caseId: java.util.UUID, facilitiesTriageRequest: FacilitiesTriageRequest) : FacilitiesCase = withContext(Dispatchers.IO) {
         val localVarResponse = triageFacilitiesCaseWithHttpInfo(caseId = caseId, facilitiesTriageRequest = facilitiesTriageRequest)
 
         return@withContext when (localVarResponse.responseType) {
-            ResponseType.Success -> Unit
+            ResponseType.Success -> (localVarResponse as Success<*>).data as FacilitiesCase
             ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
             ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
             ResponseType.ClientError -> {
@@ -684,19 +697,20 @@ open class FacilitiesApi(basePath: kotlin.String = defaultBasePath, client: Call
 
     /**
      * POST /api/v1/facilities/cases/{case_id}/triage
-     *
+     * Schedule a due facilities case for service
      *
      * @param caseId
      * @param facilitiesTriageRequest
-     * @return ApiResponse<Unit?>
+     * @return ApiResponse<FacilitiesCase?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
+    @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun triageFacilitiesCaseWithHttpInfo(caseId: java.util.UUID, facilitiesTriageRequest: FacilitiesTriageRequest) : ApiResponse<Unit?> = withContext(Dispatchers.IO) {
+    suspend fun triageFacilitiesCaseWithHttpInfo(caseId: java.util.UUID, facilitiesTriageRequest: FacilitiesTriageRequest) : ApiResponse<FacilitiesCase?> = withContext(Dispatchers.IO) {
         val localVariableConfig = triageFacilitiesCaseRequestConfig(caseId = caseId, facilitiesTriageRequest = facilitiesTriageRequest)
 
-        return@withContext request<FacilitiesTriageRequest, Unit>(
+        return@withContext request<FacilitiesTriageRequest, FacilitiesCase>(
             localVariableConfig
         )
     }
