@@ -68017,6 +68017,13 @@ public struct Client: APIProtocol {
                     in: &request,
                     style: .form,
                     explode: true,
+                    name: "work_date",
+                    value: input.query.workDate
+                )
+                try converter.setQueryItemAsURI(
+                    in: &request,
+                    style: .form,
+                    explode: true,
                     name: "from_date",
                     value: input.query.fromDate
                 )
@@ -68026,6 +68033,20 @@ public struct Client: APIProtocol {
                     explode: true,
                     name: "to_date",
                     value: input.query.toDate
+                )
+                try converter.setQueryItemAsURI(
+                    in: &request,
+                    style: .form,
+                    explode: true,
+                    name: "status",
+                    value: input.query.status
+                )
+                try converter.setQueryItemAsURI(
+                    in: &request,
+                    style: .form,
+                    explode: true,
+                    name: "employee_id",
+                    value: input.query.employeeId
                 )
                 try converter.setQueryItemAsURI(
                     in: &request,
@@ -68634,6 +68655,13 @@ public struct Client: APIProtocol {
                     in: &request,
                     style: .form,
                     explode: true,
+                    name: "work_date",
+                    value: input.query.workDate
+                )
+                try converter.setQueryItemAsURI(
+                    in: &request,
+                    style: .form,
+                    explode: true,
                     name: "from_date",
                     value: input.query.fromDate
                 )
@@ -69112,6 +69140,13 @@ public struct Client: APIProtocol {
                     method: .get
                 )
                 suppressMutabilityWarning(&request)
+                try converter.setQueryItemAsURI(
+                    in: &request,
+                    style: .form,
+                    explode: true,
+                    name: "month",
+                    value: input.query.month
+                )
                 try converter.setQueryItemAsURI(
                     in: &request,
                     style: .form,
@@ -69848,7 +69883,7 @@ public struct Client: APIProtocol {
                     switch chosenContentType {
                     case "application/json":
                         body = try await converter.getResponseBodyAsJSON(
-                            Components.Schemas.AttendanceWeek52Ack.self,
+                            Components.Schemas.AttendanceWeek52Row.self,
                             from: responseBody,
                             transforming: { value in
                                 .json(value)

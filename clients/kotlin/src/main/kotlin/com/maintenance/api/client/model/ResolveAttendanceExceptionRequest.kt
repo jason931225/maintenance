@@ -34,7 +34,7 @@ import kotlinx.serialization.Contextual
  * @param action
  * @param reason
  * @param linkedWorkRef
- * @param overtimeMinutes
+ * @param otHours
  */
 @Serializable
 
@@ -49,8 +49,8 @@ data class ResolveAttendanceExceptionRequest (
     @SerialName(value = "linked_work_ref")
     val linkedWorkRef: kotlin.String? = null,
 
-    @SerialName(value = "overtime_minutes")
-    val overtimeMinutes: kotlin.Int? = null
+    @Contextual @SerialName(value = "ot_hours")
+    val otHours: java.math.BigDecimal? = null
 
 ) {
 

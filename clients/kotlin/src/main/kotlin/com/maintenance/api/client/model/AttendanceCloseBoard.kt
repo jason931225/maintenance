@@ -23,7 +23,7 @@
 
 package com.maintenance.api.client.model
 
-import com.maintenance.api.client.model.AttendanceMonthClose
+import com.maintenance.api.client.model.AttendanceMonthCloseItem
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerialName
@@ -43,7 +43,7 @@ data class AttendanceCloseBoard (
     val month: kotlin.String,
 
     @SerialName(value = "items")
-    val items: kotlin.collections.List<AttendanceMonthClose>
+    val items: kotlin.collections.List<AttendanceMonthCloseItem>
 
 ) {
 

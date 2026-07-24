@@ -38,9 +38,9 @@ import com.maintenance.api.client.model.AttendanceExceptionPage
 import com.maintenance.api.client.model.AttendanceMonthClose
 import com.maintenance.api.client.model.AttendanceSubstitution
 import com.maintenance.api.client.model.AttendanceSubstitutionPage
-import com.maintenance.api.client.model.AttendanceWeek52Ack
 import com.maintenance.api.client.model.AttendanceWeek52AckRequest
 import com.maintenance.api.client.model.AttendanceWeek52Board
+import com.maintenance.api.client.model.AttendanceWeek52Row
 import com.maintenance.api.client.model.CancelAttendanceSubstitutionRequest
 import com.maintenance.api.client.model.ErrorBody
 import com.maintenance.api.client.model.RaiseAttendanceExceptionRequest
@@ -79,7 +79,7 @@ open class AttendanceApi(basePath: kotlin.String = defaultBasePath, client: Call
      * Idempotently acknowledge a week-52 adjustment
      *
      * @param attendanceWeek52AckRequest
-     * @return AttendanceWeek52Ack
+     * @return AttendanceWeek52Row
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      * @throws UnsupportedOperationException If the API returns an informational or redirection response
@@ -88,11 +88,11 @@ open class AttendanceApi(basePath: kotlin.String = defaultBasePath, client: Call
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun acknowledgeAttendanceWeek52(attendanceWeek52AckRequest: AttendanceWeek52AckRequest) : AttendanceWeek52Ack = withContext(Dispatchers.IO) {
+    suspend fun acknowledgeAttendanceWeek52(attendanceWeek52AckRequest: AttendanceWeek52AckRequest) : AttendanceWeek52Row = withContext(Dispatchers.IO) {
         val localVarResponse = acknowledgeAttendanceWeek52WithHttpInfo(attendanceWeek52AckRequest = attendanceWeek52AckRequest)
 
         return@withContext when (localVarResponse.responseType) {
-            ResponseType.Success -> (localVarResponse as Success<*>).data as AttendanceWeek52Ack
+            ResponseType.Success -> (localVarResponse as Success<*>).data as AttendanceWeek52Row
             ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
             ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
             ResponseType.ClientError -> {
@@ -111,16 +111,16 @@ open class AttendanceApi(basePath: kotlin.String = defaultBasePath, client: Call
      * Idempotently acknowledge a week-52 adjustment
      *
      * @param attendanceWeek52AckRequest
-     * @return ApiResponse<AttendanceWeek52Ack?>
+     * @return ApiResponse<AttendanceWeek52Row?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun acknowledgeAttendanceWeek52WithHttpInfo(attendanceWeek52AckRequest: AttendanceWeek52AckRequest) : ApiResponse<AttendanceWeek52Ack?> = withContext(Dispatchers.IO) {
+    suspend fun acknowledgeAttendanceWeek52WithHttpInfo(attendanceWeek52AckRequest: AttendanceWeek52AckRequest) : ApiResponse<AttendanceWeek52Row?> = withContext(Dispatchers.IO) {
         val localVariableConfig = acknowledgeAttendanceWeek52RequestConfig(attendanceWeek52AckRequest = attendanceWeek52AckRequest)
 
-        return@withContext request<AttendanceWeek52AckRequest, AttendanceWeek52Ack>(
+        return@withContext request<AttendanceWeek52AckRequest, AttendanceWeek52Row>(
             localVariableConfig
         )
     }
@@ -535,6 +535,7 @@ open class AttendanceApi(basePath: kotlin.String = defaultBasePath, client: Call
      * GET /api/v1/attendance/closes
      * List branch-scoped close records
      *
+     * @param month
      * @param branchId  (optional)
      * @return AttendanceCloseBoard
      * @throws IllegalStateException If the request is not correctly configured
@@ -545,8 +546,8 @@ open class AttendanceApi(basePath: kotlin.String = defaultBasePath, client: Call
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun listAttendanceCloses(branchId: java.util.UUID? = null) : AttendanceCloseBoard = withContext(Dispatchers.IO) {
-        val localVarResponse = listAttendanceClosesWithHttpInfo(branchId = branchId)
+    suspend fun listAttendanceCloses(month: kotlin.String, branchId: java.util.UUID? = null) : AttendanceCloseBoard = withContext(Dispatchers.IO) {
+        val localVarResponse = listAttendanceClosesWithHttpInfo(month = month, branchId = branchId)
 
         return@withContext when (localVarResponse.responseType) {
             ResponseType.Success -> (localVarResponse as Success<*>).data as AttendanceCloseBoard
@@ -567,6 +568,7 @@ open class AttendanceApi(basePath: kotlin.String = defaultBasePath, client: Call
      * GET /api/v1/attendance/closes
      * List branch-scoped close records
      *
+     * @param month
      * @param branchId  (optional)
      * @return ApiResponse<AttendanceCloseBoard?>
      * @throws IllegalStateException If the request is not correctly configured
@@ -574,8 +576,8 @@ open class AttendanceApi(basePath: kotlin.String = defaultBasePath, client: Call
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun listAttendanceClosesWithHttpInfo(branchId: java.util.UUID?) : ApiResponse<AttendanceCloseBoard?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = listAttendanceClosesRequestConfig(branchId = branchId)
+    suspend fun listAttendanceClosesWithHttpInfo(month: kotlin.String, branchId: java.util.UUID?) : ApiResponse<AttendanceCloseBoard?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listAttendanceClosesRequestConfig(month = month, branchId = branchId)
 
         return@withContext request<Unit, AttendanceCloseBoard>(
             localVariableConfig
@@ -585,13 +587,15 @@ open class AttendanceApi(basePath: kotlin.String = defaultBasePath, client: Call
     /**
      * To obtain the request config of the operation listAttendanceCloses
      *
+     * @param month
      * @param branchId  (optional)
      * @return RequestConfig
      */
-    fun listAttendanceClosesRequestConfig(branchId: java.util.UUID?) : RequestConfig<Unit> {
+    fun listAttendanceClosesRequestConfig(month: kotlin.String, branchId: java.util.UUID?) : RequestConfig<Unit> {
         val localVariableBody = null
         val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
             .apply {
+                put("month", listOf(month.toString()))
                 if (branchId != null) {
                     put("branch_id", listOf(branchId.toString()))
                 }
@@ -610,12 +614,32 @@ open class AttendanceApi(basePath: kotlin.String = defaultBasePath, client: Call
     }
 
     /**
+     * enum for parameter status
+     */
+     enum class StatusListAttendanceExceptions(val value: kotlin.String) {
+         @SerialName(value = "OPEN") OPEN("OPEN"),
+         @SerialName(value = "RESOLVED") RESOLVED("RESOLVED");
+
+        /**
+         * Override [toString()] to avoid using the enum variable name as the value, and instead use
+         * the actual value defined in the API spec file.
+         *
+         * This solves a problem when the variable name and its value are different, and ensures that
+         * the client sends the correct enum values to the server always.
+         */
+        override fun toString(): kotlin.String = "$value"
+     }
+
+    /**
      * GET /api/v1/attendance/exceptions
      * List branch-scoped attendance exceptions
      *
      * @param month  (optional)
+     * @param workDate  (optional)
      * @param fromDate  (optional)
      * @param toDate  (optional)
+     * @param status  (optional)
+     * @param employeeId  (optional)
      * @param branchId  (optional)
      * @param limit  (optional)
      * @param offset  (optional)
@@ -628,8 +652,8 @@ open class AttendanceApi(basePath: kotlin.String = defaultBasePath, client: Call
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun listAttendanceExceptions(month: kotlin.String? = null, fromDate: java.time.LocalDate? = null, toDate: java.time.LocalDate? = null, branchId: java.util.UUID? = null, limit: kotlin.Int? = null, offset: kotlin.Int? = null) : AttendanceExceptionPage = withContext(Dispatchers.IO) {
-        val localVarResponse = listAttendanceExceptionsWithHttpInfo(month = month, fromDate = fromDate, toDate = toDate, branchId = branchId, limit = limit, offset = offset)
+    suspend fun listAttendanceExceptions(month: kotlin.String? = null, workDate: java.time.LocalDate? = null, fromDate: java.time.LocalDate? = null, toDate: java.time.LocalDate? = null, status: StatusListAttendanceExceptions? = null, employeeId: java.util.UUID? = null, branchId: java.util.UUID? = null, limit: kotlin.Int? = null, offset: kotlin.Int? = null) : AttendanceExceptionPage = withContext(Dispatchers.IO) {
+        val localVarResponse = listAttendanceExceptionsWithHttpInfo(month = month, workDate = workDate, fromDate = fromDate, toDate = toDate, status = status, employeeId = employeeId, branchId = branchId, limit = limit, offset = offset)
 
         return@withContext when (localVarResponse.responseType) {
             ResponseType.Success -> (localVarResponse as Success<*>).data as AttendanceExceptionPage
@@ -651,8 +675,11 @@ open class AttendanceApi(basePath: kotlin.String = defaultBasePath, client: Call
      * List branch-scoped attendance exceptions
      *
      * @param month  (optional)
+     * @param workDate  (optional)
      * @param fromDate  (optional)
      * @param toDate  (optional)
+     * @param status  (optional)
+     * @param employeeId  (optional)
      * @param branchId  (optional)
      * @param limit  (optional)
      * @param offset  (optional)
@@ -662,8 +689,8 @@ open class AttendanceApi(basePath: kotlin.String = defaultBasePath, client: Call
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun listAttendanceExceptionsWithHttpInfo(month: kotlin.String?, fromDate: java.time.LocalDate?, toDate: java.time.LocalDate?, branchId: java.util.UUID?, limit: kotlin.Int?, offset: kotlin.Int?) : ApiResponse<AttendanceExceptionPage?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = listAttendanceExceptionsRequestConfig(month = month, fromDate = fromDate, toDate = toDate, branchId = branchId, limit = limit, offset = offset)
+    suspend fun listAttendanceExceptionsWithHttpInfo(month: kotlin.String?, workDate: java.time.LocalDate?, fromDate: java.time.LocalDate?, toDate: java.time.LocalDate?, status: StatusListAttendanceExceptions?, employeeId: java.util.UUID?, branchId: java.util.UUID?, limit: kotlin.Int?, offset: kotlin.Int?) : ApiResponse<AttendanceExceptionPage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listAttendanceExceptionsRequestConfig(month = month, workDate = workDate, fromDate = fromDate, toDate = toDate, status = status, employeeId = employeeId, branchId = branchId, limit = limit, offset = offset)
 
         return@withContext request<Unit, AttendanceExceptionPage>(
             localVariableConfig
@@ -674,25 +701,37 @@ open class AttendanceApi(basePath: kotlin.String = defaultBasePath, client: Call
      * To obtain the request config of the operation listAttendanceExceptions
      *
      * @param month  (optional)
+     * @param workDate  (optional)
      * @param fromDate  (optional)
      * @param toDate  (optional)
+     * @param status  (optional)
+     * @param employeeId  (optional)
      * @param branchId  (optional)
      * @param limit  (optional)
      * @param offset  (optional)
      * @return RequestConfig
      */
-    fun listAttendanceExceptionsRequestConfig(month: kotlin.String?, fromDate: java.time.LocalDate?, toDate: java.time.LocalDate?, branchId: java.util.UUID?, limit: kotlin.Int?, offset: kotlin.Int?) : RequestConfig<Unit> {
+    fun listAttendanceExceptionsRequestConfig(month: kotlin.String?, workDate: java.time.LocalDate?, fromDate: java.time.LocalDate?, toDate: java.time.LocalDate?, status: StatusListAttendanceExceptions?, employeeId: java.util.UUID?, branchId: java.util.UUID?, limit: kotlin.Int?, offset: kotlin.Int?) : RequestConfig<Unit> {
         val localVariableBody = null
         val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
             .apply {
                 if (month != null) {
                     put("month", listOf(month.toString()))
                 }
+                if (workDate != null) {
+                    put("work_date", listOf(parseDateToQueryString<java.time.LocalDate>(workDate)))
+                }
                 if (fromDate != null) {
                     put("from_date", listOf(parseDateToQueryString<java.time.LocalDate>(fromDate)))
                 }
                 if (toDate != null) {
                     put("to_date", listOf(parseDateToQueryString<java.time.LocalDate>(toDate)))
+                }
+                if (status != null) {
+                    put("status", listOf(status.value))
+                }
+                if (employeeId != null) {
+                    put("employee_id", listOf(employeeId.toString()))
                 }
                 if (branchId != null) {
                     put("branch_id", listOf(branchId.toString()))
@@ -722,6 +761,7 @@ open class AttendanceApi(basePath: kotlin.String = defaultBasePath, client: Call
      * List branch-scoped substitute assignments
      *
      * @param month  (optional)
+     * @param workDate  (optional)
      * @param fromDate  (optional)
      * @param toDate  (optional)
      * @param branchId  (optional)
@@ -736,8 +776,8 @@ open class AttendanceApi(basePath: kotlin.String = defaultBasePath, client: Call
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun listAttendanceSubstitutions(month: kotlin.String? = null, fromDate: java.time.LocalDate? = null, toDate: java.time.LocalDate? = null, branchId: java.util.UUID? = null, limit: kotlin.Int? = null, offset: kotlin.Int? = null) : AttendanceSubstitutionPage = withContext(Dispatchers.IO) {
-        val localVarResponse = listAttendanceSubstitutionsWithHttpInfo(month = month, fromDate = fromDate, toDate = toDate, branchId = branchId, limit = limit, offset = offset)
+    suspend fun listAttendanceSubstitutions(month: kotlin.String? = null, workDate: java.time.LocalDate? = null, fromDate: java.time.LocalDate? = null, toDate: java.time.LocalDate? = null, branchId: java.util.UUID? = null, limit: kotlin.Int? = null, offset: kotlin.Int? = null) : AttendanceSubstitutionPage = withContext(Dispatchers.IO) {
+        val localVarResponse = listAttendanceSubstitutionsWithHttpInfo(month = month, workDate = workDate, fromDate = fromDate, toDate = toDate, branchId = branchId, limit = limit, offset = offset)
 
         return@withContext when (localVarResponse.responseType) {
             ResponseType.Success -> (localVarResponse as Success<*>).data as AttendanceSubstitutionPage
@@ -759,6 +799,7 @@ open class AttendanceApi(basePath: kotlin.String = defaultBasePath, client: Call
      * List branch-scoped substitute assignments
      *
      * @param month  (optional)
+     * @param workDate  (optional)
      * @param fromDate  (optional)
      * @param toDate  (optional)
      * @param branchId  (optional)
@@ -770,8 +811,8 @@ open class AttendanceApi(basePath: kotlin.String = defaultBasePath, client: Call
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun listAttendanceSubstitutionsWithHttpInfo(month: kotlin.String?, fromDate: java.time.LocalDate?, toDate: java.time.LocalDate?, branchId: java.util.UUID?, limit: kotlin.Int?, offset: kotlin.Int?) : ApiResponse<AttendanceSubstitutionPage?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = listAttendanceSubstitutionsRequestConfig(month = month, fromDate = fromDate, toDate = toDate, branchId = branchId, limit = limit, offset = offset)
+    suspend fun listAttendanceSubstitutionsWithHttpInfo(month: kotlin.String?, workDate: java.time.LocalDate?, fromDate: java.time.LocalDate?, toDate: java.time.LocalDate?, branchId: java.util.UUID?, limit: kotlin.Int?, offset: kotlin.Int?) : ApiResponse<AttendanceSubstitutionPage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listAttendanceSubstitutionsRequestConfig(month = month, workDate = workDate, fromDate = fromDate, toDate = toDate, branchId = branchId, limit = limit, offset = offset)
 
         return@withContext request<Unit, AttendanceSubstitutionPage>(
             localVariableConfig
@@ -782,6 +823,7 @@ open class AttendanceApi(basePath: kotlin.String = defaultBasePath, client: Call
      * To obtain the request config of the operation listAttendanceSubstitutions
      *
      * @param month  (optional)
+     * @param workDate  (optional)
      * @param fromDate  (optional)
      * @param toDate  (optional)
      * @param branchId  (optional)
@@ -789,12 +831,15 @@ open class AttendanceApi(basePath: kotlin.String = defaultBasePath, client: Call
      * @param offset  (optional)
      * @return RequestConfig
      */
-    fun listAttendanceSubstitutionsRequestConfig(month: kotlin.String?, fromDate: java.time.LocalDate?, toDate: java.time.LocalDate?, branchId: java.util.UUID?, limit: kotlin.Int?, offset: kotlin.Int?) : RequestConfig<Unit> {
+    fun listAttendanceSubstitutionsRequestConfig(month: kotlin.String?, workDate: java.time.LocalDate?, fromDate: java.time.LocalDate?, toDate: java.time.LocalDate?, branchId: java.util.UUID?, limit: kotlin.Int?, offset: kotlin.Int?) : RequestConfig<Unit> {
         val localVariableBody = null
         val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
             .apply {
                 if (month != null) {
                     put("month", listOf(month.toString()))
+                }
+                if (workDate != null) {
+                    put("work_date", listOf(parseDateToQueryString<java.time.LocalDate>(workDate)))
                 }
                 if (fromDate != null) {
                     put("from_date", listOf(parseDateToQueryString<java.time.LocalDate>(fromDate)))

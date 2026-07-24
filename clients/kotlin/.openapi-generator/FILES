@@ -164,12 +164,12 @@ src/main/kotlin/com/maintenance/api/client/model/AttendanceImportRowError.kt
 src/main/kotlin/com/maintenance/api/client/model/AttendanceImportSummaryItem.kt
 src/main/kotlin/com/maintenance/api/client/model/AttendanceImportSummaryPage.kt
 src/main/kotlin/com/maintenance/api/client/model/AttendanceMonthClose.kt
+src/main/kotlin/com/maintenance/api/client/model/AttendanceMonthCloseItem.kt
 src/main/kotlin/com/maintenance/api/client/model/AttendanceRecordKind.kt
 src/main/kotlin/com/maintenance/api/client/model/AttendanceSubstitution.kt
 src/main/kotlin/com/maintenance/api/client/model/AttendanceSubstitutionPage.kt
 src/main/kotlin/com/maintenance/api/client/model/AttendanceSummaryItem.kt
 src/main/kotlin/com/maintenance/api/client/model/AttendanceSummaryPage.kt
-src/main/kotlin/com/maintenance/api/client/model/AttendanceWeek52Ack.kt
 src/main/kotlin/com/maintenance/api/client/model/AttendanceWeek52AckRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/AttendanceWeek52Board.kt
 src/main/kotlin/com/maintenance/api/client/model/AttendanceWeek52Row.kt

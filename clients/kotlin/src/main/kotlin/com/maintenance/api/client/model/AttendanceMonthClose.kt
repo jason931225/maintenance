@@ -50,8 +50,8 @@ data class AttendanceMonthClose (
     @Contextual @SerialName(value = "id")
     val id: java.util.UUID,
 
-    @SerialName(value = "month")
-    val month: kotlin.String,
+    @Contextual @SerialName(value = "month")
+    val month: java.time.LocalDate,
 
     @SerialName(value = "branch_scope")
     val branchScope: kotlin.String,

@@ -15200,7 +15200,7 @@ export interface components {
             action: string;
             reason: string;
             linked_work_ref?: string | null;
-            overtime_minutes?: number | null;
+            ot_hours?: number | null;
         };
         AttendanceSubstitution: {
             id: components["schemas"]["Uuid"];
@@ -15269,6 +15269,7 @@ export interface components {
         };
         AttendanceMonthClose: {
             id: components["schemas"]["Uuid"];
+            /** Format: date */
             month: string;
             branch_scope: string;
             checks: components["schemas"]["AttendanceCloseCheck"][];
@@ -15282,7 +15283,16 @@ export interface components {
         };
         AttendanceCloseBoard: {
             month: string;
-            items: components["schemas"]["AttendanceMonthClose"][];
+            items: components["schemas"]["AttendanceMonthCloseItem"][];
+        };
+        AttendanceMonthCloseItem: {
+            branch_scope: string;
+            closed: boolean;
+            close?: components["schemas"]["AttendanceMonthClose"];
+            /** Format: int64 */
+            open_exceptions: number;
+            /** Format: int64 */
+            pending_leave: number;
         };
         AttendanceCloseRequest: {
             month: string;
@@ -15323,14 +15333,6 @@ export interface components {
             employee_id: components["schemas"]["Uuid"];
             /** Format: date */
             week_start: string;
-        };
-        AttendanceWeek52Ack: {
-            employee_id: components["schemas"]["Uuid"];
-            /** Format: date */
-            week_start: string;
-            acked: boolean;
-            /** Format: date-time */
-            acknowledged_at: string;
         };
         InventoryStockLocationSummary: {
             id: components["schemas"]["Uuid"];
@@ -29745,8 +29747,11 @@ export interface operations {
         parameters: {
             query?: {
                 month?: string;
+                work_date?: string;
                 from_date?: string;
                 to_date?: string;
+                status?: "OPEN" | "RESOLVED";
+                employee_id?: components["schemas"]["Uuid"];
                 branch_id?: components["schemas"]["Uuid"];
                 limit?: number;
                 offset?: number;
@@ -29860,6 +29865,7 @@ export interface operations {
         parameters: {
             query?: {
                 month?: string;
+                work_date?: string;
                 from_date?: string;
                 to_date?: string;
                 branch_id?: components["schemas"]["Uuid"];
@@ -29948,7 +29954,8 @@ export interface operations {
     };
     listAttendanceCloses: {
         parameters: {
-            query?: {
+            query: {
+                month: string;
                 branch_id?: components["schemas"]["Uuid"];
             };
             header?: never;
@@ -30096,13 +30103,13 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Acknowledgement state */
+            /** @description Acknowledged complete Week-52 row */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["AttendanceWeek52Ack"];
+                    "application/json": components["schemas"]["AttendanceWeek52Row"];
                 };
             };
             401: components["responses"]["Unauthorized"];

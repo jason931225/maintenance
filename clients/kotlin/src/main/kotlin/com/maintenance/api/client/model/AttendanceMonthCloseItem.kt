@@ -23,6 +23,7 @@
 
 package com.maintenance.api.client.model
 
+import com.maintenance.api.client.model.AttendanceMonthClose
 
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.SerialName
@@ -31,26 +32,30 @@ import kotlinx.serialization.Contextual
 /**
  *
  *
- * @param employeeId
- * @param weekStart
- * @param acked
- * @param acknowledgedAt
+ * @param branchScope
+ * @param closed
+ * @param openExceptions
+ * @param pendingLeave
+ * @param close
  */
 @Serializable
 
-data class AttendanceWeek52Ack (
+data class AttendanceMonthCloseItem (
 
-    @Contextual @SerialName(value = "employee_id")
-    val employeeId: java.util.UUID,
+    @SerialName(value = "branch_scope")
+    val branchScope: kotlin.String,
 
-    @Contextual @SerialName(value = "week_start")
-    val weekStart: java.time.LocalDate,
+    @SerialName(value = "closed")
+    val closed: kotlin.Boolean,
 
-    @SerialName(value = "acked")
-    val acked: kotlin.Boolean,
+    @SerialName(value = "open_exceptions")
+    val openExceptions: kotlin.Long,
 
-    @Contextual @SerialName(value = "acknowledged_at")
-    val acknowledgedAt: java.time.OffsetDateTime
+    @SerialName(value = "pending_leave")
+    val pendingLeave: kotlin.Long,
+
+    @SerialName(value = "close")
+    val close: AttendanceMonthClose? = null
 
 ) {
 
