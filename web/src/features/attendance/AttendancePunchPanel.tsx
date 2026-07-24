@@ -53,12 +53,12 @@ interface RecordFailure {
   status?: number;
 }
 
-interface AttendancePageProps {
+interface AttendancePunchPanelProps {
   active?: boolean;
 }
 
 /** Reusable personal punch, payroll-linkage, and attendance-history panel. */
-export function AttendancePunchPanel({ active = true }: AttendancePageProps = {}) {
+export function AttendancePunchPanel({ active = true }: AttendancePunchPanelProps = {}) {
   if (!active) return null;
   return <AttendancePunchPanelInner />;
 }

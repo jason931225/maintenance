@@ -224,9 +224,9 @@ const server = setupServer(
     managerAttendanceReads += 1;
     return HttpResponse.json({ items: [], limit: 200, offset: 0, total: 0 });
   }),
-  // AttendancePage is mounted by ConsoleShell for persistence, but inactive
-  // screens must not fetch. The counter below locks the /overview no-hidden-fetch
-  // regression (its Today panel makes exactly ONE punch-status read) while
+  // AttendancePunchPanel mounts only in the active console attendance route.
+  // The counter below locks the /overview no-hidden-fetch regression (its Today
+  // panel makes exactly ONE punch-status read) while
   // still serving /attendance when it becomes active.
   http.get("*/api/v1/hr/attendance-records/me", () => {
     attendanceRecordReads += 1;
@@ -425,7 +425,7 @@ describe("every page renders cleanly against an empty backend", () => {
     expect(attendanceAuthzReads).toBe(0);
   });
 
-  it("mounts both legacy punch and active own-attendance surfaces at /attendance", async () => {
+  it("mounts punch and own-attendance surfaces at /attendance", async () => {
     const { container } = renderAt("/attendance");
     expect(await waitForRouteReady("내 근태 기록")).toBeVisible();
     expect(screen.getAllByRole("heading", { level: 1, name: "내 근태 기록" })).toHaveLength(1);

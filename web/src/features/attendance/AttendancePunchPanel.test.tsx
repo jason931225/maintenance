@@ -4,10 +4,10 @@ import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
-import { createConsoleApiClient } from "../api/client";
-import { AuthContext } from "../context/auth";
-import type { AuthContextValue, AuthSession } from "../context/auth";
-import { AttendancePage } from "./AttendancePage";
+import { createConsoleApiClient } from "../../api/client";
+import { AuthContext } from "../../context/auth";
+import type { AuthContextValue, AuthSession } from "../../context/auth";
+import { AttendancePunchPanel } from "./AttendancePunchPanel";
 
 const baseRecord = {
   id: "11111111-1111-4111-8111-111111111111",
@@ -93,16 +93,16 @@ function renderApp() {
         roles: ["MECHANIC"],
       })}
     >
-      <AttendancePage />
+      <AttendancePunchPanel />
     </AuthContext.Provider>,
   );
 }
 
-describe("AttendancePage", () => {
+describe("AttendancePunchPanel", () => {
   it("renders Korean self-service attendance controls and payroll material linkage", async () => {
     renderApp();
 
-    expect(await screen.findByRole("heading", { level: 1, name: "내 근태 기록" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 3, name: "출퇴근 및 기록" })).toBeInTheDocument();
     expect((await screen.findAllByText("근무 중")).length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "출근 기록" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "외출 기록" })).toBeInTheDocument();
