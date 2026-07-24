@@ -15269,7 +15269,6 @@ export interface components {
         };
         AttendanceMonthClose: {
             id: components["schemas"]["Uuid"];
-            /** Format: date */
             month: string;
             branch_scope: string;
             checks: components["schemas"]["AttendanceCloseCheck"][];
