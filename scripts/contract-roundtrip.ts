@@ -74,6 +74,7 @@ try {
     DATABASE_URL: topology.runtimeDatabaseUrl,
     LEAVE_COMMAND_DATABASE_URL: topology.leaveCommandDatabaseUrl,
     ONTOLOGY_COMMAND_DATABASE_URL: topology.ontologyCommandDatabaseUrl,
+    PLATFORM_FORCE_COMMAND_DATABASE_URL: topology.platformForceCommandDatabaseUrl,
     MNT_APP_ROLE: "api",
     MNT_HTTP_ADDR: `127.0.0.1:${port}`,
     MNT_JWT_ISSUER: issuer,

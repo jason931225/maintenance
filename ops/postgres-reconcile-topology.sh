@@ -650,7 +650,7 @@ SQL
 # backend after commit, synchronously terminate each one with a positive timeout,
 # and prove that exact captured set is absent before returning.
 serving_backend_pid_output="$(psql "${admin_psql_args[@]}" -Atqc \
-  "SELECT pid FROM pg_stat_activity WHERE usename IN ('mnt_rt','mnt_leave_cmd','mnt_ontology_cmd') AND pid <> pg_backend_pid() ORDER BY pid")"
+  "SELECT pid FROM pg_stat_activity WHERE usename IN ('mnt_rt','mnt_leave_cmd','mnt_ontology_cmd','mnt_platform_force_cmd') AND pid <> pg_backend_pid() ORDER BY pid")"
 if [[ -n "${serving_backend_pid_output}" ]]; then
   while IFS= read -r pid; do
     terminated="$(psql "${admin_psql_args[@]}" -Atqc \
