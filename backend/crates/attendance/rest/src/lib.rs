@@ -13,8 +13,9 @@ use axum::{
 use mnt_attendance_adapter_postgres::{AttendanceStoreError, PgAttendanceStore};
 use mnt_attendance_application::{
     AcknowledgeWeek52, AmendClose, AssignSubstitute, AttendanceEvidence, AttendanceExceptionRead,
-    AttendanceSubstitutionRead, CallerScope, CancelSubstitution, CloseMonth, ListSubstitutions,
-    RaiseException, ResolveException, Week52Read, validate_week52_start, week52_tone,
+    AttendanceSubstitutionRead, CallerScope, CancelSubstitution, CloseMonth, ListExceptions,
+    ListSubstitutions, RaiseException, ResolveException, Week52Read, validate_week52_start,
+    week52_tone,
 };
 use mnt_attendance_domain::{
     AttendanceDateRange, ExceptionKind, ResolutionAction, SubstitutionWindow,
