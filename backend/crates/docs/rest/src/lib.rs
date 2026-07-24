@@ -853,6 +853,19 @@ mod tests {
     }
 
     #[test]
+    fn register_cursor_round_trips_as_an_opaque_base64url_token() {
+        let cursor = EvidenceObjectCursor {
+            snapshot_at: OffsetDateTime::from_unix_timestamp(1_760_000_000).unwrap(),
+            created_at: OffsetDateTime::from_unix_timestamp(1_759_999_999).unwrap(),
+            id: EvidenceObjectId::new(),
+        };
+        let token = encode_register_cursor(&cursor).expect("cursor encodes");
+        assert!(!token.contains('{'));
+        assert_eq!(decode_register_cursor(&token).unwrap(), cursor);
+        assert!(decode_register_cursor("not_base64!").is_err());
+    }
+
+    #[test]
     fn verdict_folds_copy_statuses() {
         let mk = |status| CopyVerification {
             copy_id: Uuid::nil(),
