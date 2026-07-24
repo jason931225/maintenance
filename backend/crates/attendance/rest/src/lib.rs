@@ -5,7 +5,7 @@
 
 use axum::{
     Json, Router,
-    extract::{Query, State},
+    extract::{FromRequestParts, Query, State},
     http::{HeaderMap, StatusCode},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -24,7 +24,7 @@ use mnt_kernel_core::{BranchId, BranchScope, ErrorKind, KernelError};
 use mnt_platform_auth::JwtVerifier;
 use mnt_platform_authz::{Action, Feature, Principal, authorize, authorize_org_wide};
 use mnt_platform_request_context::{RequestContextError, resolve_principal};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 use serde_json::json;
 use time::{Date, Duration};
 use uuid::Uuid;
@@ -57,6 +57,38 @@ const READ: Feature = Feature::EmployeeDirectoryRead;
 const EXCEPTION_MANAGE: Feature = Feature::AttendanceExceptionManage;
 const SUBSTITUTION_MANAGE: Feature = Feature::AttendanceSubstitutionManage;
 const CLOSE: Feature = Feature::PeriodLockManage;
+const ATTENDANCE_REST_READS_TOTAL: &str = "attendance_rest_reads_total";
+const ATTENDANCE_READ_SURFACES: [&str; 5] = [
+    "substitutions",
+    "exceptions",
+    "exception_detail",
+    "closes",
+    "week52",
+];
+
+struct AttendanceQuery<T>(T);
+
+impl<S, T> FromRequestParts<S> for AttendanceQuery<T>
+where
+    S: Send + Sync,
+    T: DeserializeOwned + Send,
+{
+    type Rejection = RestError;
+
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        state: &S,
+    ) -> Result<Self, Self::Rejection> {
+        Query::<T>::from_request_parts(parts, state)
+            .await
+            .map(|Query(query)| Self(query))
+            .map_err(|_| RestError::malformed_query())
+    }
+}
+
+fn record_read(surface: &'static str) {
+    metrics::counter!(ATTENDANCE_REST_READS_TOTAL, "surface" => surface).increment(1);
+}
 
 #[derive(Clone)]
 pub struct AttendanceRestState {
@@ -337,10 +369,11 @@ struct SubstitutionPageDto {
 async fn list_substitutions(
     State(state): State<AttendanceRestState>,
     headers: HeaderMap,
-    Query(q): Query<ListQuery>,
+    AttendanceQuery(q): AttendanceQuery<ListQuery>,
 ) -> Result<Json<SubstitutionPageDto>, RestError> {
     let p = principal(&state, &headers).await?;
     require_for_branch(&p, READ, q.branch_id)?;
+    record_read("substitutions");
     let query = ListSubstitutions::new(list_range(&q)?, q.branch_id, q.limit, q.offset);
     let page = state
         .store
@@ -461,10 +494,11 @@ struct ExceptionPageDto {
 async fn list_exceptions(
     State(state): State<AttendanceRestState>,
     headers: HeaderMap,
-    Query(q): Query<ListQuery>,
+    AttendanceQuery(q): AttendanceQuery<ListQuery>,
 ) -> Result<Json<ExceptionPageDto>, RestError> {
     let p = principal(&state, &headers).await?;
     require_for_branch(&p, READ, q.branch_id)?;
+    record_read("exceptions");
     let page = state
         .store
         .list_exceptions(
@@ -551,6 +585,7 @@ async fn exception_detail(
             RestError::new(StatusCode::NOT_FOUND, "not_found", "resource was not found")
         })?;
     require_resource_branch(&p, READ, branch)?;
+    record_read("exception_detail");
     state
         .store
         .exception_detail(&scope(&p), exception_id)
@@ -848,10 +883,11 @@ struct CloseListQuery {
 async fn list_closes(
     State(state): State<AttendanceRestState>,
     headers: HeaderMap,
-    Query(q): Query<CloseListQuery>,
+    AttendanceQuery(q): AttendanceQuery<CloseListQuery>,
 ) -> Result<Json<MonthCloseBoardDto>, RestError> {
     let p = principal(&state, &headers).await?;
     require_for_branch(&p, READ, q.branch_id)?;
+    record_read("closes");
     let month = AttendanceDateRange::selected_month_with_buffer(&q.month)
         .map_err(|error| {
             RestError::new(
@@ -1057,10 +1093,11 @@ struct Week52Query {
 async fn week52(
     State(state): State<AttendanceRestState>,
     headers: HeaderMap,
-    Query(q): Query<Week52Query>,
+    AttendanceQuery(q): AttendanceQuery<Week52Query>,
 ) -> Result<Json<Week52BoardDto>, RestError> {
     let p = principal(&state, &headers).await?;
     require_for_branch(&p, READ, q.branch_id)?;
+    record_read("week52");
     let week_start =
         validate_week52_start(parse_date(&q.week_start, "weekStart")?).map_err(|e| {
             RestError::new(
@@ -1156,6 +1193,13 @@ impl RestError {
             message: message.into(),
         }
     }
+    fn malformed_query() -> Self {
+        Self::new(
+            StatusCode::BAD_REQUEST,
+            "invalid_query",
+            "query parameters are invalid",
+        )
+    }
     fn kernel(error: KernelError) -> Self {
         match error.kind {
             ErrorKind::Validation => Self::new(
@@ -1221,7 +1265,38 @@ impl IntoResponse for RestError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::collections::BTreeSet;
+    use std::{
+        collections::BTreeSet,
+        future::Future,
+        task::{Context, Poll, Waker},
+    };
+
+    fn run_ready<F: Future>(future: F) -> F::Output {
+        let waker = Waker::noop();
+        let mut context = Context::from_waker(waker);
+        let mut future = std::pin::pin!(future);
+        match future.as_mut().poll(&mut context) {
+            Poll::Ready(value) => value,
+            Poll::Pending => panic!("query extraction must complete without waiting"),
+        }
+    }
+
+    fn assert_invalid_query<T>(uri: &str)
+    where
+        T: DeserializeOwned + Send,
+    {
+        let (mut parts, _) = axum::http::Request::builder()
+            .uri(uri)
+            .body(())
+            .unwrap()
+            .into_parts();
+        let error = match run_ready(AttendanceQuery::<T>::from_request_parts(&mut parts, &())) {
+            Ok(_) => panic!("unknown query parameter must be rejected"),
+            Err(error) => error,
+        };
+        assert_eq!(error.status, StatusCode::BAD_REQUEST, "{uri}");
+        assert_eq!(error.code, "invalid_query", "{uri}");
+    }
 
     const BRANCH_BOUND_ENDPOINT_FAMILIES: &[&str] = &[
         "substitutions list",
@@ -1273,6 +1348,36 @@ mod tests {
     #[test]
     fn week52_ack_rejects_client_supplied_branch() {
         assert!(serde_json::from_value::<Week52AckBody>(json!({"employeeId":Uuid::new_v4(),"weekStart":"2026-07-06","branchId":Uuid::new_v4()})).is_err());
+    }
+
+    #[test]
+    fn malformed_query_uses_a_stable_json_error_contract() {
+        let error = RestError::malformed_query();
+        assert_eq!(error.status, StatusCode::BAD_REQUEST);
+        assert_eq!(error.code, "invalid_query");
+        assert_eq!(error.message, "query parameters are invalid");
+    }
+
+    #[test]
+    fn every_query_endpoint_maps_unknown_parameters_to_the_stable_error() {
+        assert_invalid_query::<ListQuery>("/api/v1/attendance/substitutions?unexpected=true");
+        assert_invalid_query::<ListQuery>("/api/v1/attendance/exceptions?unexpected=true");
+        assert_invalid_query::<CloseListQuery>("/api/v1/attendance/closes?unexpected=true");
+        assert_invalid_query::<Week52Query>("/api/v1/attendance/week52?unexpected=true");
+    }
+
+    #[test]
+    fn attendance_read_surfaces_are_static_and_complete() {
+        assert_eq!(
+            ATTENDANCE_READ_SURFACES,
+            [
+                "substitutions",
+                "exceptions",
+                "exception_detail",
+                "closes",
+                "week52",
+            ]
+        );
     }
 
     #[test]
