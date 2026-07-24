@@ -123,6 +123,22 @@ pub struct Week52Input {
     pub projected_hours: f64,
     pub acknowledged_at: Option<OffsetDateTime>,
 }
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Week52Read {
+    pub employee_id: Uuid,
+    pub name: String,
+    pub team: Option<String>,
+    pub week_start: Date,
+    pub current_hours: f64,
+    pub projected_hours: f64,
+    pub acknowledged_at: Option<OffsetDateTime>,
+}
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Week52AcknowledgementRead {
+    pub employee_id: Uuid,
+    pub week_start: Date,
+    pub acknowledged_at: OffsetDateTime,
+}
 
 /// Transport-neutral attendance read models. REST owns the snake_case wire mapping.
 #[derive(Debug, Clone, Serialize, Deserialize)]

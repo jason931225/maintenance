@@ -417,7 +417,7 @@ impl PgAttendanceStore {
         &self,
         caller: &CallerScope,
         command: AcknowledgeWeek52,
-    ) -> Result<Value, AttendanceStoreError> {
+    ) -> Result<Week52AcknowledgementRead, AttendanceStoreError> {
         app::validate_week52_start(command.week_start)?;
         let org = OrgId::from_uuid(caller.org_id);
         let caller = caller.clone();
@@ -449,7 +449,7 @@ impl PgAttendanceStore {
         caller: &CallerScope,
         week_start: Date,
         branch_id: Option<Uuid>,
-    ) -> Result<Vec<Week52Input>, AttendanceStoreError> {
+    ) -> Result<Vec<Week52Read>, AttendanceStoreError> {
         app::ensure_scope(caller, branch_id)?;
         app::validate_week52_start(week_start)?;
         let org = OrgId::from_uuid(caller.org_id);
@@ -457,7 +457,7 @@ impl PgAttendanceStore {
         let week_start_at = week52_boundary(week_start)?;
         let week_end_at = week52_boundary(end)?;
         with_org_conn::<_, _, AttendanceStoreError>(&self.pool, org, move |tx| Box::pin(async move {
-            let active_employees = sqlx::query_scalar("SELECT id FROM employees WHERE employment_status='ACTIVE' AND ($1::uuid IS NULL OR home_branch_id=$1) ORDER BY id")
+            let active_employees = sqlx::query_as::<_, (Uuid, String, Option<String>)>("SELECT id,name,org_unit FROM employees WHERE employment_status='ACTIVE' AND ($1::uuid IS NULL OR home_branch_id=$1) ORDER BY id")
                 .bind(branch_id).fetch_all(tx.as_mut()).await?;
             // Pair the complete employee timeline. Filtering by `work_date` (or by either
             // week boundary) loses a side of a shift that crosses that boundary.
@@ -531,17 +531,19 @@ fn week52_hours(
 }
 
 fn week52_inputs_for_active(
-    active_employees: impl IntoIterator<Item = Uuid>,
+    active_employees: impl IntoIterator<Item = (Uuid, String, Option<String>)>,
     week_start: Date,
     hours: BTreeMap<Uuid, f64>,
     acknowledgements: BTreeMap<Uuid, OffsetDateTime>,
 ) -> Vec<Week52Input> {
     active_employees
         .into_iter()
-        .map(|employee_id| {
+        .map(|(employee_id, name, team)| {
             let current_hours = hours.get(&employee_id).copied().unwrap_or(0.0);
-            Week52Input {
+            Week52Read {
                 employee_id,
+                name,
+                team,
                 week_start,
                 current_hours,
                 projected_hours: current_hours,
@@ -566,7 +568,7 @@ fn week52_acknowledgement_response(
     acknowledged_at: OffsetDateTime,
     inserted: bool,
     branch: Uuid,
-) -> Result<(Value, Vec<AuditEvent>), AttendanceStoreError> {
+) -> Result<(Week52AcknowledgementRead, Vec<AuditEvent>), AttendanceStoreError> {
     let audits = if inserted {
         vec![event(
             caller,
@@ -580,7 +582,11 @@ fn week52_acknowledgement_response(
         Vec::new()
     };
     Ok((
-        json!({"employeeId":employee_id,"weekStart":week_start,"acknowledged":true,"acknowledgedAt":acknowledged_at}),
+        Week52AcknowledgementRead {
+            employee_id,
+            week_start,
+            acknowledged_at,
+        },
         audits,
     ))
 }

@@ -14,7 +14,8 @@ use mnt_attendance_adapter_postgres::{AttendanceStoreError, PgAttendanceStore};
 use mnt_attendance_application::{
     AcknowledgeWeek52, AmendClose, AssignSubstitute, AttendanceEvidence, AttendanceExceptionRead,
     AttendanceSubstitutionRead, CallerScope, CancelSubstitution, CloseMonth, ListSubstitutions,
-    RaiseException, ResolveException, validate_week52_start, week52_tone,
+    RaiseException, ResolveException, Week52AcknowledgementRead, Week52Read, validate_week52_start,
+    week52_tone,
 };
 use mnt_attendance_domain::{
     AttendanceDateRange, ExceptionKind, ResolutionAction, SubstitutionWindow,
@@ -775,8 +776,78 @@ async fn close_month(
     Ok((StatusCode::CREATED, Json(v)))
 }
 
+#[derive(Serialize)]
+struct Week52RowDto {
+    employee_id: String,
+    name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    team: Option<String>,
+    week_start: String,
+    current_hours: f64,
+    projected_hours: f64,
+    tone: String,
+    acked: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    acked_at: Option<String>,
+}
+impl From<Week52Read> for Week52RowDto {
+    fn from(v: Week52Read) -> Self {
+        let tone = week52_tone(&mnt_attendance_application::Week52Input {
+            employee_id: v.employee_id,
+            week_start: v.week_start,
+            current_hours: v.current_hours,
+            projected_hours: v.projected_hours,
+            acknowledged_at: v.acknowledged_at,
+        });
+        Self {
+            employee_id: v.employee_id.to_string(),
+            name: v.name,
+            team: v.team,
+            week_start: v.week_start.to_string(),
+            current_hours: v.current_hours,
+            projected_hours: v.projected_hours,
+            tone: match tone {
+                mnt_attendance_application::Week52Tone::Ok => "OK",
+                mnt_attendance_application::Week52Tone::Warn => "WARN",
+                mnt_attendance_application::Week52Tone::Danger => "DANGER",
+            }
+            .into(),
+            acked: v.acknowledged_at.is_some(),
+            acked_at: v.acknowledged_at.map(|d| {
+                d.format(&time::format_description::well_known::Rfc3339)
+                    .unwrap_or_else(|_| d.to_string())
+            }),
+        }
+    }
+}
+#[derive(Serialize)]
+struct Week52BoardDto {
+    week_start: String,
+    items: Vec<Week52RowDto>,
+}
+#[derive(Serialize)]
+struct Week52AckDto {
+    employee_id: String,
+    week_start: String,
+    acked: bool,
+    acknowledged_at: String,
+}
+impl From<Week52AcknowledgementRead> for Week52AckDto {
+    fn from(v: Week52AcknowledgementRead) -> Self {
+        Self {
+            employee_id: v.employee_id.to_string(),
+            week_start: v.week_start.to_string(),
+            acked: true,
+            acknowledged_at: v
+                .acknowledged_at
+                .format(&time::format_description::well_known::Rfc3339)
+                .unwrap_or_else(|_| v.acknowledged_at.to_string()),
+        }
+    }
+}
+
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(deny_unknown_fields)]
 struct Week52Query {
     week_start: String,
     branch_id: Option<Uuid>,
@@ -785,7 +856,7 @@ async fn week52(
     State(state): State<AttendanceRestState>,
     headers: HeaderMap,
     Query(q): Query<Week52Query>,
-) -> Result<Json<Value>, RestError> {
+) -> Result<Json<Week52BoardDto>, RestError> {
     let p = principal(&state, &headers).await?;
     require_for_branch(&p, READ, q.branch_id)?;
     let week_start =
@@ -796,13 +867,21 @@ async fn week52(
                 e.to_string(),
             )
         })?;
-    let items=state.store.week52_inputs(&scope(&p),week_start,q.branch_id).await.map_err(RestError::store)?.into_iter().map(|i|json!({"employeeId":i.employee_id,"weekStart":i.week_start.to_string(),"currentHours":i.current_hours,"projectedHours":i.projected_hours,"tone":week52_tone(&i),"ackedAt":i.acknowledged_at})).collect::<Vec<_>>();
-    Ok(Json(
-        json!({"weekStart":week_start.to_string(),"through":(week_start+Duration::days(7)).to_string(),"items":items}),
-    ))
+    let items = state
+        .store
+        .week52_inputs(&scope(&p), week_start, q.branch_id)
+        .await
+        .map_err(RestError::store)?
+        .into_iter()
+        .map(Week52RowDto::from)
+        .collect();
+    Ok(Json(Week52BoardDto {
+        week_start: week_start.to_string(),
+        items,
+    }))
 }
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(deny_unknown_fields)]
 struct Week52AckBody {
     employee_id: Uuid,
     week_start: String,
@@ -811,7 +890,7 @@ async fn acknowledge_week52(
     State(state): State<AttendanceRestState>,
     headers: HeaderMap,
     Json(body): Json<Week52AckBody>,
-) -> Result<Json<Value>, RestError> {
+) -> Result<Json<Week52AckDto>, RestError> {
     let p = principal(&state, &headers).await?;
     let branch = state
         .store
@@ -835,6 +914,7 @@ async fn acknowledge_week52(
         .store
         .acknowledge_week52(&scope(&p), command)
         .await
+        .map(Week52AckDto::from)
         .map(Json)
         .map_err(RestError::store)
 }
