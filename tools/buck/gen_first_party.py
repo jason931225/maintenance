@@ -851,6 +851,12 @@ INLINE_TEST_VARIANTS = {
     },),
 }
 
+INTEGRATION_TEST_FEATURES = {
+    "mnt-app": {
+        "tests/dev_auth_persona_guard_feature.rs": ("dev-auth",),
+    },
+}
+
 
 def validate_inline_test_variants(metadata):
     """Require each emitted inline variant to name an inert manifest feature."""
@@ -867,6 +873,10 @@ def validate_inline_test_variants(metadata):
                         package_name, variant["feature"]
                     )
                 )
+
+
+def integration_test_features(package_name, test_file):
+    return INTEGRATION_TEST_FEATURES.get(package_name, {}).get(test_file, ())
 
 
 def resource_requirement(package_name, test_type, test_file=None):
@@ -1290,12 +1300,13 @@ def emit(d, name, deps, named, dev_deps, dev_named):
                 uses_sqlx=any(marker in contents for marker in SQLX_MACRO_MARKERS)
                 or "#[sqlx::test" in contents,
             )
+            features = integration_test_features(name, tf)
             out.append("")
             out += _block("rust_test", "{}-itest-{}".format(name, stem),
                           srcs_expr, stem,
                           sorted(set(test_deps + [lib_target])), test_named, itest_env,
                           package=package, crate_root=package + "/" + tf,
-                          external=external, labels=labels)
+                          external=external, labels=labels, features=features)
 
     with open(os.path.join(d, "BUCK"), "w") as f:
         f.write("\n".join(out) + "\n")

@@ -3,6 +3,7 @@
 
 import importlib.util
 import inspect
+import re
 import subprocess
 import sys
 import unittest
@@ -153,9 +154,28 @@ class FirstPartyBuckGeneratorTests(unittest.TestCase):
         self.assertEqual("postgres", variant["resource"])
         self.assertEqual([], manifest["features"]["test-postgres"])
         self.assertNotIn("default", manifest["features"])
-        self.assertEqual(151, source_text.count('#[cfg(not(feature = "test-postgres"))]'))
-        self.assertEqual(17, source_text.count("#[sqlx::test"))
-        self.assertEqual(17, source_text.count('#[cfg(feature = "test-postgres")]'))
+        ordinary_tests = re.findall(r"^\s*#\[(?:test|tokio::test)\]", source_text, re.MULTILINE)
+        ordinary_gates = re.findall(
+            r'^\s*#\[cfg\(not\(feature = "test-postgres"\)\)\]\n\s*#\[(?:test|tokio::test)\]',
+            source_text,
+            re.MULTILINE,
+        )
+        sqlx_tests = re.findall(r"^\s*#\[sqlx::test", source_text, re.MULTILINE)
+        sqlx_gates = re.findall(
+            r'^\s*#\[cfg\(feature = "test-postgres"\)\]\n\s*#\[sqlx::test',
+            source_text,
+            re.MULTILINE,
+        )
+        self.assertEqual(151, len(ordinary_tests))
+        self.assertEqual(len(ordinary_tests), len(ordinary_gates))
+        self.assertEqual(17, len(sqlx_tests))
+        self.assertEqual(len(sqlx_tests), len(sqlx_gates))
+        self.assertEqual(
+            ("dev-auth",),
+            GENERATOR.integration_test_features(
+                "mnt-app", "tests/dev_auth_persona_guard_feature.rs"
+            ),
+        )
 
     def test_inline_test_variants_reject_missing_manifest_features(self) -> None:
         with self.assertRaisesRegex(ValueError, "feature is absent"):

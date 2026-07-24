@@ -2626,6 +2626,7 @@ rust_test(
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/app", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
     labels = ["owner.backend.app", "domain.app", "test.integration", "resource.postgres", "needs-postgres"],
+    features = ["dev-auth"],
     deps = [
         "//backend/crates/action-inbox/application:mnt-action-inbox-application",
         "//backend/crates/analytics-quant/rest:mnt-analytics-quant-rest",

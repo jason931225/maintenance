@@ -444,7 +444,9 @@ jobs:
         working-directory: .
         run: |
           env -u DATABASE_URL tools/buck2 test //backend/app:mnt-app-unit
-          tools/buck/test_needs_postgres.sh //backend/app:mnt-app-itest-inline-postgres
+          tools/buck/test_needs_postgres.sh \
+            //backend/app:mnt-app-itest-inline-postgres \
+            //backend/app:mnt-app-itest-dev_auth_persona_guard_feature
 
   dev-up-smoke:
     name: dev-up.mjs smoke — compose deps + migrate + /readyz + dev-auth e2e
