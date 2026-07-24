@@ -207,6 +207,22 @@ const server = setupServer(
   http.get("*/api/v1/hr/attendance-summary", () =>
     HttpResponse.json({ items: [], limit: 1000, offset: 0, total: 0 }),
   ),
+  http.get("*/api/v1/attendance/me/exceptions", () => {
+    ownAttendanceReads += 1;
+    return HttpResponse.json({ items: [], limit: 50, offset: 0, total: 0 });
+  }),
+  http.get("*/api/v1/attendance/me/week52", () => {
+    ownAttendanceReads += 1;
+    return HttpResponse.json({ status: "not_available" });
+  }),
+  http.get("*/api/v1/me/authz", () => {
+    attendanceAuthzReads += 1;
+    return HttpResponse.json({ roles: ["SUPER_ADMIN"], capabilities: [] });
+  }),
+  http.get("*/api/v1/attendance/:resource*", () => {
+    managerAttendanceReads += 1;
+    return HttpResponse.json({ items: [], limit: 200, offset: 0, total: 0 });
+  }),
   // AttendancePage is mounted by ConsoleShell for persistence, but inactive
   // screens must not fetch. The counter below locks the /overview no-hidden-fetch
   // regression (its Today panel makes exactly ONE punch-status read) while
@@ -265,6 +281,9 @@ const server = setupServer(
 );
 
 let attendanceRecordReads = 0;
+let ownAttendanceReads = 0;
+let managerAttendanceReads = 0;
+let attendanceAuthzReads = 0;
 
 // Track in-flight HTTP requests so a test can wait for late on-mount fetches
 // (e.g. the dispatch-map aggregation the equipment screen issues) to fully
@@ -298,6 +317,9 @@ beforeAll(() => {
 });
 afterEach(() => {
   attendanceRecordReads = 0;
+  ownAttendanceReads = 0;
+  managerAttendanceReads = 0;
+  attendanceAuthzReads = 0;
   server.resetHandlers();
 });
 afterAll(() => {
@@ -388,7 +410,7 @@ describe("every page renders cleanly against an empty backend", () => {
     });
   }
 
-  it("reads punch status exactly once while Overview is active (no hidden attendance-screen fetch)", async () => {
+  it("keeps hidden attendance composition completely inert while Overview is active", async () => {
     renderAt("/overview");
     expect(await waitForRouteReady("통합 개요")).toBeVisible();
     await waitForNetworkIdle();
@@ -397,14 +419,20 @@ describe("every page renders cleanly against an empty backend", () => {
     expect(attendanceRecordReads).toBe(1);
     await waitForLateMountEffects();
     expect(attendanceRecordReads).toBe(1);
+    expect(ownAttendanceReads).toBe(0);
+    expect(managerAttendanceReads).toBe(0);
+    expect(attendanceAuthzReads).toBe(0);
   });
 
-  it("fetches attendance records once the attendance screen is active", async () => {
+  it("mounts both legacy punch and active own-attendance surfaces at /attendance", async () => {
     renderAt("/attendance");
     expect(await waitForRouteReady("내 근태 기록")).toBeVisible();
+    expect(await screen.findByRole("region", { name: "내 근태" })).toBeVisible();
     await waitFor(() => {
       expect(attendanceRecordReads).toBe(1);
     });
+    expect(ownAttendanceReads).toBe(2);
+    expect(attendanceAuthzReads).toBe(1);
   });
 
   it("renders /payroll with zero readiness counts and no crash", async () => {

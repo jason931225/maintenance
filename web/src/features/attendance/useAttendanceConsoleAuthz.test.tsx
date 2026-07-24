@@ -100,4 +100,26 @@ describe("useAttendanceConsoleAuthz", () => {
       ).toBe(true);
     });
   });
+
+  it("does not read authz while inactive and starts a fresh request on reactivation", async () => {
+    mockUseAuth.mockReturnValue({
+      session: {
+        access_token: "token",
+        client_session_incarnation: "incarnation-a",
+        feature_grants: [],
+      },
+    });
+    mockFetchAuthzProjection.mockResolvedValue(projection("employee_directory_read"));
+
+    const { rerender } = renderHook(
+      ({ active }: { active: boolean }) => useAttendanceConsoleAuthz(active),
+      { initialProps: { active: false } },
+    );
+    expect(mockFetchAuthzProjection).not.toHaveBeenCalled();
+
+    rerender({ active: true });
+    await waitFor(() => {
+      expect(mockFetchAuthzProjection).toHaveBeenCalledTimes(1);
+    });
+  });
 });

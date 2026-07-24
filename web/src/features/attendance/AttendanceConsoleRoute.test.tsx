@@ -86,6 +86,30 @@ describe("AttendanceScreenBody", () => {
     expect(screen.queryByTestId("manager-workspace")).toBeNull();
   });
 
+  it("does not compose private attendance content or manager reads while inactive, then composes fresh on reactivation", () => {
+    const api = client();
+    const { rerender } = render(
+      <AuthTestProvider session={session(["branch-a"])} overrides={{ api }}>
+        <AttendanceScreenBody active={false} />
+      </AuthTestProvider>,
+    );
+    expect(screen.queryByTestId("self-service")).toBeNull();
+    expect(screen.queryByTestId("attendance-screen")).toBeNull();
+    expect(panelSpy).not.toHaveBeenCalled();
+    expect(authzSpy).not.toHaveBeenCalled();
+    expect(managerTransportSpy).not.toHaveBeenCalled();
+
+    rerender(
+      <AuthTestProvider session={session(["branch-a"])} overrides={{ api }}>
+        <AttendanceScreenBody active />
+      </AuthTestProvider>,
+    );
+    expect(screen.getByTestId("self-service")).toBeVisible();
+    expect(screen.getByTestId("attendance-screen")).toBeVisible();
+    expect(authzSpy).toHaveBeenCalledTimes(1);
+    expect(managerTransportSpy).toHaveBeenCalledWith(api, "branch-a");
+  });
+
   it("passes the own panel before the manager workspace for a branched manager", () => {
     const api = client();
     render(

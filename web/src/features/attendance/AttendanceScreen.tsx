@@ -53,6 +53,8 @@ type Props = {
   sessionKey: string | undefined;
   /** Employee self-service content rendered before any manager workspace. */
   selfServicePanel?: ReactElement;
+  /** Whether this persistent shell slot is currently visible and authorized to read. */
+  active?: boolean;
   /** Injectable clock for deterministic tests; defaults to the wall clock. */
   now?: () => Date;
 };
@@ -144,6 +146,7 @@ function timeLabel(iso: string): string {
  * late to fence an old tenant/session's selection, drafts, or busy state.
  */
 export function AttendanceScreen(props: Props) {
+  if (props.active === false) return null;
   const capabilityKey = Object.values(props.capabilities).join(":");
   const sessionFence = [
     props.sessionKey ?? "no-session",

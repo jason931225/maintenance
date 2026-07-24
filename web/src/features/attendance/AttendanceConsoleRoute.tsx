@@ -16,7 +16,7 @@ import { useAttendanceConsoleAuthz } from "./useAttendanceConsoleAuthz";
  * branch is not replaced with an empty ID: there is no legal read or mutation
  * target; employee self-service remains available without selecting one.
  */
-export function AttendanceScreenBody() {
+export function AttendanceScreenBody({ active = true }: { active?: boolean }) {
   const { api, session } = useAuth();
   const branchId = useActiveBranchId();
   const ownTransport = useMemo(
@@ -29,9 +29,11 @@ export function AttendanceScreenBody() {
     <SelfServiceAttendancePanel
       api={ownTransport}
       sessionIdentity={sessionIdentity}
-      active={session !== undefined}
+      active={active && session !== undefined}
     />
   );
+
+  if (!active) return null;
 
   if (branchId === undefined) {
     return (
@@ -47,6 +49,7 @@ export function AttendanceScreenBody() {
       branchId={branchId}
       session={session}
       selfServicePanel={selfServicePanel}
+      active={active}
     />
   );
 }
@@ -56,13 +59,15 @@ function AuthenticatedAttendanceBody({
   branchId,
   session,
   selfServicePanel,
+  active,
 }: {
   api: ReturnType<typeof useAuth>["api"];
   branchId: string;
   session: ReturnType<typeof useAuth>["session"];
   selfServicePanel: ReactElement;
+  active: boolean;
 }) {
-  const authz = useAttendanceConsoleAuthz();
+  const authz = useAttendanceConsoleAuthz(active);
   const capabilities = deriveAttendanceCapabilities(authz, branchId);
   const transport = useMemo(
     () => createAttendanceApiTransport(api, branchId),
@@ -77,6 +82,7 @@ function AuthenticatedAttendanceBody({
       capabilities={capabilities}
       sessionKey={session?.client_session_incarnation ?? session?.access_token}
       selfServicePanel={selfServicePanel}
+      active={active}
     />
   );
 }
