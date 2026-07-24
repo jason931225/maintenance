@@ -49,11 +49,14 @@ done
 
 docker run -d --rm --name "${container_name}" \
   -p 127.0.0.1::5432 \
-  -v "${repo_root}/ops/postgres-reconcile-topology.sh:/topology.sh:ro" \
   -e POSTGRES_DB="${database}" \
   -e POSTGRES_USER=mnt_buck_admin \
   -e POSTGRES_PASSWORD="${admin_password}" \
   "${postgres_image}" >/dev/null
+
+docker cp \
+  "${repo_root}/ops/postgres-reconcile-topology.sh" \
+  "${container_name}:/topology.sh"
 
 for attempt in {1..30}; do
   if docker exec "${container_name}" pg_isready -U mnt_buck_admin -d "${database}" >/dev/null 2>&1; then
