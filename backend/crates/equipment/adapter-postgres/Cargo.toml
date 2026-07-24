@@ -1,0 +1,24 @@
+[package]
+name = "mnt-equipment-adapter-postgres"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+hex = { workspace = true }
+mnt-equipment-application = { workspace = true }
+mnt-equipment-domain = { workspace = true }
+mnt-kernel-core = { workspace = true }
+mnt-platform-db = { workspace = true }
+mnt-platform-request-context = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+time = { workspace = true }
+uuid = { workspace = true }
+
+[lints]
+workspace = true
