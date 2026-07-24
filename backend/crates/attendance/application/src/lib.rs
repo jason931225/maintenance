@@ -115,6 +115,79 @@ pub struct AssignSubstitute {
     pub exception_id: Option<Uuid>,
     pub idempotency_key: String,
 }
+
+/// The explicit eligibility lookup required before assigning a substitute.
+/// The adapter obtains the facts from canonical HR and attendance records;
+/// this layer owns the decision over those facts.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubstitutionCandidateQuery {
+    pub branch_id: Uuid,
+    pub covered_employee_id: Uuid,
+    pub cover_date: Date,
+    pub from_minutes: i32,
+    pub to_minutes: i32,
+    pub search: Option<String>,
+    pub limit: i64,
+    pub offset: i64,
+}
+
+impl SubstitutionCandidateQuery {
+    pub fn new(
+        branch_id: Uuid,
+        covered_employee_id: Uuid,
+        window: SubstitutionWindow,
+        search: Option<String>,
+        limit: Option<i64>,
+        offset: Option<i64>,
+    ) -> Result<Self, AttendanceApplicationError> {
+        let window =
+            SubstitutionWindow::new(window.cover_date, window.from_minutes, window.to_minutes)?;
+        Ok(Self {
+            branch_id,
+            covered_employee_id,
+            cover_date: window.cover_date,
+            from_minutes: window.from_minutes,
+            to_minutes: window.to_minutes,
+            search: normalize_optional_text(search, "search", 120)?,
+            limit: limit.unwrap_or(50).clamp(1, 200),
+            offset: offset.unwrap_or(0).clamp(0, 1_000_000),
+        })
+    }
+
+    pub fn window(&self) -> Result<SubstitutionWindow, AttendanceApplicationError> {
+        SubstitutionWindow::new(self.cover_date, self.from_minutes, self.to_minutes)
+            .map_err(AttendanceApplicationError::from)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SubstitutionCandidateFacts {
+    pub employee_id: Uuid,
+    pub employment_active: bool,
+    pub home_branch_id: Option<Uuid>,
+    pub conflicts_with_assigned_substitution: bool,
+    pub approved_leave_covers_window: bool,
+    pub has_open_no_show: bool,
+}
+
+impl SubstitutionCandidateFacts {
+    #[must_use]
+    pub fn is_eligible_for(&self, branch_id: Uuid, covered_employee_id: Uuid) -> bool {
+        self.employment_active
+            && self.home_branch_id == Some(branch_id)
+            && self.employee_id != covered_employee_id
+            && !self.conflicts_with_assigned_substitution
+            && !self.approved_leave_covers_window
+            && !self.has_open_no_show
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubstitutionCandidateRead {
+    pub employee_id: Uuid,
+    pub employee_name: String,
+    pub branch_id: Uuid,
+}
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CloseMonth {
     pub month: String,
@@ -350,6 +423,12 @@ pub fn ensure_scope(
     }
 }
 
+pub fn require_worker_employee_id(
+    worker_employee_id: Option<Uuid>,
+) -> Result<Uuid, AttendanceApplicationError> {
+    worker_employee_id.ok_or(AttendanceApplicationError::WorkerEmployeeRequired)
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum AttendanceApplicationError {
     #[error(transparent)]
@@ -358,6 +437,8 @@ pub enum AttendanceApplicationError {
     InvalidIdempotencyKey,
     #[error("{0} is required and too long")]
     InvalidText(&'static str),
+    #[error("worker_employee_id is required")]
+    WorkerEmployeeRequired,
     #[error("the requested branch is outside the caller scope")]
     ForbiddenBranch,
     #[error("monthly close requires explicit attestation")]

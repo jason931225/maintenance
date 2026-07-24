@@ -10,7 +10,8 @@ use mnt_attendance_application::{
     AttendanceExceptionRead, AttendanceObjectLink, AttendancePage, AttendanceSubstitutionRead,
     CallerScope, CancelSubstitution, CloseAmendmentRead, CloseCheckRead, CloseChecks, CloseMonth,
     ClosePreflightRead, ExceptionResolutionRead, ListExceptions, ListSubstitutions, MonthCloseRead,
-    RaiseException, ResolveException, Week52AcknowledgementRead, Week52Read,
+    RaiseException, ResolveException, SubstitutionCandidateFacts, SubstitutionCandidateQuery,
+    SubstitutionCandidateRead, Week52AcknowledgementRead, Week52Read,
 };
 use mnt_attendance_domain::{AttendanceDateRange, ExceptionKind, HistoricalAbsence};
 use mnt_kernel_core::{AuditAction, AuditEvent, BranchId, OrgId, TraceContext};
@@ -22,6 +23,8 @@ use time::{Date, Duration, OffsetDateTime, UtcOffset};
 use uuid::Uuid;
 
 const CANCEL_SUBSTITUTION_SQL: &str = "UPDATE attendance_substitutions SET status='CANCELLED', cancel_reason=$1 WHERE id=$2 AND status='ASSIGNED'";
+const SUBSTITUTION_CANDIDATES_SQL: &str = "SELECT e.id,e.name,e.home_branch_id,TRUE AS employment_active,FALSE AS conflicts_with_assigned_substitution,FALSE AS approved_leave_covers_window,FALSE AS has_open_no_show FROM employees e JOIN employee_employment_profiles p ON p.employee_id=e.id AND p.org_id=e.org_id WHERE e.home_branch_id=$1 AND e.id <> $2 AND e.employment_status='ACTIVE' AND ($6::text IS NULL OR e.name ILIKE '%' || $6 || '%') AND NOT EXISTS (SELECT 1 FROM attendance_substitutions s WHERE s.worker_employee_id=e.id AND s.status='ASSIGNED' AND s.cover_date=$3 AND s.from_minutes < $5 AND s.to_minutes > $4) AND NOT EXISTS (SELECT 1 FROM leave_requests l WHERE l.subject_employee_id=e.id AND l.status IN ('approved','APPROVED') AND l.start_date <= $3 AND l.end_date >= $3 AND (l.leave_type='annual' OR (l.leave_type='half_day' AND ((l.partial_day_period='am' AND $4 < 720) OR (l.partial_day_period='pm' AND $5 > 720))))) AND NOT EXISTS (SELECT 1 FROM attendance_exceptions x WHERE x.employee_id=e.id AND x.kind='NO_SHOW' AND x.status='OPEN' AND x.work_date=$3) ORDER BY e.name,e.id LIMIT $7 OFFSET $8";
+const SUBSTITUTION_CANDIDATE_TOTAL_SQL: &str = "SELECT count(*) FROM employees e JOIN employee_employment_profiles p ON p.employee_id=e.id AND p.org_id=e.org_id WHERE e.home_branch_id=$1 AND e.id <> $2 AND e.employment_status='ACTIVE' AND ($6::text IS NULL OR e.name ILIKE '%' || $6 || '%') AND NOT EXISTS (SELECT 1 FROM attendance_substitutions s WHERE s.worker_employee_id=e.id AND s.status='ASSIGNED' AND s.cover_date=$3 AND s.from_minutes < $5 AND s.to_minutes > $4) AND NOT EXISTS (SELECT 1 FROM leave_requests l WHERE l.subject_employee_id=e.id AND l.status IN ('approved','APPROVED') AND l.start_date <= $3 AND l.end_date >= $3 AND (l.leave_type='annual' OR (l.leave_type='half_day' AND ((l.partial_day_period='am' AND $4 < 720) OR (l.partial_day_period='pm' AND $5 > 720))))) AND NOT EXISTS (SELECT 1 FROM attendance_exceptions x WHERE x.employee_id=e.id AND x.kind='NO_SHOW' AND x.status='OPEN' AND x.work_date=$3)";
 const LIST_EXCEPTIONS_SQL: &str = "\
     SELECT e.id,e.code,e.kind,e.status,e.employee_id,employee.name AS employee_name,\
            employee.org_unit AS team,e.branch_id,e.work_date,e.created_at AS occurred_at,\
@@ -95,6 +98,53 @@ impl PgAttendanceStore {
             let items = rows.iter().map(substitution_read).collect::<Result<Vec<_>, _>>()?;
             Ok(AttendancePage { items, total, limit: query.limit, offset: query.offset })
         })).await
+    }
+
+    pub async fn list_substitution_candidates(
+        &self,
+        caller: &CallerScope,
+        query: SubstitutionCandidateQuery,
+    ) -> Result<AttendancePage<SubstitutionCandidateRead>, AttendanceStoreError> {
+        app::ensure_scope(caller, Some(query.branch_id))?;
+        let window = query.window()?;
+        let org = OrgId::from_uuid(caller.org_id);
+        with_org_conn::<_, _, AttendanceStoreError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                let rows = sqlx::query(SUBSTITUTION_CANDIDATES_SQL)
+                    .bind(query.branch_id)
+                    .bind(query.covered_employee_id)
+                    .bind(window.cover_date)
+                    .bind(window.from_minutes)
+                    .bind(window.to_minutes)
+                    .bind(&query.search)
+                    .bind(query.limit)
+                    .bind(query.offset)
+                    .fetch_all(tx.as_mut())
+                    .await?;
+                let total: i64 = sqlx::query_scalar(SUBSTITUTION_CANDIDATE_TOTAL_SQL)
+                    .bind(query.branch_id)
+                    .bind(query.covered_employee_id)
+                    .bind(window.cover_date)
+                    .bind(window.from_minutes)
+                    .bind(window.to_minutes)
+                    .bind(&query.search)
+                    .fetch_one(tx.as_mut())
+                    .await?;
+                let items = rows
+                    .iter()
+                    .filter_map(|row| {
+                        candidate_read(row, query.branch_id, query.covered_employee_id).transpose()
+                    })
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(AttendancePage {
+                    items,
+                    total,
+                    limit: query.limit,
+                    offset: query.offset,
+                })
+            })
+        })
+        .await
     }
 
     pub async fn list_exceptions(
@@ -216,29 +266,61 @@ impl PgAttendanceStore {
         command.reason_kind = app::validate_text(&command.reason_kind, "reasonKind", 60)?;
         command.reason_detail =
             app::normalize_optional_text(command.reason_detail, "reasonDetail", 500)?;
-        command.worker_name = app::validate_text(&command.worker_name, "workerName", 120)?;
-        command.worker_type = app::validate_text(&command.worker_type, "workerType", 60)?;
-        command.worker_rate = app::normalize_optional_text(command.worker_rate, "workerRate", 60)?;
         let org = OrgId::from_uuid(caller.org_id);
         let caller = caller.clone();
         let id = Uuid::new_v4();
         with_audits::<_, _, AttendanceStoreError>(&self.pool,org,move|tx|Box::pin(async move {
             idempotency_lock(tx, caller.org_id, &key).await?;
-            let existing = sqlx::query_as::<_,(Uuid,String,Option<Uuid>)>("SELECT id,request_fingerprint,branch_id FROM attendance_substitutions WHERE idempotency_key=$1").bind(&key).fetch_optional(tx.as_mut()).await?;
-            if let Some((_, _, existing_branch)) = existing.as_ref() {
-                app::ensure_scope(&caller, *existing_branch)?;
+            // The idempotency contract intentionally excludes the display and
+            // compensation snapshot: both are derived from HR only for a new
+            // assignment and may legitimately change after it was created.
+            let fp = fingerprint(&substitution_fingerprint(&caller, &command));
+            let existing = sqlx::query_as::<_, (Uuid, String, Option<Uuid>, Option<Uuid>, String, String, Option<String>)>(
+                "SELECT id,request_fingerprint,branch_id,worker_employee_id,worker_name,worker_type,worker_rate FROM attendance_substitutions WHERE idempotency_key=$1",
+            )
+            .bind(&key)
+            .fetch_optional(tx.as_mut())
+            .await?;
+            if let Some((existing, stored, existing_branch, worker_employee_id, worker_name, worker_type, worker_rate)) = existing {
+                app::ensure_scope(&caller, existing_branch)?;
+                let legacy_fp = fingerprint(&legacy_v1_substitution_fingerprint(
+                    &caller,
+                    &command,
+                    worker_employee_id,
+                    &worker_name,
+                    &worker_type,
+                    worker_rate.as_deref(),
+                ));
+                if stored == fp || stored == legacy_fp {
+                    return Ok((substitution_by_id(tx, existing).await?, Vec::new()));
+                }
+                return Err(AttendanceStoreError::Conflict);
             }
             let branch = active_employee_branch(tx, command.covered_employee_id).await?;
             if command.branch_id != Some(branch) { return Err(AttendanceStoreError::Conflict); }
-            if let Some(worker_employee_id) = command.worker_employee_id {
-                if active_employee_branch(tx, worker_employee_id).await? != branch {
-                    return Err(AttendanceStoreError::Conflict);
-                }
-            }
+            let worker_employee_id = app::require_worker_employee_id(command.worker_employee_id)?;
             app::ensure_scope(&caller, Some(branch))?;
             command.branch_id = Some(branch);
-            let request = substitution_fingerprint(&caller, &command); let fp=fingerprint(&request);
-            if let Some((existing,stored,_)) = existing { if stored==fp { return Ok((substitution_by_id(tx,existing).await?,Vec::new())); } return Err(AttendanceStoreError::Conflict); }
+            substitution_eligibility_lock(
+                tx,
+                caller.org_id,
+                worker_employee_id,
+                command.window.cover_date,
+            )
+            .await?;
+            let worker = worker_snapshot_and_eligibility(tx, worker_employee_id, &command.window).await?;
+            if !worker.facts.is_eligible_for(branch, command.covered_employee_id) {
+                return Err(AttendanceStoreError::Conflict);
+            }
+            // Employee identity comes from canonical HR facts in this transaction,
+            // never from the client-supplied display snapshot.
+            command.worker_employee_id = Some(worker_employee_id);
+            command.worker_name = worker.employee_name;
+            command.worker_type = worker.employment_type;
+            // `base_pay` is canonical HR compensation but does not carry the
+            // amount/currency/unit semantics required by `worker_rate`.
+            // Never reinterpret the client rate or HR base pay as one.
+            command.worker_rate = None;
             ensure_historical_coverage(tx,command.covered_employee_id,&command.window,command.exception_id).await?;
             sqlx::query("INSERT INTO attendance_substitutions (id,org_id,site,branch_id,role,cover_date,from_minutes,to_minutes,covered_employee_id,reason_kind,reason_detail,worker_employee_id,worker_name,worker_type,worker_rate,exception_id,idempotency_key,request_fingerprint,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)")
                 .bind(id).bind(caller.org_id).bind(&command.site).bind(command.branch_id).bind(&command.role).bind(command.window.cover_date).bind(command.window.from_minutes).bind(command.window.to_minutes).bind(command.covered_employee_id).bind(&command.reason_kind).bind(&command.reason_detail).bind(command.worker_employee_id).bind(&command.worker_name).bind(&command.worker_type).bind(&command.worker_rate).bind(command.exception_id).bind(&key).bind(&fp).bind(caller.user_id).execute(tx.as_mut()).await?;
@@ -744,6 +826,73 @@ async fn active_employee_branch(
         .ok_or(AttendanceStoreError::NotFound)
 }
 
+struct WorkerSnapshot {
+    employee_name: String,
+    employment_type: String,
+    facts: SubstitutionCandidateFacts,
+}
+
+async fn worker_snapshot_and_eligibility(
+    tx: &mut Transaction<'_, Postgres>,
+    worker_employee_id: Uuid,
+    window: &mnt_attendance_domain::SubstitutionWindow,
+) -> Result<WorkerSnapshot, AttendanceStoreError> {
+    // Lock identity first; eligibility must be a separate, fresh statement
+    // after the assignment advisory lock has been acquired.
+    sqlx::query("SELECT id FROM employees WHERE id=$1 FOR UPDATE")
+        .bind(worker_employee_id)
+        .fetch_optional(tx.as_mut())
+        .await?
+        .ok_or(AttendanceStoreError::NotFound)?;
+    let row = sqlx::query(
+        "SELECT e.id,e.name,e.home_branch_id,e.employment_status='ACTIVE' AS employment_active,p.employment_type, EXISTS (SELECT 1 FROM attendance_substitutions s WHERE s.worker_employee_id=e.id AND s.status='ASSIGNED' AND s.cover_date=$2 AND s.from_minutes < $4 AND s.to_minutes > $3) AS conflicts_with_assigned_substitution, EXISTS (SELECT 1 FROM leave_requests l WHERE l.subject_employee_id=e.id AND l.status IN ('approved','APPROVED') AND l.start_date <= $2 AND l.end_date >= $2 AND (l.leave_type='annual' OR (l.leave_type='half_day' AND ((l.partial_day_period='am' AND $3 < 720) OR (l.partial_day_period='pm' AND $4 > 720))))) AS approved_leave_covers_window, EXISTS (SELECT 1 FROM attendance_exceptions x WHERE x.employee_id=e.id AND x.kind='NO_SHOW' AND x.status='OPEN' AND x.work_date=$2) AS has_open_no_show FROM employees e JOIN employee_employment_profiles p ON p.employee_id=e.id AND p.org_id=e.org_id WHERE e.id=$1",
+    )
+    .bind(worker_employee_id)
+    .bind(window.cover_date)
+    .bind(window.from_minutes)
+    .bind(window.to_minutes)
+    .fetch_optional(tx.as_mut())
+    .await?
+    .ok_or(AttendanceStoreError::Conflict)?;
+    Ok(WorkerSnapshot {
+        employee_name: row.try_get("name")?,
+        employment_type: row.try_get("employment_type")?,
+        facts: SubstitutionCandidateFacts {
+            employee_id: row.try_get("id")?,
+            employment_active: row.try_get("employment_active")?,
+            home_branch_id: row.try_get("home_branch_id")?,
+            conflicts_with_assigned_substitution: row
+                .try_get("conflicts_with_assigned_substitution")?,
+            approved_leave_covers_window: row.try_get("approved_leave_covers_window")?,
+            has_open_no_show: row.try_get("has_open_no_show")?,
+        },
+    })
+}
+
+fn candidate_read(
+    row: &sqlx::postgres::PgRow,
+    branch_id: Uuid,
+    covered_employee_id: Uuid,
+) -> Result<Option<SubstitutionCandidateRead>, AttendanceStoreError> {
+    let facts = SubstitutionCandidateFacts {
+        employee_id: row.try_get("id")?,
+        employment_active: row.try_get("employment_active")?,
+        home_branch_id: row.try_get("home_branch_id")?,
+        conflicts_with_assigned_substitution: row
+            .try_get("conflicts_with_assigned_substitution")?,
+        approved_leave_covers_window: row.try_get("approved_leave_covers_window")?,
+        has_open_no_show: row.try_get("has_open_no_show")?,
+    };
+    let employee_name: String = row.try_get("name")?;
+    Ok(facts
+        .is_eligible_for(branch_id, covered_employee_id)
+        .then_some(SubstitutionCandidateRead {
+            employee_id: facts.employee_id,
+            employee_name,
+            branch_id,
+        }))
+}
+
 const HISTORICAL_LEAVE_COVERAGE_SQL: &str = "SELECT subject_employee_id AS employee_id, leave_type, partial_day_period FROM leave_requests WHERE subject_employee_id=$1 AND status IN ('approved','APPROVED') AND start_date <= $2 AND end_date >= $2 ORDER BY start_date DESC LIMIT 1";
 
 fn leave_coverage_window(leave_type: &str, partial_day_period: Option<&str>) -> Option<(i32, i32)> {
@@ -786,10 +935,43 @@ async fn idempotency_lock(
     Ok(())
 }
 
+/// One per-org worker/day lock serializes the eligibility read with every
+/// overlapping assignment attempt for that worker. The subsequent query is
+/// deliberately fresh and runs after this lock is acquired.
+async fn substitution_eligibility_lock(
+    tx: &mut Transaction<'_, Postgres>,
+    org_id: Uuid,
+    worker_employee_id: Uuid,
+    cover_date: Date,
+) -> Result<(), AttendanceStoreError> {
+    let material = format!(
+        "attendance-substitution-eligibility-v1|{org_id}|{worker_employee_id}|{cover_date}"
+    );
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended($1, 0))")
+        .bind(material)
+        .execute(tx.as_mut())
+        .await?;
+    Ok(())
+}
+
 fn substitution_fingerprint(caller: &CallerScope, command: &AssignSubstitute) -> Value {
-    // Callers normalize every text field exactly once before this point; the
-    // fingerprint therefore describes exactly the persisted semantic row.
-    json!({"v":1,"orgId":caller.org_id,"branchPresent":command.branch_id.is_some(),"branchId":command.branch_id,"coverDate":command.window.cover_date,"from":command.window.from_minutes,"to":command.window.to_minutes,"coveredEmployeeId":command.covered_employee_id,"reasonKind":command.reason_kind,"reasonDetailPresent":command.reason_detail.is_some(),"reasonDetail":command.reason_detail,"site":command.site,"role":command.role,"workerEmployeePresent":command.worker_employee_id.is_some(),"workerEmployeeId":command.worker_employee_id,"workerName":command.worker_name,"workerType":command.worker_type,"workerRatePresent":command.worker_rate.is_some(),"workerRate":command.worker_rate,"exceptionPresent":command.exception_id.is_some(),"exceptionId":command.exception_id})
+    // This is the immutable client request contract. HR-derived display and
+    // compensation values are persisted snapshots, never replay inputs.
+    json!({"v":2,"orgId":caller.org_id,"branchPresent":command.branch_id.is_some(),"branchId":command.branch_id,"coverDate":command.window.cover_date,"from":command.window.from_minutes,"to":command.window.to_minutes,"coveredEmployeeId":command.covered_employee_id,"reasonKind":command.reason_kind,"reasonDetailPresent":command.reason_detail.is_some(),"reasonDetail":command.reason_detail,"site":command.site,"role":command.role,"workerEmployeePresent":command.worker_employee_id.is_some(),"workerEmployeeId":command.worker_employee_id,"exceptionPresent":command.exception_id.is_some(),"exceptionId":command.exception_id})
+}
+
+/// Exact historical v1 hash input for rows committed before the immutable v2
+/// contract. Its snapshot fields come from the persisted row, never today's HR
+/// profile, so profile/name changes cannot break a legitimate old replay.
+fn legacy_v1_substitution_fingerprint(
+    caller: &CallerScope,
+    command: &AssignSubstitute,
+    worker_employee_id: Option<Uuid>,
+    worker_name: &str,
+    worker_type: &str,
+    worker_rate: Option<&str>,
+) -> Value {
+    json!({"v":1,"orgId":caller.org_id,"branchPresent":command.branch_id.is_some(),"branchId":command.branch_id,"coverDate":command.window.cover_date,"from":command.window.from_minutes,"to":command.window.to_minutes,"coveredEmployeeId":command.covered_employee_id,"reasonKind":command.reason_kind,"reasonDetailPresent":command.reason_detail.is_some(),"reasonDetail":command.reason_detail,"site":command.site,"role":command.role,"workerEmployeePresent":worker_employee_id.is_some(),"workerEmployeeId":worker_employee_id,"workerName":worker_name,"workerType":worker_type,"workerRatePresent":worker_rate.is_some(),"workerRate":worker_rate,"exceptionPresent":command.exception_id.is_some(),"exceptionId":command.exception_id})
 }
 
 async fn close_checks(
@@ -1082,6 +1264,28 @@ mod tests {
     }
 
     #[test]
+    fn candidate_queries_enforce_every_eligibility_exclusion() {
+        for sql in [
+            SUBSTITUTION_CANDIDATES_SQL,
+            SUBSTITUTION_CANDIDATE_TOTAL_SQL,
+        ] {
+            assert!(sql.contains("employment_status='ACTIVE'"));
+            assert!(sql.contains("JOIN employee_employment_profiles p"));
+            assert!(sql.contains("home_branch_id=$1"));
+            assert!(sql.contains("e.id <> $2"));
+            assert!(sql.contains("s.from_minutes < $5 AND s.to_minutes > $4"));
+            assert!(sql.contains("l.status IN ('approved','APPROVED')"));
+            assert!(sql.contains("x.kind='NO_SHOW' AND x.status='OPEN'"));
+        }
+    }
+
+    #[test]
+    fn candidate_query_uses_half_open_substitution_intervals() {
+        assert!(SUBSTITUTION_CANDIDATES_SQL.contains("s.from_minutes < $5 AND s.to_minutes > $4"));
+        assert!(!SUBSTITUTION_CANDIDATES_SQL.contains("s.from_minutes <= $5"));
+    }
+
+    #[test]
     fn exception_projections_use_migration_0188_resolution_timestamp() {
         for sql in [LIST_EXCEPTIONS_SQL, EXCEPTION_BY_ID_SQL] {
             assert!(sql.contains("r.resolved_at AS resolved_at"));
@@ -1102,7 +1306,7 @@ mod tests {
     }
 
     #[test]
-    fn fingerprint_changes_for_every_persisted_semantic_field() {
+    fn fingerprint_changes_for_every_immutable_request_field() {
         let caller = scope();
         let base = command();
         let mut c = base.clone();
@@ -1137,13 +1341,22 @@ mod tests {
         assert_fingerprint_changes(&caller, &base, c);
         let mut c = base.clone();
         c.worker_name = "Park".into();
-        assert_fingerprint_changes(&caller, &base, c);
+        assert_eq!(
+            substitution_fingerprint(&caller, &base),
+            substitution_fingerprint(&caller, &c)
+        );
         let mut c = base.clone();
         c.worker_type = "CONTRACTOR".into();
-        assert_fingerprint_changes(&caller, &base, c);
+        assert_eq!(
+            substitution_fingerprint(&caller, &base),
+            substitution_fingerprint(&caller, &c)
+        );
         let mut c = base.clone();
         c.worker_rate = None;
-        assert_fingerprint_changes(&caller, &base, c);
+        assert_eq!(
+            substitution_fingerprint(&caller, &base),
+            substitution_fingerprint(&caller, &c)
+        );
         let mut c = base.clone();
         c.exception_id = None;
         assert_fingerprint_changes(&caller, &base, c);

@@ -6,12 +6,24 @@
 //! role. It proves the adapter updates the migration's real `cancel_reason`
 //! column while preserving the one-way `ASSIGNED -> CANCELLED` transition.
 
+use std::sync::Arc;
+
 use mnt_attendance_adapter_postgres::PgAttendanceStore;
-use mnt_attendance_application::{CallerScope, CancelSubstitution};
-use mnt_kernel_core::OrgId;
+use mnt_attendance_application::{
+    AssignSubstitute, CallerScope, CancelSubstitution, SubstitutionCandidateQuery,
+};
+use mnt_attendance_domain::SubstitutionWindow;
+use mnt_kernel_core::{AuditAction, AuditEvent, OrgId, TraceContext, UserId};
+use mnt_platform_db::{DbError, with_audits};
 use mnt_platform_request_context::scope_org;
-use mnt_platform_test_support::{runtime_role_pool, seed_branch, seed_user};
+use mnt_platform_test_support::{
+    runtime_role_pool, seed_branch, seed_org_and_super_admin, seed_user,
+};
+use serde_json::json;
+use sha2::{Digest, Sha256};
 use sqlx::PgPool;
+use time::{Duration, OffsetDateTime};
+use tokio::sync::Barrier;
 use uuid::Uuid;
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
@@ -28,7 +40,7 @@ async fn assigned_substitution_cancels_through_runtime_adapter_using_migration_0
         )
         .await;
         let actor = seed_user(&owner_pool, "Attendance Manager", "ADMIN", branch).await;
-        let employee = seed_employee(&owner_pool, branch, provisioner).await;
+        let employee = seed_employee(&owner_pool, branch, provisioner, "Covered employee").await;
         let substitution_id =
             seed_assigned_substitution(&owner_pool, branch, actor, employee).await;
 
@@ -65,10 +77,449 @@ async fn assigned_substitution_cancels_through_runtime_adapter_using_migration_0
     .await;
 }
 
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn assignment_rechecks_eligible_worker_and_derives_canonical_hr_snapshot(owner_pool: PgPool) {
+    scope_org(OrgId::knl(), async move {
+        let branch = seed_branch(&owner_pool, "attendance-candidates", "operations").await;
+        let provisioner = seed_user(
+            &owner_pool,
+            "Employee Directory Provisioner",
+            "SUPER_ADMIN",
+            branch,
+        )
+        .await;
+        let actor = seed_user(&owner_pool, "Attendance Manager", "ADMIN", branch).await;
+        let covered = seed_employee(&owner_pool, branch, provisioner, "Covered employee").await;
+        let worker = seed_employee(&owner_pool, branch, provisioner, "Canonical worker").await;
+        let store = PgAttendanceStore::new(runtime_role_pool(&owner_pool).await);
+        let caller = CallerScope {
+            org_id: *OrgId::knl().as_uuid(),
+            user_id: *actor.as_uuid(),
+            branch_ids: vec![*branch.as_uuid()],
+            org_wide: false,
+        };
+        let window = SubstitutionWindow::new(
+            OffsetDateTime::now_utc().date() + Duration::days(1),
+            480,
+            960,
+        )
+        .unwrap();
+        let candidates = store
+            .list_substitution_candidates(
+                &caller,
+                SubstitutionCandidateQuery::new(
+                    *branch.as_uuid(),
+                    covered,
+                    window.clone(),
+                    Some("Canonical".to_owned()),
+                    None,
+                    None,
+                )
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(candidates.total, 1);
+        assert_eq!(candidates.items[0].employee_id, worker);
+
+        let command = assignment_command(
+            window,
+            *branch.as_uuid(),
+            covered,
+            worker,
+            "attendance-candidate-assign-0001",
+        );
+        // A real pre-v2 fixture is inserted with its original fingerprint and
+        // matching assignment audit in the same transaction; row immutability
+        // intentionally prevents converting a newer fixture after the fact.
+        let legacy_id = Uuid::new_v4();
+        let legacy_fingerprint = legacy_v1_fingerprint(
+            &caller,
+            &command,
+            Some(worker),
+            "Canonical worker",
+            "REGULAR",
+            None,
+        );
+        let audit = AuditEvent::new(
+            Some(UserId::from_uuid(caller.user_id)),
+            AuditAction::new("attendance.substitution.assign").unwrap(),
+            "attendance_substitution",
+            legacy_id.to_string(),
+            TraceContext::generate(),
+            OffsetDateTime::now_utc(),
+        )
+        .with_org(OrgId::knl())
+        .with_branch(branch);
+        let fixture = command.clone();
+        with_audits::<_, _, DbError>(store.pool(), OrgId::knl(), move |tx| {
+            Box::pin(async move {
+                sqlx::query("INSERT INTO attendance_substitutions (id,org_id,site,branch_id,role,cover_date,from_minutes,to_minutes,covered_employee_id,reason_kind,reason_detail,worker_employee_id,worker_name,worker_type,worker_rate,exception_id,idempotency_key,request_fingerprint,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19)")
+                    .bind(legacy_id).bind(*OrgId::knl().as_uuid()).bind(&fixture.site).bind(fixture.branch_id).bind(&fixture.role).bind(fixture.window.cover_date).bind(fixture.window.from_minutes).bind(fixture.window.to_minutes).bind(fixture.covered_employee_id).bind(&fixture.reason_kind).bind(&fixture.reason_detail).bind(worker).bind("Canonical worker").bind("REGULAR").bind(Option::<String>::None).bind(fixture.exception_id).bind(&fixture.idempotency_key).bind(&legacy_fingerprint).bind(caller.user_id)
+                    .execute(tx.as_mut()).await?;
+                Ok(((), vec![audit]))
+            })
+        }).await.unwrap();
+        let assigned = store.assign_substitute(&caller, command.clone()).await.unwrap();
+        assert_eq!(assigned.id, legacy_id);
+        assert_eq!(assigned.worker_rate, None, "client rate must be ignored");
+
+        // A profile change after commit cannot invalidate the immutable request
+        // contract or append a second assignment audit record on replay.
+        sqlx::query("UPDATE employees SET name='Renamed worker' WHERE id=$1")
+            .bind(worker)
+            .execute(&owner_pool)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE employee_employment_profiles SET employment_type='CONTRACT', base_pay=12345.67 WHERE employee_id=$1")
+            .bind(worker)
+            .execute(&owner_pool)
+            .await
+            .unwrap();
+        let replay = store.assign_substitute(&caller, command.clone()).await.unwrap();
+        assert_eq!(replay.id, assigned.id);
+        assert_eq!(replay.worker_name, "Canonical worker");
+        assert_eq!(replay.worker_type, "REGULAR");
+        assert_eq!(replay.worker_rate, None);
+        let audits: i64 = sqlx::query_scalar("SELECT count(*) FROM audit_events WHERE action='attendance.substitution.assign' AND target_id=$1")
+            .bind(assigned.id.to_string())
+            .fetch_one(&owner_pool)
+            .await
+            .unwrap();
+        assert_eq!(audits, 1);
+        let cancelled = store
+            .cancel_substitution(
+                &caller,
+                CancelSubstitution {
+                    substitution_id: assigned.id,
+                    reason: "staffing plan changed".to_owned(),
+                },
+            )
+            .await
+            .unwrap();
+        assert_eq!(cancelled.status, "CANCELLED");
+        let cancelled_replay = store.assign_substitute(&caller, command.clone()).await.unwrap();
+        assert_eq!(cancelled_replay.id, assigned.id);
+        assert_eq!(cancelled_replay.status, "CANCELLED");
+        let mut changed = command;
+        changed.role = "Different role".to_owned();
+        assert!(store.assign_substitute(&caller, changed).await.is_err());
+    })
+    .await;
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn assignment_snapshots_canonical_employment_types_without_rate_reinterpretation(
+    owner_pool: PgPool,
+) {
+    scope_org(OrgId::knl(), async move {
+        let branch = seed_branch(&owner_pool, "attendance-profile-types", "operations").await;
+        let provisioner = seed_user(&owner_pool, "Employee Directory Provisioner", "SUPER_ADMIN", branch).await;
+        let actor = seed_user(&owner_pool, "Attendance Manager", "ADMIN", branch).await;
+        let covered = seed_employee(&owner_pool, branch, provisioner, "Covered employee").await;
+        let caller = CallerScope { org_id: *OrgId::knl().as_uuid(), user_id: *actor.as_uuid(), branch_ids: vec![*branch.as_uuid()], org_wide: false };
+        let store = PgAttendanceStore::new(runtime_role_pool(&owner_pool).await);
+        let day = OffsetDateTime::now_utc().date() + Duration::days(2);
+        for (index, (employment_type, base_pay)) in [("REGULAR", "101.25"), ("CONTRACT", "202.50"), ("PART_TIME", "303.75")].iter().enumerate() {
+            let worker = seed_employee(&owner_pool, branch, provisioner, &format!("{employment_type} worker")).await;
+            sqlx::query("UPDATE employee_employment_profiles SET employment_type=$1, base_pay=$2::numeric WHERE employee_id=$3")
+                .bind(*employment_type)
+                .bind(*base_pay)
+                .bind(worker)
+                .execute(&owner_pool)
+                .await
+                .unwrap();
+            let assigned = store.assign_substitute(&caller, assignment_command(
+                SubstitutionWindow::new(day + Duration::days(index as i64), 480, 960).unwrap(),
+                *branch.as_uuid(), covered, worker, &format!("attendance-profile-{index:04}"),
+            )).await.unwrap();
+            assert_eq!(assigned.worker_type, *employment_type);
+            assert_eq!(assigned.worker_rate, None);
+        }
+    }).await;
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn candidate_page_keeps_half_open_boundary_and_enforces_branch_scope(owner_pool: PgPool) {
+    scope_org(OrgId::knl(), async move {
+        let branch = seed_branch(&owner_pool, "attendance-candidate-page", "operations").await;
+        let provisioner = seed_user(
+            &owner_pool,
+            "Employee Directory Provisioner",
+            "SUPER_ADMIN",
+            branch,
+        )
+        .await;
+        let actor = seed_user(&owner_pool, "Attendance Manager", "ADMIN", branch).await;
+        let covered = seed_employee(&owner_pool, branch, provisioner, "Covered employee").await;
+        let boundary_worker =
+            seed_employee(&owner_pool, branch, provisioner, "Boundary worker").await;
+        let other_worker = seed_employee(&owner_pool, branch, provisioner, "Other worker").await;
+        let caller = CallerScope {
+            org_id: *OrgId::knl().as_uuid(),
+            user_id: *actor.as_uuid(),
+            branch_ids: vec![*branch.as_uuid()],
+            org_wide: false,
+        };
+        let store = PgAttendanceStore::new(runtime_role_pool(&owner_pool).await);
+        let day = OffsetDateTime::now_utc().date() + Duration::days(4);
+        store
+            .assign_substitute(
+                &caller,
+                assignment_command(
+                    SubstitutionWindow::new(day, 480, 960).unwrap(),
+                    *branch.as_uuid(),
+                    covered,
+                    boundary_worker,
+                    "attendance-boundary-assignment-0001",
+                ),
+            )
+            .await
+            .unwrap();
+        let first_page = store
+            .list_substitution_candidates(
+                &caller,
+                SubstitutionCandidateQuery::new(
+                    *branch.as_uuid(),
+                    covered,
+                    SubstitutionWindow::new(day, 960, 1200).unwrap(),
+                    Some("worker".to_owned()),
+                    Some(1),
+                    Some(0),
+                )
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+        let page = store
+            .list_substitution_candidates(
+                &caller,
+                SubstitutionCandidateQuery::new(
+                    *branch.as_uuid(),
+                    covered,
+                    SubstitutionWindow::new(day, 960, 1200).unwrap(),
+                    Some("worker".to_owned()),
+                    Some(1),
+                    Some(1),
+                )
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(page.total, 2);
+        assert_eq!(first_page.total, 2);
+        assert_eq!(first_page.items[0].employee_id, boundary_worker);
+        assert_eq!(page.items.len(), 1);
+        assert_eq!(page.items[0].employee_id, other_worker);
+        let unauthorized = CallerScope {
+            branch_ids: vec![],
+            ..caller
+        };
+        assert!(
+            store
+                .list_substitution_candidates(
+                    &unauthorized,
+                    SubstitutionCandidateQuery::new(
+                        *branch.as_uuid(),
+                        covered,
+                        SubstitutionWindow::new(day, 960, 1200).unwrap(),
+                        None,
+                        Some(1),
+                        Some(0),
+                    )
+                    .unwrap()
+                )
+                .await
+                .is_err()
+        );
+        let other_org = Uuid::new_v4();
+        let other_actor =
+            seed_org_and_super_admin(&owner_pool, other_org, "attendance candidate other").await;
+        let other_tenant = CallerScope {
+            org_id: other_org,
+            user_id: *other_actor.as_uuid(),
+            branch_ids: vec![],
+            org_wide: true,
+        };
+        let invisible = store
+            .list_substitution_candidates(
+                &other_tenant,
+                SubstitutionCandidateQuery::new(
+                    *branch.as_uuid(),
+                    covered,
+                    SubstitutionWindow::new(day, 960, 1200).unwrap(),
+                    Some("worker".to_owned()),
+                    None,
+                    None,
+                )
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert!(invisible.items.is_empty());
+        assert_eq!(invisible.total, 0);
+    })
+    .await;
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn employee_without_profile_is_not_a_candidate_or_assignable(owner_pool: PgPool) {
+    scope_org(OrgId::knl(), async move {
+        let branch = seed_branch(&owner_pool, "attendance-profile-required", "operations").await;
+        let provisioner = seed_user(
+            &owner_pool,
+            "Employee Directory Provisioner",
+            "SUPER_ADMIN",
+            branch,
+        )
+        .await;
+        let actor = seed_user(&owner_pool, "Attendance Manager", "ADMIN", branch).await;
+        let covered = seed_employee(&owner_pool, branch, provisioner, "Covered employee").await;
+        let worker =
+            seed_employee(&owner_pool, branch, provisioner, "Profile missing worker").await;
+        sqlx::query("DELETE FROM employee_employment_profiles WHERE employee_id=$1")
+            .bind(worker)
+            .execute(&owner_pool)
+            .await
+            .unwrap();
+        let caller = CallerScope {
+            org_id: *OrgId::knl().as_uuid(),
+            user_id: *actor.as_uuid(),
+            branch_ids: vec![*branch.as_uuid()],
+            org_wide: false,
+        };
+        let store = PgAttendanceStore::new(runtime_role_pool(&owner_pool).await);
+        let window = SubstitutionWindow::new(
+            OffsetDateTime::now_utc().date() + Duration::days(5),
+            480,
+            960,
+        )
+        .unwrap();
+        let candidates = store
+            .list_substitution_candidates(
+                &caller,
+                SubstitutionCandidateQuery::new(
+                    *branch.as_uuid(),
+                    covered,
+                    window.clone(),
+                    None,
+                    None,
+                    None,
+                )
+                .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert!(candidates.items.is_empty());
+        assert_eq!(candidates.total, 0);
+        assert!(
+            store
+                .assign_substitute(
+                    &caller,
+                    assignment_command(
+                        window,
+                        *branch.as_uuid(),
+                        covered,
+                        worker,
+                        "attendance-profile-missing-0001",
+                    )
+                )
+                .await
+                .is_err()
+        );
+        let rows: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM attendance_substitutions WHERE worker_employee_id=$1",
+        )
+        .bind(worker)
+        .fetch_one(&owner_pool)
+        .await
+        .unwrap();
+        let audits: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM audit_events WHERE action='attendance.substitution.assign'",
+        )
+        .fetch_one(&owner_pool)
+        .await
+        .unwrap();
+        assert_eq!((rows, audits), (0, 0));
+    })
+    .await;
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn concurrent_overlapping_assignments_serialize_worker_eligibility(owner_pool: PgPool) {
+    scope_org(OrgId::knl(), async move {
+        let branch = seed_branch(&owner_pool, "attendance-concurrent", "operations").await;
+        let provisioner = seed_user(&owner_pool, "Employee Directory Provisioner", "SUPER_ADMIN", branch).await;
+        let actor = seed_user(&owner_pool, "Attendance Manager", "ADMIN", branch).await;
+        let covered = seed_employee(&owner_pool, branch, provisioner, "Covered employee").await;
+        let worker = seed_employee(&owner_pool, branch, provisioner, "Concurrent worker").await;
+        let caller = CallerScope { org_id: *OrgId::knl().as_uuid(), user_id: *actor.as_uuid(), branch_ids: vec![*branch.as_uuid()], org_wide: false };
+        let store = PgAttendanceStore::new(runtime_role_pool(&owner_pool).await);
+        let window = SubstitutionWindow::new(OffsetDateTime::now_utc().date() + Duration::days(3), 480, 960).unwrap();
+        let barrier = Arc::new(Barrier::new(2));
+        let first = async {
+            barrier.clone().wait().await;
+            store.assign_substitute(&caller, assignment_command(window.clone(), *branch.as_uuid(), covered, worker, "attendance-concurrent-0001")).await
+        };
+        let second = async {
+            barrier.wait().await;
+            store.assign_substitute(&caller, assignment_command(window.clone(), *branch.as_uuid(), covered, worker, "attendance-concurrent-0002")).await
+        };
+        let (first, second) = tokio::join!(first, second);
+        assert_eq!(usize::from(first.is_ok()) + usize::from(second.is_ok()), 1);
+        assert!(first.is_err() || second.is_err());
+        let assigned: i64 = sqlx::query_scalar("SELECT count(*) FROM attendance_substitutions WHERE worker_employee_id=$1 AND cover_date=$2 AND status='ASSIGNED'")
+            .bind(worker).bind(window.cover_date).fetch_one(&owner_pool).await.unwrap();
+        assert_eq!(assigned, 1);
+        let audits: i64 = sqlx::query_scalar("SELECT count(*) FROM audit_events WHERE action='attendance.substitution.assign'")
+            .fetch_one(&owner_pool).await.unwrap();
+        assert_eq!(audits, 1);
+    }).await;
+}
+
+fn assignment_command(
+    window: SubstitutionWindow,
+    branch_id: Uuid,
+    covered_employee_id: Uuid,
+    worker_employee_id: Uuid,
+    idempotency_key: &str,
+) -> AssignSubstitute {
+    AssignSubstitute {
+        window,
+        branch_id: Some(branch_id),
+        site: "Seoul depot".to_owned(),
+        role: "Forklift operator".to_owned(),
+        covered_employee_id,
+        reason_kind: "APPROVED_LEAVE".to_owned(),
+        reason_detail: None,
+        worker_employee_id: Some(worker_employee_id),
+        worker_name: "untrusted client name".to_owned(),
+        worker_type: "CONTRACTOR".to_owned(),
+        worker_rate: Some("untrusted client rate".to_owned()),
+        exception_id: None,
+        idempotency_key: idempotency_key.to_owned(),
+    }
+}
+
+fn legacy_v1_fingerprint(
+    caller: &CallerScope,
+    command: &AssignSubstitute,
+    worker_employee_id: Option<Uuid>,
+    worker_name: &str,
+    worker_type: &str,
+    worker_rate: Option<&str>,
+) -> String {
+    let value = json!({"v":1,"orgId":caller.org_id,"branchPresent":command.branch_id.is_some(),"branchId":command.branch_id,"coverDate":command.window.cover_date,"from":command.window.from_minutes,"to":command.window.to_minutes,"coveredEmployeeId":command.covered_employee_id,"reasonKind":command.reason_kind,"reasonDetailPresent":command.reason_detail.is_some(),"reasonDetail":command.reason_detail,"site":command.site,"role":command.role,"workerEmployeePresent":worker_employee_id.is_some(),"workerEmployeeId":worker_employee_id,"workerName":worker_name,"workerType":worker_type,"workerRatePresent":worker_rate.is_some(),"workerRate":worker_rate,"exceptionPresent":command.exception_id.is_some(),"exceptionId":command.exception_id});
+    let mut hasher = Sha256::new();
+    hasher.update(serde_json::to_vec(&value).unwrap());
+    hex::encode(hasher.finalize())
+}
+
 async fn seed_employee(
     pool: &PgPool,
     branch: mnt_kernel_core::BranchId,
     actor: mnt_kernel_core::UserId,
+    name: &str,
 ) -> Uuid {
     let employee = Uuid::new_v4();
     let employee_number = format!("ATT-{employee}");
@@ -85,7 +536,7 @@ async fn seed_employee(
     .bind(*OrgId::knl().as_uuid())
     .bind(employee)
     .bind(employee_number)
-    .bind("Covered employee")
+    .bind(name)
     .bind("attendance-test")
     .bind("REGULAR")
     .bind("+821012345678")
