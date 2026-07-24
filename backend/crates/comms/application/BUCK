@@ -36,7 +36,7 @@ rust_test(
     crate_root = "backend/crates/comms/application/src/lib.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/comms/application"},
-    labels = ["owner.backend.crates.comms.application", "domain.comms", "test.unit", "resource.postgres", "needs-postgres"],
+    labels = ["owner.backend.crates.comms.application", "domain.comms", "test.unit", "resource.none"],
     deps = [
         "//backend/crates/comms/domain:mnt-comms-domain",
         "//backend/crates/kernel/core:mnt-kernel-core",

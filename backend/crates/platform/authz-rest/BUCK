@@ -43,7 +43,7 @@ rust_test(
     crate_root = "backend/crates/platform/authz-rest/src/lib.rs",
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/platform/authz-rest"},
-    labels = ["owner.backend.crates.platform.authz-rest", "domain.platform", "test.unit", "resource.postgres", "needs-postgres"],
+    labels = ["owner.backend.crates.platform.authz-rest", "domain.platform", "test.unit", "resource.none"],
     deps = [
         "//backend/crates/kernel/core:mnt-kernel-core",
         "//backend/crates/platform/auth:mnt-platform-auth",
