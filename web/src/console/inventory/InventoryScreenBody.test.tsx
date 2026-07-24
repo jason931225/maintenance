@@ -62,6 +62,29 @@ function renderScreen(GET: ReturnType<typeof vi.fn>, POST = vi.fn()) {
   );
 }
 
+const movement = {
+  id: "movement-1", item_id: item.id, iv_code: item.iv_code, kind: "RECEIPT",
+  quantity_delta_milli: 1_000, quantity_before_milli: 2_000,
+  quantity_after_milli: 3_000, source: { kind: "external_ref", source_ref: "PO-1" },
+  actor: "user-1", occurred_at: "2026-07-24T00:00:00Z", memo: null,
+};
+const cycleCount = {
+  id: "cc-1", cc_code: "CC-1", branch_id: item.branch_id,
+  stock_location: item.stock_location, status: "DRAFT", version: 1,
+  opened_by: "user-1", submitted_by: null, decided_by: null, decision_memo: null,
+  line_count: 0, variance_line_count: 0, created_at: "2026-07-24T00:00:00Z",
+  updated_at: "2026-07-24T00:00:00Z",
+};
+const cycleDetail = { count: cycleCount, lines: [], applied_movement_ids: [] };
+
+function operationalGet(path: string, options?: { params?: { path?: { item_id?: string } } }) {
+  if (path === "/api/v1/inventory/items") return { data: { items: [item, secondItem], total: 2, limit: 100, offset: 0 }, response: new Response() };
+  if (path === "/api/v1/inventory/items/{item_id}") return { data: options?.params?.path?.item_id === secondItem.id ? secondItem : item, response: new Response() };
+  if (path === "/api/v1/inventory/items/{item_id}/consumptions" || path.includes("/movements") || path === "/api/v1/inventory/mrp") return { data: [], response: new Response() };
+  if (path === "/api/v1/inventory/cycle-counts") return { data: { items: [], total: 0, limit: 50, offset: 0 }, response: new Response() };
+  return { data: undefined, response: new Response(null, { status: 404 }) };
+}
+
 describe("InventoryScreenBody", () => {
   it("discards a deferred cycle-count detail after the selected branch and item change", async () => {
     let resolveDetail: ((value: unknown) => void) | undefined;
@@ -408,5 +431,82 @@ describe("InventoryScreenBody", () => {
     });
     expect(screen.queryByText("event-a")).toBeNull();
     expect(screen.getByText("2 EA")).toBeVisible();
+  });
+
+  it("reuses one receipt idempotency key after a lost response", async () => {
+    const POST = vi.fn()
+      .mockRejectedValueOnce(new Error("lost response"))
+      .mockResolvedValueOnce({ data: { item, movement }, response: new Response() });
+    renderScreen(vi.fn(operationalGet), POST);
+    await userEvent.click(await screen.findByRole("button", { name: "IV-031 상세 열기" }));
+    await userEvent.click(screen.getByRole("button", { name: "입고 기록" }));
+    await userEvent.type(screen.getByLabelText("입고 수량 (EA)"), "1");
+    await userEvent.click(screen.getByRole("button", { name: "입고 저장" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("입고가 저장되지 않았습니다");
+    await userEvent.click(screen.getByRole("button", { name: "입고 저장" }));
+    await waitFor(() => expect(POST).toHaveBeenCalledTimes(2));
+    expect(POST.mock.calls[0][1].body.idempotency_key).toBe(POST.mock.calls[1][1].body.idempotency_key);
+  });
+
+  it("drops a deferred receipt and resets busy receipt UI after selection changes", async () => {
+    let resolveReceipt: ((value: unknown) => void) | undefined;
+    const POST = vi.fn(() => new Promise((resolve) => { resolveReceipt = resolve; }));
+    renderScreen(vi.fn(operationalGet), POST);
+    await userEvent.click(await screen.findByRole("button", { name: "IV-031 상세 열기" }));
+    await userEvent.click(screen.getByRole("button", { name: "입고 기록" }));
+    await userEvent.type(screen.getByLabelText("입고 수량 (EA)"), "1");
+    await userEvent.click(screen.getByRole("button", { name: "입고 저장" }));
+    await userEvent.click(screen.getByRole("button", { name: "IV-032 상세 열기" }));
+    expect(await screen.findByRole("heading", { name: "윤활유" })).toBeVisible();
+    expect(screen.queryByRole("form", { name: "재고 입고 기록" })).toBeNull();
+    resolveReceipt?.({ data: { item, movement }, response: new Response() });
+    await waitFor(() => expect(screen.getByRole("button", { name: "이 위치 실사 개설" })).not.toBeDisabled());
+    expect(screen.queryByText("입고가 저장되지 않았습니다")).toBeNull();
+  });
+
+  it("submits a rendered zero physical count without an invented variance reason", async () => {
+    const POST = vi.fn()
+      .mockResolvedValueOnce({ data: cycleDetail, response: new Response() })
+      .mockResolvedValueOnce({ data: cycleDetail, response: new Response() });
+    renderScreen(vi.fn(operationalGet), POST);
+    await userEvent.click(await screen.findByRole("button", { name: "IV-031 상세 열기" }));
+    await userEvent.click(screen.getByRole("button", { name: "이 위치 실사 개설" }));
+    expect(await screen.findByText("CC-1 · DRAFT · 버전 1")).toBeVisible();
+    await userEvent.type(screen.getByLabelText("실사 수량 (EA)"), "0");
+    await userEvent.click(screen.getByRole("button", { name: "실사 라인 저장" }));
+    await waitFor(() => expect(POST).toHaveBeenCalledTimes(2));
+    expect(POST.mock.calls[1][1].body).toMatchObject({ item_id: item.id, counted_quantity_milli: 0 });
+    expect(POST.mock.calls[1][1].body.reason).toBeUndefined();
+  });
+
+  it("does not let deferred movement MRP or cycle-list reads overwrite the new selection", async () => {
+    const deferred: Array<(value: unknown) => void> = [];
+    const GET = vi.fn((path: string, options?: { params?: { path?: { item_id?: string } } }) => {
+      if (path === "/api/v1/inventory/items" || path === "/api/v1/inventory/items/{item_id}" || path === "/api/v1/inventory/items/{item_id}/consumptions") return operationalGet(path, options);
+      if (path.includes("/movements") || path === "/api/v1/inventory/mrp" || path === "/api/v1/inventory/cycle-counts") return new Promise((resolve) => deferred.push(resolve));
+      return operationalGet(path, options);
+    });
+    renderScreen(GET);
+    await userEvent.click(await screen.findByRole("button", { name: "IV-031 상세 열기" }));
+    await waitFor(() => expect(deferred).toHaveLength(3));
+    await userEvent.click(screen.getByRole("button", { name: "IV-032 상세 열기" }));
+    expect(await screen.findByRole("heading", { name: "윤활유" })).toBeVisible();
+    deferred.splice(0).forEach((resolve, index) => resolve(index === 2 ? { data: { items: [cycleCount], total: 1, limit: 50, offset: 0 }, response: new Response() } : { data: [], response: new Response() }));
+    await waitFor(() => expect(screen.getByRole("heading", { name: "윤활유" })).toBeVisible());
+    expect(screen.queryByRole("button", { name: "CC-1 · DRAFT" })).toBeNull();
+  });
+
+  it("does not commit a deferred cycle-count open after selection changes", async () => {
+    let resolveOpen: ((value: unknown) => void) | undefined;
+    const POST = vi.fn(() => new Promise((resolve) => { resolveOpen = resolve; }));
+    renderScreen(vi.fn(operationalGet), POST);
+    await userEvent.click(await screen.findByRole("button", { name: "IV-031 상세 열기" }));
+    await userEvent.click(screen.getByRole("button", { name: "이 위치 실사 개설" }));
+    await waitFor(() => expect(resolveOpen).toBeTypeOf("function"));
+    await userEvent.click(screen.getByRole("button", { name: "IV-032 상세 열기" }));
+    expect(await screen.findByRole("heading", { name: "윤활유" })).toBeVisible();
+    resolveOpen?.({ data: cycleDetail, response: new Response() });
+    await waitFor(() => expect(screen.getByRole("button", { name: "이 위치 실사 개설" })).not.toBeDisabled());
+    expect(screen.queryByText("CC-1 · DRAFT · 버전 1")).toBeNull();
   });
 });
