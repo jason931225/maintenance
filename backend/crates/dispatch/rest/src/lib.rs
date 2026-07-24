@@ -296,7 +296,7 @@ async fn start_dispatch(
 async fn respond_dispatch(
     State(state): State<DispatchRestState>,
     headers: HeaderMap,
-    DispatchPath(dispatch_id): DispatchPath<P1DispatchId>,
+    Path(dispatch_id): Path<P1DispatchId>,
     Json(body): Json<RespondDispatchRequest>,
 ) -> Result<Json<P1DispatchSummary>, RestError> {
     let principal = principal_from_headers(&state, &headers).await?;
@@ -346,7 +346,7 @@ async fn list_my_offers(
 async fn get_dispatch(
     State(state): State<DispatchRestState>,
     headers: HeaderMap,
-    DispatchPath(dispatch_id): DispatchPath<P1DispatchId>,
+    Path(dispatch_id): Path<P1DispatchId>,
 ) -> Result<Json<P1DispatchSummary>, RestError> {
     let principal = principal_from_headers(&state, &headers).await?;
     let summary = state
@@ -366,7 +366,7 @@ async fn get_dispatch(
 async fn force_assign(
     State(state): State<DispatchRestState>,
     headers: HeaderMap,
-    DispatchPath(dispatch_id): DispatchPath<P1DispatchId>,
+    Path(dispatch_id): Path<P1DispatchId>,
     Json(body): Json<ForceAssignRequest>,
 ) -> Result<Json<P1DispatchSummary>, RestError> {
     let principal = principal_from_headers(&state, &headers).await?;

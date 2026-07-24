@@ -724,6 +724,20 @@ fn dispatch_read_openapi_operations_match_generated_client_faces() {
     }
 }
 
+fn operation_section<'a>(yaml: &'a str, path: &str, operation: &str) -> &'a str {
+    let start = yaml
+        .find(&format!("  {path}:\n"))
+        .unwrap_or_else(|| panic!("missing {path}"));
+    let remainder = &yaml[start..];
+    let end = remainder[1..]
+        .find("\n  /")
+        .map(|offset| start + offset + 1)
+        .unwrap_or(yaml.len());
+    let section = &yaml[start..end];
+    assert!(section.contains(&format!("operationId: {operation}")));
+    section
+}
+
 #[test]
 fn dispatch_queue_parameter_and_error_faces_preserve_wire_contract() {
     const TS: &str = include_str!("../../clients/ts/src/schema.d.ts");
@@ -732,23 +746,15 @@ fn dispatch_queue_parameter_and_error_faces_preserve_wire_contract() {
     );
     const SWIFT: &str =
         include_str!("../../clients/swift/Sources/MaintenanceAPIClient/Generated/Client.swift");
-    let queue_start = OPENAPI_YAML
-        .find("  /api/v1/console/dispatch/queue:\n")
-        .expect("queue path");
-    let queue = &OPENAPI_YAML[queue_start
-        ..OPENAPI_YAML
-            .find("  /api/v1/p1-dispatches/{dispatchId}/candidates:")
-            .expect("next dispatch path")];
+    let queue = operation_section(
+        OPENAPI_YAML,
+        "/api/v1/console/dispatch/queue",
+        "listConsoleDispatchQueue",
+    );
     for required in [
         "type: array",
         "style: form",
         "explode: false",
-        "RECEIVED",
-        "UNASSIGNED",
-        "ASSIGNED",
-        "IN_PROGRESS",
-        "PART_WAITING",
-        "DELAYED",
         "'400': { $ref: '#/components/responses/BadRequest' }",
     ] {
         assert!(
@@ -756,20 +762,50 @@ fn dispatch_queue_parameter_and_error_faces_preserve_wire_contract() {
             "queue OpenAPI contract lacks {required}"
         );
     }
+    let enum_start = OPENAPI_YAML
+        .find("    DispatchQueueStatus:\n")
+        .expect("DispatchQueueStatus schema");
+    let enum_end = OPENAPI_YAML[enum_start..]
+        .find("    DispatchQueueDispatch:\n")
+        .map(|offset| enum_start + offset)
+        .expect("next schema");
+    let status_enum = &OPENAPI_YAML[enum_start..enum_end];
+    for wire in [
+        "RECEIVED",
+        "UNASSIGNED",
+        "ASSIGNED",
+        "IN_PROGRESS",
+        "PART_WAITING",
+        "DELAYED",
+    ] {
+        assert!(
+            status_enum.contains(wire),
+            "DispatchQueueStatus lacks {wire}"
+        );
+    }
+    let ts_op = &TS[TS
+        .find("listConsoleDispatchQueue: {")
+        .expect("TS queue operation")..];
     assert!(
-        TS.contains("status?: components[\"schemas\"][\"DispatchQueueStatus\"][]")
-            && TS.contains("400: components[\"responses\"][\"BadRequest\"]")
+        ts_op.contains("status?: components[\"schemas\"][\"DispatchQueueStatus\"][]")
+            && ts_op.contains("400: components[\"responses\"][\"BadRequest\"]")
     );
+    let kotlin_op = &KOTLIN[KOTLIN
+        .find("fun listConsoleDispatchQueueRequestConfig")
+        .expect("Kotlin queue operation")..];
     assert!(
-        KOTLIN.contains("kotlin.collections.List<DispatchQueueStatus>")
-            && KOTLIN.contains("toMultiValue(status.toList(), \"csv\")")
-            && KOTLIN.contains("Accept\"] = \"application/json\"")
+        kotlin_op.contains("kotlin.collections.List<DispatchQueueStatus>")
+            && kotlin_op.contains("toMultiValue(status.toList(), \"csv\")")
+            && kotlin_op.contains("Accept\"] = \"application/json\"")
     );
+    let swift_op = &SWIFT[SWIFT
+        .find("public func listConsoleDispatchQueue")
+        .expect("Swift queue operation")..];
     assert!(
-        SWIFT.contains("style: .form,")
-            && SWIFT.contains("explode: false,")
-            && SWIFT.contains("name: \"status\"")
-            && SWIFT.contains("case 400:")
-            && SWIFT.contains("\"application/json\"")
+        swift_op.contains("style: .form,")
+            && swift_op.contains("explode: false,")
+            && swift_op.contains("name: \"status\"")
+            && swift_op.contains("case 400:")
+            && swift_op.contains("\"application/json\"")
     );
 }
