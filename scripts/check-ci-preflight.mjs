@@ -82,23 +82,38 @@ const apiContractCaptureCommands = [
   'test -x "${mnt_app_bin}"',
   "printf 'MNT_APP_BIN=%s\\n' \"${mnt_app_bin}\" >> \"${GITHUB_ENV}\"",
 ];
+const apiContractAllowedSteps = [
+  "name: Checkout\n        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7",
+  "name: Install pinned DotSlash runtime\n        run: tools/buck/install_dotslash.sh",
+  "name: Free runner disk for API contract\n        uses: ./.github/actions/free-runner-disk",
+  "name: Install Rust toolchain (pinned via rust-toolchain.toml)\n        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable\n        with:\n          toolchain: \"1.96.0\"",
+  "name: Cache Rust dependencies + build artifacts\n        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1\n        with:\n          workspaces: backend",
+  "name: Set up Node.js\n        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0\n        with:\n          node-version: \"24\"\n          cache: npm",
+  "name: Install client tooling\n        run: npm ci",
+  "name: OpenAPI app-served drift gate\n        if: ${{ !cancelled() }}\n        run: npm run check:openapi-app",
+  `name: ${apiContractCaptureName}
+        if: \${{ !cancelled() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # check:openapi-app is the sole Buck2 producer for this handoff.
+          mnt_app_bin="\${GITHUB_WORKSPACE}/.tmp/buck2/api-contract/mnt-app"
+          test -x "\${mnt_app_bin}"
+          printf 'MNT_APP_BIN=%s\\n' "\${mnt_app_bin}" >> "\${GITHUB_ENV}"`,
+  "name: Employee import replay contract\n        if: ${{ !cancelled() }}\n        run: npm run test:employee-import-contract",
+  "name: Ontology write precondition contract\n        if: ${{ !cancelled() }}\n        run: npm run test:ontology-write-precondition",
+  "name: Generated TypeScript client round-trip\n        if: ${{ !cancelled() }}\n        run: npm run test:contract",
+];
 
-function activeRunText(step) {
-  const scalar = runScalar(step);
-  const source = scalar && scalar !== "|" ? scalar : multilineRunCommands(step).join("\n");
-  return source.split(/\r?\n/).filter((line) => !line.trimStart().startsWith("#")).join("\n");
+function hasOnlyAllowedApiContractSteps(steps) {
+  return steps.length === apiContractAllowedSteps.length
+    && steps.every((step, index) => step.trimEnd() === apiContractAllowedSteps[index]);
 }
 
 function isDesignatedApiContractCapture(step) {
   if (!step.startsWith(`name: ${apiContractCaptureName}\n`)) return false;
   return multilineRunCommands(step).filter((line) => !line.startsWith("#")).join("\n")
     === apiContractCaptureCommands.join("\n");
-}
-
-function usesIndirectOpenApiProducer(step) {
-  const run = activeRunText(step);
-  return /\b(?:bash|sh|zsh)\s+-c\b|\beval\b|(?:^|[;&|]\s*)(?:command\s+)?["']?\$\{?[A-Za-z_][A-Za-z0-9_]*\}?["']?/.test(run)
-    || /\bnode\s+scripts\/check-openapi-app\.mjs\b/.test(run);
 }
 
 function requireReindeerToolchainBefore(steps, command, failures) {
@@ -145,8 +160,20 @@ function requireDotSlashBefore(steps, command, job, failures) {
 function requireEffectiveDotSlashBootstrap(block, job, failures) {
   const workingDirectory = block.match(/^    defaults:\n      run:\n        working-directory: ([^\n]+)$/m)?.[1]?.trim();
   const bootstrap = workingDirectory === "backend" ? `../${dotSlashBootstrap}` : dotSlashBootstrap;
-  if (!stepBlocks(block).some((step) => runScalar(step) === bootstrap)) {
+  const steps = stepBlocks(block);
+  const bootstrapIndex = steps.findIndex((step) => runScalar(step) === bootstrap);
+  if (bootstrapIndex < 0) {
     failures.push(`${job} must install pinned DotSlash from ${bootstrap}`);
+    return;
+  }
+  const firstBuckInvocation = steps.findIndex((step, index) => {
+    const run = runScalar(step);
+    const command = run === "|" ? multilineRunCommands(step).join("\n") : run ?? "";
+    return index !== bootstrapIndex
+      && (/(?:^|[^A-Za-z0-9_])tools\/buck(?:2|\/)/.test(command) || /\bdotslash\b/i.test(command));
+  });
+  if (firstBuckInvocation >= 0 && bootstrapIndex > firstBuckInvocation) {
+    failures.push(`${job} must install pinned DotSlash before its first Buck invocation`);
   }
 }
 
@@ -197,6 +224,9 @@ export function evaluateCiPreflight(workflow) {
   const apiContract = jobBlock(workflow, "api-contract");
   if (apiContract) {
     const apiContractSteps = stepBlocks(apiContract);
+    if (!hasOnlyAllowedApiContractSteps(apiContractSteps)) {
+      failures.push("api-contract must contain only the approved ordered steps");
+    }
     requireDotSlashBefore(
       apiContractSteps,
       "npm run check:openapi-app",
@@ -209,16 +239,6 @@ export function evaluateCiPreflight(workflow) {
     if (openApiGateIndexes.length !== 1) {
       failures.push("api-contract must run exactly one npm run check:openapi-app producer");
     }
-    if (apiContractSteps.some((step) => /\b(?:\.\/)?tools\/buck2(?:\s|$)/.test(activeRunText(step)))) {
-      failures.push("api-contract must not directly build //backend/app:mnt-app");
-    }
-    if (apiContractSteps.some((step) =>
-      usesIndirectOpenApiProducer(step)
-      || (activeRunText(step).includes("check:openapi-app") && runScalar(step) !== "npm run check:openapi-app"),
-    )) {
-      failures.push("api-contract must not use indirect OpenAPI producers");
-    }
-
     const jobOrStepAppBinaryOverride = /^ {6,}MNT_APP_BIN\s*:/m.test(apiContract);
     const captureStepIndexes = apiContractSteps
       .map((step, index) => (step.startsWith(`name: ${apiContractCaptureName}\n`) ? index : -1))

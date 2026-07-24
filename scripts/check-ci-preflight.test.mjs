@@ -121,7 +121,7 @@ describe("CI preflight contract", () => {
         "      - name: Capture Buck2-built app for contract test\n",
         "      - name: Duplicate direct Buck2 app build\n        run: tools/buck2 build //backend/app:mnt-app\n\n      - name: Capture Buck2-built app for contract test\n",
       ),
-      "api-contract must not directly build //backend/app:mnt-app",
+      "api-contract must contain only the approved ordered steps",
     );
     expectFailure(
       workflow.replace(
@@ -157,14 +157,14 @@ describe("CI preflight contract", () => {
         "      - name: Capture Buck2-built app for contract test\n",
         "      - name: Duplicate OpenAPI producer\n        run: |\n          # This still produces the Buck app.\n          CI=1 npm \\\n            run check:openapi-app; :\n\n      - name: Capture Buck2-built app for contract test\n",
       ),
-      "api-contract must not use indirect OpenAPI producers",
+      "api-contract must contain only the approved ordered steps",
     );
     expectFailure(
       workflow.replace(
         "      - name: Capture Buck2-built app for contract test\n",
         "      - name: Duplicate direct Buck2 app build\n        run: |\n          command ./tools/buck2 --isolation-dir .tmp \\\n            build --out .tmp/duplicate //backend/app:mnt-app # direct producer\n\n      - name: Capture Buck2-built app for contract test\n",
       ),
-      "api-contract must not directly build //backend/app:mnt-app",
+      "api-contract must contain only the approved ordered steps",
     );
     expectFailure(
       workflow.replace(
@@ -197,7 +197,7 @@ describe("CI preflight contract", () => {
           "      - name: Capture Buck2-built app for contract test\n",
           `      - name: Indirect OpenAPI producer\n        run: ${command}\n\n      - name: Capture Buck2-built app for contract test\n`,
         ),
-        "api-contract must not use indirect OpenAPI producers",
+        "api-contract must contain only the approved ordered steps",
       );
     }
 
@@ -215,6 +215,36 @@ describe("CI preflight contract", () => {
       ),
       "api-contract capture must use the designated verified command grammar",
     );
+  });
+
+  it("allows only the ordered API contract execution surface", () => {
+    for (const command of [
+      "$(printf ./tools/buck2) build //backend/app:mnt-app",
+      "node ./scripts/check-openapi-app.mjs",
+      "node --enable-source-maps scripts/check-openapi-app.mjs",
+      "cargo build -p mnt-app",
+      'env_name=GITHUB_$(printf ENV); key=MNT_APP_$(printf BIN); printf "$key=/tmp/other\\n" >> "${!env_name}"',
+    ]) {
+      expectFailure(
+        workflow.replace(
+          "      - name: Capture Buck2-built app for contract test\n",
+          `      - name: Unexpected executable surface\n        run: ${command}\n\n      - name: Capture Buck2-built app for contract test\n`,
+        ),
+        "api-contract must contain only the approved ordered steps",
+      );
+    }
+  });
+
+  it("requires backend DotSlash bootstrap before any Buck or DotSlash invocation", () => {
+    for (const command of ["tools/buck2 --version", "dotslash run //backend/app:mnt-app"]) {
+      expectFailure(
+        workflow.replace(
+          "      - name: Install pinned DotSlash runtime\n        run: ../tools/buck/install_dotslash.sh\n",
+          `      - name: First Buck invocation\n        run: ${command}\n\n      - name: Install pinned DotSlash runtime\n        run: ../tools/buck/install_dotslash.sh\n`,
+        ),
+        "backend must install pinned DotSlash before its first Buck invocation",
+      );
+    }
   });
 
   it("rejects a generated-face authority job without the complete closure", () => {
