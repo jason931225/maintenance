@@ -3272,8 +3272,10 @@ dependencies = [
 name = "mnt-dispatch-application"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "mnt-dispatch-domain",
  "mnt-kernel-core",
+ "mnt-workorder-domain",
  "serde",
  "serde_json",
  "time",
@@ -3946,6 +3948,7 @@ dependencies = [
  "serde",
  "serde_json",
  "time",
+ "uuid",
 ]
 
 [[package]]
