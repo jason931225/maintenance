@@ -1858,7 +1858,7 @@ impl PlatformProvisioner {
             "SELECT platform_force_remove_organization_command($1, $2, $3, $4, $5)",
         )
         .bind(org_id)
-        .bind(actor)
+        .bind(*actor.as_uuid())
         .bind(trace.trace_id())
         .bind(trace.span_id())
         .bind(now)
