@@ -266,7 +266,9 @@ describe("AttendancePunchPanel", () => {
     );
     const view = renderApp();
     await user.click(await screen.findByRole("button", { name: "출근 기록" }));
-    await waitFor(() => expect(postSignal).toBeDefined());
+    await waitFor(() => {
+      expect(postSignal).toBeDefined();
+    });
     view.rerender(<AuthContext.Provider value={makeAuthContext(undefined)}><AttendancePunchPanel /></AuthContext.Provider>);
     expect(readSignal?.aborted).toBe(true);
     expect(postSignal?.aborted).toBe(true);
