@@ -1,0 +1,49 @@
+{
+  "lane": "CAP-ATTENDANCE-CONSOLE",
+  "stage": "scout",
+  "sharedRootEntries": {
+    "webRegistry": {
+      "web/src/console/shell/nav.ts": [
+        "add \"attendance\" to MOUNTED_SCREEN_KEYS (nav item { screen: \"attendance\", labelKey: \"console.shell.nav.attendance\", icon: \"clock\" } already exists in the 급여·근태 group, ungated self-service floor)",
+        "do NOT add to EXPOSED_SCREEN_KEYS (ADR-0025 — module stays dark)"
+      ],
+      "web/src/console/screens/registry.ts": [
+        "SCREEN_REGISTRY entry: attendance: AttendanceScreenBody (import from web/src/console/attendance)"
+      ],
+      "web/src/i18n/ko.ts": [
+        "VERIFIED PRESENT: console shell nav strings resolve via S.nav[item.screen]; ko.ts already has nav.attendance = \"근태\" (~line 975) — no ko.ts entry needed; module strings go in the module-owned web/src/i18n/attendance.ts (not a collision root)"
+      ]
+    },
+    "openapi": {
+      "backend/openapi/openapi.yaml": [
+        "new tag: attendance (per-domain tags mandatory — Kotlin client OOM regression without them)",
+        "paths per design-contract.md §2: /api/v1/attendance/{exceptions,exceptions/{id},exceptions/{id}/resolve,substitutions,substitutions/{id}/cancel,closes,closes/preflight,closes/{id}/amendments,week52,week52/acks}",
+        "component schemas per design-contract.md §3"
+      ],
+      "clients/**": ["regenerate ts/kotlin/swift after openapi change (3 CI drift gates)"]
+    },
+    "backendMounts": {
+      "backend/app": ["mount attendance/rest router in build_router (app-level touch)"]
+    },
+    "authzFeatures": {
+      "backend/crates/platform/authz": [
+        "new FeatureCode: attendance_exception_manage",
+        "new FeatureCode: attendance_substitution_manage",
+        "reuse: period_lock_manage as month-close authority; employee_directory_read as org-wide read tier; linked-employee floor for self rows (payroll/rest pattern)"
+      ]
+    },
+    "migrations": {
+      "backend/crates/platform/db/migrations": [
+        "0188_create_attendance_console.sql is PROVISIONAL (head today = 0180); integrator takes next free number right before push"
+      ]
+    }
+  },
+  "deferredCrossModule": [
+    { "owner": "approvals/appr", "item": "mint AP- object for substitution assignment and shift swap; backfill attendance_substitutions.approval_ref" },
+    { "owner": "inbox", "item": "per-assignment 건별 근로계약 InboxDoc (legal, passkey receipt); backfill contract_ref" },
+    { "owner": "workflow/automation", "item": "wf3 OT-approval -> payroll exception propagation rule (attendance emits audit + payroll material ref only)" },
+    { "owner": "notifications", "item": "unfilled-cover SLO breach alert + auto-resolution on assignment" },
+    { "owner": "payroll", "item": "payroll run calc gate reads GET /api/v1/attendance/closes (all authorized scopes closed for month)" },
+    { "owner": "people/workforce + ontology", "item": "WorkforcePool registry and cover-mandatory position attribute (until then: employee refs + server-side allowlist config; no client constants)" }
+  ]
+}
