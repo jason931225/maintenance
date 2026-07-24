@@ -33,6 +33,14 @@ class GeneratedFaceRegistryTests(unittest.TestCase):
             self.assertTrue(all(not path.endswith("/") for path in face["output_patterns"]))
         kotlin = next(face for face in REGISTRY["faces"] if face["id"] == "openapi-kotlin")
         self.assertNotIn("clients/kotlin", kotlin["output_patterns"])
+        self.assertTrue(
+            {
+                "clients/kotlin/.openapi-generator-ignore",
+                "clients/kotlin/README.md",
+                "clients/kotlin/proguard-rules.pro",
+            }.issubset(kotlin["output_patterns"])
+        )
+        self.assertFalse(any(pattern.startswith("clients/kotlin/src/test") for pattern in kotlin["output_patterns"]))
         first_party = next(face for face in REGISTRY["faces"] if face["id"] == "first-party-buck")
         self.assertTrue(all(pattern.endswith("/BUCK") for pattern in first_party["output_patterns"]))
 
