@@ -521,6 +521,40 @@ mod tests {
     use super::*;
     use mnt_platform_authz::{Action, Feature, authorize_org_wide};
 
+    #[tokio::test]
+    async fn nested_audit_context_scope_restores_outer_then_clears() {
+        let outer = RequestAuditContext {
+            trace: TraceContext::new("11111111111111111111111111111111", "1111111111111111")
+                .unwrap(),
+            request: AuditRequestContext {
+                device: Some("outer-device".to_owned()),
+                ..AuditRequestContext::default()
+            },
+        };
+        let inner = RequestAuditContext {
+            trace: TraceContext::new("22222222222222222222222222222222", "2222222222222222")
+                .unwrap(),
+            request: AuditRequestContext {
+                device: Some("inner-device".to_owned()),
+                ..AuditRequestContext::default()
+            },
+        };
+
+        assert_eq!(current_audit_context(), None);
+        CURRENT_AUDIT_CONTEXT
+            .scope(outer.clone(), async {
+                assert_eq!(current_audit_context(), Some(outer.clone()));
+                CURRENT_AUDIT_CONTEXT
+                    .scope(inner.clone(), async {
+                        assert_eq!(current_audit_context(), Some(inner));
+                    })
+                    .await;
+                assert_eq!(current_audit_context(), Some(outer));
+            })
+            .await;
+        assert_eq!(current_audit_context(), None);
+    }
+
     #[test]
     fn delegated_group_admin_principal_does_not_gain_executive_queue_triage() -> Result<(), String>
     {
