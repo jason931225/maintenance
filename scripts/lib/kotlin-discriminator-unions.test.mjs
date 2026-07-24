@@ -31,6 +31,9 @@ function fixtureSchemas() {
   put("WorkbenchCalendarSourceOk", child("status", "ok"));
   put("WorkbenchDeniedSourceEnvelope", child("status", "denied"));
   put("WorkbenchUnavailableSourceEnvelope", child("status", "unavailable"));
+  put("ProductionDemandIngress", child("kind", "demand"));
+  put("ProductionCapacityIngress", child("kind", "capacity"));
+  put("ProductionMaterialIngress", child("kind", "material"));
   const union = (discriminator, mapping) => ({
     oneOf: Object.values(mapping).map((name) => ({ $ref: ref(name) })),
     discriminator: { propertyName: discriminator, mapping: Object.fromEntries(Object.entries(mapping).map(([literal, name]) => [literal, ref(name)])) },
@@ -39,6 +42,7 @@ function fixtureSchemas() {
   put("WorkbenchActionSourceEnvelope", union("status", { ok: "WorkbenchActionSourceOk", denied: "WorkbenchDeniedSourceEnvelope", unavailable: "WorkbenchUnavailableSourceEnvelope" }));
   put("WorkbenchTodoSourceEnvelope", union("status", { ok: "WorkbenchTodoSourceOk", denied: "WorkbenchDeniedSourceEnvelope", unavailable: "WorkbenchUnavailableSourceEnvelope" }));
   put("WorkbenchCalendarSourceEnvelope", union("status", { ok: "WorkbenchCalendarSourceOk", denied: "WorkbenchDeniedSourceEnvelope", unavailable: "WorkbenchUnavailableSourceEnvelope" }));
+  put("ProductionSourceIngress", union("kind", { demand: "ProductionDemandIngress", capacity: "ProductionCapacityIngress", material: "ProductionMaterialIngress" }));
   return schemas;
 }
 
@@ -47,7 +51,7 @@ function fixtureStaging(schemas) {
   const modelDir = join(stagingDir, "src/main/kotlin/com/maintenance/api/client/model");
   mkdirSync(modelDir, { recursive: true });
   for (const name of schemas.keys()) {
-    if (name.includes("Envelope") || name === "WorkbenchEffectiveScope" || name.startsWith("WorkbenchScope") || name.endsWith("SourceOk")) {
+    if (name.includes("Envelope") || name === "WorkbenchEffectiveScope" || name.startsWith("WorkbenchScope") || name.endsWith("SourceOk") || name.startsWith("Production")) {
       writeFileSync(join(modelDir, `${name}.kt`), `package com.maintenance.api.client.model\n\n@kotlinx.serialization.Serializable\ndata class ${name} (\n) {\n}\n`);
     }
   }
@@ -68,8 +72,8 @@ test("strict Workbench union patch renders deterministic parents and patches sha
   const firstResult = patchGeneratedKotlinMappedUnions({ stagingDir: first, unions });
   const secondResult = patchGeneratedKotlinMappedUnions({ stagingDir: second, unions: [...unions].reverse() });
 
-  assert.equal(firstResult.unionCount, 4);
-  assert.equal(firstResult.variantCount, 11);
+  assert.equal(firstResult.unionCount, 5);
+  assert.equal(firstResult.variantCount, 14);
   assert.deepEqual(
     { unionCount: firstResult.unionCount, variantCount: firstResult.variantCount },
     { unionCount: secondResult.unionCount, variantCount: secondResult.variantCount },
@@ -81,7 +85,7 @@ test("strict Workbench union patch renders deterministic parents and patches sha
   assert.match(parent, /"ok" -> jsonDecoder\.json\.decodeFromJsonElement\(WorkbenchActionSourceOk\.serializer\(\), element\)/);
   assert.match(parent, /actualDiscriminator != expectedDiscriminator/);
   assert.equal(readFileSync(join(first, "src/main/kotlin/com/maintenance/api/client/model/EvidenceHoldRequest.kt"), "utf8"), "unmapped inline oneOf remains unchanged\n");
-  assert.equal(digestTree(first, [...supportedWorkbenchUnionNames, "WorkbenchActionSourceOk", "WorkbenchTodoSourceOk", "WorkbenchCalendarSourceOk", "WorkbenchDeniedSourceEnvelope", "WorkbenchUnavailableSourceEnvelope", "WorkbenchScopeAll", "WorkbenchScopeBranches"]), digestTree(second, [...supportedWorkbenchUnionNames, "WorkbenchActionSourceOk", "WorkbenchTodoSourceOk", "WorkbenchCalendarSourceOk", "WorkbenchDeniedSourceEnvelope", "WorkbenchUnavailableSourceEnvelope", "WorkbenchScopeAll", "WorkbenchScopeBranches"]));
+  assert.equal(digestTree(first, [...supportedWorkbenchUnionNames, "WorkbenchActionSourceOk", "WorkbenchTodoSourceOk", "WorkbenchCalendarSourceOk", "WorkbenchDeniedSourceEnvelope", "WorkbenchUnavailableSourceEnvelope", "WorkbenchScopeAll", "WorkbenchScopeBranches", "ProductionDemandIngress", "ProductionCapacityIngress", "ProductionMaterialIngress"]), digestTree(second, [...supportedWorkbenchUnionNames, "WorkbenchActionSourceOk", "WorkbenchTodoSourceOk", "WorkbenchCalendarSourceOk", "WorkbenchDeniedSourceEnvelope", "WorkbenchUnavailableSourceEnvelope", "WorkbenchScopeAll", "WorkbenchScopeBranches", "ProductionDemandIngress", "ProductionCapacityIngress", "ProductionMaterialIngress"]));
 });
 
 test("strict union validation rejects mapping mismatch, ambiguous targets, and incorrect discriminator literal", () => {
