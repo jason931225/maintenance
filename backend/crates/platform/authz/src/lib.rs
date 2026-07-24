@@ -256,6 +256,12 @@ pub enum Feature {
     /// Generate/draft the exit settlement package + submit it for approval
     /// (퇴직 정산 초안/승인 상신). ADMIN + SUPER_ADMIN — the HR settlement tier.
     ExitSettlementManage,
+    /// Manage attendance exceptions. ADMIN + SUPER_ADMIN only; the Attendance
+    /// REST boundary continues to enforce branch/resource scope independently.
+    AttendanceExceptionManage,
+    /// Manage attendance substitutions. ADMIN + SUPER_ADMIN only; the
+    /// Attendance REST boundary continues to enforce branch/resource scope independently.
+    AttendanceSubstitutionManage,
     /// Read the CEO/top-clearance covert audit stream. This is deliberately
     /// denied by the legacy role matrix and enrolled only through Cedar/PBAC
     /// clearance facts.
@@ -329,7 +335,7 @@ pub enum Feature {
 }
 
 impl Feature {
-    pub const ALL: [Self; 88] = [
+    pub const ALL: [Self; 90] = [
         Self::Login,
         Self::WorkOrderCreate,
         Self::WorkOrderEditIntake,
@@ -398,6 +404,8 @@ impl Feature {
         Self::ExitCaseHrConfirm,
         Self::ExitCaseHqConfirm,
         Self::ExitSettlementManage,
+        Self::AttendanceExceptionManage,
+        Self::AttendanceSubstitutionManage,
         Self::AuditStreamRead,
         Self::AuditStreamAccessLogRead,
         Self::PeriodLockManage,
@@ -491,6 +499,8 @@ impl Feature {
             Self::ExitCaseHrConfirm => "exit_case_hr_confirm",
             Self::ExitCaseHqConfirm => "exit_case_hq_confirm",
             Self::ExitSettlementManage => "exit_settlement_manage",
+            Self::AttendanceExceptionManage => "attendance_exception_manage",
+            Self::AttendanceSubstitutionManage => "attendance_substitution_manage",
             Self::AuditStreamRead => "audit_stream_read",
             Self::AuditStreamAccessLogRead => "audit_stream_access_log_read",
             Self::PeriodLockManage => "period_lock_manage",
@@ -620,6 +630,9 @@ impl Feature {
             Self::ExitCaseHrConfirm => [D, D, D, A, D, A],
             Self::ExitCaseHqConfirm => [D, D, D, D, A, A],
             Self::ExitSettlementManage => [D, D, D, A, D, A],
+            Self::AttendanceExceptionManage | Self::AttendanceSubstitutionManage => {
+                [D, D, D, A, D, A]
+            }
             // B26b covert audit stream: no legacy/static-role fallback. Cedar
             // clearance facts are the only allow path; omission denies.
             Self::AuditStreamRead | Self::AuditStreamAccessLogRead => [D, D, D, D, D, D],
@@ -729,6 +742,8 @@ impl FromStr for Feature {
             "exit_case_hr_confirm" => Ok(Self::ExitCaseHrConfirm),
             "exit_case_hq_confirm" => Ok(Self::ExitCaseHqConfirm),
             "exit_settlement_manage" => Ok(Self::ExitSettlementManage),
+            "attendance_exception_manage" => Ok(Self::AttendanceExceptionManage),
+            "attendance_substitution_manage" => Ok(Self::AttendanceSubstitutionManage),
             "audit_stream_read" => Ok(Self::AuditStreamRead),
             "audit_stream_access_log_read" => Ok(Self::AuditStreamAccessLogRead),
             "period_lock_manage" => Ok(Self::PeriodLockManage),
@@ -1548,6 +1563,48 @@ fn is_safe_ident(raw: &str) -> bool {
 mod tests {
     use super::*;
     use mnt_kernel_core::{ErrorKind, ScopeNodeId};
+
+    #[test]
+    fn attendance_management_features_are_admin_and_super_admin_only() {
+        let cases = [
+            (
+                Feature::AttendanceExceptionManage,
+                "attendance_exception_manage",
+            ),
+            (
+                Feature::AttendanceSubstitutionManage,
+                "attendance_substitution_manage",
+            ),
+        ];
+
+        for (feature, code) in cases {
+            assert!(Feature::ALL.contains(&feature));
+            assert_eq!(feature.as_str(), code);
+            assert_eq!(code.parse::<Feature>().unwrap(), feature);
+            assert_eq!(
+                serde_json::to_string(&feature).unwrap(),
+                format!("\"{code}\"")
+            );
+            assert_eq!(
+                serde_json::from_str::<Feature>(&format!("\"{code}\"")).unwrap(),
+                feature
+            );
+
+            for role in Role::ALL {
+                let expected = match role {
+                    Role::Admin | Role::SuperAdmin => PermissionLevel::Allow,
+                    Role::Member | Role::Receptionist | Role::Mechanic | Role::Executive => {
+                        PermissionLevel::Deny
+                    }
+                };
+                assert_eq!(
+                    permission_for(role, feature),
+                    expected,
+                    "{role:?} on {feature:?}"
+                );
+            }
+        }
+    }
 
     #[test]
     fn service_authorization_requires_exact_feature_and_branch() {
