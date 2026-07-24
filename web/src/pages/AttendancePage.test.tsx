@@ -2,13 +2,12 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
-import { MemoryRouter } from "react-router-dom";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
-import { AppRouter } from "../AppRouter";
 import { createConsoleApiClient } from "../api/client";
 import { AuthContext } from "../context/auth";
 import type { AuthContextValue, AuthSession } from "../context/auth";
+import { AttendancePage } from "./AttendancePage";
 
 const baseRecord = {
   id: "11111111-1111-4111-8111-111111111111",
@@ -85,7 +84,7 @@ function makeAuthContext(session: AuthSession): AuthContextValue {
   };
 }
 
-function renderApp(path = "/attendance") {
+function renderApp() {
   return render(
     <AuthContext.Provider
       value={makeAuthContext({
@@ -94,9 +93,7 @@ function renderApp(path = "/attendance") {
         roles: ["MECHANIC"],
       })}
     >
-      <MemoryRouter initialEntries={[path]}>
-        <AppRouter />
-      </MemoryRouter>
+      <AttendancePage />
     </AuthContext.Provider>,
   );
 }
@@ -105,7 +102,7 @@ describe("AttendancePage", () => {
   it("renders Korean self-service attendance controls and payroll material linkage", async () => {
     renderApp();
 
-    expect(await screen.findByText("내 근태 기록")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { level: 1, name: "내 근태 기록" })).toBeInTheDocument();
     expect((await screen.findAllByText("근무 중")).length).toBeGreaterThan(0);
     expect(screen.getByRole("button", { name: "출근 기록" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "외출 기록" })).toBeInTheDocument();

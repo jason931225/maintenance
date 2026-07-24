@@ -1,7 +1,10 @@
 import { useMemo, type ReactElement } from "react";
 
 import { useActiveBranchId, useAuth } from "../../context/auth";
+import { PageHeader } from "../../components/shell/PageHeader";
 import { attendanceStrings as text } from "../../i18n/attendance";
+import { ko } from "../../i18n/ko";
+import { AttendancePunchPanel } from "./AttendancePunchPanel";
 
 import { AttendanceScreen } from "./AttendanceScreen";
 import { SelfServiceAttendancePanel } from "./SelfServiceAttendancePanel";
@@ -35,11 +38,22 @@ export function AttendanceScreenBody({ active = true }: { active?: boolean }) {
 
   if (!active) return null;
 
+  const personalAttendance = (
+    <section className="grid gap-5" aria-labelledby="attendance-personal-area-heading">
+      <h2 id="attendance-personal-area-heading" className="text-xl font-semibold text-ink">
+        개인 근태
+      </h2>
+      <AttendancePunchPanel active={active} />
+      {selfServicePanel}
+    </section>
+  );
+
   if (branchId === undefined) {
     return (
-      <main className="attendance" aria-label={text.title}>
-        {selfServicePanel}
-      </main>
+      <section className="attendance" aria-label={text.title}>
+        <PageHeader title={ko.attendance.title} description={ko.attendance.description} />
+        {personalAttendance}
+      </section>
     );
   }
 
@@ -48,7 +62,7 @@ export function AttendanceScreenBody({ active = true }: { active?: boolean }) {
       api={api}
       branchId={branchId}
       session={session}
-      selfServicePanel={selfServicePanel}
+      personalAttendance={personalAttendance}
       active={active}
     />
   );
@@ -58,13 +72,13 @@ function AuthenticatedAttendanceBody({
   api,
   branchId,
   session,
-  selfServicePanel,
+  personalAttendance,
   active,
 }: {
   api: ReturnType<typeof useAuth>["api"];
   branchId: string;
   session: ReturnType<typeof useAuth>["session"];
-  selfServicePanel: ReactElement;
+  personalAttendance: ReactElement;
   active: boolean;
 }) {
   const authz = useAttendanceConsoleAuthz(active);
@@ -75,15 +89,18 @@ function AuthenticatedAttendanceBody({
   );
 
   return (
-    <AttendanceScreen
-      transport={transport}
-      branchId={branchId}
-      actorId={session?.user_id}
-      capabilities={capabilities}
-      sessionKey={session?.client_session_incarnation ?? session?.access_token}
-      selfServicePanel={selfServicePanel}
-      active={active}
-    />
+    <section className="attendance" aria-label={text.title}>
+      <PageHeader title={ko.attendance.title} description={ko.attendance.description} />
+      <AttendanceScreen
+        transport={transport}
+        branchId={branchId}
+        actorId={session?.user_id}
+        capabilities={capabilities}
+        sessionKey={session?.client_session_incarnation ?? session?.access_token}
+        active={active}
+      />
+      {personalAttendance}
+    </section>
   );
 }
 

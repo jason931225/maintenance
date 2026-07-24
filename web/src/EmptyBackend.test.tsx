@@ -1,4 +1,5 @@
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { setupServer } from "msw/node";
 import type { ReactNode } from "react";
@@ -425,14 +426,43 @@ describe("every page renders cleanly against an empty backend", () => {
   });
 
   it("mounts both legacy punch and active own-attendance surfaces at /attendance", async () => {
-    renderAt("/attendance");
+    const { container } = renderAt("/attendance");
     expect(await waitForRouteReady("내 근태 기록")).toBeVisible();
+    expect(screen.getAllByRole("heading", { level: 1, name: "내 근태 기록" })).toHaveLength(1);
+    expect(container.querySelectorAll("main")).toHaveLength(1);
+    expect(await screen.findByRole("region", { name: "개인 근태" })).toBeVisible();
     expect(await screen.findByRole("region", { name: "내 근태" })).toBeVisible();
     await waitFor(() => {
       expect(attendanceRecordReads).toBe(1);
     });
     expect(ownAttendanceReads).toBe(2);
     expect(attendanceAuthzReads).toBe(1);
+  });
+
+  it("removes loaded attendance data and fences late reads after navigating to Overview", async () => {
+    const user = userEvent.setup();
+    renderAt("/attendance");
+    expect(await screen.findByRole("button", { name: "출근 기록" })).toBeVisible();
+    expect(await screen.findByRole("region", { name: "내 근태" })).toBeVisible();
+
+    await user.click(screen.getByRole("link", { name: "통합 개요" }));
+    expect(await waitForRouteReady("통합 개요")).toBeVisible();
+    expect(screen.queryByRole("button", { name: "출근 기록" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "개인 근태" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "내 근태" })).toBeNull();
+    const readsAfterNavigation = [
+      attendanceRecordReads,
+      ownAttendanceReads,
+      managerAttendanceReads,
+      attendanceAuthzReads,
+    ];
+    await waitForLateMountEffects();
+    expect([
+      attendanceRecordReads,
+      ownAttendanceReads,
+      managerAttendanceReads,
+      attendanceAuthzReads,
+    ]).toEqual(readsAfterNavigation);
   });
 
   it("renders /payroll with zero readiness counts and no crash", async () => {

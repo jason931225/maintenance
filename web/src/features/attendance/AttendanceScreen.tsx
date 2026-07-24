@@ -51,8 +51,6 @@ type Props = {
   capabilities: AttendanceCapabilities;
   /** Changes whenever auth replaces the effective tenant/session. */
   sessionKey: string | undefined;
-  /** Employee self-service content rendered before any manager workspace. */
-  selfServicePanel?: ReactElement;
   /** Whether this persistent shell slot is currently visible and authorized to read. */
   active?: boolean;
   /** Injectable clock for deterministic tests; defaults to the wall clock. */
@@ -162,7 +160,6 @@ function AttendanceScreenBodyInner({
   transport,
   capabilities,
   sessionKey,
-  selfServicePanel,
   now,
 }: Props) {
   const clock = now ?? (() => new Date());
@@ -373,17 +370,7 @@ function AttendanceScreenBodyInner({
   const recordItems = records.s === "ready" ? records.data.items : [];
 
   if (!capabilities.canRead) {
-    if (selfServicePanel) return <main className="attendance">{selfServicePanel}</main>;
-    return (
-      <main className="attendance">
-        <div className="attendance__header">
-          <h1>{text.title}</h1>
-        </div>
-        <p role="status" className="attendance__status">
-          {text.denied}
-        </p>
-      </main>
-    );
+    return null;
   }
 
   const openExceptionCount = exceptionItems.filter(
@@ -407,11 +394,10 @@ function AttendanceScreenBodyInner({
   };
 
   return (
-    <main className="attendance" aria-busy={busy}>
-      {selfServicePanel}
+    <section className="attendance" aria-label="근태 운영" aria-busy={busy}>
       <div className="attendance__header">
         <div>
-          <h1>{text.title}</h1>
+          <h2>근태 운영</h2>
           <div className="attendance__headmeta">
             <span>
               {today} · {text.header.liveSuffix}
@@ -1051,7 +1037,7 @@ function AttendanceScreenBodyInner({
           }
         />
       )}
-    </main>
+    </section>
   );
 }
 

@@ -510,6 +510,7 @@
 
 .attendance__monthgrid {
   min-width: 0;
+  overflow-x: auto;
   overflow-y: auto;
   max-height: 560px;
 }
@@ -517,6 +518,7 @@
 .attendance__monthhead,
 .attendance__monthrow {
   display: grid;
+  min-width: 560px;
   grid-template-columns: minmax(110px, 1.1fr) 30px 30px 40px minmax(
       140px,
       1.6fr

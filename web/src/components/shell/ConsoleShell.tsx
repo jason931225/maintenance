@@ -17,7 +17,6 @@ import { useAuth } from "../../context/auth";
 import { TitleProvider } from "../../context/title";
 import { ko } from "../../i18n/ko";
 import { ViewAsBanner } from "../../features/platform/ViewAsBanner";
-import { AttendancePage } from "../../pages/AttendancePage";
 import { AttendanceScreenBody } from "../../features/attendance/AttendanceConsoleRoute";
 import { OverviewPage } from "../../pages/OverviewPage";
 import { RouteErrorBoundary } from "../RouteErrorBoundary";
@@ -255,7 +254,6 @@ function ConsoleShellContent() {
                 mounted={visible.attendance}
                 ownerKey={workspaceOwnerKey}
               >
-                <AttendancePage active={activeScreen === "attendance"} />
                 <AttendanceScreenBody active={activeScreen === "attendance"} />
               </ScreenSlot>
             </RouteErrorBoundary>

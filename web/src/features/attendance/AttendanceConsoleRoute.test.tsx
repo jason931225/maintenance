@@ -29,6 +29,7 @@ const panelSpy = vi.fn(
     />
   ),
 );
+const punchSpy = vi.fn(() => <section data-testid="punch-panel">punch</section>);
 
 vi.mock("./AttendanceScreen", () => ({
   AttendanceScreen: (props: unknown) =>
@@ -39,6 +40,9 @@ vi.mock("./SelfServiceAttendancePanel", () => ({
     sessionIdentity: string | undefined;
     active: boolean;
   }) => panelSpy(props),
+}));
+vi.mock("./AttendancePunchPanel", () => ({
+  AttendancePunchPanel: () => punchSpy(),
 }));
 vi.mock("./attendanceTransport", () => ({
   createAttendanceApiTransport: (...args: unknown[]) =>
@@ -110,7 +114,7 @@ describe("AttendanceScreenBody", () => {
     expect(managerTransportSpy).toHaveBeenCalledWith(api, "branch-a");
   });
 
-  it("passes the own panel before the manager workspace for a branched manager", () => {
+  it("places manager workspace before the personal punch and own panels for a branched manager", () => {
     const api = client();
     render(
       <AuthTestProvider session={session(["branch-a"])} overrides={{ api }}>
@@ -120,12 +124,13 @@ describe("AttendanceScreenBody", () => {
     expect(screen.getByTestId("attendance-screen")).toBeVisible();
     expect(authzSpy).toHaveBeenCalledTimes(1);
     expect(managerTransportSpy).toHaveBeenCalledWith(api, "branch-a");
-    const workspace = screen.getByTestId("attendance-screen");
-    expect(
-      [...workspace.children].map((element) =>
-        element.getAttribute("data-testid"),
-      ),
-    ).toEqual(["self-service", "manager-workspace"]);
+    const managerWorkspace = screen.getByTestId("manager-workspace");
+    expect(managerWorkspace.compareDocumentPosition(screen.getByTestId("punch-panel"))).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(screen.getByTestId("punch-panel").compareDocumentPosition(screen.getByTestId("self-service"))).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
   });
 
   it("replaces and removes employee authority rather than retaining a previous panel session", () => {

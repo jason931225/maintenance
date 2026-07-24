@@ -358,7 +358,7 @@ describe("AttendanceScreen", () => {
     );
     const api = transport({ listExceptions });
     renderScreen(api, denied);
-    expect(screen.getByText(text.denied)).toBeVisible();
+    expect(screen.queryByText(text.denied)).toBeNull();
     expect(listExceptions).not.toHaveBeenCalled();
   });
 
@@ -1509,57 +1509,23 @@ describe("AttendanceScreen", () => {
   });
 });
 
-describe("AttendanceScreen self-service composition", () => {
-  it("renders self-service before the manager workspace without adding it to the manager fence", async () => {
-    const { container } = render(
-      <AttendanceScreen
-        transport={transport()}
-        branchId="branch-1"
-        actorId="actor-1"
-        capabilities={manager}
-        sessionKey="session-a"
-        selfServicePanel={
-          <section data-testid="self-service-panel">own attendance</section>
-        }
-        now={NOW}
-      />,
-    );
-    await screen.findByText(text.title);
-    const main = container.querySelector("main.attendance");
-    expect(main?.firstElementChild).toHaveAttribute(
-      "data-testid",
-      "self-service-panel",
-    );
-    expect(
-      screen.getByText(text.header.liveSuffix, { exact: false }),
-    ).toBeVisible();
-  });
-
-  it("renders an own panel without manager reads when manager authority is denied", () => {
+describe("AttendanceScreen route composition", () => {
+  it("does not retain manager workspace while its shell slot is inactive", () => {
     const listExceptions = vi.fn<AttendanceTransport["listExceptions"]>(() =>
       Promise.resolve(page(exceptions)),
     );
-    render(
+    const { container } = render(
       <AttendanceScreen
         transport={transport({ listExceptions })}
         branchId="branch-1"
         actorId="actor-1"
-        capabilities={denied}
+        capabilities={manager}
         sessionKey="session-a"
-        selfServicePanel={
-          <section data-testid="self-service-panel">own attendance</section>
-        }
+        active={false}
         now={NOW}
       />,
     );
-    expect(screen.getByTestId("self-service-panel")).toBeVisible();
-    expect(screen.queryByText(text.denied)).toBeNull();
+    expect(container).toBeEmptyDOMElement();
     expect(listExceptions).not.toHaveBeenCalled();
-  });
-
-  it("preserves the legacy manager-denied fallback without an own panel", () => {
-    renderScreen(transport(), denied);
-    expect(screen.getByText(text.denied)).toBeVisible();
-    expect(screen.queryByTestId("self-service-panel")).toBeNull();
   });
 });
