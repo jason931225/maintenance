@@ -1,5 +1,5 @@
 #![allow(clippy::unwrap_used, clippy::expect_used, clippy::panic)]
-//! Self-service attendance read (`GET /api/v1/hr/attendance-records/me`).
+//! Self-service attendance reads, including the Console self-service projections.
 //!
 //! Drives the REAL router on a genuine non-owner `mnt_rt` pool (RLS actually
 //! enforced, never a BYPASSRLS superuser). Locks the contract that this endpoint
@@ -173,7 +173,42 @@ async fn linked_member_reads_only_own_attendance_console_data(pool: PgPool) {
     )
     .await;
     assert_eq!(empty_week.status, StatusCode::OK, "{:?}", empty_week.json);
-    assert!(empty_week.json.is_null());
+    assert_eq!(empty_week.json, json!({ "status": "not_available" }));
+    assert!(
+        empty_week.json.get("projection").is_none(),
+        "unlinked principals must not receive a projection field"
+    );
+
+    let own_week = get(
+        service.clone(),
+        &format!("{MY_WEEK52_PATH}?week_start=2026-07-20"),
+        &alice_token,
+    )
+    .await;
+    assert_eq!(own_week.status, StatusCode::OK, "{:?}", own_week.json);
+    assert_eq!(own_week.json["status"], "available");
+    let projection = own_week.json["projection"]
+        .as_object()
+        .expect("linked principal must receive a Week52 projection");
+    assert_eq!(projection.get("week_start"), Some(&json!("2026-07-20")));
+    assert_eq!(projection.get("current_hours"), Some(&json!(0.0)));
+    assert_eq!(projection.get("projected_hours"), Some(&json!(0.0)));
+    for forbidden in [
+        "employee_id",
+        "employee_name",
+        "branch_id",
+        "links",
+        "linkage",
+    ] {
+        assert!(
+            own_week.json.get(forbidden).is_none(),
+            "self Week52 response leaked {forbidden}"
+        );
+        assert!(
+            projection.get(forbidden).is_none(),
+            "self Week52 projection leaked {forbidden}"
+        );
+    }
 
     for selector in ["employee_id", "branch_id"] {
         let rejected = get(
