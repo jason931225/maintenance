@@ -311,46 +311,2020 @@
       "removal": "Move generated client references behind web/src/api or a feature adapters boundary."
     },
     {
-      "id": "rest-lifecycle-policy:backend/crates/compliance/rest/src/lib.rs:lifecycle-named-handler",
-      "rule": "rest-lifecycle-policy",
-      "path": "backend/crates/compliance/rest/src/lib.rs",
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/auth/webauthn.ts",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/auth/webauthn.ts:api/types.ts",
       "owner": "console-boundary-migration",
-      "removal": "Move lifecycle transition policy into the module domain/application layer and leave REST as transport mapping."
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
     },
     {
-      "id": "rest-lifecycle-policy:backend/crates/finance-gl/rest/src/lib.rs:lifecycle-named-handler",
-      "rule": "rest-lifecycle-policy",
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/comms-rail/adapters.ts",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/comms-rail/adapters.ts:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/configconsole/api.ts",
+      "detail": "api/governance.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/configconsole/api.ts:api/governance.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/configconsole/api.ts",
+      "detail": "api/ontology.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/configconsole/api.ts:api/ontology.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/configconsole/api.ts",
+      "detail": "api/ontologyActions.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/configconsole/api.ts:api/ontologyActions.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/configconsole/DashboardEditor.tsx",
+      "detail": "api/ontology.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/configconsole/DashboardEditor.tsx:api/ontology.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/dashboard/DashboardScreen.test.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/dashboard/DashboardScreen.test.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/dashboard/DashboardScreen.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/dashboard/DashboardScreen.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/evidence/evidenceApi.ts",
+      "detail": "api/ontologyActions.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/evidence/evidenceApi.ts:api/ontologyActions.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/explore/ObjectExplorerModel.ts",
+      "detail": "api/ontology.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/explore/ObjectExplorerModel.ts:api/ontology.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/finance/financeApi.ts",
+      "detail": "api/ontologyActions.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/finance/financeApi.ts:api/ontologyActions.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/forecast/ForecastScreen.test.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/forecast/ForecastScreen.test.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/forecast/ForecastScreen.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/forecast/ForecastScreen.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/forecast/series.test.ts",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/forecast/series.test.ts:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/forecast/series.ts",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/forecast/series.ts:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/inspection/inspectionModel.test.ts",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/inspection/inspectionModel.test.ts:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/inspection/inspectionModel.ts",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/inspection/inspectionModel.ts:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/inspection/InspectionScheduleDetail.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/inspection/InspectionScheduleDetail.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/inspection/MechanicInspectionWorkspace.test.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/inspection/MechanicInspectionWorkspace.test.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/inspection/MechanicInspectionWorkspace.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/inspection/MechanicInspectionWorkspace.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/leave/api.ts",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/leave/api.ts:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/leave/LeaveConsole.test.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/leave/LeaveConsole.test.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/leave/LeaveConsole.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/leave/LeaveConsole.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/leave/model.test.ts",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/leave/model.test.ts:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/leave/model.ts",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/leave/model.ts:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/mail/api.ts",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/mail/api.ts:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/mail/format.ts",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/mail/format.ts:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/mail/MailScreen.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/mail/MailScreen.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/mail/types.ts",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/mail/types.ts:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/messenger/types.ts",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/messenger/types.ts:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/modules/moduleScreens.ts",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/modules/moduleScreens.ts:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/objectcard/strings.ts",
+      "detail": "api/ontologyActions.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/objectcard/strings.ts:api/ontologyActions.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/objectcard/wired.tsx",
+      "detail": "api/governance.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/objectcard/wired.tsx:api/governance.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/objectcard/wired.tsx",
+      "detail": "api/ontology.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/objectcard/wired.tsx:api/ontology.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/objectcard/wired.tsx",
+      "detail": "api/ontologyActions.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/objectcard/wired.tsx:api/ontologyActions.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/ontology/analytics/OntologyAnalyticsWorkbench.test.tsx",
+      "detail": "api/ontology.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/ontology/analytics/OntologyAnalyticsWorkbench.test.tsx:api/ontology.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/ontology/analytics/OntologyAnalyticsWorkbench.test.tsx",
+      "detail": "api/ontologyActions.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/ontology/analytics/OntologyAnalyticsWorkbench.test.tsx:api/ontologyActions.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/ontology/analytics/OntologyAnalyticsWorkbench.tsx",
+      "detail": "api/ontology.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/ontology/analytics/OntologyAnalyticsWorkbench.tsx:api/ontology.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/ontology/analytics/OntologyAnalyticsWorkbench.tsx",
+      "detail": "api/ontologyActions.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/ontology/analytics/OntologyAnalyticsWorkbench.tsx:api/ontologyActions.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/ontology/useOntologyRevisionCommitQueue.ts",
+      "detail": "api/ontology.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/ontology/useOntologyRevisionCommitQueue.ts:api/ontology.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/ontology/wire.test.ts",
+      "detail": "api/ontology.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/ontology/wire.test.ts:api/ontology.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/ontology/wire.ts",
+      "detail": "api/ontology.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/ontology/wire.ts:api/ontology.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/policy/BulkPolicyGate.msw.test.tsx",
+      "detail": "api/authorizeBulk.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/policy/BulkPolicyGate.msw.test.tsx:api/authorizeBulk.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/policy/BulkPolicyGate.test.tsx",
+      "detail": "api/authorizeBulk.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/policy/BulkPolicyGate.test.tsx:api/authorizeBulk.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/policy/PolicyGated.tsx",
+      "detail": "api/authorizeBulk.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/policy/PolicyGated.tsx:api/authorizeBulk.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/policycanvas/model.test.ts",
+      "detail": "api/policyCedar.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/policycanvas/model.test.ts:api/policyCedar.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/policycanvas/model.ts",
+      "detail": "api/policyCedar.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/policycanvas/model.ts:api/policyCedar.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/policycanvas/PolicyCanvasScreen.tsx",
+      "detail": "api/policyCedar.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/policycanvas/PolicyCanvasScreen.tsx:api/policyCedar.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/policycanvas/types.ts",
+      "detail": "api/policyCedar.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/policycanvas/types.ts:api/policyCedar.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/sales/SalesCrmScreen.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/sales/SalesCrmScreen.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/screens/_ontology/OntologyWorkspacePartialFailure.test.tsx",
+      "detail": "api/ontology.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/screens/_ontology/OntologyWorkspacePartialFailure.test.tsx:api/ontology.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/screens/_ontology/useOntologyWorkspace.ts",
+      "detail": "api/ontology.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/screens/_ontology/useOntologyWorkspace.ts:api/ontology.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/screens/automate/AutomateBody.test.tsx",
+      "detail": "api/authorizeBulk.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/screens/automate/AutomateBody.test.tsx:api/authorizeBulk.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/screens/dashboard/DashboardBody.test.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/screens/dashboard/DashboardBody.test.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/screens/dashboard/DashboardBody.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/screens/dashboard/DashboardBody.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/screens/explore/ExploreBody.test.tsx",
+      "detail": "api/ontology.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/screens/explore/ExploreBody.test.tsx:api/ontology.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/screens/forecast/ForecastBody.test.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/screens/forecast/ForecastBody.test.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/screens/forecast/ForecastBody.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/screens/forecast/ForecastBody.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/screens/leave/LeaveBody.test.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/screens/leave/LeaveBody.test.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/screens/leave/LeaveBody.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/screens/leave/LeaveBody.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/screens/ontology-manager/OntologyManagerBody.test.tsx",
+      "detail": "api/ontology.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/screens/ontology-manager/OntologyManagerBody.test.tsx:api/ontology.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/screens/overview/overviewApi.ts",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/screens/overview/overviewApi.ts:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/screens/overview/overviewModel.test.ts",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/screens/overview/overviewModel.test.ts:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/screens/overview/overviewModel.ts",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/screens/overview/overviewModel.ts:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/screens/policy/PolicyBody.test.tsx",
+      "detail": "api/authorizeBulk.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/screens/policy/PolicyBody.test.tsx:api/authorizeBulk.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/screens/policy/PolicyBody.tsx",
+      "detail": "api/policyCedar.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/screens/policy/PolicyBody.tsx:api/policyCedar.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/screens/support/model.ts",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/screens/support/model.ts:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/screens/support/SupportBody.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/screens/support/SupportBody.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/shell/CommsRailPanel.test.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/shell/CommsRailPanel.test.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/shell/CommsRailPanel.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/shell/CommsRailPanel.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/shell/useSelfProfile.ts",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/shell/useSelfProfile.ts:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/console/workflows/modelFromDefinitions.ts",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/console/workflows/modelFromDefinitions.ts:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/EmptyBackend.test.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/EmptyBackend.test.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/approvals/ApprovalCommandCenter.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/approvals/ApprovalCommandCenter.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/approvals/ApprovalDocumentDesk.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/approvals/ApprovalDocumentDesk.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/approvals/ApprovalQueue.test.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/approvals/ApprovalQueue.test.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/approvals/ApprovalQueue.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/approvals/ApprovalQueue.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/approvals/ApprovalQueue.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/approvals/ApprovalQueue.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/approvals/TargetChangeReviewQueue.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/approvals/TargetChangeReviewQueue.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/auth/SecurityPanel.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/auth/SecurityPanel.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/comms/CommsRail.test.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/comms/CommsRail.test.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/comms/CommsRail.test.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/comms/CommsRail.test.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/comms/CommsRail.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/comms/CommsRail.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/comms/CommsRail.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/comms/CommsRail.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/comms/notificationLink.ts",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/comms/notificationLink.ts:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/comms/realtimeHub.ts",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/comms/realtimeHub.ts:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/comms/store.test.ts",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/comms/store.test.ts:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/comms/store.ts",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/comms/store.ts:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/dispatch/DispatchBoard.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/dispatch/DispatchBoard.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/dispatch/sla.ts",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/dispatch/sla.ts:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/dispatch/SlaBadge.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/dispatch/SlaBadge.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/dispatch/WorkOrderActions.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/dispatch/WorkOrderActions.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/dispatch/WorkOrderDetail.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/dispatch/WorkOrderDetail.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/dispatch/WorkOrderDispatchControls.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/dispatch/WorkOrderDispatchControls.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/dispatch/WorkOrderList.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/dispatch/WorkOrderList.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/equipment/equipment-format.ts",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/equipment/equipment-format.ts:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/equipment/EquipmentDetailDialog.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/equipment/EquipmentDetailDialog.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/equipment/EquipmentImportPanel.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/equipment/EquipmentImportPanel.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/equipment/EquipmentManagementPanel.test.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/equipment/EquipmentManagementPanel.test.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/equipment/EquipmentManagementPanel.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/equipment/EquipmentManagementPanel.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/equipment/ManagementNoCombobox.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/equipment/ManagementNoCombobox.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/equipment/SiteGeographyPanel.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/equipment/SiteGeographyPanel.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/equipment/SubstitutionPanel.test.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/equipment/SubstitutionPanel.test.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/equipment/SubstitutionPanel.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/equipment/SubstitutionPanel.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/financial/AssetLifecycleCostPanel.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/financial/AssetLifecycleCostPanel.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/financial/config.ts",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/financial/config.ts:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/financial/CostLedgerPanel.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/financial/CostLedgerPanel.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/financial/PurchaseRequestPanel.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/financial/PurchaseRequestPanel.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/financial/purchaseRequestQueue.ts",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/financial/purchaseRequestQueue.ts:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/financial/RentalQuotePanel.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/financial/RentalQuotePanel.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/intake/IntakeForm.test.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/intake/IntakeForm.test.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/intake/IntakeForm.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/intake/IntakeForm.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/kpi/kpi-format.ts",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/kpi/kpi-format.ts:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/kpi/WallBoard.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/kpi/WallBoard.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/location/location-consent-state.ts",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/location/location-consent-state.ts:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/location/LocationConsentPanel.test.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/location/LocationConsentPanel.test.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/location/LocationConsentPanel.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/location/LocationConsentPanel.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/mail/useMailSummary.ts",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/mail/useMailSummary.ts:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/messenger/messenger-state.test.ts",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/messenger/messenger-state.test.ts:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/messenger/messenger-state.ts",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/messenger/messenger-state.ts:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/messenger/MessengerPanel.test.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/messenger/MessengerPanel.test.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/messenger/MessengerPanel.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/messenger/MessengerPanel.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/org/org-format.ts",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/org/org-format.ts:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/overview/overview-data.test.ts",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/overview/overview-data.test.ts:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/overview/overview-data.ts",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/overview/overview-data.ts:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/overview/TodayPanel.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/overview/TodayPanel.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/platform/ForceRemoveTenantDialog.test.tsx",
+      "detail": "api/platform.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/platform/ForceRemoveTenantDialog.test.tsx:api/platform.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/platform/ForceRemoveTenantDialog.tsx",
+      "detail": "api/platform.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/platform/ForceRemoveTenantDialog.tsx:api/platform.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/platform/ForceRemoveTenantDialog.tsx",
+      "detail": "api/platform.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/platform/ForceRemoveTenantDialog.tsx:api/platform.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/platform/org-status.ts",
+      "detail": "api/platform.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/platform/org-status.ts:api/platform.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/platform/PlatformOpsPage.tsx",
+      "detail": "api/platform.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/platform/PlatformOpsPage.tsx:api/platform.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/platform/PlatformOpsPage.tsx",
+      "detail": "api/platform.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/platform/PlatformOpsPage.tsx:api/platform.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/platform/RemoveTenantDialog.tsx",
+      "detail": "api/platform.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/platform/RemoveTenantDialog.tsx:api/platform.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/platform/RemoveTenantDialog.tsx",
+      "detail": "api/platform.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/platform/RemoveTenantDialog.tsx:api/platform.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/platform/scope.ts",
+      "detail": "api/platform.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/platform/scope.ts:api/platform.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/platform/StatusChangeDialog.tsx",
+      "detail": "api/platform.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/platform/StatusChangeDialog.tsx:api/platform.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/platform/TenantTable.tsx",
+      "detail": "api/platform.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/platform/TenantTable.tsx:api/platform.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/platform/ViewAsBanner.tsx",
+      "detail": "api/platform.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/platform/ViewAsBanner.tsx:api/platform.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/platform/ViewAsDialog.tsx",
+      "detail": "api/platform.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/platform/ViewAsDialog.tsx:api/platform.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/platform/ViewAsDialog.tsx",
+      "detail": "api/platform.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/platform/ViewAsDialog.tsx:api/platform.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/support/CreateTicketForm.test.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/support/CreateTicketForm.test.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/support/CreateTicketForm.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/support/CreateTicketForm.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/support/CustomerIntakeForm.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/support/CustomerIntakeForm.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/support/slo-settings.ts",
+      "detail": "api/ontology.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/support/slo-settings.ts:api/ontology.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/support/slo-settings.ts",
+      "detail": "api/ontologyActions.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/support/slo-settings.ts:api/ontologyActions.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/support/slo-settings.ts",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/support/slo-settings.ts:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/support/support-format.ts",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/support/support-format.ts:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/support/SupportTicketDetail.test.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/support/SupportTicketDetail.test.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/support/SupportTicketDetail.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/support/SupportTicketDetail.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/support/SupportTicketList.test.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/support/SupportTicketList.test.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/support/SupportTicketList.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/support/SupportTicketList.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/features/support/SupportTicketPin.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/features/support/SupportTicketPin.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/i18n/hrWorkflows.ts",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/i18n/hrWorkflows.ts:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/lib/hrExitWorkflow.ts",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/lib/hrExitWorkflow.ts:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/lib/useActiveBranchName.ts",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/lib/useActiveBranchName.ts:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/lib/utils.ts",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/lib/utils.ts:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/pages/AdminSettingsPage.test.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/pages/AdminSettingsPage.test.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/pages/AdminSettingsPage.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/pages/AdminSettingsPage.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/pages/ApprovalsPage.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/pages/ApprovalsPage.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/pages/AutomatePage.test.tsx",
+      "detail": "api/authorizeBulk.ts",
+      "id": "generated-client-reexport-boundary:web/src/pages/AutomatePage.test.tsx:api/authorizeBulk.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/pages/AutomatePage.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/pages/AutomatePage.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/pages/CatalogAdminPage.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/pages/CatalogAdminPage.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/pages/CollaborationPage.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/pages/CollaborationPage.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/pages/ContactPage.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/pages/ContactPage.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/pages/CustomerIntakePage.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/pages/CustomerIntakePage.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/pages/DailyPlanPage.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/pages/DailyPlanPage.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/pages/DispatchMapPage.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/pages/DispatchMapPage.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/pages/DispatchPage.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/pages/DispatchPage.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/pages/EmployeesPage.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/pages/EmployeesPage.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/pages/EquipmentBrowsePage.test.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/pages/EquipmentBrowsePage.test.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/pages/EquipmentBrowsePage.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/pages/EquipmentBrowsePage.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/pages/EquipmentDetailPage.test.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/pages/EquipmentDetailPage.test.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/pages/EquipmentDetailPage.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/pages/EquipmentDetailPage.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/pages/EquipmentManagePage.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/pages/EquipmentManagePage.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/pages/EquipmentPage.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/pages/EquipmentPage.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/pages/ForecastPage.test.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/pages/ForecastPage.test.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/pages/ForecastPage.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/pages/ForecastPage.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/pages/InspectionPage.test.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/pages/InspectionPage.test.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/pages/InspectionPage.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/pages/InspectionPage.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/pages/InsuranceAssistPage.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/pages/InsuranceAssistPage.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/pages/IntakePage.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/pages/IntakePage.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/pages/IntegrityPage.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/pages/IntegrityPage.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/pages/KpiPage.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/pages/KpiPage.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/pages/OntologyPage.test.tsx",
+      "detail": "api/authorizeBulk.ts",
+      "id": "generated-client-reexport-boundary:web/src/pages/OntologyPage.test.tsx:api/authorizeBulk.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/pages/OntologyPage.test.tsx",
+      "detail": "api/ontology.ts",
+      "id": "generated-client-reexport-boundary:web/src/pages/OntologyPage.test.tsx:api/ontology.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/pages/OntologyPage.tsx",
+      "detail": "api/ontology.ts",
+      "id": "generated-client-reexport-boundary:web/src/pages/OntologyPage.tsx:api/ontology.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/pages/OpsDashboardPage.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/pages/OpsDashboardPage.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/pages/OrgPage.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/pages/OrgPage.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/pages/OverviewPage.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/pages/OverviewPage.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/pages/PayrollPage.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/pages/PayrollPage.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/pages/PlatformGroupsPage.tsx",
+      "detail": "api/platform.ts",
+      "id": "generated-client-reexport-boundary:web/src/pages/PlatformGroupsPage.tsx:api/platform.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/pages/PlatformGroupsPage.tsx",
+      "detail": "api/platform.ts",
+      "id": "generated-client-reexport-boundary:web/src/pages/PlatformGroupsPage.tsx:api/platform.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/pages/PlatformOnboardPage.tsx",
+      "detail": "api/platform.ts",
+      "id": "generated-client-reexport-boundary:web/src/pages/PlatformOnboardPage.tsx:api/platform.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/pages/PlatformOnboardPage.tsx",
+      "detail": "api/platform.ts",
+      "id": "generated-client-reexport-boundary:web/src/pages/PlatformOnboardPage.tsx:api/platform.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/pages/PlatformTenantsPage.tsx",
+      "detail": "api/platform.ts",
+      "id": "generated-client-reexport-boundary:web/src/pages/PlatformTenantsPage.tsx:api/platform.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/pages/PlatformTenantsPage.tsx",
+      "detail": "api/platform.ts",
+      "id": "generated-client-reexport-boundary:web/src/pages/PlatformTenantsPage.tsx:api/platform.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/pages/PolicyStudioPage.test.tsx",
+      "detail": "api/authorizeBulk.ts",
+      "id": "generated-client-reexport-boundary:web/src/pages/PolicyStudioPage.test.tsx:api/authorizeBulk.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/pages/PolicyStudioPage.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/pages/PolicyStudioPage.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/pages/ProfilePage.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/pages/ProfilePage.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/pages/SupportPage.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/pages/SupportPage.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/pages/UsedSalesPage.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/pages/UsedSalesPage.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/pages/UsersPage.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/pages/UsersPage.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/pages/WallBoardPage.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/pages/WallBoardPage.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/pages/WorkflowStudioPage.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/pages/WorkflowStudioPage.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/pages/WorkOrderDetailPage.tsx",
+      "detail": "api/types.ts",
+      "id": "generated-client-reexport-boundary:web/src/pages/WorkOrderDetailPage.tsx:api/types.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "generated-client-reexport-boundary",
+      "path": "web/src/test/ontologyFixtures.ts",
+      "detail": "api/ontology.ts",
+      "id": "generated-client-reexport-boundary:web/src/test/ontologyFixtures.ts:api/ontology.ts",
+      "owner": "console-boundary-migration",
+      "removal": "Replace the API re-export with an adapter-owned DTO before UI consumption."
+    },
+    {
+      "rule": "module-public-surface",
+      "path": "web/src/features/approvals/ApprovalQueue.tsx",
+      "detail": "approvals->dispatch",
+      "id": "module-public-surface:web/src/features/approvals/ApprovalQueue.tsx:approvals->dispatch",
+      "owner": "console-boundary-migration",
+      "removal": "Expose the required cross-feature contract from the target public.ts or index.ts surface."
+    },
+    {
+      "rule": "module-public-surface",
+      "path": "web/src/features/comms/CommsRail.tsx",
+      "detail": "comms->mail",
+      "id": "module-public-surface:web/src/features/comms/CommsRail.tsx:comms->mail",
+      "owner": "console-boundary-migration",
+      "removal": "Expose the required cross-feature contract from the target public.ts or index.ts surface."
+    },
+    {
+      "rule": "module-public-surface",
+      "path": "web/src/features/comms/realtimeHub.ts",
+      "detail": "comms->messenger",
+      "id": "module-public-surface:web/src/features/comms/realtimeHub.ts:comms->messenger",
+      "owner": "console-boundary-migration",
+      "removal": "Expose the required cross-feature contract from the target public.ts or index.ts surface."
+    },
+    {
+      "rule": "module-public-surface",
+      "path": "web/src/features/comms/store.ts",
+      "detail": "comms->messenger",
+      "id": "module-public-surface:web/src/features/comms/store.ts:comms->messenger",
+      "owner": "console-boundary-migration",
+      "removal": "Expose the required cross-feature contract from the target public.ts or index.ts surface."
+    },
+    {
+      "rule": "module-public-surface",
+      "path": "web/src/features/dispatch/WorkOrderDetail.tsx",
+      "detail": "dispatch->object-view",
+      "id": "module-public-surface:web/src/features/dispatch/WorkOrderDetail.tsx:dispatch->object-view",
+      "owner": "console-boundary-migration",
+      "removal": "Expose the required cross-feature contract from the target public.ts or index.ts surface."
+    },
+    {
+      "rule": "module-public-surface",
+      "path": "web/src/features/dispatch/WorkOrderDetail.tsx",
+      "detail": "dispatch->org",
+      "id": "module-public-surface:web/src/features/dispatch/WorkOrderDetail.tsx:dispatch->org",
+      "owner": "console-boundary-migration",
+      "removal": "Expose the required cross-feature contract from the target public.ts or index.ts surface."
+    },
+    {
+      "rule": "module-public-surface",
+      "path": "web/src/features/intake/IntakeForm.tsx",
+      "detail": "intake->equipment",
+      "id": "module-public-surface:web/src/features/intake/IntakeForm.tsx:intake->equipment",
+      "owner": "console-boundary-migration",
+      "removal": "Expose the required cross-feature contract from the target public.ts or index.ts surface."
+    },
+    {
+      "rule": "module-public-surface",
+      "path": "web/src/features/messenger/MessengerPanel.tsx",
+      "detail": "messenger->comms",
+      "id": "module-public-surface:web/src/features/messenger/MessengerPanel.tsx:messenger->comms",
+      "owner": "console-boundary-migration",
+      "removal": "Expose the required cross-feature contract from the target public.ts or index.ts surface."
+    },
+    {
+      "rule": "module-public-surface",
+      "path": "web/src/features/workspace/objectPin.ts",
+      "detail": "workspace->support",
+      "id": "module-public-surface:web/src/features/workspace/objectPin.ts:workspace->support",
+      "owner": "console-boundary-migration",
+      "removal": "Expose the required cross-feature contract from the target public.ts or index.ts surface."
+    },
+    {
+      "rule": "rest-delegation-boundary",
+      "path": "backend/crates/analytics-quant/rest/src/lib.rs",
+      "detail": "direct-persistence-or-lifecycle-mutation",
+      "id": "rest-delegation-boundary:backend/crates/analytics-quant/rest/src/lib.rs:direct-persistence-or-lifecycle-mutation",
+      "owner": "console-boundary-migration",
+      "removal": "Move direct persistence or lifecycle mutation into an application port/adapter."
+    },
+    {
+      "rule": "rest-delegation-boundary",
+      "path": "backend/crates/comms/rest/src/lib.rs",
+      "detail": "direct-persistence-or-lifecycle-mutation",
+      "id": "rest-delegation-boundary:backend/crates/comms/rest/src/lib.rs:direct-persistence-or-lifecycle-mutation",
+      "owner": "console-boundary-migration",
+      "removal": "Move direct persistence or lifecycle mutation into an application port/adapter."
+    },
+    {
+      "rule": "rest-delegation-boundary",
+      "path": "backend/crates/comms/rest/tests/mox_webhook.rs",
+      "detail": "direct-persistence-or-lifecycle-mutation",
+      "id": "rest-delegation-boundary:backend/crates/comms/rest/tests/mox_webhook.rs:direct-persistence-or-lifecycle-mutation",
+      "owner": "console-boundary-migration",
+      "removal": "Move direct persistence or lifecycle mutation into an application port/adapter."
+    },
+    {
+      "rule": "rest-delegation-boundary",
+      "path": "backend/crates/comms/rest/tests/readiness.rs",
+      "detail": "direct-persistence-or-lifecycle-mutation",
+      "id": "rest-delegation-boundary:backend/crates/comms/rest/tests/readiness.rs:direct-persistence-or-lifecycle-mutation",
+      "owner": "console-boundary-migration",
+      "removal": "Move direct persistence or lifecycle mutation into an application port/adapter."
+    },
+    {
+      "rule": "rest-delegation-boundary",
+      "path": "backend/crates/consulting/rest/src/lib.rs",
+      "detail": "direct-persistence-or-lifecycle-mutation",
+      "id": "rest-delegation-boundary:backend/crates/consulting/rest/src/lib.rs:direct-persistence-or-lifecycle-mutation",
+      "owner": "console-boundary-migration",
+      "removal": "Move direct persistence or lifecycle mutation into an application port/adapter."
+    },
+    {
+      "rule": "rest-delegation-boundary",
+      "path": "backend/crates/docs/rest/src/lib.rs",
+      "detail": "direct-persistence-or-lifecycle-mutation",
+      "id": "rest-delegation-boundary:backend/crates/docs/rest/src/lib.rs:direct-persistence-or-lifecycle-mutation",
+      "owner": "console-boundary-migration",
+      "removal": "Move direct persistence or lifecycle mutation into an application port/adapter."
+    },
+    {
+      "rule": "rest-delegation-boundary",
+      "path": "backend/crates/docs/rest/tests/evidence_rest_rls_surfaces_as_runtime_role.rs",
+      "detail": "direct-persistence-or-lifecycle-mutation",
+      "id": "rest-delegation-boundary:backend/crates/docs/rest/tests/evidence_rest_rls_surfaces_as_runtime_role.rs:direct-persistence-or-lifecycle-mutation",
+      "owner": "console-boundary-migration",
+      "removal": "Move direct persistence or lifecycle mutation into an application port/adapter."
+    },
+    {
+      "rule": "rest-delegation-boundary",
+      "path": "backend/crates/facilities/rest/src/lib.rs",
+      "detail": "direct-persistence-or-lifecycle-mutation",
+      "id": "rest-delegation-boundary:backend/crates/facilities/rest/src/lib.rs:direct-persistence-or-lifecycle-mutation",
+      "owner": "console-boundary-migration",
+      "removal": "Move direct persistence or lifecycle mutation into an application port/adapter."
+    },
+    {
+      "rule": "rest-delegation-boundary",
       "path": "backend/crates/finance-gl/rest/src/lib.rs",
+      "detail": "direct-persistence-or-lifecycle-mutation",
+      "id": "rest-delegation-boundary:backend/crates/finance-gl/rest/src/lib.rs:direct-persistence-or-lifecycle-mutation",
       "owner": "console-boundary-migration",
-      "removal": "Move lifecycle transition policy into the module domain/application layer and leave REST as transport mapping."
+      "removal": "Move direct persistence or lifecycle mutation into an application port/adapter."
     },
     {
-      "id": "rest-lifecycle-policy:backend/crates/financial/rest/src/lib.rs:lifecycle-named-handler",
-      "rule": "rest-lifecycle-policy",
+      "rule": "rest-delegation-boundary",
       "path": "backend/crates/financial/rest/src/lib.rs",
+      "detail": "direct-persistence-or-lifecycle-mutation",
+      "id": "rest-delegation-boundary:backend/crates/financial/rest/src/lib.rs:direct-persistence-or-lifecycle-mutation",
       "owner": "console-boundary-migration",
-      "removal": "Move lifecycle transition policy into the module domain/application layer and leave REST as transport mapping."
+      "removal": "Move direct persistence or lifecycle mutation into an application port/adapter."
     },
     {
-      "id": "rest-lifecycle-policy:backend/crates/inspection/rest/src/lib.rs:lifecycle-named-handler",
-      "rule": "rest-lifecycle-policy",
+      "rule": "rest-delegation-boundary",
+      "path": "backend/crates/financial/rest/tests/purchase_request_list.rs",
+      "detail": "direct-persistence-or-lifecycle-mutation",
+      "id": "rest-delegation-boundary:backend/crates/financial/rest/tests/purchase_request_list.rs:direct-persistence-or-lifecycle-mutation",
+      "owner": "console-boundary-migration",
+      "removal": "Move direct persistence or lifecycle mutation into an application port/adapter."
+    },
+    {
+      "rule": "rest-delegation-boundary",
+      "path": "backend/crates/governance/rest/src/lib.rs",
+      "detail": "direct-persistence-or-lifecycle-mutation",
+      "id": "rest-delegation-boundary:backend/crates/governance/rest/src/lib.rs:direct-persistence-or-lifecycle-mutation",
+      "owner": "console-boundary-migration",
+      "removal": "Move direct persistence or lifecycle mutation into an application port/adapter."
+    },
+    {
+      "rule": "rest-delegation-boundary",
+      "path": "backend/crates/identity/rest/src/lib.rs",
+      "detail": "direct-persistence-or-lifecycle-mutation",
+      "id": "rest-delegation-boundary:backend/crates/identity/rest/src/lib.rs:direct-persistence-or-lifecycle-mutation",
+      "owner": "console-boundary-migration",
+      "removal": "Move direct persistence or lifecycle mutation into an application port/adapter."
+    },
+    {
+      "rule": "rest-delegation-boundary",
+      "path": "backend/crates/identity/rest/tests/org_setup.rs",
+      "detail": "direct-persistence-or-lifecycle-mutation",
+      "id": "rest-delegation-boundary:backend/crates/identity/rest/tests/org_setup.rs:direct-persistence-or-lifecycle-mutation",
+      "owner": "console-boundary-migration",
+      "removal": "Move direct persistence or lifecycle mutation into an application port/adapter."
+    },
+    {
+      "rule": "rest-delegation-boundary",
+      "path": "backend/crates/inbox/rest/tests/api.rs",
+      "detail": "direct-persistence-or-lifecycle-mutation",
+      "id": "rest-delegation-boundary:backend/crates/inbox/rest/tests/api.rs:direct-persistence-or-lifecycle-mutation",
+      "owner": "console-boundary-migration",
+      "removal": "Move direct persistence or lifecycle mutation into an application port/adapter."
+    },
+    {
+      "rule": "rest-delegation-boundary",
       "path": "backend/crates/inspection/rest/src/lib.rs",
+      "detail": "direct-persistence-or-lifecycle-mutation",
+      "id": "rest-delegation-boundary:backend/crates/inspection/rest/src/lib.rs:direct-persistence-or-lifecycle-mutation",
       "owner": "console-boundary-migration",
-      "removal": "Move lifecycle transition policy into the module domain/application layer and leave REST as transport mapping."
+      "removal": "Move direct persistence or lifecycle mutation into an application port/adapter."
     },
     {
-      "id": "rest-lifecycle-policy:backend/crates/support/rest/src/lib.rs:lifecycle-named-handler",
-      "rule": "rest-lifecycle-policy",
+      "rule": "rest-delegation-boundary",
+      "path": "backend/crates/leave/rest/tests/leave_http_personas.rs",
+      "detail": "direct-persistence-or-lifecycle-mutation",
+      "id": "rest-delegation-boundary:backend/crates/leave/rest/tests/leave_http_personas.rs:direct-persistence-or-lifecycle-mutation",
+      "owner": "console-boundary-migration",
+      "removal": "Move direct persistence or lifecycle mutation into an application port/adapter."
+    },
+    {
+      "rule": "rest-delegation-boundary",
+      "path": "backend/crates/messenger/rest/tests/api.rs",
+      "detail": "direct-persistence-or-lifecycle-mutation",
+      "id": "rest-delegation-boundary:backend/crates/messenger/rest/tests/api.rs:direct-persistence-or-lifecycle-mutation",
+      "owner": "console-boundary-migration",
+      "removal": "Move direct persistence or lifecycle mutation into an application port/adapter."
+    },
+    {
+      "rule": "rest-delegation-boundary",
+      "path": "backend/crates/notices/rest/tests/api.rs",
+      "detail": "direct-persistence-or-lifecycle-mutation",
+      "id": "rest-delegation-boundary:backend/crates/notices/rest/tests/api.rs:direct-persistence-or-lifecycle-mutation",
+      "owner": "console-boundary-migration",
+      "removal": "Move direct persistence or lifecycle mutation into an application port/adapter."
+    },
+    {
+      "rule": "rest-delegation-boundary",
+      "path": "backend/crates/notifications/rest/tests/api.rs",
+      "detail": "direct-persistence-or-lifecycle-mutation",
+      "id": "rest-delegation-boundary:backend/crates/notifications/rest/tests/api.rs:direct-persistence-or-lifecycle-mutation",
+      "owner": "console-boundary-migration",
+      "removal": "Move direct persistence or lifecycle mutation into an application port/adapter."
+    },
+    {
+      "rule": "rest-delegation-boundary",
+      "path": "backend/crates/ontology/rest/src/lib.rs",
+      "detail": "direct-persistence-or-lifecycle-mutation",
+      "id": "rest-delegation-boundary:backend/crates/ontology/rest/src/lib.rs:direct-persistence-or-lifecycle-mutation",
+      "owner": "console-boundary-migration",
+      "removal": "Move direct persistence or lifecycle mutation into an application port/adapter."
+    },
+    {
+      "rule": "rest-delegation-boundary",
+      "path": "backend/crates/ontology/rest/tests/action_execute_as_runtime_role.rs",
+      "detail": "direct-persistence-or-lifecycle-mutation",
+      "id": "rest-delegation-boundary:backend/crates/ontology/rest/tests/action_execute_as_runtime_role.rs:direct-persistence-or-lifecycle-mutation",
+      "owner": "console-boundary-migration",
+      "removal": "Move direct persistence or lifecycle mutation into an application port/adapter."
+    },
+    {
+      "rule": "rest-delegation-boundary",
+      "path": "backend/crates/ontology/rest/tests/object_type_cas_as_runtime_role.rs",
+      "detail": "direct-persistence-or-lifecycle-mutation",
+      "id": "rest-delegation-boundary:backend/crates/ontology/rest/tests/object_type_cas_as_runtime_role.rs:direct-persistence-or-lifecycle-mutation",
+      "owner": "console-boundary-migration",
+      "removal": "Move direct persistence or lifecycle mutation into an application port/adapter."
+    },
+    {
+      "rule": "rest-delegation-boundary",
+      "path": "backend/crates/ontology/rest/tests/ont_gaps_as_runtime_role.rs",
+      "detail": "direct-persistence-or-lifecycle-mutation",
+      "id": "rest-delegation-boundary:backend/crates/ontology/rest/tests/ont_gaps_as_runtime_role.rs:direct-persistence-or-lifecycle-mutation",
+      "owner": "console-boundary-migration",
+      "removal": "Move direct persistence or lifecycle mutation into an application port/adapter."
+    },
+    {
+      "rule": "rest-delegation-boundary",
+      "path": "backend/crates/ontology/rest/tests/projected_dispatch_as_runtime_role.rs",
+      "detail": "direct-persistence-or-lifecycle-mutation",
+      "id": "rest-delegation-boundary:backend/crates/ontology/rest/tests/projected_dispatch_as_runtime_role.rs:direct-persistence-or-lifecycle-mutation",
+      "owner": "console-boundary-migration",
+      "removal": "Move direct persistence or lifecycle mutation into an application port/adapter."
+    },
+    {
+      "rule": "rest-delegation-boundary",
+      "path": "backend/crates/ontology/rest/tests/publish_auto_create_action_as_runtime_role.rs",
+      "detail": "direct-persistence-or-lifecycle-mutation",
+      "id": "rest-delegation-boundary:backend/crates/ontology/rest/tests/publish_auto_create_action_as_runtime_role.rs:direct-persistence-or-lifecycle-mutation",
+      "owner": "console-boundary-migration",
+      "removal": "Move direct persistence or lifecycle mutation into an application port/adapter."
+    },
+    {
+      "rule": "rest-delegation-boundary",
+      "path": "backend/crates/payroll/rest/tests/api.rs",
+      "detail": "direct-persistence-or-lifecycle-mutation",
+      "id": "rest-delegation-boundary:backend/crates/payroll/rest/tests/api.rs:direct-persistence-or-lifecycle-mutation",
+      "owner": "console-boundary-migration",
+      "removal": "Move direct persistence or lifecycle mutation into an application port/adapter."
+    },
+    {
+      "rule": "rest-delegation-boundary",
+      "path": "backend/crates/production/rest/src/lib.rs",
+      "detail": "direct-persistence-or-lifecycle-mutation",
+      "id": "rest-delegation-boundary:backend/crates/production/rest/src/lib.rs:direct-persistence-or-lifecycle-mutation",
+      "owner": "console-boundary-migration",
+      "removal": "Move direct persistence or lifecycle mutation into an application port/adapter."
+    },
+    {
+      "rule": "rest-delegation-boundary",
+      "path": "backend/crates/production/rest/tests/production_lifecycle_http.rs",
+      "detail": "direct-persistence-or-lifecycle-mutation",
+      "id": "rest-delegation-boundary:backend/crates/production/rest/tests/production_lifecycle_http.rs:direct-persistence-or-lifecycle-mutation",
+      "owner": "console-boundary-migration",
+      "removal": "Move direct persistence or lifecycle mutation into an application port/adapter."
+    },
+    {
+      "rule": "rest-delegation-boundary",
+      "path": "backend/crates/registry/rest/tests/equipment_admin.rs",
+      "detail": "direct-persistence-or-lifecycle-mutation",
+      "id": "rest-delegation-boundary:backend/crates/registry/rest/tests/equipment_admin.rs:direct-persistence-or-lifecycle-mutation",
+      "owner": "console-boundary-migration",
+      "removal": "Move direct persistence or lifecycle mutation into an application port/adapter."
+    },
+    {
+      "rule": "rest-delegation-boundary",
       "path": "backend/crates/support/rest/src/lib.rs",
+      "detail": "direct-persistence-or-lifecycle-mutation",
+      "id": "rest-delegation-boundary:backend/crates/support/rest/src/lib.rs:direct-persistence-or-lifecycle-mutation",
       "owner": "console-boundary-migration",
-      "removal": "Move lifecycle transition policy into the module domain/application layer and leave REST as transport mapping."
+      "removal": "Move direct persistence or lifecycle mutation into an application port/adapter."
     },
     {
-      "id": "rest-lifecycle-policy:backend/crates/workorder/rest/src/lib.rs:lifecycle-named-handler",
-      "rule": "rest-lifecycle-policy",
-      "path": "backend/crates/workorder/rest/src/lib.rs",
+      "rule": "rest-delegation-boundary",
+      "path": "backend/crates/support/rest/tests/authz.rs",
+      "detail": "direct-persistence-or-lifecycle-mutation",
+      "id": "rest-delegation-boundary:backend/crates/support/rest/tests/authz.rs:direct-persistence-or-lifecycle-mutation",
       "owner": "console-boundary-migration",
-      "removal": "Move lifecycle transition policy into the module domain/application layer and leave REST as transport mapping."
+      "removal": "Move direct persistence or lifecycle mutation into an application port/adapter."
+    },
+    {
+      "rule": "rest-delegation-boundary",
+      "path": "backend/crates/support/rest/tests/intake.rs",
+      "detail": "direct-persistence-or-lifecycle-mutation",
+      "id": "rest-delegation-boundary:backend/crates/support/rest/tests/intake.rs:direct-persistence-or-lifecycle-mutation",
+      "owner": "console-boundary-migration",
+      "removal": "Move direct persistence or lifecycle mutation into an application port/adapter."
+    },
+    {
+      "rule": "rest-delegation-boundary",
+      "path": "backend/crates/workorder/rest/src/lib.rs",
+      "detail": "direct-persistence-or-lifecycle-mutation",
+      "id": "rest-delegation-boundary:backend/crates/workorder/rest/src/lib.rs:direct-persistence-or-lifecycle-mutation",
+      "owner": "console-boundary-migration",
+      "removal": "Move direct persistence or lifecycle mutation into an application port/adapter."
+    },
+    {
+      "rule": "rest-delegation-boundary",
+      "path": "backend/crates/workorder/rest/src/m2_strangler.rs",
+      "detail": "direct-persistence-or-lifecycle-mutation",
+      "id": "rest-delegation-boundary:backend/crates/workorder/rest/src/m2_strangler.rs:direct-persistence-or-lifecycle-mutation",
+      "owner": "console-boundary-migration",
+      "removal": "Move direct persistence or lifecycle mutation into an application port/adapter."
+    },
+    {
+      "rule": "rest-delegation-boundary",
+      "path": "backend/crates/workorder/rest/tests/mobile_evidence.rs",
+      "detail": "direct-persistence-or-lifecycle-mutation",
+      "id": "rest-delegation-boundary:backend/crates/workorder/rest/tests/mobile_evidence.rs:direct-persistence-or-lifecycle-mutation",
+      "owner": "console-boundary-migration",
+      "removal": "Move direct persistence or lifecycle mutation into an application port/adapter."
+    },
+    {
+      "rule": "rest-delegation-boundary",
+      "path": "backend/crates/workorder/rest/tests/mobile_sync.rs",
+      "detail": "direct-persistence-or-lifecycle-mutation",
+      "id": "rest-delegation-boundary:backend/crates/workorder/rest/tests/mobile_sync.rs:direct-persistence-or-lifecycle-mutation",
+      "owner": "console-boundary-migration",
+      "removal": "Move direct persistence or lifecycle mutation into an application port/adapter."
     }
   ]
 }

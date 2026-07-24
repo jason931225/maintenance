@@ -81,3 +81,16 @@ add entries for new code. A changed-path run fails when a changed file introduce
 unledgered violation; as files are migrated, delete their ledger entry in the same
 change. The baseline lets present work fan out safely while a dedicated migration lane
 reduces debt.
+
+### Ledger admission control
+
+The exception ledger is anti-growth. It names a `trustedBaseRef`; normal gate runs
+load the ledger from that Git revision and reject every added ID or modified retained
+entry. Removing an entry is allowed and is the expected result of migration. Moving
+the trusted baseline is a protected consolidation action, not part of an ordinary
+feature lane. This prevents a failing change from making itself green merely by
+editing the debt list.
+
+The gate also treats an API module which exports a generated-client type as a
+transport leak when a UI consumer imports it. API modules may map wire types to
+adapter/public DTOs, but the generated type itself must not cross that public boundary.
