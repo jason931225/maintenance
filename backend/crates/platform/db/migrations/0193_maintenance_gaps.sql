@@ -16,7 +16,7 @@ ALTER TABLE equipment_cost_ledger
 -- mnt-gate: audited-table equipment_maintenance_history
 CREATE TABLE equipment_maintenance_history (
     id            UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id        UUID        NOT NULL REFERENCES organizations(id) ON DELETE RESTRICT,
+    org_id        UUID        NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
     equipment_id  UUID        NOT NULL,
     work_order_id UUID        NOT NULL,
     completed_at  TIMESTAMPTZ NOT NULL,
