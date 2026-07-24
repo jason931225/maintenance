@@ -152,6 +152,30 @@ class TestTaxonomy(unittest.TestCase):
         with self.assertRaises(ValueError):
             GENERATOR.test_labels("backend/app", "test.e2e", False)
 
+class TestResourceClassification(unittest.TestCase):
+    def test_production_pgpool_does_not_make_facilities_like_unit_tests_database_bound(self) -> None:
+        source = '''
+use sqlx::PgPool;
+async fn handler(pool: PgPool) {}
+#[cfg(test)]
+mod tests { #[test] fn legal_transition_is_pure() {} }
+'''
+        self.assertFalse(GENERATOR.test_body_uses_postgres(source))
+
+    def test_postgres_in_a_reviewable_test_body_is_database_bound(self) -> None:
+        source = '''
+#[cfg(test)]
+mod tests { #[sqlx::test] async fn migration(pool: PgPool) {} }
+'''
+        self.assertTrue(GENERATOR.test_body_uses_postgres(source))
+
+    def test_benefit_and_facilities_unit_bodies_are_pure(self) -> None:
+        repo = Path(GENERATOR.REPO)
+        for relative in (
+            "backend/crates/benefit/rest/src",
+            "backend/crates/facilities/rest/src",
+        ):
+            self.assertFalse(GENERATOR.source_test_tree_uses_postgres(repo / relative))
 
 if __name__ == "__main__":
     unittest.main()

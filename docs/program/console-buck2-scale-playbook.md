@@ -40,9 +40,16 @@ compatibility. `owner.*` and `domain.*` labels derive from stable package paths;
 there is no central exceptions table to decay as the graph grows.
 
 `tools/buck/generated_face_registry.json` is authority metadata, not a second
-dependency graph. Its validator requires a single writer, declared source and
-output roots, generator command and target, drift gate, and non-overlapping
-writable output roots for:
+dependency graph. It is a structured allowlist, not shell text: each face has
+one executable artifact plus a resolvable Buck writer target, existing declared
+source roots, exact generated output paths or constrained `/**`/`/**/BUCK`
+patterns, and a `writer-snapshot` drift gate. The validator rejects missing
+artifacts, unresolved targets, raw commands, and overlapping writable faces.
+The no-write preflight snapshots the candidate and executes **every** registered
+gate through the allowlisted writer dispatcher; `cheap` and `expensive` are
+scheduling metadata, never permission to silently skip a gate.
+
+This applies to:
 
 1. generated first-party BUCK files;
 2. the Reindeer third-party Rust graph; and

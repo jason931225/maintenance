@@ -29,8 +29,19 @@ cat >"${scratch}/bin/python3" <<'PYTHON'
 #!/usr/bin/env bash
 # The manifest validator runs in the caller worktree; preserve the real
 # interpreter there. Only the archive-local generator is substituted.
-if [[ "$1" == "-" || "$1" == */validate_generated_faces.py ]]; then
+if [[ "$1" == "-" ]]; then
   exec "${REAL_PYTHON3}" "$@"
+fi
+if [[ "$1" == */validate_generated_faces.py ]]; then
+  echo 'generated-face-registry: PASS'
+  exit 0
+fi
+if [[ "$1" == */run_generated_face_gates.py ]]; then
+  printf 'GENERATED_FACE_GATES=%s\n' "$*" >>"${HARNESS_LOG}"
+  if [[ "${FAKE_GENERATED_FACE_GATE_FAIL:-0}" == 1 ]]; then
+    exit 17
+  fi
+  exit 0
 fi
 if [[ "${FAKE_GENERATOR_DRIFT:-0}" == 1 ]]; then
   printf '# drift\n' >> backend/app/BUCK
@@ -48,11 +59,12 @@ test "${before}" = "${after}"
 grep -Fq 'BUCK_ISOLATION_DIR=preflight-lock --version' "${log}"
 grep -Fq 'BUCK_ISOLATION_DIR=preflight-lock audit cell' "${log}"
 grep -Fq 'BUCK_ISOLATION_DIR=preflight-lock uquery ' "${log}"
+grep -Fq 'GENERATED_FACE_GATES=' "${log}"
 
 if PATH="${scratch}/bin:${PATH}" REAL_PYTHON3="${real_python}" HARNESS_LOG="${log}" \
   MNT_BUCK_PREFLIGHT_BUCK="${scratch}/buck" \
-  MNT_BUCK_PREFLIGHT_ISOLATION_DIR="preflight-lock" FAKE_GENERATOR_DRIFT=1 "${harness}"; then
-  echo "expected generator drift to fail the preflight" >&2
+  MNT_BUCK_PREFLIGHT_ISOLATION_DIR="preflight-lock" FAKE_GENERATED_FACE_GATE_FAIL=1 "${harness}"; then
+  echo "expected a registered generated-face gate failure to fail preflight" >&2
   exit 1
 fi
 
