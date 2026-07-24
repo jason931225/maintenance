@@ -162,12 +162,32 @@ export function evaluateCiPreflight(workflow) {
 
   const apiContract = jobBlock(workflow, "api-contract");
   if (apiContract) {
+    const apiContractSteps = stepBlocks(apiContract);
     requireDotSlashBefore(
-      stepBlocks(apiContract),
+      apiContractSteps,
       "npm run check:openapi-app",
       "api-contract",
       failures,
     );
+    if (/^      MNT_APP_BIN:\s*.*(?:backend\/target|CARGO_TARGET_DIR)/m.test(apiContract)) {
+      failures.push("api-contract must not use a Cargo target path for MNT_APP_BIN");
+    }
+
+    const openApiGateIndex = apiContractSteps.findIndex((step) => runScalar(step) === "npm run check:openapi-app");
+    const contractTestIndex = apiContractSteps.findIndex((step) => runScalar(step) === "npm run test:contract");
+    const buckBinaryCapture = apiContractSteps.findIndex((step) =>
+      multilineRunCommands(step).includes('mnt_app_bin="${GITHUB_WORKSPACE}/.tmp/buck2/api-contract/mnt-app"')
+      && multilineRunCommands(step).includes('test -x "${mnt_app_bin}"')
+      && multilineRunCommands(step).includes("printf 'MNT_APP_BIN=%s\\n' \"${mnt_app_bin}\" >> \"${GITHUB_ENV}\""),
+    );
+    if (
+      openApiGateIndex < 0
+      || contractTestIndex < 0
+      || buckBinaryCapture < openApiGateIndex
+      || buckBinaryCapture > contractTestIndex
+    ) {
+      failures.push("api-contract must capture the Buck2-built mnt-app path for npm run test:contract");
+    }
   }
 
   for (const job of protectedJobs) {

@@ -83,6 +83,21 @@ describe("CI preflight contract", () => {
     expectFailure(apiWithoutDotSlash, "api-contract must install pinned DotSlash before Buck2");
   });
 
+  it("rejects API contract tests that point MNT_APP_BIN at a Cargo target", () => {
+    for (const path of [
+      "${{ github.workspace }}/backend/target/debug/mnt-app",
+      "${CARGO_TARGET_DIR}/debug/mnt-app",
+    ]) {
+      expectFailure(
+        workflow.replace(
+          "      CONTRACT_DATABASE_URL: postgres://postgres:postgres@localhost:5432/mnt_contract\n",
+          `      CONTRACT_DATABASE_URL: postgres://postgres:postgres@localhost:5432/mnt_contract\n      MNT_APP_BIN: ${path}\n`,
+        ),
+        "api-contract must not use a Cargo target path for MNT_APP_BIN",
+      );
+    }
+  });
+
   it("rejects a generated-face authority job without the complete closure", () => {
     expectFailure(
       workflow.replace(

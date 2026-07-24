@@ -741,7 +741,6 @@ jobs:
           --health-retries 5
     env:
       CONTRACT_DATABASE_URL: postgres://postgres:postgres@localhost:5432/mnt_contract
-      MNT_APP_BIN: ${{ github.workspace }}/backend/target/debug/mnt-app
       # This job builds mnt-app before comparing the app-served OpenAPI and
       # running the generated-client round-trip. Match the backend job's lean
       # Cargo artifacts so the standard runner does not exhaust disk on cache
@@ -781,6 +780,15 @@ jobs:
       - name: OpenAPI app-served drift gate
         if: ${{ !cancelled() }}
         run: npm run check:openapi-app
+
+      - name: Capture Buck2-built app for contract test
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mnt_app_bin="${GITHUB_WORKSPACE}/.tmp/buck2/api-contract/mnt-app"
+          test -x "${mnt_app_bin}"
+          printf 'MNT_APP_BIN=%s\n' "${mnt_app_bin}" >> "${GITHUB_ENV}"
 
       - name: Employee import replay contract
         if: ${{ !cancelled() }}
