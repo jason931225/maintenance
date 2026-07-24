@@ -2,8 +2,9 @@
 
 use mnt_dispatch_adapter_postgres::{PgDispatchStore, dispatch_response};
 use mnt_dispatch_application::{
-    ExpireP1DispatchCommand, ForceAssignP1DispatchCommand, IncidentLocationInput,
-    RespondP1DispatchCommand, StartP1DispatchCommand,
+    DispatchQueueStatus, ExpireP1DispatchCommand, ForceAssignP1DispatchCommand,
+    IncidentLocationInput, ListDispatchQueueQuery, RespondP1DispatchCommand,
+    StartP1DispatchCommand,
 };
 use mnt_dispatch_domain::{DispatchResponseKind, DispatchStatus, DispatchTimerConfig};
 use mnt_kernel_core::{BranchId, ErrorKind, OrgId, TraceContext, UserId, WorkOrderId};
@@ -420,6 +421,129 @@ async fn cross_branch_consented_responder_is_gps_ranked(pool: PgPool) {
             "cross-branch consented responder must be GPS-ranked"
         );
         assert!(response.distance_meters.is_some());
+    })
+    .await;
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn start_replay_is_audit_once_and_changed_intent_conflicts(pool: PgPool) {
+    mnt_platform_request_context::scope_org(OrgId::knl(), async move {
+        let seeded = seed_dispatch_context(&pool).await;
+        let store = PgDispatchStore::new(pool.clone());
+        let now = datetime!(2026-06-12 09:00 UTC);
+        let command = StartP1DispatchCommand {
+            actor: seeded.receptionist,
+            work_order_id: seeded.work_order_id,
+            incident_location: None,
+            include_region: false,
+            trace: TraceContext::generate(),
+            occurred_at: now,
+        };
+        let first = store
+            .start_dispatch(command.clone(), DispatchTimerConfig::default())
+            .await
+            .unwrap();
+        let replay = store
+            .start_dispatch(command, DispatchTimerConfig::default())
+            .await
+            .unwrap();
+        assert_eq!(first.id, replay.id);
+        let starts: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM audit_events WHERE action='p1_dispatch.start' AND target_id=$1",
+        )
+        .bind(first.id.to_string())
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(starts, 1, "same input must not append a second audit");
+        let changed = store
+            .start_dispatch(
+                StartP1DispatchCommand {
+                    actor: seeded.receptionist,
+                    work_order_id: seeded.work_order_id,
+                    incident_location: Some(IncidentLocationInput {
+                        latitude: 37.5,
+                        longitude: 127.0,
+                    }),
+                    include_region: false,
+                    trace: TraceContext::generate(),
+                    occurred_at: now,
+                },
+                DispatchTimerConfig::default(),
+            )
+            .await
+            .unwrap_err();
+        assert_eq!(changed.kind(), ErrorKind::Conflict);
+    })
+    .await;
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn declined_target_cannot_be_force_assigned_and_candidate_read_is_side_effect_free(
+    pool: PgPool,
+) {
+    mnt_platform_request_context::scope_org(OrgId::knl(), async move {
+        let seeded = seed_dispatch_context(&pool).await;
+        let store = PgDispatchStore::new(pool.clone()); let now = datetime!(2026-06-12 09:00 UTC);
+        let started = store.start_dispatch(StartP1DispatchCommand { actor: seeded.receptionist, work_order_id: seeded.work_order_id, incident_location: Some(IncidentLocationInput { latitude: 37.5651, longitude: 126.9895 }), include_region: false, trace: TraceContext::generate(), occurred_at: now }, DispatchTimerConfig::default()).await.unwrap();
+        let candidates = store.dispatch_candidates(started.id, now, DispatchTimerConfig::default()).await.unwrap();
+        assert!(candidates.items.iter().all(|candidate| candidate.distance_meters.is_none() || candidate.gps_ranked));
+        let score_writes: i64 = sqlx::query_scalar("SELECT count(*) FROM p1_dispatch_responses WHERE dispatch_id=$1 AND score_milli IS NOT NULL").bind(*started.id.as_uuid()).fetch_one(&pool).await.unwrap();
+        assert_eq!(score_writes, 0, "candidate reads must not persist scoring");
+        store.record_response(RespondP1DispatchCommand { actor: seeded.near_mechanic, dispatch_id: started.id, response: DispatchResponseKind::Decline, trace: TraceContext::generate(), occurred_at: now + time::Duration::seconds(1) }, DispatchTimerConfig::default()).await.unwrap();
+        store.expire_accept_window(ExpireP1DispatchCommand { dispatch_id: started.id, trace: TraceContext::generate(), occurred_at: now + time::Duration::minutes(6) }).await.unwrap();
+        let rejected = store.force_assign(ForceAssignP1DispatchCommand { actor: seeded.manager, dispatch_id: started.id, mechanic_id: seeded.near_mechanic, trace: TraceContext::generate(), occurred_at: now + time::Duration::minutes(7) }).await.unwrap_err();
+        assert_eq!(rejected.kind(), ErrorKind::Conflict);
+    }).await;
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn queue_is_branch_scoped_and_cursor_pages_are_disjoint(pool: PgPool) {
+    mnt_platform_request_context::scope_org(OrgId::knl(), async move {
+        let seeded = seed_dispatch_context(&pool).await;
+        let second = seed_work_order(&pool, seeded.branch_id, seeded.receptionist, 2).await;
+        let store = PgDispatchStore::new(pool);
+        let now = datetime!(2026-06-12 09:00 UTC);
+        let page1 = store
+            .list_dispatch_queue(ListDispatchQueueQuery {
+                branch_scope: mnt_kernel_core::BranchScope::Branches(
+                    [seeded.branch_id].into_iter().collect(),
+                ),
+                statuses: DispatchQueueStatus::parse_csv(None).unwrap(),
+                limit: 1,
+                after: None,
+                now,
+            })
+            .await
+            .unwrap();
+        assert_eq!(page1.items.len(), 1);
+        let cursor = page1
+            .next_after
+            .clone()
+            .expect("second item requires a cursor");
+        let page2 = store
+            .list_dispatch_queue(ListDispatchQueueQuery {
+                branch_scope: mnt_kernel_core::BranchScope::Branches(
+                    [seeded.branch_id].into_iter().collect(),
+                ),
+                statuses: DispatchQueueStatus::parse_csv(None).unwrap(),
+                limit: 1,
+                after: Some(
+                    mnt_dispatch_application::DispatchQueueCursor::decode(&cursor, now).unwrap(),
+                ),
+                now,
+            })
+            .await
+            .unwrap();
+        assert_eq!(page2.items.len(), 1);
+        assert_ne!(page1.items[0].work_order_id, page2.items[0].work_order_id);
+        assert!(
+            page1
+                .items
+                .iter()
+                .chain(page2.items.iter())
+                .any(|item| item.work_order_id == second)
+        );
     })
     .await;
 }
