@@ -1074,9 +1074,11 @@
     "frontend_roots": [
      "web/src/console/attendance/**"
     ],
-    "backend_roots": [],
+    "backend_roots": [
+     "backend/crates/attendance/**"
+    ],
     "api_schema_roots": [],
-    "migration_owner": null,
+    "migration_owner": "attendance-backend",
     "integration_owner": "console-consolidation"
    },
    "routes": [
@@ -1112,11 +1114,30 @@
     },
     "consolidation": {
      "owner": "console-consolidation"
+    },
+    "backend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-attendance-backend-20260724",
+     "branch": "claude/console-attendance-backend-20260724",
+     "roots": [
+      "backend/crates/attendance/**",
+      "backend/app/tests/attendance_close_api.rs",
+      "backend/crates/platform/db/migrations/0188_create_attendance_close.sql"
+     ],
+     "must_not_touch": [
+      "web/**",
+      "clients/**",
+      "backend/openapi/**"
+     ],
+     "migration_slots_provisional": [
+      "0188"
+     ],
+     "mode": "new_crate_for_close_gaps; gaps belonging in existing shared crates go to manifest"
     }
    },
    "state": {
     "design_contract": "research_in_progress",
-    "backend": "existing_rest_reused_gap_manifest_only",
+    "backend": "writer_assigned_gap_closure_in_progress",
     "frontend": "writer_assigned_in_progress",
     "e2e": "missing",
     "runtime": "blocked",
@@ -1263,9 +1284,11 @@
     "frontend_roots": [
      "web/src/console/org/**"
     ],
-    "backend_roots": [],
+    "backend_roots": [
+     "backend/crates/orgchange/**"
+    ],
     "api_schema_roots": [],
-    "migration_owner": null,
+    "migration_owner": "org-backend",
     "integration_owner": "console-consolidation"
    },
    "routes": [
@@ -1301,11 +1324,30 @@
     },
     "consolidation": {
      "owner": "console-consolidation"
+    },
+    "backend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-org-backend-20260724",
+     "branch": "claude/console-org-backend-20260724",
+     "roots": [
+      "backend/crates/orgchange/**",
+      "backend/app/tests/org_change_api.rs",
+      "backend/crates/platform/db/migrations/0189_create_org_change.sql"
+     ],
+     "must_not_touch": [
+      "web/**",
+      "clients/**",
+      "backend/openapi/**"
+     ],
+     "migration_slots_provisional": [
+      "0189"
+     ],
+     "mode": "new_crate_for_change_lifecycle; identity/registry edits forbidden (hot) -> manifest"
     }
    },
    "state": {
     "design_contract": "research_in_progress",
-    "backend": "existing_rest_reused_gap_manifest_only",
+    "backend": "writer_assigned_gap_closure_in_progress",
     "frontend": "writer_assigned_in_progress",
     "e2e": "missing",
     "runtime": "blocked",
@@ -1346,9 +1388,11 @@
     "frontend_roots": [
      "web/src/console/evaluation/**"
     ],
-    "backend_roots": [],
+    "backend_roots": [
+     "backend/crates/evaluation/**"
+    ],
     "api_schema_roots": [],
-    "migration_owner": null,
+    "migration_owner": "evaluation-backend",
     "integration_owner": "console-consolidation"
    },
    "routes": [
@@ -1384,11 +1428,30 @@
     },
     "consolidation": {
      "owner": "console-consolidation"
+    },
+    "backend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-evaluation-backend-20260724",
+     "branch": "claude/console-evaluation-backend-20260724",
+     "roots": [
+      "backend/crates/evaluation/**",
+      "backend/app/tests/evaluation_cycle_api.rs",
+      "backend/crates/platform/db/migrations/0190_create_evaluation.sql"
+     ],
+     "must_not_touch": [
+      "web/**",
+      "clients/**",
+      "backend/openapi/**"
+     ],
+     "migration_slots_provisional": [
+      "0190"
+     ],
+     "mode": "new_crate"
     }
    },
    "state": {
     "design_contract": "research_in_progress",
-    "backend": "backend_missing_contract_first",
+    "backend": "writer_assigned_gap_closure_in_progress",
     "frontend": "writer_assigned_in_progress",
     "e2e": "missing",
     "runtime": "blocked",
@@ -1429,9 +1492,11 @@
     "frontend_roots": [
      "web/src/console/inventory/**"
     ],
-    "backend_roots": [],
+    "backend_roots": [
+     "backend/crates/inventory/**"
+    ],
     "api_schema_roots": [],
-    "migration_owner": null,
+    "migration_owner": "inventory-backend",
     "integration_owner": "console-consolidation"
    },
    "routes": [
@@ -1467,11 +1532,30 @@
     },
     "consolidation": {
      "owner": "console-consolidation"
+    },
+    "backend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-inventory-backend-20260724",
+     "branch": "claude/console-inventory-backend-20260724",
+     "roots": [
+      "backend/crates/inventory/**",
+      "backend/app/tests/inventory_count_api.rs",
+      "backend/crates/platform/db/migrations/0191_inventory_rest.sql"
+     ],
+     "must_not_touch": [
+      "web/**",
+      "clients/**",
+      "backend/openapi/**"
+     ],
+     "migration_slots_provisional": [
+      "0191"
+     ],
+     "mode": "extend_existing_cold_crate_add_rest"
     }
    },
    "state": {
     "design_contract": "research_in_progress",
-    "backend": "backend_dark_contract_first",
+    "backend": "writer_assigned_gap_closure_in_progress",
     "frontend": "writer_assigned_in_progress",
     "e2e": "missing",
     "runtime": "blocked",
@@ -1512,9 +1596,11 @@
     "frontend_roots": [
      "web/src/console/dispatch/**"
     ],
-    "backend_roots": [],
+    "backend_roots": [
+     "backend/crates/dispatch/**"
+    ],
     "api_schema_roots": [],
-    "migration_owner": null,
+    "migration_owner": "dispatch-backend",
     "integration_owner": "console-consolidation"
    },
    "routes": [
@@ -1550,11 +1636,30 @@
     },
     "consolidation": {
      "owner": "console-consolidation"
+    },
+    "backend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-dispatch-backend-20260724",
+     "branch": "claude/console-dispatch-backend-20260724",
+     "roots": [
+      "backend/crates/dispatch/**",
+      "backend/app/tests/dispatch_pipeline_api.rs",
+      "backend/crates/platform/db/migrations/0192_dispatch_gaps.sql"
+     ],
+     "must_not_touch": [
+      "web/**",
+      "clients/**",
+      "backend/openapi/**"
+     ],
+     "migration_slots_provisional": [
+      "0192"
+     ],
+     "mode": "extend_existing_cold_crate"
     }
    },
    "state": {
     "design_contract": "research_in_progress",
-    "backend": "existing_rest_reused_gap_manifest_only",
+    "backend": "writer_assigned_gap_closure_in_progress",
     "frontend": "writer_assigned_in_progress",
     "e2e": "missing",
     "runtime": "blocked",
@@ -1595,9 +1700,11 @@
     "frontend_roots": [
      "web/src/console/maintenance/**"
     ],
-    "backend_roots": [],
+    "backend_roots": [
+     "backend/crates/workorder/**"
+    ],
     "api_schema_roots": [],
-    "migration_owner": null,
+    "migration_owner": "maintenance-backend",
     "integration_owner": "console-consolidation"
    },
    "routes": [
@@ -1633,11 +1740,30 @@
     },
     "consolidation": {
      "owner": "console-consolidation"
+    },
+    "backend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-maintenance-backend-20260724",
+     "branch": "claude/console-maintenance-backend-20260724",
+     "roots": [
+      "backend/crates/workorder/**",
+      "backend/app/tests/maintenance_chain_api.rs",
+      "backend/crates/platform/db/migrations/0193_maintenance_gaps.sql"
+     ],
+     "must_not_touch": [
+      "web/**",
+      "clients/**",
+      "backend/openapi/**"
+     ],
+     "migration_slots_provisional": [
+      "0193"
+     ],
+     "mode": "extend_existing_crate_after_cold_check"
     }
    },
    "state": {
     "design_contract": "research_in_progress",
-    "backend": "existing_rest_reused_gap_manifest_only",
+    "backend": "writer_assigned_gap_closure_in_progress",
     "frontend": "writer_assigned_in_progress",
     "e2e": "missing",
     "runtime": "blocked",
@@ -1678,9 +1804,11 @@
     "frontend_roots": [
      "web/src/console/field/**"
     ],
-    "backend_roots": [],
+    "backend_roots": [
+     "backend/crates/support/**"
+    ],
     "api_schema_roots": [],
-    "migration_owner": null,
+    "migration_owner": "field-backend",
     "integration_owner": "console-consolidation"
    },
    "routes": [
@@ -1716,11 +1844,30 @@
     },
     "consolidation": {
      "owner": "console-consolidation"
+    },
+    "backend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-field-backend-20260724",
+     "branch": "claude/console-field-backend-20260724",
+     "roots": [
+      "backend/crates/support/**",
+      "backend/app/tests/field_visit_api.rs",
+      "backend/crates/platform/db/migrations/0194_field_gaps.sql"
+     ],
+     "must_not_touch": [
+      "web/**",
+      "clients/**",
+      "backend/openapi/**"
+     ],
+     "migration_slots_provisional": [
+      "0194"
+     ],
+     "mode": "extend_support_crate; workorder needs -> manifest (owned by maintenance lane)"
     }
    },
    "state": {
     "design_contract": "research_in_progress",
-    "backend": "existing_rest_reused_gap_manifest_only",
+    "backend": "writer_assigned_gap_closure_in_progress",
     "frontend": "writer_assigned_in_progress",
     "e2e": "missing",
     "runtime": "blocked",
@@ -1761,9 +1908,11 @@
     "frontend_roots": [
      "web/src/console/docs/**"
     ],
-    "backend_roots": [],
+    "backend_roots": [
+     "backend/crates/docs/**"
+    ],
     "api_schema_roots": [],
-    "migration_owner": null,
+    "migration_owner": "docs-backend",
     "integration_owner": "console-consolidation"
    },
    "routes": [
@@ -1800,11 +1949,30 @@
     },
     "consolidation": {
      "owner": "console-consolidation"
+    },
+    "backend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-docs-backend-20260724",
+     "branch": "claude/console-docs-backend-20260724",
+     "roots": [
+      "backend/crates/docs/**",
+      "backend/app/tests/docs_evidence_api.rs",
+      "backend/crates/platform/db/migrations/0195_docs_gaps.sql"
+     ],
+     "must_not_touch": [
+      "web/**",
+      "clients/**",
+      "backend/openapi/**"
+     ],
+     "migration_slots_provisional": [
+      "0195"
+     ],
+     "mode": "extend_existing_crate_after_cold_check"
     }
    },
    "state": {
     "design_contract": "research_in_progress",
-    "backend": "existing_rest_reused_gap_manifest_only",
+    "backend": "writer_assigned_gap_closure_in_progress",
     "frontend": "writer_assigned_in_progress",
     "e2e": "missing",
     "runtime": "blocked",
@@ -1845,9 +2013,11 @@
     "frontend_roots": [
      "web/src/console/notif/**"
     ],
-    "backend_roots": [],
+    "backend_roots": [
+     "backend/crates/notifications/**"
+    ],
     "api_schema_roots": [],
-    "migration_owner": null,
+    "migration_owner": "notif-backend",
     "integration_owner": "console-consolidation"
    },
    "routes": [
@@ -1884,11 +2054,30 @@
     },
     "consolidation": {
      "owner": "console-consolidation"
+    },
+    "backend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-notif-backend-20260724",
+     "branch": "claude/console-notif-backend-20260724",
+     "roots": [
+      "backend/crates/notifications/**",
+      "backend/app/tests/notif_routing_api.rs",
+      "backend/crates/platform/db/migrations/0196_notif_routing.sql"
+     ],
+     "must_not_touch": [
+      "web/**",
+      "clients/**",
+      "backend/openapi/**"
+     ],
+     "migration_slots_provisional": [
+      "0196"
+     ],
+     "mode": "extend_existing_crate_after_cold_check"
     }
    },
    "state": {
     "design_contract": "research_in_progress",
-    "backend": "existing_rest_reused_gap_manifest_only",
+    "backend": "writer_assigned_gap_closure_in_progress",
     "frontend": "writer_assigned_in_progress",
     "e2e": "missing",
     "runtime": "blocked",
@@ -1929,9 +2118,11 @@
     "frontend_roots": [
      "web/src/console/board/**"
     ],
-    "backend_roots": [],
+    "backend_roots": [
+     "backend/crates/notices/**"
+    ],
     "api_schema_roots": [],
-    "migration_owner": null,
+    "migration_owner": "board-backend",
     "integration_owner": "console-consolidation"
    },
    "routes": [
@@ -1967,11 +2158,30 @@
     },
     "consolidation": {
      "owner": "console-consolidation"
+    },
+    "backend": {
+     "owner": "claude-fanout-20260724",
+     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-board-backend-20260724",
+     "branch": "claude/console-board-backend-20260724",
+     "roots": [
+      "backend/crates/notices/**",
+      "backend/app/tests/board_ack_api.rs",
+      "backend/crates/platform/db/migrations/0197_board_ack.sql"
+     ],
+     "must_not_touch": [
+      "web/**",
+      "clients/**",
+      "backend/openapi/**"
+     ],
+     "migration_slots_provisional": [
+      "0197"
+     ],
+     "mode": "extend_existing_crate_after_cold_check"
     }
    },
    "state": {
     "design_contract": "research_in_progress",
-    "backend": "existing_rest_reused_gap_manifest_only",
+    "backend": "writer_assigned_gap_closure_in_progress",
     "frontend": "writer_assigned_in_progress",
     "e2e": "missing",
     "runtime": "blocked",
@@ -2054,7 +2264,7 @@
    },
    "state": {
     "design_contract": "research_in_progress",
-    "backend": "existing_rest_reused_gap_manifest_only",
+    "backend": "existing_rest_reused_identity_crate_hot_manifest_only",
     "frontend": "writer_assigned_in_progress",
     "e2e": "missing",
     "runtime": "blocked",
