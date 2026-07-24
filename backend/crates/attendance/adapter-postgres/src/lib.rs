@@ -27,7 +27,7 @@ const LIST_EXCEPTIONS_SQL: &str = "\
            employee.org_unit AS team,e.branch_id,e.work_date,e.created_at AS occurred_at,\
            e.detail,e.evidence,e.links,e.created_at,r.action AS resolution_action,\
            r.reason AS resolution_reason,r.linked_work_ref,r.ot_hours,r.actor_user_id,\
-           r.created_at AS resolved_at \
+           r.resolved_at AS resolved_at \
     FROM attendance_exceptions e \
     JOIN employees employee ON employee.id=e.employee_id AND employee.org_id=e.org_id \
     LEFT JOIN attendance_exception_resolutions r \
@@ -43,7 +43,7 @@ const EXCEPTION_BY_ID_SQL: &str = "\
            employee.org_unit AS team,e.branch_id,e.work_date,e.created_at AS occurred_at,\
            e.detail,e.evidence,e.links,e.created_at,r.action AS resolution_action,\
            r.reason AS resolution_reason,r.linked_work_ref,r.ot_hours,r.actor_user_id,\
-           r.created_at AS resolved_at \
+           r.resolved_at AS resolved_at \
     FROM attendance_exceptions e \
     JOIN employees employee ON employee.id=e.employee_id AND employee.org_id=e.org_id \
     LEFT JOIN attendance_exception_resolutions r \
@@ -1080,6 +1080,15 @@ mod tests {
         assert!(sql.contains("status='ASSIGNED'"));
         assert!(!sql.contains("cancellation_reason"));
     }
+
+    #[test]
+    fn exception_projections_use_migration_0188_resolution_timestamp() {
+        for sql in [LIST_EXCEPTIONS_SQL, EXCEPTION_BY_ID_SQL] {
+            assert!(sql.contains("r.resolved_at AS resolved_at"));
+            assert!(!sql.contains("r.created_at AS resolved_at"));
+        }
+    }
+
     #[test]
     fn week52_active_rows_preserve_identity_shape() {
         let rows = week52_inputs_for_active(
