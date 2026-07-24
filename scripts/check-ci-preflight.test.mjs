@@ -122,6 +122,27 @@ describe("CI preflight contract", () => {
       workflow.replace(toolchainSetup, "").replace(fullGate, `${fullGate}${toolchainSetup}`),
       "must install the lock-pinned Reindeer Rust toolchain before full generated-face closure",
     );
+    expectFailure(
+      workflow.replace(
+        "          set -euo pipefail\n          # shellcheck source=third-party/rust/reindeer/upstream.lock\n          source third-party/rust/reindeer/upstream.lock",
+        "          source third-party/rust/reindeer/upstream.lock\n          set -euo pipefail",
+      ),
+      "must enable strict shell mode before sourcing third-party/rust/reindeer/upstream.lock",
+    );
+    expectFailure(
+      workflow.replace(
+        "          source third-party/rust/reindeer/upstream.lock\n          rustup toolchain install \"$REINDEER_TOOLCHAIN\" --profile minimal",
+        "          rustup toolchain install \"$REINDEER_TOOLCHAIN\" --profile minimal\n          source third-party/rust/reindeer/upstream.lock",
+      ),
+      "must source third-party/rust/reindeer/upstream.lock before installing the Reindeer Rust toolchain",
+    );
+    expectFailure(
+      workflow.replace(
+        "          rustup toolchain install \"$REINDEER_TOOLCHAIN\" --profile minimal",
+        "          export REINDEER_TOOLCHAIN=untrusted\n          rustup toolchain install \"$REINDEER_TOOLCHAIN\" --profile minimal",
+      ),
+      "must not override REINDEER_TOOLCHAIN after sourcing third-party/rust/reindeer/upstream.lock",
+    );
   });
 
   it("rejects a preflight that does not run the lockfile and foundation gates", () => {

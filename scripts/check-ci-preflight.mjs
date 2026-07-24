@@ -7,6 +7,8 @@ const dotSlashBootstrap = "tools/buck/install_dotslash.sh";
 const reindeerToolchainLock = "third-party/rust/reindeer/upstream.lock";
 const reindeerToolchainSource = `source ${reindeerToolchainLock}`;
 const reindeerToolchainInstall = 'rustup toolchain install "$REINDEER_TOOLCHAIN" --profile minimal';
+const strictShellMode = "set -euo pipefail";
+const reindeerToolchainOverride = /^(?:export\s+)?REINDEER_TOOLCHAIN\s*=/;
 const requiredPreflightCommands = [
   "tools/buck/preflight.sh",
   "npm run check:foundation-gates",
@@ -81,8 +83,18 @@ function requireReindeerToolchainBefore(steps, command, failures) {
     return;
   }
   const commands = multilineRunCommands(steps[toolchainIndex]);
-  if (!commands.includes(reindeerToolchainSource)) {
+  const strictModeIndex = commands.indexOf(strictShellMode);
+  const sourceIndex = commands.indexOf(reindeerToolchainSource);
+  const installIndex = commands.indexOf(reindeerToolchainInstall);
+  if (sourceIndex < 0) {
     failures.push(`generated-face-authority must source ${reindeerToolchainLock} before installing the Reindeer Rust toolchain`);
+  } else if (strictModeIndex < 0 || strictModeIndex > sourceIndex) {
+    failures.push(`generated-face-authority must enable strict shell mode before sourcing ${reindeerToolchainLock}`);
+  } else if (sourceIndex > installIndex) {
+    failures.push(`generated-face-authority must source ${reindeerToolchainLock} before installing the Reindeer Rust toolchain`);
+  }
+  if (commands.some((entry) => reindeerToolchainOverride.test(entry))) {
+    failures.push(`generated-face-authority must not override REINDEER_TOOLCHAIN after sourcing ${reindeerToolchainLock}`);
   }
   if (!isUnconditional(steps[toolchainIndex])) {
     failures.push("generated-face-authority must install the Reindeer Rust toolchain unconditionally");
