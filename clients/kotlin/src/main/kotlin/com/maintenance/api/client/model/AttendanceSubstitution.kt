@@ -89,7 +89,7 @@ data class AttendanceSubstitution (
     val workerType: kotlin.String,
 
     @SerialName(value = "status")
-    val status: kotlin.String,
+    val status: AttendanceSubstitution.Status,
 
     @Contextual @SerialName(value = "created_by")
     val createdBy: java.util.UUID,
@@ -114,5 +114,15 @@ data class AttendanceSubstitution (
 
 ) {
 
+    /**
+     *
+     *
+     * Values: ASSIGNED,CANCELLED
+     */
+    @Serializable
+    enum class Status(val value: kotlin.String) {
+        @SerialName(value = "ASSIGNED") ASSIGNED("ASSIGNED"),
+        @SerialName(value = "CANCELLED") CANCELLED("CANCELLED");
+    }
 
 }

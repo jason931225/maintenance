@@ -15158,8 +15158,10 @@ export interface components {
         AttendanceException: {
             id: components["schemas"]["Uuid"];
             code: string;
-            kind: string;
-            status: string;
+            /** @enum {string} */
+            kind: "LATE" | "NO_SHOW" | "UNAPPROVED_OVERTIME" | "EARLY_LEAVE";
+            /** @enum {string} */
+            status: "OPEN" | "RESOLVED";
             employee_id: components["schemas"]["Uuid"];
             employee_name: string;
             team?: string | null;
@@ -15185,7 +15187,8 @@ export interface components {
             offset: number;
         };
         RaiseAttendanceExceptionRequest: {
-            kind: string;
+            /** @enum {string} */
+            kind: "LATE" | "NO_SHOW" | "UNAPPROVED_OVERTIME" | "EARLY_LEAVE";
             employee_id: components["schemas"]["Uuid"];
             branch_id?: components["schemas"]["Uuid"];
             /** Format: date */
@@ -15219,7 +15222,8 @@ export interface components {
             worker_name: string;
             worker_type: string;
             worker_rate?: string | null;
-            status: string;
+            /** @enum {string} */
+            status: "ASSIGNED" | "CANCELLED";
             exception_id?: components["schemas"]["Uuid"];
             created_by: components["schemas"]["Uuid"];
             /** Format: date-time */
@@ -15236,7 +15240,7 @@ export interface components {
         };
         AssignAttendanceSubstituteRequest: {
             site: string;
-            branch_id?: components["schemas"]["Uuid"];
+            branch_id?: components["schemas"]["Uuid"] | null;
             role: string;
             /** Format: date */
             cover_date: string;
@@ -15245,11 +15249,11 @@ export interface components {
             covered_employee_id: components["schemas"]["Uuid"];
             reason_kind: string;
             reason_detail?: string | null;
-            worker_employee_id?: components["schemas"]["Uuid"];
+            worker_employee_id?: components["schemas"]["Uuid"] | null;
             worker_name: string;
             worker_type: string;
             worker_rate?: string | null;
-            exception_id?: components["schemas"]["Uuid"];
+            exception_id?: components["schemas"]["Uuid"] | null;
         };
         CancelAttendanceSubstitutionRequest: {
             reason: string;
@@ -15257,7 +15261,7 @@ export interface components {
         AttendanceCloseCheck: {
             key: string;
             ok: boolean;
-            warn?: boolean | null;
+            warn?: boolean;
             note?: string | null;
         };
         AttendanceCloseAmendment: {

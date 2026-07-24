@@ -61,10 +61,10 @@ data class AttendanceException (
     val code: kotlin.String,
 
     @SerialName(value = "kind")
-    val kind: kotlin.String,
+    val kind: AttendanceException.Kind,
 
     @SerialName(value = "status")
-    val status: kotlin.String,
+    val status: AttendanceException.Status,
 
     @Contextual @SerialName(value = "employee_id")
     val employeeId: java.util.UUID,
@@ -101,5 +101,27 @@ data class AttendanceException (
 
 ) {
 
+    /**
+     *
+     *
+     * Values: LATE,NO_SHOW,UNAPPROVED_OVERTIME,EARLY_LEAVE
+     */
+    @Serializable
+    enum class Kind(val value: kotlin.String) {
+        @SerialName(value = "LATE") LATE("LATE"),
+        @SerialName(value = "NO_SHOW") NO_SHOW("NO_SHOW"),
+        @SerialName(value = "UNAPPROVED_OVERTIME") UNAPPROVED_OVERTIME("UNAPPROVED_OVERTIME"),
+        @SerialName(value = "EARLY_LEAVE") EARLY_LEAVE("EARLY_LEAVE");
+    }
+    /**
+     *
+     *
+     * Values: OPEN,RESOLVED
+     */
+    @Serializable
+    enum class Status(val value: kotlin.String) {
+        @SerialName(value = "OPEN") OPEN("OPEN"),
+        @SerialName(value = "RESOLVED") RESOLVED("RESOLVED");
+    }
 
 }

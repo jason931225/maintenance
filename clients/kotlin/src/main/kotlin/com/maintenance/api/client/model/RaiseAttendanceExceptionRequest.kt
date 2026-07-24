@@ -44,7 +44,7 @@ import kotlinx.serialization.Contextual
 data class RaiseAttendanceExceptionRequest (
 
     @SerialName(value = "kind")
-    val kind: kotlin.String,
+    val kind: RaiseAttendanceExceptionRequest.Kind,
 
     @Contextual @SerialName(value = "employee_id")
     val employeeId: java.util.UUID,
@@ -63,5 +63,17 @@ data class RaiseAttendanceExceptionRequest (
 
 ) {
 
+    /**
+     *
+     *
+     * Values: LATE,NO_SHOW,UNAPPROVED_OVERTIME,EARLY_LEAVE
+     */
+    @Serializable
+    enum class Kind(val value: kotlin.String) {
+        @SerialName(value = "LATE") LATE("LATE"),
+        @SerialName(value = "NO_SHOW") NO_SHOW("NO_SHOW"),
+        @SerialName(value = "UNAPPROVED_OVERTIME") UNAPPROVED_OVERTIME("UNAPPROVED_OVERTIME"),
+        @SerialName(value = "EARLY_LEAVE") EARLY_LEAVE("EARLY_LEAVE");
+    }
 
 }
