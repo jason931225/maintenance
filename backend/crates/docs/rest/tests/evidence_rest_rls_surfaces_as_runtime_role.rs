@@ -302,6 +302,17 @@ async fn register_object(
     storage_key: &str,
     title: &str,
 ) -> EvidenceObjectId {
+    register_object_at(store, actor, digest_hex, storage_key, title, now()).await
+}
+
+async fn register_object_at(
+    store: &PgDocsStore,
+    actor: UserId,
+    digest_hex: &str,
+    storage_key: &str,
+    title: &str,
+    occurred_at: OffsetDateTime,
+) -> EvidenceObjectId {
     let detail = store
         .create_object(CreateEvidenceObjectCommand {
             actor,
@@ -323,11 +334,11 @@ async fn register_object(
                 content_type: "application/pdf".to_owned(),
                 size_bytes: 42,
                 worm_status: WormStorageStatus::Verified,
-                verified_at: Some(now()),
+                verified_at: Some(occurred_at),
             }),
             tsa_proof: None,
             trace: TraceContext::generate(),
-            occurred_at: now(),
+            occurred_at,
         })
         .await
         .expect("create_object under armed org as mnt_rt");
@@ -426,6 +437,22 @@ async fn cursor_scan_is_stable_across_the_immutable_register(owner_pool: PgPool)
     assert_eq!(first.total, 2);
     assert_eq!(first.items.len(), 1);
 
+    // The third registration occurs after the first page captured its DB
+    // sequence boundary, but its business timestamp is deliberately backdated.
+    // It must not enter the already-open scan.
+    let backdated_id = mnt_platform_request_context::scope_org(org, async {
+        register_object_at(
+            st.docs_store(),
+            actor,
+            &"15".repeat(32),
+            "worm/cursor-backdated",
+            "Backdated after snapshot",
+            now() - time::Duration::days(1),
+        )
+        .await
+    })
+    .await;
+
     let second = mnt_platform_request_context::scope_org(org, async {
         st.docs_store()
             .list_objects(ListEvidenceObjectsQuery {
@@ -442,6 +469,15 @@ async fn cursor_scan_is_stable_across_the_immutable_register(owner_pool: PgPool)
     assert_eq!(second.total, 2);
     assert_eq!(second.items.len(), 1);
     assert_ne!(first.items[0].id, second.items[0].id);
+    assert_ne!(second.items[0].id, backdated_id);
+
+    let fresh = mnt_platform_request_context::scope_org(org, async {
+        st.docs_store().list_objects(list_all()).await
+    })
+    .await
+    .expect("fresh scan succeeds");
+    assert_eq!(fresh.total, 3);
+    assert!(fresh.items.iter().any(|object| object.id == backdated_id));
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
