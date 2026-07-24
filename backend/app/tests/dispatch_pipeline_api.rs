@@ -62,6 +62,23 @@ async fn dispatch_queue_is_authenticated_authorized_and_scope_closed(pool: PgPoo
     .await;
     assert_eq!(forbidden.0, StatusCode::FORBIDDEN, "{:?}", forbidden.1);
 
+    let validation = get_json(
+        service.clone(),
+        "/api/v1/console/dispatch/queue?status=NOT_A_STATUS",
+        &admin_token,
+    )
+    .await;
+    assert_eq!(validation.0, StatusCode::UNPROCESSABLE_ENTITY, "{:?}", validation.1);
+    assert!(validation.1["error"]["code"].is_string(), "{:?}", validation.1);
+
+    for uri in [
+        "/api/v1/p1-dispatches/not-a-uuid/candidates",
+        "/api/v1/p1-dispatches/not-a-uuid/responses",
+    ] {
+        let malformed = get_json(service.clone(), uri, &admin_token).await;
+        assert_eq!(malformed.0, StatusCode::BAD_REQUEST, "{uri}: {:?}", malformed.1);
+    }
+
     let scope_escalation = get_json(
         service,
         "/api/v1/console/dispatch/queue?status=RECEIVED&branch_id=all",

@@ -29,6 +29,7 @@ import okhttp3.HttpUrl
 
 import com.maintenance.api.client.model.DispatchCandidatePage
 import com.maintenance.api.client.model.DispatchQueuePage
+import com.maintenance.api.client.model.DispatchQueueStatus
 import com.maintenance.api.client.model.ErrorBody
 import com.maintenance.api.client.model.ForceAssignP1DispatchRequest
 import com.maintenance.api.client.model.P1DispatchResponsePage
@@ -217,7 +218,7 @@ open class P1DispatchesApi(basePath: kotlin.String = defaultBasePath, client: Ca
      * GET /api/v1/console/dispatch/queue
      * List the bounded operational dispatch queue
      *
-     * @param status Comma-separated DispatchQueueStatus values. (optional)
+     * @param status Comma-separated DispatchQueueStatus values serialized as one CSV query value. (optional)
      * @param limit  (optional, default to 50)
      * @param after Opaque cursor returned by a previous page. (optional)
      * @return DispatchQueuePage
@@ -229,7 +230,7 @@ open class P1DispatchesApi(basePath: kotlin.String = defaultBasePath, client: Ca
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun listConsoleDispatchQueue(status: kotlin.String? = null, limit: kotlin.Int? = 50, after: kotlin.String? = null) : DispatchQueuePage = withContext(Dispatchers.IO) {
+    suspend fun listConsoleDispatchQueue(status: kotlin.collections.List<DispatchQueueStatus>? = null, limit: kotlin.Int? = 50, after: kotlin.String? = null) : DispatchQueuePage = withContext(Dispatchers.IO) {
         val localVarResponse = listConsoleDispatchQueueWithHttpInfo(status = status, limit = limit, after = after)
 
         return@withContext when (localVarResponse.responseType) {
@@ -251,7 +252,7 @@ open class P1DispatchesApi(basePath: kotlin.String = defaultBasePath, client: Ca
      * GET /api/v1/console/dispatch/queue
      * List the bounded operational dispatch queue
      *
-     * @param status Comma-separated DispatchQueueStatus values. (optional)
+     * @param status Comma-separated DispatchQueueStatus values serialized as one CSV query value. (optional)
      * @param limit  (optional, default to 50)
      * @param after Opaque cursor returned by a previous page. (optional)
      * @return ApiResponse<DispatchQueuePage?>
@@ -260,7 +261,7 @@ open class P1DispatchesApi(basePath: kotlin.String = defaultBasePath, client: Ca
      */
     @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun listConsoleDispatchQueueWithHttpInfo(status: kotlin.String?, limit: kotlin.Int?, after: kotlin.String?) : ApiResponse<DispatchQueuePage?> = withContext(Dispatchers.IO) {
+    suspend fun listConsoleDispatchQueueWithHttpInfo(status: kotlin.collections.List<DispatchQueueStatus>?, limit: kotlin.Int?, after: kotlin.String?) : ApiResponse<DispatchQueuePage?> = withContext(Dispatchers.IO) {
         val localVariableConfig = listConsoleDispatchQueueRequestConfig(status = status, limit = limit, after = after)
 
         return@withContext request<Unit, DispatchQueuePage>(
@@ -271,17 +272,17 @@ open class P1DispatchesApi(basePath: kotlin.String = defaultBasePath, client: Ca
     /**
      * To obtain the request config of the operation listConsoleDispatchQueue
      *
-     * @param status Comma-separated DispatchQueueStatus values. (optional)
+     * @param status Comma-separated DispatchQueueStatus values serialized as one CSV query value. (optional)
      * @param limit  (optional, default to 50)
      * @param after Opaque cursor returned by a previous page. (optional)
      * @return RequestConfig
      */
-    fun listConsoleDispatchQueueRequestConfig(status: kotlin.String?, limit: kotlin.Int?, after: kotlin.String?) : RequestConfig<Unit> {
+    fun listConsoleDispatchQueueRequestConfig(status: kotlin.collections.List<DispatchQueueStatus>?, limit: kotlin.Int?, after: kotlin.String?) : RequestConfig<Unit> {
         val localVariableBody = null
         val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
             .apply {
                 if (status != null) {
-                    put("status", listOf(status.toString()))
+                    put("status", toMultiValue(status.toList(), "csv"))
                 }
                 if (limit != null) {
                     put("limit", listOf(limit.toString()))

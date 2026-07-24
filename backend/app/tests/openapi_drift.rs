@@ -677,16 +677,20 @@ fn normalize_path_parameters(path: &str) -> String {
 }
 
 #[test]
-fn dispatch_read_routes_have_openapi_operations_and_generated_client_contracts() {
-    for (path, method, operation, schema) in [
-        ("/api/v1/console/dispatch/queue", "get", "listConsoleDispatchQueue", "DispatchQueuePage"),
-        ("/api/v1/p1-dispatches/{dispatchId}/candidates", "get", "listP1DispatchCandidates", "DispatchCandidatePage"),
-        ("/api/v1/p1-dispatches/{dispatchId}/responses", "get", "listP1DispatchResponses", "P1DispatchResponsePage"),
+fn dispatch_read_openapi_operations_match_generated_client_faces() {
+    const TS: &str = include_str!("../../clients/ts/src/schema.d.ts");
+    const KOTLIN: &str = include_str!("../../clients/kotlin/src/main/kotlin/com/maintenance/api/client/api/P1DispatchesApi.kt");
+    const SWIFT: &str = include_str!("../../clients/swift/Sources/MaintenanceAPIClient/Generated/Client.swift");
+    for (path, operation, schema) in [
+        ("/api/v1/console/dispatch/queue", "listConsoleDispatchQueue", "DispatchQueuePage"),
+        ("/api/v1/p1-dispatches/{dispatchId}/candidates", "listP1DispatchCandidates", "DispatchCandidatePage"),
+        ("/api/v1/p1-dispatches/{dispatchId}/responses", "listP1DispatchResponses", "P1DispatchResponsePage"),
     ] {
         let start = OPENAPI_YAML.find(&format!("  {path}:\n")).unwrap_or_else(|| panic!("missing {path}"));
         let operation_yaml = &OPENAPI_YAML[start..];
-        assert!(operation_yaml.starts_with(&format!("  {path}:\n    {method}:")), "{method} {path} must be documented");
-        assert!(operation_yaml.contains(&format!("operationId: {operation}")), "{method} {path} must have stable operation id");
-        assert!(operation_yaml.contains(&format!("$ref: '#/components/schemas/{schema}'")), "{method} {path} must reference {schema}");
+        assert!(operation_yaml.contains(&format!("operationId: {operation}")) && operation_yaml.contains(&format!("$ref: '#/components/schemas/{schema}'")));
+        assert!(TS.contains(operation), "TS generated client lacks {operation}");
+        assert!(KOTLIN.contains(operation), "Kotlin generated client lacks {operation}");
+        assert!(SWIFT.contains(operation), "Swift generated client lacks {operation}");
     }
 }

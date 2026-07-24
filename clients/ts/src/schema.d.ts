@@ -20638,8 +20638,8 @@ export interface operations {
     listConsoleDispatchQueue: {
         parameters: {
             query?: {
-                /** @description Comma-separated DispatchQueueStatus values. */
-                status?: string;
+                /** @description Comma-separated DispatchQueueStatus values serialized as one CSV query value. */
+                status?: components["schemas"]["DispatchQueueStatus"][];
                 limit?: number;
                 /** @description Opaque cursor returned by a previous page. */
                 after?: string;
@@ -20659,6 +20659,7 @@ export interface operations {
                     "application/json": components["schemas"]["DispatchQueuePage"];
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             422: components["responses"]["ValidationError"];
@@ -20684,6 +20685,7 @@ export interface operations {
                     "application/json": components["schemas"]["DispatchCandidatePage"];
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
@@ -20709,6 +20711,7 @@ export interface operations {
                     "application/json": components["schemas"]["P1DispatchResponsePage"];
                 };
             };
+            400: components["responses"]["BadRequest"];
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];

@@ -5596,8 +5596,13 @@ paths:
       parameters:
       - name: status
         in: query
-        schema: { type: string }
-        description: Comma-separated DispatchQueueStatus values.
+        style: form
+        explode: false
+        schema:
+          type: array
+          items:
+            $ref: '#/components/schemas/DispatchQueueStatus'
+        description: Comma-separated DispatchQueueStatus values serialized as one CSV query value.
       - name: limit
         in: query
         schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
@@ -5607,6 +5612,7 @@ paths:
         description: Opaque cursor returned by a previous page.
       responses:
         '200': { description: Dispatch queue page., content: { application/json: { schema: { $ref: '#/components/schemas/DispatchQueuePage' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '422': { $ref: '#/components/responses/ValidationError' }
@@ -5619,6 +5625,7 @@ paths:
       parameters: [{ $ref: '#/components/parameters/DispatchId' }]
       responses:
         '200': { description: Dispatch candidate page., content: { application/json: { schema: { $ref: '#/components/schemas/DispatchCandidatePage' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
@@ -5631,6 +5638,7 @@ paths:
       parameters: [{ $ref: '#/components/parameters/DispatchId' }]
       responses:
         '200': { description: Dispatch response page., content: { application/json: { schema: { $ref: '#/components/schemas/P1DispatchResponsePage' } } } }
+        '400': { $ref: '#/components/responses/BadRequest' }
         '401': { $ref: '#/components/responses/Unauthorized' }
         '403': { $ref: '#/components/responses/Forbidden' }
         '404': { $ref: '#/components/responses/NotFound' }
