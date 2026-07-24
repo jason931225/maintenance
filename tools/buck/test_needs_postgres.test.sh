@@ -52,7 +52,7 @@ grep -Fq -- 'postgres:18.4@sha256:65f70a152846cf504dff86e807007e9aeac98c3aeb7b62
 grep -Fq -- 'bash /topology.sh' <<<"${calls}"
 grep -Eq 'buck BUCK_ISOLATION_DIR=mnt-buck-postgres-[^/ ]+' <<<"${calls}"
 ! grep -Eq 'buck BUCK_ISOLATION_DIR=[^ ]*/' <<<"${calls}"
-grep -Eq 'buck BUCK_ISOLATION_DIR=mnt-buck-postgres-[^/ ]+ kill$' <<<"${calls}"
+! grep -Eq 'buck BUCK_ISOLATION_DIR=[^ ]+ kill$' <<<"${calls}"
 grep -Fq -- 'test --local-only //backend/crates/platform/db:db-itest-runtime --test-filter smoke -- --env DATABASE_URL=postgres://mnt_buck_admin:' <<<"${calls}"
 grep -Fq -- '--env RUST_TEST_THREADS=1' <<<"${calls}"
 ! grep -Fq -- 'DATABASE_URL=postgres://mnt_app:' <<<"${calls}"
@@ -66,6 +66,11 @@ if PATH="${fake_bin}:${PATH}" HARNESS_LOG="${log}" \
   exit 1
 fi
 test "$(grep -Fc 'docker rm -f mnt-buck-postgres-' "${log}")" = 2
-test "$(grep -Ec 'buck BUCK_ISOLATION_DIR=mnt-buck-postgres-[^/ ]+ kill$' "${log}")" = 2
+test "$(
+  sed -n 's/^buck BUCK_ISOLATION_DIR=\([^ ]*\).*/\1/p' "${log}" |
+    sort -u |
+    wc -l |
+    tr -d ' '
+)" = 1
 
 echo "test_needs_postgres: PASS"

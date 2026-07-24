@@ -8,13 +8,18 @@ container_name="mnt-buck-postgres-${USER:-user}-$$"
 buck_bin="${MNT_BUCK_NEEDS_POSTGRES_TEST_BUCK:-${repo_root}/tools/buck2}"
 safe_user="${USER:-user}"
 safe_user="${safe_user//[^[:alnum:]_.-]/_}"
-isolation_name="mnt-buck-postgres-${safe_user}-$$"
+repo_hash="$(printf '%s' "${repo_root}" | cksum | awk '{print $1}')"
+isolation_name="${MNT_BUCK_NEEDS_POSTGRES_ISOLATION_DIR:-mnt-buck-postgres-${safe_user}-${repo_hash}}"
+if [[ ! "${isolation_name}" =~ ^[[:alnum:]_.-]+$ ]]; then
+  echo "buck-postgres: isolation name must contain only letters, digits, dot, underscore, or dash" >&2
+  exit 1
+fi
 database="mnt_buck_test_$$"
 
 cleanup() {
   local status=$?
-  # BUCK_ISOLATION_DIR confines this kill to this harness's daemon only.
-  BUCK_ISOLATION_DIR="${isolation_name}" "${buck_bin}" kill >/dev/null 2>&1 || true
+  # PostgreSQL state is per invocation, while the Buck daemon is deliberately
+  # stable per worktree so concurrent/repeated DB tests reuse compiled actions.
   docker rm -f "${container_name}" >/dev/null 2>&1 || true
   return "${status}"
 }
