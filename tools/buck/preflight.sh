@@ -81,13 +81,12 @@ trap cleanup EXIT HUP INT TERM
 # `git archive HEAD` snapshots exactly the candidate tree without touching the
 # caller's index, working files, daemon state, or any parallel worktree.
 git -C "${repo_root}" archive --format=tar HEAD | tar -x -C "${scratch}"
-(cd "${scratch}" && python3 tools/buck/gen_first_party.py >/dev/null)
-if drift="$(diff -qr "${repo_root}/backend" "${scratch}/backend")"; then
-  echo "buck-preflight: first-party generator drift check passed"
-else
-  echo "buck-preflight: first-party generator drift detected; regenerate and commit BUCK files" >&2
-  printf '%s\n' "${drift}" >&2
-  exit 1
-fi
+# Every registered generated face runs from the immutable snapshot. The Python
+# runner dispatches only the allowlisted writer kind; registry strings are never
+# eval'd as shell commands. A single non-zero writer or output diff fails closed.
+python3 "${repo_root}/tools/buck/run_generated_face_gates.py" \
+  --registry "${repo_root}/tools/buck/generated_face_registry.json" \
+  --baseline "${repo_root}" \
+  --snapshot "${scratch}"
 
 echo "buck-preflight: PASS"

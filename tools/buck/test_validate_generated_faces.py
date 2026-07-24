@@ -7,50 +7,65 @@ import json
 import unittest
 from pathlib import Path
 
-
 ROOT = Path(__file__).parent
-VALIDATOR_PATH = ROOT / "validate_generated_faces.py"
-SPEC = importlib.util.spec_from_file_location("validate_generated_faces", VALIDATOR_PATH)
-assert SPEC is not None and SPEC.loader is not None
+SPEC = importlib.util.spec_from_file_location("validate_generated_faces", ROOT / "validate_generated_faces.py")
+assert SPEC and SPEC.loader
 VALIDATOR = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(VALIDATOR)
 REGISTRY = json.loads((ROOT / "generated_face_registry.json").read_text(encoding="utf-8"))
 
 
+def resolved(_root: Path, target: str) -> bool:
+    return target.startswith("//tools/buck:generated-face-")
+
+
 class GeneratedFaceRegistryTests(unittest.TestCase):
-    def test_repository_registry_is_valid(self) -> None:
-        VALIDATOR.validate_registry(copy.deepcopy(REGISTRY))
+    def test_repository_registry_is_valid_with_resolved_writer_targets(self) -> None:
+        VALIDATOR.validate_registry(copy.deepcopy(REGISTRY), ROOT.parent.parent, resolved)
 
-    def test_rejects_overlapping_writable_output_roots(self) -> None:
+    def test_declared_faces_are_precise_and_structured(self) -> None:
+        for face in REGISTRY["faces"]:
+            self.assertEqual("repo-exec", face["writer"]["kind"])
+            self.assertEqual("writer-snapshot", face["drift_gate"]["kind"])
+            self.assertIn(face["drift_gate"]["tier"], {"cheap", "expensive"})
+            self.assertTrue(all(not path.endswith("/") for path in face["output_patterns"]))
+        kotlin = next(face for face in REGISTRY["faces"] if face["id"] == "openapi-kotlin")
+        self.assertNotIn("clients/kotlin", kotlin["output_patterns"])
+        first_party = next(face for face in REGISTRY["faces"] if face["id"] == "first-party-buck")
+        self.assertTrue(all(pattern.endswith("/BUCK") for pattern in first_party["output_patterns"]))
+
+    def test_rejects_overlapping_writable_output_patterns(self) -> None:
         registry = copy.deepcopy(REGISTRY)
-        registry["faces"][1]["output_roots"] = ["clients"]
+        registry["faces"][1]["output_patterns"] = ["clients/**"]
         with self.assertRaisesRegex(ValueError, "overlapping writable output roots"):
-            VALIDATOR.validate_registry(registry)
+            VALIDATOR.validate_registry(registry, ROOT.parent.parent, resolved)
 
-    def test_rejects_duplicate_owner_for_same_output(self) -> None:
-        registry = copy.deepcopy(REGISTRY)
-        duplicate = copy.deepcopy(registry["faces"][0])
-        duplicate["id"] = "another-writer"
-        registry["faces"].append(duplicate)
-        with self.assertRaisesRegex(ValueError, "overlapping writable output roots"):
-            VALIDATOR.validate_registry(registry)
-
-    def test_rejects_unsafe_or_underspecified_entries(self) -> None:
-        for field, bad_value in (
-            ("source_roots", ["../outside"]),
-            ("output_roots", []),
-            ("drift_gate", ""),
-        ):
+    def test_rejects_missing_roots_executables_and_unresolved_targets(self) -> None:
+        cases = [
+            ("source_roots", ["does-not-exist"]),
+            ("output_patterns", ["does-not-exist/**"]),
+        ]
+        for field, value in cases:
             registry = copy.deepcopy(REGISTRY)
-            registry["faces"][0][field] = bad_value
+            registry["faces"][0][field] = value
             with self.assertRaises(ValueError, msg=field):
-                VALIDATOR.validate_registry(registry)
-
-    def test_rejects_writer_without_a_buck_target(self) -> None:
+                VALIDATOR.validate_registry(registry, ROOT.parent.parent, resolved)
         registry = copy.deepcopy(REGISTRY)
-        registry["faces"][0]["writer"]["target"] = "tools/buck"
-        with self.assertRaisesRegex(ValueError, "Buck target"):
-            VALIDATOR.validate_registry(registry)
+        registry["faces"][0]["writer"]["executable"] = "tools/buck/nope.sh"
+        with self.assertRaisesRegex(ValueError, "executable"):
+            VALIDATOR.validate_registry(registry, ROOT.parent.parent, resolved)
+        with self.assertRaisesRegex(ValueError, "did not resolve"):
+            VALIDATOR.validate_registry(copy.deepcopy(REGISTRY), ROOT.parent.parent, lambda *_: False)
+
+    def test_rejects_raw_or_unknown_gate_and_writer_shapes(self) -> None:
+        registry = copy.deepcopy(REGISTRY)
+        registry["faces"][0]["drift_gate"] = "npm run arbitrary"
+        with self.assertRaisesRegex(ValueError, "drift_gate"):
+            VALIDATOR.validate_registry(registry, ROOT.parent.parent, resolved)
+        registry = copy.deepcopy(REGISTRY)
+        registry["faces"][0]["writer"]["kind"] = "shell"
+        with self.assertRaisesRegex(ValueError, "allowlisted"):
+            VALIDATOR.validate_registry(registry, ROOT.parent.parent, resolved)
 
 
 if __name__ == "__main__":
