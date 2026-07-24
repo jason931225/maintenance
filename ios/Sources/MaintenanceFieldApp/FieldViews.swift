@@ -88,7 +88,6 @@ struct FieldAuthenticatedTabs: View {
 
 private struct UnobscuredTabContent<Content: View>: View {
     let content: Content
-    @State private var contentInsets = TabBarContentInsets.zero
 
     init(@ViewBuilder content: () -> Content) {
         self.content = content()
@@ -98,36 +97,7 @@ private struct UnobscuredTabContent<Content: View>: View {
     var body: some View {
         #if os(iOS)
         if #available(iOS 26.0, *) {
-            // Keep the UIKit probe in the outer tab-content shell. The content it
-            // measures is intentionally a sibling of the constrained SwiftUI tree
-            // so a newly reported inset cannot change the probe's coordinate space.
-            ZStack {
-                TabBarContentLayoutGuideProbe { measuredInsets in
-                    guard contentInsets.isApproximatelyEqual(to: measuredInsets) == false else {
-                        return
-                    }
-                    contentInsets = measuredInsets
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
-
-                GeometryReader { geometry in
-                    content
-                        .frame(
-                            width: Swift.max(
-                                geometry.size.width - contentInsets.leading - contentInsets.trailing,
-                                0
-                            ),
-                            height: Swift.max(
-                                geometry.size.height - contentInsets.top - contentInsets.bottom,
-                                0
-                            ),
-                            alignment: .topLeading
-                        )
-                        .offset(x: contentInsets.leading, y: contentInsets.top)
-                }
-            }
+            TabBarContentLayoutGuideHost(content: content)
         } else {
             content
         }
@@ -137,42 +107,25 @@ private struct UnobscuredTabContent<Content: View>: View {
     }
 }
 
-private struct TabBarContentInsets: Equatable {
-    static let zero = TabBarContentInsets(top: 0, leading: 0, bottom: 0, trailing: 0)
-
-    let top: CGFloat
-    let leading: CGFloat
-    let bottom: CGFloat
-    let trailing: CGFloat
-
-    func isApproximatelyEqual(to other: TabBarContentInsets) -> Bool {
-        abs(top - other.top) < 0.5
-            && abs(leading - other.leading) < 0.5
-            && abs(bottom - other.bottom) < 0.5
-            && abs(trailing - other.trailing) < 0.5
-    }
-}
-
 #if os(iOS)
 @available(iOS 26.0, *)
 @MainActor
-private struct TabBarContentLayoutGuideProbe: UIViewControllerRepresentable {
-    let onInsetsChange: @MainActor (TabBarContentInsets) -> Void
+private struct TabBarContentLayoutGuideHost<Content: View>: UIViewControllerRepresentable {
+    let content: Content
 
-    func makeUIViewController(context: Context) -> TabBarContentLayoutGuideProbeController {
-        TabBarContentLayoutGuideProbeController(onInsetsChange: onInsetsChange)
+    func makeUIViewController(context: Context) -> TabBarContentLayoutGuideHostController<Content> {
+        TabBarContentLayoutGuideHostController(content: content)
     }
 
     func updateUIViewController(
-        _ uiViewController: TabBarContentLayoutGuideProbeController,
+        _ uiViewController: TabBarContentLayoutGuideHostController<Content>,
         context: Context
     ) {
-        uiViewController.onInsetsChange = onInsetsChange
-        uiViewController.requestMeasurement()
+        uiViewController.update(content: content)
     }
 
     static func dismantleUIViewController(
-        _ uiViewController: TabBarContentLayoutGuideProbeController,
+        _ uiViewController: TabBarContentLayoutGuideHostController<Content>,
         coordinator: ()
     ) {
         uiViewController.invalidate()
@@ -181,31 +134,24 @@ private struct TabBarContentLayoutGuideProbe: UIViewControllerRepresentable {
 
 @available(iOS 26.0, *)
 @MainActor
-private final class TabBarContentLayoutGuideSensor: UIView {
-    var onLayout: (@MainActor () -> Void)?
-
-    override func layoutSubviews() {
-        super.layoutSubviews()
-        onLayout?()
-    }
+private final class TabBarContentLayoutGuideContainerView: UIView {
+    var onHierarchyChange: (@MainActor () -> Void)?
 
     override func didMoveToWindow() {
         super.didMoveToWindow()
-        onLayout?()
+        onHierarchyChange?()
     }
 }
 
 @available(iOS 26.0, *)
 @MainActor
-private final class TabBarContentLayoutGuideProbeController: UIViewController {
-    var onInsetsChange: (@MainActor (TabBarContentInsets) -> Void)?
-    private var lastReportedInsets = TabBarContentInsets.zero
+private final class TabBarContentLayoutGuideHostController<Content: View>: UIViewController {
+    private let hostingController: UIHostingController<Content>
     private weak var observedTabBarController: UITabBarController?
-    private var contentLayoutSensor: TabBarContentLayoutGuideSensor?
-    private var pendingMeasurementTask: Task<Void, Never>?
+    private var contentLayoutConstraints: [NSLayoutConstraint] = []
 
-    init(onInsetsChange: @escaping @MainActor (TabBarContentInsets) -> Void) {
-        self.onInsetsChange = onInsetsChange
+    init(content: Content) {
+        hostingController = UIHostingController(rootView: content)
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -215,146 +161,74 @@ private final class TabBarContentLayoutGuideProbeController: UIViewController {
     }
 
     override func loadView() {
-        let probeView = UIView()
-        probeView.backgroundColor = .clear
-        probeView.isUserInteractionEnabled = false
-        probeView.isAccessibilityElement = false
-        view = probeView
+        let containerView = TabBarContentLayoutGuideContainerView()
+        containerView.backgroundColor = .clear
+        containerView.onHierarchyChange = { [weak self] in
+            self?.constrainHostedContentToTabLayoutGuide()
+        }
+        view = containerView
     }
 
-    override func viewIsAppearing(_ animated: Bool) {
-        super.viewIsAppearing(animated)
-        requestMeasurement()
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        addChild(hostingController)
+        hostingController.view.translatesAutoresizingMaskIntoConstraints = false
+        hostingController.view.backgroundColor = .clear
+        view.addSubview(hostingController.view)
+        hostingController.didMove(toParent: self)
     }
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        requestMeasurement()
+        constrainHostedContentToTabLayoutGuide()
     }
 
-    override func didMove(toParent parent: UIViewController?) {
-        super.didMove(toParent: parent)
-        if parent == nil {
-            invalidate()
-        } else {
-            requestMeasurement()
+    func update(content: Content) {
+        hostingController.rootView = content
+        constrainHostedContentToTabLayoutGuide()
+    }
+
+    private func constrainHostedContentToTabLayoutGuide() {
+        guard let tabBarController else {
+            NSLayoutConstraint.deactivate(contentLayoutConstraints)
+            contentLayoutConstraints = []
+            observedTabBarController = nil
+            return
         }
-    }
-
-    override func viewSafeAreaInsetsDidChange() {
-        super.viewSafeAreaInsetsDidChange()
-        requestMeasurement()
-    }
-
-    override func viewWillTransition(
-        to size: CGSize,
-        with coordinator: any UIViewControllerTransitionCoordinator
-    ) {
-        super.viewWillTransition(to: size, with: coordinator)
-        coordinator.animate(alongsideTransition: nil) { [weak self] _ in
-            self?.requestMeasurement()
-        }
-    }
-
-    func requestMeasurement() {
-        guard pendingMeasurementTask == nil else { return }
-
-        pendingMeasurementTask = Task { @MainActor [weak self] in
-            // Publishing in the same layout pass would feed the SwiftUI padding
-            // update back into UIKit layout.  One cooperative turn breaks that
-            // re-entrant loop while preserving every lifecycle trigger above.
-            await Task.yield()
-            guard let self, Task.isCancelled == false else { return }
-            self.pendingMeasurementTask = nil
-            self.reportContentInsetsIfAvailable()
-        }
-    }
-
-    private func reportContentInsetsIfAvailable() {
         guard
             let window = viewIfLoaded?.window,
-            let tabBarController,
-            tabBarController.view.window === window
+            tabBarController.viewIfLoaded?.window === window,
+            hostingController.view.isDescendant(of: tabBarController.view)
         else {
-            removeContentLayoutSensor()
+            NSLayoutConstraint.deactivate(contentLayoutConstraints)
+            contentLayoutConstraints = []
+            observedTabBarController = nil
+            return
+        }
+        guard observedTabBarController !== tabBarController || contentLayoutConstraints.isEmpty else {
             return
         }
 
-        tabBarController.view.layoutIfNeeded()
-        guard let sensor = installContentLayoutSensorIfNeeded(in: tabBarController) else { return }
-        tabBarController.view.layoutIfNeeded()
-
-        let probeBounds = view.bounds
-        guard
-            probeBounds.isEmpty == false,
-            let sensorSuperview = sensor.superview
-        else {
-            return
-        }
-
-        let sensorFrame = sensorSuperview.convert(sensor.frame, to: view)
-        guard sensorFrame.isEmpty == false else { return }
-
-        let left = max(sensorFrame.minX - probeBounds.minX, 0)
-        let right = max(probeBounds.maxX - sensorFrame.maxX, 0)
-        let layoutDirection = view.effectiveUserInterfaceLayoutDirection
-
-        let measuredInsets = TabBarContentInsets(
-            top: max(sensorFrame.minY - probeBounds.minY, 0),
-            leading: layoutDirection == .rightToLeft ? right : left,
-            bottom: max(probeBounds.maxY - sensorFrame.maxY, 0),
-            trailing: layoutDirection == .rightToLeft ? left : right
-        )
-        guard lastReportedInsets.isApproximatelyEqual(to: measuredInsets) == false else { return }
-        lastReportedInsets = measuredInsets
-        onInsetsChange?(measuredInsets)
-    }
-
-    private func installContentLayoutSensorIfNeeded(
-        in tabBarController: UITabBarController
-    ) -> TabBarContentLayoutGuideSensor? {
-        if observedTabBarController === tabBarController, let contentLayoutSensor {
-            return contentLayoutSensor
-        }
-
-        removeContentLayoutSensor()
-
-        let sensor = TabBarContentLayoutGuideSensor()
-        sensor.translatesAutoresizingMaskIntoConstraints = false
-        sensor.backgroundColor = .clear
-        sensor.isUserInteractionEnabled = false
-        sensor.isAccessibilityElement = false
-        sensor.onLayout = { [weak self] in
-            self?.requestMeasurement()
-        }
-        tabBarController.view.addSubview(sensor)
-        NSLayoutConstraint.activate([
-            sensor.topAnchor.constraint(equalTo: tabBarController.contentLayoutGuide.topAnchor),
-            sensor.leadingAnchor.constraint(equalTo: tabBarController.contentLayoutGuide.leadingAnchor),
-            sensor.bottomAnchor.constraint(equalTo: tabBarController.contentLayoutGuide.bottomAnchor),
-            sensor.trailingAnchor.constraint(equalTo: tabBarController.contentLayoutGuide.trailingAnchor),
-        ])
+        NSLayoutConstraint.deactivate(contentLayoutConstraints)
+        let guide = tabBarController.contentLayoutGuide
+        contentLayoutConstraints = [
+            hostingController.view.topAnchor.constraint(equalTo: guide.topAnchor),
+            hostingController.view.leadingAnchor.constraint(equalTo: guide.leadingAnchor),
+            hostingController.view.bottomAnchor.constraint(equalTo: guide.bottomAnchor),
+            hostingController.view.trailingAnchor.constraint(equalTo: guide.trailingAnchor),
+        ]
+        NSLayoutConstraint.activate(contentLayoutConstraints)
         observedTabBarController = tabBarController
-        contentLayoutSensor = sensor
-        return sensor
-    }
-
-    private func removeContentLayoutSensor() {
-        contentLayoutSensor?.onLayout = nil
-        contentLayoutSensor?.removeFromSuperview()
-        contentLayoutSensor = nil
-        observedTabBarController = nil
     }
 
     func invalidate() {
-        pendingMeasurementTask?.cancel()
-        pendingMeasurementTask = nil
-        removeContentLayoutSensor()
-        onInsetsChange = nil
-    }
-
-    deinit {
-        pendingMeasurementTask?.cancel()
+        NSLayoutConstraint.deactivate(contentLayoutConstraints)
+        contentLayoutConstraints = []
+        observedTabBarController = nil
+        guard hostingController.parent === self else { return }
+        hostingController.willMove(toParent: nil)
+        hostingController.view.removeFromSuperview()
+        hostingController.removeFromParent()
     }
 }
 #endif
@@ -989,9 +863,15 @@ struct MessengerTabView: View {
                         )
                     }
                     HStack(alignment: .bottom) {
-                        TextField(String(localized: "messenger_composer"), text: $viewModel.messengerDraft, axis: .vertical)
+                        TextField(
+                            "",
+                            text: $viewModel.messengerDraft,
+                            prompt: Text("messenger_composer").foregroundStyle(.primary),
+                            axis: .vertical
+                        )
                             .lineLimit(2...5)
                             .layoutPriority(1)
+                            .accessibilityLabel(Text("messenger_composer"))
                             .accessibilityIdentifier(FieldAccessibilityID.messengerComposerField)
                         Button {
                             Task { await viewModel.sendMessengerMessage() }
@@ -1120,7 +1000,7 @@ struct MessengerMessageRow: View {
                     .foregroundStyle(.primary)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
-                    .background(Color.primary.opacity(0.12), in: Capsule())
+                    .background(Color(uiColor: .tertiarySystemFill), in: Capsule())
             }
             messageContent
         }
@@ -1272,6 +1152,12 @@ struct WorkOrderDetailView: View {
                     }
                 }
                 .scrollDismissesKeyboard(.immediately)
+                // Keep the audited detail text on an opaque semantic surface in
+                // every appearance and Dynamic Type size. The foreground is set
+                // explicitly by metadata helpers rather than inferred from a
+                // translucent material behind the Form.
+                .scrollContentBackground(.hidden)
+                .background(Color(uiColor: .systemGroupedBackground))
                 .accessibilityIdentifier(FieldAccessibilityID.detailView)
                 .navigationTitle(Text("detail_title"))
                 .inlineNavigationTitle()
@@ -1484,7 +1370,7 @@ struct FieldChip: View {
             .foregroundStyle(.primary)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
-            .background(Color.primary.opacity(0.12), in: Capsule())
+            .background(Color(uiColor: .tertiarySystemFill), in: Capsule())
     }
 }
 

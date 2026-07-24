@@ -28,6 +28,7 @@ const validFiles = {
   "ios/UITests/MessengerUITests.swift": readFileSync(new URL("../ios/UITests/MessengerUITests.swift", import.meta.url), "utf8"),
   "ios/UITests/CameraCaptureUITests.swift": readFileSync(new URL("../ios/UITests/CameraCaptureUITests.swift", import.meta.url), "utf8"),
   "ios/UITests/PreflightUITests.swift": readFileSync(new URL("../ios/UITests/PreflightUITests.swift", import.meta.url), "utf8"),
+  "ios/UITests/XCTestPrewarmUITests.swift": readFileSync(new URL("../ios/UITests/XCTestPrewarmUITests.swift", import.meta.url), "utf8"),
   "ios/UITests/LoginValidationUITests.swift": readFileSync(new URL("../ios/UITests/LoginValidationUITests.swift", import.meta.url), "utf8"),
   "e2e/harness/seed-mobile-ci.sql": readFileSync(new URL("../e2e/harness/seed-mobile-ci.sql", import.meta.url), "utf8"),
 };
@@ -84,20 +85,26 @@ describe("iOS hermetic UI CI contract", () => {
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("fail-fast: false", "fail-fast: true") }), matrixGate);
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("max-parallel: 5", "max-parallel: 15") }), matrixGate);
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow(
-      `critical-path)
-                SHARD_TIMEOUT_SECONDS=360`,
-      `critical-path)
+      `critical-lifecycle)
+                SHARD_TIMEOUT_SECONDS=210`,
+      `critical-lifecycle)
                 SHARD_TIMEOUT_SECONDS=540`,
     ) }), matrixGate);
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow(
-      'shards: "critical-path camera-capture"',
-      'shards: "critical-path"',
+      'shards: "critical-today critical-lifecycle camera-capture"',
+      'shards: "critical-today camera-capture"',
     ) }), matrixGate);
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow(
-      'shards: "critical-path camera-capture"',
-      'shards: "critical-path camera-capture preflight"',
+      'shards: "critical-today critical-lifecycle camera-capture"',
+      'shards: "critical-today critical-lifecycle camera-capture preflight-session"',
     ) }), matrixGate);
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("-parallel-testing-enabled NO", "-parallel-testing-enabled YES") }), matrixGate);
+  });
+  it("rejects an uncapped, missing, or functional-result-substituting XCTest prewarm", () => {
+    const prewarmGate = "cap an infrastructure-only XCTest prewarm";
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("timing_start xctest-prewarm", "timing_start removed-prewarm") }), prewarmGate);
+    expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow('"$RAW_RESULTS/xctest-prewarm.xcresult" 45', '"$RAW_RESULTS/xctest-prewarm.xcresult" 180') }), prewarmGate);
+    expectsFailure(evaluate({ "ios/UITests/XCTestPrewarmUITests.swift": validFiles["ios/UITests/XCTestPrewarmUITests.swift"].replace(".runningForeground", ".notRunning") }), prewarmGate);
   });
   it("rejects toolchain and job-root drift", () => {
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("Build version 17F113", "Build version drift") }), "pin Xcode 26.6");
@@ -452,7 +459,7 @@ class FieldUITestCase: XCTestCase {
       "EXPECTED_BATCHES=(core critical messenger-dynamic audit-standard)",
     ) }), aggregateGate);
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow(
-      "EXPECTED_SHARDS=(preflight login-validation accessibility-id-parity",
+      "EXPECTED_SHARDS=(preflight-session preflight-fixtures preflight-restore login-validation accessibility-id-parity",
       "EXPECTED_SHARDS=(login-validation accessibility-id-parity",
     ) }), aggregateGate);
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("((${#summaries[@]} == 1))", "true") }), aggregateGate);
@@ -512,44 +519,30 @@ Text("fixed").font(.system(size: 17))` }), presentationGate);
   });
   it("rejects a tab whose NavigationStack is not wrapped by the unobscured content host", () => {
     const fieldViews = validFiles["ios/Sources/MaintenanceFieldApp/FieldViews.swift"];
-    expectsFailure(evaluate({ "ios/Sources/MaintenanceFieldApp/FieldViews.swift": mutateFile(fieldViews, `UnobscuredTabContent {
-                NavigationStack {`, "NavigationStack {") }), "public content-layout-guide sensor/probe");
+    expectsFailure(evaluate({ "ios/Sources/MaintenanceFieldApp/FieldViews.swift": mutateFile(fieldViews, "TabBarContentLayoutGuideHost(content: content)", "content") }), "every authenticated iOS tab must use the direct UIKit content-layout-guide host");
   });
   it("rejects tab content without formal UIHostingController containment", () => {
     const fieldViews = validFiles["ios/Sources/MaintenanceFieldApp/FieldViews.swift"];
-    expectsFailure(evaluate({ "ios/Sources/MaintenanceFieldApp/FieldViews.swift": mutateFile(fieldViews, "UIViewControllerRepresentable", "UIViewRepresentable") }), "public content-layout-guide sensor/probe");
-    expectsFailure(evaluate({ "ios/Sources/MaintenanceFieldApp/FieldViews.swift": `${fieldViews}
-let forbiddenHost = UIHostingController(rootView: EmptyView())` }), "public content-layout-guide sensor/probe");
+    expectsFailure(evaluate({ "ios/Sources/MaintenanceFieldApp/FieldViews.swift": mutateFile(fieldViews, "addChild(hostingController)", "// containment removed") }), "every authenticated iOS tab must use the direct UIKit content-layout-guide host");
   });
-  it("rejects a tab host without guide constraints, fallback, lifecycle rebind, or dismantle", () => {
+  it("rejects a tab host without direct guide constraints or lifecycle teardown", () => {
     const fieldViews = validFiles["ios/Sources/MaintenanceFieldApp/FieldViews.swift"];
-    const guideGate = "public content-layout-guide sensor/probe";
-    expectsFailure(evaluate({ "ios/Sources/MaintenanceFieldApp/FieldViews.swift": mutateFile(fieldViews, "equalTo: tabBarController.contentLayoutGuide.bottomAnchor", "equalTo: tabBarController.view.bottomAnchor") }), guideGate);
-    expectsFailure(evaluate({ "ios/Sources/MaintenanceFieldApp/FieldViews.swift": mutateFile(fieldViews, "await Task.yield()", "// yield removed") }), guideGate);
-    expectsFailure(evaluate({ "ios/Sources/MaintenanceFieldApp/FieldViews.swift": mutateFile(fieldViews, "guard pendingMeasurementTask == nil else { return }", "// coalescing removed") }), guideGate);
-    expectsFailure(evaluate({ "ios/Sources/MaintenanceFieldApp/FieldViews.swift": mutateFile(fieldViews, "tabBarController.view.window === window", "true") }), guideGate);
-    expectsFailure(evaluate({ "ios/Sources/MaintenanceFieldApp/FieldViews.swift": mutateFile(fieldViews, "sensorSuperview.convert(sensor.frame, to: view)", "sensor.frame") }), guideGate);
-    expectsFailure(evaluate({ "ios/Sources/MaintenanceFieldApp/FieldViews.swift": mutateFile(fieldViews, "layoutDirection == .rightToLeft ? right : left", "left") }), guideGate);
-    expectsFailure(evaluate({ "ios/Sources/MaintenanceFieldApp/FieldViews.swift": mutateFile(fieldViews, "geometry.size.height - contentInsets.top - contentInsets.bottom", "geometry.size.height") }), guideGate);
-    expectsFailure(evaluate({ "ios/Sources/MaintenanceFieldApp/FieldViews.swift": mutateFile(fieldViews, ".offset(x: contentInsets.leading, y: contentInsets.top)", ".offset(x: 0, y: 0)") }), guideGate);
-    expectsFailure(evaluate({ "ios/Sources/MaintenanceFieldApp/FieldViews.swift": mutateFile(fieldViews, `if parent == nil {
-            invalidate()`, `if parent == nil {
-            requestMeasurement()`) }), guideGate);
-    expectsFailure(evaluate({ "ios/Sources/MaintenanceFieldApp/FieldViews.swift": mutateFile(fieldViews, `removeContentLayoutSensor()
-        onInsetsChange = nil`, "onInsetsChange = nil") }), guideGate);
+    const guideGate = "every authenticated iOS tab must use the direct UIKit content-layout-guide host";
+    expectsFailure(evaluate({ "ios/Sources/MaintenanceFieldApp/FieldViews.swift": mutateFile(fieldViews, "hostingController.view.bottomAnchor.constraint(equalTo: guide.bottomAnchor)", "hostingController.view.bottomAnchor.constraint(equalTo: tabBarController.view.bottomAnchor)") }), guideGate);
+    expectsFailure(evaluate({ "ios/Sources/MaintenanceFieldApp/FieldViews.swift": mutateFile(fieldViews, "NSLayoutConstraint.activate(contentLayoutConstraints)", "// activation removed") }), guideGate);
+    expectsFailure(evaluate({ "ios/Sources/MaintenanceFieldApp/FieldViews.swift": mutateFile(fieldViews, "hostingController.removeFromParent()", "// teardown removed") }), guideGate);
   });
   it("rejects private tab hierarchy workarounds and fixed bottom clearance", () => {
     const fieldViews = validFiles["ios/Sources/MaintenanceFieldApp/FieldViews.swift"];
     for (const forbidden of [
       "tabBarController.selectedViewController = self",
       "let privateHierarchy = view.subviews",
-      "view.setNeedsLayout()",
       "view.safeAreaInset(edge: .bottom) { EmptyView() }",
       "view.frame = CGRect(x: 0, y: 0, width: 1, height: 84)",
       "view.traitOverrides.horizontalSizeClass = .compact",
     ]) {
       expectsFailure(evaluate({ "ios/Sources/MaintenanceFieldApp/FieldViews.swift": `${fieldViews}
-${forbidden}` }), "public content-layout-guide sensor/probe");
+${forbidden}` }), "every authenticated iOS tab must use the direct UIKit content-layout-guide host");
     }
   });
   it("rejects accessibility audit issue handlers", () => {
@@ -569,7 +562,7 @@ ${forbidden}` }), "public content-layout-guide sensor/probe");
     expectsFailure(evaluate({
       "ios/Sources/MaintenanceFieldApp/FieldViews.swift": mutateFile(
         fieldViews,
-        ".background(Color.primary.opacity(0.12), in: Capsule())",
+        ".background(Color(uiColor: .tertiarySystemFill), in: Capsule())",
         ".background(.thinMaterial, in: Capsule())",
       ),
     }), contrastGate);
@@ -713,7 +706,7 @@ ${forbidden}` }), "public content-layout-guide sensor/probe");
     expectsFailure(evaluate({
       "ios/UITests/Support/FieldUITestCase.swift": fieldCase.replace(
         "let trailingGutterX = max(container.frame.width * 0.9, 8)",
-        "let trailingGutterX = max(container.frame.width - 8, 8)",
+        "let trailingGutterX = 8",
       ),
     }), lazyScroll);
     expectsFailure(evaluate({
@@ -725,8 +718,8 @@ ${forbidden}` }), "public content-layout-guide sensor/probe");
     expectsFailure(evaluate({
       "ios/UITests/AccessibilityAuditUITests.swift": mutateFile(
         auditTests,
-        "let trailingGutterX = max(container.frame.width * 0.9, 8)",
         "let trailingGutterX = max(container.frame.width - 8, 8)",
+        "let trailingGutterX = 8",
       ),
     }), lazyScroll);
     expectsFailure(evaluate({

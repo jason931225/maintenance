@@ -24,9 +24,14 @@ struct CameraCaptureView: View {
                     CameraUnavailableView(onCancel: onCancel)
                 }
             case .notDetermined:
-                CameraPermissionRequestView()
+                CameraPermissionRequestView(onCancel: onCancel)
                     .task {
+                        // The system sheet is external to our view hierarchy and
+                        // can remain pending until the user acts. This view always
+                        // exposes an app-owned cancel path, and task cancellation
+                        // prevents a dismissed sheet from mutating state later.
                         let granted = await AVCaptureDevice.requestAccess(for: .video)
+                        guard Task.isCancelled == false else { return }
                         authorizationStatus = granted ? .authorized : .denied
                     }
             default:
@@ -48,10 +53,17 @@ struct CameraCaptureView: View {
 }
 
 private struct CameraPermissionRequestView: View {
+    let onCancel: () -> Void
+
     var body: some View {
-        ProgressView("capturing")
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .accessibilityIdentifier(FieldAccessibilityID.cameraPermissionRequesting)
+        VStack(spacing: 16) {
+            ProgressView("capturing")
+                .accessibilityIdentifier(FieldAccessibilityID.cameraPermissionRequesting)
+            Button("camera_cancel", action: onCancel)
+                .accessibilityIdentifier(FieldAccessibilityID.cameraCancelButton)
+        }
+        .padding()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

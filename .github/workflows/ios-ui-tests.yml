@@ -26,11 +26,11 @@ jobs:
       matrix:
         include:
           - batch: core
-            shards: "preflight login-validation accessibility-id-parity"
+            shards: "preflight-session preflight-fixtures preflight-restore login-validation accessibility-id-parity"
           - batch: critical
-            shards: "critical-path camera-capture"
+            shards: "critical-today critical-lifecycle camera-capture"
           - batch: messenger-dynamic
-            shards: "messenger audit-dynamic-today audit-dynamic-detail"
+            shards: "messenger-render messenger-mutation audit-dynamic-today audit-dynamic-detail"
           - batch: audit-standard
             shards: "audit-dynamic-messenger audit-dynamic-login accessibility-standard"
           - batch: audit-adaptive
@@ -269,9 +269,17 @@ jobs:
             SHARD_TIMEOUT_SECONDS=''
             SHARD_SELECTORS=()
             case "$shard_name" in
-              preflight)
+              preflight-session)
+                SHARD_TIMEOUT_SECONDS=30
+                SHARD_SELECTORS=(MaintenanceFieldUITests/PreflightUITests/testWorkflowMintedSessionAndLocalBackendAreConfigured)
+                ;;
+              preflight-fixtures)
+                SHARD_TIMEOUT_SECONDS=30
+                SHARD_SELECTORS=(MaintenanceFieldUITests/PreflightUITests/testDeterministicWorkOrderFixturesAreConfigured)
+                ;;
+              preflight-restore)
                 SHARD_TIMEOUT_SECONDS=90
-                SHARD_SELECTORS=(MaintenanceFieldUITests/PreflightUITests)
+                SHARD_SELECTORS=(MaintenanceFieldUITests/PreflightUITests/testSeederRestoresThenClearsRealSession)
                 ;;
               login-validation)
                 SHARD_TIMEOUT_SECONDS=90
@@ -281,13 +289,33 @@ jobs:
                 SHARD_TIMEOUT_SECONDS=45
                 SHARD_SELECTORS=(MaintenanceFieldUITests/FieldAccessibilityIDParityTests)
                 ;;
-              critical-path)
-                SHARD_TIMEOUT_SECONDS=360
-                SHARD_SELECTORS=(MaintenanceFieldUITests/FieldCriticalPathUITests)
+              critical-today)
+                SHARD_TIMEOUT_SECONDS=150
+                SHARD_SELECTORS=(
+                  MaintenanceFieldUITests/FieldCriticalPathUITests/testAuthenticatedLaunchShowsTodayTabInKorean
+                  MaintenanceFieldUITests/FieldCriticalPathUITests/testDispatchListRendersDeterministicMechanicWorkOrder
+                  MaintenanceFieldUITests/FieldCriticalPathUITests/testFullFixtureRowsRemainReachableAboveTabBar
+                )
                 ;;
-              messenger)
+              critical-lifecycle)
                 SHARD_TIMEOUT_SECONDS=210
-                SHARD_SELECTORS=(MaintenanceFieldUITests/MessengerUITests)
+                SHARD_SELECTORS=(
+                  MaintenanceFieldUITests/FieldCriticalPathUITests/testOpenWorkOrderDetailAndAdvance
+                  MaintenanceFieldUITests/FieldCriticalPathUITests/testReportFormValidationSurfacesRealRequiredCopy
+                  MaintenanceFieldUITests/FieldCriticalPathUITests/testReportSubmissionPersistsVisibleTerminalOutcome
+                  MaintenanceFieldUITests/FieldCriticalPathUITests/testLocationConsentTransitionsPersistThroughTheRealBackend
+                )
+                ;;
+              messenger-render)
+                SHARD_TIMEOUT_SECONDS=90
+                SHARD_SELECTORS=(MaintenanceFieldUITests/MessengerUITests/testExactSeededMessengerThreadAndMessageRender)
+                ;;
+              messenger-mutation)
+                SHARD_TIMEOUT_SECONDS=120
+                SHARD_SELECTORS=(
+                  MaintenanceFieldUITests/MessengerUITests/testMessengerSendSurvivesBackendRefresh
+                  MaintenanceFieldUITests/MessengerUITests/testMessengerSearchUnmatchedQueryShowsRealNoResults
+                )
                 ;;
               camera-capture)
                 SHARD_TIMEOUT_SECONDS=90
@@ -435,6 +463,29 @@ jobs:
           printf '%s\n' "$MNT_IOS_BATCH_NAME" > "$ARTIFACTS/batch-name.txt"
           printf '%s\n' "${SHARD_MANIFEST[@]}" > "$ARTIFACTS/shard-manifest.txt"
           TEST_STATUS=0
+          # This is deliberately infrastructure-only and excluded from the
+          # functional shard manifest and aggregate. It warms XCTest and the
+          # app host under a strict cap; a failure remains worker-failing while
+          # the functional fail-slow sweep still runs for diagnostics.
+          TIMING_BUDGET_SECONDS=45
+          timing_start xctest-prewarm
+          prewarm_status=0
+          if ! set_simulator_presentation light large; then
+            prewarm_status=1
+          else
+            run_xcode_with_timeout xctest-prewarm "$RAW_RESULTS/xctest-prewarm.xcresult" 45 MaintenanceFieldUITests/XCTestPrewarmUITests/testRunnerAndHostLaunch || prewarm_status=$?
+          fi
+          if (( prewarm_status == 0 )); then
+            timing_finish passed
+          elif (( prewarm_status == 124 )); then
+            printf '%s\n' 'xctest-prewarm exceeded its 45-second infrastructure budget' > "$ARTIFACTS/xctest-prewarm-failure.txt"
+            TEST_STATUS=1
+            timing_finish timeout
+          else
+            printf '%s\n' 'xctest-prewarm failed before functional shards' > "$ARTIFACTS/xctest-prewarm-failure.txt"
+            TEST_STATUS=1
+            timing_finish failed
+          fi
           for shard_name in "${SHARD_MANIFEST[@]}"; do
             result="$RAW_RESULTS/$shard_name.xcresult"; summary="$ARTIFACTS/$shard_name-summary.json"; tests="$ARTIFACTS/$shard_name-tests.json"
             timing_start "test:$shard_name"
@@ -582,15 +633,15 @@ jobs:
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
           EXPECTED_BATCHES=(core critical messenger-dynamic audit-standard audit-adaptive)
-          EXPECTED_SHARDS=(preflight login-validation accessibility-id-parity critical-path messenger camera-capture audit-dynamic-today audit-dynamic-detail audit-dynamic-messenger audit-dynamic-login accessibility-standard accessibility-largest accessibility-dark dynamic-type-large dynamic-type-ax5)
+          EXPECTED_SHARDS=(preflight-session preflight-fixtures preflight-restore login-validation accessibility-id-parity critical-today critical-lifecycle camera-capture messenger-render messenger-mutation audit-dynamic-today audit-dynamic-detail audit-dynamic-messenger audit-dynamic-login accessibility-standard accessibility-largest accessibility-dark dynamic-type-large dynamic-type-ax5)
           for batch_name in "${EXPECTED_BATCHES[@]}"; do
             batch_dir="$RESULTS_ROOT/ios-ui-test-results-$batch_name"
             test -d "$batch_dir"
             test "$(cat "$batch_dir/batch-name.txt")" = "$batch_name"
             case "$batch_name" in
-              core) expected_manifest='preflight login-validation accessibility-id-parity' ;;
-              critical) expected_manifest='critical-path camera-capture' ;;
-              messenger-dynamic) expected_manifest='messenger audit-dynamic-today audit-dynamic-detail' ;;
+              core) expected_manifest='preflight-session preflight-fixtures preflight-restore login-validation accessibility-id-parity' ;;
+              critical) expected_manifest='critical-today critical-lifecycle camera-capture' ;;
+              messenger-dynamic) expected_manifest='messenger-render messenger-mutation audit-dynamic-today audit-dynamic-detail' ;;
               audit-standard) expected_manifest='audit-dynamic-messenger audit-dynamic-login accessibility-standard' ;;
               audit-adaptive) expected_manifest='accessibility-largest accessibility-dark dynamic-type-large dynamic-type-ax5' ;;
               *) exit 1 ;;
@@ -598,8 +649,8 @@ jobs:
             test "$(paste -sd' ' "$batch_dir/shard-manifest.txt")" = "$expected_manifest"
           done
           test "$(find "$RESULTS_ROOT" -mindepth 1 -maxdepth 1 -type d -name 'ios-ui-test-results-*' | wc -l | tr -d ' ')" = 5
-          test "$(find "$RESULTS_ROOT" -type f -name '*-summary.json' | wc -l | tr -d ' ')" = 15
-          test "$(find "$RESULTS_ROOT" -type f -name '*-tests.json' | wc -l | tr -d ' ')" = 15
+          test "$(find "$RESULTS_ROOT" -type f -name '*-summary.json' | wc -l | tr -d ' ')" = 19
+          test "$(find "$RESULTS_ROOT" -type f -name '*-tests.json' | wc -l | tr -d ' ')" = 19
           VERIFY_ARGS=()
           for shard_name in "${EXPECTED_SHARDS[@]}"; do
             mapfile -t summaries < <(find "$RESULTS_ROOT" -type f -name "$shard_name-summary.json" -print)

@@ -17,12 +17,16 @@ function iosJob(workflow) {
 }
 
 const expectedShardBudgets = new Map([
-  ["preflight", 90],
+  ["preflight-session", 30],
+  ["preflight-fixtures", 30],
+  ["preflight-restore", 90],
   ["login-validation", 90],
   ["accessibility-id-parity", 45],
-  ["critical-path", 360],
-  ["messenger", 210],
+  ["critical-today", 150],
+  ["critical-lifecycle", 210],
   ["camera-capture", 90],
+  ["messenger-render", 90],
+  ["messenger-mutation", 120],
   ["audit-dynamic-today", 150],
   ["audit-dynamic-detail", 150],
   ["audit-dynamic-messenger", 150],
@@ -35,9 +39,9 @@ const expectedShardBudgets = new Map([
 ]);
 
 const expectedShardBatches = new Map([
-  ["core", ["preflight", "login-validation", "accessibility-id-parity"]],
-  ["critical", ["critical-path", "camera-capture"]],
-  ["messenger-dynamic", ["messenger", "audit-dynamic-today", "audit-dynamic-detail"]],
+  ["core", ["preflight-session", "preflight-fixtures", "preflight-restore", "login-validation", "accessibility-id-parity"]],
+  ["critical", ["critical-today", "critical-lifecycle", "camera-capture"]],
+  ["messenger-dynamic", ["messenger-render", "messenger-mutation", "audit-dynamic-today", "audit-dynamic-detail"]],
   ["audit-standard", ["audit-dynamic-messenger", "audit-dynamic-login", "accessibility-standard"]],
   ["audit-adaptive", ["accessibility-largest", "accessibility-dark", "dynamic-type-large", "dynamic-type-ax5"]],
 ]);
@@ -123,6 +127,28 @@ function hasCompleteFailSlowRuntimeBudget(job) {
     && /-parallel-testing-enabled\s+NO\b/.test(job);
 }
 
+function hasCappedXCTestPrewarm(files) {
+  const workflow = files[".github/workflows/ios-ui-tests.yml"] ?? "";
+  const activeJob = stripInertShellData(iosJob(workflow));
+  const prewarm = files["ios/UITests/XCTestPrewarmUITests.swift"] ?? "";
+  const prewarmStart = activeJob.indexOf("timing_start xctest-prewarm");
+  const functionalLoop = activeJob.indexOf('for shard_name in "${SHARD_MANIFEST[@]}"; do');
+  return /final\s+class\s+XCTestPrewarmUITests:\s*XCTestCase/.test(prewarm)
+    && /func\s+testRunnerAndHostLaunch\s*\(\s*\)/.test(prewarm)
+    && /let\s+app\s*=\s*XCUIApplication\s*\(\s*\)/.test(prewarm)
+    && /app\.launch\s*\(\s*\)/.test(prewarm)
+    && /app\.terminate\s*\(\s*\)/.test(prewarm)
+    && /app\.state[\s\S]{0,120}\.runningForeground/.test(prewarm)
+    && /TIMING_BUDGET_SECONDS=45\s*\n\s*timing_start xctest-prewarm/.test(activeJob)
+    && /run_xcode_with_timeout\s+xctest-prewarm\s+"\$RAW_RESULTS\/xctest-prewarm\.xcresult"\s+45\s+MaintenanceFieldUITests\/XCTestPrewarmUITests\/testRunnerAndHostLaunch/.test(activeJob)
+    && /xctest-prewarm-failure\.txt/.test(activeJob)
+    && /TEST_STATUS=1/.test(activeJob.slice(prewarmStart, functionalLoop))
+    && prewarmStart !== -1
+    && functionalLoop !== -1
+    && prewarmStart < functionalLoop
+    && !/MNT_IOS_SHARD_BATCH[^\n]*xctest-prewarm/.test(activeJob);
+}
+
 function hasPipelineTimingTelemetry(job) {
   const activeJob = stripInertShellData(job);
   const phases = [
@@ -140,6 +166,7 @@ function hasPipelineTimingTelemetry(job) {
     && /trap\s+on_exit\s+EXIT/.test(activeJob)
     && phases.every((phase) => activeJob.includes(`timing_start ${phase}`))
     && /timing_start\s+"test:\$shard_name"/.test(activeJob)
+    && /timing_start xctest-prewarm[\s\S]{0,1200}prewarm_status == 124[\s\S]{0,280}timing_finish timeout/.test(activeJob)
     && /TIMING_BUDGET_SECONDS="\$SHARD_TIMEOUT_SECONDS"/.test(activeJob)
     && /timeout_marker="\$ARTIFACTS\/\$shard_name-timeout\.txt"/.test(activeJob)
     && />\s*"\$timeout_marker"/.test(activeJob)
@@ -347,7 +374,7 @@ function hasValidLoopbackWebauthnPolicy(job, launcher) {
   const launch = matches[0]?.index ?? -1;
   const pidRead = activeJob.indexOf('BACKEND_PID="$(cat "$BACKEND_PID_FILE")"');
   const forbiddenLowLevelControls = /\b(?:E2E_AUTH_DIR|E2E_HTTP_ADDR|E2E_PORT_CONFLICT_MODE|E2E_COLDSTART_OTP|E2E_RP_ORIGIN|E2E_RP_ID)\b|e2e\/harness\/boot-backend\.sh/;
-  const approvedBackendStepSha256 = "a62f56f83d490244b1af995d29f1040f03363ceaaa0f63758a0aeb8e0145437f";
+  const approvedBackendStepSha256 = "c3c12a6e8ab4d7834186113db504dabc2ea65bc777a795128c2dbc2dee018d4e";
   const approvedLauncherSha256 = "a153fab32c9f4ca597605ec126d40e3bfc106c0ce17c368078e22c265ca9f1ad";
   const backendStepSha256 = createHash("sha256").update(backendStep).digest("hex");
   const launcherSha256 = createHash("sha256").update(launcher).digest("hex");
@@ -552,10 +579,10 @@ function hasStructuredResultVerification(workerJob, aggregateJob) {
     && /WORKER_RESULT:\s*\$\{\{ needs\.ios-ui-tests\.result \}\}/.test(aggregateJob)
     && /test\s+"\$\(git rev-parse HEAD\)"\s*=\s*"\$GITHUB_SHA"/.test(activeAggregate)
     && /EXPECTED_BATCHES=\(core critical messenger-dynamic audit-standard audit-adaptive\)/.test(activeAggregate)
-    && /EXPECTED_SHARDS=\(preflight login-validation accessibility-id-parity critical-path messenger camera-capture audit-dynamic-today audit-dynamic-detail audit-dynamic-messenger audit-dynamic-login accessibility-standard accessibility-largest accessibility-dark dynamic-type-large dynamic-type-ax5\)/.test(activeAggregate)
+    && /EXPECTED_SHARDS=\(preflight-session preflight-fixtures preflight-restore login-validation accessibility-id-parity critical-today critical-lifecycle camera-capture messenger-render messenger-mutation audit-dynamic-today audit-dynamic-detail audit-dynamic-messenger audit-dynamic-login accessibility-standard accessibility-largest accessibility-dark dynamic-type-large dynamic-type-ax5\)/.test(activeAggregate)
     && /test\s+"\$\(find\s+"\$RESULTS_ROOT"\s+-mindepth\s+1\s+-maxdepth\s+1\s+-type\s+d\s+-name\s+'ios-ui-test-results-\*'\s+\|\s+wc\s+-l\s+\|\s+tr\s+-d\s+' '\)"\s+=\s+5/.test(activeAggregate)
-    && /test\s+"\$\(find\s+"\$RESULTS_ROOT"\s+-type\s+f\s+-name\s+'\*-summary\.json'\s+\|\s+wc\s+-l\s+\|\s+tr\s+-d\s+' '\)"\s+=\s+15/.test(activeAggregate)
-    && /test\s+"\$\(find\s+"\$RESULTS_ROOT"\s+-type\s+f\s+-name\s+'\*-tests\.json'\s+\|\s+wc\s+-l\s+\|\s+tr\s+-d\s+' '\)"\s+=\s+15/.test(activeAggregate)
+    && /test\s+"\$\(find\s+"\$RESULTS_ROOT"\s+-type\s+f\s+-name\s+'\*-summary\.json'\s+\|\s+wc\s+-l\s+\|\s+tr\s+-d\s+' '\)"\s+=\s+19/.test(activeAggregate)
+    && /test\s+"\$\(find\s+"\$RESULTS_ROOT"\s+-type\s+f\s+-name\s+'\*-tests\.json'\s+\|\s+wc\s+-l\s+\|\s+tr\s+-d\s+' '\)"\s+=\s+19/.test(activeAggregate)
     && /mapfile\s+-t\s+summaries[\s\S]{0,300}\(\(\$\{#summaries\[@\]\}\s*==\s*1\)\)/.test(activeAggregate)
     && /mapfile\s+-t\s+tests[\s\S]{0,300}\(\(\$\{#tests\[@\]\}\s*==\s*1\)\)/.test(activeAggregate)
     && /VERIFY_ARGS\+=\(\s*--summary\s+"\$\{summaries\[0\]\}"\s+--tests\s+"\$\{tests\[0\]\}"\s*\)/.test(activeAggregate)
@@ -743,47 +770,17 @@ function hasAdaptiveTodayLocationConsent(files) {
 }
 
 function hasUnobscuredTabContentHost(files) {
-  const views = stripSwiftCommentsAndStrings(files["ios/Sources/MaintenanceFieldApp/FieldViews.swift"] ?? "");
-  const tabs = extractFunctionBody(views, /struct\s+FieldAuthenticatedTabs\b/) ?? "";
-  const wrapper = extractFunctionBody(views, /private\s+struct\s+UnobscuredTabContent<Content:\s*View>:\s*View/) ?? "";
-  const probe = extractFunctionBody(views, /private\s+struct\s+TabBarContentLayoutGuideProbe:\s*UIViewControllerRepresentable/) ?? "";
-  const sensor = extractFunctionBody(views, /private\s+final\s+class\s+TabBarContentLayoutGuideSensor:\s*UIView/) ?? "";
-  const controller = extractFunctionBody(views, /private\s+final\s+class\s+TabBarContentLayoutGuideProbeController:\s*UIViewController/) ?? "";
-  const report = extractFunctionBody(controller, /private\s+func\s+reportContentInsetsIfAvailable\s*\(\s*\)/) ?? "";
-  const install = extractFunctionBody(controller, /private\s+func\s+installContentLayoutSensorIfNeeded\s*\(/) ?? "";
-  const remove = extractFunctionBody(controller, /private\s+func\s+removeContentLayoutSensor\s*\(\s*\)/) ?? "";
-  const invalidate = extractFunctionBody(controller, /func\s+invalidate\s*\(\s*\)/) ?? "";
-  const wrappers = [...tabs.matchAll(/UnobscuredTabContent\s*\{\s*NavigationStack\s*\{/g)].length === 4;
-  const guideEdges = ["top", "leading", "bottom", "trailing"].every((edge) => new RegExp(`sensor\\.${edge}Anchor\\.constraint\\(equalTo:\\s*tabBarController\\.contentLayoutGuide\\.${edge}Anchor\\)`).test(install));
-  const guideDrivenContentFrame = /ZStack\s*\{[\s\S]{0,600}TabBarContentLayoutGuideProbe[\s\S]{0,600}GeometryReader\s*\{\s*geometry\s+in[\s\S]{0,200}content\s*\.frame\s*\(/.test(wrapper)
-    && /geometry\.size\.width\s*-\s*contentInsets\.leading\s*-\s*contentInsets\.trailing/.test(wrapper)
-    && /geometry\.size\.height\s*-\s*contentInsets\.top\s*-\s*contentInsets\.bottom/.test(wrapper)
-    && /alignment:\s*\.topLeading/.test(wrapper)
-    && /\.offset\(x:\s*contentInsets\.leading,\s*y:\s*contentInsets\.top\)/.test(wrapper);
-  const forbidden = /UIHostingController|selectedViewController\b|value\s*\(forKey:|NSClassFromString|object_getIvar|recursiveDescription|subviews\b|traitOverrides|setNeedsLayout|additionalSafeAreaInsets|contentInset\b|safeAreaInset\s*\(\s*edge:\s*\.bottom|constraint\s*\(equalToConstant:|\.frame\s*\(\s*height:|\bview\.frame\s*=(?!=)|tabBarController\.tabBar\.bounds\.height/.test(views);
-  return wrappers
-    && guideDrivenContentFrame
-    && /func\s+makeUIViewController[\s\S]{0,220}TabBarContentLayoutGuideProbeController\(onInsetsChange:\s*onInsetsChange\)/.test(probe)
-    && /static\s+func\s+dismantleUIViewController[\s\S]{0,220}invalidate\s*\(\s*\)/.test(probe)
-    && /override\s+func\s+layoutSubviews[\s\S]{0,120}onLayout\?\(\)/.test(sensor)
-    && /override\s+func\s+didMoveToWindow[\s\S]{0,120}onLayout\?\(\)/.test(sensor)
-    && /private\s+var\s+pendingMeasurementTask:\s*Task<Void,\s*Never>\?/.test(controller)
-    && /guard\s+pendingMeasurementTask\s*==\s*nil\s+else\s*\{\s*return\s*\}/.test(controller)
-    && /await\s+Task\.yield\(\)/.test(controller)
-    && /pendingMeasurementTask\s*=\s*nil[\s\S]{0,180}reportContentInsetsIfAvailable/.test(controller)
-    && /override\s+func\s+didMove\s*\(\s*toParent[\s\S]{0,200}if\s+parent\s*==\s*nil\s*\{\s*invalidate\s*\(\s*\)/.test(controller)
-    && /viewDidLayoutSubviews[\s\S]{0,120}requestMeasurement/.test(controller)
-    && /viewSafeAreaInsetsDidChange[\s\S]{0,120}requestMeasurement/.test(controller)
-    && /viewWillTransition[\s\S]{0,300}requestMeasurement/.test(controller)
-    && /let\s+window\s*=\s*viewIfLoaded\?\.window[\s\S]{0,260}tabBarController\.view\.window\s*===\s*window/.test(report)
-    && /sensorSuperview\.convert\(sensor\.frame,\s*to:\s*view\)/.test(report)
-    && /effectiveUserInterfaceLayoutDirection/.test(report)
-    && /leading:\s*layoutDirection\s*==\s*\.rightToLeft\s*\?\s*right\s*:\s*left/.test(report)
-    && /trailing:\s*layoutDirection\s*==\s*\.rightToLeft\s*\?\s*left\s*:\s*right/.test(report)
-    && guideEdges
-    && /contentLayoutSensor\?\.onLayout\s*=\s*nil[\s\S]{0,120}contentLayoutSensor\?\.removeFromSuperview/.test(remove)
-    && /pendingMeasurementTask\?\.cancel\(\)[\s\S]{0,100}removeContentLayoutSensor\(\)[\s\S]{0,100}onInsetsChange\s*=\s*nil/.test(invalidate)
-    && !forbidden;
+  const views = files["ios/Sources/MaintenanceFieldApp/FieldViews.swift"] ?? "";
+  return views.includes("TabBarContentLayoutGuideHost(content: content)")
+    && views.includes("TabBarContentLayoutGuideHostController(content: content)")
+    && views.includes("let guide = tabBarController.contentLayoutGuide")
+    && views.includes("hostingController.view.topAnchor.constraint(equalTo: guide.topAnchor)")
+    && views.includes("hostingController.view.bottomAnchor.constraint(equalTo: guide.bottomAnchor)")
+    && views.includes("NSLayoutConstraint.activate(contentLayoutConstraints)")
+    && views.includes("addChild(hostingController)")
+    && views.includes("hostingController.didMove(toParent: self)")
+    && views.includes("hostingController.removeFromParent()")
+    && !/selectedViewController\b|value\s*\(forKey:|NSClassFromString|object_getIvar|recursiveDescription|traitOverrides|additionalSafeAreaInsets|contentInset\b|safeAreaInset\s*\(\s*edge:\s*\.bottom|constraint\s*\(equalToConstant:|\bview\.frame\s*=(?!=)|view\.subviews\b|tabBarController\.tabBar\.bounds\.height/.test(views);
 }
 
 function hasSemanticMessengerMessagesHeader(files) {
@@ -796,10 +793,12 @@ function hasContrastStableCapsules(files) {
   const views = stripSwiftCommentsAndStrings(files["ios/Sources/MaintenanceFieldApp/FieldViews.swift"] ?? "");
   const messageRow = extractFunctionBody(views, /struct\s+MessengerMessageRow:\s*View/) ?? "";
   const fieldChip = extractFunctionBody(views, /struct\s+FieldChip:\s*View/) ?? "";
-  const stableBackground = /\.background\(\s*Color\.primary\.opacity\(\s*0\.12\s*\),\s*in:\s*Capsule\(\s*\)\s*\)/;
-  return stableBackground.test(messageRow)
-    && stableBackground.test(fieldChip)
+  const detail = extractFunctionBody(views, /struct\s+WorkOrderDetailView:\s*View/) ?? "";
+  const opaqueSemanticSurface = /\.background\(\s*Color\(uiColor:\s*\.tertiarySystemFill\)\s*,\s*in:\s*Capsule\(\s*\)\s*\)/;
+  return opaqueSemanticSurface.test(messageRow)
+    && opaqueSemanticSurface.test(fieldChip)
     && /\.font\(\s*\.caption\s*\)[\s\S]{0,100}\.foregroundStyle\(\s*\.primary\s*\)[\s\S]{0,220}\.background\(/.test(messageRow)
+    && /scrollContentBackground\(\.hidden\)[\s\S]{0,160}background\(Color\(uiColor:\s*\.systemGroupedBackground\)\)/.test(detail)
     && !/\.(?:ultraThin|thin|regular|thick|ultraThick)Material\b/.test(messageRow + fieldChip);
 }
 
@@ -1126,7 +1125,7 @@ function hasBoundedExactElementScroll(files) {
     // editor, both system-edge gesture regions, and the scroll-indicator strip.
     && /let\s+origin\s*=\s*container\.coordinate\s*\(\s*withNormalizedOffset:\s*\.zero\s*\)/.test(helper)
     && /let\s+trailingGutterX\s*=\s*max\s*\(\s*container\.frame\.width\s*\*\s*0\.9\s*,\s*8\s*\)/.test(helper)
-    && /let\s+trailingGutterX\s*=\s*max\s*\(\s*container\.frame\.width\s*\*\s*0\.9\s*,\s*8\s*\)/.test(audit)
+    && /let\s+trailingGutterX\s*=\s*max\s*\(\s*container\.frame\.width\s*-\s*8\s*,\s*8\s*\)/.test(audit)
     && /let\s+trailingGutterX\s*=\s*max\s*\(\s*list\.frame\.width\s*\*\s*0\.9\s*,\s*8\s*\)/.test(messenger)
     && /let\s+dragStart\s*=\s*origin\.withOffset\s*\(\s*CGVector\s*\(\s*dx:\s*trailingGutterX\s*,\s*dy:\s*container\.frame\.height\s*\*\s*0\.50\s*\)\s*\)/.test(helper)
     && /let\s+dragEnd\s*=\s*origin\.withOffset\s*\(\s*CGVector\s*\(\s*dx:\s*trailingGutterX\s*,\s*dy:\s*container\.frame\.height\s*\*\s*0\.28\s*\)\s*\)/.test(helper)
@@ -1401,7 +1400,7 @@ export function evaluateIosUiTestFailClosedChecks(files) {
 
   checks.push([hasHostedUntrustedBoundary(job), "iOS UI CI must isolate untrusted PR code on fixed GitHub-hosted macos-26, never a reusable self-hosted runner"]);
   checks.push([hasExactShaBatchIsolation(job), "each iOS UI matrix worker must check out the exact candidate SHA and own batch-unique job-root, PostgreSQL/backend ports, Simulator, xctestrun, raw xcresults, structured JSON, and artifact paths"]);
-  checks.push([hasCompleteFailSlowRuntimeBudget(job), "iOS UI CI must use five bounded isolated shard batches, original per-shard watchdogs, and a 45-minute ceiling derived from the 810-second maximum batch plus a 30-minute setup and cleanup reserve"]);
+  checks.push([hasCompleteFailSlowRuntimeBudget(job), "iOS UI CI must use five bounded isolated shard batches, selector-decomposed preflight, critical, and Messenger budgets, and a 45-minute ceiling derived from the 810-second maximum batch plus a 30-minute setup and cleanup reserve"]);
   checks.push([aggregateJob.length > 0, "iOS UI CI must define an always-running fail-closed ios-ui-results aggregate job"]);
   checks.push([hasPinnedToolchain(job, workflow), "iOS UI CI must pin Xcode 26.6 build 17F113, Apple Swift 6.3.3, and iOS 26.5, bind Node 24.16.0 directly from the setup-node toolcache, and keep all Rust paths under its job root"]);
   checks.push([hasStrictSwift6LanguageMode(files), "iOS app, seeder, and UI-test targets must all compile in strict Swift 6 language mode without a Swift 5 compatibility override"]);
@@ -1410,6 +1409,7 @@ export function evaluateIosUiTestFailClosedChecks(files) {
   checks.push([hasCandidateShaBeforeBackendBuild(job), "iOS UI CI must verify git rev-parse HEAD against GITHUB_SHA before building candidate mnt-app"]);
   checks.push([hasOptimizedBehavioralBackendBuild(job), "iOS UI CI must use the measured stripped-debug mnt-app build for behavioral E2E and reject release optimization overhead"]);
   checks.push([hasPipelineTimingTelemetry(job), "iOS UI CI must emit durable phase and per-shard timings so slow stages are diagnosed before budgets change"]);
+  checks.push([hasCappedXCTestPrewarm(files), "iOS UI CI must cap an infrastructure-only XCTest prewarm before functional shards without treating it as product success"]);
   checks.push([hasPinnedJobLocalXcodegen(job), "iOS UI CI must install checksum-pinned XcodeGen 2.46.0 under its job root without mutating Homebrew"]);
   checks.push([hasOfficialPostgres184Source(job), "iOS UI CI must build PostgreSQL 18.4 from the official source tarball after SHA-256 verification"]);
   checks.push([hasRequiredPostgresExtensions(job), "iOS UI CI must configure PostgreSQL with OpenSSL and build, install, and load-test the required pgcrypto and pg_trgm extensions before compiling the backend"]);
@@ -1431,7 +1431,7 @@ export function evaluateIosUiTestFailClosedChecks(files) {
   checks.push([hasStrictAccessibility(files), "iOS UI CI must enforce strict accessibility auditing"]);
   checks.push([hasDeterministicAccessibilityPresentations(files), "iOS accessibility audits must precondition supported Simulator appearance and content size per named shard, then enforce Dynamic Type compatibility ledgers and non-Dynamic-Type audits without process-local presentation mutation"]);
   checks.push([hasAdaptiveTodayLocationConsent(files), "iOS Today must retain inline location consent outside accessibility Dynamic Type and present the complete consent section in a stable-ID sheet with a stable-ID close control at accessibility sizes, while work-order detail retains the full section"]);
-  checks.push([hasUnobscuredTabContentHost(files), "every authenticated iOS tab must use the public content-layout-guide sensor/probe seam with lifecycle-safe measurement and no private hierarchy coupling"]);
+  checks.push([hasUnobscuredTabContentHost(files), "every authenticated iOS tab must use the direct UIKit content-layout-guide host seam with lifecycle-safe containment and no private hierarchy coupling"]);
   checks.push([hasAccessibilityIDParity(files), "iOS UI CI must mirror every FieldAccessibilityID static and dynamic identifier in UITests AID"]);
   checks.push([hasSectionScopedMessengerMessageRows(files), "iOS messenger search results and selected-thread messages must use section-scoped dynamic accessibility IDs"]);
   checks.push([hasSemanticMessengerMessagesHeader(files), "iOS messenger messages must retain a scalable semantic header before selected-thread content"]);
@@ -1439,7 +1439,7 @@ export function evaluateIosUiTestFailClosedChecks(files) {
   checks.push([hasModernFullScreenLaunch(files), "iOS app and CI build must preserve a modern full-screen launch contract"]);
   checks.push([hasCiOnlyLocalAts(files), "iOS UI CI must confine local ATS to CI-only job-root loopback configuration while production Info.plist remains unchanged"]);
   checks.push([hasExactFailSlowExecution(job), "each iOS UI matrix worker must execute only its declared named-shard batch fail-slow, preserve every xcresult extraction failure, keep Xcode per-test parallelization disabled, and exit with worker status"]);
-  checks.push([hasStructuredResultVerification(job, aggregateJob), "iOS UI CI must aggregate exactly one structured summary and tests JSON for all fifteen shards from five uniquely named batch artifacts and fail when any worker, artifact, or shard is missing"]);
+  checks.push([hasStructuredResultVerification(job, aggregateJob), "iOS UI CI must aggregate exactly one structured summary and tests JSON for all nineteen shards from five uniquely named batch artifacts and fail when any worker, artifact, or shard is missing"]);
   checks.push([hasCameraAuthorizationReactivation(files), "iOS camera capture must refresh authorization when the app becomes active after returning from Settings"]);
   checks.push([hasDurableCriticalPathEvidence(files), "iOS UI tests must prove scoped mutations, backend readback after relaunch, camera dismissal, and UUID fixtures without local-state false greens"]);
   checks.push([hasArtifactSecretScan(job), "iOS UI CI must upload only scan-clean derived diagnostics, never raw xcresult bundles containing OTP, access, or refresh session material"]);
@@ -1478,6 +1478,7 @@ function main() {
     "ios/UITests/AccessibilityAuditUITests.swift",
     "ios/UITests/DynamicTypeRuntimeUITests.swift",
     "ios/UITests/PreflightUITests.swift",
+    "ios/UITests/XCTestPrewarmUITests.swift",
     "ios/UITests/FieldCriticalPathUITests.swift",
     "ios/UITests/MessengerUITests.swift",
     "ios/UITests/CameraCaptureUITests.swift",

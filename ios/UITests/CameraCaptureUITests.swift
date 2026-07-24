@@ -31,9 +31,10 @@ final class CameraCaptureUITests: FieldUITestCase {
         capture.tap()
         app.tap()
 
-        // The Simulator can deterministically reach either a camera preview or
-        // a denied/unavailable state. Permission-requesting/progress UI is
-        // deliberately not a terminal success: it has no usable escape path.
+        // The Simulator can deterministically reach a preview, a denied or
+        // unavailable state, or leave the system prompt pending. The app-owned
+        // pending state is terminal only when it preserves the Cancel escape.
+        let requesting = app.activityIndicators[AID.cameraPermissionRequesting]
         let denied = app.staticTexts[AID.cameraPermissionDenied]
         let shutter = app.buttons[AID.cameraShutterButton]
         let cancel = app.buttons[AID.cameraCancelButton]
@@ -43,13 +44,14 @@ final class CameraCaptureUITests: FieldUITestCase {
         let deadline = Date().addingTimeInterval(15)
         while Date() < deadline {
             let previewIsUsable = shutter.exists && cancel.exists
+            let pendingIsEscapable = requesting.exists && cancel.exists
             let deniedIsEscapable = denied.exists && cancel.exists
             let unavailableIsEscapable = unavailable.exists && cancel.exists
             if previewIsUsable {
                 reachedTerminalState = true
                 break
             }
-            if deniedIsEscapable || unavailableIsEscapable {
+            if pendingIsEscapable || deniedIsEscapable || unavailableIsEscapable {
                 reachedTerminalState = true
                 break
             }
@@ -58,7 +60,7 @@ final class CameraCaptureUITests: FieldUITestCase {
 
         guard reachedTerminalState else {
             XCTFail(
-                "Camera capture must reach a bounded usable terminal state: preview with shutter+cancel, or denied/unavailable with cancel."
+                "Camera capture must reach a bounded usable terminal state: preview with shutter+cancel, or pending/denied/unavailable with cancel."
             )
             return
         }
@@ -69,7 +71,7 @@ final class CameraCaptureUITests: FieldUITestCase {
             "Cancelling any usable camera terminal state must dismiss the camera sheet."
         )
         XCTAssertFalse(
-            denied.exists || unavailable.exists || shutter.exists,
+            requesting.exists || denied.exists || unavailable.exists || shutter.exists,
             "No camera terminal controls should remain after cancelling the camera sheet."
         )
     }
