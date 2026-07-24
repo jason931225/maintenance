@@ -71,6 +71,7 @@ related: []
 |---|---|---|---|
 | [DN-0001](notes/DN-0001-adr-0024-ha-workload-scheduling.md) | accepted ADR-0024 | DARK | First self-host HA workload scheduling expectations; not activation evidence |
 | [DN-0002](notes/DN-0002-adr-0024-on-prem-vip-ingress.md) | accepted ADR-0024 | DARK | First self-host on-prem VIP/ingress approach; not activation evidence |
+| [DN-0003](notes/DN-0003-adr-0025-operational-object-runtime.md) | accepted ADR-0025 | IN PROGRESS | Palantir-derived operational object runtime, deterministic Actions, object-focused tooling, and governed scenario direction; not release evidence |
 
 ## Planning entry
 

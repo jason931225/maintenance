@@ -32,17 +32,17 @@ implementation evidence. A reference change may add or refine acceptance
 criteria; it cannot turn prototype rows, actions, or checklist claims into
 verified product behavior.
 
-The 2026-07-23T22:34:11Z rolling sync changed the HTML reference to ETag
-`1784843022706269` and SHA-256
-`afe30db771e99444dc69698942e602cf1db33acbd44955e33f9d7ce78ecbbc07`.
-Its material product deltas deepen people and legal-entity creation, add
-normalized phone/currency/registration inputs, require governed extensible
-enums and authorized typeahead at production scale, and expand ontology
-creation coverage for maintenance, site, position, and workforce-pool objects.
-These become acceptance criteria for the people/organization, shared-form,
-object-composer, and large-directory lanes. Prototype-local arrays, direct
-string insertion, and completed prototype checklists remain reference behavior,
-not backend or product evidence.
+The 2026-07-23T23:45:43.909Z rolling sync changed the HTML reference to ETag
+`1784850323223256`, byte length `2154790`, and SHA-256
+`9c457b8edf0337e59160e76b7a72c1a5e8c4615fa6ac2a81a98e28d9a9fa88fe`.
+Its material product deltas turn the employee card into a cross-module HR
+ledger, add audited contact edits while preserving approval-mediated
+organization/rank changes, add governed legal-entity post-finalization edits,
+require graph/person typeahead in the object composer, and make relationship
+chips carry typed link semantics. These become acceptance criteria for the
+people, organization, object-composer, ontology-link, and shared-ledger lanes.
+Prototype-local arrays, direct string insertion, and completed prototype
+checklists remain reference behavior, not backend or product evidence.
 
 ## Business coverage
 
@@ -121,6 +121,15 @@ Foundry-style parity is adapted to this context through ontology, actions,
 functions, workflow studio, pipeline/lineage, object explorer, operational
 applications, and governed analytics. It is extended with Korea-specific
 operational, employment, safety, privacy, and audit requirements.
+
+The implementation model is the
+[Operational Object Runtime](../decisions/notes/DN-0003-adr-0025-operational-object-runtime.md):
+typed business objects and capability descriptors, domain-owned writers,
+deterministic Actions and receipts, interchangeable projections, object-focused
+tools, immutable scenarios, and an observable read -> decide -> act -> writeback
+-> verify loop. The game-engine analogy is architectural; it does not authorize
+game styling, a generic component database, runtime plugins, or a second source
+of truth.
 
 ### Vertical operating packs
 
