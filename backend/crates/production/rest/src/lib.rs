@@ -194,6 +194,7 @@ struct PlanSummary {
     created_at: OffsetDateTime,
     #[serde(with = "time::serde::rfc3339")]
     due_at: OffsetDateTime,
+    plan_digest: String,
 }
 #[derive(Serialize)]
 struct PlanDetail {
@@ -788,7 +789,6 @@ struct PlanRow {
     first_operation_id: Uuid,
     created_at: OffsetDateTime,
     due_at: OffsetDateTime,
-    plan_digest: String,
     created_by: Uuid,
     plan_digest: String,
     checks: serde_json::Value,
