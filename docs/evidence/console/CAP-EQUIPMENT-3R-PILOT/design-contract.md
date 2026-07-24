@@ -165,8 +165,11 @@ CREATE TABLE equipment_3r_rental_cases (
     vehicle_reference TEXT NULL CHECK (vehicle_reference IS NULL OR char_length(btrim(vehicle_reference)) BETWEEN 1 AND 120),
     dispatched_at TIMESTAMPTZ NULL,
     recipient_name TEXT NULL CHECK (recipient_name IS NULL OR char_length(btrim(recipient_name)) BETWEEN 1 AND 160),
+    -- Postgres caps regex repetition bounds at 255, so the 8..400 length
+    -- window lives in char_length ('evidence://' scheme is 11 characters).
     handover_evidence_reference TEXT NULL CHECK (handover_evidence_reference IS NULL
-        OR handover_evidence_reference ~ '^evidence://[A-Za-z0-9._/-]{8,400}$'),
+        OR (handover_evidence_reference ~ '^evidence://[A-Za-z0-9._/-]+$'
+            AND char_length(handover_evidence_reference) BETWEEN 19 AND 411)),
     handed_over_at TIMESTAMPTZ NULL, returned_at TIMESTAMPTZ NULL,
     idempotency_key TEXT NOT NULL CHECK (char_length(btrim(idempotency_key)) BETWEEN 16 AND 200),
     request_fingerprint TEXT NOT NULL CHECK (request_fingerprint ~ '^[a-f0-9]{64}$'),
@@ -245,13 +248,20 @@ DO $$ DECLARE t TEXT; BEGIN FOREACH t IN ARRAY ARRAY['equipment_3r_units','equip
  EXECUTE format('GRANT SELECT, INSERT, UPDATE ON %I TO mnt_rt', t);
  EXECUTE format('CREATE TRIGGER trg_%s_org_immutable BEFORE UPDATE ON %I FOR EACH ROW EXECUTE FUNCTION enforce_org_id_immutable()', t, t);
 END LOOP; END $$;
+-- Field access must stay per-table: PL/pgSQL resolves OLD.<field> for the
+-- whole expression, so a units row would error on OLD.status even behind
+-- a false TG_TABLE_NAME guard.
 CREATE OR REPLACE FUNCTION equipment_3r_terminal_immutable() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
- IF TG_TABLE_NAME = 'equipment_3r_units' AND OLD.availability = 'SOLD' AND NEW.availability <> OLD.availability
-   THEN RAISE EXCEPTION 'sold equipment unit is immutable'; END IF;
- IF TG_TABLE_NAME = 'equipment_3r_rental_cases' AND OLD.status IN ('DECLINED','CLOSED') AND NEW.status <> OLD.status
-   THEN RAISE EXCEPTION 'terminal rental case is immutable'; END IF;
- IF TG_TABLE_NAME = 'equipment_3r_dispositions' AND OLD.status = 'COMPLETED' AND NEW.status <> OLD.status
-   THEN RAISE EXCEPTION 'completed disposition is immutable'; END IF;
+ IF TG_TABLE_NAME = 'equipment_3r_units' THEN
+   IF OLD.availability = 'SOLD' AND NEW.availability <> OLD.availability
+     THEN RAISE EXCEPTION 'sold equipment unit is immutable'; END IF;
+ ELSIF TG_TABLE_NAME = 'equipment_3r_rental_cases' THEN
+   IF OLD.status IN ('DECLINED','CLOSED') AND NEW.status <> OLD.status
+     THEN RAISE EXCEPTION 'terminal rental case is immutable'; END IF;
+ ELSIF TG_TABLE_NAME = 'equipment_3r_dispositions' THEN
+   IF OLD.status = 'COMPLETED' AND NEW.status <> OLD.status
+     THEN RAISE EXCEPTION 'completed disposition is immutable'; END IF;
+ END IF;
  RETURN NEW; END $$;
 CREATE TRIGGER trg_equipment_3r_units_terminal BEFORE UPDATE ON equipment_3r_units FOR EACH ROW EXECUTE FUNCTION equipment_3r_terminal_immutable();
 CREATE TRIGGER trg_equipment_3r_cases_terminal BEFORE UPDATE ON equipment_3r_rental_cases FOR EACH ROW EXECUTE FUNCTION equipment_3r_terminal_immutable();
