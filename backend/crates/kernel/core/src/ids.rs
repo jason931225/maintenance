@@ -105,6 +105,13 @@ typed_id!(
     RegionId
 );
 typed_id!(UserId);
+typed_id!(
+    /// A non-human credential holder used by an external production source.
+    /// This is deliberately distinct from [`UserId`]: a service principal can
+    /// never be issued a human session, assigned a role, or treated as a
+    /// member of the organization.
+    ServicePrincipalId
+);
 typed_id!(EquipmentId);
 typed_id!(CustomerId);
 typed_id!(SiteId);

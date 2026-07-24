@@ -7202,6 +7202,86 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/production/plans": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listProductionPlans"];
+        put?: never;
+        post: operations["createProductionPlan"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/production/capacity-slots": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listProductionCapacitySlots"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/production/plans/{plan_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getProductionPlan"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/production/plans/{plan_id}/release": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["releaseProductionPlan"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/production/plans/{plan_id}/operations/{operation_id}/records": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["recordProductionOperation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -13381,6 +13461,96 @@ export interface components {
             limit: number;
             /** Format: int64 */
             offset: number;
+        };
+        ProductionPlan: {
+            id: components["schemas"]["Uuid"];
+            branch_id: components["schemas"]["Uuid"];
+            customer_demand_id: components["schemas"]["Uuid"];
+            product_code: string;
+            /** Format: int64 */
+            quantity: number;
+            /** @enum {string} */
+            status: "DRAFT" | "RELEASED";
+            version: number;
+            first_operation_id: components["schemas"]["Uuid"];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            due_at: string;
+        };
+        ProductionCapacitySlot: {
+            id: components["schemas"]["Uuid"];
+            branch_id: components["schemas"]["Uuid"];
+            site_id: components["schemas"]["Uuid"];
+            /** Format: date */
+            capacity_date: string;
+            /** Format: int64 */
+            available_quantity: number;
+            /** Format: int64 */
+            reserved_quantity: number;
+            version: number;
+            source_ref: string;
+            /** Format: date-time */
+            evaluated_at: string;
+        };
+        ProductionOperation: {
+            id: components["schemas"]["Uuid"];
+            sequence: number;
+            /** @enum {string} */
+            status: "PENDING" | "RELEASED" | "RECORDED";
+            /** Format: int64 */
+            output_quantity: number;
+            /** Format: int64 */
+            scrap_quantity: number;
+            downtime_minutes: number;
+            quality_evidence_ref?: string | null;
+            quality_passed?: boolean | null;
+            version: number;
+        };
+        ProductionPlanDetail: components["schemas"]["ProductionPlan"] & {
+            checks: {
+                [key: string]: unknown;
+            };
+            events: {
+                id: components["schemas"]["Uuid"];
+                event_type: string;
+                actor_id: components["schemas"]["Uuid"];
+                payload: {
+                    [key: string]: unknown;
+                };
+                /** Format: date-time */
+                occurred_at: string;
+            }[];
+            operation: components["schemas"]["ProductionOperation"];
+        };
+        CreateProductionPlan: {
+            branch_id: components["schemas"]["Uuid"];
+            customer_demand_id: components["schemas"]["Uuid"];
+            capacity_slot_id: components["schemas"]["Uuid"];
+            material_item_id: components["schemas"]["Uuid"];
+            /** Format: int64 */
+            quantity: number;
+            /** Format: date-time */
+            due_at: string;
+            approval_ref: components["schemas"]["Uuid"];
+            ontology_type_id: components["schemas"]["Uuid"];
+            idempotency_key: string;
+        };
+        ReleaseProductionPlan: {
+            expected_version: number;
+            idempotency_key: string;
+        };
+        RecordProductionOperation: {
+            expected_version: number;
+            idempotency_key: string;
+            /** Format: int64 */
+            output_quantity: number;
+            /** Format: int64 */
+            scrap_quantity: number;
+            downtime_minutes: number;
+            quality_evidence_ref: string;
+            quality_passed: boolean;
+            note: string;
         };
     };
     responses: {
@@ -25826,6 +25996,168 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             422: components["responses"]["ValidationError"];
+        };
+    };
+    listProductionPlans: {
+        parameters: {
+            query: {
+                branch_id: components["schemas"]["Uuid"];
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Tenant- and branch-authorized production plans */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductionPlan"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createProductionPlan: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateProductionPlan"];
+            };
+        };
+        responses: {
+            /** @description Idempotent replay returns the existing plan */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductionPlan"];
+                };
+            };
+            /** @description Draft plan and first operation created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductionPlan"];
+                };
+            };
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    listProductionCapacitySlots: {
+        parameters: {
+            query: {
+                branch_id: components["schemas"]["Uuid"];
+                capacity_date: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Tenant and branch scoped capacity slots */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductionCapacitySlot"][];
+                };
+            };
+        };
+    };
+    getProductionPlan: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                plan_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Plan */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductionPlanDetail"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    releaseProductionPlan: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                plan_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ReleaseProductionPlan"];
+            };
+        };
+        responses: {
+            /** @description Plan and first operation released exactly once */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductionPlan"];
+                };
+            };
+            409: components["responses"]["Conflict"];
+        };
+    };
+    recordProductionOperation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                plan_id: components["schemas"]["Uuid"];
+                operation_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RecordProductionOperation"];
+            };
+        };
+        responses: {
+            /** @description Output */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductionOperation"];
+                };
+            };
+            409: components["responses"]["Conflict"];
         };
     };
 }
