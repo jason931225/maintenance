@@ -7,7 +7,9 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -263,6 +265,20 @@ describe("production authority blocked observation CLI", () => {
     assertFailure(run(root, "HEAD"), "COMMIT_SHA_FORMAT");
     assertFailure(run(root, zero), "COMMIT_SHA_ZERO");
   });
+  it("runs when the executable path uses a filesystem alias", () => {
+    const { root } = fixture();
+    const alias = `${root}-alias`;
+    symlinkSync(root, alias, "dir");
+    cleanup.push(alias);
+
+    const result = spawnSync(
+      process.execPath,
+      [join(alias, "scripts/check-production-authority-blocked.mjs")],
+      { cwd: tmpdir(), encoding: "buffer" },
+    );
+
+    assertFailure(result, "ARGUMENT_COUNT");
+  });
   it("rejects every non-exact SHA form before touching Git", () => {
     const { root } = fixture();
     for (const value of [
@@ -466,9 +482,10 @@ describe("production authority blocked observation CLI", () => {
       sha,
     );
     assert.equal(result.status, 0, result.stderr.toString());
+    const evaluatorRoot = realpathSync(root);
     assert.deepEqual(readFileSync(log, "utf8").trim().split("\n"), [
-      `${root}|cat-file -t ${sha}`,
-      ...paths.map((path) => `${root}|show ${sha}:${path}`),
+      `${evaluatorRoot}|cat-file -t ${sha}`,
+      ...paths.map((path) => `${evaluatorRoot}|show ${sha}:${path}`),
     ]);
   });
   it("attempts every fixed blob read before reporting a missing input", () => {
