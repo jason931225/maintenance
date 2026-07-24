@@ -13,3 +13,17 @@ export function processIdentityMatches(expected, current) {
 export function shouldSignalManagedProcess(expected, current) {
   return processIdentityMatches(expected, current);
 }
+
+// Get-Process emits compact JSON so the Windows reader can make the same
+// start-token-plus-executable comparison as the POSIX ps reader.
+export function parseWindowsProcessIdentity(stdout) {
+  try {
+    const value = JSON.parse(stdout);
+    return typeof value?.StartTime === "string" && typeof value?.Path === "string" &&
+      value.StartTime && value.Path
+      ? { startToken: value.StartTime, command: value.Path }
+      : null;
+  } catch {
+    return null;
+  }
+}

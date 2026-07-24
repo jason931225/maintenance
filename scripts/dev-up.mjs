@@ -44,7 +44,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseSingleBuckOutput, resolveRepoBuckOutput } from "./lib/dev-up-buck-output.mjs";
 import { resolveBootstrapModes } from "./lib/dev-up-modes.mjs";
-import { processIdentityMatches } from "./lib/dev-up-process-identity.mjs";
+import {
+  parseWindowsProcessIdentity,
+  processIdentityMatches,
+} from "./lib/dev-up-process-identity.mjs";
 
 const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -187,7 +190,19 @@ async function assertPortFree(port, label) {
 // so a plain SIGTERM to its pid can leave grandchildren (mnt-app/vite)
 // orphaned. Signalling the group reaches the whole background stack.
 function readProcessIdentity(pid) {
-  if (process.platform === "win32") return null;
+  if (process.platform === "win32") {
+    const result = spawnSync(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-Command",
+        `$ErrorActionPreference = 'Stop'; $targetPid = ${Number(pid)}; $process = Get-Process -Id $targetPid -ErrorAction Stop; [pscustomobject]@{ StartTime = $process.StartTime.ToString('o'); Path = $process.Path } | ConvertTo-Json -Compress`,
+      ],
+      { encoding: "utf8" },
+    );
+    return result.status === 0 ? parseWindowsProcessIdentity(result.stdout) : null;
+  }
   const start = spawnSync("ps", ["-o", "lstart=", "-p", String(pid)], {
     encoding: "utf8",
   });

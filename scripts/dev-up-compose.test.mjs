@@ -6,7 +6,7 @@ import test from "node:test";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { parseSingleBuckOutput, resolveRepoBuckOutput } from "./lib/dev-up-buck-output.mjs";
-import { processIdentityMatches, shouldSignalManagedProcess } from "./lib/dev-up-process-identity.mjs";
+import { parseWindowsProcessIdentity, processIdentityMatches, shouldSignalManagedProcess } from "./lib/dev-up-process-identity.mjs";
 import { resolveBootstrapModes } from "./lib/dev-up-modes.mjs";
 
 const compose = readFileSync(
@@ -581,4 +581,21 @@ test("dev-up signals only a process whose persisted start identity still matches
   assert.match(devUp, /function readProcessIdentity\(pid\)/);
   assert.match(devUp, /processIdentityMatches\(proc\.identity, currentIdentity\)/);
   assert.match(down, /if \(existsSync\(PID_FILE\)\) rmSync\(PID_FILE\)/);
+});
+
+
+test("Windows identity parsing requires the PowerShell start token and executable path", () => {
+  assert.deepEqual(
+    parseWindowsProcessIdentity(JSON.stringify({ StartTime: "2026-07-24T14:00:00.1234567-04:00", Path: "C:\\repo\\buck-out\\mnt-app.exe" })),
+    {
+      startToken: "2026-07-24T14:00:00.1234567-04:00",
+      command: "C:\\repo\\buck-out\\mnt-app.exe",
+    },
+  );
+  assert.equal(parseWindowsProcessIdentity('{"StartTime":"2026-07-24T14:00:00Z"}'), null);
+  assert.equal(parseWindowsProcessIdentity("not-json"), null);
+
+  assert.match(devUp, /Get-Process -Id \$targetPid/);
+  assert.match(devUp, /parseWindowsProcessIdentity\(result\.stdout\)/);
+  assert.match(devUp, /spawnSync\("taskkill", \["\/T", "\/F", "\/PID", String\(proc\.pid\)\]\)/);
 });
