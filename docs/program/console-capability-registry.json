@@ -17,12 +17,12 @@
  },
  "shared_collision_roots": {
   "owner": "console-consolidation",
+  "generated_face_registry": "tools/buck/generated_face_registry.json",
   "paths": [
    "web/src/i18n/ko.ts",
    "web/src/console/shell/nav.ts",
    "web/src/console/screens/registry.ts",
-   "backend/openapi.yaml",
-   "clients/generated/**",
+   "backend/openapi/openapi.yaml",
    "backend/migrations/**",
    "docs/program/console-enterprise-roadmap.md",
    "docs/program/console-capability-registry.json"
@@ -234,7 +234,7 @@
      "backend/app/tests/benefit_catalog_api.rs"
     ],
     "api_schema_roots": [
-     "backend/openapi.yaml"
+     "backend/openapi/openapi.yaml"
     ],
     "migration_owner": "console-benefits",
     "integration_owner": "console-consolidation"
@@ -313,8 +313,10 @@
       "backend/crates/platform/authz/src/lib.rs"
      ],
      "must_not_touch": [
-      "backend/openapi.yaml",
-      "clients/generated/**",
+      "backend/openapi/openapi.yaml",
+      "clients/ts/src/schema.d.ts",
+      "clients/kotlin/**",
+      "clients/swift/Sources/MaintenanceAPIClient/Generated/**",
       "web/**"
      ]
     },
@@ -330,7 +332,9 @@
       "web/src/i18n/ko.ts",
       "web/src/console/shell/nav.ts",
       "web/src/console/screens/registry.ts",
-      "clients/generated/**"
+      "clients/ts/src/schema.d.ts",
+      "clients/kotlin/**",
+      "clients/swift/Sources/MaintenanceAPIClient/Generated/**"
      ]
     },
     "consolidation": {
@@ -338,8 +342,10 @@
      "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-integration-20260723",
      "branch": "codex/console-integration-20260723",
      "roots": [
-      "backend/openapi.yaml",
-      "clients/generated/**",
+      "backend/openapi/openapi.yaml",
+      "clients/ts/src/schema.d.ts",
+      "clients/kotlin/**",
+      "clients/swift/Sources/MaintenanceAPIClient/Generated/**",
       "web/src/i18n/ko.ts",
       "web/src/console/shell/nav.ts",
       "web/src/console/screens/registry.ts",
@@ -359,7 +365,7 @@
      "backend/app/tests/compliance_catalog_api.rs"
     ],
     "api_schema_roots": [
-     "backend/openapi.yaml"
+     "backend/openapi/openapi.yaml"
     ],
     "migration_owner": "compliance-backend",
     "integration_owner": "console-consolidation"
@@ -442,7 +448,7 @@
      "backend/crates/governance/**"
     ],
     "api_schema_roots": [
-     "backend/openapi.yaml"
+     "backend/openapi/openapi.yaml"
     ],
     "migration_owner": "ontology-platform",
     "integration_owner": "console-consolidation"
@@ -519,7 +525,7 @@
      "backend/crates/production/**"
     ],
     "api_schema_roots": [
-     "backend/openapi.yaml"
+     "backend/openapi/openapi.yaml"
     ],
     "migration_owner": "production-backend",
     "integration_owner": "console-consolidation"
@@ -584,7 +590,7 @@
      "backend/crates/logistics/**"
     ],
     "api_schema_roots": [
-     "backend/openapi.yaml"
+     "backend/openapi/openapi.yaml"
     ],
     "migration_owner": "logistics-backend",
     "integration_owner": "console-consolidation"
@@ -676,7 +682,7 @@
      "backend/crates/facilities/**"
     ],
     "api_schema_roots": [
-     "backend/openapi.yaml"
+     "backend/openapi/openapi.yaml"
     ],
     "migration_owner": "facilities-backend",
     "integration_owner": "console-consolidation"
@@ -729,19 +735,24 @@
    "dependencies": [
     "CAP-SHARED-ONTOLOGY-WORKFLOW"
    ],
-   "owner": "claude-fanout-20260724",
-   "worktree": null,
-   "branch": null,
-   "commits": [],
+   "owner": "equipment-3r-consolidation",
+   "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-equipment-vertical-20260724",
+   "branch": "claude/console-equipment-vertical-20260724",
+   "commits": [
+    "47869a9d",
+    "d6fc5a76"
+   ],
    "ownership": {
     "frontend_roots": [
      "web/src/console/equipment/**"
     ],
     "backend_roots": [
-     "backend/crates/equipment/**"
+     "backend/crates/equipment/**",
+     "backend/app/tests/equipment_3r_api.rs",
+     "backend/crates/platform/db/migrations/0182_create_equipment_3r.sql"
     ],
     "api_schema_roots": [
-     "backend/openapi.yaml"
+     "backend/openapi/openapi.yaml"
     ],
     "migration_owner": "equipment-backend",
     "integration_owner": "console-consolidation"
@@ -756,65 +767,35 @@
    "evidence_path": "docs/evidence/console/CAP-EQUIPMENT-3R-PILOT/",
    "tests": {
     "files": [
+     "backend/crates/equipment/rest/tests/equipment_3r_http.rs",
      "backend/app/tests/equipment_3r_api.rs",
-     "web/src/console/equipment/*.test.*"
+     "web/src/console/equipment/EquipmentScreen.test.tsx",
+     "web/src/console/equipment/equipmentApi.test.ts",
+     "web/src/console/equipment/equipmentCapabilities.test.ts",
+     "web/src/console/equipment/quoteDraft.test.ts"
     ],
     "leaf_commands": [
-     "cargo test -p mnt-app --test equipment_3r_api (4 passed, mnt_rt-armed)",
-     "cd web && npx vitest run src/console/equipment (29 passed)"
+     "npm --prefix web run test -- src/console/equipment/EquipmentScreen.test.tsx src/console/equipment/equipmentApi.test.ts src/console/equipment/equipmentCapabilities.test.ts src/console/equipment/quoteDraft.test.ts",
+     "npm --prefix web run lint",
+     "npm --prefix web run build",
+     "tools/buck2 test --local-only //backend/crates/equipment/domain:mnt-equipment-domain-unit",
+     "tools/buck/test_needs_postgres.sh //backend/crates/equipment/rest:mnt-equipment-rest-itest-equipment_3r_http //backend/app:mnt-app-itest-equipment_3r_api",
+     "git diff --check"
     ],
-    "buck2_targets": []
+    "buck2_targets": [
+     "//backend/crates/equipment/domain:mnt-equipment-domain-unit",
+     "//backend/crates/equipment/rest:mnt-equipment-rest-itest-equipment_3r_http",
+     "//backend/app:mnt-app-itest-equipment_3r_api"
+    ]
    },
    "state": {
     "design_contract": "committed_contract",
-    "backend": "integrated_dark_on_pr488",
-    "frontend": "integrated_dark_on_pr488",
-    "e2e": "mnt_rt_story_integration_passed_no_browser_replay",
+    "backend": "integrated_dark_review_remediation_pending",
+    "frontend": "integrated_dark_review_remediation_pending",
+    "e2e": "mnt_rt_story_and_focused_tests_passed_browser_replay_pending",
     "runtime": "blocked",
-    "independent_review": "missing",
+    "independent_review": "request_changes_2026_07_23",
     "production_exposure": "dark"
-   },
-   "lane_assignments": {
-    "backend": {
-     "owner": "claude-fanout-20260724",
-     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-equipment-backend-20260724",
-     "branch": "claude/console-equipment-backend-20260724",
-     "roots": [
-      "backend/crates/equipment/**",
-      "backend/app/tests/equipment_3r_api.rs",
-      "docs/evidence/console/CAP-EQUIPMENT-3R-PILOT/**",
-      "backend/crates/platform/db/migrations/0185_create_equipment_3r.sql"
-     ],
-     "must_not_touch": [
-      "web/**",
-      "clients/**",
-      "backend/openapi/**"
-     ],
-     "migration_slots_provisional": [
-      "0185"
-     ]
-    },
-    "frontend": {
-     "owner": "claude-fanout-20260724",
-     "worktree": "/Users/jasonlee/Developer/maintenance-worktrees/console-equipment-frontend-20260724",
-     "branch": "claude/console-equipment-frontend-20260724",
-     "roots": [
-      "web/src/console/equipment/**",
-      "docs/evidence/console/CAP-EQUIPMENT-3R-PILOT/frontend/**"
-     ],
-     "must_not_touch": [
-      "backend/**",
-      "web/src/i18n/ko.ts",
-      "web/src/console/shell/nav.ts",
-      "web/src/console/screens/registry.ts",
-      "clients/**",
-      "backend/openapi/**"
-     ]
-    },
-    "consolidation": {
-     "owner": "console-consolidation",
-     "integration_notes": "Merged + mounted DARK 2026-07-24. Migration renumbered 0185->0182. openapi 12 paths/14 ops tags [equipment-3r]; 3 clients regenerated (kotlin per-domain Equipment3rApi.kt). FE still raw-fetch swap candidate to generated client (header note in equipmentApi.ts). No GET /dispositions/{id} (recorded)."
-    }
    }
   },
   {
@@ -854,7 +835,7 @@
      "backend/crates/consulting/**"
     ],
     "api_schema_roots": [
-     "backend/openapi.yaml"
+     "backend/openapi/openapi.yaml"
     ],
     "migration_owner": "consulting-backend",
     "integration_owner": "console-consolidation"
@@ -919,7 +900,7 @@
      "backend/crates/production/**"
     ],
     "api_schema_roots": [
-     "backend/openapi.yaml"
+     "backend/openapi/openapi.yaml"
     ],
     "migration_owner": "production-backend",
     "integration_owner": "console-consolidation"

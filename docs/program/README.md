@@ -6,6 +6,11 @@
 - `console-capability-registry.json` — machine-readable dispatch,
   collision-ownership, priority, signature-story, gate, and implementation-state
   registry.
+- `console-fanout-epoch-contract.md` — exact-SHA leaf/review/consolidation
+  protocol and quality-weighted bounded-fan-out algorithm.
+- `scripts/console/plan-fanout.mjs` — deterministic planner that admits only
+  disjoint owned leaf lanes, reports holds, and serializes generated/shared
+  faces without creating a second dependency graph.
 - `console-jurisdiction-register.json` — Korea Target Jurisdiction Set and
   fail-closed legal/control research register.
 - `console-visual-baseline.json` — pinned Claude Design export and current
