@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { readFileSync, readdirSync } from "node:fs";
 import test from "node:test";
+import { resolveBootstrapModes } from "./lib/dev-up-modes.mjs";
 
 const compose = readFileSync(
   new URL("../ops/compose.dev-deps.yml", import.meta.url),
@@ -394,6 +395,59 @@ test("dev-auth stays production-faithful while explicit console preview remains 
     devAuthCi,
     /VITE_CONSOLE_DEV_PREVIEW/,
     "the fail-closed dev-auth gate must not globally expose preview inventory",
+  );
+});
+
+test("preview-only bootstrap starts Vite without enabling or seeding dev-auth", () => {
+  const appRouter = readFileSync(
+    new URL("../web/src/AppRouter.tsx", import.meta.url),
+    "utf8",
+  );
+  assert.deepEqual(resolveBootstrapModes({}), {
+    devAuth: false,
+    consolePreview: false,
+    startVite: false,
+  });
+  assert.deepEqual(
+    resolveBootstrapModes({ VITE_CONSOLE_DEV_PREVIEW: "1" }),
+    {
+      devAuth: false,
+      consolePreview: true,
+      startVite: true,
+    },
+  );
+  assert.deepEqual(resolveBootstrapModes({ MNT_DEV_AUTH_E2E: "1" }), {
+    devAuth: true,
+    consolePreview: false,
+    startVite: true,
+  });
+
+  const bootstrap = devUp.slice(
+    devUp.indexOf("async function cmdBootstrap()"),
+    devUp.indexOf("async function cmdDown()"),
+  );
+  assert.match(
+    bootstrap,
+    /const \{ devAuth, consolePreview, startVite \} =\s*resolveBootstrapModes\(process\.env\)/,
+  );
+  assert.match(bootstrap, /if \(devAuth\) runSeed\(compose\)/);
+  assert.match(bootstrap, /const cargoArgs = devAuth/);
+  assert.match(bootstrap, /if \(startVite\)/);
+  assert.match(bootstrap, /env: buildViteEnv\(appEnv, consolePreview\)/);
+  assert.doesNotMatch(
+    bootstrap,
+    /buildViteEnv\(appEnv, devAuth\)/,
+    "dev-auth must not implicitly arm console preview",
+  );
+  assert.match(
+    ciGates,
+    /`VITE_CONSOLE_DEV_PREVIEW=1 npm run dev:bootstrap`/,
+    "the documented preview-only command must exercise this bootstrap mode",
+  );
+  assert.match(
+    appRouter,
+    /dev: import\.meta\.env\.DEV,[\s\S]*?flag: import\.meta\.env\.VITE_CONSOLE_DEV_PREVIEW/,
+    "preview exposure must remain impossible in production builds",
   );
 });
 

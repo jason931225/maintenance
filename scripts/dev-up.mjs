@@ -42,6 +42,7 @@ import { createServer } from "node:net";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { resolveBootstrapModes } from "./lib/dev-up-modes.mjs";
 
 const REPO_ROOT = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -793,13 +794,15 @@ async function cmdUp() {
   await new Promise(() => {}); // stay foreground while bacon/vite run
 }
 
-// MNT_DEV_AUTH_E2E=1 additionally builds the backend with --features dev-auth
-// and starts the Vite dev server in the background too, so the dev-mode e2e
-// project (playwright.config.ts, "dev-auth") has a real stack to run against.
+// MNT_DEV_AUTH_E2E=1 additionally builds the backend with --features dev-auth,
+// seeds its personas, and starts Vite for the dev-auth Playwright project.
+// VITE_CONSOLE_DEV_PREVIEW=1 independently starts Vite with the preview flag
+// while retaining the default backend build and unseeded release-parity data.
 // Plain `bootstrap` (the existing CI "dev-up-smoke" job) is unaffected.
 async function cmdBootstrap() {
   await assertPortFree(PORTS.backend, "backend");
-  const devAuth = process.env.MNT_DEV_AUTH_E2E === "1";
+  const { devAuth, consolePreview, startVite } =
+    resolveBootstrapModes(process.env);
   const compose = await bringUpDeps();
   reconcileDatabaseTopology(compose);
   runMigrations();
@@ -875,14 +878,14 @@ async function cmdBootstrap() {
   log(`/readyz green at http://127.0.0.1:${PORTS.backend}/readyz`);
 
   let webState = null;
-  if (devAuth) {
+  if (startVite) {
     const npmBin = process.platform === "win32" ? "npm.cmd" : "npm";
     const webLogFile = path.join(STATE_DIR, "web.log");
     const webOut = openSync(webLogFile, "a");
     log(`starting vite dev server in the background, logging to ${path.relative(REPO_ROOT, webLogFile)}...`);
     const web = spawn(npmBin, ["run", "web:dev"], {
       cwd: REPO_ROOT,
-      env: buildViteEnv(appEnv, process.env.VITE_CONSOLE_DEV_PREVIEW === "1"),
+      env: buildViteEnv(appEnv, consolePreview),
       stdio: ["ignore", webOut, webOut],
       detached: process.platform !== "win32",
     });
