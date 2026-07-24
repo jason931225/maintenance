@@ -2945,6 +2945,7 @@ name = "mnt-attendance-rest"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "metrics",
  "mnt-attendance-adapter-postgres",
  "mnt-attendance-application",
  "mnt-attendance-domain",
