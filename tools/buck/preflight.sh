@@ -58,6 +58,7 @@ for platform, entry in platforms.items():
 PY
 
 echo "buck-preflight: pinned release ${expected_release}"
+python3 "${repo_root}/tools/buck/validate_generated_faces.py"
 BUCK_ISOLATION_DIR="${isolation_name}" "${buck_bin}" --version
 BUCK_ISOLATION_DIR="${isolation_name}" "${buck_bin}" audit cell
 

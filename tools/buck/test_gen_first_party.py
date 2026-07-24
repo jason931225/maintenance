@@ -114,5 +114,44 @@ class FirstPartyBuckGeneratorTests(unittest.TestCase):
         self.assertIn("mnt-production-rest", GENERATOR.PURE_UNIT_PACKAGES)
 
 
+class TestTaxonomy(unittest.TestCase):
+    def test_every_test_has_exactly_one_type_and_resource_label(self) -> None:
+        for package in (
+            "backend/app",
+            "backend/ci/contract-tests",
+            "backend/crates/logistics/domain",
+            "backend/crates/platform/authz-rest",
+        ):
+            for test_type in GENERATOR.TEST_TYPE_LABELS:
+                for uses_postgres in (False, True):
+                    labels = GENERATOR.test_labels(package, test_type, uses_postgres)
+                    self.assertEqual(
+                        1,
+                        len(set(labels) & GENERATOR.TEST_TYPE_LABELS),
+                    )
+                    self.assertEqual(
+                        1,
+                        len(set(labels) & GENERATOR.RESOURCE_LABELS),
+                    )
+                    self.assertEqual("needs-postgres" in labels, uses_postgres)
+
+    def test_ownership_labels_are_path_derived_and_deterministic(self) -> None:
+        package = "backend/crates/logistics/adapter-postgres"
+        expected = [
+            "owner.backend.crates.logistics.adapter-postgres",
+            "domain.logistics",
+        ]
+        self.assertEqual(expected, GENERATOR.ownership_labels(package))
+        self.assertEqual(expected, GENERATOR.ownership_labels(package))
+        self.assertEqual(
+            ["owner.backend.app", "domain.app"],
+            GENERATOR.ownership_labels("backend/app"),
+        )
+
+    def test_unknown_test_type_is_rejected(self) -> None:
+        with self.assertRaises(ValueError):
+            GENERATOR.test_labels("backend/app", "test.e2e", False)
+
+
 if __name__ == "__main__":
     unittest.main()

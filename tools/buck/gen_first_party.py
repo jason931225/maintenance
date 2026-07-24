@@ -19,10 +19,12 @@ Test targets:
   - <name>-itest-<stem>    : one per tests/*.rs integration file (depends on the
                              library + dev-deps; non-test helper files in tests/
                              are added to srcs so `mod common;` resolves).
-  - DB-backed tests (sqlx::test / PgPool / DATABASE_URL / mnt_rt) get
-    labels=["needs-postgres"] so `buck2 test //backend/... --exclude
-    needs-postgres` runs the hermetic subset, mirroring cargo test minus the DB
-    suites (which need a live Postgres + the mnt_rt runtime role, same as cargo).
+  - Every generated rust_test has exactly one test-type label
+    (test.unit or test.integration) and exactly one resource label
+    (resource.none or resource.postgres). Postgres tests retain the legacy
+    needs-postgres label while runners migrate to resource.postgres.
+  - owner.* and domain.* labels are derived from package paths, never a central
+    hand-maintained exception table.
 """
 import os
 import sys
@@ -146,6 +148,49 @@ PG_MARKERS = ("sqlx::test", "PgPool", "DATABASE_URL", "mnt_rt", "with_org_conn")
 # inline tests exercise only parser/HMAC helpers. Its HTTP/RLS suite remains a
 # separately labeled integration target below.
 PURE_UNIT_PACKAGES = {"mnt-production-rest"}
+
+TEST_TYPE_LABELS = frozenset({"test.unit", "test.integration"})
+RESOURCE_LABELS = frozenset({"resource.none", "resource.postgres"})
+
+
+def stable_label_segment(value):
+    """Normalize a repository path segment into a deterministic Buck label part."""
+    normalized = []
+    for char in value.lower():
+        normalized.append(char if char.isalnum() else "-")
+    return "".join(normalized).strip("-") or "root"
+
+
+def ownership_labels(package):
+    """Return stable owner/domain labels derived only from a package path.
+
+    owner is fully qualified, so it remains useful for fine-grained ownership
+    analysis. domain is the first bounded-context segment below backend/crates;
+    app and ci packages retain their own stable roots. No package-name lookup or
+    exception table is allowed here because that would not scale with the graph.
+    """
+    parts = [stable_label_segment(part) for part in package.split("/") if part]
+    if parts[:2] == ["backend", "crates"] and len(parts) > 2:
+        domain = parts[2]
+    elif parts[:2] == ["backend", "app"]:
+        domain = "app"
+    elif parts[:2] == ["backend", "ci"]:
+        domain = "ci"
+    else:
+        domain = parts[0] if parts else "root"
+    return ["owner." + ".".join(parts), "domain." + domain]
+
+
+def test_labels(package, test_type, uses_postgres):
+    """Return the complete deterministic taxonomy for one generated rust_test."""
+    if test_type not in TEST_TYPE_LABELS:
+        raise ValueError("unknown test type: {}".format(test_type))
+    resource = "resource.postgres" if uses_postgres else "resource.none"
+    labels = ownership_labels(package) + [test_type, resource]
+    if uses_postgres:
+        # Compatibility during runner migration; resource.postgres is canonical.
+        labels.append("needs-postgres")
+    return labels
 
 
 def find_members():
@@ -380,11 +425,13 @@ def emit(d, name, deps, named, dev_deps, dev_named):
     # SQL-backed suites are emitted and labeled rather than hidden: the migration
     # input is hermetic at compile time, while execution still requires Postgres.
     if tree_has(src, "#[cfg(test)]"):
-        labels = (
-            None
-            if name in PURE_UNIT_PACKAGES
-            else ["needs-postgres"] if tree_has(src, *PG_MARKERS) else None
+        # A package may contain database implementation code while its inline
+        # tests are pure (for example mnt-production-rest). Classify execution
+        # evidence, not unrelated library source.
+        uses_postgres = (
+            name not in PURE_UNIT_PACKAGES and tree_has(src, *PG_MARKERS)
         )
+        labels = test_labels(package, "test.unit", uses_postgres)
         out.append("")
         out += _block("rust_test", name + "-unit",
                       globstr(lib_pats, exclude=unit_excl), ident,
@@ -408,7 +455,11 @@ def emit(d, name, deps, named, dev_deps, dev_named):
             test_path = os.path.join(d, tf)
             contents = open(test_path, encoding="utf-8", errors="ignore").read()
             stem = crate_ident(os.path.splitext(os.path.basename(tf))[0])
-            labels = ["needs-postgres"] if any(marker in contents for marker in PG_MARKERS) else None
+            labels = test_labels(
+                package,
+                "test.integration",
+                any(marker in contents for marker in PG_MARKERS),
+            )
             config = integration_resource_config(name, tf)
             srcs_expr = listsrcs(sorted(set([tf] + helpers)))
             if config["srcs"]:

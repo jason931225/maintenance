@@ -29,7 +29,7 @@ cat >"${scratch}/bin/python3" <<'PYTHON'
 #!/usr/bin/env bash
 # The manifest validator runs in the caller worktree; preserve the real
 # interpreter there. Only the archive-local generator is substituted.
-if [[ "$1" == "-" ]]; then
+if [[ "$1" == "-" || "$1" == */validate_generated_faces.py ]]; then
   exec "${REAL_PYTHON3}" "$@"
 fi
 if [[ "${FAKE_GENERATOR_DRIFT:-0}" == 1 ]]; then
@@ -59,6 +59,8 @@ fi
 grep -Fq '2026-07-15' "${playbook}"
 grep -Fq 'Cells are trust, toolchain, and configuration boundaries' "${playbook}"
 grep -Fq 'No per-module cells' "${playbook}"
+grep -Fq 'validate_generated_faces.py' "${harness}"
+grep -Fq 'generated_face_registry.json' "${repo_root}/tools/buck/test_validate_generated_faces.py"
 grep -Fq 'console-buck2-scale-playbook.md' "${roadmap}"
 grep -Fq 'console-buck2-scale-playbook.md' "${ledger}"
 

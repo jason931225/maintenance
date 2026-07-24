@@ -1,69 +1,114 @@
-# Console Buck2 scale playbook
+# Console Buck2 hyperscale graph-and-data logistics playbook
 
-**Status:** implementation policy for the console train. It reconciles the
-historical Buck2 CI charter in `console-program-ledger.md` with the current
-roadmap: Rust completion evidence is Buck2-only; Cargo remains manifest and
-dependency metadata, not a product verification substitute.
+**Status:** implementation policy for the console train. The optimization target
+is a millions-of-lines monorepo with very large target graphs, multi-cell
+ownership, generated faces, and bounded parallel delivery. **Graph and data
+movement are optimized first; developer-facing CI latency is a consequence, not
+the sole metric.** Rust completion evidence is Buck2-only. Cargo remains
+manifest/dependency metadata and is never a substitute for product verification.
 
-## Pin and upgrade discipline
+## Immutable toolchain and graph snapshots
 
-- The repository tool is `./tools/buck2`, an official dotslash manifest pinned
-  to the [Buck2 2026-07-15 release](https://github.com/facebook/buck2/releases/tag/2026-07-15).
-  Scripts must use it by default, never a developer-global binary.
-- Every platform entry retains its exact BLAKE3 digest. Build containers, test
-  fixtures, and remote execution images likewise use immutable digests.
-- A version upgrade is a small, separate change: update the official manifest,
-  run the cheap preflight, then run a canary build/test matrix before changing
-  the CI pin. The previous pin remains the rollback point until the canary is
-  green.
+- `./tools/buck2` is the official DotSlash manifest pinned to released
+  [Buck2 2026-07-15](https://github.com/facebook/buck2/releases/tag/2026-07-15).
+  Every platform entry uses its exact BLAKE3 digest. Scripts never select a
+  developer-global Buck binary.
+- The **released pin** is production authority. New upstream capabilities remain
+  a separately recorded **canary** until exact-digest toolchain, target-graph,
+  action-result, and artifact-provenance parity are proven. Do not point CI at
+  upstream `main` or silently call a canary “latest”.
+- Candidate selection starts from immutable base and diff snapshots: `(base SHA,
+  candidate SHA, cell map, package ownership, target graph digest, generated-face
+  registry digest)`. Merge-train rebases/reorders invalidate only the affected
+  graph closure; they never reuse a result whose base snapshot differs.
+- Build reports retain the input snapshot, action keys, execution platform,
+  outputs, cache hits/misses, and provenance. This permits precise invalidation
+  rather than runner-time heuristics.
 
-## Boundaries and graph shape
+## Cells, ownership, and generated faces
 
 Cells are trust, toolchain, and configuration boundaries—not ordinary module
-directories. The current root, toolchain, bundled-prelude, and empty alias
-cells are deliberate. **No per-module cells:** console modules are Buck
-packages and targets inside the root cell, with cell splits only when a
-separate trust domain, toolchain, or configuration boundary is proven.
+directories. The root, toolchain, bundled-prelude, and empty alias cells are
+intentional. **No per-module cells:** module boundaries are packages and targets
+inside the root cell. Add a cell only for a proven trust, configuration, or
+execution-platform boundary; audit it with `buck2 audit cell`.
 
-- Use cell-relative labels and `buck2 audit cell` to make every boundary
-  visible.
-- Keep first-party Rust targets generated from the current manifest and retain
-  a no-write generator-drift check. Reindeer owns third-party graph generation.
-- Keep source/resource ownership explicit in target inputs; do not hide native
-  web, Android, or iOS failures behind generic Buck wrappers.
+Every generated Rust test receives exactly one `test.unit` or
+`test.integration` label and exactly one `resource.none` or `resource.postgres`
+label. Postgres tests temporarily retain `needs-postgres` for runner
+compatibility. `owner.*` and `domain.*` labels derive from stable package paths;
+there is no central exceptions table to decay as the graph grows.
 
-## Test taxonomy and concurrency
+`tools/buck/generated_face_registry.json` is authority metadata, not a second
+dependency graph. Its validator requires a single writer, declared source and
+output roots, generator command and target, drift gate, and non-overlapping
+writable output roots for:
 
-Targets carry intent labels: `unit` for deterministic in-process behavior,
-`integration` for application seams, `needs-postgres` for disposable database
-stories, and later `e2e` plus resource-class labels for browser/mobile suites.
-Pure unit targets remain separate from HTTP, RLS/PBAC, migration, audit, and
-concurrency integration stories. The batched hermetic runner excludes
-`needs-postgres`; the PostgreSQL runner provisions an isolated database and
-uses a stable worktree-specific Buck isolation directory.
+1. generated first-party BUCK files;
+2. the Reindeer third-party Rust graph; and
+3. OpenAPI TypeScript, Kotlin, and Swift outputs.
 
-Cheap gates run before compilation: pinned-manifest integrity, `audit cell`,
-target enumeration, and generator drift. Isolated target groups may run in
-parallel only when their mutable services and artifacts are independent.
+A generated face changes only through its registered writer; the registry is
+validated in the cheap no-write preflight. Consolidation performs one shared
+regeneration after source lanes land, preventing generated-face merge storms.
 
-## Scale roadmap
+## Data locality, remote execution, and cache policy
 
-1. Use configurations and modifiers for debug/release/sanitizer selection;
-   use transitions only where a dependency must always build in a different
-   configuration.
-2. Define local macOS and Linux execution platforms with hermetic exact-SHA
-   tools/images. Add remote action cache/execution through a compatible RE API
-   only after a measured canary proves parity and cache correctness.
-3. Add BXL for affected-target calculation, ownership/graph audits, and test
-   planning. Combine it with Buck2’s change detector so CI schedules the
-   smallest safe target set, while release candidates retain the full matrix.
-4. Export build reports and cache metrics; promote a remote-execution rollout
-   only after reproducibility, authorization, artifact provenance, and
-   rollback evidence are independently verified.
+Execution platforms describe hermetic macOS/Linux tools and exact-SHA images.
+Remote execution and CAS are adopted only behind a measured canary with
+compatible RE API behavior, authorization, artifact provenance, deterministic
+outputs, and rollback proof.
+
+- Keep CAS keys content-addressed and platform/configuration-aware. Upload once,
+  schedule near existing inputs, and avoid copying generated clients, source
+  trees, or database fixtures between shards when an action digest already
+  identifies them.
+- Prefer remote cache hits that match the immutable base/diff snapshot. Treat
+  cross-branch reuse as an optimization only after action-key equivalence proves
+  it safe.
+- Separate local developer isolation from shared remote cache namespaces; failed
+  or untrusted actions never publish reusable outputs.
+
+## Merge-train and bounded fan-out
+
+Cheap gates run first: pinned-manifest integrity, generated-face registry,
+`audit cell`, target enumeration, lock/generator drift, and diff-to-target
+planning. A merge-train planner then computes the minimal safe closure from the
+base/diff snapshots and labels. Candidate CI and release authorization remain
+separate: an immutable image may publish only after the candidate’s required
+closure and image provenance gates succeed.
+
+Fan-out is bounded by graph structure and resources, not by arbitrary job
+counts:
+
+- shard pure `test.unit` targets by stable target digest and estimated action
+  cost;
+- schedule `test.integration` only with isolated external resources;
+- serialize `resource.postgres` per disposable database lease while parallelizing
+  independent leases and mobile/browser device pools;
+- group actions to retain compiler/CAS locality, then cap each pool by remote
+  queue pressure, cache-miss amplification, and artifact bandwidth;
+- invalidate only affected shards on merge-train changes; retain immutable
+  outputs for unaffected closures.
+
+## Rollout roadmap
+
+1. **H0 (now):** exact test/resource/ownership taxonomy; generated-face authority
+   registry; no-write preflight; base/diff snapshot contract.
+2. **H1:** BXL plus Buck2 change detector compute affected targets, owners, and
+   stable shard manifests from immutable snapshots.
+3. **H2:** hermetic local execution platforms, build reports, action/cache
+   telemetry, and cost-aware bounded shard planning.
+4. **H3:** remote cache canary, then remote execution canary with CAS locality,
+   auth/provenance, and rollback gates.
+5. **H4:** merge-train graph invalidation and image-release triggering from
+   successful candidate CI—not polling—while full release matrices remain a
+   mandatory backstop.
 
 Primary references: [cells and key concepts](https://buck2.build/docs/concepts/key_concepts/),
 [configurations](https://buck2.build/docs/concepts/configurations/),
 [modifiers](https://buck2.build/docs/concepts/modifiers/),
 [BXL](https://buck2.build/docs/users/commands/bxl/),
-[remote execution](https://buck2.build/docs/users/remote_execution/), and
-[test labels](https://buck2.build/docs/users/commands/test/).
+[remote execution](https://buck2.build/docs/users/remote_execution/),
+[test labels](https://buck2.build/docs/users/commands/test/), and
+[build reports](https://buck2.build/docs/users/build_observability/build_report/).
