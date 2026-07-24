@@ -33,7 +33,7 @@ npm install react-router@^8.3.0
 No other new runtime dependencies are required. `lucide-react` is already installed at `0.555.0`. `@fontsource/pretendard` is already installed. All shadcn-style primitives (`button`, `card`, `input`, `textarea`, `badge`) already exist in `src/components/ui/`.
 
 ### Router version note
-React Router v7 ships a `<BrowserRouter>` + `<Routes>` API identical to v6. Use `createBrowserRouter` + `RouterProvider` (the "data router" API) for cleaner loader patterns if preferred, but the simpler `<BrowserRouter>` approach is specified here to minimise scope.
+React Router v8 retains the declarative `<BrowserRouter>` + `<Routes>` API from `react-router`. This console intentionally stays in declarative mode; the DOM-specific `RouterProvider` data-router surface from `react-router/dom` is outside this migration's scope.
 
 ---
 
