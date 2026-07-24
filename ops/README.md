@@ -46,6 +46,9 @@ The launcher rejects absolute, missing, non-executable, and non-`buck-out`
 outputs. Its local PID state also records the child command and OS start token;
 `dev:down` signals a process group only if that identity still matches, then
 removes stale state rather than risking a reused PID.
+The host process derives its platform-force command database URL from the same
+local topology password as Compose, replacing any inherited URL rather than
+accepting a mismatched capability; neither credential nor URL is persisted.
 That dev-only overlay adds Mailpit, a published OTEL port, and the Postgres WAL
 archive retention helper described below.
 

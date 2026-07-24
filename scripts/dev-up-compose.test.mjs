@@ -599,3 +599,59 @@ test("Windows identity parsing requires the PowerShell start token and executabl
   assert.match(devUp, /parseWindowsProcessIdentity\(result\.stdout\)/);
   assert.match(devUp, /spawnSync\("taskkill", \["\/T", "\/F", "\/PID", String\(proc\.pid\)\]\)/);
 });
+
+test("Buck2 host backend receives the same dedicated platform-force command capability as local topology", () => {
+  const buildAppEnv = devUp.slice(
+    devUp.indexOf("function buildAppEnv(role)"),
+    devUp.indexOf("function buildViteEnv(appEnv, consolePreview)"),
+  );
+  const devComposeEnvironment = devUp.slice(
+    devUp.indexOf("async function bringUpDeps()"),
+    devUp.indexOf("function databaseUrl()"),
+  );
+
+  assert.match(
+    devUp,
+    /const PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD =\s*process\.env\.MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD/,
+  );
+  assert.match(
+    buildAppEnv,
+    /MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD:\s*PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD/,
+  );
+  assert.match(
+    buildAppEnv,
+    /PLATFORM_FORCE_COMMAND_DATABASE_URL:\s*commandDatabaseUrl\(\s*"mnt_platform_force_cmd",\s*PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD/,
+  );
+  assert.match(
+    devComposeEnvironment,
+    /MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD:\s*PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD/,
+  );
+  const reconcile = devUp.slice(
+    devUp.indexOf("function reconcileDatabaseTopology(compose)"),
+    devUp.indexOf("function runSeed(compose)"),
+  );
+  assert.match(
+    reconcile,
+    /MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD:\s*PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD/,
+  );
+  assert.ok(
+    buildAppEnv.indexOf("...parentEnv") <
+      buildAppEnv.indexOf("PLATFORM_FORCE_COMMAND_DATABASE_URL"),
+    "a caller-supplied mismatched platform-force URL must be replaced by the topology-derived URL",
+  );
+  assert.doesNotMatch(
+    buildAppEnv,
+    /process\.env\.PLATFORM_FORCE_COMMAND_DATABASE_URL/,
+    "the host backend must not accept a mismatched inherited platform-force URL",
+  );
+  assert.doesNotMatch(
+    devUp.slice(devUp.indexOf("function writePidState"), devUp.indexOf("function printUrls")),
+    /PLATFORM_FORCE_COMMAND_DATABASE_URL|MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD/,
+    "dev state must never persist the platform-force credential or URL",
+  );
+  assert.doesNotMatch(
+    devUp,
+    /log\([^)]*PLATFORM_FORCE_COMMAND_DATABASE_URL|log\([^)]*MNT_PLATFORM_FORCE_COMMAND_POSTGRES_PASSWORD/,
+    "dev-up must not log the platform-force credential or URL",
+  );
+});
