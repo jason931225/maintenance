@@ -378,10 +378,24 @@ struct AttendanceSummaryItem {
     last_event_at: Option<time::OffsetDateTime>,
 }
 #[derive(Debug, Deserialize)]
-struct AttendanceRecordsQuery {
+struct AttendanceSummaryQuery {
+    limit: Option<i64>,
+    offset: Option<i64>,
+    branch_id: Option<Uuid>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AttendanceManagerRecordsQuery {
     limit: Option<i64>,
     offset: Option<i64>,
     employee_id: Option<Uuid>,
+    branch_id: Option<Uuid>,
+}
+
+#[derive(Debug, Deserialize)]
+struct AttendanceSelfRecordsQuery {
+    limit: Option<i64>,
+    offset: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1190,12 +1204,15 @@ async fn list_leave_balances(
 async fn list_attendance_summary(
     State(state): State<HrState>,
     Extension(principal): Extension<Principal>,
-    Query(query): Query<HrListQuery>,
+    Query(query): Query<AttendanceSummaryQuery>,
 ) -> Result<Json<AttendanceSummaryPage>, HrError> {
-    authorize_hr_org_wide(&principal, Feature::EmployeeDirectoryRead)?;
+    let scope = authorize_hr_attendance_branch_query(
+        &principal,
+        Feature::EmployeeDirectoryRead,
+        query.branch_id,
+    )?;
     record_hr_read("attendance_summary");
     let org = principal.org_id;
-    let scope = principal.branch_scope.clone();
     let limit = query.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
     let offset = query.offset.unwrap_or(0).max(0);
 
@@ -1204,7 +1221,7 @@ async fn list_attendance_summary(
             let mut total_query = QueryBuilder::<Postgres>::new(
                 "SELECT COUNT(*) FROM (SELECT l.user_id FROM site_attendance_events l WHERE ",
             );
-            push_attendance_branch_scope(&mut total_query, &scope);
+            push_attendance_branch_filter(&mut total_query, scope);
             total_query.push(" GROUP BY l.user_id) counted");
             let total: i64 = total_query
                 .build_query_scalar()
@@ -1225,7 +1242,7 @@ async fn list_attendance_summary(
                 WHERE
                 "#,
             );
-            push_attendance_branch_scope(&mut rows_query, &scope);
+            push_attendance_branch_filter(&mut rows_query, scope);
             rows_query.push(
                 " GROUP BY l.user_id, u.display_name ORDER BY last_event_at DESC, l.user_id DESC LIMIT ",
             );
@@ -1265,7 +1282,7 @@ async fn list_attendance_summary(
 async fn list_my_attendance_records(
     State(state): State<HrState>,
     Extension(principal): Extension<Principal>,
-    Query(query): Query<AttendanceRecordsQuery>,
+    Query(query): Query<AttendanceSelfRecordsQuery>,
 ) -> Result<Json<EmployeeAttendanceRecordPage>, HrError> {
     record_hr_read("employee_attendance_self");
     let org = principal.org_id;
@@ -1281,7 +1298,7 @@ async fn list_my_attendance_records(
             // require a link via `load_linked_employee_for_user`.)
             match load_optional_linked_employee_id(tx, org, user_id).await? {
                 Some(employee_id) => {
-                    list_attendance_records_for_employee(tx, employee_id, limit, offset).await
+                    list_attendance_records_for_employee(tx, employee_id, None, limit, offset).await
                 }
                 None => Ok(EmployeeAttendanceRecordPage {
                     items: Vec::new(),
@@ -1300,9 +1317,13 @@ async fn list_my_attendance_records(
 async fn list_attendance_records(
     State(state): State<HrState>,
     Extension(principal): Extension<Principal>,
-    Query(query): Query<AttendanceRecordsQuery>,
+    Query(query): Query<AttendanceManagerRecordsQuery>,
 ) -> Result<Json<EmployeeAttendanceRecordPage>, HrError> {
-    authorize_hr_org_wide(&principal, Feature::EmployeeDirectoryRead)?;
+    let branch_id = authorize_hr_attendance_branch_query(
+        &principal,
+        Feature::EmployeeDirectoryRead,
+        query.branch_id,
+    )?;
     record_hr_read("employee_attendance_management");
     let org = principal.org_id;
     let limit = query.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
@@ -1312,9 +1333,10 @@ async fn list_attendance_records(
     let page = with_org_conn::<_, _, HrError>(&state.pool, org, move |tx| {
         Box::pin(async move {
             if let Some(employee_id) = employee_id {
-                list_attendance_records_for_employee(tx, employee_id, limit, offset).await
+                list_attendance_records_for_employee(tx, employee_id, branch_id, limit, offset)
+                    .await
             } else {
-                list_attendance_records_for_org(tx, limit, offset).await
+                list_attendance_records_for_org(tx, branch_id, limit, offset).await
             }
         })
     })
@@ -7114,17 +7136,24 @@ async fn load_optional_linked_employee_id(
 async fn list_attendance_records_for_employee(
     tx: &mut sqlx::Transaction<'_, Postgres>,
     employee_id: Uuid,
+    branch_id: Option<Uuid>,
     limit: i64,
     offset: i64,
 ) -> Result<EmployeeAttendanceRecordPage, HrError> {
-    let total: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*)::BIGINT FROM employee_attendance_records WHERE employee_id = $1",
-    )
-    .bind(employee_id)
-    .fetch_one(tx.as_mut())
-    .await?;
+    let mut total_query = QueryBuilder::<Postgres>::new(
+        "SELECT COUNT(*)::BIGINT FROM employee_attendance_records r JOIN employees e ON e.id = r.employee_id AND e.org_id = r.org_id WHERE r.employee_id = ",
+    );
+    total_query.push_bind(employee_id);
+    if let Some(branch_id) = branch_id {
+        total_query.push(" AND e.home_branch_id = ");
+        total_query.push_bind(branch_id);
+    }
+    let total: i64 = total_query
+        .build_query_scalar()
+        .fetch_one(tx.as_mut())
+        .await?;
 
-    let rows = sqlx::query(
+    let mut rows_query = QueryBuilder::<Postgres>::new(
         r#"
         SELECT
             r.id,
@@ -7143,16 +7172,19 @@ async fn list_attendance_records_for_employee(
         JOIN payroll_attendance_material_refs pmr
           ON pmr.attendance_record_id = r.id
          AND pmr.org_id = r.org_id
-        WHERE r.employee_id = $1
-        ORDER BY r.occurred_at DESC, r.created_at DESC, r.id DESC
-        LIMIT $2 OFFSET $3
+        WHERE r.employee_id =
         "#,
-    )
-    .bind(employee_id)
-    .bind(limit)
-    .bind(offset)
-    .fetch_all(tx.as_mut())
-    .await?;
+    );
+    rows_query.push_bind(employee_id);
+    if let Some(branch_id) = branch_id {
+        rows_query.push(" AND e.home_branch_id = ");
+        rows_query.push_bind(branch_id);
+    }
+    rows_query.push(" ORDER BY r.occurred_at DESC, r.created_at DESC, r.id DESC LIMIT ");
+    rows_query.push_bind(limit);
+    rows_query.push(" OFFSET ");
+    rows_query.push_bind(offset);
+    let rows = rows_query.build().fetch_all(tx.as_mut()).await?;
 
     let items = rows
         .into_iter()
@@ -7169,14 +7201,23 @@ async fn list_attendance_records_for_employee(
 
 async fn list_attendance_records_for_org(
     tx: &mut sqlx::Transaction<'_, Postgres>,
+    branch_id: Option<Uuid>,
     limit: i64,
     offset: i64,
 ) -> Result<EmployeeAttendanceRecordPage, HrError> {
-    let total: i64 = sqlx::query_scalar("SELECT COUNT(*)::BIGINT FROM employee_attendance_records")
+    let mut total_query = QueryBuilder::<Postgres>::new(
+        "SELECT COUNT(*)::BIGINT FROM employee_attendance_records r JOIN employees e ON e.id = r.employee_id AND e.org_id = r.org_id WHERE TRUE",
+    );
+    if let Some(branch_id) = branch_id {
+        total_query.push(" AND e.home_branch_id = ");
+        total_query.push_bind(branch_id);
+    }
+    let total: i64 = total_query
+        .build_query_scalar()
         .fetch_one(tx.as_mut())
         .await?;
 
-    let rows = sqlx::query(
+    let mut rows_query = QueryBuilder::<Postgres>::new(
         r#"
         SELECT
             r.id,
@@ -7195,14 +7236,18 @@ async fn list_attendance_records_for_org(
         JOIN payroll_attendance_material_refs pmr
           ON pmr.attendance_record_id = r.id
          AND pmr.org_id = r.org_id
-        ORDER BY r.occurred_at DESC, r.created_at DESC, r.id DESC
-        LIMIT $1 OFFSET $2
+        WHERE TRUE
         "#,
-    )
-    .bind(limit)
-    .bind(offset)
-    .fetch_all(tx.as_mut())
-    .await?;
+    );
+    if let Some(branch_id) = branch_id {
+        rows_query.push(" AND e.home_branch_id = ");
+        rows_query.push_bind(branch_id);
+    }
+    rows_query.push(" ORDER BY r.occurred_at DESC, r.created_at DESC, r.id DESC LIMIT ");
+    rows_query.push_bind(limit);
+    rows_query.push(" OFFSET ");
+    rows_query.push_bind(offset);
+    let rows = rows_query.build().fetch_all(tx.as_mut()).await?;
 
     let items = rows
         .into_iter()
@@ -7770,6 +7815,20 @@ fn push_attendance_branch_scope(builder: &mut QueryBuilder<Postgres>, scope: &Br
     };
 }
 
+/// Manager attendance endpoints either receive a concrete authorized branch or
+/// passed the explicit organization-wide gate. Do not derive a filter from the
+/// caller's ambient scope here: branch omission is already a distinct contract.
+fn push_attendance_branch_filter(builder: &mut QueryBuilder<Postgres>, branch_id: Option<Uuid>) {
+    match branch_id {
+        Some(branch_id) => {
+            builder.push(" l.branch_id = ");
+            builder.push_bind(branch_id);
+            builder.push(" ");
+        }
+        None => builder.push(" TRUE "),
+    }
+}
+
 fn push_branch_scope_column(
     builder: &mut QueryBuilder<Postgres>,
     scope: &BranchScope,
@@ -7808,6 +7867,31 @@ fn record_hr_import(inserted: usize, updated: usize) {
 
 fn authorize_hr_org_wide(principal: &Principal, feature: Feature) -> Result<(), HrError> {
     authorize_org_wide(principal, Action::new(feature)).map_err(HrError::from_kernel)
+}
+
+/// Attendance manager routes are explicit about whether a concrete branch was
+/// requested. A missing query parameter is an org-wide request; it is never
+/// inferred from the caller's branch membership.
+fn authorize_hr_attendance_branch_query(
+    principal: &Principal,
+    feature: Feature,
+    branch_id: Option<Uuid>,
+) -> Result<Option<Uuid>, HrError> {
+    match branch_id {
+        Some(branch_id) => {
+            authorize(
+                principal,
+                Action::new(feature),
+                BranchId::from_uuid(branch_id),
+            )
+            .map_err(HrError::from_kernel)?;
+            Ok(Some(branch_id))
+        }
+        None => {
+            authorize_hr_org_wide(principal, feature)?;
+            Ok(None)
+        }
+    }
 }
 
 fn authorize_hr_scoped(principal: &Principal, feature: Feature) -> Result<(), HrError> {
