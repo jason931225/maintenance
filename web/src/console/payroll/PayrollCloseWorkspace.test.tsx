@@ -113,6 +113,26 @@ describe("PayrollCloseWorkspace", () => {
     ).toBeVisible();
   });
 
+  it("accepts omitted optional regular and overtime hours as unavailable values", async () => {
+    const lineWithoutHours = { ...detail().lines[0] };
+    delete lineWithoutHours.regular_hours;
+    delete lineWithoutHours.overtime_hours;
+    const get = vi.fn((path: string) =>
+      Promise.resolve(
+        path === "/api/v1/payroll/runs"
+          ? response({ items: [run], total: 1, limit: 50, offset: 0 })
+          : response(detail([lineWithoutHours])),
+      ),
+    );
+    const user = userEvent.setup();
+    renderWorkspace(apiFor(get));
+    await user.click(
+      await screen.findByRole("button", { name: /2026년 6월 정기 지급/i }),
+    );
+    expect(await screen.findByText("김가을")).toBeVisible();
+    expect(screen.getAllByText("—")).toHaveLength(2);
+  });
+
   it("states a selected run with no readable employee lines truthfully", async () => {
     const get = vi.fn((path: string) =>
       path === "/api/v1/payroll/runs"

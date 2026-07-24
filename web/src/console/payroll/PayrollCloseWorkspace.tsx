@@ -81,10 +81,10 @@ function validRun(value: unknown): value is Run {
     RUN_STATUSES.has(r.status)
   );
 }
-function nullableFiniteNumber(value: unknown): value is number | null {
-  return (
-    value === null || (typeof value === "number" && Number.isFinite(value))
-  );
+function nullableFiniteNumber(
+  value: unknown,
+): value is number | null | undefined {
+  return value == null || (typeof value === "number" && Number.isFinite(value));
 }
 function validLine(value: unknown): value is Line {
   if (typeof value !== "object" || value === null) return false;
