@@ -28,7 +28,18 @@ async fn seed_org(owner_pool: &PgPool, org: Uuid, tag: &str) {
         "INSERT INTO organizations (id, slug, name) VALUES ($1, $2, $3) ON CONFLICT (id) DO NOTHING",
     )
     .bind(org)
-    .bind(format!("org-{}", tag.to_lowercase()))
+    .bind(format!(
+        "org-{}",
+        tag.chars()
+            .map(|character| {
+                if character.is_ascii_alphanumeric() {
+                    character.to_ascii_lowercase()
+                } else {
+                    '-'
+                }
+            })
+            .collect::<String>()
+    ))
     .bind(format!("Org {tag}"))
     .execute(owner_pool)
     .await
