@@ -293,29 +293,21 @@ impl PgDispatchStore {
         &self,
         command: ExpireP1DispatchCommand,
     ) -> Result<P1DispatchSummary, PgDispatchError> {
-        let head = dispatch_head(&self.pool, command.dispatch_id).await?;
         let org = current_org().map_err(KernelError::from)?;
-        let event = dispatch_audit_event(
-            "p1_dispatch.force_pending",
-            None,
-            head.branch_id,
-            command.dispatch_id,
-            command.trace,
-            command.occurred_at,
-        )?
-        .with_org(org);
         let dispatch_id = command.dispatch_id;
         let occurred_at = command.occurred_at;
+        let trace = command.trace;
 
-        with_audit::<_, P1DispatchSummary, PgDispatchError>(&self.pool, event, |tx| {
+        with_audits::<_, P1DispatchSummary, PgDispatchError>(&self.pool, org, |tx| {
             Box::pin(async move {
                 let dispatch = lock_dispatch(tx, dispatch_id).await?;
-                if dispatch.status != DispatchStatus::Broadcasting {
-                    return fetch_dispatch_summary_tx(tx, dispatch_id).await;
-                }
-                let accepted = accepted_count_tx(tx, dispatch_id).await?;
-                if accepted >= 2 {
-                    return fetch_dispatch_summary_tx(tx, dispatch_id).await;
+                if dispatch.status != DispatchStatus::Broadcasting
+                    || accepted_count_tx(tx, dispatch_id).await? >= 2
+                {
+                    return Ok((
+                        fetch_dispatch_summary_tx(tx, dispatch_id).await?,
+                        Vec::new(),
+                    ));
                 }
                 sqlx::query(
                     r#"
@@ -331,7 +323,17 @@ impl PgDispatchStore {
                 .execute(tx.as_mut())
                 .await?;
                 insert_manager_force_alerts(tx, dispatch_id, occurred_at).await?;
-                fetch_dispatch_summary_tx(tx, dispatch_id).await
+                let summary = fetch_dispatch_summary_tx(tx, dispatch_id).await?;
+                let event = dispatch_audit_event(
+                    "p1_dispatch.force_pending",
+                    None,
+                    summary.branch_id,
+                    dispatch_id,
+                    trace,
+                    occurred_at,
+                )?
+                .with_org(org);
+                Ok((summary, vec![event]))
             })
         })
         .await
@@ -341,61 +343,51 @@ impl PgDispatchStore {
         &self,
         command: ExpireP1DispatchCommand,
     ) -> Result<P1DispatchSummary, PgDispatchError> {
-        let head = dispatch_head(&self.pool, command.dispatch_id).await?;
         let org = current_org().map_err(KernelError::from)?;
-        let event = dispatch_audit_event(
-            "p1_dispatch.alimtalk_no_ack",
-            None,
-            head.branch_id,
-            command.dispatch_id,
-            command.trace,
-            command.occurred_at,
-        )?
-        .with_org(org);
         let dispatch_id = command.dispatch_id;
         let occurred_at = command.occurred_at;
+        let trace = command.trace;
 
-        with_audit::<_, P1DispatchSummary, PgDispatchError>(&self.pool, event, |tx| {
+        with_audits::<_, P1DispatchSummary, PgDispatchError>(&self.pool, org, |tx| {
             Box::pin(async move {
                 let dispatch = lock_dispatch(tx, dispatch_id).await?;
-                if dispatch.status == DispatchStatus::Broadcasting {
-                    sqlx::query(
-                        r#"
-                        INSERT INTO p1_dispatch_alerts (
-                            dispatch_id, recipient_user_id, alert_type, status, created_at, org_id
-                        )
-                        SELECT t.dispatch_id,
-                               t.user_id,
-                               'ALIMTALK_NO_ACK',
-                               CASE
-                                   WHEN u.phone IS NOT NULL AND btrim(u.phone) <> ''
-                                   THEN 'PENDING'
-                                   ELSE 'SKIPPED'
-                               END,
-                               $2,
-                               t.org_id
-                        FROM p1_dispatch_targets t
-                        JOIN users u ON u.id = t.user_id
-                        LEFT JOIN p1_dispatch_responses r
-                            ON r.dispatch_id = t.dispatch_id AND r.user_id = t.user_id
-                        WHERE t.dispatch_id = $1
-                          AND t.target_role = 'TECHNICIAN'
-                          AND r.id IS NULL
-                          AND NOT EXISTS (
-                              SELECT 1
-                              FROM p1_dispatch_alerts existing
-                              WHERE existing.dispatch_id = t.dispatch_id
-                                AND existing.recipient_user_id = t.user_id
-                                AND existing.alert_type = 'ALIMTALK_NO_ACK'
-                          )
-                        "#,
-                    )
-                    .bind(*dispatch_id.as_uuid())
-                    .bind(occurred_at)
-                    .execute(tx.as_mut())
-                    .await?;
+                if dispatch.status != DispatchStatus::Broadcasting {
+                    return Ok((fetch_dispatch_summary_tx(tx, dispatch_id).await?, Vec::new()));
                 }
-                fetch_dispatch_summary_tx(tx, dispatch_id).await
+                let inserted = sqlx::query(
+                    r#"
+                    INSERT INTO p1_dispatch_alerts (
+                        dispatch_id, recipient_user_id, alert_type, status, created_at, org_id
+                    )
+                    SELECT t.dispatch_id, t.user_id, 'ALIMTALK_NO_ACK',
+                           CASE WHEN u.phone IS NOT NULL AND btrim(u.phone) <> '' THEN 'PENDING' ELSE 'SKIPPED' END,
+                           $2, t.org_id
+                    FROM p1_dispatch_targets t
+                    JOIN users u ON u.id = t.user_id
+                    LEFT JOIN p1_dispatch_responses r ON r.dispatch_id = t.dispatch_id AND r.user_id = t.user_id
+                    WHERE t.dispatch_id = $1 AND t.target_role = 'TECHNICIAN' AND r.id IS NULL
+                      AND NOT EXISTS (
+                          SELECT 1 FROM p1_dispatch_alerts existing
+                          WHERE existing.dispatch_id = t.dispatch_id
+                            AND existing.recipient_user_id = t.user_id
+                            AND existing.alert_type = 'ALIMTALK_NO_ACK'
+                      )
+                    "#,
+                )
+                .bind(*dispatch_id.as_uuid())
+                .bind(occurred_at)
+                .execute(tx.as_mut())
+                .await?
+                .rows_affected();
+                let summary = fetch_dispatch_summary_tx(tx, dispatch_id).await?;
+                if inserted == 0 {
+                    return Ok((summary, Vec::new()));
+                }
+                let event = dispatch_audit_event(
+                    "p1_dispatch.alimtalk_no_ack", None, summary.branch_id, dispatch_id, trace, occurred_at,
+                )?
+                .with_org(org);
+                Ok((summary, vec![event]))
             })
         })
         .await
@@ -405,37 +397,30 @@ impl PgDispatchStore {
         &self,
         command: ExpireP1DispatchCommand,
     ) -> Result<P1DispatchSummary, PgDispatchError> {
-        let head = dispatch_head(&self.pool, command.dispatch_id).await?;
         let org = current_org().map_err(KernelError::from)?;
-        let event = dispatch_audit_event(
-            "dispatch.escalation.manual_call_required",
-            None,
-            head.branch_id,
-            command.dispatch_id,
-            command.trace,
-            command.occurred_at,
-        )?
-        .with_org(org)
-        .with_snapshots(
-            None,
-            Some(serde_json::json!({
-                "manual_call_required": true,
-                "manual_call_required_at": command.occurred_at,
-            })),
-        );
         let dispatch_id = command.dispatch_id;
         let occurred_at = command.occurred_at;
+        let trace = command.trace;
 
-        with_audit::<_, P1DispatchSummary, PgDispatchError>(&self.pool, event, |tx| {
+        with_audits::<_, P1DispatchSummary, PgDispatchError>(&self.pool, org, |tx| {
             Box::pin(async move {
                 let dispatch = lock_dispatch(tx, dispatch_id).await?;
-                if dispatch.status == DispatchStatus::AutoAssigned {
-                    return fetch_dispatch_summary_tx(tx, dispatch_id).await;
+                let already_marked: bool = sqlx::query_scalar(
+                    "SELECT manual_call_required_at IS NOT NULL FROM p1_dispatches WHERE id = $1",
+                )
+                .bind(*dispatch_id.as_uuid())
+                .fetch_one(tx.as_mut())
+                .await?;
+                if dispatch.status == DispatchStatus::AutoAssigned || already_marked {
+                    return Ok((
+                        fetch_dispatch_summary_tx(tx, dispatch_id).await?,
+                        Vec::new(),
+                    ));
                 }
                 sqlx::query(
                     r#"
                     UPDATE p1_dispatches
-                    SET manual_call_required_at = COALESCE(manual_call_required_at, $2),
+                    SET manual_call_required_at = $2,
                         manual_call_cleared_at = NULL,
                         updated_at = $2
                     WHERE id = $1
@@ -445,7 +430,24 @@ impl PgDispatchStore {
                 .bind(occurred_at)
                 .execute(tx.as_mut())
                 .await?;
-                fetch_dispatch_summary_tx(tx, dispatch_id).await
+                let summary = fetch_dispatch_summary_tx(tx, dispatch_id).await?;
+                let event = dispatch_audit_event(
+                    "dispatch.escalation.manual_call_required",
+                    None,
+                    summary.branch_id,
+                    dispatch_id,
+                    trace,
+                    occurred_at,
+                )?
+                .with_org(org)
+                .with_snapshots(
+                    None,
+                    Some(serde_json::json!({
+                        "manual_call_required": true,
+                        "manual_call_required_at": occurred_at,
+                    })),
+                );
+                Ok((summary, vec![event]))
             })
         })
         .await
@@ -455,48 +457,32 @@ impl PgDispatchStore {
         &self,
         command: ForceAssignP1DispatchCommand,
     ) -> Result<P1DispatchSummary, PgDispatchError> {
-        let head = dispatch_head(&self.pool, command.dispatch_id).await?;
-        // Exact retry after a completed force assignment is a no-op. A changed
-        // mechanic is a conflict, never a second assignment/audit.
-        if let Some(existing_mechanic) =
-            forced_mechanic_if_resolved(&self.pool, command.dispatch_id).await?
-        {
-            if existing_mechanic == command.mechanic_id {
-                return self.dispatch(command.dispatch_id).await;
-            }
-            return Err(KernelError::conflict(
-                "dispatch already force-assigned to a different mechanic",
-            )
-            .into());
-        }
         let org = current_org().map_err(KernelError::from)?;
         let org_uuid = *org.as_uuid();
-        let event = dispatch_audit_event(
-            "p1_dispatch.force_assign",
-            Some(command.actor),
-            head.branch_id,
-            command.dispatch_id,
-            command.trace.clone(),
-            command.occurred_at,
-        )?
-        .with_org(org)
-        .with_snapshots(
-            None,
-            Some(resolution_after_snapshot(
-                DispatchStatus::AutoAssigned,
-                head.accepted_count,
-                Some(command.mechanic_id),
-            )),
-        );
         let actor = command.actor;
         let dispatch_id = command.dispatch_id;
         let mechanic_id = command.mechanic_id;
-        let trace = command.trace.clone();
+        let trace = command.trace;
         let occurred_at = command.occurred_at;
 
-        with_audit::<_, P1DispatchSummary, PgDispatchError>(&self.pool, event, |tx| {
+        with_audits::<_, P1DispatchSummary, PgDispatchError>(&self.pool, org, |tx| {
             Box::pin(async move {
                 let mut dispatch = lock_dispatch(tx, dispatch_id).await?;
+                if dispatch.status == DispatchStatus::AutoAssigned {
+                    let assigned: Option<uuid::Uuid> = sqlx::query_scalar(
+                        "SELECT auto_assigned_mechanic_id FROM p1_dispatches WHERE id = $1",
+                    )
+                    .bind(*dispatch_id.as_uuid())
+                    .fetch_one(tx.as_mut())
+                    .await?;
+                    if assigned == Some(*mechanic_id.as_uuid()) {
+                        return Ok((fetch_dispatch_summary_tx(tx, dispatch_id).await?, Vec::new()));
+                    }
+                    return Err(KernelError::conflict(
+                        "dispatch already force-assigned to a different mechanic",
+                    )
+                    .into());
+                }
                 ensure_technician_target(tx, dispatch_id, mechanic_id).await?;
                 if target_declined(tx, dispatch_id, mechanic_id).await? {
                     return Err(KernelError::conflict(
@@ -510,7 +496,7 @@ impl PgDispatchStore {
                     dispatch.work_order_id,
                     mechanic_id,
                     actor,
-                    trace,
+                    trace.clone(),
                     occurred_at,
                     org_uuid,
                 )
@@ -518,12 +504,8 @@ impl PgDispatchStore {
                 sqlx::query(
                     r#"
                     UPDATE p1_dispatches
-                    SET status = 'AUTO_ASSIGNED',
-                        auto_assigned_mechanic_id = $2,
-                        manual_call_cleared_at = CASE
-                            WHEN manual_call_required_at IS NOT NULL THEN $3
-                            ELSE manual_call_cleared_at
-                        END,
+                    SET status = 'AUTO_ASSIGNED', auto_assigned_mechanic_id = $2,
+                        manual_call_cleared_at = CASE WHEN manual_call_required_at IS NOT NULL THEN $3 ELSE manual_call_cleared_at END,
                         updated_at = $3
                     WHERE id = $1
                     "#,
@@ -533,14 +515,30 @@ impl PgDispatchStore {
                 .bind(occurred_at)
                 .execute(tx.as_mut())
                 .await?;
-                fetch_dispatch_summary_tx(tx, dispatch_id).await
+                let summary = fetch_dispatch_summary_tx(tx, dispatch_id).await?;
+                let event = dispatch_audit_event(
+                    "p1_dispatch.force_assign",
+                    Some(actor),
+                    summary.branch_id,
+                    dispatch_id,
+                    trace,
+                    occurred_at,
+                )?
+                .with_org(org)
+                .with_snapshots(
+                    None,
+                    Some(resolution_after_snapshot(
+                        DispatchStatus::AutoAssigned,
+                        summary.accepted_count,
+                        Some(mechanic_id),
+                    )),
+                );
+                Ok((summary, vec![event]))
             })
         })
         .await
     }
 
-    /// Read-only, tenant-armed dispatch queue.  Scope is represented in SQL,
-    /// not filtered after the query, so rows and aggregates cannot leak.
     pub async fn list_dispatch_queue(
         &self,
         query: ListDispatchQueueQuery,
@@ -636,7 +634,7 @@ impl PgDispatchStore {
                     COALESCE(load.p1_count,0) AS p1_count, COALESCE(load.p2_count,0) AS p2_count, COALESCE(load.p3_count,0) AS p3_count, COALESCE(load.other_count,0) AS other_count
                 FROM p1_dispatch_targets t LEFT JOIN p1_dispatch_responses r ON r.dispatch_id=t.dispatch_id AND r.user_id=t.user_id
                 LEFT JOIN location_consents lc ON lc.user_id=t.user_id
-                LEFT JOIN LATERAL (SELECT latitude,longitude,recorded_at FROM location_pings WHERE user_id=t.user_id ORDER BY recorded_at DESC LIMIT 1) lp ON TRUE
+                LEFT JOIN LATERAL (SELECT latitude,longitude,recorded_at FROM location_pings WHERE user_id=t.user_id ORDER BY recorded_at DESC LIMIT 1) lp ON lc.status = 'GRANTED'
                 LEFT JOIN LATERAL (SELECT count(*) FILTER(WHERE w.priority='P1')::bigint p1_count,count(*) FILTER(WHERE w.priority='P2')::bigint p2_count,count(*) FILTER(WHERE w.priority='P3')::bigint p3_count,count(*) FILTER(WHERE w.priority NOT IN('P1','P2','P3'))::bigint other_count FROM work_order_assignments a JOIN work_orders w ON w.id=a.work_order_id WHERE a.mechanic_id=t.user_id AND w.status NOT IN('FINAL_COMPLETED','CANCELLED','ARCHIVED')) load ON TRUE
                 WHERE t.dispatch_id=$1 AND t.target_role='TECHNICIAN'"#).bind(*dispatch_id.as_uuid()).fetch_all(tx.as_mut()).await?;
             let mut items=Vec::with_capacity(rows.len());
