@@ -34,14 +34,17 @@
   "pendingInputs": [
     {
       "lane": "attendance-backend",
-      "sourceSha": "efc551eec49f1a8d899676740e8dcf93d5f234b7",
-      "state": "fresh_independent_review"
+      "sourceSha": "927586bba43bc4ee91ead8c17217ea2cc808f227",
+      "state": "private_repair_in_progress",
+      "implemented": "schema-valid leave interval mapping, ISO-Monday Week52 validation, server-derived active home branches, and persisted-branch replay authorization",
+      "remaining": "typed 13-operation wire contract and close-amendment idempotency await the owned 0188 schema"
     },
     {
       "lane": "attendance-frontend",
-      "sourceSha": "0dc297a6830241f62355f6f1fb828f38366010b6",
-      "state": "fresh_independent_review",
-      "compositeEvidence": "Attendance plus approved Dialog: 6 files and 39 tests passed; ESLint passed; no scoped TypeScript diagnostics"
+      "sourceSha": "408d933fa2ebccaf8bc153190dca6b15eaa29a83",
+      "state": "one_review_fix_in_progress",
+      "implemented": "exception-aware coverage, async/session fences, busy-dialog dismissal guards, valid ARIA, lint cleanup, and deterministic read-only readiness",
+      "remaining": "employee-level day-board coverage badge must require every same-day NO_SHOW to be covered"
     }
   ],
   "sharedRootEntries": {
