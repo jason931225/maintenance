@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -48,14 +49,18 @@ describe("clean architecture boundary gate", () => {
     assert.equal(evaluateArchitecture(root, ["web/src/features/orders/ui/legacy.ts"], first.violations).failures.length, 0);
   });
   it("rejects symbolic, untrusted CI baseline overrides and invalid ledger entries", () => {
-    const contract = { protectedParentCommit: "61b79707ecf1e27994a09ab73b1eb22509fc81c8" };
-    assert.equal(validateCiBaseline(".", "HEAD", contract)[0].detail, "baseline-must-be-full-immutable-sha");
-    assert.equal(validateCiBaseline(".", "0000000000000000000000000000000000000000", contract)[0].detail, "baseline-does-not-match-protected-contract");
-    assert.deepEqual(validateCiBaseline(process.cwd(), "61b79707ecf1e27994a09ab73b1eb22509fc81c8", contract), []);
+    assert.equal(validateCiBaseline(".", "HEAD")[0].detail, "baseline-must-be-full-immutable-sha");
+    assert.equal(validateCiBaseline(".", "0000000000000000000000000000000000000000")[0].detail, "baseline-is-not-an-ancestor-of-head");
+    assert.deepEqual(validateCiBaseline(process.cwd(), "61b79707ecf1e27994a09ab73b1eb22509fc81c8"), []);
     const invalid = validateLedger({ exceptions: [{ id: "same", owner: "", target: "", expiresOn: "2000-01-01", milestone: "ARCH-2026-Q3" }, { id: "same", owner: "a", target: "b", expiresOn: "2026-10-22", milestone: "ARCH-2026-Q3" }] }, "2026-07-23");
     assert.ok(invalid.some((item) => item.detail.startsWith("duplicate-or-missing-id")));
     assert.ok(invalid.some((item) => item.detail.startsWith("missing-owner")));
     assert.ok(invalid.some((item) => item.detail.startsWith("stale-or-excessive-expiry")));
+  });
+  it("CLI rejects candidate HEAD rather than reading it as trusted authority", () => {
+    const run = spawnSync(process.execPath, ["scripts/architecture/check-boundaries.mjs", "--root", ".", "--protected-base-sha", "HEAD"], { encoding: "utf8" });
+    assert.equal(run.status, 1);
+    assert.match(run.stdout, /baseline-must-be-full-immutable-sha/);
   });
   it("allows ledger removals but rejects additions and retained-entry modifications", () => {
     const trusted = { exceptions: [{ id: "one", rule: "x", path: "a" }, { id: "two", rule: "x", path: "b" }] };

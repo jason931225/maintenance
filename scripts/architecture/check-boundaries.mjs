@@ -68,9 +68,8 @@ export function collectViolations(root, changedPaths = []) {
     const layer = componentLayer(manifest, absoluteRoot);
     if (!layer) continue;
     for (const dependency of dependenciesFor(manifest)) {
-      const ownPrefix = `mnt-${layer.component}-`;
-      const target = dependency.package.startsWith(ownPrefix) ? dependency.package.slice(ownPrefix.length) : null;
-      if (target && ((layer.layer === "domain" && target !== "domain") || (layer.layer === "application" && ["adapter-postgres", "rest"].includes(target)) || (layer.layer === "adapter" && target === "rest"))) {
+      const target = dependency.package.match(/^mnt-([a-z0-9-]+)-(domain|application|adapter-[a-z0-9-]+|rest)$/)?.[2];
+      if (target && ((layer.layer === "domain" && target !== "domain") || (layer.layer === "application" && (target.startsWith("adapter-") || target === "rest")) || (layer.layer === "adapter" && target === "rest"))) {
         violations.push(violation("backend-dependency-direction", manifest, `${layer.layer}->${dependency.package}`));
       }
       if (["domain", "application"].includes(layer.layer) && FORBIDDEN_INNER_DEPS.has(dependency.package)) {
@@ -95,7 +94,10 @@ export function collectViolations(root, changedPaths = []) {
   }
 
   const web = join(absoluteRoot, "web/src");
-  const generatedExportModules = new Set(walk(join(web, "api")).filter((path) => SOURCE_EXTENSIONS.has(extname(path)) && isGeneratedApiExport(readFileSync(path, "utf8"))).map((path) => normal(path)));
+  const generatedExportModules = new Set(walk(web).filter((path) => {
+    const sourceRelative = normal(relative(web, path));
+    return SOURCE_EXTENSIONS.has(extname(path)) && (/^api\//.test(sourceRelative) || /^features\/[^/]+\/adapters\//.test(sourceRelative)) && isGeneratedApiExport(readFileSync(path, "utf8"));
+  }).map((path) => normal(path)));
   for (const source of walk(web).filter((path) => SOURCE_EXTENSIONS.has(extname(path)) && selected(path))) {
     const text = readFileSync(source, "utf8");
     const sourceRelative = normal(relative(web, source));
@@ -146,26 +148,25 @@ export function validateLedger(ledger, today = new Date().toISOString().slice(0,
     if (!entry.id || ids.has(entry.id)) issues.push("duplicate-or-missing-id");
     ids.add(entry.id);
     if (!entry.owner?.trim()) issues.push("missing-owner");
+    if (!/^[a-z0-9-]+$/.test(entry.module ?? "")) issues.push("invalid-module");
     if (!/^team-[a-z0-9-]+$/.test(entry.owner ?? "")) issues.push("invalid-owner");
-    if (!/^[A-Z]+-\d{4}-Q[1-4]\/[a-z0-9-]+$/.test(entry.target ?? "") || !/^[A-Z]+-\d{4}-Q[1-4]$/.test(entry.milestone ?? "")) issues.push("invalid-target-or-milestone");
+    if (!/^[A-Z]+-\d{4}-Q[1-4]$/.test(entry.milestone ?? "") || entry.target !== `${entry.milestone}/${entry.module}`) issues.push("invalid-target-or-milestone");
     const horizon = new Date(`${today}T00:00:00Z`); horizon.setUTCDate(horizon.getUTCDate() + 90);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(entry.expiresOn ?? "") || entry.expiresOn < today || entry.expiresOn > horizon.toISOString().slice(0, 10)) issues.push("stale-or-excessive-expiry");
     return issues.map((detail) => ({ rule: "exception-ledger-validity", path: "scripts/architecture/exception-ledger.json", detail: `${detail}:${entry.id}`, id: `exception-ledger-validity:${detail}:${entry.id}` }));
   });
 }
-export function validateCiBaseline(root, suppliedSha, contract) {
-  const expected = contract.protectedParentCommit;
+export function validateCiBaseline(root, suppliedSha) {
   const fail = (detail) => [{ rule: "ci-baseline-contract", path: "scripts/architecture/ci-baseline-contract.json", detail, id: `ci-baseline-contract:${detail}` }];
   if (!/^[0-9a-f]{40}$/.test(suppliedSha ?? "")) return fail("baseline-must-be-full-immutable-sha");
-  if (suppliedSha !== expected) return fail("baseline-does-not-match-protected-contract");
   try {
     if (execFileSync("git", ["-C", root, "rev-parse", `${suppliedSha}^{commit}`], { encoding: "utf8" }).trim() !== suppliedSha) return fail("baseline-identity-mismatch");
     execFileSync("git", ["-C", root, "merge-base", "--is-ancestor", suppliedSha, "HEAD"]);
     return [];
   } catch { return fail("baseline-is-not-an-ancestor-of-head"); }
 }
-function trustedLedger(root, commit) {
-  return JSON.parse(execFileSync("git", ["-C", root, "show", `${commit}:scripts/architecture/exception-ledger.json`], { encoding: "utf8" }));
+function trustedFile(root, commit, path) {
+  return JSON.parse(execFileSync("git", ["-C", root, "show", `${commit}:${path}`], { encoding: "utf8" }));
 }
 export function evaluateArchitecture(root, changedPaths = [], debt = [], ledgerFailures = []) {
   const known = new Set(debt.map((entry) => typeof entry === "string" ? entry : entry.id));
@@ -178,7 +179,7 @@ function parseArgs(args) {
     if (args[index] === "--root") result.root = args[++index];
     else if (args[index] === "--changed-path") result.changedPaths.push(args[++index]);
     else if (args[index] === "--changed-paths-file") result.changedPaths.push(...readFileSync(args[++index], "utf8").split(/\r?\n/).filter(Boolean));
-    else if (args[index] === "--ci-baseline-sha") result.ciBaselineSha = args[++index];
+    else if (args[index] === "--protected-base-sha") result.ciBaselineSha = args[++index];
     else if (args[index] === "--format") result.format = args[++index];
     else throw new Error(`unknown argument: ${args[index]}`);
   }
@@ -188,11 +189,13 @@ if (process.argv[1] && resolve(process.argv[1]) === resolve(new URL(import.meta.
   const options = parseArgs(process.argv.slice(2));
   const ledgerPath = join(resolve(options.root), "scripts/architecture/exception-ledger.json");
   const ledger = JSON.parse(readFileSync(ledgerPath, "utf8"));
-  const contract = JSON.parse(readFileSync(join(resolve(options.root), "scripts/architecture/ci-baseline-contract.json"), "utf8"));
-  const baselineFailures = validateCiBaseline(resolve(options.root), options.ciBaselineSha, contract);
+  const baselineFailures = validateCiBaseline(resolve(options.root), options.ciBaselineSha);
   let growthFailures = [];
-  try { growthFailures = evaluateLedgerGrowth(ledger, trustedLedger(resolve(options.root), contract.ledgerSnapshotCommit)); }
-  catch { growthFailures = [{ rule: "exception-ledger-trust", path: "scripts/architecture/exception-ledger.json", detail: "unreadable-immutable-ledger-snapshot", id: "exception-ledger-trust:unreadable-immutable-ledger-snapshot" }]; }
+  try {
+    const contract = trustedFile(resolve(options.root), options.ciBaselineSha, "scripts/architecture/ci-baseline-contract.json");
+    if (contract.schemaVersion < 3 || contract.ledgerPath !== "scripts/architecture/exception-ledger.json") throw new Error("invalid trusted contract");
+    growthFailures = evaluateLedgerGrowth(ledger, trustedFile(resolve(options.root), options.ciBaselineSha, contract.ledgerPath));
+  } catch { growthFailures = [{ rule: "exception-ledger-trust", path: "scripts/architecture/exception-ledger.json", detail: "unreadable-protected-base-contract-or-ledger", id: "exception-ledger-trust:unreadable-protected-base-contract-or-ledger" }]; }
   const ledgerFailures = validateLedger(ledger);
   const result = evaluateArchitecture(options.root, options.changedPaths, ledger.exceptions ?? [], [...baselineFailures, ...growthFailures, ...ledgerFailures]);
   process.stdout.write(`${JSON.stringify({ mode: options.changedPaths.length ? "changed-paths" : "full", ciBaselineSha: options.ciBaselineSha, ...result }, null, 2)}\n`);
