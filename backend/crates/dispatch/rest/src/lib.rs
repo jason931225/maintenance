@@ -4,7 +4,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
-use axum::extract::{Path, Query, State};
+use axum::extract::{FromRequestParts, Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -27,7 +27,7 @@ use mnt_platform_authz::{
 };
 use mnt_platform_jobs::{JobQueue, JobQueueError, JobRequest};
 use mnt_platform_push::{FcmPushMessage, PushError, PushNotifier};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, de::DeserializeOwned};
 
 /// Person-scoped pending-offer list for the signed-in mechanic (UI-M3
 /// overview inbox). The owner comes from the principal, never the request.
@@ -101,6 +101,41 @@ pub fn router(state: DispatchRestState) -> Router {
     mnt_platform_request_context::with_request_context(router, verifier, pool)
 }
 
+struct DispatchQuery<T>(T);
+impl<S, T> FromRequestParts<S> for DispatchQuery<T>
+where
+    S: Send + Sync,
+    T: DeserializeOwned + Send,
+{
+    type Rejection = RestError;
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        state: &S,
+    ) -> Result<Self, Self::Rejection> {
+        Query::<T>::from_request_parts(parts, state)
+            .await
+            .map(|Query(value)| Self(value))
+            .map_err(|_| RestError::malformed_request())
+    }
+}
+struct DispatchPath<T>(T);
+impl<S, T> FromRequestParts<S> for DispatchPath<T>
+where
+    S: Send + Sync,
+    T: DeserializeOwned + Send,
+{
+    type Rejection = RestError;
+    async fn from_request_parts(
+        parts: &mut axum::http::request::Parts,
+        state: &S,
+    ) -> Result<Self, Self::Rejection> {
+        Path::<T>::from_request_parts(parts, state)
+            .await
+            .map(|Path(value)| Self(value))
+            .map_err(|_| RestError::malformed_request())
+    }
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct DispatchQueueRequest {
@@ -139,7 +174,7 @@ struct ErrorPayload {
 async fn list_dispatch_queue(
     State(state): State<DispatchRestState>,
     headers: HeaderMap,
-    Query(query): Query<DispatchQueueRequest>,
+    DispatchQuery(query): DispatchQuery<DispatchQueueRequest>,
 ) -> Result<Json<DispatchQueuePage>, RestError> {
     let principal = principal_from_headers(&state, &headers).await?;
     let branch_scope = authorized_feature_scope(&principal, Feature::WorkOrderReadAll)?;
@@ -175,7 +210,7 @@ async fn list_dispatch_queue(
 async fn list_dispatch_candidates(
     State(state): State<DispatchRestState>,
     headers: HeaderMap,
-    Path(dispatch_id): Path<P1DispatchId>,
+    DispatchPath(dispatch_id): DispatchPath<P1DispatchId>,
 ) -> Result<Json<DispatchCandidatePage>, RestError> {
     let principal = principal_from_headers(&state, &headers).await?;
     let dispatch = state
@@ -201,7 +236,7 @@ async fn list_dispatch_candidates(
 async fn list_dispatch_responses(
     State(state): State<DispatchRestState>,
     headers: HeaderMap,
-    Path(dispatch_id): Path<P1DispatchId>,
+    DispatchPath(dispatch_id): DispatchPath<P1DispatchId>,
 ) -> Result<Json<P1DispatchResponsePage>, RestError> {
     let principal = principal_from_headers(&state, &headers).await?;
     let dispatch = state
@@ -261,7 +296,7 @@ async fn start_dispatch(
 async fn respond_dispatch(
     State(state): State<DispatchRestState>,
     headers: HeaderMap,
-    Path(dispatch_id): Path<P1DispatchId>,
+    DispatchPath(dispatch_id): DispatchPath<P1DispatchId>,
     Json(body): Json<RespondDispatchRequest>,
 ) -> Result<Json<P1DispatchSummary>, RestError> {
     let principal = principal_from_headers(&state, &headers).await?;
@@ -311,7 +346,7 @@ async fn list_my_offers(
 async fn get_dispatch(
     State(state): State<DispatchRestState>,
     headers: HeaderMap,
-    Path(dispatch_id): Path<P1DispatchId>,
+    DispatchPath(dispatch_id): DispatchPath<P1DispatchId>,
 ) -> Result<Json<P1DispatchSummary>, RestError> {
     let principal = principal_from_headers(&state, &headers).await?;
     let summary = state
@@ -331,7 +366,7 @@ async fn get_dispatch(
 async fn force_assign(
     State(state): State<DispatchRestState>,
     headers: HeaderMap,
-    Path(dispatch_id): Path<P1DispatchId>,
+    DispatchPath(dispatch_id): DispatchPath<P1DispatchId>,
     Json(body): Json<ForceAssignRequest>,
 ) -> Result<Json<P1DispatchSummary>, RestError> {
     let principal = principal_from_headers(&state, &headers).await?;
@@ -597,6 +632,10 @@ impl RestError {
             code,
             message: message.into(),
         }
+    }
+
+    fn malformed_request() -> Self {
+        Self::new(StatusCode::BAD_REQUEST, "bad_request", "malformed request")
     }
 
     fn unauthorized(message: impl Into<String>) -> Self {
