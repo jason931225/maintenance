@@ -3,13 +3,87 @@
 -- this one command; it is never available through the general mnt_rt pool.
 DO $block$
 DECLARE
-    v_migrator OID := pg_catalog.to_regrole('mnt_app');
+    v_owner OID := pg_catalog.to_regrole('mnt_app');
     v_runtime OID := pg_catalog.to_regrole('mnt_rt');
     v_command OID := pg_catalog.to_regrole('mnt_platform_force_cmd');
+    v_applier OID;
+    v_applier_is_superuser BOOLEAN;
+    v_database_owner OID;
+    v_expected_owner OID;
+    v_sqlx_test_bootstrap TEXT;
 BEGIN
-    IF v_migrator IS NULL OR v_runtime IS NULL OR v_command IS NULL THEN
+    IF v_owner IS NULL OR v_runtime IS NULL OR v_command IS NULL THEN
         RAISE EXCEPTION USING ERRCODE = '42501',
             MESSAGE = 'platform_force_role_topology.roles_not_preprovisioned';
+    END IF;
+    SELECT oid, rolsuper INTO v_applier, v_applier_is_superuser
+    FROM pg_catalog.pg_roles
+    WHERE rolname = CURRENT_USER;
+    SELECT datdba INTO v_database_owner
+    FROM pg_catalog.pg_database
+    WHERE datname = CURRENT_DATABASE();
+    v_sqlx_test_bootstrap :=
+        pg_catalog.current_setting('mnt.sqlx_test_bootstrap', true);
+
+    IF v_applier_is_superuser THEN
+        -- Buck's disposable PostgreSQL harness puts an explicit startup marker
+        -- only on the SQLx test process connection. SQLx then creates a
+        -- deterministically named per-test database. Require both invariants,
+        -- the dedicated disposable admin identity, and aligned database
+        -- ownership; a production DBA session cannot match this accidentally.
+        IF SESSION_USER <> CURRENT_USER
+           OR CURRENT_USER <> 'mnt_buck_admin'
+           OR v_sqlx_test_bootstrap IS DISTINCT FROM 'buck-sqlx-superuser-v1'
+           OR CURRENT_DATABASE() !~ '^_sqlx_test_[A-Za-z0-9_]{52}$'
+           OR v_database_owner <> v_applier
+        THEN
+            RAISE EXCEPTION USING ERRCODE = '42501',
+                MESSAGE = 'platform_force_role_topology.superuser_test_bootstrap_required';
+        END IF;
+        v_expected_owner := v_applier;
+    ELSE
+        IF CURRENT_USER <> 'mnt_app' OR SESSION_USER <> 'mnt_app'
+           OR v_database_owner <> v_owner THEN
+            RAISE EXCEPTION USING ERRCODE = '42501',
+                MESSAGE = 'platform_force_role_topology.mnt_app_must_apply_directly';
+        END IF;
+        v_expected_owner := v_owner;
+    END IF;
+
+    -- The definer deletes every public tenant relation carrying org_id,
+    -- deletes organizations itself, and deletes WebAuthn ceremonies indirectly
+    -- through users. A partial owner drift would make force removal fail only
+    -- after it had begun; reject the migration before installing the definers.
+    IF EXISTS (
+        SELECT 1
+        FROM pg_catalog.pg_class AS relation
+        JOIN pg_catalog.pg_namespace AS namespace
+          ON namespace.oid = relation.relnamespace
+        WHERE namespace.nspname = 'public'
+          AND relation.relkind IN ('r', 'p')
+          AND (
+              relation.relname IN ('organizations', 'auth_webauthn_ceremonies')
+              OR EXISTS (
+                  SELECT 1
+                  FROM pg_catalog.pg_attribute AS attribute
+                  WHERE attribute.attrelid = relation.oid
+                    AND attribute.attname = 'org_id'
+                    AND NOT attribute.attisdropped
+              )
+          )
+          AND relation.relowner <> v_expected_owner
+    ) THEN
+        RAISE EXCEPTION USING ERRCODE = '42501',
+            MESSAGE = 'platform_force_role_topology.force_table_owner_drift';
+    END IF;
+    IF EXISTS (
+        SELECT 1 FROM pg_catalog.pg_roles
+        WHERE oid = v_owner
+          AND (NOT rolcanlogin OR NOT rolinherit OR rolsuper OR NOT rolbypassrls
+               OR rolcreatedb OR rolcreaterole OR rolreplication)
+    ) THEN
+        RAISE EXCEPTION USING ERRCODE = '42501',
+            MESSAGE = 'platform_force_role_topology.mnt_app_not_hardened';
     END IF;
     IF EXISTS (
         SELECT 1 FROM pg_catalog.pg_roles
@@ -60,6 +134,12 @@ BEGIN
           AND parent.relname = 'organizations'
           AND child_ns.nspname = 'public'
           AND child.relkind IN ('r', 'p')
+          -- These roots have specialized ordering: the audit ledger must be
+          -- re-homed, and employee/user/branch/region references are released
+          -- only after their direct children have been closed by this pass.
+          AND child.relname NOT IN (
+              'audit_events', 'employees', 'users', 'branches', 'regions'
+          )
           AND cardinality(fk.conkey) = 1
           AND child_attr.attname = 'org_id'
         -- New tenant-facing tables normally reference older roots.  Descending
@@ -72,7 +152,10 @@ BEGIN
     END LOOP;
 END;
 $$;
-ALTER FUNCTION platform_force_remove_direct_org_children(UUID) OWNER TO mnt_app;
+-- Keep the migration identity as owner. Production migrations run directly as
+-- mnt_app; isolated SQLx databases run as their own table owner. Reassigning
+-- only this SECURITY DEFINER to mnt_app would separate it from the tables it
+-- must delete under FORCE RLS and break the command with insufficient_privilege.
 REVOKE ALL ON FUNCTION platform_force_remove_direct_org_children(UUID) FROM PUBLIC, mnt_rt, mnt_platform_force_cmd;
 
 CREATE OR REPLACE FUNCTION platform_force_remove_organization(p_id UUID)
@@ -104,8 +187,8 @@ BEGIN
     END IF;
 
     PERFORM set_config('app.platform_force_remove_org', 'on', true);
-    -- Close direct restrictive tenant edges before deleting employees/branches:
-    -- post-0090 attendance material and console records reference those roots.
+    -- Close direct restrictive tenant edges before deleting employee/user roots.
+    -- The catalog query excludes only the explicitly ordered roots below.
     PERFORM platform_force_remove_direct_org_children(p_id);
     DELETE FROM attendance_direct_import_events  WHERE org_id = p_id;
     DELETE FROM data_import_rows                 WHERE org_id = p_id;
@@ -235,7 +318,6 @@ BEGIN
     RETURN 'removed';
 END;
 $$;
-ALTER FUNCTION platform_force_remove_organization(UUID) OWNER TO mnt_app;
 REVOKE ALL ON FUNCTION platform_force_remove_organization(UUID) FROM PUBLIC, mnt_rt;
 GRANT EXECUTE ON FUNCTION platform_force_remove_organization(UUID) TO mnt_platform_force_cmd;
 
@@ -315,7 +397,6 @@ BEGIN
     RETURN 'removed';
 END;
 $$;
-ALTER FUNCTION platform_force_remove_organization_command(UUID, UUID, CHAR(32), CHAR(16), TIMESTAMPTZ) OWNER TO mnt_app;
 REVOKE ALL ON FUNCTION platform_force_remove_organization_command(UUID, UUID, CHAR(32), CHAR(16), TIMESTAMPTZ) FROM PUBLIC, mnt_rt;
 GRANT EXECUTE ON FUNCTION platform_force_remove_organization_command(UUID, UUID, CHAR(32), CHAR(16), TIMESTAMPTZ) TO mnt_platform_force_cmd;
 REVOKE EXECUTE ON FUNCTION platform_force_remove_organization(UUID) FROM mnt_platform_force_cmd;

@@ -3,13 +3,20 @@
 //! as the non-owner runtime role, so tenant isolation and least privilege are
 //! not inferred from DDL text alone.
 
-use sqlx::{PgPool, Row, postgres::PgPoolOptions};
+use sqlx::{
+    PgPool, Row,
+    postgres::{PgConnectOptions, PgPoolOptions},
+};
+use std::str::FromStr;
 use tokio::{
     sync::oneshot,
     time::{Duration, Instant, sleep},
 };
 use uuid::Uuid;
 
+const MIGRATION_0198: &str =
+    include_str!("../migrations/0198_platform_force_command_and_fk_closure.sql");
+const FORCE_MIGRATOR_PASSWORD: &str = "platform-force-migration-owner-a198";
 const ORG_A: Uuid = Uuid::from_u128(0x1880_0000_0000_0000_0000_0000_0000_0001);
 const ORG_B: Uuid = Uuid::from_u128(0x1880_0000_0000_0000_0000_0000_0000_0002);
 const FINGERPRINT: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
@@ -18,6 +25,13 @@ struct Seeded {
     branch: Uuid,
     employee: Uuid,
     user: Uuid,
+}
+
+fn database_error_code(error: &sqlx::Error) -> Option<String> {
+    error
+        .as_database_error()?
+        .code()
+        .map(|code| code.into_owned())
 }
 
 async fn seed_org(pool: &PgPool, org: Uuid, tag: &str) -> Seeded {
@@ -873,6 +887,26 @@ async fn employee_day_locks_serialize_leave_approval_and_release_terminal_transi
 async fn platform_force_removal_closes_direct_org_restrict_fks_and_uses_dedicated_capability(
     pool: PgPool,
 ) {
+    let owner_alignment: bool = sqlx::query_scalar(
+        "SELECT bool_and(functions.proowner = organizations.relowner) \
+         FROM unnest(ARRAY[ \
+             'platform_force_remove_direct_org_children(uuid)'::regprocedure, \
+             'platform_force_remove_organization(uuid)'::regprocedure, \
+             'platform_force_remove_organization_command(uuid,uuid,character,character,timestamp with time zone)'::regprocedure \
+         ]) AS procedures(oid) \
+         JOIN pg_proc AS functions ON functions.oid = procedures.oid \
+         CROSS JOIN pg_class AS organizations \
+         WHERE organizations.oid = 'organizations'::regclass",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(
+        owner_alignment,
+        "force-remove SECURITY DEFINER functions must share the tenant-table owner so they retain \
+         the same FORCE-RLS and direct-child privileges in production and isolated SQLx databases"
+    );
+
     let function_body: String = sqlx::query_scalar(
         "SELECT pg_get_functiondef('platform_force_remove_organization_command(uuid,uuid,character,character,timestamp with time zone)'::regprocedure)",
     )
@@ -909,7 +943,19 @@ async fn platform_force_removal_closes_direct_org_restrict_fks_and_uses_dedicate
 
     let permissions = sqlx::query(
         "SELECT has_function_privilege('mnt_rt', 'platform_force_remove_organization_command(uuid,uuid,character,character,timestamp with time zone)', 'EXECUTE') AS runtime_can_execute, \
-                has_function_privilege('mnt_platform_force_cmd', 'platform_force_remove_organization_command(uuid,uuid,character,character,timestamp with time zone)', 'EXECUTE') AS command_can_execute",
+                has_function_privilege('mnt_platform_force_cmd', 'platform_force_remove_organization_command(uuid,uuid,character,character,timestamp with time zone)', 'EXECUTE') AS command_can_execute, \
+                EXISTS ( \
+                    SELECT 1 \
+                    FROM pg_class AS relation \
+                    JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace \
+                    CROSS JOIN unnest(ARRAY['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'TRUNCATE', 'REFERENCES', 'TRIGGER']) \
+                        AS requested(privilege_name) \
+                    WHERE namespace.nspname = 'public' \
+                      AND relation.relkind IN ('r', 'p') \
+                      AND has_table_privilege( \
+                          'mnt_platform_force_cmd', relation.oid, requested.privilege_name \
+                      ) \
+                ) AS command_has_table_privilege",
     )
     .fetch_one(&pool)
     .await
@@ -922,6 +968,281 @@ async fn platform_force_removal_closes_direct_org_restrict_fks_and_uses_dedicate
         permissions.get::<bool, _>("command_can_execute"),
         "dedicated platform command credential must execute force removal"
     );
+    assert!(
+        !permissions.get::<bool, _>("command_has_table_privilege"),
+        "dedicated platform command credential must not receive direct access to any public table"
+    );
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn platform_force_migration_rejects_superuser_on_mnt_app_owned_database(pool: PgPool) {
+    sqlx::raw_sql(
+        r#"
+        ALTER ROLE mnt_app LOGIN INHERIT NOSUPERUSER BYPASSRLS NOCREATEDB NOCREATEROLE
+            NOREPLICATION PASSWORD 'platform-force-migration-owner-a198';
+        DO $database_owner$
+        BEGIN
+            EXECUTE format('ALTER DATABASE %I OWNER TO mnt_app', current_database());
+        END
+        $database_owner$;
+        DO $ownership$
+        DECLARE
+            target RECORD;
+        BEGIN
+            FOR target IN
+                SELECT namespace.nspname AS schema_name, relation.relname AS relation_name
+                FROM pg_class AS relation
+                JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+                WHERE namespace.nspname = 'public'
+                  AND relation.relkind IN ('r', 'p')
+                  AND (
+                      relation.relname IN ('organizations', 'auth_webauthn_ceremonies')
+                      OR EXISTS (
+                          SELECT 1
+                          FROM pg_attribute AS attribute
+                          WHERE attribute.attrelid = relation.oid
+                            AND attribute.attname = 'org_id'
+                            AND NOT attribute.attisdropped
+                      )
+                  )
+            LOOP
+                EXECUTE format(
+                    'ALTER TABLE %I.%I OWNER TO mnt_app',
+                    target.schema_name,
+                    target.relation_name
+                );
+            END LOOP;
+        END
+        $ownership$;
+        ALTER FUNCTION platform_force_remove_direct_org_children(UUID) OWNER TO mnt_app;
+        ALTER FUNCTION platform_force_remove_organization(UUID) OWNER TO mnt_app;
+        ALTER FUNCTION platform_force_remove_organization_command(
+            UUID, UUID, CHAR(32), CHAR(16), TIMESTAMPTZ
+        ) OWNER TO mnt_app;
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let mut dba_replay = pool.begin().await.unwrap();
+    let rejected = sqlx::raw_sql(MIGRATION_0198)
+        .execute(&mut *dba_replay)
+        .await
+        .expect_err(
+            "a superuser must not create force-remove definers in an mnt_app-owned database",
+        );
+    assert_eq!(database_error_code(&rejected).as_deref(), Some("42501"));
+    assert!(
+        rejected
+            .as_database_error()
+            .is_some_and(|error| error.message()
+                == "platform_force_role_topology.superuser_test_bootstrap_required")
+    );
+    dba_replay.rollback().await.unwrap();
+
+    let migrator_options = pool
+        .connect_options()
+        .as_ref()
+        .clone()
+        .username("mnt_app")
+        .password(FORCE_MIGRATOR_PASSWORD);
+    let migrator = PgPoolOptions::new()
+        .max_connections(1)
+        .connect_with(migrator_options)
+        .await
+        .unwrap();
+    let identity = sqlx::query("SELECT current_user, session_user")
+        .fetch_one(&migrator)
+        .await
+        .unwrap();
+    assert_eq!(identity.get::<String, _>("current_user"), "mnt_app");
+    assert_eq!(identity.get::<String, _>("session_user"), "mnt_app");
+    sqlx::raw_sql(MIGRATION_0198)
+        .execute(&migrator)
+        .await
+        .expect("the exact 0198 migration must replay through the direct mnt_app login");
+
+    let owners: Vec<String> = sqlx::query_scalar(
+        "SELECT owner.rolname \
+         FROM unnest(ARRAY[ \
+             'platform_force_remove_direct_org_children(uuid)'::regprocedure, \
+             'platform_force_remove_organization(uuid)'::regprocedure, \
+             'platform_force_remove_organization_command(uuid,uuid,character,character,timestamp with time zone)'::regprocedure \
+         ]) AS procedures(oid) \
+         JOIN pg_proc AS functions ON functions.oid = procedures.oid \
+         JOIN pg_roles AS owner ON owner.oid = functions.proowner \
+         ORDER BY procedures.oid",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(owners, vec!["mnt_app", "mnt_app", "mnt_app"]);
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn platform_force_migration_rejects_dba_owned_production_shaped_database(pool: PgPool) {
+    let sqlx_identity = sqlx::query(
+        "SELECT current_database() AS database_name, \
+                current_user, \
+                current_setting('mnt.sqlx_test_bootstrap', true) AS bootstrap_marker",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(
+        sqlx_identity
+            .get::<String, _>("database_name")
+            .starts_with("_sqlx_test_")
+    );
+    assert_eq!(
+        sqlx_identity.get::<String, _>("current_user"),
+        "mnt_buck_admin"
+    );
+    assert_eq!(
+        sqlx_identity.get::<String, _>("bootstrap_marker"),
+        "buck-sqlx-superuser-v1"
+    );
+
+    let mut unmarked = pool.begin().await.unwrap();
+    sqlx::query("SET LOCAL mnt.sqlx_test_bootstrap = 'disabled'")
+        .execute(&mut *unmarked)
+        .await
+        .unwrap();
+    let unmarked_replay = sqlx::raw_sql(MIGRATION_0198).execute(&mut *unmarked).await;
+    unmarked.rollback().await.unwrap();
+    let unmarked_error =
+        unmarked_replay.expect_err("a superuser migration without the exact test marker must fail");
+    assert_eq!(
+        database_error_code(&unmarked_error).as_deref(),
+        Some("42501")
+    );
+    assert!(
+        unmarked_error
+            .as_database_error()
+            .is_some_and(|error| error.message()
+                == "platform_force_role_topology.superuser_test_bootstrap_required")
+    );
+
+    let master_options =
+        PgConnectOptions::from_str(&std::env::var("DATABASE_URL").unwrap()).unwrap();
+    let master = PgPoolOptions::new()
+        .max_connections(1)
+        .connect_with(master_options.clone())
+        .await
+        .unwrap();
+    let production_database = format!("platform_force_production_{}", Uuid::new_v4().simple());
+    // The identifier is generated only from a UUID's lowercase hexadecimal
+    // representation and a fixed prefix; it cannot contain SQL metacharacters.
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "CREATE DATABASE \"{production_database}\""
+    )))
+    .execute(&master)
+    .await
+    .unwrap();
+    let production = PgPoolOptions::new()
+        .max_connections(1)
+        .connect_with(master_options.database(&production_database))
+        .await
+        .unwrap();
+    sqlx::raw_sql("CREATE TABLE organizations (id UUID PRIMARY KEY)")
+        .execute(&production)
+        .await
+        .unwrap();
+    let production_replay = sqlx::raw_sql(MIGRATION_0198).execute(&production).await;
+    production.close().await;
+    sqlx::raw_sql(sqlx::AssertSqlSafe(format!(
+        "DROP DATABASE \"{production_database}\""
+    )))
+    .execute(&master)
+    .await
+    .unwrap();
+    let production_error = production_replay
+        .expect_err("a DBA-owned database outside the SQLx namespace must reject the migration");
+    assert_eq!(
+        database_error_code(&production_error).as_deref(),
+        Some("42501")
+    );
+    assert!(
+        production_error
+            .as_database_error()
+            .is_some_and(|error| error.message()
+                == "platform_force_role_topology.superuser_test_bootstrap_required")
+    );
+}
+
+#[sqlx::test(migrations = "./migrations")]
+async fn platform_force_migration_rejects_partially_drifted_force_table_owner(pool: PgPool) {
+    sqlx::raw_sql(
+        r#"
+        ALTER ROLE mnt_app LOGIN INHERIT NOSUPERUSER BYPASSRLS NOCREATEDB NOCREATEROLE
+            NOREPLICATION PASSWORD 'platform-force-migration-owner-a198';
+        DO $ownership$
+        DECLARE
+            target RECORD;
+        BEGIN
+            EXECUTE format('ALTER DATABASE %I OWNER TO mnt_app', current_database());
+            FOR target IN
+                SELECT namespace.nspname AS schema_name, relation.relname AS relation_name
+                FROM pg_class AS relation
+                JOIN pg_namespace AS namespace ON namespace.oid = relation.relnamespace
+                WHERE namespace.nspname = 'public'
+                  AND relation.relkind IN ('r', 'p')
+                  AND (
+                      relation.relname IN ('organizations', 'auth_webauthn_ceremonies')
+                      OR EXISTS (
+                          SELECT 1
+                          FROM pg_attribute AS attribute
+                          WHERE attribute.attrelid = relation.oid
+                            AND attribute.attname = 'org_id'
+                            AND NOT attribute.attisdropped
+                      )
+                  )
+            LOOP
+                EXECUTE format(
+                    'ALTER TABLE %I.%I OWNER TO mnt_app',
+                    target.schema_name,
+                    target.relation_name
+                );
+            END LOOP;
+        END
+        $ownership$;
+        ALTER FUNCTION platform_force_remove_direct_org_children(UUID) OWNER TO mnt_app;
+        ALTER FUNCTION platform_force_remove_organization(UUID) OWNER TO mnt_app;
+        ALTER FUNCTION platform_force_remove_organization_command(
+            UUID, UUID, CHAR(32), CHAR(16), TIMESTAMPTZ
+        ) OWNER TO mnt_app;
+        "#,
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::raw_sql("ALTER TABLE registry_customers OWNER TO mnt_buck_admin")
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let migrator_options = pool
+        .connect_options()
+        .as_ref()
+        .clone()
+        .username("mnt_app")
+        .password(FORCE_MIGRATOR_PASSWORD);
+    let migrator = PgPoolOptions::new()
+        .max_connections(1)
+        .connect_with(migrator_options)
+        .await
+        .unwrap();
+    let drifted_replay = sqlx::raw_sql(MIGRATION_0198).execute(&migrator).await;
+    let drifted_error =
+        drifted_replay.expect_err("one drifted force-removal table owner must fail closed");
+    assert_eq!(
+        database_error_code(&drifted_error).as_deref(),
+        Some("42501")
+    );
+    assert!(drifted_error.as_database_error().is_some_and(
+        |error| error.message() == "platform_force_role_topology.force_table_owner_drift"
+    ));
 }
 
 #[sqlx::test(migrations = "./migrations")]
@@ -948,10 +1269,11 @@ async fn platform_force_removal_runtime_is_denied_and_command_role_can_remove_ar
         .fetch_one(&mut *runtime)
         .await
         .unwrap_err();
+    let denied_code = denied
+        .as_database_error()
+        .and_then(|error| error.code().map(|code| code.into_owned()));
     assert_eq!(
-        denied
-            .as_database_error()
-            .and_then(|error| error.code().as_deref()),
+        denied_code.as_deref(),
         Some("42501"),
         "mnt_rt must receive PostgreSQL insufficient_privilege, not a handler-only denial"
     );
@@ -997,7 +1319,7 @@ async fn platform_force_removal_deletes_post_0188_attendance_rows_before_employe
     pool: PgPool,
 ) {
     let org = Uuid::new_v4();
-    let seeded = seed_org(&pool, org, "force-remove-attendance").await;
+    let seeded = seed_org(&pool, org, "force-attendance").await;
     sqlx::query("UPDATE organizations SET status = 'ARCHIVED' WHERE id = $1")
         .bind(org)
         .execute(&pool)

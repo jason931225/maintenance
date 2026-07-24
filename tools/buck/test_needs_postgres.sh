@@ -89,7 +89,11 @@ if [[ ! "${port}" =~ ^[0-9]+$ ]]; then
   echo "buck-postgres: could not resolve disposable PostgreSQL loopback port" >&2
   exit 1
 fi
-database_url="postgres://mnt_buck_admin:${admin_password}@127.0.0.1:${port}/${database}"
+# SQLx creates one `_sqlx_test_*` database per test and runs migrations there
+# as this disposable container's superuser. Carry an explicit startup marker
+# only on those test-process connections; production migration URLs never set
+# it, and destroying the per-invocation container ends its lifecycle.
+database_url="postgres://mnt_buck_admin:${admin_password}@127.0.0.1:${port}/${database}?options%5Bmnt.sqlx_test_bootstrap%5D=buck-sqlx-superuser-v1"
 
 BUCK_ISOLATION_DIR="${isolation_name}" "${buck_bin}" test --local-only "$@" \
   -- --env "DATABASE_URL=${database_url}" --env RUST_TEST_THREADS=1

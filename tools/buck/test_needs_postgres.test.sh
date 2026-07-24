@@ -81,6 +81,7 @@ grep -Fq -- 'test --local-only //backend/crates/platform/db:db-itest-runtime --t
 grep -Fq -- '--env RUST_TEST_THREADS=1' <<<"${calls}"
 assert_fixed_absent 'DATABASE_URL=postgres://mnt_app:' "${calls}"
 grep -Fq -- '@127.0.0.1:49123/mnt_buck_test_' <<<"${calls}"
+grep -Fq -- '?options%5Bmnt.sqlx_test_bootstrap%5D=buck-sqlx-superuser-v1' <<<"${calls}"
 grep -Fq -- 'docker rm -f mnt-buck-postgres-' <<<"${calls}"
 
 if PATH="${fake_bin}:${PATH}" HARNESS_LOG="${log}" \

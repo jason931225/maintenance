@@ -795,26 +795,6 @@ async fn force_removes_archived_tenant_with_data_and_isolates_other_tenant(owner
     for table in tables {
         b_before.insert(table, count_in_org(&owner_pool, table, org_b).await);
     }
-    let mut a_before = std::collections::HashMap::new();
-    for table in [
-        "users",
-        "registry_customers",
-        "registry_sites",
-        "registry_equipment",
-        "work_orders",
-        "financial_rental_quotes",
-        "financial_purchase_requests",
-        "messenger_threads",
-        "evidence_media",
-        "audit_events",
-    ] {
-        a_before.insert(table, count_in_org(&owner_pool, table, org_a).await);
-    }
-    let a_audit_before = count_in_org(&owner_pool, "audit_events", org_a).await;
-    assert!(a_audit_before >= 1, "org A has audit rows to re-home");
-    let sentinel_audit_before =
-        count_in_org(&owner_pool, "audit_events", *OrgId::platform().as_uuid()).await;
-
     // A force-remove on an ACTIVE tenant must be REFUSED (the safety rail): A is
     // still ACTIVE here, so this proves we cannot force-wipe an unarchived tenant.
     let (status, body) = force_delete_org(&service, &platform_token, org_a).await;
@@ -835,6 +815,29 @@ async fn force_removes_archived_tenant_with_data_and_isolates_other_tenant(owner
 
     // Archive A (the reversible mandatory first step), THEN force-remove it.
     archive_org(&service, &platform_token, org_a).await;
+    // Snapshot the bounded receipt inputs at the actual pre-delete boundary.
+    // Archiving appends a legitimate tenant audit event, so a snapshot taken
+    // before the mandatory archive transition would be stale by construction.
+    let mut a_before = std::collections::HashMap::new();
+    for table in [
+        "users",
+        "registry_customers",
+        "registry_sites",
+        "registry_equipment",
+        "work_orders",
+        "financial_rental_quotes",
+        "financial_purchase_requests",
+        "messenger_threads",
+        "evidence_media",
+        "audit_events",
+    ] {
+        a_before.insert(table, count_in_org(&owner_pool, table, org_a).await);
+    }
+    let a_audit_before = count_in_org(&owner_pool, "audit_events", org_a).await;
+    assert!(a_audit_before >= 1, "org A has audit rows to re-home");
+    let sentinel_audit_before =
+        count_in_org(&owner_pool, "audit_events", *OrgId::platform().as_uuid()).await;
+
     let (status, body) = force_delete_org(&service, &platform_token, org_a).await;
     assert_eq!(status, StatusCode::NO_CONTENT, "force remove: {body:?}");
 
