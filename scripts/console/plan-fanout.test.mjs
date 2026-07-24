@@ -91,7 +91,10 @@ test('review receipts fail closed unless an independent reviewer custody-binds t
   const lane = { laneId: 'A', owner: 'writer-a' };
   const authority = { reviewers: [{ id: 'reviewer-b', author_name: 'Reviewer', author_email: 'review@example.test', committer_name: 'Reviewer', committer_email: 'review@example.test', signing_fingerprint: 'ABCD' }] };
   const receipt = { status: 'approved', epoch_base_sha: SHA, lane_id: 'A', implementer: 'writer-a', reviewer: 'reviewer-b', leaf_commit: LEAF, leaf_result_sha256: leafResultDigest('base..leaf'), review_commit: REVIEW };
-  const operations = { hasCommit: (sha) => [LEAF, REVIEW, OTHER].includes(sha), isAncestor: (ancestor, descendant) => ancestor === SHA && descendant === LEAF, parentOf: (sha) => sha === REVIEW ? LEAF : OTHER, changedPaths: () => ['docs/evidence/console/fanout-receipts/559aead08264d5795d3909718cdd05abd49572e84fe55590eef31a88a08fdffd.json'], readJson: () => receipt, leafDiff: () => 'base..leaf', commitIdentity: () => ({ author_name: 'Reviewer', author_email: 'review@example.test', committer_name: 'Reviewer', committer_email: 'review@example.test' }), verifySignature: () => true };
+  const signature = '[GNUPG:] VALIDSIG ABCD1234ABCD1234ABCD1234ABCD1234ABCD1234 2026-07-24 0 4 0 1 10 00 ABCD1234ABCD1234ABCD1234ABCD1234ABCD1234\n';
+  authority.reviewers[0].signing_fingerprint = 'ABCD1234ABCD1234ABCD1234ABCD1234ABCD1234';
+  const receiptFromSeparatelyParsedContent = JSON.parse(JSON.stringify(receipt));
+  const operations = { hasCommit: (sha) => [LEAF, REVIEW, OTHER].includes(sha), isAncestor: (ancestor, descendant) => ancestor === SHA && descendant === LEAF, parentOf: (sha) => sha === REVIEW ? LEAF : OTHER, changedPaths: () => ['docs/evidence/console/fanout-receipts/559aead08264d5795d3909718cdd05abd49572e84fe55590eef31a88a08fdffd.json'], readJson: () => receiptFromSeparatelyParsedContent, leafDiff: () => 'base..leaf', commitIdentity: () => ({ author_name: 'Reviewer', author_email: 'review@example.test', committer_name: 'Reviewer', committer_email: 'review@example.test' }), verifySignature: () => signature };
   assert.deepEqual(validateReviewReceiptForAnchor(receipt, SHA, lane, authority, operations), receipt);
   const forgedDigest = { ...receipt, leaf_result_sha256: 'e'.repeat(64) };
   assert.throws(() => validateReviewReceiptForAnchor(forgedDigest, SHA, lane, authority, { ...operations, readJson: () => forgedDigest }), /digest/);
@@ -101,6 +104,37 @@ test('review receipts fail closed unless an independent reviewer custody-binds t
   assert.throws(() => validateReviewReceiptForAnchor(receipt, SHA, lane, authority, { ...operations, changedPaths: () => ['code.js'] }), /mutates/);
   assert.throws(() => validateReviewReceiptForAnchor(receipt, SHA, lane, authority, { ...operations, parentOf: () => OTHER }), /direct child/);
   assert.throws(() => validateReviewReceiptForAnchor(receipt, SHA, lane, authority, { ...operations, isAncestor: () => false }), /anchored/);
+  assert.throws(() => validateReviewReceiptForAnchor(receipt, SHA, lane, authority, { ...operations, verifySignature: () => '[GNUPG:] VALIDSIG 0000000000000000000000000000000000000000\n' }), /signature/);
+  assert.throws(() => validateReviewReceiptForAnchor(receipt, SHA, lane, authority, { ...operations, verifySignature: () => '[GNUPG:] GOODSIG ABCD1234ABCD1234ABCD1234ABCD1234ABCD1234 reviewer\n' }), /signature/);
+  assert.throws(() => validateReviewReceiptForAnchor(receipt, SHA, lane, authority, { ...operations, verifySignature: () => '[GNUPG:] VALIDSIG malformed\n' }), /signature/);
+  assert.throws(() => validateReviewReceiptForAnchor(receipt, SHA, lane, authority, { ...operations, verifySignature: () => `${signature}[GNUPG:] VALIDSIG malformed\n` }), /signature/);
+  assert.throws(() => validateReviewReceiptForAnchor(receipt, SHA, lane, authority, { ...operations, verifySignature: () => `${signature}${signature}` }), /signature/);
+  assert.throws(() => validateReviewReceiptForAnchor(receipt, SHA, lane, authority, { ...operations, verifySignature: () => { throw new Error('git unavailable'); } }), /unavailable/);
+  assert.throws(() => validateReviewReceiptForAnchor(receipt, SHA, lane, authority, { ...operations, commitIdentity: () => ({ author_name: 'Reviewer', author_email: 'review@example.test', committer_name: 'Other', committer_email: 'review@example.test' }) }), /identity/);
+});
+
+test('review authority rejects duplicate IDs or fingerprints and incomplete exact identities', async () => {
+  const { buildFanoutPlan } = await import('./plan-fanout.mjs');
+  const reviewer = { id: 'reviewer-b', author_name: 'Reviewer', author_email: 'review@example.test', committer_name: 'Reviewer', committer_email: 'review@example.test', signing_fingerprint: 'ABCD1234ABCD1234ABCD1234ABCD1234ABCD1234' };
+  assert.throws(() => buildFanoutPlan(reg([cap('A', ['backend/crates/a/**'])], { review_authority: { reviewers: [reviewer, { ...reviewer, id: 'reviewer-c' }] } }), { anchorSha: SHA, maxWriters: 3, qualityBias: .6, generatedFaces: faces }), /duplicate trusted reviewer signing fingerprint/);
+  assert.throws(() => buildFanoutPlan(reg([cap('A', ['backend/crates/a/**'])], { review_authority: { reviewers: [reviewer, { ...reviewer, signing_fingerprint: 'BCDE1234ABCD1234ABCD1234ABCD1234ABCD1234' }] } }), { anchorSha: SHA, maxWriters: 3, qualityBias: .6, generatedFaces: faces }), /duplicate trusted reviewer id/);
+  assert.throws(() => buildFanoutPlan(reg([cap('A', ['backend/crates/a/**'])], { review_authority: { reviewers: [{ ...reviewer, committer_email: 'committer@example.test ' }] } }), { anchorSha: SHA, maxWriters: 3, qualityBias: .6, generatedFaces: faces }), /invalid trusted reviewer identity/);
+});
+
+test('admission manifests are single-parent manifest-only commits with unique connected references', async () => {
+  const { validateAdmissionManifest } = await import('./plan-fanout.mjs');
+  const REVIEW_A = 'b'.repeat(40); const REVIEW_B = 'c'.repeat(40); const ADMISSION = 'd'.repeat(40);
+  const manifest = { schema_version: 'console-fanout-admission-v1', epoch_base_sha: SHA, receipts: [
+    { lane_id: 'A', review_commit: REVIEW_A, receipt_path: 'docs/evidence/console/fanout-receipts/559aead08264d5795d3909718cdd05abd49572e84fe55590eef31a88a08fdffd.json' },
+    { lane_id: 'B', review_commit: REVIEW_B, receipt_path: 'docs/evidence/console/fanout-receipts/df7e70e5021544f4834bbee64a9e3789febc4be81470df629cad6ddb03320a5c.json' },
+  ] };
+  const operations = { parentCount: () => 1, changedPaths: () => ['docs/evidence/console/fanout-admission.json'], isAncestor: (ancestor, descendant) => descendant === ADMISSION && [REVIEW_A, REVIEW_B].includes(ancestor), readJson: (sha) => ({ lane_id: sha === REVIEW_A ? 'A' : 'B', review_commit: sha }) };
+  assert.deepEqual(validateAdmissionManifest(manifest, SHA, ADMISSION, operations), manifest.receipts);
+  assert.throws(() => validateAdmissionManifest(manifest, SHA, ADMISSION, { ...operations, parentCount: () => 2 }), /single-parent/);
+  assert.throws(() => validateAdmissionManifest(manifest, SHA, ADMISSION, { ...operations, changedPaths: () => ['docs/evidence/console/fanout-admission.json', 'unrelated.txt'] }), /manifest-only/);
+  assert.throws(() => validateAdmissionManifest({ ...manifest, receipts: [manifest.receipts[0], { ...manifest.receipts[0] }] }, SHA, ADMISSION, operations), /duplicate/);
+  assert.throws(() => validateAdmissionManifest({ ...manifest, receipts: [manifest.receipts[0], { ...manifest.receipts[1], review_commit: REVIEW_A }] }, SHA, ADMISSION, operations), /duplicate/);
+  assert.throws(() => validateAdmissionManifest(manifest, SHA, ADMISSION, { ...operations, isAncestor: () => false }), /ancestor/);
 });
 
 test('runtime-ineligible lanes are held before ranking so lower safe lanes fill capacity', () => {

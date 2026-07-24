@@ -69,9 +69,28 @@ the direct child of the leaf and may change only its receipt artifact. Its
 receipt's result digest is recomputed from the fixed Git binary diff
 `git diff --no-ext-diff --no-renames --full-index --binary <base> <leaf>`.
 Reviewer identity is accepted only when the review commit author/committer and
-verified signing fingerprint match trusted epoch-base authority. If no trusted
-signer infrastructure is configured, receipts fail closed: source planning can
-continue, but completion and consolidation remain held.
+verified signing fingerprint match trusted epoch-base authority. Reviewer IDs
+and canonical uppercase signing fingerprints are each unique in that authority;
+each authority row declares exact non-empty author and committer names/emails.
+The planner invokes `git verify-commit --raw` and accepts exactly one machine
+readable `[GNUPG:] VALIDSIG <fingerprint>` record whose complete fingerprint is
+equal to the declared fingerprint. It rejects unsigned commits, key or
+fingerprint mismatches, malformed or duplicate status records, and unavailable
+verification tooling; it never treats author text or a fingerprint substring as
+signature proof. The operator prerequisite for live admission is a usable local
+Git/GPG verifier with the trusted reviewer public key and the required trust
+policy available. If that signer infrastructure is not configured, receipts
+fail closed: source planning can continue, but completion and consolidation
+remain held.
+
+The admission commit is a single-parent commit which changes only
+`docs/evidence/console/fanout-admission.json`. Every manifest reference has a
+unique lane, review commit, and canonical receipt path, and every referenced
+review commit must be an ancestor of that admission commit. Merge admissions,
+unrelated admission changes, duplicate references, and disconnected review
+commits are rejected. Receipt content equality is compared through canonical
+JSON bytes/digests, rather than JavaScript object identity, so separately parsed
+identical immutable receipt content remains valid.
 
 Shared OpenAPI, generated clients, migrations, route/nav, tokens, and generated
 Buck faces are never leaf writes. A consolidation entry remains false until an

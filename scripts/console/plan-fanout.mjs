@@ -3,7 +3,7 @@
 import { createHash } from 'node:crypto';
 
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 
 const FULL_SHA = /^[0-9a-f]{40}$/;
@@ -103,6 +103,23 @@ export function buckIsolationDir(anchorSha, laneId) {
 function laneScore(capability, qualityBias) { const score = finiteNumber(capability.priority?.score); const c = finiteNumber(capability.priority?.inputs?.correctness_and_risk_reduction, score); const v = finiteNumber(capability.priority?.inputs?.verification_readiness, score); return (1 - qualityBias) * score + qualityBias * ((c + v) / 2); }
 function conflictBetween(left, right) { for (const a of left.private_roots) for (const b of right.private_roots) if (patternsOverlap(a, b)) return [a, b]; return null; }
 function nonemptyIdentity(value) { return typeof value === 'string' && /^[A-Za-z0-9._@/-]+$/.test(value); }
+function exactIdentity(value) { return typeof value === 'string' && value !== '' && value.trim() === value && !value.includes('\0'); }
+function canonicalFingerprint(value) { return typeof value === 'string' && /^[A-F0-9]{40,64}$/.test(value); }
+function canonicalReceiptDigest(receipt) { return createHash('sha256').update(stableJson(receipt)).digest('hex'); }
+export function validateReviewAuthority(authority) {
+  if (authority === undefined) return [];
+  if (!authority || typeof authority !== 'object' || !Array.isArray(authority.reviewers)) throw new Error('invalid trusted reviewer authority');
+  const ids = new Set(), fingerprints = new Set();
+  for (const reviewer of authority.reviewers) {
+    if (!reviewer || typeof reviewer !== 'object' || !nonemptyIdentity(reviewer.id)) throw new Error('invalid trusted reviewer id');
+    if (ids.has(reviewer.id)) throw new Error('duplicate trusted reviewer id');
+    if (!canonicalFingerprint(reviewer.signing_fingerprint)) throw new Error('invalid trusted reviewer signing fingerprint');
+    if (fingerprints.has(reviewer.signing_fingerprint)) throw new Error('duplicate trusted reviewer signing fingerprint');
+    if (!exactIdentity(reviewer.author_name) || !exactIdentity(reviewer.author_email) || !exactIdentity(reviewer.committer_name) || !exactIdentity(reviewer.committer_email)) throw new Error('invalid trusted reviewer identity');
+    ids.add(reviewer.id); fingerprints.add(reviewer.signing_fingerprint);
+  }
+  return authority.reviewers;
+}
 function receiptPath(laneId) { return `docs/evidence/console/fanout-receipts/${createHash('sha256').update(laneId).digest('hex')}.json`; }
 function staticReviewReceipt(receipt, epochBaseSha, lane, trustedReviewer) {
   if (!receipt || typeof receipt !== 'object' || receipt.status !== 'approved' || receipt.epoch_base_sha !== epochBaseSha) return null;
@@ -110,22 +127,33 @@ function staticReviewReceipt(receipt, epochBaseSha, lane, trustedReviewer) {
   if (!FULL_SHA.test(receipt.leaf_commit ?? '') || !FULL_SHA.test(receipt.review_commit ?? '') || !/^[0-9a-f]{64}$/.test(receipt.leaf_result_sha256 ?? '')) return null;
   return receipt;
 }
-function trustedReviewer(registry, id) { return arrays(registry.review_authority?.reviewers).find((entry) => entry?.id === id && nonemptyIdentity(entry.id)) ?? null; }
-function reviewReceipt(options, lane) { const receipt = options.admissionReceipts?.[lane.laneId]; return staticReviewReceipt(receipt, options.anchorSha, lane, trustedReviewer(options.registry, receipt?.reviewer)) ? receipt : null; }
+function trustedReviewer(authority, id) { return validateReviewAuthority(authority).find((entry) => entry.id === id) ?? null; }
+function reviewReceipt(options, lane) { const receipt = options.admissionReceipts?.[lane.laneId]; return staticReviewReceipt(receipt, options.anchorSha, lane, trustedReviewer(options.registry.review_authority, receipt?.reviewer)) ? receipt : null; }
 export function leafResultDigest(diff) { return createHash('sha256').update(diff).digest('hex'); }
+export function signatureMatchesFingerprint(rawStatus, fingerprint) {
+  if (typeof rawStatus !== 'string' || !canonicalFingerprint(fingerprint)) return false;
+  const signatureLines = rawStatus.split(/\r?\n/).filter((line) => line.startsWith('[GNUPG:] VALIDSIG'));
+  if (signatureLines.length !== 1) return false;
+  const match = signatureLines[0].match(/^\[GNUPG:\] VALIDSIG ([A-F0-9]{40,64})(?:\s|$)/);
+  return match?.[1] === fingerprint;
+}
 export function validateReviewReceiptForAnchor(receipt, anchor, lane, authority, operations) {
-  const trusted = trustedReviewer({ review_authority: authority }, receipt?.reviewer);
+  const trusted = trustedReviewer(authority, receipt?.reviewer);
   const valid = staticReviewReceipt(receipt, anchor, lane, trusted);
   if (!valid) throw new Error('review receipt is not an exact trusted leaf result receipt');
   if (!operations.hasCommit(valid.leaf_commit)) throw new Error('review receipt leaf commit does not exist');
   if (!operations.isAncestor(anchor, valid.leaf_commit)) throw new Error('review receipt leaf commit is not anchored to the epoch');
   if (operations.parentOf(valid.review_commit) !== valid.leaf_commit) throw new Error('review receipt review commit must be the direct child of the leaf');
   if (operations.changedPaths(valid.review_commit).length !== 1 || operations.changedPaths(valid.review_commit)[0] !== receiptPath(lane.laneId)) throw new Error('review commit mutates outside its canonical receipt artifact');
-  if (operations.readJson(valid.review_commit, receiptPath(lane.laneId)) !== receipt) throw new Error('review receipt artifact is absent or differs from the admitted receipt');
+  let immutableReceipt;
+  try { immutableReceipt = operations.readJson(valid.review_commit, receiptPath(lane.laneId)); } catch { throw new Error('review receipt artifact is absent or malformed'); }
+  if (!immutableReceipt || canonicalReceiptDigest(immutableReceipt) !== canonicalReceiptDigest(receipt)) throw new Error('review receipt artifact is absent or differs from the admitted receipt');
   if (leafResultDigest(operations.leafDiff(anchor, valid.leaf_commit)) !== valid.leaf_result_sha256) throw new Error('review receipt leaf result digest does not match immutable Git data');
   const identity = operations.commitIdentity(valid.review_commit);
   if (!identity || identity.author_name !== trusted.author_name || identity.author_email !== trusted.author_email || identity.committer_name !== trusted.committer_name || identity.committer_email !== trusted.committer_email) throw new Error('review commit identity is not trusted at epoch base');
-  if (!trusted.signing_fingerprint || !operations.verifySignature(valid.review_commit, trusted.signing_fingerprint)) throw new Error('review commit signature is not verified by trusted epoch-base authority');
+  let signatureStatus;
+  try { signatureStatus = operations.verifySignature(valid.review_commit); } catch { throw new Error('review commit signature verification is unavailable'); }
+  if (!signatureMatchesFingerprint(signatureStatus, trusted.signing_fingerprint)) throw new Error('review commit signature is not verified by trusted epoch-base authority');
   return valid;
 }
 function validateInputs(registry, options) {
@@ -134,6 +162,7 @@ function validateInputs(registry, options) {
   if (!Number.isInteger(options.maxWriters) || options.maxWriters < 1) throw new Error('max writers must be a positive integer');
   if (!Number.isFinite(options.qualityBias) || options.qualityBias < 0 || options.qualityBias > 1) throw new Error('quality bias must be between 0 and 1');
   if (!Array.isArray(registry.capabilities)) throw new Error('registry capabilities must be an array');
+  validateReviewAuthority(registry.review_authority);
 }
 function normalizeGeneratedFacePattern(value) {
   try { return normalizePattern(value); } catch (error) {
@@ -285,14 +314,42 @@ function declaredWorktreeReason(repoRoot, byPath, declaration, anchor) {
   const head = git(declaration.worktree, ['rev-parse', 'HEAD']);
   return head === anchor || gitSucceeds(repoRoot, ['merge-base', '--is-ancestor', anchor, head]) ? null : 'declared_worktree_head_not_anchor_descendant';
 }
+export function validateAdmissionManifest(manifest, epochBaseSha, admissionSha, operations) {
+  if (manifest?.schema_version !== 'console-fanout-admission-v1' || manifest.epoch_base_sha !== epochBaseSha || !Array.isArray(manifest.receipts)) throw new Error('invalid immutable fanout admission manifest');
+  if (operations.parentCount(admissionSha) !== 1) throw new Error('admission commit must be single-parent to avoid merge ambiguity');
+  const changedPaths = operations.changedPaths(admissionSha);
+  if (changedPaths.length !== 1 || changedPaths[0] !== ADMISSION_PATH) throw new Error('admission commit must be manifest-only');
+  const lanes = new Set(), reviews = new Set(), paths = new Set();
+  for (const entry of manifest.receipts) {
+    if (!entry || typeof entry !== 'object' || typeof entry.lane_id !== 'string' || !FULL_SHA.test(entry.review_commit ?? '') || entry.receipt_path !== receiptPath(entry.lane_id)) throw new Error('invalid fanout admission receipt reference');
+    if (lanes.has(entry.lane_id) || reviews.has(entry.review_commit) || paths.has(entry.receipt_path)) throw new Error('duplicate fanout admission receipt reference');
+    if (!operations.isAncestor(entry.review_commit, admissionSha)) throw new Error('admission review commit is not an ancestor of admission');
+    let receipt;
+    try { receipt = operations.readJson(entry.review_commit, entry.receipt_path); } catch { throw new Error('admission receipt reference does not bind its review artifact'); }
+    if (receipt?.lane_id !== entry.lane_id || receipt.review_commit !== entry.review_commit) throw new Error('admission receipt reference does not bind its review artifact');
+    lanes.add(entry.lane_id); reviews.add(entry.review_commit); paths.add(entry.receipt_path);
+  }
+  return manifest.receipts;
+}
 function admissionReceipts(repoRoot, epochBaseSha, admissionSha) {
   if (admissionSha === epochBaseSha) return {};
   if (!gitSucceeds(repoRoot, ['merge-base', '--is-ancestor', epochBaseSha, admissionSha])) throw new Error('admission SHA must descend from epoch base SHA');
   const manifest = readAnchorJson(repoRoot, admissionSha, ADMISSION_PATH);
-  if (manifest?.schema_version !== 'console-fanout-admission-v1' || manifest.epoch_base_sha !== epochBaseSha || !Array.isArray(manifest.receipts)) throw new Error('invalid immutable fanout admission manifest');
+  validateAdmissionManifest(manifest, epochBaseSha, admissionSha, {
+    parentCount: (sha) => git(repoRoot, ['rev-list', '--parents', '-n', '1', sha]).split(' ').length - 1,
+    changedPaths: (sha) => git(repoRoot, ['diff-tree', '--no-commit-id', '--name-only', '-r', sha]).split('\n').filter(Boolean),
+    isAncestor: (ancestor, descendant) => gitSucceeds(repoRoot, ['merge-base', '--is-ancestor', ancestor, descendant]),
+    readJson: (sha, filePath) => readAnchorJson(repoRoot, sha, filePath),
+  });
   const result = {};
-  for (const entry of manifest.receipts) { if (!entry || typeof entry !== 'object' || typeof entry.lane_id !== 'string' || !FULL_SHA.test(entry.review_commit ?? '') || entry.receipt_path !== receiptPath(entry.lane_id) || result[entry.lane_id]) throw new Error('invalid fanout admission receipt reference'); const receipt = readAnchorJson(repoRoot, entry.review_commit, entry.receipt_path); if (receipt?.lane_id !== entry.lane_id || receipt.review_commit !== entry.review_commit) throw new Error('admission receipt reference does not bind its review artifact'); result[entry.lane_id] = receipt; }
+  for (const entry of manifest.receipts) result[entry.lane_id] = readAnchorJson(repoRoot, entry.review_commit, entry.receipt_path);
   return result;
+}
+function verifyGitCommitSignature(repoRoot, sha) {
+  const result = spawnSync('git', ['-C', repoRoot, 'verify-commit', '--raw', sha], { encoding: 'utf8' });
+  if (result.error) throw new Error(`git verify-commit unavailable: ${result.error.message}`);
+  if (result.status !== 0 || typeof result.stderr !== 'string') throw new Error('git verify-commit rejected the review commit');
+  return result.stderr;
 }
 function runtimeEligibility(repoRoot, registry, anchor, receipts) {
   const entries = worktreeEntries(repoRoot); const byPath = new Map(entries.map((entry) => [entry.worktree, entry]));
@@ -312,7 +369,7 @@ function runtimeEligibility(repoRoot, registry, anchor, receipts) {
             readJson: (sha, filePath) => JSON.parse(git(repoRoot, ['show', `${sha}:${filePath}`])),
             leafDiff: (base, leaf) => execFileSync('git', ['-C', repoRoot, 'diff', '--no-ext-diff', '--no-renames', '--full-index', '--binary', base, leaf]),
             commitIdentity: (sha) => { const [author_name, author_email, committer_name, committer_email] = git(repoRoot, ['show', '-s', '--format=%an%x00%ae%x00%cn%x00%ce', sha]).split('\0'); return { author_name, author_email, committer_name, committer_email }; },
-            verifySignature: () => false,
+            verifySignature: (sha) => verifyGitCommitSignature(repoRoot, sha),
           });
         } catch {
           runtimeReviewEligibility[lane.laneId] = 'invalid_exact_leaf_review_receipt';
