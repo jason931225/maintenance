@@ -76,6 +76,12 @@ function resourceBudgets(registry) {
   if (result.writer < 1) throw new Error('writer budget must be positive');
   return result;
 }
+function normalizedEpochLanes(registry) {
+  const epoch = registry.fanout_epoch;
+  if (epoch === undefined) return null;
+  if (!epoch || typeof epoch !== 'object' || !Number.isInteger(epoch.current_epoch) || epoch.current_epoch < 0 || !Array.isArray(epoch.normalized_lane_ids) || epoch.normalized_lane_ids.some((laneId) => typeof laneId !== 'string') || new Set(epoch.normalized_lane_ids).size !== epoch.normalized_lane_ids.length) throw new Error('invalid fanout epoch authority');
+  return new Set(epoch.normalized_lane_ids);
+}
 function sourceLaneDefinitions(capability) {
   const assignments = capability.lane_assignments ?? {};
   const split = Object.entries(assignments).filter(([name, entry]) => name !== 'consolidation' && entry && typeof entry === 'object' && arrays(entry.roots).length > 0).sort(([a], [b]) => compareText(a, b)).map(([kind, entry]) => ({
@@ -85,8 +91,7 @@ function sourceLaneDefinitions(capability) {
     resources: entry.resources ?? capability.resource_requirements,
   }));
   if (split.length) return split;
-  const evidence = typeof capability.evidence_path === 'string' ? `${normalizePattern(capability.evidence_path)}/**` : null;
-  return [{ laneId: capability.id, kind: 'source', owner: capability.owner, worktree: capability.worktree, branch: capability.branch, roots: [...capabilityRoots(capability), ...(evidence ? [evidence] : [])], leafCommands: arrays(capability.tests?.leaf_commands), buckTargets: arrays(capability.tests?.buck2_targets), resources: capability.resource_requirements }];
+  return [{ laneId: capability.id, kind: 'source', owner: capability.owner, worktree: capability.worktree, branch: capability.branch, roots: capabilityRoots(capability), leafCommands: arrays(capability.tests?.leaf_commands), buckTargets: arrays(capability.tests?.buck2_targets), resources: capability.resource_requirements }];
 }
 function classifyRoots(rawRoots, sharedPatterns, migrationRoots) {
   const roots = validatePatternList(rawRoots, 'ownership root');
@@ -94,6 +99,15 @@ function classifyRoots(rawRoots, sharedPatterns, migrationRoots) {
   const shared = sharedPatterns.filter((shared) => roots.some((root) => patternsOverlap(root, shared)));
   const migrations = migrationRoots.filter((migration) => roots.some((root) => patternsOverlap(root, migration)));
   return { roots: [...new Set(roots)].sort(compareText), privateRoots: [...new Set(privateRoots)].sort(compareText), sharedRoots: shared, migrationRoots: migrations, excludedSharedRoots: [...new Set([...shared, ...migrations])].sort(compareText) };
+}
+function laneRootReasons(laneRoots, capabilityPrivateRoots, protectedRoots) {
+  const reasons = [];
+  for (const root of validatePatternList(laneRoots, 'lane ownership root')) {
+    if (protectedRoots.some((protectedRoot) => patternsOverlap(root, protectedRoot))) reasons.push('protected_shared_root_intersection');
+    const owners = capabilityPrivateRoots.filter((ownedRoot) => patternFullyCovers(ownedRoot, root));
+    if (owners.length !== 1) reasons.push('lane_root_outside_capability_private_ownership');
+  }
+  return [...new Set(reasons)];
 }
 export function buckIsolationDir(anchorSha, laneId) {
   if (!FULL_SHA.test(anchorSha) || typeof laneId !== 'string' || !/^[A-Za-z0-9#._-]+$/.test(laneId)) throw new Error('invalid immutable lane identity for Buck isolation');
@@ -164,7 +178,10 @@ export function validateReviewReceiptForAnchor(receipt, anchor, lane, authority,
   if (!valid) throw new Error('review receipt is not an exact trusted leaf result receipt');
   if (!operations.hasCommit(valid.leaf_commit)) throw new Error('review receipt leaf commit does not exist');
   if (!operations.isAncestor(anchor, valid.leaf_commit)) throw new Error('review receipt leaf commit is not anchored to the epoch');
+  if (operations.parentCount(valid.leaf_commit) !== 1 || operations.parentCount(valid.review_commit) !== 1) throw new Error('leaf and review commits must be single-parent');
   if (operations.parentOf(valid.review_commit) !== valid.leaf_commit) throw new Error('review receipt review commit must be the direct child of the leaf');
+  const leafPaths = operations.changedPaths(valid.leaf_commit);
+  if (!Array.isArray(lane.privateRoots) || !lane.privateRoots.length || leafPaths.some((changedPath) => lane.protectedRoots?.some((protectedRoot) => patternsOverlap(changedPath, protectedRoot)) || !lane.privateRoots.some((privateRoot) => patternFullyCovers(privateRoot, changedPath)))) throw new Error('leaf commit mutates outside validated lane private roots');
   if (operations.changedPaths(valid.review_commit).length !== 1 || operations.changedPaths(valid.review_commit)[0] !== receiptPath(lane.laneId)) throw new Error('review commit mutates outside its canonical receipt artifact');
   let immutableReceipt;
   try { immutableReceipt = operations.readJson(valid.review_commit, receiptPath(lane.laneId)); } catch { throw new Error('review receipt artifact is absent or malformed'); }
@@ -211,6 +228,7 @@ export function buildFanoutPlan(registry, options) {
   validateInputs(registry, options);
   options = { ...options, registry };
   const budgets = resourceBudgets(registry);
+  const normalizedLanes = normalizedEpochLanes(registry);
   const generatedFaces = options.generatedFaces;
   const { sharedPatterns, migrationRoots } = validateAuthority(registry, generatedFaces);
   if (!migrationRoots.includes('backend/crates/platform/db/migrations/**')) throw new Error('shared authority must declare backend/crates/platform/db/migrations/**');
@@ -230,11 +248,15 @@ export function buildFanoutPlan(registry, options) {
     const classes = classifyRoots(capabilityRoots(capability), sharedPatterns, migrationRoots);
     sharedByCapability.set(capability.id, [...classes.sharedRoots, ...classes.migrationRoots].sort(compareText));
     const lanes = sourceLaneDefinitions(capability);
+    const protectedRoots = [...sharedPatterns, ...migrationRoots];
+    const laneReasons = new Map(lanes.map((lane) => [lane.laneId, laneRootReasons(lane.roots, classes.privateRoots, protectedRoots)]));
     const assigned = lanes.flatMap((lane) => validatePatternList(lane.roots, `lane ${lane.laneId}`));
     const unassigned = classes.privateRoots.filter((root) => !assigned.some((entry) => patternFullyCovers(entry, root)));
     unassignedByCapability.set(capability.id, unassigned);
     if (sourceComplete(capability)) {
       if (unassigned.length) held.push({ capability_id: capability.id, lane_id: `${capability.id}#unowned-roots`, reasons: ['unassigned_private_ownership_roots'], unassigned_roots: unassigned });
+      else if (lanes.some((lane) => laneReasons.get(lane.laneId).length)) held.push({ capability_id: capability.id, lane_id: `${capability.id}#invalid-lane-ownership`, reasons: [...new Set(lanes.flatMap((lane) => laneReasons.get(lane.laneId)))] });
+      else if (normalizedLanes && lanes.some((lane) => !normalizedLanes.has(lane.laneId))) held.push({ capability_id: capability.id, lane_id: `${capability.id}#legacy-lane`, reasons: ['legacy_lane_not_normalized_for_epoch'] });
       else if (!lanes.every((lane) => reviewReceipt(options, lane) && !options.runtimeReviewEligibility?.[lane.laneId])) held.push({ capability_id: capability.id, lane_id: `${capability.id}#completed-review`, reasons: ['completed_source_missing_exact_leaf_review_receipts'] });
       else completed.push(capability.id);
       continue;
@@ -246,19 +268,20 @@ export function buildFanoutPlan(registry, options) {
       incomplete.push(lane);
       const roots = classifyRoots(lane.roots, sharedPatterns, migrationRoots);
       const reasons = [];
+      reasons.push(...laneReasons.get(lane.laneId));
+      if (normalizedLanes && !normalizedLanes.has(lane.laneId)) reasons.push('legacy_lane_not_normalized_for_epoch');
       if (!lane.owner || lane.owner === 'unassigned') reasons.push('missing_assigned_owner');
       if (typeof lane.worktree !== 'string' || !path.isAbsolute(lane.worktree)) reasons.push('missing_isolated_worktree');
       if (typeof lane.branch !== 'string' || !lane.branch.trim()) reasons.push('missing_branch');
       if (!capability.signature_story?.id || !capability.signature_story?.outcome?.trim()) reasons.push('missing_signature_story');
       if (!lane.leafCommands.length) reasons.push('missing_leaf_gates');
       if (!roots.privateRoots.length) reasons.push('missing_private_ownership_roots');
-      if (roots.sharedRoots.length || roots.migrationRoots.length) reasons.push('protected_shared_root_intersection');
       const resources = validResources(lane.resources);
       if (!resources) reasons.push('invalid_lane_resource_requirements');
       if (options.runtimeLaneEligibility?.[lane.laneId]) reasons.push(options.runtimeLaneEligibility[lane.laneId]);
       if (lane.roots.some((root) => normalizePattern(root).startsWith('backend/')) && stateText(capability, 'backend') !== 'not_applicable' && !lane.buckTargets.length) reasons.push('missing_backend_buck_targets');
       if (reasons.length) { held.push({ capability_id: capability.id, lane_id: lane.laneId, reasons }); continue; }
-      admitted.push({ capability_id: capability.id, lane_id: lane.laneId, lane_kind: lane.kind, owner: lane.owner, worktree: lane.worktree, branch: lane.branch, resources, buck_isolation_dir: buckIsolationDir(options.anchorSha, lane.laneId), signature_story_id: capability.signature_story.id, evidence_path: capability.evidence_path, private_roots: roots.privateRoots, shared_roots: sharedByCapability.get(capability.id), excluded_shared_roots: roots.excludedSharedRoots, buck2_targets: [...new Set(lane.buckTargets)].sort(compareText), leaf_commands: [...new Set(lane.leafCommands)].sort(compareText), quality_utility: round(laneScore(capability, options.qualityBias)), dependencies: [...new Set(arrays(capability.dependencies))].sort(compareText) });
+      admitted.push({ capability_id: capability.id, lane_id: lane.laneId, lane_kind: lane.kind, owner: lane.owner, worktree: lane.worktree, branch: lane.branch, resources, buck_isolation_dir: buckIsolationDir(options.anchorSha, lane.laneId), signature_story_id: capability.signature_story.id, evidence_path: capability.evidence_path, private_roots: roots.privateRoots, protected_roots: protectedRoots, shared_roots: sharedByCapability.get(capability.id), excluded_shared_roots: roots.excludedSharedRoots, buck2_targets: [...new Set(lane.buckTargets)].sort(compareText), leaf_commands: [...new Set(lane.leafCommands)].sort(compareText), quality_utility: round(laneScore(capability, options.qualityBias)), dependencies: [...new Set(arrays(capability.dependencies))].sort(compareText) });
     }
     laneIdsByCapability.set(capability.id, incomplete.map((lane) => lane.laneId));
   }
@@ -279,7 +302,7 @@ export function buildFanoutPlan(registry, options) {
     selected.push(lane);
   }
   const verificationAllocated = Object.fromEntries(RESOURCE_KEYS.map((key) => [key, 0])); let coldRustCompileLanes = 0;
-  const verificationQueue = selected.map((lane) => ({ ...lane, verification_age: finiteNumber(registry.capabilities.find((capability) => capability.id === lane.capability_id)?.priority?.verification_age), cache_affinity: options.anchorSha, execution: 'canonical_shared_daemon_combined_targets' })).sort((a, b) => b.verification_age - a.verification_age || b.selection_density - a.selection_density || compareText(a.lane_id, b.lane_id)).map((lane) => {
+  const verificationQueue = selected.map((lane) => ({ ...lane, cache_affinity: options.anchorSha, execution: 'canonical_shared_daemon_combined_targets' })).sort((a, b) => b.selection_density - a.selection_density || compareText(a.lane_id, b.lane_id)).map((lane) => {
     const exceeded = RESOURCE_KEYS.filter((key) => verificationAllocated[key] + lane.resources[key] > budgets[key]);
     const coldBlocked = lane.buck2_targets.length && coldRustCompileLanes >= COLD_RUST_COMPILE_LANES;
     if (exceeded.length || coldBlocked) return { ...lane, scheduled: false, hold_reason: coldBlocked ? 'cold_rust_compile_capacity_exhausted' : 'verification_resource_capacity_exhausted', constrained_resources: exceeded };
@@ -459,6 +482,8 @@ function verifyGitCommitSignature(repoRoot, sha) {
 function runtimeEligibility(repoRoot, registry, anchor, receipts) {
   const entries = worktreeEntries(repoRoot); const byPath = new Map(entries.map((entry) => [entry.worktree, entry]));
   const runtimeLaneEligibility = {}, runtimeConsolidationEligibility = {}, runtimeReviewEligibility = {};
+  const generated = readAnchorJson(repoRoot, anchor, registry.shared_collision_roots.generated_face_registry);
+  const { sharedPatterns, migrationRoots } = validateAuthority(registry, generated);
   for (const capability of registry.capabilities) {
     for (const lane of sourceLaneDefinitions(capability)) {
       const reason = declaredWorktreeReason(repoRoot, byPath, lane, anchor);
@@ -466,10 +491,12 @@ function runtimeEligibility(repoRoot, registry, anchor, receipts) {
       const receipt = receipts[lane.laneId];
       if (receipt) {
         try {
-          validateReviewReceiptForAnchor(receipt, anchor, lane, {
+          const roots = classifyRoots(lane.roots, sharedPatterns, migrationRoots);
+          validateReviewReceiptForAnchor(receipt, anchor, { ...lane, privateRoots: roots.privateRoots, protectedRoots: [...sharedPatterns, ...migrationRoots] }, {
             hasCommit: (sha) => gitSucceeds(repoRoot, ['cat-file', '-e', `${sha}^{commit}`]),
             isAncestor: (ancestor, descendant) => gitSucceeds(repoRoot, ['merge-base', '--is-ancestor', ancestor, descendant]),
             parentOf: (sha) => git(repoRoot, ['rev-parse', `${sha}^`]),
+            parentCount: (sha) => git(repoRoot, ['rev-list', '--parents', '-n', '1', sha]).split(' ').length - 1,
             changedPaths: (sha) => git(repoRoot, ['diff-tree', '--no-commit-id', '--name-only', '-r', sha]).split('\n').filter(Boolean),
             readJson: (sha, filePath) => readAnchorJson(repoRoot, sha, filePath),
             leafDiff: (base, leaf) => execFileSync('git', ['-C', repoRoot, 'diff', '--no-ext-diff', '--no-renames', '--full-index', '--binary', base, leaf]),

@@ -23,6 +23,13 @@ output pattern which cannot be represented by that algebra is conservatively
 widened to its literal prefix subtree; this can reduce leaf concurrency but can
 never create an unsound intersection result.
 
+Every lane root must be wholly covered by exactly one capability-owned private
+root. A lane may not widen ownership, and any intersection with a shared,
+generated, or migration root is a hard hold before completed-source shortcuts
+are considered. A reviewed leaf is single-parent and may change only paths
+covered by those validated private roots; its direct single-parent review commit
+may change only the canonical receipt artifact.
+
 The migration authority is exactly
 `backend/crates/platform/db/migrations/**`; it must exist in the anchor tree
 and is excluded from all leaf writable roots.
@@ -48,8 +55,9 @@ holds, not an excuse to block an otherwise safe leaf implementation.
 
 Expensive verification is a separate exact-SHA queue. Compatible reviewed leaves
 are grouped by exact SHA/cache affinity and run through one canonical local Buck
-daemon with a combined target set; vector capacities schedule those jobs and an
-age value takes precedence over density so low-density work cannot starve. The
+daemon with a combined target set; vector capacities schedule those jobs in
+deterministic density order. This planner does not claim no-starvation until a
+separate immutable cross-epoch enqueue-age authority is introduced. The
 local cold-Rust authority is at most two concurrent jobs, each `-j 6`. Only
 incompatible state receives an isolation directory: Buck isolated daemons do not
 share local cache. This contract makes no remote-cache or remote-execution claim.
@@ -108,6 +116,12 @@ The complete closure is a serialized rebase/cherry-pick admission train:
 `epoch → authorized leaf → direct receipt-only review → … → manifest-only
 admission`. No merge, unreviewed intermediate, unrelated commit, or divergent
 leaf branch is admitted.
+
+`fanout_epoch.normalized_lane_ids` is optional epoch-base authority. When it is
+present, every lane absent from that explicit list is a legacy hold; it is not
+silently treated as ready. The initial live bootstrap contains the local SSH
+reviewer authority but deliberately normalizes no lane, because no current lane
+has all required live worktree, ownership, resource, and leaf-gate evidence.
 
 Shared OpenAPI, generated clients, migrations, route/nav, tokens, and generated
 Buck faces are never leaf writes. A consolidation entry remains false until an
