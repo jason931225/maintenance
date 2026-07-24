@@ -174,6 +174,85 @@ async fn concurrent_identical_consumptions_replay_once_and_payload_mismatch_conf
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn omitted_occurrence_time_replays_despite_server_requested_at_and_rejects_explicit_presence(
+    owner_pool: PgPool,
+) {
+    grant_mnt_rt(
+        &owner_pool,
+        &[
+            "GRANT SELECT ON work_orders TO mnt_rt",
+            "GRANT SELECT, INSERT, UPDATE ON inventory_stock_locations TO mnt_rt",
+            "GRANT SELECT, INSERT, UPDATE ON inventory_items TO mnt_rt",
+            "GRANT SELECT, INSERT ON inventory_consumption_events TO mnt_rt",
+            "GRANT SELECT, INSERT ON audit_events TO mnt_rt",
+        ],
+    )
+    .await;
+
+    let org = OrgId::from_uuid(ORG);
+    let actor = seed_org_and_super_admin(&owner_pool, ORG, "inventory-omitted-time").await;
+    let (branch, item_id, work_order_id) = seed_consumption_fixture(&owner_pool, ORG, actor).await;
+    let store = PgInventoryStore::new(two_connection_runtime_role_pool(&owner_pool).await);
+    let requested_at = OffsetDateTime::now_utc();
+    let first = consume_command(
+        actor,
+        branch,
+        item_id,
+        work_order_id,
+        300,
+        None,
+        requested_at,
+    );
+    let second = ConsumeInventoryCommand {
+        requested_at: requested_at + time::Duration::seconds(30),
+        ..first.clone()
+    };
+
+    let first_result = scope_org(org, store.consume_item(first.clone()))
+        .await
+        .expect("the initial omitted-time request succeeds");
+    let replay = scope_org(org, store.consume_item(second))
+        .await
+        .expect("omitted occurrence time must ignore server requested_at for replay");
+    assert_eq!(first_result.event.id, replay.event.id);
+    assert_eq!(replay.item.quantity_on_hand_milli, 700);
+
+    let presence_mismatch = scope_org(
+        org,
+        store.consume_item(ConsumeInventoryCommand {
+            occurred_at: Some(requested_at),
+            ..first
+        }),
+    )
+    .await
+    .expect_err("explicit occurrence time must not replay an omitted occurrence time");
+    assert_eq!(presence_mismatch.kind(), ErrorKind::Conflict);
+
+    let events: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM inventory_consumption_events WHERE item_id = $1")
+            .bind(*item_id.as_uuid())
+            .fetch_one(&owner_pool)
+            .await
+            .unwrap();
+    let stock: i64 =
+        sqlx::query_scalar("SELECT quantity_on_hand_milli FROM inventory_items WHERE id = $1")
+            .bind(*item_id.as_uuid())
+            .fetch_one(&owner_pool)
+            .await
+            .unwrap();
+    let audits: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM audit_events WHERE org_id = $1 AND action = 'inventory.consume'",
+    )
+    .bind(ORG)
+    .fetch_one(&owner_pool)
+    .await
+    .unwrap();
+    assert_eq!(events, 1, "omitted replay records one event");
+    assert_eq!(stock, 700, "omitted replay decrements stock once");
+    assert_eq!(audits, 1, "omitted replay records one audit");
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn concurrent_explicit_timestamp_mismatch_conflicts_without_second_mutation(
     owner_pool: PgPool,
 ) {
