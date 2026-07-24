@@ -857,6 +857,30 @@ async fn final_completion_appends_one_immutable_equipment_history_snapshot(pool:
             .execute(&pool)
             .await;
         assert!(delete.is_err(), "maintenance history must be append-only");
+
+        // mnt_rt may read its tenant history, but cannot construct a parent-only
+        // or partial snapshot: the SECURITY DEFINER append operation owns all writes.
+        sqlx::query("SET ROLE mnt_rt").execute(&pool).await.unwrap();
+        sqlx::query("SELECT set_config('app.current_org', $1, false)")
+            .bind(OrgId::knl().to_string())
+            .execute(&pool).await.unwrap();
+        let same_org_read: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM equipment_maintenance_history WHERE id = $1",
+        ).bind(history_id).fetch_one(&pool).await.unwrap();
+        assert_eq!(same_org_read, 1);
+        let parent_only = sqlx::query(
+            "INSERT INTO equipment_maintenance_history (org_id, equipment_id, work_order_id, completed_at) VALUES ($1,$2,$3,now())",
+        ).bind(*OrgId::knl().as_uuid()).bind(seeded.equipment_id).bind(*created.id.as_uuid()).execute(&pool).await;
+        assert!(parent_only.is_err(), "runtime role cannot insert a parent-only snapshot");
+        let partial_evidence = sqlx::query(
+            "INSERT INTO equipment_maintenance_history_evidence (history_id, org_id, evidence_media_id) VALUES ($1,$2,$3)",
+        ).bind(history_id).bind(*OrgId::knl().as_uuid()).bind(evidence_id).execute(&pool).await;
+        assert!(partial_evidence.is_err(), "runtime role cannot append partial evidence");
+        let partial_cost = sqlx::query(
+            "INSERT INTO equipment_maintenance_history_costs (history_id, org_id, equipment_cost_ledger_id) VALUES ($1,$2,$3)",
+        ).bind(history_id).bind(*OrgId::knl().as_uuid()).bind(ledger_id).execute(&pool).await;
+        assert!(partial_cost.is_err(), "runtime role cannot append partial cost material");
+        sqlx::query("RESET ROLE").execute(&pool).await.unwrap();
     })
     .await;
 }
