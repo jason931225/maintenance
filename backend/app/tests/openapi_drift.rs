@@ -331,6 +331,33 @@ fn openapi_yaml_covers_configured_route_inventory() {
 }
 
 #[test]
+fn openapi_documents_hr_attendance_branch_scope_query() {
+    for (path, next_path) in [
+        (
+            "/api/v1/hr/attendance-summary:",
+            "/api/v1/hr/readiness-summary:",
+        ),
+        (
+            "/api/v1/hr/attendance-records:",
+            "/api/v1/employees/import:",
+        ),
+    ] {
+        let start = OPENAPI_YAML
+            .find(path)
+            .unwrap_or_else(|| panic!("OpenAPI YAML is missing {path}"));
+        let end = OPENAPI_YAML[start..]
+            .find(next_path)
+            .map(|offset| start + offset)
+            .unwrap_or(OPENAPI_YAML.len());
+        let operation = &OPENAPI_YAML[start..end];
+        assert!(
+            operation.contains("- name: branch_id\n        in: query"),
+            "{path} must expose the optional snake_case branch_id query accepted by its Axum handler"
+        );
+    }
+}
+
+#[test]
 fn openapi_yaml_covers_platform_route_operations() {
     let missing = missing_platform_route_operations(OPENAPI_YAML);
     assert!(
