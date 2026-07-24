@@ -202,20 +202,10 @@ struct SourceIngressReceipt {
     source_version: String,
 }
 
-#[derive(Clone, Copy)]
-enum SourceSystemLifecycleAction {
-    Rotate,
-    Disable,
-}
-
-fn lifecycle_receipt(
-    id: Uuid,
-    action: SourceSystemLifecycleAction,
-    generation: i32,
-) -> SourceSystemReceipt {
+fn disabled_source_system_receipt(id: Uuid, generation: i32) -> SourceSystemReceipt {
     SourceSystemReceipt {
         id,
-        enabled: matches!(action, SourceSystemLifecycleAction::Rotate),
+        enabled: false,
         credential_generation: generation,
     }
 }
@@ -425,9 +415,10 @@ async fn source_system_lifecycle_context(
     let mut tx = state.pool.begin().await.map_err(RestError::db)?;
     arm_tenant(&mut tx, *org.as_uuid()).await?;
     let source = sqlx::query(
-        "SELECT branch_id,generation,display_name FROM service_principals WHERE id=$1 FOR UPDATE",
+        "SELECT branch_id,generation,display_name FROM service_principals WHERE id=$1 AND feature=$2 FOR UPDATE",
     )
     .bind(id)
+    .bind(service_auth::PRODUCTION_SOURCE_INGEST_FEATURE)
     .fetch_optional(&mut *tx)
     .await
     .map_err(RestError::db)?
@@ -468,8 +459,8 @@ async fn rotate_source_system_credential(
         BranchId::from_uuid(branch_id),
         next_generation,
     );
-    let row = sqlx::query("UPDATE service_principals SET verifier=$1,generation=$2,rotated_by=$3,rotated_at=now() WHERE id=$4 AND state='ACTIVE' AND generation=$5 RETURNING generation")
-        .bind(verifier.as_slice()).bind(next_generation).bind(*principal.user_id.as_uuid()).bind(id).bind(expected_generation)
+    let row = sqlx::query("UPDATE service_principals SET verifier=$1,generation=$2,rotated_by=$3,rotated_at=now() WHERE id=$4 AND feature=$5 AND state='ACTIVE' AND generation=$6 RETURNING generation")
+        .bind(verifier.as_slice()).bind(next_generation).bind(*principal.user_id.as_uuid()).bind(id).bind(service_auth::PRODUCTION_SOURCE_INGEST_FEATURE).bind(expected_generation)
         .fetch_optional(&mut *tx).await.map_err(RestError::db)?
         .ok_or_else(|| RestError::conflict("service principal generation changed or source system is disabled"))?;
     let resulting_generation: i32 = row.try_get("generation").map_err(RestError::db)?;
@@ -497,8 +488,8 @@ async fn disable_source_system_credential(
     if expected_generation != generation {
         return Err(RestError::conflict("service principal generation changed"));
     }
-    let row = sqlx::query("UPDATE service_principals SET state='DISABLED',disabled_by=$1,disabled_at=now() WHERE id=$2 AND state='ACTIVE' AND generation=$3 RETURNING generation")
-        .bind(*principal.user_id.as_uuid()).bind(id).bind(expected_generation)
+    let row = sqlx::query("UPDATE service_principals SET state='DISABLED',disabled_by=$1,disabled_at=now() WHERE id=$2 AND feature=$3 AND state='ACTIVE' AND generation=$4 RETURNING generation")
+        .bind(*principal.user_id.as_uuid()).bind(id).bind(service_auth::PRODUCTION_SOURCE_INGEST_FEATURE).bind(expected_generation)
         .fetch_optional(&mut *tx).await.map_err(RestError::db)?
         .ok_or_else(|| RestError::conflict("service principal generation changed or source system is already disabled"))?;
     let resulting_generation: i32 = row.try_get("generation").map_err(RestError::db)?;
@@ -506,9 +497,8 @@ async fn disable_source_system_credential(
         .bind(*org.as_uuid()).bind(id).bind(*principal.user_id.as_uuid()).bind(expected_generation).bind(resulting_generation)
         .execute(&mut *tx).await.map_err(RestError::db)?;
     tx.commit().await.map_err(RestError::db)?;
-    Ok(Json(lifecycle_receipt(
+    Ok(Json(disabled_source_system_receipt(
         id,
-        SourceSystemLifecycleAction::Disable,
         resulting_generation,
     )))
 }
@@ -662,16 +652,12 @@ async fn ingest_source(
             if available_quantity <= 0 {
                 return Err(RestError::validation("capacity must be positive"));
             }
-            let updated = sqlx::query("INSERT INTO production_capacity_slots (id,org_id,branch_id,site_id,capacity_date,available_quantity,source_system,source_id,source_version,evaluated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,now()) ON CONFLICT (org_id,branch_id,site_id,capacity_date) DO UPDATE SET available_quantity=EXCLUDED.available_quantity, source_system=EXCLUDED.source_system, source_id=EXCLUDED.source_id, source_version=EXCLUDED.source_version, evaluated_at=now(), updated_at=now(), version=production_capacity_slots.version+1 WHERE production_capacity_slots.reserved_quantity <= EXCLUDED.available_quantity")
-                .bind(id).bind(*org.as_uuid()).bind(*branch_id.as_uuid()).bind(site_id).bind(capacity_date).bind(available_quantity).bind(source_system.trim()).bind(source_id.trim()).bind(source_version.trim()).execute(&mut *tx).await.map_err(RestError::db)?;
-            if updated.rows_affected() != 1 {
-                return Err(RestError::conflict(
-                    "capacity source conflicts with current reservations",
-                ));
-            }
+            let persisted_id: Uuid = sqlx::query_scalar("INSERT INTO production_capacity_slots (id,org_id,branch_id,site_id,capacity_date,available_quantity,source_system,source_id,source_version,evaluated_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,now()) ON CONFLICT (org_id,branch_id,site_id,capacity_date) DO UPDATE SET available_quantity=EXCLUDED.available_quantity, source_system=EXCLUDED.source_system, source_id=EXCLUDED.source_id, source_version=EXCLUDED.source_version, evaluated_at=now(), updated_at=now(), version=production_capacity_slots.version+1 WHERE production_capacity_slots.reserved_quantity <= EXCLUDED.available_quantity RETURNING id")
+                .bind(id).bind(*org.as_uuid()).bind(*branch_id.as_uuid()).bind(site_id).bind(capacity_date).bind(available_quantity).bind(source_system.trim()).bind(source_id.trim()).bind(source_version.trim()).fetch_optional(&mut *tx).await.map_err(RestError::db)?
+                .ok_or_else(|| RestError::conflict("capacity source conflicts with current reservations"))?;
             SourceIngressReceipt {
                 kind: "capacity".to_owned(),
-                id,
+                id: persisted_id,
                 source_version,
             }
         }
@@ -1281,8 +1267,7 @@ fn valid_source_credential(credential: &str) -> Result<(), RestError> {
 #[cfg(test)]
 mod digest_tests {
     use super::{
-        SourceIngress, SourceSystemCredential, SourceSystemLifecycleAction, hash_request,
-        lifecycle_receipt,
+        SourceIngress, SourceSystemCredential, disabled_source_system_receipt, hash_request,
     };
     use base64::Engine as _;
     use time::{Duration, OffsetDateTime};
@@ -1322,7 +1307,7 @@ mod digest_tests {
     }
 
     #[test]
-    fn ingress_wire_format_remains_tagged_and_lifecycle_receipt_is_explicit() {
+    fn ingress_wire_format_remains_tagged_and_disable_receipt_is_explicit() {
         let ingress = SourceIngress::Demand {
             id: Uuid::nil(),
             inquiry_id: Uuid::from_u128(1),
@@ -1335,7 +1320,7 @@ mod digest_tests {
         let value = serde_json::to_value(ingress).expect("ingress serializes");
         assert_eq!(value["kind"], "demand");
         assert!(value.get("source_system").is_none());
-        let disabled = lifecycle_receipt(Uuid::nil(), SourceSystemLifecycleAction::Disable, 3);
+        let disabled = disabled_source_system_receipt(Uuid::nil(), 3);
         let disabled = serde_json::to_value(disabled).expect("receipt serializes");
         assert_eq!(disabled["enabled"], false);
         assert_eq!(disabled["credential_generation"], 3);

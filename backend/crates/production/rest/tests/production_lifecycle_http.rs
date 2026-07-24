@@ -42,6 +42,7 @@ struct Fixture {
     planner: UserId,
     reviewer: UserId,
     operator: UserId,
+    site: Uuid,
     demand: Uuid,
     capacity: Uuid,
     material: Uuid,
@@ -123,6 +124,46 @@ async fn post(service: axum::Router, uri: &str, token: &str, body: Value) -> (St
     (
         status,
         serde_json::from_slice(&body).unwrap_or_else(|_| json!({})),
+    )
+}
+
+async fn post_source(
+    service: axum::Router,
+    uri: &str,
+    authorization: String,
+    body: Value,
+) -> (StatusCode, Value) {
+    let response = service
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(uri)
+                .header(header::AUTHORIZATION, authorization)
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(Body::from(body.to_string()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = response.status();
+    let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    (
+        status,
+        serde_json::from_slice(&body).unwrap_or_else(|_| json!({})),
+    )
+}
+
+fn source_authorization(id: &str, encoded_secret: &str) -> String {
+    let secret = base64::engine::general_purpose::STANDARD
+        .decode(encoded_secret)
+        .expect("source credential is base64");
+    assert_eq!(secret.len(), 32, "source credential has exactly 32 bytes");
+    let mut wire = id.as_bytes().to_vec();
+    wire.push(b':');
+    wire.extend(secret);
+    format!(
+        "Basic {}",
+        base64::engine::general_purpose::STANDARD.encode(wire)
     )
 }
 
@@ -219,6 +260,7 @@ async fn seed_fixture(pool: &PgPool) -> Fixture {
         planner,
         reviewer,
         operator,
+        site,
         demand,
         capacity,
         material,
@@ -1014,4 +1056,162 @@ async fn source_system_lifecycle_uses_typed_credentials_and_generation_cas(pool:
         persisted_secret_or_verifier, 0,
         "credential material cannot enter the audit stream"
     );
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn source_system_lifecycle_cannot_mutate_a_same_branch_other_feature_principal(pool: PgPool) {
+    let keys = keys();
+    let fixture = seed_fixture(&pool).await;
+    let service = app(runtime_role_pool(&pool).await, &keys);
+    let token = bearer(
+        &keys,
+        fixture.planner,
+        fixture.org,
+        "SUPER_ADMIN",
+        fixture.branch,
+    );
+
+    // The current migration has only one machine feature. Remove that schema
+    // restriction in this disposable database so this regression continues to
+    // prove lifecycle endpoints remain scoped when future features are added.
+    sqlx::query("ALTER TABLE service_principals DROP CONSTRAINT service_principals_feature_check")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let other_principal = Uuid::new_v4();
+    let other_feature_verifier = [9_u8; 32];
+    sqlx::query("INSERT INTO service_principals (id,org_id,branch_id,feature,display_name,verifier,created_by) VALUES ($1,$2,$3,$4,$5,$6,$7)")
+        .bind(other_principal)
+        .bind(*fixture.org.as_uuid())
+        .bind(*fixture.branch.as_uuid())
+        .bind("other_machine_feature")
+        .bind("Other machine principal")
+        .bind(other_feature_verifier.as_slice())
+        .bind(*fixture.planner.as_uuid())
+        .execute(&pool)
+        .await
+        .unwrap();
+
+    let rotate_uri = PRODUCTION_SOURCE_SYSTEM_ROTATE_PATH
+        .replace("{source_system_id}", &other_principal.to_string());
+    let (rotate_status, rotate_body) = post(
+        service.clone(),
+        &rotate_uri,
+        &token,
+        json!({"expected_generation": 1}),
+    )
+    .await;
+    assert_eq!(rotate_status, StatusCode::NOT_FOUND, "{rotate_body:?}");
+
+    let disable_uri = PRODUCTION_SOURCE_SYSTEM_DISABLE_PATH
+        .replace("{source_system_id}", &other_principal.to_string());
+    let (disable_status, disable_body) = post(
+        service,
+        &disable_uri,
+        &token,
+        json!({"expected_generation": 1}),
+    )
+    .await;
+    assert_eq!(disable_status, StatusCode::NOT_FOUND, "{disable_body:?}");
+
+    let (feature, state, generation): (String, String, i32) =
+        sqlx::query_as("SELECT feature,state,generation FROM service_principals WHERE id=$1")
+            .bind(other_principal)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(feature, "other_machine_feature");
+    assert_eq!(state, "ACTIVE");
+    assert_eq!(generation, 1);
+    let audit_events: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM service_principal_audit_events WHERE service_principal_id=$1",
+    )
+    .bind(other_principal)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        audit_events, 0,
+        "other feature must receive no lifecycle audit"
+    );
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn capacity_ingress_receipt_uses_the_persisted_natural_key_row(pool: PgPool) {
+    let keys = keys();
+    let fixture = seed_fixture(&pool).await;
+    let service = app(runtime_role_pool(&pool).await, &keys);
+    let token = bearer(
+        &keys,
+        fixture.planner,
+        fixture.org,
+        "SUPER_ADMIN",
+        fixture.branch,
+    );
+    let (register_status, registered) = post(
+        service.clone(),
+        PRODUCTION_SOURCE_SYSTEMS_PATH,
+        &token,
+        json!({"branch_id": fixture.branch, "source_system": "capacity-sync"}),
+    )
+    .await;
+    assert_eq!(register_status, StatusCode::CREATED, "{registered:?}");
+    let principal_id = registered["id"].as_str().expect("principal id");
+    let authorization = source_authorization(
+        principal_id,
+        registered["secret"].as_str().expect("source secret"),
+    );
+
+    let first_input_id = Uuid::new_v4();
+    let (first_status, first_receipt) = post_source(
+        service.clone(),
+        PRODUCTION_SOURCE_INGRESS_PATH,
+        authorization.clone(),
+        json!({
+            "kind": "capacity",
+            "id": first_input_id,
+            "site_id": fixture.site,
+            "capacity_date": fixture.due_at.date(),
+            "available_quantity": 120,
+            "source_id": "capacity-sync-1",
+            "source_version": "v1"
+        }),
+    )
+    .await;
+    assert_eq!(first_status, StatusCode::OK, "{first_receipt:?}");
+    assert_eq!(first_receipt["id"], fixture.capacity.to_string());
+
+    let second_input_id = Uuid::new_v4();
+    let (second_status, second_receipt) = post_source(
+        service,
+        PRODUCTION_SOURCE_INGRESS_PATH,
+        authorization,
+        json!({
+            "kind": "capacity",
+            "id": second_input_id,
+            "site_id": fixture.site,
+            "capacity_date": fixture.due_at.date(),
+            "available_quantity": 140,
+            "source_id": "capacity-sync-2",
+            "source_version": "v2"
+        }),
+    )
+    .await;
+    assert_eq!(second_status, StatusCode::OK, "{second_receipt:?}");
+    assert_eq!(second_receipt["id"], fixture.capacity.to_string());
+    assert_ne!(first_input_id, fixture.capacity);
+    assert_ne!(second_input_id, fixture.capacity);
+
+    let (persisted_id, available_quantity): (Uuid, i64) = sqlx::query_as(
+        "SELECT id,available_quantity FROM production_capacity_slots WHERE org_id=$1 AND branch_id=$2 AND site_id=$3 AND capacity_date=$4",
+    )
+    .bind(*fixture.org.as_uuid())
+    .bind(*fixture.branch.as_uuid())
+    .bind(fixture.site)
+    .bind(fixture.due_at.date())
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(persisted_id, fixture.capacity);
+    assert_eq!(available_quantity, 140);
 }
