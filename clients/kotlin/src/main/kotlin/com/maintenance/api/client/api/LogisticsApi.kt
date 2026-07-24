@@ -28,10 +28,24 @@ import okhttp3.Call
 import okhttp3.HttpUrl
 
 import com.maintenance.api.client.model.CreateLogisticsAsnRequest
+import com.maintenance.api.client.model.DispatchLogisticsShipmentRequest
 import com.maintenance.api.client.model.ErrorBody
+import com.maintenance.api.client.model.LogisticsAsnCreated
+import com.maintenance.api.client.model.LogisticsAsnPutaway
+import com.maintenance.api.client.model.LogisticsAsnReceipt
+import com.maintenance.api.client.model.LogisticsFulfillmentPacked
+import com.maintenance.api.client.model.LogisticsFulfillmentPicked
+import com.maintenance.api.client.model.LogisticsFulfillmentReleased
+import com.maintenance.api.client.model.LogisticsPodVerified
+import com.maintenance.api.client.model.LogisticsShipmentDispatched
+import com.maintenance.api.client.model.LogisticsShipmentSettlement
+import com.maintenance.api.client.model.PackLogisticsFulfillmentRequest
+import com.maintenance.api.client.model.PickLogisticsFulfillmentRequest
 import com.maintenance.api.client.model.PutawayLogisticsAsnRequest
 import com.maintenance.api.client.model.ReceiveLogisticsAsnRequest
 import com.maintenance.api.client.model.ReleaseLogisticsFulfillmentRequest
+import com.maintenance.api.client.model.SettleLogisticsOperationalCostRequest
+import com.maintenance.api.client.model.VerifyLogisticsPodRequest
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -66,19 +80,20 @@ open class LogisticsApi(basePath: kotlin.String = defaultBasePath, client: Call.
      * Create a pilot ASN for one branch warehouse
      *
      * @param createLogisticsAsnRequest
-     * @return void
+     * @return LogisticsAsnCreated
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      * @throws UnsupportedOperationException If the API returns an informational or redirection response
      * @throws ClientException If the API returns a client error response
      * @throws ServerException If the API returns a server error response
      */
+    @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun createLogisticsAsn(createLogisticsAsnRequest: CreateLogisticsAsnRequest) : Unit = withContext(Dispatchers.IO) {
+    suspend fun createLogisticsAsn(createLogisticsAsnRequest: CreateLogisticsAsnRequest) : LogisticsAsnCreated = withContext(Dispatchers.IO) {
         val localVarResponse = createLogisticsAsnWithHttpInfo(createLogisticsAsnRequest = createLogisticsAsnRequest)
 
         return@withContext when (localVarResponse.responseType) {
-            ResponseType.Success -> Unit
+            ResponseType.Success -> (localVarResponse as Success<*>).data as LogisticsAsnCreated
             ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
             ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
             ResponseType.ClientError -> {
@@ -97,15 +112,16 @@ open class LogisticsApi(basePath: kotlin.String = defaultBasePath, client: Call.
      * Create a pilot ASN for one branch warehouse
      *
      * @param createLogisticsAsnRequest
-     * @return ApiResponse<Unit?>
+     * @return ApiResponse<LogisticsAsnCreated?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
+    @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun createLogisticsAsnWithHttpInfo(createLogisticsAsnRequest: CreateLogisticsAsnRequest) : ApiResponse<Unit?> = withContext(Dispatchers.IO) {
+    suspend fun createLogisticsAsnWithHttpInfo(createLogisticsAsnRequest: CreateLogisticsAsnRequest) : ApiResponse<LogisticsAsnCreated?> = withContext(Dispatchers.IO) {
         val localVariableConfig = createLogisticsAsnRequestConfig(createLogisticsAsnRequest = createLogisticsAsnRequest)
 
-        return@withContext request<CreateLogisticsAsnRequest, Unit>(
+        return@withContext request<CreateLogisticsAsnRequest, LogisticsAsnCreated>(
             localVariableConfig
         )
     }
@@ -138,19 +154,21 @@ open class LogisticsApi(basePath: kotlin.String = defaultBasePath, client: Call.
      * Dispatch one packed carrier and vehicle leg
      *
      * @param fulfillmentId
-     * @return void
+     * @param dispatchLogisticsShipmentRequest
+     * @return LogisticsShipmentDispatched
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      * @throws UnsupportedOperationException If the API returns an informational or redirection response
      * @throws ClientException If the API returns a client error response
      * @throws ServerException If the API returns a server error response
      */
+    @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun dispatchLogisticsShipment(fulfillmentId: java.util.UUID) : Unit = withContext(Dispatchers.IO) {
-        val localVarResponse = dispatchLogisticsShipmentWithHttpInfo(fulfillmentId = fulfillmentId)
+    suspend fun dispatchLogisticsShipment(fulfillmentId: java.util.UUID, dispatchLogisticsShipmentRequest: DispatchLogisticsShipmentRequest) : LogisticsShipmentDispatched = withContext(Dispatchers.IO) {
+        val localVarResponse = dispatchLogisticsShipmentWithHttpInfo(fulfillmentId = fulfillmentId, dispatchLogisticsShipmentRequest = dispatchLogisticsShipmentRequest)
 
         return@withContext when (localVarResponse.responseType) {
-            ResponseType.Success -> Unit
+            ResponseType.Success -> (localVarResponse as Success<*>).data as LogisticsShipmentDispatched
             ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
             ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
             ResponseType.ClientError -> {
@@ -169,15 +187,17 @@ open class LogisticsApi(basePath: kotlin.String = defaultBasePath, client: Call.
      * Dispatch one packed carrier and vehicle leg
      *
      * @param fulfillmentId
-     * @return ApiResponse<Unit?>
+     * @param dispatchLogisticsShipmentRequest
+     * @return ApiResponse<LogisticsShipmentDispatched?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
+    @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun dispatchLogisticsShipmentWithHttpInfo(fulfillmentId: java.util.UUID) : ApiResponse<Unit?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = dispatchLogisticsShipmentRequestConfig(fulfillmentId = fulfillmentId)
+    suspend fun dispatchLogisticsShipmentWithHttpInfo(fulfillmentId: java.util.UUID, dispatchLogisticsShipmentRequest: DispatchLogisticsShipmentRequest) : ApiResponse<LogisticsShipmentDispatched?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = dispatchLogisticsShipmentRequestConfig(fulfillmentId = fulfillmentId, dispatchLogisticsShipmentRequest = dispatchLogisticsShipmentRequest)
 
-        return@withContext request<Unit, Unit>(
+        return@withContext request<DispatchLogisticsShipmentRequest, LogisticsShipmentDispatched>(
             localVariableConfig
         )
     }
@@ -186,12 +206,15 @@ open class LogisticsApi(basePath: kotlin.String = defaultBasePath, client: Call.
      * To obtain the request config of the operation dispatchLogisticsShipment
      *
      * @param fulfillmentId
+     * @param dispatchLogisticsShipmentRequest
      * @return RequestConfig
      */
-    fun dispatchLogisticsShipmentRequestConfig(fulfillmentId: java.util.UUID) : RequestConfig<Unit> {
-        val localVariableBody = null
+    fun dispatchLogisticsShipmentRequestConfig(fulfillmentId: java.util.UUID, dispatchLogisticsShipmentRequest: DispatchLogisticsShipmentRequest) : RequestConfig<DispatchLogisticsShipmentRequest> {
+        val localVariableBody = dispatchLogisticsShipmentRequest
         val localVariableQuery: MultiValueMap = mutableMapOf()
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
 
         return RequestConfig(
             method = RequestMethod.POST,
@@ -208,19 +231,21 @@ open class LogisticsApi(basePath: kotlin.String = defaultBasePath, client: Call.
      * Pack a picked or short-picked fulfillment
      *
      * @param fulfillmentId
-     * @return void
+     * @param packLogisticsFulfillmentRequest
+     * @return LogisticsFulfillmentPacked
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      * @throws UnsupportedOperationException If the API returns an informational or redirection response
      * @throws ClientException If the API returns a client error response
      * @throws ServerException If the API returns a server error response
      */
+    @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun packLogisticsFulfillment(fulfillmentId: java.util.UUID) : Unit = withContext(Dispatchers.IO) {
-        val localVarResponse = packLogisticsFulfillmentWithHttpInfo(fulfillmentId = fulfillmentId)
+    suspend fun packLogisticsFulfillment(fulfillmentId: java.util.UUID, packLogisticsFulfillmentRequest: PackLogisticsFulfillmentRequest) : LogisticsFulfillmentPacked = withContext(Dispatchers.IO) {
+        val localVarResponse = packLogisticsFulfillmentWithHttpInfo(fulfillmentId = fulfillmentId, packLogisticsFulfillmentRequest = packLogisticsFulfillmentRequest)
 
         return@withContext when (localVarResponse.responseType) {
-            ResponseType.Success -> Unit
+            ResponseType.Success -> (localVarResponse as Success<*>).data as LogisticsFulfillmentPacked
             ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
             ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
             ResponseType.ClientError -> {
@@ -239,15 +264,17 @@ open class LogisticsApi(basePath: kotlin.String = defaultBasePath, client: Call.
      * Pack a picked or short-picked fulfillment
      *
      * @param fulfillmentId
-     * @return ApiResponse<Unit?>
+     * @param packLogisticsFulfillmentRequest
+     * @return ApiResponse<LogisticsFulfillmentPacked?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
+    @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun packLogisticsFulfillmentWithHttpInfo(fulfillmentId: java.util.UUID) : ApiResponse<Unit?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = packLogisticsFulfillmentRequestConfig(fulfillmentId = fulfillmentId)
+    suspend fun packLogisticsFulfillmentWithHttpInfo(fulfillmentId: java.util.UUID, packLogisticsFulfillmentRequest: PackLogisticsFulfillmentRequest) : ApiResponse<LogisticsFulfillmentPacked?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = packLogisticsFulfillmentRequestConfig(fulfillmentId = fulfillmentId, packLogisticsFulfillmentRequest = packLogisticsFulfillmentRequest)
 
-        return@withContext request<Unit, Unit>(
+        return@withContext request<PackLogisticsFulfillmentRequest, LogisticsFulfillmentPacked>(
             localVariableConfig
         )
     }
@@ -256,12 +283,15 @@ open class LogisticsApi(basePath: kotlin.String = defaultBasePath, client: Call.
      * To obtain the request config of the operation packLogisticsFulfillment
      *
      * @param fulfillmentId
+     * @param packLogisticsFulfillmentRequest
      * @return RequestConfig
      */
-    fun packLogisticsFulfillmentRequestConfig(fulfillmentId: java.util.UUID) : RequestConfig<Unit> {
-        val localVariableBody = null
+    fun packLogisticsFulfillmentRequestConfig(fulfillmentId: java.util.UUID, packLogisticsFulfillmentRequest: PackLogisticsFulfillmentRequest) : RequestConfig<PackLogisticsFulfillmentRequest> {
+        val localVariableBody = packLogisticsFulfillmentRequest
         val localVariableQuery: MultiValueMap = mutableMapOf()
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
 
         return RequestConfig(
             method = RequestMethod.POST,
@@ -278,19 +308,21 @@ open class LogisticsApi(basePath: kotlin.String = defaultBasePath, client: Call.
      * Pick reserved stock, recording explicit short-pick when applicable
      *
      * @param fulfillmentId
-     * @return void
+     * @param pickLogisticsFulfillmentRequest
+     * @return LogisticsFulfillmentPicked
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      * @throws UnsupportedOperationException If the API returns an informational or redirection response
      * @throws ClientException If the API returns a client error response
      * @throws ServerException If the API returns a server error response
      */
+    @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun pickLogisticsFulfillment(fulfillmentId: java.util.UUID) : Unit = withContext(Dispatchers.IO) {
-        val localVarResponse = pickLogisticsFulfillmentWithHttpInfo(fulfillmentId = fulfillmentId)
+    suspend fun pickLogisticsFulfillment(fulfillmentId: java.util.UUID, pickLogisticsFulfillmentRequest: PickLogisticsFulfillmentRequest) : LogisticsFulfillmentPicked = withContext(Dispatchers.IO) {
+        val localVarResponse = pickLogisticsFulfillmentWithHttpInfo(fulfillmentId = fulfillmentId, pickLogisticsFulfillmentRequest = pickLogisticsFulfillmentRequest)
 
         return@withContext when (localVarResponse.responseType) {
-            ResponseType.Success -> Unit
+            ResponseType.Success -> (localVarResponse as Success<*>).data as LogisticsFulfillmentPicked
             ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
             ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
             ResponseType.ClientError -> {
@@ -309,15 +341,17 @@ open class LogisticsApi(basePath: kotlin.String = defaultBasePath, client: Call.
      * Pick reserved stock, recording explicit short-pick when applicable
      *
      * @param fulfillmentId
-     * @return ApiResponse<Unit?>
+     * @param pickLogisticsFulfillmentRequest
+     * @return ApiResponse<LogisticsFulfillmentPicked?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
+    @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun pickLogisticsFulfillmentWithHttpInfo(fulfillmentId: java.util.UUID) : ApiResponse<Unit?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = pickLogisticsFulfillmentRequestConfig(fulfillmentId = fulfillmentId)
+    suspend fun pickLogisticsFulfillmentWithHttpInfo(fulfillmentId: java.util.UUID, pickLogisticsFulfillmentRequest: PickLogisticsFulfillmentRequest) : ApiResponse<LogisticsFulfillmentPicked?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = pickLogisticsFulfillmentRequestConfig(fulfillmentId = fulfillmentId, pickLogisticsFulfillmentRequest = pickLogisticsFulfillmentRequest)
 
-        return@withContext request<Unit, Unit>(
+        return@withContext request<PickLogisticsFulfillmentRequest, LogisticsFulfillmentPicked>(
             localVariableConfig
         )
     }
@@ -326,12 +360,15 @@ open class LogisticsApi(basePath: kotlin.String = defaultBasePath, client: Call.
      * To obtain the request config of the operation pickLogisticsFulfillment
      *
      * @param fulfillmentId
+     * @param pickLogisticsFulfillmentRequest
      * @return RequestConfig
      */
-    fun pickLogisticsFulfillmentRequestConfig(fulfillmentId: java.util.UUID) : RequestConfig<Unit> {
-        val localVariableBody = null
+    fun pickLogisticsFulfillmentRequestConfig(fulfillmentId: java.util.UUID, pickLogisticsFulfillmentRequest: PickLogisticsFulfillmentRequest) : RequestConfig<PickLogisticsFulfillmentRequest> {
+        val localVariableBody = pickLogisticsFulfillmentRequest
         val localVariableQuery: MultiValueMap = mutableMapOf()
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
 
         return RequestConfig(
             method = RequestMethod.POST,
@@ -349,19 +386,20 @@ open class LogisticsApi(basePath: kotlin.String = defaultBasePath, client: Call.
      *
      * @param asnId
      * @param putawayLogisticsAsnRequest
-     * @return void
+     * @return LogisticsAsnPutaway
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      * @throws UnsupportedOperationException If the API returns an informational or redirection response
      * @throws ClientException If the API returns a client error response
      * @throws ServerException If the API returns a server error response
      */
+    @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun putawayLogisticsAsn(asnId: java.util.UUID, putawayLogisticsAsnRequest: PutawayLogisticsAsnRequest) : Unit = withContext(Dispatchers.IO) {
+    suspend fun putawayLogisticsAsn(asnId: java.util.UUID, putawayLogisticsAsnRequest: PutawayLogisticsAsnRequest) : LogisticsAsnPutaway = withContext(Dispatchers.IO) {
         val localVarResponse = putawayLogisticsAsnWithHttpInfo(asnId = asnId, putawayLogisticsAsnRequest = putawayLogisticsAsnRequest)
 
         return@withContext when (localVarResponse.responseType) {
-            ResponseType.Success -> Unit
+            ResponseType.Success -> (localVarResponse as Success<*>).data as LogisticsAsnPutaway
             ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
             ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
             ResponseType.ClientError -> {
@@ -381,15 +419,16 @@ open class LogisticsApi(basePath: kotlin.String = defaultBasePath, client: Call.
      *
      * @param asnId
      * @param putawayLogisticsAsnRequest
-     * @return ApiResponse<Unit?>
+     * @return ApiResponse<LogisticsAsnPutaway?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
+    @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun putawayLogisticsAsnWithHttpInfo(asnId: java.util.UUID, putawayLogisticsAsnRequest: PutawayLogisticsAsnRequest) : ApiResponse<Unit?> = withContext(Dispatchers.IO) {
+    suspend fun putawayLogisticsAsnWithHttpInfo(asnId: java.util.UUID, putawayLogisticsAsnRequest: PutawayLogisticsAsnRequest) : ApiResponse<LogisticsAsnPutaway?> = withContext(Dispatchers.IO) {
         val localVariableConfig = putawayLogisticsAsnRequestConfig(asnId = asnId, putawayLogisticsAsnRequest = putawayLogisticsAsnRequest)
 
-        return@withContext request<PutawayLogisticsAsnRequest, Unit>(
+        return@withContext request<PutawayLogisticsAsnRequest, LogisticsAsnPutaway>(
             localVariableConfig
         )
     }
@@ -406,6 +445,7 @@ open class LogisticsApi(basePath: kotlin.String = defaultBasePath, client: Call.
         val localVariableQuery: MultiValueMap = mutableMapOf()
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
         localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
 
         return RequestConfig(
             method = RequestMethod.POST,
@@ -424,19 +464,20 @@ open class LogisticsApi(basePath: kotlin.String = defaultBasePath, client: Call.
      * @param asnId
      * @param idempotencyKey
      * @param receiveLogisticsAsnRequest
-     * @return void
+     * @return LogisticsAsnReceipt
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      * @throws UnsupportedOperationException If the API returns an informational or redirection response
      * @throws ClientException If the API returns a client error response
      * @throws ServerException If the API returns a server error response
      */
+    @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun receiveLogisticsAsn(asnId: java.util.UUID, idempotencyKey: kotlin.String, receiveLogisticsAsnRequest: ReceiveLogisticsAsnRequest) : Unit = withContext(Dispatchers.IO) {
+    suspend fun receiveLogisticsAsn(asnId: java.util.UUID, idempotencyKey: kotlin.String, receiveLogisticsAsnRequest: ReceiveLogisticsAsnRequest) : LogisticsAsnReceipt = withContext(Dispatchers.IO) {
         val localVarResponse = receiveLogisticsAsnWithHttpInfo(asnId = asnId, idempotencyKey = idempotencyKey, receiveLogisticsAsnRequest = receiveLogisticsAsnRequest)
 
         return@withContext when (localVarResponse.responseType) {
-            ResponseType.Success -> Unit
+            ResponseType.Success -> (localVarResponse as Success<*>).data as LogisticsAsnReceipt
             ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
             ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
             ResponseType.ClientError -> {
@@ -457,15 +498,16 @@ open class LogisticsApi(basePath: kotlin.String = defaultBasePath, client: Call.
      * @param asnId
      * @param idempotencyKey
      * @param receiveLogisticsAsnRequest
-     * @return ApiResponse<Unit?>
+     * @return ApiResponse<LogisticsAsnReceipt?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
+    @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun receiveLogisticsAsnWithHttpInfo(asnId: java.util.UUID, idempotencyKey: kotlin.String, receiveLogisticsAsnRequest: ReceiveLogisticsAsnRequest) : ApiResponse<Unit?> = withContext(Dispatchers.IO) {
+    suspend fun receiveLogisticsAsnWithHttpInfo(asnId: java.util.UUID, idempotencyKey: kotlin.String, receiveLogisticsAsnRequest: ReceiveLogisticsAsnRequest) : ApiResponse<LogisticsAsnReceipt?> = withContext(Dispatchers.IO) {
         val localVariableConfig = receiveLogisticsAsnRequestConfig(asnId = asnId, idempotencyKey = idempotencyKey, receiveLogisticsAsnRequest = receiveLogisticsAsnRequest)
 
-        return@withContext request<ReceiveLogisticsAsnRequest, Unit>(
+        return@withContext request<ReceiveLogisticsAsnRequest, LogisticsAsnReceipt>(
             localVariableConfig
         )
     }
@@ -501,19 +543,20 @@ open class LogisticsApi(basePath: kotlin.String = defaultBasePath, client: Call.
      * Atomically reserve available pilot stock; never oversells
      *
      * @param releaseLogisticsFulfillmentRequest
-     * @return void
+     * @return LogisticsFulfillmentReleased
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      * @throws UnsupportedOperationException If the API returns an informational or redirection response
      * @throws ClientException If the API returns a client error response
      * @throws ServerException If the API returns a server error response
      */
+    @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun releaseLogisticsFulfillment(releaseLogisticsFulfillmentRequest: ReleaseLogisticsFulfillmentRequest) : Unit = withContext(Dispatchers.IO) {
+    suspend fun releaseLogisticsFulfillment(releaseLogisticsFulfillmentRequest: ReleaseLogisticsFulfillmentRequest) : LogisticsFulfillmentReleased = withContext(Dispatchers.IO) {
         val localVarResponse = releaseLogisticsFulfillmentWithHttpInfo(releaseLogisticsFulfillmentRequest = releaseLogisticsFulfillmentRequest)
 
         return@withContext when (localVarResponse.responseType) {
-            ResponseType.Success -> Unit
+            ResponseType.Success -> (localVarResponse as Success<*>).data as LogisticsFulfillmentReleased
             ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
             ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
             ResponseType.ClientError -> {
@@ -532,15 +575,16 @@ open class LogisticsApi(basePath: kotlin.String = defaultBasePath, client: Call.
      * Atomically reserve available pilot stock; never oversells
      *
      * @param releaseLogisticsFulfillmentRequest
-     * @return ApiResponse<Unit?>
+     * @return ApiResponse<LogisticsFulfillmentReleased?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
+    @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun releaseLogisticsFulfillmentWithHttpInfo(releaseLogisticsFulfillmentRequest: ReleaseLogisticsFulfillmentRequest) : ApiResponse<Unit?> = withContext(Dispatchers.IO) {
+    suspend fun releaseLogisticsFulfillmentWithHttpInfo(releaseLogisticsFulfillmentRequest: ReleaseLogisticsFulfillmentRequest) : ApiResponse<LogisticsFulfillmentReleased?> = withContext(Dispatchers.IO) {
         val localVariableConfig = releaseLogisticsFulfillmentRequestConfig(releaseLogisticsFulfillmentRequest = releaseLogisticsFulfillmentRequest)
 
-        return@withContext request<ReleaseLogisticsFulfillmentRequest, Unit>(
+        return@withContext request<ReleaseLogisticsFulfillmentRequest, LogisticsFulfillmentReleased>(
             localVariableConfig
         )
     }
@@ -556,6 +600,7 @@ open class LogisticsApi(basePath: kotlin.String = defaultBasePath, client: Call.
         val localVariableQuery: MultiValueMap = mutableMapOf()
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
         localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
 
         return RequestConfig(
             method = RequestMethod.POST,
@@ -572,19 +617,21 @@ open class LogisticsApi(basePath: kotlin.String = defaultBasePath, client: Call.
      * Settle one KRW operational transport cost; no finance or GL posting
      *
      * @param shipmentId
-     * @return void
+     * @param settleLogisticsOperationalCostRequest
+     * @return LogisticsShipmentSettlement
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      * @throws UnsupportedOperationException If the API returns an informational or redirection response
      * @throws ClientException If the API returns a client error response
      * @throws ServerException If the API returns a server error response
      */
+    @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun settleLogisticsOperationalCost(shipmentId: java.util.UUID) : Unit = withContext(Dispatchers.IO) {
-        val localVarResponse = settleLogisticsOperationalCostWithHttpInfo(shipmentId = shipmentId)
+    suspend fun settleLogisticsOperationalCost(shipmentId: java.util.UUID, settleLogisticsOperationalCostRequest: SettleLogisticsOperationalCostRequest) : LogisticsShipmentSettlement = withContext(Dispatchers.IO) {
+        val localVarResponse = settleLogisticsOperationalCostWithHttpInfo(shipmentId = shipmentId, settleLogisticsOperationalCostRequest = settleLogisticsOperationalCostRequest)
 
         return@withContext when (localVarResponse.responseType) {
-            ResponseType.Success -> Unit
+            ResponseType.Success -> (localVarResponse as Success<*>).data as LogisticsShipmentSettlement
             ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
             ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
             ResponseType.ClientError -> {
@@ -603,15 +650,17 @@ open class LogisticsApi(basePath: kotlin.String = defaultBasePath, client: Call.
      * Settle one KRW operational transport cost; no finance or GL posting
      *
      * @param shipmentId
-     * @return ApiResponse<Unit?>
+     * @param settleLogisticsOperationalCostRequest
+     * @return ApiResponse<LogisticsShipmentSettlement?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
+    @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun settleLogisticsOperationalCostWithHttpInfo(shipmentId: java.util.UUID) : ApiResponse<Unit?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = settleLogisticsOperationalCostRequestConfig(shipmentId = shipmentId)
+    suspend fun settleLogisticsOperationalCostWithHttpInfo(shipmentId: java.util.UUID, settleLogisticsOperationalCostRequest: SettleLogisticsOperationalCostRequest) : ApiResponse<LogisticsShipmentSettlement?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = settleLogisticsOperationalCostRequestConfig(shipmentId = shipmentId, settleLogisticsOperationalCostRequest = settleLogisticsOperationalCostRequest)
 
-        return@withContext request<Unit, Unit>(
+        return@withContext request<SettleLogisticsOperationalCostRequest, LogisticsShipmentSettlement>(
             localVariableConfig
         )
     }
@@ -620,12 +669,15 @@ open class LogisticsApi(basePath: kotlin.String = defaultBasePath, client: Call.
      * To obtain the request config of the operation settleLogisticsOperationalCost
      *
      * @param shipmentId
+     * @param settleLogisticsOperationalCostRequest
      * @return RequestConfig
      */
-    fun settleLogisticsOperationalCostRequestConfig(shipmentId: java.util.UUID) : RequestConfig<Unit> {
-        val localVariableBody = null
+    fun settleLogisticsOperationalCostRequestConfig(shipmentId: java.util.UUID, settleLogisticsOperationalCostRequest: SettleLogisticsOperationalCostRequest) : RequestConfig<SettleLogisticsOperationalCostRequest> {
+        val localVariableBody = settleLogisticsOperationalCostRequest
         val localVariableQuery: MultiValueMap = mutableMapOf()
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
 
         return RequestConfig(
             method = RequestMethod.POST,
@@ -642,19 +694,21 @@ open class LogisticsApi(basePath: kotlin.String = defaultBasePath, client: Call.
      * Verify recipient-confirmed immutable evidence and derive calendar-time SLA
      *
      * @param shipmentId
-     * @return void
+     * @param verifyLogisticsPodRequest
+     * @return LogisticsPodVerified
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      * @throws UnsupportedOperationException If the API returns an informational or redirection response
      * @throws ClientException If the API returns a client error response
      * @throws ServerException If the API returns a server error response
      */
+    @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
-    suspend fun verifyLogisticsPod(shipmentId: java.util.UUID) : Unit = withContext(Dispatchers.IO) {
-        val localVarResponse = verifyLogisticsPodWithHttpInfo(shipmentId = shipmentId)
+    suspend fun verifyLogisticsPod(shipmentId: java.util.UUID, verifyLogisticsPodRequest: VerifyLogisticsPodRequest) : LogisticsPodVerified = withContext(Dispatchers.IO) {
+        val localVarResponse = verifyLogisticsPodWithHttpInfo(shipmentId = shipmentId, verifyLogisticsPodRequest = verifyLogisticsPodRequest)
 
         return@withContext when (localVarResponse.responseType) {
-            ResponseType.Success -> Unit
+            ResponseType.Success -> (localVarResponse as Success<*>).data as LogisticsPodVerified
             ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
             ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
             ResponseType.ClientError -> {
@@ -673,15 +727,17 @@ open class LogisticsApi(basePath: kotlin.String = defaultBasePath, client: Call.
      * Verify recipient-confirmed immutable evidence and derive calendar-time SLA
      *
      * @param shipmentId
-     * @return ApiResponse<Unit?>
+     * @param verifyLogisticsPodRequest
+     * @return ApiResponse<LogisticsPodVerified?>
      * @throws IllegalStateException If the request is not correctly configured
      * @throws IOException Rethrows the OkHttp execute method exception
      */
+    @Suppress("UNCHECKED_CAST")
     @Throws(IllegalStateException::class, IOException::class)
-    suspend fun verifyLogisticsPodWithHttpInfo(shipmentId: java.util.UUID) : ApiResponse<Unit?> = withContext(Dispatchers.IO) {
-        val localVariableConfig = verifyLogisticsPodRequestConfig(shipmentId = shipmentId)
+    suspend fun verifyLogisticsPodWithHttpInfo(shipmentId: java.util.UUID, verifyLogisticsPodRequest: VerifyLogisticsPodRequest) : ApiResponse<LogisticsPodVerified?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = verifyLogisticsPodRequestConfig(shipmentId = shipmentId, verifyLogisticsPodRequest = verifyLogisticsPodRequest)
 
-        return@withContext request<Unit, Unit>(
+        return@withContext request<VerifyLogisticsPodRequest, LogisticsPodVerified>(
             localVariableConfig
         )
     }
@@ -690,12 +746,15 @@ open class LogisticsApi(basePath: kotlin.String = defaultBasePath, client: Call.
      * To obtain the request config of the operation verifyLogisticsPod
      *
      * @param shipmentId
+     * @param verifyLogisticsPodRequest
      * @return RequestConfig
      */
-    fun verifyLogisticsPodRequestConfig(shipmentId: java.util.UUID) : RequestConfig<Unit> {
-        val localVariableBody = null
+    fun verifyLogisticsPodRequestConfig(shipmentId: java.util.UUID, verifyLogisticsPodRequest: VerifyLogisticsPodRequest) : RequestConfig<VerifyLogisticsPodRequest> {
+        val localVariableBody = verifyLogisticsPodRequest
         val localVariableQuery: MultiValueMap = mutableMapOf()
         val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Content-Type"] = "application/json"
+        localVariableHeaders["Accept"] = "application/json"
 
         return RequestConfig(
             method = RequestMethod.POST,

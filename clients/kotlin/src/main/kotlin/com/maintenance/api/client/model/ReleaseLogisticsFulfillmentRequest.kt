@@ -35,7 +35,7 @@ import kotlinx.serialization.Contextual
  * @param warehouseCode
  * @param sku
  * @param requestedQuantity
- * @param dueAt
+ * @param dueAt Wire form of the logistics pilot datetime fields (dueAt, confirmedAt, settledAt): the time-crate default serde tuple [year, ordinal-day, hour, minute, second, nanosecond, offsetHours, offsetMinutes, offsetSeconds]. The deployed rest crate deserializes these as plain OffsetDateTime without rfc3339 serde, so an RFC3339 string is rejected with 422. Encode in UTC (offsets 0). Divergence recorded in docs/evidence/console/CAP-LOGISTICS-PILOT/manifests/openapi-applied-notes.md.
  */
 @Serializable
 
@@ -53,8 +53,9 @@ data class ReleaseLogisticsFulfillmentRequest (
     @SerialName(value = "requestedQuantity")
     val requestedQuantity: kotlin.Int,
 
-    @Contextual @SerialName(value = "dueAt")
-    val dueAt: java.time.OffsetDateTime
+    /* Wire form of the logistics pilot datetime fields (dueAt, confirmedAt, settledAt): the time-crate default serde tuple [year, ordinal-day, hour, minute, second, nanosecond, offsetHours, offsetMinutes, offsetSeconds]. The deployed rest crate deserializes these as plain OffsetDateTime without rfc3339 serde, so an RFC3339 string is rejected with 422. Encode in UTC (offsets 0). Divergence recorded in docs/evidence/console/CAP-LOGISTICS-PILOT/manifests/openapi-applied-notes.md. */
+    @SerialName(value = "dueAt")
+    val dueAt: kotlin.collections.List<kotlin.Int>
 
 ) {
 

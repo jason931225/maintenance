@@ -7536,6 +7536,212 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/equipment-3r/units": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List 3R units, newest first (org-wide observe) */
+        get: operations["listEquipment3rUnits"];
+        put?: never;
+        /** Register a serialized rental unit (org-unique serial) */
+        post: operations["registerEquipment3rUnit"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/equipment-3r/units/{unit_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Unit detail with active case and open disposition links */
+        get: operations["getEquipment3rUnit"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/equipment-3r/units/{unit_id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Transition history for the unit, its cases, and dispositions, newest first */
+        get: operations["getEquipment3rUnitHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/equipment-3r/rental-cases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List rental cases, newest first (org-wide observe) */
+        get: operations["listEquipment3rRentalCases"];
+        put?: never;
+        /** Idempotently open a rental-case quote against an unsold unit */
+        post: operations["quoteEquipment3rRentalCase"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/equipment-3r/rental-cases/{case_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Rental-case detail with approval, legs, inspections, and assessment */
+        get: operations["getEquipment3rRentalCase"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/equipment-3r/rental-cases/{case_id}/approval": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Four-eyes approval; APPROVED reserves the unit (single winner) */
+        post: operations["decideEquipment3rApproval"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/equipment-3r/rental-cases/{case_id}/dispatch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Record the physical delivery leg of an approved case */
+        post: operations["dispatchEquipment3rCase"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/equipment-3r/rental-cases/{case_id}/handover": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Customer handover with immutable evidence; unit goes ON_RENT */
+        post: operations["handoverEquipment3rCase"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/equipment-3r/rental-cases/{case_id}/inspections": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Append an on-rent inspection or maintenance record */
+        post: operations["inspectEquipment3rCase"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/equipment-3r/rental-cases/{case_id}/return": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Record the unit return; unit enters assessment */
+        post: operations["returnEquipment3rCase"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/equipment-3r/rental-cases/{case_id}/assessment": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Post the return assessment; closes the case and opens the disposition */
+        post: operations["assessEquipment3rReturn"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/equipment-3r/dispositions/{disposition_id}/completion": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Complete a repair/refurbish/resale disposition; no GL posting occurs */
+        post: operations["completeEquipment3rDisposition"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/production/plans": {
         parameters: {
             query?: never;
@@ -14452,6 +14658,195 @@ export interface components {
             quality_evidence_ref: string;
             quality_passed: boolean;
             note: string;
+        };
+        Equipment3rUnitView: {
+            id: components["schemas"]["Uuid"];
+            serialNo: string;
+            modelName: string;
+            capacityClass: string;
+            /** @enum {string} */
+            availability: "AVAILABLE" | "RESERVED" | "ON_RENT" | "IN_ASSESSMENT" | "IN_REPAIR" | "IN_REFURBISHMENT" | "FOR_SALE" | "SOLD";
+            /** Format: int64 */
+            acquisitionCostMinor: number;
+            branchId: components["schemas"]["Uuid"];
+        };
+        Equipment3rUnitDetailView: components["schemas"]["Equipment3rUnitView"] & {
+            activeCaseId?: components["schemas"]["Uuid"];
+            openDispositionId?: components["schemas"]["Uuid"];
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        Equipment3rCaseView: {
+            id: components["schemas"]["Uuid"];
+            unitId: components["schemas"]["Uuid"];
+            /** @enum {string} */
+            status: "QUOTED" | "APPROVED" | "DECLINED" | "DISPATCHED" | "HANDED_OVER" | "RETURNED" | "CLOSED";
+            customerName: string;
+            siteReference: string;
+            /** Format: int64 */
+            monthlyRateMinor: number;
+            durationMonths: number;
+            /** @enum {string} */
+            currencyCode: "KRW";
+            branchId: components["schemas"]["Uuid"];
+            /** @description Present and true only on an idempotent replay */
+            replayed?: boolean;
+        };
+        Equipment3rCaseDetailView: components["schemas"]["Equipment3rCaseView"] & {
+            approval?: {
+                /** @enum {string} */
+                decision?: "APPROVED" | "DECLINED";
+                reason?: string | null;
+                decidedBy?: components["schemas"]["Uuid"];
+                /** Format: date-time */
+                decidedAt?: string;
+            } | null;
+            dispatch?: {
+                carrierName?: string;
+                vehicleReference?: string;
+                /** Format: date-time */
+                dispatchedAt?: string;
+            } | null;
+            handover?: {
+                recipientName?: string;
+                evidenceReference?: string;
+                /** Format: date-time */
+                handedOverAt?: string;
+            } | null;
+            /** Format: date-time */
+            returnedAt?: string | null;
+            assessment?: {
+                /** @enum {string} */
+                conditionGrade?: "A" | "B" | "C" | "D";
+                findings?: string;
+                /** @enum {string} */
+                disposition?: "REPAIR" | "REFURBISH" | "RESALE" | "REDEPLOY";
+                assessedBy?: components["schemas"]["Uuid"];
+                /** Format: date-time */
+                assessedAt?: string;
+            } | null;
+            dispositionId?: components["schemas"]["Uuid"];
+            inspections: components["schemas"]["Equipment3rInspectionView"][];
+            createdBy: components["schemas"]["Uuid"];
+            /** Format: date-time */
+            createdAt: string;
+            /** Format: date-time */
+            updatedAt: string;
+        };
+        Equipment3rInspectionView: {
+            id: components["schemas"]["Uuid"];
+            caseId: components["schemas"]["Uuid"];
+            /** @enum {string} */
+            outcome: "PASS" | "MAINTENANCE_PERFORMED";
+            findings: string;
+            maintenanceNote?: string | null;
+            inspectedBy: components["schemas"]["Uuid"];
+            /** Format: date-time */
+            inspectedAt: string;
+        };
+        Equipment3rDispositionView: {
+            id: components["schemas"]["Uuid"];
+            unitId: components["schemas"]["Uuid"];
+            caseId: components["schemas"]["Uuid"];
+            /** @enum {string} */
+            kind: "REPAIR" | "REFURBISH" | "RESALE" | "REDEPLOY";
+            /** @enum {string} */
+            status: "OPEN" | "COMPLETED";
+            /** Format: int64 */
+            costMinor?: number | null;
+            /** Format: int64 */
+            saleAmountMinor?: number | null;
+            buyerName?: string | null;
+            completedBy: components["schemas"]["Uuid"];
+            /** Format: date-time */
+            completedAt: string;
+            /** @description Always null — the pilot records no GL posting */
+            financeGlPosting: unknown;
+        };
+        Equipment3rHistoryEntry: {
+            /** @enum {string} */
+            aggregateKind: "unit" | "case" | "disposition";
+            aggregateId: components["schemas"]["Uuid"];
+            transition: string;
+            actorId: components["schemas"]["Uuid"];
+            /** Format: date-time */
+            occurredAt: string;
+        };
+        /** @description Wire form of the logistics pilot datetime fields (dueAt, confirmedAt, settledAt): the time-crate default serde tuple [year, ordinal-day, hour, minute, second, nanosecond, offsetHours, offsetMinutes, offsetSeconds]. The deployed rest crate deserializes these as plain OffsetDateTime without rfc3339 serde, so an RFC3339 string is rejected with 422. Encode in UTC (offsets 0). Divergence recorded in docs/evidence/console/CAP-LOGISTICS-PILOT/manifests/openapi-applied-notes.md. */
+        LogisticsTimeTuple: number[];
+        LogisticsAsnCreated: {
+            id: components["schemas"]["Uuid"];
+            /** @enum {string} */
+            status: "EXPECTED";
+            branchId: components["schemas"]["Uuid"];
+        };
+        LogisticsAsnReceipt: {
+            id: components["schemas"]["Uuid"];
+            /** @enum {string} */
+            status: "PARTIAL_RECEIVED" | "RECEIVED";
+            /**
+             * Format: int64
+             * @description cumulative received total; absent on an idempotent replay
+             */
+            receivedQuantity?: number;
+            /** @description present and true only on an idempotent replay */
+            replayed?: boolean;
+        };
+        LogisticsAsnPutaway: {
+            id: components["schemas"]["Uuid"];
+            /** @enum {string} */
+            status: "PUTAWAY";
+        };
+        LogisticsFulfillmentReleased: {
+            id: components["schemas"]["Uuid"];
+            /** @enum {string} */
+            status: "RELEASED";
+            /** Format: int64 */
+            reservedQuantity: number;
+        };
+        LogisticsFulfillmentPicked: {
+            id: components["schemas"]["Uuid"];
+            /** @enum {string} */
+            status: "PICKED" | "SHORT_PICK";
+            /** Format: int64 */
+            pickedQuantity: number;
+        };
+        LogisticsFulfillmentPacked: {
+            id: components["schemas"]["Uuid"];
+            /** @enum {string} */
+            status: "PACKED";
+            /** Format: int64 */
+            pickedQuantity: number;
+        };
+        LogisticsShipmentDispatched: {
+            /** @description created shipment id */
+            id: components["schemas"]["Uuid"];
+            fulfillmentId: components["schemas"]["Uuid"];
+            /** @enum {string} */
+            status: "DISPATCHED";
+        };
+        LogisticsPodVerified: {
+            id: components["schemas"]["Uuid"];
+            /** @enum {string} */
+            status: "DELIVERED";
+            recipientConfirmedEvidenceReference: string;
+            /** @enum {string} */
+            slaAssessment: "MET" | "BREACHED";
+        };
+        LogisticsShipmentSettlement: {
+            id: components["schemas"]["Uuid"];
+            /** @enum {string} */
+            status: "SETTLED";
+            operationalCost: {
+                /** @enum {string} */
+                currency: "KRW";
+                /** Format: int64 */
+                amountMinor: number;
+            };
+            /** @description Always null by design — no GL/finance edge in the pilot */
+            financeGlPosting: unknown;
         };
     };
     responses: {
@@ -27312,7 +27707,9 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["LogisticsAsnCreated"];
+                };
             };
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
@@ -27344,7 +27741,9 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["LogisticsAsnReceipt"];
+                };
             };
             /** @description Conflicting replay, over-receipt, or illegal state */
             409: {
@@ -27378,7 +27777,9 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["LogisticsAsnPutaway"];
+                };
             };
             /** @description Illegal state */
             409: {
@@ -27403,8 +27804,7 @@ export interface operations {
                     warehouseCode: string;
                     sku: string;
                     requestedQuantity: number;
-                    /** Format: date-time */
-                    dueAt: string;
+                    dueAt: components["schemas"]["LogisticsTimeTuple"];
                 };
             };
         };
@@ -27414,7 +27814,9 @@ export interface operations {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["LogisticsFulfillmentReleased"];
+                };
             };
             /** @description Insufficient available stock */
             409: {
@@ -27434,14 +27836,24 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": {
+                    branchId: components["schemas"]["Uuid"];
+                    /** Format: int64 */
+                    pickedQuantity: number;
+                };
+            };
+        };
         responses: {
             /** @description Pick outcome */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["LogisticsFulfillmentPicked"];
+                };
             };
             /** @description Illegal state */
             409: {
@@ -27461,14 +27873,22 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": {
+                    branchId: components["schemas"]["Uuid"];
+                };
+            };
+        };
         responses: {
             /** @description Fulfillment packed */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["LogisticsFulfillmentPacked"];
+                };
             };
             /** @description Illegal state */
             409: {
@@ -27488,14 +27908,24 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": {
+                    branchId: components["schemas"]["Uuid"];
+                    carrierName: string;
+                    vehicleReference: string;
+                };
+            };
+        };
         responses: {
             /** @description Shipment dispatched */
             201: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["LogisticsShipmentDispatched"];
+                };
             };
             /** @description Illegal transition */
             409: {
@@ -27515,14 +27945,25 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": {
+                    branchId: components["schemas"]["Uuid"];
+                    recipientName: string;
+                    evidenceReference: string;
+                    confirmedAt: components["schemas"]["LogisticsTimeTuple"];
+                };
+            };
+        };
         responses: {
             /** @description POD verified with MET or BREACHED SLA */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["LogisticsPodVerified"];
+                };
             };
             /** @description Illegal transition or reused evidence */
             409: {
@@ -27542,14 +27983,27 @@ export interface operations {
             };
             cookie?: never;
         };
-        requestBody?: never;
+        requestBody: {
+            content: {
+                "application/json": {
+                    branchId: components["schemas"]["Uuid"];
+                    /** @enum {string} */
+                    currencyCode: "KRW";
+                    /** Format: int64 */
+                    amountMinor: number;
+                    settledAt: components["schemas"]["LogisticsTimeTuple"];
+                };
+            };
+        };
         responses: {
             /** @description Operational cost settled */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
-                content?: never;
+                content: {
+                    "application/json": components["schemas"]["LogisticsShipmentSettlement"];
+                };
             };
             /** @description Verified POD required */
             409: {
@@ -27558,6 +28012,585 @@ export interface operations {
                 };
                 content?: never;
             };
+        };
+    };
+    listEquipment3rUnits: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Units */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Equipment3rUnitView"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    registerEquipment3rUnit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    branchId: components["schemas"]["Uuid"];
+                    serialNo: string;
+                    modelName: string;
+                    capacityClass: string;
+                    /** Format: int64 */
+                    acquisitionCostMinor: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Unit registered */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Equipment3rUnitView"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description Duplicate serial in organization */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getEquipment3rUnit: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                unit_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Unit detail */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Equipment3rUnitDetailView"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description Unknown or cross-org unit */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    getEquipment3rUnitHistory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                unit_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description History entries */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Equipment3rHistoryEntry"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description Unknown or cross-org unit */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    listEquipment3rRentalCases: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Rental cases */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Equipment3rCaseView"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    quoteEquipment3rRentalCase: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    branchId: components["schemas"]["Uuid"];
+                    unitId: components["schemas"]["Uuid"];
+                    customerName: string;
+                    siteReference: string;
+                    /** Format: int64 */
+                    monthlyRateMinor: number;
+                    durationMonths: number;
+                    /** @enum {string} */
+                    currencyCode: "KRW";
+                };
+            };
+        };
+        responses: {
+            /** @description Idempotent replay of the stored quote (replayed=true) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Equipment3rCaseView"];
+                };
+            };
+            /** @description Quote created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Equipment3rCaseView"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description Unit not found in branch */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Key reused with different fingerprint, or unit is SOLD */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getEquipment3rRentalCase: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                case_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Case detail */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Equipment3rCaseDetailView"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description Unknown or cross-org case */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    decideEquipment3rApproval: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                case_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    decision: "APPROVED" | "DECLINED";
+                    reason?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Decision recorded */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Equipment3rCaseView"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            /** @description Missing grant, branch outside scope, or four-eyes violation */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unknown or cross-org case */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Case not QUOTED or unit not AVAILABLE */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    dispatchEquipment3rCase: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                case_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    carrierName: string;
+                    vehicleReference: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Case dispatched */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Equipment3rCaseView"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description Unknown or cross-org case */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Case not APPROVED */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    handoverEquipment3rCase: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                case_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    recipientName: string;
+                    evidenceReference: string;
+                    /** Format: date-time */
+                    handedOverAt: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Case handed over */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Equipment3rCaseView"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description Unknown or cross-org case */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Case not DISPATCHED */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    inspectEquipment3rCase: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                case_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    outcome: "PASS" | "MAINTENANCE_PERFORMED";
+                    findings: string;
+                    maintenanceNote?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Inspection recorded */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Equipment3rInspectionView"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description Unknown or cross-org case */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Case not HANDED_OVER */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    returnEquipment3rCase: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                case_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: date-time */
+                    returnedAt: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Case returned */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Equipment3rCaseView"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description Unknown or cross-org case */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Case not HANDED_OVER */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    assessEquipment3rReturn: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                case_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @enum {string} */
+                    conditionGrade: "A" | "B" | "C" | "D";
+                    findings: string;
+                    /** @enum {string} */
+                    disposition: "REPAIR" | "REFURBISH" | "RESALE" | "REDEPLOY";
+                };
+            };
+        };
+        responses: {
+            /** @description Case closed with disposition opened */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Equipment3rCaseDetailView"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description Unknown or cross-org case */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Case not RETURNED */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    completeEquipment3rDisposition: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                disposition_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: int64 */
+                    costMinor?: number;
+                    /** Format: int64 */
+                    saleAmountMinor?: number;
+                    buyerName?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Disposition completed (financeGlPosting is always null) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Equipment3rDispositionView"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            /** @description Unknown or cross-org disposition */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Disposition not OPEN */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            422: components["responses"]["ValidationError"];
         };
     };
     listProductionPlans: {
