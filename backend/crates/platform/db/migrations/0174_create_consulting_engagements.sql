@@ -91,19 +91,47 @@ CREATE TRIGGER trg_consulting_initiative_reference_kinds BEFORE INSERT OR UPDATE
   FOR EACH ROW EXECUTE FUNCTION consulting_require_reference_kinds('kpi_definition_id', 'KPI_DEFINITION');
 CREATE TRIGGER trg_consulting_observation_reference_kinds BEFORE INSERT OR UPDATE ON consulting_benefit_observations
   FOR EACH ROW EXECUTE FUNCTION consulting_require_reference_kinds('kpi_definition_id', 'KPI_DEFINITION', 'evidence_id', 'EVIDENCE');
-CREATE OR REPLACE FUNCTION consulting_reject_terminal_write()
+CREATE OR REPLACE FUNCTION consulting_reject_terminal_engagement_write()
 RETURNS TRIGGER LANGUAGE plpgsql AS $$
 BEGIN
-  IF EXISTS (SELECT 1 FROM consulting_engagements WHERE id=NEW.engagement_id AND org_id=NEW.org_id AND status IN ('SUSTAINED','CORRECTIVE')) THEN
+  IF OLD.status IN ('SUSTAINED','CORRECTIVE') THEN
     RAISE EXCEPTION 'terminal consulting engagement is immutable';
   END IF;
+  IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
   RETURN NEW;
 END;
 $$;
-CREATE TRIGGER trg_consulting_diagnostics_terminal BEFORE INSERT ON consulting_diagnostics FOR EACH ROW EXECUTE FUNCTION consulting_reject_terminal_write();
-CREATE TRIGGER trg_consulting_findings_terminal BEFORE INSERT ON consulting_findings FOR EACH ROW EXECUTE FUNCTION consulting_reject_terminal_write();
-CREATE TRIGGER trg_consulting_initiatives_terminal BEFORE INSERT ON consulting_initiatives FOR EACH ROW EXECUTE FUNCTION consulting_reject_terminal_write();
-CREATE TRIGGER trg_consulting_observations_terminal BEFORE INSERT ON consulting_benefit_observations FOR EACH ROW EXECUTE FUNCTION consulting_reject_terminal_write();
+CREATE TRIGGER trg_consulting_engagement_terminal
+  BEFORE UPDATE OR DELETE ON consulting_engagements
+  FOR EACH ROW EXECUTE FUNCTION consulting_reject_terminal_engagement_write();
+
+CREATE OR REPLACE FUNCTION consulting_reject_terminal_child_write()
+RETURNS TRIGGER LANGUAGE plpgsql AS $$
+BEGIN
+  IF TG_OP <> 'INSERT' AND EXISTS (
+    SELECT 1 FROM consulting_engagements
+    WHERE id=OLD.engagement_id AND org_id=OLD.org_id AND status IN ('SUSTAINED','CORRECTIVE')
+  ) THEN
+    RAISE EXCEPTION 'terminal consulting engagement is immutable';
+  END IF;
+  IF TG_OP <> 'DELETE' AND EXISTS (
+    SELECT 1 FROM consulting_engagements
+    WHERE id=NEW.engagement_id AND org_id=NEW.org_id AND status IN ('SUSTAINED','CORRECTIVE')
+  ) THEN
+    RAISE EXCEPTION 'terminal consulting engagement is immutable';
+  END IF;
+  IF TG_OP = 'DELETE' THEN RETURN OLD; END IF;
+  RETURN NEW;
+END;
+$$;
+CREATE TRIGGER trg_consulting_diagnostics_terminal BEFORE INSERT OR UPDATE OR DELETE ON consulting_diagnostics
+  FOR EACH ROW EXECUTE FUNCTION consulting_reject_terminal_child_write();
+CREATE TRIGGER trg_consulting_findings_terminal BEFORE INSERT OR UPDATE OR DELETE ON consulting_findings
+  FOR EACH ROW EXECUTE FUNCTION consulting_reject_terminal_child_write();
+CREATE TRIGGER trg_consulting_initiatives_terminal BEFORE INSERT OR UPDATE OR DELETE ON consulting_initiatives
+  FOR EACH ROW EXECUTE FUNCTION consulting_reject_terminal_child_write();
+CREATE TRIGGER trg_consulting_observations_terminal BEFORE INSERT OR UPDATE OR DELETE ON consulting_benefit_observations
+  FOR EACH ROW EXECUTE FUNCTION consulting_reject_terminal_child_write();
 DO $$ DECLARE t TEXT; BEGIN FOREACH t IN ARRAY ARRAY['consulting_reference_bindings','consulting_engagements','consulting_diagnostics','consulting_findings','consulting_initiatives','consulting_benefit_observations','consulting_engagement_history'] LOOP
   EXECUTE format('ALTER TABLE %I ENABLE ROW LEVEL SECURITY', t); EXECUTE format('ALTER TABLE %I FORCE ROW LEVEL SECURITY', t);
   EXECUTE format('CREATE POLICY org_isolation ON %I USING (org_id = NULLIF(current_setting(''app.current_org'', true), '''')::uuid) WITH CHECK (org_id = NULLIF(current_setting(''app.current_org'', true), '''')::uuid)', t);
@@ -114,6 +142,8 @@ CREATE TRIGGER trg_consulting_history_no_update BEFORE UPDATE ON consulting_enga
 CREATE TRIGGER trg_consulting_history_no_delete BEFORE DELETE ON consulting_engagement_history
     FOR EACH ROW EXECUTE FUNCTION governance_append_only_record();
 
+GRANT SELECT ON consulting_reference_bindings TO mnt_rt;
+REVOKE INSERT, UPDATE, DELETE ON consulting_reference_bindings FROM mnt_rt;
 GRANT SELECT, INSERT, UPDATE ON consulting_engagements, consulting_diagnostics, consulting_findings, consulting_initiatives, consulting_benefit_observations TO mnt_rt;
 GRANT SELECT, INSERT ON consulting_engagement_history TO mnt_rt;
 REVOKE DELETE ON consulting_engagements, consulting_diagnostics, consulting_findings, consulting_initiatives, consulting_benefit_observations, consulting_engagement_history FROM mnt_rt;

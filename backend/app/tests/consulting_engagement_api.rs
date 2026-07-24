@@ -1,71 +1,873 @@
-//! Contract guard for the consulting engagement route inventory.
+#![allow(clippy::expect_used, clippy::panic, clippy::unwrap_used)]
+//! Executable Consulting engagement contract over the composed app router and
+//! the genuine non-owner `mnt_rt` role.
 
-#[test]
-fn consulting_openapi_covers_the_closed_loop_routes() {
-    let spec = include_str!("../../openapi/openapi.yaml");
-    for path in [
-        "/api/v1/consulting/engagements:",
-        "/api/v1/consulting/engagements/{engagement_id}/diagnostics:",
-        "/api/v1/consulting/engagements/{engagement_id}/findings:",
-        "/api/v1/consulting/engagements/{engagement_id}/initiatives:",
-        "/api/v1/consulting/engagements/{engagement_id}/transition:",
-        "/api/v1/consulting/engagements/{engagement_id}/observations:",
-        "/api/v1/consulting/engagements/{engagement_id}/history:",
-    ] {
-        assert!(spec.contains(path), "missing consulting route {path}");
-    }
-    assert!(spec.contains("expectedVersion"));
-    assert!(spec.contains("kpi_definition_id"));
-    assert!(spec.contains("evidence_id"));
-    assert!(spec.contains("idempotently replayed original response"));
-    assert!(spec.contains("Idempotency key was previously used with a different request payload"));
+use axum::body::{Body, to_bytes};
+use http::{Request, StatusCode, header};
+use mnt_app::{AppConfig, AppRole, AppState, DatabaseDependency, build_router};
+use mnt_kernel_core::{BranchId, OrgId, UserId};
+use mnt_platform_auth::{AccessTokenInput, JwtIssuer, JwtSettings};
+use p256::ecdsa::SigningKey;
+use p256::elliptic_curve::rand_core::OsRng;
+use p256::pkcs8::{EncodePrivateKey, EncodePublicKey, LineEnding};
+use serde_json::{Value, json};
+use sqlx::PgPool;
+use sqlx::postgres::PgPoolOptions;
+use time::{Duration, OffsetDateTime};
+use tower::ServiceExt;
+use uuid::Uuid;
+
+const TEST_ISSUER: &str = "mnt-platform-auth";
+const TEST_AUDIENCE: &str = "mnt-api";
+
+struct Keys {
+    private_pem: String,
+    public_pem: String,
 }
 
-/// Buck-ready database-contract coverage: the integration database applies this
-/// migration before REST tests, so keep every fail-closed invariant explicit.
-#[test]
-fn consulting_database_contract_enforces_tenant_reference_and_replay_boundaries() {
-    let migration =
-        include_str!("../../crates/platform/db/migrations/0174_create_consulting_engagements.sql");
-    for clause in [
-        "ENABLE ROW LEVEL SECURITY",
-        "FORCE ROW LEVEL SECURITY",
-        "idempotency_request_hash",
-        "idempotency_response_status",
-        "idempotency_response JSONB",
-        "consulting_require_reference_kinds",
-        "'customer_document_id', 'DOCUMENT'",
-        "'ontology_instance_id', 'ONTOLOGY_INSTANCE'",
-        "'evidence_id', 'EVIDENCE'",
-        "'kpi_definition_id', 'KPI_DEFINITION'",
-        "trg_consulting_history_no_update",
-        "trg_consulting_history_no_delete",
-        "terminal consulting engagement is immutable",
+struct Fixture {
+    org: OrgId,
+    other_org_engagement: Uuid,
+    requester: UserId,
+    approver: UserId,
+    customer: Uuid,
+    document: Uuid,
+    ontology: Uuid,
+    evidence: Uuid,
+    kpi: Uuid,
+}
+
+struct JsonResponse {
+    status: StatusCode,
+    json: Value,
+}
+
+#[sqlx::test(migrations = "../crates/platform/db/migrations")]
+async fn consulting_engagement_story_is_tenant_scoped_idempotent_and_terminal(owner_pool: PgPool) {
+    let fixture = seed_fixture(&owner_pool).await;
+    let keys = keys();
+    let requester_token = bearer(&keys, fixture.requester, fixture.org);
+    let approver_token = bearer(&keys, fixture.approver, fixture.org);
+    let runtime_pool = runtime_role_pool(&owner_pool).await;
+    let service = build_router(app_state(runtime_pool.clone(), &keys));
+
+    let create_body = json!({
+        "customerId": fixture.customer,
+        "customerDocumentId": fixture.document,
+        "ontologyInstanceId": fixture.ontology,
+        "title": "Stabilize customer operations",
+        "idempotencyKey": "consulting-story-1"
+    });
+
+    let created = send(
+        service.clone(),
+        "POST",
+        "/api/v1/consulting/engagements",
+        Some(&requester_token),
+        Some(create_body.clone()),
+    )
+    .await;
+    assert_eq!(created.status, StatusCode::CREATED, "{:?}", created.json);
+    let engagement_id = response_uuid(&created.json, "id");
+    assert_eq!(created.json["status"], "DRAFT");
+    assert_eq!(created.json["version"], 1);
+
+    let replayed = send(
+        service.clone(),
+        "POST",
+        "/api/v1/consulting/engagements",
+        Some(&requester_token),
+        Some(create_body.clone()),
+    )
+    .await;
+    assert_eq!(replayed.status, StatusCode::CREATED, "{:?}", replayed.json);
+    assert_eq!(response_uuid(&replayed.json, "id"), engagement_id);
+
+    let mismatch = send(
+        service.clone(),
+        "POST",
+        "/api/v1/consulting/engagements",
+        Some(&requester_token),
+        Some(json!({
+            "customerId": fixture.customer,
+            "customerDocumentId": fixture.document,
+            "ontologyInstanceId": fixture.ontology,
+            "title": "A different payload",
+            "idempotencyKey": "consulting-story-1"
+        })),
+    )
+    .await;
+    assert_eq!(mismatch.status, StatusCode::CONFLICT, "{:?}", mismatch.json);
+    assert_eq!(mismatch.json["error"]["code"], "conflict");
+    assert_eq!(
+        mismatch.json["error"]["message"],
+        "idempotency key was already used with a different request payload"
+    );
+
+    let (concurrent_replay_a, concurrent_replay_b) = tokio::join!(
+        send(
+            service.clone(),
+            "POST",
+            "/api/v1/consulting/engagements",
+            Some(&requester_token),
+            Some(create_body.clone()),
+        ),
+        send(
+            service.clone(),
+            "POST",
+            "/api/v1/consulting/engagements",
+            Some(&requester_token),
+            Some(create_body.clone()),
+        )
+    );
+    for replay in [concurrent_replay_a, concurrent_replay_b] {
+        assert_eq!(replay.status, StatusCode::CREATED, "{:?}", replay.json);
+        assert_eq!(response_uuid(&replay.json, "id"), engagement_id);
+    }
+    assert_eq!(
+        count_engagements(&owner_pool, fixture.org, "consulting-story-1").await,
+        1
+    );
+
+    let other_org = send(
+        service.clone(),
+        "GET",
+        &format!(
+            "/api/v1/consulting/engagements/{}",
+            fixture.other_org_engagement
+        ),
+        Some(&requester_token),
+        None,
+    )
+    .await;
+    assert_eq!(
+        other_org.status,
+        StatusCode::NOT_FOUND,
+        "{:?}",
+        other_org.json
+    );
+
+    let listed = send(
+        service.clone(),
+        "GET",
+        "/api/v1/consulting/engagements?limit=10&offset=0",
+        Some(&requester_token),
+        None,
+    )
+    .await;
+    assert_eq!(listed.status, StatusCode::OK, "{:?}", listed.json);
+    assert_eq!(listed.json["total"], 1);
+    assert_eq!(response_uuid(&listed.json["items"][0], "id"), engagement_id);
+
+    let diagnostic = send(
+        service.clone(),
+        "POST",
+        &format!("/api/v1/consulting/engagements/{engagement_id}/diagnostics"),
+        Some(&requester_token),
+        Some(json!({
+            "summary": "Customer handoffs are inconsistent",
+            "documentId": fixture.document
+        })),
+    )
+    .await;
+    assert_eq!(
+        diagnostic.status,
+        StatusCode::CREATED,
+        "{:?}",
+        diagnostic.json
+    );
+    let diagnostic_id = response_uuid(&diagnostic.json, "id");
+
+    let finding = send(
+        service.clone(),
+        "POST",
+        &format!("/api/v1/consulting/engagements/{engagement_id}/findings"),
+        Some(&requester_token),
+        Some(json!({
+            "diagnosticId": diagnostic_id,
+            "statement": "Manual routing creates avoidable delay",
+            "evidenceId": fixture.evidence,
+            "documentId": fixture.document
+        })),
+    )
+    .await;
+    assert_eq!(finding.status, StatusCode::CREATED, "{:?}", finding.json);
+    let finding_id = response_uuid(&finding.json, "id");
+
+    let initiative = send(
+        service.clone(),
+        "POST",
+        &format!("/api/v1/consulting/engagements/{engagement_id}/initiatives"),
+        Some(&requester_token),
+        Some(json!({
+            "findingId": finding_id,
+            "title": "Standardize operational handoffs",
+            "hypothesis": "A shared handoff protocol reduces lead time",
+            "kpiDefinitionId": fixture.kpi,
+            "targetDirection": "DECREASE"
+        })),
+    )
+    .await;
+    assert_eq!(
+        initiative.status,
+        StatusCode::CREATED,
+        "{:?}",
+        initiative.json
+    );
+    let initiative_id = response_uuid(&initiative.json, "id");
+
+    let proposed = transition(
+        service.clone(),
+        engagement_id,
+        &requester_token,
+        "PROPOSED",
+        1,
+        None,
+    )
+    .await;
+    assert_eq!(proposed.status, StatusCode::OK, "{:?}", proposed.json);
+    assert_eq!(proposed.json["version"], 2);
+
+    let approval_id = seed_approval(
+        &owner_pool,
+        fixture.org,
+        fixture.requester,
+        fixture.approver,
+        engagement_id,
+    )
+    .await;
+    let (approval_a, approval_b) = tokio::join!(
+        transition(
+            service.clone(),
+            engagement_id,
+            &approver_token,
+            "APPROVED",
+            2,
+            Some(approval_id),
+        ),
+        transition(
+            service.clone(),
+            engagement_id,
+            &approver_token,
+            "APPROVED",
+            2,
+            Some(approval_id),
+        )
+    );
+    let (approved, rejected) = if approval_a.status == StatusCode::OK {
+        (approval_a, approval_b)
+    } else {
+        (approval_b, approval_a)
+    };
+    assert_eq!(approved.status, StatusCode::OK, "{:?}", approved.json);
+    assert_eq!(approved.json["status"], "APPROVED");
+    assert_eq!(approved.json["version"], 3);
+    assert_eq!(rejected.status, StatusCode::CONFLICT, "{:?}", rejected.json);
+    assert_eq!(rejected.json["error"]["code"], "conflict");
+    assert_eq!(approval_consumptions(&owner_pool, approval_id).await, 1);
+
+    let implemented = transition(
+        service.clone(),
+        engagement_id,
+        &requester_token,
+        "IMPLEMENTED",
+        3,
+        None,
+    )
+    .await;
+    assert_eq!(implemented.status, StatusCode::OK, "{:?}", implemented.json);
+    assert_eq!(implemented.json["version"], 4);
+
+    let observation = send(
+        service.clone(),
+        "POST",
+        &format!("/api/v1/consulting/engagements/{engagement_id}/observations"),
+        Some(&requester_token),
+        Some(json!({
+            "initiativeId": initiative_id,
+            "kpiDefinitionId": fixture.kpi,
+            "evidenceId": fixture.evidence,
+            "observedAt": "2026-07-23T12:00:00Z",
+            "note": "Median handoff time decreased"
+        })),
+    )
+    .await;
+    assert_eq!(
+        observation.status,
+        StatusCode::CREATED,
+        "{:?}",
+        observation.json
+    );
+    let observation_id = response_uuid(&observation.json, "id");
+
+    let measured = transition(
+        service.clone(),
+        engagement_id,
+        &requester_token,
+        "MEASURED",
+        4,
+        None,
+    )
+    .await;
+    assert_eq!(measured.status, StatusCode::OK, "{:?}", measured.json);
+    assert_eq!(measured.json["version"], 5);
+
+    let sustained = transition(
+        service.clone(),
+        engagement_id,
+        &requester_token,
+        "SUSTAINED",
+        5,
+        None,
+    )
+    .await;
+    assert_eq!(sustained.status, StatusCode::OK, "{:?}", sustained.json);
+    assert_eq!(sustained.json["status"], "SUSTAINED");
+    assert_eq!(sustained.json["version"], 6);
+
+    let detail = send(
+        service.clone(),
+        "GET",
+        &format!("/api/v1/consulting/engagements/{engagement_id}"),
+        Some(&requester_token),
+        None,
+    )
+    .await;
+    assert_eq!(detail.status, StatusCode::OK, "{:?}", detail.json);
+    assert_eq!(detail.json["status"], "SUSTAINED");
+    assert_eq!(detail.json["diagnostics"].as_array().unwrap().len(), 1);
+    assert_eq!(detail.json["findings"].as_array().unwrap().len(), 1);
+    assert_eq!(detail.json["initiatives"].as_array().unwrap().len(), 1);
+    assert_eq!(detail.json["observations"].as_array().unwrap().len(), 1);
+
+    let history = send(
+        service.clone(),
+        "GET",
+        &format!("/api/v1/consulting/engagements/{engagement_id}/history"),
+        Some(&requester_token),
+        None,
+    )
+    .await;
+    assert_eq!(history.status, StatusCode::OK, "{:?}", history.json);
+    assert_eq!(history.json.as_array().unwrap().len(), 10);
+
+    let terminal_api_write = send(
+        service,
+        "POST",
+        &format!("/api/v1/consulting/engagements/{engagement_id}/diagnostics"),
+        Some(&requester_token),
+        Some(json!({"summary": "must remain immutable"})),
+    )
+    .await;
+    assert_eq!(
+        terminal_api_write.status,
+        StatusCode::CONFLICT,
+        "{:?}",
+        terminal_api_write.json
+    );
+
+    assert_terminal_runtime_writes_rejected(
+        &runtime_pool,
+        fixture.org,
+        engagement_id,
+        diagnostic_id,
+        finding_id,
+        initiative_id,
+        observation_id,
+    )
+    .await;
+    assert_terminal_owner_deletes_rejected(
+        &owner_pool,
+        engagement_id,
+        diagnostic_id,
+        finding_id,
+        initiative_id,
+        observation_id,
+    )
+    .await;
+}
+
+async fn assert_terminal_runtime_writes_rejected(
+    pool: &PgPool,
+    org: OrgId,
+    engagement_id: Uuid,
+    diagnostic_id: Uuid,
+    finding_id: Uuid,
+    initiative_id: Uuid,
+    observation_id: Uuid,
+) {
+    let updates = [
+        (
+            "UPDATE consulting_engagements SET status='MEASURED' WHERE id=$1",
+            engagement_id,
+        ),
+        (
+            "UPDATE consulting_diagnostics SET summary=summary WHERE id=$1",
+            diagnostic_id,
+        ),
+        (
+            "UPDATE consulting_findings SET statement=statement WHERE id=$1",
+            finding_id,
+        ),
+        (
+            "UPDATE consulting_initiatives SET title=title WHERE id=$1",
+            initiative_id,
+        ),
+        (
+            "UPDATE consulting_benefit_observations SET note=note WHERE id=$1",
+            observation_id,
+        ),
+    ];
+    for (statement, id) in updates {
+        assert_terminal_trigger(pool, org, statement, id).await;
+    }
+
+    let inserts = [
+        (
+            "INSERT INTO consulting_diagnostics \
+             (org_id, engagement_id, summary, document_id, created_by) \
+             SELECT org_id, engagement_id, summary, document_id, created_by \
+             FROM consulting_diagnostics WHERE id=$1",
+            diagnostic_id,
+        ),
+        (
+            "INSERT INTO consulting_findings \
+             (org_id, engagement_id, diagnostic_id, statement, evidence_id, document_id, created_by) \
+             SELECT org_id, engagement_id, diagnostic_id, statement, evidence_id, document_id, created_by \
+             FROM consulting_findings WHERE id=$1",
+            finding_id,
+        ),
+        (
+            "INSERT INTO consulting_initiatives \
+             (org_id, engagement_id, finding_id, title, hypothesis, kpi_definition_id, target_direction, created_by) \
+             SELECT org_id, engagement_id, finding_id, title, hypothesis, kpi_definition_id, target_direction, created_by \
+             FROM consulting_initiatives WHERE id=$1",
+            initiative_id,
+        ),
+        (
+            "INSERT INTO consulting_benefit_observations \
+             (org_id, engagement_id, initiative_id, kpi_definition_id, evidence_id, observed_at, note, created_by) \
+             SELECT org_id, engagement_id, initiative_id, kpi_definition_id, evidence_id, observed_at, note, created_by \
+             FROM consulting_benefit_observations WHERE id=$1",
+            observation_id,
+        ),
+    ];
+    for (statement, id) in inserts {
+        assert_terminal_trigger(pool, org, statement, id).await;
+    }
+
+    for (table, id) in [
+        ("consulting_engagements", engagement_id),
+        ("consulting_diagnostics", diagnostic_id),
+        ("consulting_findings", finding_id),
+        ("consulting_initiatives", initiative_id),
+        ("consulting_benefit_observations", observation_id),
     ] {
+        let error = execute_as_org(pool, org, &format!("DELETE FROM {table} WHERE id=$1"), id)
+            .await
+            .expect_err("runtime role must not delete consulting records");
         assert!(
-            migration.contains(clause),
-            "missing database invariant: {clause}"
+            error.to_string().contains("permission denied"),
+            "unexpected runtime DELETE error for {table}: {error}"
         );
     }
 }
 
-#[test]
-fn consulting_rest_contract_uses_atomic_replay_sod_and_terminal_guards() {
-    let rest = include_str!("../../crates/consulting/rest/src/lib.rs");
-    for clause in [
-        "ON CONFLICT (org_id, idempotency_key) DO NOTHING",
-        "idempotency key was already used with a different request payload",
-        "idempotency_response",
-        "require_reference_kind",
-        "a.target_ref=$4",
-        "a.requested_by <> $2",
-        "ON CONFLICT (org_id, approval_id) DO NOTHING",
-        "ensure_writable_engagement",
-        "ORDER BY occurred_at,id",
+async fn assert_terminal_owner_deletes_rejected(
+    pool: &PgPool,
+    engagement_id: Uuid,
+    diagnostic_id: Uuid,
+    finding_id: Uuid,
+    initiative_id: Uuid,
+    observation_id: Uuid,
+) {
+    for (table, id) in [
+        ("consulting_engagements", engagement_id),
+        ("consulting_diagnostics", diagnostic_id),
+        ("consulting_findings", finding_id),
+        ("consulting_initiatives", initiative_id),
+        ("consulting_benefit_observations", observation_id),
     ] {
+        let error = sqlx::query(&format!("DELETE FROM {table} WHERE id=$1"))
+            .bind(id)
+            .execute(pool)
+            .await
+            .expect_err("terminal trigger must reject owner delete");
         assert!(
-            rest.contains(clause),
-            "missing REST/database integration guard: {clause}"
+            error
+                .to_string()
+                .contains("terminal consulting engagement is immutable"),
+            "unexpected owner DELETE error for {table}: {error}"
         );
     }
+}
+
+async fn assert_terminal_trigger(pool: &PgPool, org: OrgId, statement: &str, id: Uuid) {
+    let error = execute_as_org(pool, org, statement, id)
+        .await
+        .expect_err("terminal trigger must reject write");
+    assert!(
+        error
+            .to_string()
+            .contains("terminal consulting engagement is immutable"),
+        "unexpected terminal-write error: {error}"
+    );
+}
+
+async fn execute_as_org(
+    pool: &PgPool,
+    org: OrgId,
+    statement: &str,
+    id: Uuid,
+) -> Result<sqlx::postgres::PgQueryResult, sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    sqlx::query("SELECT set_config('app.current_org', $1, true)")
+        .bind(org.as_uuid().to_string())
+        .execute(tx.as_mut())
+        .await?;
+    let result = sqlx::query(statement).bind(id).execute(tx.as_mut()).await;
+    match result {
+        Ok(result) => {
+            tx.commit().await?;
+            Ok(result)
+        }
+        Err(error) => {
+            let _ = tx.rollback().await;
+            Err(error)
+        }
+    }
+}
+
+async fn transition(
+    service: axum::Router,
+    engagement_id: Uuid,
+    token: &str,
+    to_status: &str,
+    expected_version: i64,
+    approval_id: Option<Uuid>,
+) -> JsonResponse {
+    send(
+        service,
+        "POST",
+        &format!("/api/v1/consulting/engagements/{engagement_id}/transition"),
+        Some(token),
+        Some(json!({
+            "toStatus": to_status,
+            "expectedVersion": expected_version,
+            "approvalId": approval_id,
+            "reason": format!("advance to {to_status}")
+        })),
+    )
+    .await
+}
+
+async fn send(
+    service: axum::Router,
+    method: &str,
+    uri: &str,
+    token: Option<&str>,
+    body: Option<Value>,
+) -> JsonResponse {
+    let mut builder = Request::builder().method(method).uri(uri);
+    if let Some(token) = token {
+        builder = builder.header(header::AUTHORIZATION, format!("Bearer {token}"));
+    }
+    if body.is_some() {
+        builder = builder.header(header::CONTENT_TYPE, "application/json");
+    }
+    let response = service
+        .oneshot(
+            builder
+                .body(body.map_or_else(Body::empty, |body| Body::from(body.to_string())))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    let status = response.status();
+    let bytes = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+    let json = serde_json::from_slice(&bytes).unwrap_or_else(|_| json!({}));
+    JsonResponse { status, json }
+}
+
+fn response_uuid(value: &Value, field: &str) -> Uuid {
+    value[field]
+        .as_str()
+        .unwrap_or_else(|| panic!("response field {field} must be a UUID: {value}"))
+        .parse()
+        .unwrap()
+}
+
+fn keys() -> Keys {
+    let signing_key = SigningKey::random(&mut OsRng);
+    Keys {
+        private_pem: signing_key
+            .to_pkcs8_pem(LineEnding::LF)
+            .unwrap()
+            .to_string(),
+        public_pem: signing_key
+            .verifying_key()
+            .to_public_key_pem(LineEnding::LF)
+            .unwrap(),
+    }
+}
+
+fn bearer(keys: &Keys, user_id: UserId, org: OrgId) -> String {
+    JwtIssuer::from_es256_pem(
+        JwtSettings {
+            issuer: TEST_ISSUER.to_owned(),
+            audience: TEST_AUDIENCE.to_owned(),
+            access_token_ttl: Duration::minutes(15),
+        },
+        keys.private_pem.as_bytes(),
+        keys.public_pem.as_bytes(),
+    )
+    .unwrap()
+    .issue_access_token(AccessTokenInput {
+        subject: user_id,
+        org_id: org,
+        roles: vec!["SUPER_ADMIN".to_owned()],
+        branches: Vec::<BranchId>::new(),
+        platform: false,
+        view_as: false,
+        read_only: false,
+        display_name: None,
+        feature_grants: Vec::new(),
+        authz_subject_version: 0,
+        authz_policy_version: 0,
+        session_generation: 0,
+        issued_at: OffsetDateTime::now_utc(),
+    })
+    .unwrap()
+}
+
+fn app_state(pool: PgPool, keys: &Keys) -> AppState {
+    let config = AppConfig::from_pairs([
+        ("MNT_APP_ROLE", AppRole::Api.to_string()),
+        ("MNT_HTTP_ADDR", "127.0.0.1:0".to_owned()),
+        ("MNT_JWT_ISSUER", TEST_ISSUER.to_owned()),
+        ("MNT_JWT_AUDIENCE", TEST_AUDIENCE.to_owned()),
+        ("MNT_JWT_PUBLIC_KEY_PEM", keys.public_pem.clone()),
+    ])
+    .unwrap();
+    AppState::new(config, DatabaseDependency::Postgres(pool)).unwrap()
+}
+
+async fn runtime_role_pool(owner_pool: &PgPool) -> PgPool {
+    PgPoolOptions::new()
+        .max_connections(8)
+        .after_connect(|connection, _meta| {
+            Box::pin(async move {
+                sqlx::query("SET ROLE mnt_rt").execute(connection).await?;
+                Ok(())
+            })
+        })
+        .connect_with(owner_pool.connect_options().as_ref().clone())
+        .await
+        .unwrap()
+}
+
+async fn seed_fixture(pool: &PgPool) -> Fixture {
+    let org = OrgId::knl();
+    let other_org = OrgId::from_uuid(Uuid::new_v4());
+    seed_org(pool, org, "knl", "KNL").await;
+    seed_org(pool, other_org, "consulting-other", "Consulting Other").await;
+
+    let requester = UserId::new();
+    let approver = UserId::new();
+    let other_user = UserId::new();
+    seed_user(pool, org, requester, "Consulting Requester").await;
+    seed_user(pool, org, approver, "Consulting Approver").await;
+    seed_user(pool, other_org, other_user, "Other Tenant User").await;
+    seed_consulting_policy(pool, org, &[requester, approver]).await;
+
+    let branch = seed_branch(pool, org, "Consulting Primary").await;
+    let other_branch = seed_branch(pool, other_org, "Consulting Other").await;
+    let customer = seed_customer(pool, org, branch, "Consulting Customer").await;
+    let other_customer =
+        seed_customer(pool, other_org, other_branch, "Other Tenant Customer").await;
+
+    let document = seed_reference(pool, org, requester, "DOCUMENT").await;
+    let ontology = seed_reference(pool, org, requester, "ONTOLOGY_INSTANCE").await;
+    let evidence = seed_reference(pool, org, requester, "EVIDENCE").await;
+    let kpi = seed_reference(pool, org, requester, "KPI_DEFINITION").await;
+
+    let other_org_engagement: Uuid = sqlx::query_scalar(
+        "INSERT INTO consulting_engagements \
+         (org_id, customer_id, title, idempotency_key, idempotency_request_hash, created_by) \
+         VALUES ($1, $2, 'Other tenant engagement', 'other-tenant-key', \
+         'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', $3) \
+         RETURNING id",
+    )
+    .bind(*other_org.as_uuid())
+    .bind(other_customer)
+    .bind(*other_user.as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap();
+
+    Fixture {
+        org,
+        other_org_engagement,
+        requester,
+        approver,
+        customer,
+        document,
+        ontology,
+        evidence,
+        kpi,
+    }
+}
+
+async fn seed_org(pool: &PgPool, org: OrgId, slug: &str, name: &str) {
+    sqlx::query(
+        "INSERT INTO organizations (id, slug, name) VALUES ($1, $2, $3) \
+         ON CONFLICT (id) DO NOTHING",
+    )
+    .bind(*org.as_uuid())
+    .bind(slug)
+    .bind(name)
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+async fn seed_user(pool: &PgPool, org: OrgId, user: UserId, name: &str) {
+    sqlx::query(
+        "INSERT INTO users (id, display_name, roles, is_active, org_id) \
+         VALUES ($1, $2, $3, true, $4)",
+    )
+    .bind(*user.as_uuid())
+    .bind(name)
+    .bind(vec!["SUPER_ADMIN".to_owned()])
+    .bind(*org.as_uuid())
+    .execute(pool)
+    .await
+    .unwrap();
+}
+
+async fn seed_consulting_policy(pool: &PgPool, org: OrgId, users: &[UserId]) {
+    let role_id: Uuid = sqlx::query_scalar(
+        "INSERT INTO policy_roles \
+         (org_id, role_key, display_name, status, is_system) \
+         VALUES ($1, 'consulting_test_operator', 'Consulting test operator', 'ACTIVE', false) \
+         RETURNING id",
+    )
+    .bind(*org.as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    for feature in ["consulting_read", "consulting_manage"] {
+        sqlx::query(
+            "INSERT INTO policy_role_permissions \
+             (org_id, role_id, feature_key, permission_level) \
+             VALUES ($1, $2, $3, 'allow')",
+        )
+        .bind(*org.as_uuid())
+        .bind(role_id)
+        .bind(feature)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+    for user in users {
+        sqlx::query(
+            "INSERT INTO user_role_assignments (org_id, user_id, role_id) \
+             VALUES ($1, $2, $3)",
+        )
+        .bind(*org.as_uuid())
+        .bind(*user.as_uuid())
+        .bind(role_id)
+        .execute(pool)
+        .await
+        .unwrap();
+    }
+}
+
+async fn seed_branch(pool: &PgPool, org: OrgId, name: &str) -> Uuid {
+    let region: Uuid =
+        sqlx::query_scalar("INSERT INTO regions (org_id, name) VALUES ($1, $2) RETURNING id")
+            .bind(*org.as_uuid())
+            .bind(format!("{name} Region"))
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    sqlx::query_scalar(
+        "INSERT INTO branches (org_id, region_id, name) VALUES ($1, $2, $3) RETURNING id",
+    )
+    .bind(*org.as_uuid())
+    .bind(region)
+    .bind(name)
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+async fn seed_customer(pool: &PgPool, org: OrgId, branch: Uuid, name: &str) -> Uuid {
+    sqlx::query_scalar(
+        "INSERT INTO registry_customers (org_id, branch_id, name) \
+         VALUES ($1, $2, $3) RETURNING id",
+    )
+    .bind(*org.as_uuid())
+    .bind(branch)
+    .bind(name)
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+async fn seed_reference(pool: &PgPool, org: OrgId, actor: UserId, kind: &str) -> Uuid {
+    sqlx::query_scalar(
+        "INSERT INTO consulting_reference_bindings \
+         (org_id, source_kind, source_id, source_version, evaluated_by) \
+         VALUES ($1, $2, $3, 'v1', $4) RETURNING id",
+    )
+    .bind(*org.as_uuid())
+    .bind(kind)
+    .bind(Uuid::new_v4())
+    .bind(*actor.as_uuid())
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+async fn seed_approval(
+    pool: &PgPool,
+    org: OrgId,
+    requester: UserId,
+    approver: UserId,
+    engagement_id: Uuid,
+) -> Uuid {
+    sqlx::query_scalar(
+        "INSERT INTO gov_approvals \
+         (org_id, request_ref, kind, requested_by, approver_id, decision, target_ref) \
+         VALUES ($1, $2, 'consulting.engagement.approval', $3, $4, 'approved', $5) \
+         RETURNING id",
+    )
+    .bind(*org.as_uuid())
+    .bind(Uuid::new_v4())
+    .bind(*requester.as_uuid())
+    .bind(*approver.as_uuid())
+    .bind(engagement_id)
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+async fn count_engagements(pool: &PgPool, org: OrgId, key: &str) -> i64 {
+    sqlx::query_scalar(
+        "SELECT count(*) FROM consulting_engagements WHERE org_id=$1 AND idempotency_key=$2",
+    )
+    .bind(*org.as_uuid())
+    .bind(key)
+    .fetch_one(pool)
+    .await
+    .unwrap()
+}
+
+async fn approval_consumptions(pool: &PgPool, approval_id: Uuid) -> i64 {
+    sqlx::query_scalar("SELECT count(*) FROM gov_approval_consumptions WHERE approval_id=$1")
+        .bind(approval_id)
+        .fetch_one(pool)
+        .await
+        .unwrap()
 }
