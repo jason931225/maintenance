@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { createConsoleApiClient } from "../../../api/client";
 import { AuthContext, type AuthContextValue } from "../../../context/auth";
+import { ko } from "../../../i18n/ko";
 import type { components } from "@maintenance/api-client-ts";
 import { PurchaseRequestsWorkspace } from "./PurchaseRequestsWorkspace";
 
@@ -118,6 +119,7 @@ describe("PurchaseRequestsWorkspace", () => {
     );
 
     expect(await screen.findByRole("heading", { name: "구매요청서" })).toBeVisible();
+    expect(screen.getByRole("region", { name: ko.financial.purchase.workspaceAria })).toBeVisible();
     expect(GET).toHaveBeenCalledWith(
       "/api/v1/financial/purchase-requests",
       expect.objectContaining({

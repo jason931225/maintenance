@@ -1,5 +1,6 @@
 import type { ConsoleApiClient } from "../../../api/client";
 import { PurchaseRequestPanel } from "../../../features/financial/PurchaseRequestPanel";
+import { ko } from "../../../i18n/ko";
 
 interface PurchaseRequestsWorkspaceProps {
   api: ConsoleApiClient;
@@ -14,7 +15,7 @@ interface PurchaseRequestsWorkspaceProps {
  */
 export function PurchaseRequestsWorkspace({ api, roles }: PurchaseRequestsWorkspaceProps) {
   return (
-    <section aria-label="구매요청 작업공간" className="px-6 pb-6">
+    <section aria-label={ko.financial.purchase.workspaceAria} className="px-6 pb-6">
       <PurchaseRequestPanel api={api} roles={roles} />
     </section>
   );

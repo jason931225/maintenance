@@ -7317,6 +7317,7 @@ export const ko = {
       selected: "선택된 장비",
     },
     purchase: {
+      workspaceAria: "구매요청 작업공간",
       listTitle: "구매요청서",
       listDescription: "구매요청서를 작성하고 결재·집행 단계를 진행합니다.",
       createTitle: "구매요청서 작성",
