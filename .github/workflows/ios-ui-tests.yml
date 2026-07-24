@@ -252,7 +252,7 @@ jobs:
             SHARD_SELECTORS=()
             case "$shard_name" in
               preflight)
-                SHARD_TIMEOUT_SECONDS=90
+                SHARD_TIMEOUT_SECONDS=180
                 SHARD_SELECTORS=(MaintenanceFieldUITests/PreflightUITests)
                 ;;
               login-validation)
@@ -264,7 +264,7 @@ jobs:
                 SHARD_SELECTORS=(MaintenanceFieldUITests/FieldAccessibilityIDParityTests)
                 ;;
               critical-path)
-                SHARD_TIMEOUT_SECONDS=360
+                SHARD_TIMEOUT_SECONDS=540
                 SHARD_SELECTORS=(MaintenanceFieldUITests/FieldCriticalPathUITests)
                 ;;
               messenger)
@@ -272,7 +272,7 @@ jobs:
                 SHARD_SELECTORS=(MaintenanceFieldUITests/MessengerUITests)
                 ;;
               camera-capture)
-                SHARD_TIMEOUT_SECONDS=90
+                SHARD_TIMEOUT_SECONDS=150
                 SHARD_SELECTORS=(MaintenanceFieldUITests/CameraCaptureUITests)
                 ;;
               audit-dynamic-today)

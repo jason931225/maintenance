@@ -347,13 +347,13 @@ func scrollToElement(
         if element.exists, element.isHittable { return element }
     }
 
-    // Drag through the Form's trailing gutter rather than the centered
-    // multiline editor or the leading-edge navigation gesture region. A
-    // focused TextField consumes center-origin gestures, while a leading-edge
-    // drag can be claimed by NavigationStack before the Form applies its
-    // immediate keyboard-dismiss policy.
+    // Drag through the Form's interior trailing gutter rather than the
+    // centered multiline editor, the leading-edge navigation gesture region,
+    // or the system scroll-indicator strip. A focused TextField consumes
+    // center-origin gestures, while either edge can claim a drag before the
+    // Form applies its immediate keyboard-dismiss policy.
     let origin = container.coordinate(withNormalizedOffset: .zero)
-    let trailingGutterX = max(container.frame.width - 8, 8)
+    let trailingGutterX = max(container.frame.width * 0.9, 8)
     let dragStart = origin.withOffset(
         CGVector(dx: trailingGutterX, dy: container.frame.height * 0.50)
     )

@@ -59,7 +59,7 @@ final class MessengerUITests: FieldUITestCase {
         }
 
         let origin = list.coordinate(withNormalizedOffset: .zero)
-        let trailingGutterX = max(list.frame.width - 8, 8)
+        let trailingGutterX = max(list.frame.width * 0.9, 8)
         let dragStart = origin.withOffset(CGVector(dx: trailingGutterX, dy: list.frame.height * 0.72))
         let dragEnd = origin.withOffset(CGVector(dx: trailingGutterX, dy: list.frame.height * 0.48))
         for _ in 0..<maxSwipes {

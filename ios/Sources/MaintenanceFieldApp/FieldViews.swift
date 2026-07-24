@@ -98,9 +98,9 @@ private struct UnobscuredTabContent<Content: View>: View {
     var body: some View {
         #if os(iOS)
         if #available(iOS 26.0, *) {
-            // Keep the UIKit probe in the outer tab-content shell.  The content it
-            // measures is intentionally a sibling of the padded SwiftUI tree so a
-            // newly reported inset cannot change the probe's own coordinate space.
+            // Keep the UIKit probe in the outer tab-content shell. The content it
+            // measures is intentionally a sibling of the constrained SwiftUI tree
+            // so a newly reported inset cannot change the probe's coordinate space.
             ZStack {
                 TabBarContentLayoutGuideProbe { measuredInsets in
                     guard contentInsets.isApproximatelyEqual(to: measuredInsets) == false else {
@@ -112,8 +112,21 @@ private struct UnobscuredTabContent<Content: View>: View {
                 .allowsHitTesting(false)
                 .accessibilityHidden(true)
 
-                content
-                    .padding(contentInsets.edgeInsets)
+                GeometryReader { geometry in
+                    content
+                        .frame(
+                            width: Swift.max(
+                                geometry.size.width - contentInsets.leading - contentInsets.trailing,
+                                0
+                            ),
+                            height: Swift.max(
+                                geometry.size.height - contentInsets.top - contentInsets.bottom,
+                                0
+                            ),
+                            alignment: .topLeading
+                        )
+                        .offset(x: contentInsets.leading, y: contentInsets.top)
+                }
             }
         } else {
             content
@@ -131,10 +144,6 @@ private struct TabBarContentInsets: Equatable {
     let leading: CGFloat
     let bottom: CGFloat
     let trailing: CGFloat
-
-    var edgeInsets: EdgeInsets {
-        EdgeInsets(top: top, leading: leading, bottom: bottom, trailing: trailing)
-    }
 
     func isApproximatelyEqual(to other: TabBarContentInsets) -> Bool {
         abs(top - other.top) < 0.5
@@ -1108,9 +1117,10 @@ struct MessengerMessageRow: View {
             if currentUserID == message.senderID, message.readTargetCount > 0 {
                 Text(localizedString("messenger_read_progress_format", message.readCount, message.readTargetCount))
                     .font(.caption)
+                    .foregroundStyle(.primary)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
-                    .background(.thinMaterial, in: Capsule())
+                    .background(Color.primary.opacity(0.12), in: Capsule())
             }
             messageContent
         }
@@ -1474,7 +1484,7 @@ struct FieldChip: View {
             .foregroundStyle(.primary)
             .padding(.horizontal, 8)
             .padding(.vertical, 4)
-            .background(.thinMaterial, in: Capsule())
+            .background(Color.primary.opacity(0.12), in: Capsule())
     }
 }
 

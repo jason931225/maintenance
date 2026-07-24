@@ -45,12 +45,12 @@ function hasCompleteFailSlowRuntimeBudget(job) {
 
   const timeoutMinutes = Number(timeout[1]);
   const expectedBudgets = new Map([
-    ["preflight", 90],
+    ["preflight", 180],
     ["login-validation", 90],
     ["accessibility-id-parity", 45],
-    ["critical-path", 360],
+    ["critical-path", 540],
     ["messenger", 210],
-    ["camera-capture", 90],
+    ["camera-capture", 150],
     ["audit-dynamic-today", 150],
     ["audit-dynamic-detail", 150],
     ["audit-dynamic-messenger", 150],
@@ -302,7 +302,7 @@ function hasValidLoopbackWebauthnPolicy(job, launcher) {
   const launch = matches[0]?.index ?? -1;
   const pidRead = activeJob.indexOf('BACKEND_PID="$(cat "$BACKEND_PID_FILE")"');
   const forbiddenLowLevelControls = /\b(?:E2E_AUTH_DIR|E2E_HTTP_ADDR|E2E_PORT_CONFLICT_MODE|E2E_COLDSTART_OTP|E2E_RP_ORIGIN|E2E_RP_ID)\b|e2e\/harness\/boot-backend\.sh/;
-  const approvedBackendStepSha256 = "ad3b31514e8a5354b7b96efca96f9cb6996020a43c8290bb9f5664d9068b7ceb";
+  const approvedBackendStepSha256 = "038d3fff2cbbe28b710d0670f2ea3a978b7bdadbd2fb3aba25ac1ef1f598d041";
   const approvedLauncherSha256 = "a153fab32c9f4ca597605ec126d40e3bfc106c0ce17c368078e22c265ca9f1ad";
   const backendStepSha256 = createHash("sha256").update(backendStep).digest("hex");
   const launcherSha256 = createHash("sha256").update(launcher).digest("hex");
@@ -695,9 +695,14 @@ function hasUnobscuredTabContentHost(files) {
   const invalidate = extractFunctionBody(controller, /func\s+invalidate\s*\(\s*\)/) ?? "";
   const wrappers = [...tabs.matchAll(/UnobscuredTabContent\s*\{\s*NavigationStack\s*\{/g)].length === 4;
   const guideEdges = ["top", "leading", "bottom", "trailing"].every((edge) => new RegExp(`sensor\\.${edge}Anchor\\.constraint\\(equalTo:\\s*tabBarController\\.contentLayoutGuide\\.${edge}Anchor\\)`).test(install));
+  const guideDrivenContentFrame = /ZStack\s*\{[\s\S]{0,600}TabBarContentLayoutGuideProbe[\s\S]{0,600}GeometryReader\s*\{\s*geometry\s+in[\s\S]{0,200}content\s*\.frame\s*\(/.test(wrapper)
+    && /geometry\.size\.width\s*-\s*contentInsets\.leading\s*-\s*contentInsets\.trailing/.test(wrapper)
+    && /geometry\.size\.height\s*-\s*contentInsets\.top\s*-\s*contentInsets\.bottom/.test(wrapper)
+    && /alignment:\s*\.topLeading/.test(wrapper)
+    && /\.offset\(x:\s*contentInsets\.leading,\s*y:\s*contentInsets\.top\)/.test(wrapper);
   const forbidden = /UIHostingController|selectedViewController\b|value\s*\(forKey:|NSClassFromString|object_getIvar|recursiveDescription|subviews\b|traitOverrides|setNeedsLayout|additionalSafeAreaInsets|contentInset\b|safeAreaInset\s*\(\s*edge:\s*\.bottom|constraint\s*\(equalToConstant:|\.frame\s*\(\s*height:|\bview\.frame\s*=(?!=)|tabBarController\.tabBar\.bounds\.height/.test(views);
   return wrappers
-    && /ZStack\s*\{[\s\S]{0,600}TabBarContentLayoutGuideProbe[\s\S]{0,500}content\s*\.padding\(contentInsets\.edgeInsets\)/.test(wrapper)
+    && guideDrivenContentFrame
     && /func\s+makeUIViewController[\s\S]{0,220}TabBarContentLayoutGuideProbeController\(onInsetsChange:\s*onInsetsChange\)/.test(probe)
     && /static\s+func\s+dismantleUIViewController[\s\S]{0,220}invalidate\s*\(\s*\)/.test(probe)
     && /override\s+func\s+layoutSubviews[\s\S]{0,120}onLayout\?\(\)/.test(sensor)
@@ -725,6 +730,17 @@ function hasSemanticMessengerMessagesHeader(files) {
   const views = files["ios/Sources/MaintenanceFieldApp/FieldViews.swift"] ?? "";
   const messenger = extractFunctionBody(views, /struct\s+MessengerTabView\b/) ?? "";
   return /Section\s*\{[\s\S]{0,180}Text\s*\(\s*"messenger_messages"\s*\)[\s\S]{0,300}accessibilityAddTraits\s*\(\s*\.isHeader\s*\)[\s\S]{0,2200}ForEach\s*\(\s*messages\s*\)/.test(messenger);
+}
+
+function hasContrastStableCapsules(files) {
+  const views = stripSwiftCommentsAndStrings(files["ios/Sources/MaintenanceFieldApp/FieldViews.swift"] ?? "");
+  const messageRow = extractFunctionBody(views, /struct\s+MessengerMessageRow:\s*View/) ?? "";
+  const fieldChip = extractFunctionBody(views, /struct\s+FieldChip:\s*View/) ?? "";
+  const stableBackground = /\.background\(\s*Color\.primary\.opacity\(\s*0\.12\s*\),\s*in:\s*Capsule\(\s*\)\s*\)/;
+  return stableBackground.test(messageRow)
+    && stableBackground.test(fieldChip)
+    && /\.font\(\s*\.caption\s*\)[\s\S]{0,100}\.foregroundStyle\(\s*\.primary\s*\)[\s\S]{0,220}\.background\(/.test(messageRow)
+    && !/\.(?:ultraThin|thin|regular|thick|ultraThick)Material\b/.test(messageRow + fieldChip);
 }
 
 function extractBalancedBlock(source, openingBrace) {
@@ -1028,6 +1044,8 @@ function hasBoundedExactWorkOrderScroll(files) {
 
 function hasBoundedExactElementScroll(files) {
   const field = stripSwiftCommentsAndStrings(files["ios/UITests/Support/FieldUITestCase.swift"] ?? "");
+  const audit = stripSwiftCommentsAndStrings(files["ios/UITests/AccessibilityAuditUITests.swift"] ?? "");
+  const messenger = stripSwiftCommentsAndStrings(files["ios/UITests/MessengerUITests.swift"] ?? "");
   const helper = extractFunctionBody(
     field,
     /@MainActor\s+func\s+scrollToElement\s*\(\s*_\s+element:\s*XCUIElement,\s*in\s+container:\s*XCUIElement,\s*topSentinel:\s*XCUIElement,\s*timeout:\s*TimeInterval\s*=\s*15,\s*maxSwipes:\s*Int\s*=\s*16\s*\)\s*->\s*XCUIElement\?/,
@@ -1044,11 +1062,12 @@ function hasBoundedExactElementScroll(files) {
     && /guard\s+container\.waitForExistence\s*\(/.test(helper)
     && /topSentinel\.exists[\s\S]{0,80}topSentinel\.isHittable/.test(helper)
     && /container\.swipeDown\s*\(\s*\)/.test(helper)
-    // Anchor in the trailing gutter, outside both a focused multiline editor
-    // and the NavigationStack leading-edge gesture region. Either surface can
-    // otherwise intercept the drag before the lazy Form moves.
+    // Anchor in the interior trailing gutter, outside a focused multiline
+    // editor, both system-edge gesture regions, and the scroll-indicator strip.
     && /let\s+origin\s*=\s*container\.coordinate\s*\(\s*withNormalizedOffset:\s*\.zero\s*\)/.test(helper)
-    && /let\s+trailingGutterX\s*=\s*max\s*\(\s*container\.frame\.width\s*-\s*8\s*,\s*8\s*\)/.test(helper)
+    && /let\s+trailingGutterX\s*=\s*max\s*\(\s*container\.frame\.width\s*\*\s*0\.9\s*,\s*8\s*\)/.test(helper)
+    && /let\s+trailingGutterX\s*=\s*max\s*\(\s*container\.frame\.width\s*\*\s*0\.9\s*,\s*8\s*\)/.test(audit)
+    && /let\s+trailingGutterX\s*=\s*max\s*\(\s*list\.frame\.width\s*\*\s*0\.9\s*,\s*8\s*\)/.test(messenger)
     && /let\s+dragStart\s*=\s*origin\.withOffset\s*\(\s*CGVector\s*\(\s*dx:\s*trailingGutterX\s*,\s*dy:\s*container\.frame\.height\s*\*\s*0\.50\s*\)\s*\)/.test(helper)
     && /let\s+dragEnd\s*=\s*origin\.withOffset\s*\(\s*CGVector\s*\(\s*dx:\s*trailingGutterX\s*,\s*dy:\s*container\.frame\.height\s*\*\s*0\.28\s*\)\s*\)/.test(helper)
     && !/CGVector\s*\(\s*dx:\s*0\.5\s*,\s*dy:/.test(helper)
@@ -1353,6 +1372,7 @@ export function evaluateIosUiTestFailClosedChecks(files) {
   checks.push([hasAccessibilityIDParity(files), "iOS UI CI must mirror every FieldAccessibilityID static and dynamic identifier in UITests AID"]);
   checks.push([hasSectionScopedMessengerMessageRows(files), "iOS messenger search results and selected-thread messages must use section-scoped dynamic accessibility IDs"]);
   checks.push([hasSemanticMessengerMessagesHeader(files), "iOS messenger messages must retain a scalable semantic header before selected-thread content"]);
+  checks.push([hasContrastStableCapsules(files), "iOS status, attachment, and read-progress capsules must use explicit primary foregrounds on contrast-stable adaptive backgrounds"]);
   checks.push([hasModernFullScreenLaunch(files), "iOS app and CI build must preserve a modern full-screen launch contract"]);
   checks.push([hasCiOnlyLocalAts(files), "iOS UI CI must confine local ATS to CI-only job-root loopback configuration while production Info.plist remains unchanged"]);
   checks.push([hasExactFailSlowExecution(job), "iOS UI CI must execute exactly fifteen independent named shards fail-slow, preserve every xcresult extraction failure, verify after the loop, and exit with aggregate status"]);

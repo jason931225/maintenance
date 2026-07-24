@@ -65,7 +65,7 @@ describe("iOS hermetic UI CI contract", () => {
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow("timeout-minutes: 90", "timeout-minutes: 180") }), "exceeding 90 minutes");
     expectsFailure(evaluate({ ".github/workflows/ios-ui-tests.yml": mutateWorkflow(
       `critical-path)
-                SHARD_TIMEOUT_SECONDS=360`,
+                SHARD_TIMEOUT_SECONDS=540`,
       `critical-path)
                 SHARD_TIMEOUT_SECONDS=900`,
     ) }), "measured per-named-shard budgets");
@@ -473,6 +473,8 @@ let forbiddenHost = UIHostingController(rootView: EmptyView())` }), "public cont
     expectsFailure(evaluate({ "ios/Sources/MaintenanceFieldApp/FieldViews.swift": mutateFile(fieldViews, "tabBarController.view.window === window", "true") }), guideGate);
     expectsFailure(evaluate({ "ios/Sources/MaintenanceFieldApp/FieldViews.swift": mutateFile(fieldViews, "sensorSuperview.convert(sensor.frame, to: view)", "sensor.frame") }), guideGate);
     expectsFailure(evaluate({ "ios/Sources/MaintenanceFieldApp/FieldViews.swift": mutateFile(fieldViews, "layoutDirection == .rightToLeft ? right : left", "left") }), guideGate);
+    expectsFailure(evaluate({ "ios/Sources/MaintenanceFieldApp/FieldViews.swift": mutateFile(fieldViews, "geometry.size.height - contentInsets.top - contentInsets.bottom", "geometry.size.height") }), guideGate);
+    expectsFailure(evaluate({ "ios/Sources/MaintenanceFieldApp/FieldViews.swift": mutateFile(fieldViews, ".offset(x: contentInsets.leading, y: contentInsets.top)", ".offset(x: 0, y: 0)") }), guideGate);
     expectsFailure(evaluate({ "ios/Sources/MaintenanceFieldApp/FieldViews.swift": mutateFile(fieldViews, `if parent == nil {
             invalidate()`, `if parent == nil {
             requestMeasurement()`) }), guideGate);
@@ -503,6 +505,27 @@ ${forbidden}` }), "public content-layout-guide sensor/probe");
     expectsFailure(evaluate({
       "ios/Sources/MaintenanceFieldApp/FieldViews.swift": mutateFile(fieldViews, ".accessibilityAddTraits(.isHeader)", ""),
     }), "scalable semantic header");
+  });
+  it("rejects translucent or implicit-foreground status capsules", () => {
+    const fieldViews = validFiles["ios/Sources/MaintenanceFieldApp/FieldViews.swift"];
+    const contrastGate = "contrast-stable adaptive backgrounds";
+    expectsFailure(evaluate({
+      "ios/Sources/MaintenanceFieldApp/FieldViews.swift": mutateFile(
+        fieldViews,
+        ".background(Color.primary.opacity(0.12), in: Capsule())",
+        ".background(.thinMaterial, in: Capsule())",
+      ),
+    }), contrastGate);
+    expectsFailure(evaluate({
+      "ios/Sources/MaintenanceFieldApp/FieldViews.swift": mutateFile(
+        fieldViews,
+        `.font(.caption)
+                    .foregroundStyle(.primary)
+                    .padding(.horizontal, 8)`,
+        `.font(.caption)
+                    .padding(.horizontal, 8)`,
+      ),
+    }), contrastGate);
   });
   it("rejects a preflight that proves only an authenticated shell", () => {
     const fieldCase = validFiles["ios/UITests/Support/FieldUITestCase.swift"];
@@ -604,6 +627,8 @@ ${forbidden}` }), "public content-layout-guide sensor/probe");
     const lazyScroll = "deadline-bounded exact-element scroll";
     const fieldCase = validFiles["ios/UITests/Support/FieldUITestCase.swift"];
     const fieldViews = validFiles["ios/Sources/MaintenanceFieldApp/FieldViews.swift"];
+    const auditTests = validFiles["ios/UITests/AccessibilityAuditUITests.swift"];
+    const messengerTests = validFiles["ios/UITests/MessengerUITests.swift"];
     expectsFailure(evaluate({
       "ios/UITests/Support/FieldUITestCase.swift": fieldCase.replaceAll("let deadline = Date().addingTimeInterval(timeout)", "let deadline = Date()"),
     }), lazyScroll);
@@ -630,8 +655,28 @@ ${forbidden}` }), "public content-layout-guide sensor/probe");
     }), lazyScroll);
     expectsFailure(evaluate({
       "ios/UITests/Support/FieldUITestCase.swift": fieldCase.replace(
+        "let trailingGutterX = max(container.frame.width * 0.9, 8)",
         "let trailingGutterX = max(container.frame.width - 8, 8)",
+      ),
+    }), lazyScroll);
+    expectsFailure(evaluate({
+      "ios/UITests/Support/FieldUITestCase.swift": fieldCase.replace(
+        "let trailingGutterX = max(container.frame.width * 0.9, 8)",
         "let trailingGutterX = 8",
+      ),
+    }), lazyScroll);
+    expectsFailure(evaluate({
+      "ios/UITests/AccessibilityAuditUITests.swift": mutateFile(
+        auditTests,
+        "let trailingGutterX = max(container.frame.width * 0.9, 8)",
+        "let trailingGutterX = max(container.frame.width - 8, 8)",
+      ),
+    }), lazyScroll);
+    expectsFailure(evaluate({
+      "ios/UITests/MessengerUITests.swift": mutateFile(
+        messengerTests,
+        "let trailingGutterX = max(list.frame.width * 0.9, 8)",
+        "let trailingGutterX = max(list.frame.width - 8, 8)",
       ),
     }), lazyScroll);
     expectsFailure(evaluate({

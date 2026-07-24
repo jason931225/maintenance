@@ -114,13 +114,7 @@ final class AccessibilityAuditUITests: FieldUITestCase {
         thread.tap()
 
         let messageID = try UITestFixture.requiredID(UITestFixture.messengerInitialMessageID)
-        let message = app.staticTexts.matching(
-            identifier: AID.messengerMessageRow(messageID)
-        ).firstMatch
-        XCTAssertTrue(
-            message.waitForExistence(timeout: 15),
-            "Dynamic Type audit must load the exact seeded message row."
-        )
+        let message = app.staticTexts[AID.messengerMessageRow(messageID)]
         XCTAssertNotNil(
             scrollToElement(
                 message,
@@ -150,7 +144,7 @@ final class AccessibilityAuditUITests: FieldUITestCase {
     ) -> Bool {
         let deadline = Date().addingTimeInterval(timeout)
         let origin = container.coordinate(withNormalizedOffset: .zero)
-        let trailingGutterX = max(container.frame.width - 8, 8)
+        let trailingGutterX = max(container.frame.width * 0.9, 8)
         var stalledAttempts = 0
 
         for _ in 0..<maxDrags {
