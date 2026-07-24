@@ -47,7 +47,13 @@ patterns, and a `writer-snapshot` drift gate. The validator rejects missing
 artifacts, unresolved targets, raw commands, and overlapping writable faces.
 The no-write preflight snapshots the candidate and executes **every** registered
 gate through the allowlisted writer dispatcher; `cheap` and `expensive` are
-scheduling metadata, never permission to silently skip a gate.
+scheduling metadata, never permission to silently skip a gate. Archive snapshots
+exclude mutable `node_modules`; before any OpenAPI gate runs, the preflight
+requires byte-identical `package.json` and `package-lock.json`, validates every
+lockfile package/link against the caller's installed tree, then creates a
+snapshot-local symlink to that verified tree. Missing or inconsistent
+provenance fails closed—there is no ancestor-directory Node resolution and no
+copy of dependencies or generated output into Git.
 
 This applies to:
 
