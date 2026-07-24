@@ -199,6 +199,7 @@ fn validate_group_roles(group_roles: &[String]) -> Result<(), AuthError> {
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn validate_tenant_context(
     tenant_context: Option<TenantAccessContext>,
     group_context_id: Option<&str>,
@@ -313,6 +314,7 @@ impl JwtIssuer {
             group_roles,
             None,
             None,
+            None,
         )
     }
 
@@ -327,6 +329,7 @@ impl JwtIssuer {
             self.settings.access_token_ttl,
             Some(access_scope),
             group_roles,
+            None,
             None,
             None,
         )
@@ -370,6 +373,7 @@ impl JwtIssuer {
         self.issue_access_token_inner(input, ttl, None, Vec::new(), None, None, None)
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn issue_access_token_inner(
         &self,
         input: AccessTokenInput,

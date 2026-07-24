@@ -112,7 +112,8 @@ pub fn router(state: FacilitiesRestState) -> Router {
             .route(FACILITIES_START_PATH, post(start))
             .route(FACILITIES_SUBMIT_PATH, post(submit))
             .route(FACILITIES_ACCEPT_PATH, post(acceptance))
-            .route(FACILITIES_OBSERVATIONS_PATH, post(observe)),
+            .route(FACILITIES_OBSERVATIONS_PATH, post(observe))
+            .with_state(state),
         verifier,
         pool,
     )
@@ -130,7 +131,7 @@ struct CaseView {
     energy_delta_kwh: Option<String>,
     total_cost_krw: i64,
 }
-#[derive(Deserialize)]
+#[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 struct DueCaseBody {
     obligation_id: Uuid,
@@ -291,7 +292,8 @@ async fn create_due_case(
         None,
         Some(serde_json::json!({"status":"DUE"})),
     )?;
-    with_audit::<_,(),RestError>(&s.pool,e,|tx|Box::pin(async move {sqlx::query("INSERT INTO facilities_cases(id,org_id,branch_id,site_id,obligation_id,status,response_due_at,completion_due_at,acceptance_due_at,occurrence_due_at,request_hash,idempotency_key) VALUES($1,$2,$3,$4,$5,'DUE',$6,$7,$8,$9,$10,$11)").bind(case).bind(*p.org_id.as_uuid()).bind(branch).bind(site).bind(b.obligation_id).bind(due+time::Duration::seconds(i64::from(rd))).bind(due+time::Duration::seconds(i64::from(cd))).bind(due+time::Duration::seconds(i64::from(ad))).bind(due).bind(req_hash).bind(b.idempotency_key).execute(tx.as_mut()).await.map_err(RestError::db)?; history(tx,&p,case,None,"DUE").await?; Ok(())})).await?;
+    let actor = p.clone();
+    with_audit::<_,(),RestError>(&s.pool,e,|tx|Box::pin(async move {sqlx::query("INSERT INTO facilities_cases(id,org_id,branch_id,site_id,obligation_id,status,response_due_at,completion_due_at,acceptance_due_at,occurrence_due_at,request_hash,idempotency_key) VALUES($1,$2,$3,$4,$5,'DUE',$6,$7,$8,$9,$10,$11)").bind(case).bind(*actor.org_id.as_uuid()).bind(branch).bind(site).bind(b.obligation_id).bind(due+time::Duration::seconds(i64::from(rd))).bind(due+time::Duration::seconds(i64::from(cd))).bind(due+time::Duration::seconds(i64::from(ad))).bind(due).bind(req_hash).bind(b.idempotency_key).execute(tx.as_mut()).await.map_err(RestError::db)?; history(tx,&actor,case,None,"DUE").await?; Ok(())})).await?;
     let _ = now;
     get_case_view(&s.pool, &p, case).await.map(Json)
 }
@@ -349,7 +351,7 @@ async fn transition(
     h: &HeaderMap,
     id: Uuid,
     grant: Feature,
-    to: &str,
+    to: &'static str,
     assignee: Option<Uuid>,
     scheduled: Option<time::OffsetDateTime>,
     require_assignee: bool,

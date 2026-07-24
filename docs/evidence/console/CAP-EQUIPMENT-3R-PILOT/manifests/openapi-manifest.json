@@ -1,0 +1,24 @@
+{
+  "module": "CAP-EQUIPMENT-3R-PILOT",
+  "target_file": "backend/openapi/openapi.yaml",
+  "action": "Merge the sibling openapi-fragment.yaml: its `paths` block (12 path keys, 14 operations) into `paths`, and its `components.schemas` block (7 Equipment3r* schemas) into `components.schemas`. All referenced shared components (Uuid schema; Unauthorized/Forbidden/ValidationError responses; bearerAuth) already exist in openapi.yaml.",
+  "fragment": "docs/evidence/console/CAP-EQUIPMENT-3R-PILOT/manifests/openapi-fragment.yaml",
+  "operations": 14,
+  "path_keys": [
+    "/api/v1/equipment-3r/units",
+    "/api/v1/equipment-3r/units/{unit_id}",
+    "/api/v1/equipment-3r/units/{unit_id}/history",
+    "/api/v1/equipment-3r/rental-cases",
+    "/api/v1/equipment-3r/rental-cases/{case_id}",
+    "/api/v1/equipment-3r/rental-cases/{case_id}/approval",
+    "/api/v1/equipment-3r/rental-cases/{case_id}/dispatch",
+    "/api/v1/equipment-3r/rental-cases/{case_id}/handover",
+    "/api/v1/equipment-3r/rental-cases/{case_id}/inspections",
+    "/api/v1/equipment-3r/rental-cases/{case_id}/return",
+    "/api/v1/equipment-3r/rental-cases/{case_id}/assessment",
+    "/api/v1/equipment-3r/dispositions/{disposition_id}/completion"
+  ],
+  "tags": ["equipment-3r"],
+  "tag_rule": "EVERY operation carries tags: [equipment-3r]. A missing per-domain tag regresses the Kotlin client into one monolithic DefaultApi.kt that OOMs kotlinc (PR #261 precedent).",
+  "after_merge": "Regenerate and commit clients/{ts,kotlin,swift}; the three API-drift CI gates (openapi_drift Rust test + check:api-drift:portable + check:api-drift:swift) must all pass."
+}

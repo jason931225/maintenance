@@ -1,5 +1,5 @@
 [package]
-name = "mnt-logistics-adapter-postgres"
+name = "mnt-equipment-rest"
 version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
@@ -7,15 +7,15 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
-hex = { workspace = true }
+axum = { workspace = true }
+mnt-equipment-adapter-postgres = { workspace = true }
+mnt-equipment-application = { workspace = true }
 mnt-kernel-core = { workspace = true }
-mnt-logistics-domain = { workspace = true }
-mnt-platform-db = { workspace = true }
+mnt-platform-auth = { workspace = true }
+mnt-platform-authz = { workspace = true }
 mnt-platform-request-context = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
-sha2 = { workspace = true }
-sqlx = { workspace = true }
-thiserror = { workspace = true }
 time = { workspace = true }
 uuid = { workspace = true }
 

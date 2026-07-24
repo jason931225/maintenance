@@ -1157,6 +1157,7 @@ fn plan_summary(r: sqlx::postgres::PgRow) -> Result<PlanSummary, RestError> {
         first_operation_id: r.try_get("first_operation_id").map_err(RestError::db)?,
         created_at: r.try_get("created_at").map_err(RestError::db)?,
         due_at: r.try_get("due_at").map_err(RestError::db)?,
+        plan_digest: r.try_get("plan_digest").map_err(RestError::db)?,
     })
 }
 fn capacity_slot(r: sqlx::postgres::PgRow) -> Result<CapacitySlot, RestError> {

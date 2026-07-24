@@ -9,16 +9,17 @@ export_file(
 )
 
 rust_library(
-    name = "mnt-logistics-adapter-postgres",
-    mapped_srcs = repo_mapped_srcs("backend/crates/logistics/adapter-postgres", glob(["src/**/*.rs"])),
-    crate = "mnt_logistics_adapter_postgres",
+    name = "mnt-equipment-adapter-postgres",
+    mapped_srcs = repo_mapped_srcs("backend/crates/equipment/adapter-postgres", glob(["src/**/*.rs"])),
+    crate = "mnt_equipment_adapter_postgres",
     edition = "2024",
-    crate_root = "backend/crates/logistics/adapter-postgres/src/lib.rs",
+    crate_root = "backend/crates/equipment/adapter-postgres/src/lib.rs",
     visibility = ["PUBLIC"],
-    env = {"CARGO_MANIFEST_DIR": "backend/crates/logistics/adapter-postgres"},
+    env = {"CARGO_MANIFEST_DIR": "backend/crates/equipment/adapter-postgres"},
     deps = [
+        "//backend/crates/equipment/application:mnt-equipment-application",
+        "//backend/crates/equipment/domain:mnt-equipment-domain",
         "//backend/crates/kernel/core:mnt-kernel-core",
-        "//backend/crates/logistics/domain:mnt-logistics-domain",
         "//backend/crates/platform/db:mnt-platform-db",
         "//backend/crates/platform/request-context:mnt-platform-request-context",
         "//third-party/rust:hex",

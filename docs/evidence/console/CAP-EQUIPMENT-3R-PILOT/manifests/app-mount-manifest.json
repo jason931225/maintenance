@@ -1,0 +1,20 @@
+{
+  "module": "CAP-EQUIPMENT-3R-PILOT",
+  "router_merge": {
+    "target_file": "backend/app/src/lib.rs",
+    "status": "ALREADY APPLIED by this lane (isolated mount commit): imports mnt_equipment_adapter_postgres::PgEquipment3rStore + mnt_equipment_rest::EquipmentRestState, and one .merge(mnt_equipment_rest::router(EquipmentRestState::new(PgEquipment3rStore::new(pool.clone()), state.jwt_verifier.clone()))) immediately after the logistics merge. backend/app/Cargo.toml gained mnt-equipment-adapter-postgres + mnt-equipment-rest; backend/app/BUCK regenerated."
+  },
+  "route_surface_registration": {
+    "target_file": "backend/app/src/lib.rs (CONFIGURED_ROUTE_SURFACES) + backend/app/tests/openapi_drift.rs (CONFIGURED_ROUTE_SOURCES)",
+    "status": "DEFERRED TO INTEGRATOR — registering the surface before openapi.yaml carries the 12 paths would turn the openapi_drift gate red, and both files are collision-heavy across fleet lanes.",
+    "add_to_configured_route_surfaces": {
+      "after": "ConfiguredRouteSurface { name: \"logistics\", ... }",
+      "entry": "ConfiguredRouteSurface { name: \"equipment-3r\", paths: mnt_equipment_rest::EQUIPMENT_3R_ROUTE_PATHS }"
+    },
+    "add_to_openapi_drift_route_sources": {
+      "entry": "RouteSource { name: \"equipment 3R REST router\", surface: \"equipment-3r\", source: include_str!(\"../../crates/equipment/rest/src/lib.rs\"), ignored_route_refs: &[] }"
+    },
+    "ordering": "Apply in the same consolidation commit as the openapi-fragment merge so openapi_yaml_covers_configured_route_inventory stays green.",
+    "route_paths_const": "mnt_equipment_rest::EQUIPMENT_3R_ROUTE_PATHS (12 unique paths, {param} syntax, one entry per axum route registration)"
+  }
+}
