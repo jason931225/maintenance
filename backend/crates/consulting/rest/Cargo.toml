@@ -22,9 +22,9 @@ uuid = { workspace = true }
 
 [dev-dependencies]
 mnt-platform-test-support = { path = "../../platform/test-support" }
-p256 = { workspace = true }
+p256 = { version = "0.13.2", features = ["ecdsa", "pkcs8", "pem"] }
 tokio = { workspace = true }
-tower = { workspace = true }
+tower = { workspace = true, features = ["util"] }
 
 [lints]
 workspace = true
