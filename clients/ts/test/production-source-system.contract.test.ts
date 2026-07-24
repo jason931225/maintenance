@@ -80,6 +80,8 @@ test("Production source-system contracts retain typed receipts, generations, and
   assert.match(schemas, /required: \[branch_id, source_system\]/);
   assert.match(schemas, /Always true for a newly registered or rotated source system/);
   assert.match(schemas, /Always false after a source system is disabled/);
+  assert.match(schemas, /secret: \{type: string, readOnly: true, description: One-time standard-base64 disclosure/);
+  assert.doesNotMatch(schemas, /secret: \{[^\n]*writeOnly:/);
   assert.doesNotMatch(schemas, /\b(principal_id|credential|verifier|mac)\b/i);
   assert.doesNotMatch([ingress, register, rotate, disable, schemas].join("\n"), /\b(verifier|mac)\b/i);
   assert.doesNotMatch(schemas, /nullable:/);
