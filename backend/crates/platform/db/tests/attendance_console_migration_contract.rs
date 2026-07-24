@@ -3,7 +3,7 @@
 //! as the non-owner runtime role, so tenant isolation and least privilege are
 //! not inferred from DDL text alone.
 
-use sqlx::{PgPool, Row};
+use sqlx::{postgres::PgPoolOptions, PgPool, Row};
 use tokio::{
     sync::oneshot,
     time::{sleep, Duration, Instant},
@@ -710,7 +710,17 @@ async fn employee_day_locks_serialize_leave_approval_and_release_terminal_transi
     .await
     .unwrap();
 
-    let assignment_pool = pool.clone();
+    let connection_options = pool.connect_options().as_ref().clone();
+    let assignment_pool = PgPoolOptions::new()
+        .max_connections(1)
+        .connect_with(connection_options.clone())
+        .await
+        .unwrap();
+    let observer_pool = PgPoolOptions::new()
+        .max_connections(1)
+        .connect_with(connection_options)
+        .await
+        .unwrap();
     let (pid_sender, pid_receiver) = oneshot::channel();
     let assignment = tokio::spawn(async move {
         let mut tx = runtime_tx(&assignment_pool, ORG_A).await;
@@ -745,7 +755,7 @@ async fn employee_day_locks_serialize_leave_approval_and_release_terminal_transi
              FROM pg_stat_activity a WHERE a.pid = $1",
         )
         .bind(assignment_pid)
-        .fetch_optional(&pool)
+        .fetch_optional(&observer_pool)
         .await
         .unwrap()
         .unwrap_or(false);
