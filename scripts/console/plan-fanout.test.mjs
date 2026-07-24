@@ -1,351 +1,77 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-
-import {
-  buildFanoutPlan,
-  patternsOverlap,
-} from './plan-fanout.mjs';
-
+import { buildFanoutPlan, normalizePattern, patternsOverlap } from './plan-fanout.mjs';
 const SHA = 'a'.repeat(40);
+const resources = { writer: 1, postgres: 0, browser: 0, ios: 0, graph: 1, cas: 1 };
+function cap(id, roots, patch = {}) { return { id, label: id, priority: { score: .7, inputs: { correctness_and_risk_reduction: .8, verification_readiness: .9 } }, dependencies: [], owner: `owner-${id}`, worktree: `/tmp/${id}`, branch: `codex/${id}`, ownership: { frontend_roots: roots.filter((root) => root.startsWith('web/')), backend_roots: roots.filter((root) => root.startsWith('backend/')), api_schema_roots: [], migration_owner: 'not_applicable', integration_owner: 'console-consolidation' }, signature_story: { id: `STORY-${id}`, outcome: id }, evidence_path: `docs/evidence/${id}`, tests: { leaf_commands: ['git diff --check'], buck2_targets: roots.some((root) => root.startsWith('backend/')) ? ['//backend/example:test'] : [] }, resource_requirements: resources, state: { backend: roots.some((root) => root.startsWith('backend/')) ? 'writer_assigned_in_progress' : 'not_applicable', frontend: roots.some((root) => root.startsWith('web/')) ? 'writer_assigned_in_progress' : 'not_applicable', independent_review: 'missing', production_exposure: 'dark' }, ...patch }; }
+function reg(capabilities, patch = {}) { return { schema_version: 'console-capability-registry-v1', source_revision: `git@${SHA}`, resource_budgets: { writer: 3, postgres: 1, browser: 1, ios: 1, graph: 3, cas: 3 }, shared_collision_roots: { owner: 'console-consolidation', generated_face_registry: 'tools/buck/generated_face_registry.json', paths: ['backend/openapi/openapi.yaml', 'backend/crates/platform/db/migrations/**', 'web/src/console/screens/registry.ts'] }, capabilities, ...patch }; }
+const faces = { schema_version: 2, faces: [{ id: 'buck', output_patterns: ['clients/ts/src/schema.d.ts'] }] };
+function plan(capabilities, options = {}) { return buildFanoutPlan(reg(capabilities), { anchorSha: SHA, maxWriters: 3, qualityBias: .6, generatedFaces: faces, ...options }); }
 
-function capability({
-  id,
-  score = 0.5,
-  correctness = 0.5,
-  verification = 0.5,
-  roots,
-  dependencies = [],
-  backend = 'writer_assigned_in_progress',
-  frontend = 'writer_assigned_in_progress',
-  review = 'missing',
-  buckTargets = ['//backend/example:test'],
-}) {
-  return {
-    id,
-    label: id,
-    frontier: 1,
-    priority: {
-      score,
-      inputs: {
-        correctness_and_risk_reduction: correctness,
-        verification_readiness: verification,
-      },
-    },
-    dependencies,
-    owner: `owner-${id}`,
-    worktree: `/tmp/${id}`,
-    branch: `codex/${id}`,
-    ownership: {
-      frontend_roots: roots.filter((root) => root.startsWith('web/')),
-      backend_roots: roots.filter((root) => root.startsWith('backend/crates/')),
-      api_schema_roots: roots.filter((root) => root.startsWith('backend/openapi/')),
-      migration_owner: 'not_applicable',
-      integration_owner: 'console-consolidation',
-    },
-    signature_story: { id: `STORY-${id}`, outcome: `Complete ${id}` },
-    evidence_path: `docs/evidence/console/${id}/`,
-    tests: {
-      files: [],
-      leaf_commands: ['git diff --check'],
-      buck2_targets: buckTargets,
-    },
-    state: {
-      backend,
-      frontend,
-      independent_review: review,
-      production_exposure: 'dark',
-    },
-  };
-}
-
-function registry(capabilities) {
-  return {
-    schema_version: 'console-capability-registry-v1',
-    source_revision: `origin/main@${SHA}`,
-    shared_collision_roots: {
-      owner: 'console-consolidation',
-      generated_face_registry: 'tools/buck/generated_face_registry.json',
-      paths: [
-        'backend/openapi/openapi.yaml',
-        'backend/migrations/**',
-        'web/src/console/screens/registry.ts',
-      ],
-    },
-    capabilities,
-  };
-}
-
-const generatedFaces = {
-  schema_version: 2,
-  faces: [
-    {
-      id: 'openapi-typescript',
-      output_patterns: ['clients/ts/src/schema.d.ts'],
-    },
-  ],
-};
-
-test('path-pattern overlap is boundary aware', () => {
-  assert.equal(patternsOverlap('backend/crates/equipment/**', 'backend/crates/equipment/rest/src/lib.rs'), true);
-  assert.equal(patternsOverlap('backend/crates/equipment/**', 'backend/crates/equipment2/**'), false);
-  assert.equal(patternsOverlap('web/src/x.ts', 'web/src/x.ts'), true);
+test('only literal paths plus terminal subtree suffix are canonical ownership syntax', () => {
+  assert.equal(normalizePattern('backend/crates/a/**'), 'backend/crates/a/**');
+  for (const bad of ['foo*/**', 'foobar*', '.', '/.', '..', 'a/../b', './a', 'a/**/b']) assert.throws(() => normalizePattern(bad));
+  assert.equal(patternsOverlap('backend/crates/a/**', 'backend/crates/a/x'), true);
+  assert.equal(patternsOverlap('backend/crates/a/**', 'backend/crates/ab/**'), false);
 });
 
-test('a broad module root remains private while generated files inside it are excluded', () => {
-  const plan = buildFanoutPlan(
-    registry([
-      capability({
-        id: 'A',
-        roots: ['backend/crates/equipment/**'],
-      }),
-    ]),
-    {
-      anchorSha: SHA,
-      maxWriters: 1,
-      qualityBias: 0.6,
-      generatedFaces: {
-        schema_version: 2,
-        faces: [{ id: 'buck', output_patterns: ['backend/crates/**/BUCK'] }],
-      },
-    },
-  );
-
-  assert.deepEqual(plan.selected[0].private_roots, [
-    'backend/crates/equipment/**',
-    'docs/evidence/console/A/**',
-  ]);
-  assert.deepEqual(plan.selected[0].excluded_shared_roots, ['backend/crates/**/BUCK']);
+test('unsupported authority intersections fail closed', () => {
+  assert.throws(() => plan([cap('A', ['backend/crates/a/**'])], { generatedFaces: { schema_version: 2, faces: [{ output_patterns: ['foo*'] }] } }));
+  assert.throws(() => plan([cap('A', ['backend/crates/a/**'])], { generatedFaces: null }));
 });
 
-test('shared generated faces are serialized without reducing leaf fan-out', () => {
-  const plan = buildFanoutPlan(
-    registry([
-      capability({
-        id: 'A',
-        roots: ['backend/crates/a/**', 'backend/openapi/openapi.yaml', 'clients/ts/src/schema.d.ts'],
-      }),
-      capability({
-        id: 'B',
-        roots: ['backend/crates/b/**', 'backend/openapi/openapi.yaml', 'clients/ts/src/schema.d.ts'],
-      }),
-    ]),
-    { anchorSha: SHA, maxWriters: 2, qualityBias: 0.6, generatedFaces },
-  );
-
-  assert.deepEqual(plan.selected.map((lane) => lane.lane_id), ['A', 'B']);
-  assert.deepEqual(plan.private_conflicts, []);
-  assert.deepEqual(
-    plan.consolidation_queue.map((lane) => lane.capability_id),
-    ['A', 'B'],
-  );
-  assert.deepEqual(plan.selected[0].private_roots, [
-    'backend/crates/a/**',
-    'docs/evidence/console/A/**',
-  ]);
+test('migration roots are excluded from leaves and serialised', () => {
+  const value = plan([cap('A', ['backend/crates/a/**', 'backend/crates/platform/db/migrations/**'])]);
+  assert.deepEqual(value.selected[0].private_roots, ['backend/crates/a/**', 'docs/evidence/A/**']);
+  assert.deepEqual(value.selected[0].excluded_shared_roots, ['backend/crates/platform/db/migrations/**']);
 });
 
-test('private ownership overlap is never co-scheduled', () => {
-  const plan = buildFanoutPlan(
-    registry([
-      capability({ id: 'A', score: 0.8, roots: ['backend/crates/shared/**'] }),
-      capability({ id: 'B', score: 0.7, roots: ['backend/crates/shared/child/**'] }),
-    ]),
-    { anchorSha: SHA, maxWriters: 2, qualityBias: 0.6, generatedFaces },
-  );
-
-  assert.equal(plan.selected.length, 1);
-  assert.deepEqual(plan.private_conflicts, [
-    {
-      lane_ids: ['A', 'B'],
-      roots: ['backend/crates/shared/**', 'backend/crates/shared/child/**'],
-    },
-  ]);
+test('per-lane resource declarations are mandatory and budgets produce explicit holds', () => {
+  const missing = cap('MISSING', ['backend/crates/missing/**'], { resource_requirements: undefined });
+  assert.match(plan([missing]).held[0].reasons.join(','), /invalid_lane_resource_requirements/);
+  const first = cap('A', ['backend/crates/a/**'], { resource_requirements: { ...resources, postgres: 1 } });
+  const second = cap('B', ['backend/crates/b/**'], { resource_requirements: { ...resources, postgres: 1 } });
+  const value = plan([first, second]);
+  assert.equal(value.selected.length, 1);
+  assert.deepEqual(value.collision_blocked[0].resources, ['postgres']);
 });
 
-test('admission fails closed for incomplete ownership and backend gates', () => {
-  const incomplete = capability({ id: 'A', roots: ['backend/crates/a/**'], buckTargets: [] });
-  incomplete.owner = 'unassigned';
-  incomplete.worktree = null;
-  incomplete.signature_story = null;
-
-  const plan = buildFanoutPlan(registry([incomplete]), {
-    anchorSha: SHA,
-    maxWriters: 2,
-    qualityBias: 0.6,
-    generatedFaces,
-  });
-
-  assert.deepEqual(plan.selected, []);
-  assert.deepEqual(plan.held[0].reasons, [
-    'missing_assigned_owner',
-    'missing_isolated_worktree',
-    'missing_signature_story',
-    'missing_backend_buck_targets',
-  ]);
+test('same writer, worktree, or branch cannot be co-selected', () => {
+  const a = cap('A', ['backend/crates/a/**']); const b = cap('B', ['backend/crates/b/**'], { owner: a.owner });
+  const value = plan([a, b]);
+  assert.equal(value.selected.length, 0);
+  assert.equal(value.held.filter((entry) => entry.reasons.includes('duplicate_owner_within_epoch')).length, 2);
 });
 
-test('quality bias wins deterministic writer contention', () => {
-  const plan = buildFanoutPlan(
-    registry([
-      capability({
-        id: 'ECONOMY',
-        score: 0.9,
-        correctness: 0.2,
-        verification: 0.2,
-        roots: ['backend/crates/shared/**'],
-      }),
-      capability({
-        id: 'QUALITY',
-        score: 0.65,
-        correctness: 1,
-        verification: 1,
-        roots: ['backend/crates/shared/child/**'],
-      }),
-    ]),
-    { anchorSha: SHA, maxWriters: 1, qualityBias: 0.6, generatedFaces },
-  );
-
-  assert.deepEqual(plan.selected.map((lane) => lane.lane_id), ['QUALITY']);
+test('completed source cannot bypass invalid roots or exact review receipts', () => {
+  const complete = cap('DONE', ['backend/crates/done/**'], { state: { backend: 'complete', frontend: 'not_applicable' } });
+  const value = plan([complete]);
+  assert.deepEqual(value.completed_source_capabilities, []);
+  assert.match(value.held[0].reasons.join(','), /completed_source_missing_exact_review_receipt/);
+  const invalid = cap('BAD', ['backend/x*/**'], { state: { backend: 'complete', frontend: 'not_applicable' } });
+  assert.throws(() => plan([invalid]));
 });
 
-test('unfinished dependencies are merge holds, not source-write blockers', () => {
-  const plan = buildFanoutPlan(
-    registry([
-      capability({ id: 'UPSTREAM', roots: ['backend/crates/upstream/**'], frontend: 'missing' }),
-      capability({
-        id: 'LEAF',
-        roots: ['backend/crates/leaf/**'],
-        dependencies: ['UPSTREAM'],
-      }),
-    ]),
-    { anchorSha: SHA, maxWriters: 2, qualityBias: 0.6, generatedFaces },
-  );
-
-  assert.deepEqual(plan.selected.map((lane) => lane.lane_id), ['LEAF', 'UPSTREAM']);
-  assert.deepEqual(plan.merge_dependency_holds, [
-    { capability_id: 'LEAF', unresolved_dependencies: ['UPSTREAM'] },
-  ]);
+test('consolidation is blocked until exact independent review and valid consolidation identity', () => {
+  const source = cap('A', ['backend/crates/a/**', 'backend/openapi/openapi.yaml']);
+  source.lane_assignments = { source: { owner: source.owner, worktree: source.worktree, branch: source.branch, roots: ['backend/crates/a/**', 'backend/openapi/openapi.yaml', 'docs/evidence/A/**'], resources, tests: source.tests }, consolidation: { owner: 'console-consolidation', worktree: '/tmp/consolidation', branch: 'codex/consolidation', resources } };
+  const value = plan([source]);
+  assert.equal(value.consolidation_queue[0].ready_after_leaf_review, false);
+  assert.match(value.consolidation_queue[0].review_prerequisites.join(','), /exact_leaf_review_receipt_required/);
 });
 
-test('one capability can safely fan out backend and frontend writers', () => {
-  const split = capability({
-    id: 'SPLIT',
-    roots: [
-      'backend/crates/split/**',
-      'web/src/console/split/**',
-      'backend/openapi/openapi.yaml',
-    ],
-  });
-  split.owner = 'unassigned';
-  split.worktree = null;
-  split.branch = null;
-  split.lane_assignments = {
-    backend: {
-      owner: 'backend-owner',
-      worktree: '/tmp/split-backend',
-      branch: 'codex/split-backend',
-      roots: ['backend/crates/split/**'],
-    },
-    frontend: {
-      owner: 'frontend-owner',
-      worktree: '/tmp/split-frontend',
-      branch: 'codex/split-frontend',
-      roots: ['web/src/console/split/**', 'docs/evidence/console/SPLIT/**'],
-    },
-    consolidation: {
-      owner: 'console-consolidation',
-    },
-  };
-
-  const plan = buildFanoutPlan(registry([split]), {
-    anchorSha: SHA,
-    maxWriters: 2,
-    qualityBias: 0.6,
-    generatedFaces,
-  });
-
-  assert.deepEqual(plan.selected.map((lane) => lane.lane_id), ['SPLIT#backend', 'SPLIT#frontend']);
-  assert.deepEqual(plan.consolidation_queue, [
-    {
-      capability_id: 'SPLIT',
-      shared_roots: ['backend/openapi/openapi.yaml'],
-      ready_after_leaf_review: true,
-      awaiting_lane_ids: [],
-      awaiting_unassigned_roots: [],
-    },
-  ]);
+test('quality-weighted maximal independent set is deterministic', () => {
+  const economy = cap('ECONOMY', ['backend/crates/shared/**'], { priority: { score: .9, inputs: { correctness_and_risk_reduction: .2, verification_readiness: .2 } } });
+  const quality = cap('QUALITY', ['backend/crates/shared/child/**'], { priority: { score: .65, inputs: { correctness_and_risk_reduction: 1, verification_readiness: 1 } } });
+  const first = plan([economy, quality], { maxWriters: 1 }); const second = plan([quality, economy], { maxWriters: 1 });
+  assert.deepEqual(first.selected.map((entry) => entry.lane_id), ['QUALITY']);
+  assert.equal(JSON.stringify(first), JSON.stringify(second));
 });
 
-test('settled split lanes are not dispatched again', () => {
-  const split = capability({
-    id: 'SPLIT',
-    roots: ['backend/crates/split/**', 'web/src/console/split/**'],
-    frontend: 'integrated_on_local_train',
-  });
-  split.lane_assignments = {
-    backend: {
-      owner: 'backend-owner',
-      worktree: '/tmp/split-backend',
-      branch: 'codex/split-backend',
-      roots: ['backend/crates/split/**', 'docs/evidence/console/SPLIT/**'],
-    },
-    frontend: {
-      owner: 'frontend-owner',
-      worktree: '/tmp/split-frontend',
-      branch: 'codex/split-frontend',
-      roots: ['web/src/console/split/**'],
-    },
-  };
-
-  const plan = buildFanoutPlan(registry([split]), {
-    anchorSha: SHA,
-    maxWriters: 2,
-    qualityBias: 0.6,
-    generatedFaces,
-  });
-
-  assert.deepEqual(plan.selected.map((lane) => lane.lane_id), ['SPLIT#backend']);
-  assert.deepEqual(plan.completed_leaf_lanes, ['SPLIT#frontend']);
-});
-
-test('unassigned private roots are explicit merge holds without stopping disjoint work', () => {
-  const split = capability({
-    id: 'SPLIT',
-    roots: ['backend/crates/split/**', 'web/src/console/split/**'],
-  });
-  split.lane_assignments = {
-    frontend: {
-      owner: 'frontend-owner',
-      worktree: '/tmp/split-frontend',
-      branch: 'codex/split-frontend',
-      roots: ['web/src/console/split/**', 'docs/evidence/console/SPLIT/**'],
-    },
-  };
-
-  const plan = buildFanoutPlan(registry([split]), {
-    anchorSha: SHA,
-    maxWriters: 2,
-    qualityBias: 0.6,
-    generatedFaces,
-  });
-
-  assert.deepEqual(plan.selected.map((lane) => lane.lane_id), ['SPLIT#frontend']);
-  assert.deepEqual(plan.held, [
-    {
-      capability_id: 'SPLIT',
-      lane_id: 'SPLIT#unowned-roots',
-      reasons: ['unassigned_private_ownership_roots'],
-      invalid_roots: [],
-      unassigned_roots: ['backend/crates/split/**'],
-    },
-  ]);
-});
-
-test('identical inputs produce byte-stable plan data', () => {
-  const input = registry([
-    capability({ id: 'B', roots: ['backend/crates/b/**'] }),
-    capability({ id: 'A', roots: ['backend/crates/a/**'] }),
-  ]);
-  const options = { anchorSha: SHA, maxWriters: 2, qualityBias: 0.6, generatedFaces };
-  assert.equal(JSON.stringify(buildFanoutPlan(input, options)), JSON.stringify(buildFanoutPlan(input, options)));
+test('Buck isolation directories are stable, unique, and reject caller-controlled traversal', async () => {
+  const { buckIsolationDir } = await import('./plan-fanout.mjs');
+  assert.equal(buckIsolationDir(SHA, 'A#backend'), buckIsolationDir(SHA, 'A#backend'));
+  assert.notEqual(buckIsolationDir(SHA, 'A#backend'), buckIsolationDir(SHA, 'A#frontend'));
+  assert.match(buckIsolationDir(SHA, 'A#backend'), /^\.buck2\/console-epochs\/[a-f0-9]{12}\/[a-z0-9-]+$/);
+  assert.throws(() => buckIsolationDir(SHA, '../escape'));
 });
