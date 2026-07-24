@@ -1,3 +1,5 @@
+import type { components } from "@maintenance/api-client-ts";
+
 import type { ConsoleApiClient } from "../../api/client";
 
 import {
@@ -16,6 +18,7 @@ import {
   type Week52Row,
   type EmployeeAttendanceRecord,
   type AttendanceSummaryItem,
+  type ResolutionAction,
 } from "./attendanceApi";
 
 /**
@@ -59,6 +62,9 @@ type ApiResult<T> = {
   response: Response;
 };
 
+type AttendanceExceptionWire = components["schemas"]["AttendanceException"];
+type AttendanceExceptionPageWire = components["schemas"]["AttendanceExceptionPage"];
+
 function responseMessage(error: unknown, status: number): string {
   if (error && typeof error === "object" && "error" in error) {
     const envelope = error as { error?: { message?: unknown } };
@@ -80,6 +86,36 @@ function idempotencyKey(): string {
   return crypto.randomUUID();
 }
 
+function requireResolutionAction(value: string): ResolutionAction {
+  if (value === "CONFIRM" || value === "APPROVE_OVERTIME") return value;
+  throw new AttendanceTransportError(
+    `Unexpected attendance resolution action: ${value}`,
+    502,
+    { action: value },
+  );
+}
+
+function mapAttendanceException(value: AttendanceExceptionWire): AttendanceException {
+  return {
+    ...value,
+    resolution: value.resolution
+      ? {
+          ...value.resolution,
+          action: requireResolutionAction(value.resolution.action),
+        }
+      : value.resolution,
+  };
+}
+
+function mapAttendanceExceptionPage(
+  value: AttendanceExceptionPageWire,
+): Page<AttendanceException> {
+  return {
+    ...value,
+    items: value.items.map(mapAttendanceException),
+  };
+}
+
 /**
  * Authenticated generated-client binding for the Attendance REST surface.
  *
@@ -96,7 +132,7 @@ export function createAttendanceApiTransport(
         params: { query: { ...query, branch_id: activeBranchId } },
         signal,
       });
-      return requireData<Page<AttendanceException>>(result);
+      return mapAttendanceExceptionPage(requireData(result));
     },
 
     async createException(input, signal) {
@@ -105,7 +141,7 @@ export function createAttendanceApiTransport(
         params: { header: { "Idempotency-Key": idempotencyKey() } },
         signal,
       });
-      return requireData<AttendanceException>(result);
+      return mapAttendanceException(requireData(result));
     },
 
     async getException(id, signal) {
@@ -113,7 +149,7 @@ export function createAttendanceApiTransport(
         params: { path: { exception_id: id } },
         signal,
       });
-      return requireData<AttendanceException>(result);
+      return mapAttendanceException(requireData(result));
     },
 
     async resolveException(id, input, signal) {
@@ -122,7 +158,7 @@ export function createAttendanceApiTransport(
         body: input,
         signal,
       });
-      return requireData<AttendanceException>(result);
+      return mapAttendanceException(requireData(result));
     },
 
     async listSubstitutions(query: SubstitutionQuery, signal) {

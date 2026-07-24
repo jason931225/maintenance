@@ -1,18 +1,54 @@
 import { describe, expect, it, vi } from "vitest";
 
 import type { ConsoleApiClient } from "../../api/client";
-import type { Week52Row } from "./attendanceApi";
-import { createAttendanceApiTransport } from "./attendanceTransport";
+import { AttendanceTransportError, type Week52Row } from "./attendanceApi";
+import {
+  createAttendanceApiTransport,
+  type AttendanceApiTransport,
+} from "./attendanceTransport";
 
 function response(data: unknown = {}): { data: unknown; response: Response } {
   return { data, response: new Response(null, { status: 200 }) };
 }
 
-function client() {
+function attendanceException(action = "CONFIRM") {
   return {
-    GET: vi.fn(() => Promise.resolve(response())),
+    id: "exception-a",
+    code: "AT-0701-01",
+    kind: "LATE",
+    status: "RESOLVED",
+    employee_id: "employee-a",
+    employee_name: "Kim",
+    work_date: "2026-07-01",
+    occurred_at: "2026-07-01T00:00:00Z",
+    detail: "Verified late arrival",
+    evidence: [],
+    links: [],
+    resolution: {
+      action,
+      reason: "Approved evidence",
+      actor: "manager-a",
+      resolved_at: "2026-07-01T01:00:00Z",
+    },
+    created_at: "2026-07-01T00:00:00Z",
+  };
+}
+
+function client(resolutionAction = "CONFIRM") {
+  const exception = attendanceException(resolutionAction);
+  return {
+    GET: vi.fn((path: string) => Promise.resolve(response(
+      path === "/api/v1/attendance/exceptions"
+        ? { items: [exception], total: 1, limit: 50, offset: 0 }
+        : path === "/api/v1/attendance/exceptions/{exception_id}"
+          ? exception
+          : {},
+    ))),
     POST: vi.fn((path: string) => Promise.resolve(response(
-      path === "/api/v1/attendance/week52/acks"
+      path === "/api/v1/attendance/exceptions"
+        || path === "/api/v1/attendance/exceptions/{exception_id}/resolve"
+        ? exception
+        : path === "/api/v1/attendance/week52/acks"
         ? {
             employee_id: "employee-a",
             name: "Kim",
@@ -164,6 +200,55 @@ describe("createAttendanceApiTransport", () => {
     });
     expect(api.GET).toHaveBeenNthCalledWith(2, "/api/v1/hr/attendance-summary", {
       params: { query: { limit: 10, branch_id: "branch-a" } }, signal: undefined,
+    });
+  });
+
+  it.each([
+    {
+      operation: "listExceptions",
+      request: (transport: AttendanceApiTransport) =>
+        transport.listExceptions({ month: "2026-07", limit: 50 }),
+    },
+    {
+      operation: "createException",
+      request: (transport: AttendanceApiTransport) =>
+        transport.createException({
+          kind: "LATE",
+          employee_id: "employee-a",
+          work_date: "2026-07-01",
+          detail: "Verified late arrival",
+        }),
+    },
+    {
+      operation: "getException",
+      request: (transport: AttendanceApiTransport) =>
+        transport.getException("exception-a"),
+    },
+    {
+      operation: "resolveException",
+      request: (transport: AttendanceApiTransport) =>
+        transport.resolveException("exception-a", {
+          action: "CONFIRM",
+          reason: "Approved evidence",
+        }),
+    },
+  ])("$operation rejects resolution actions outside the attendance domain contract", async ({
+    request,
+  }) => {
+    const transport = createAttendanceApiTransport(client("FUTURE_ACTION"), "branch-a");
+    let error: unknown;
+
+    try {
+      await request(transport);
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(error).toBeInstanceOf(AttendanceTransportError);
+    expect(error).toMatchObject({
+      message: "Unexpected attendance resolution action: FUTURE_ACTION",
+      status: 502,
+      body: { action: "FUTURE_ACTION" },
     });
   });
 });
