@@ -13800,7 +13800,7 @@ paths:
       security: [{ bearerAuth: [] }]
       parameters: [{ name: asn_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }, { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 16, maxLength: 200 } }]
       requestBody: { required: true, content: { application/json: { schema: { type: object, required: [branchId, receivedQuantity], properties: { branchId: { $ref: '#/components/schemas/Uuid' }, receivedQuantity: { type: integer, minimum: 1 } } } } } }
-      responses: { '200': { description: Receipt recorded or replayed }, '409': { description: Conflicting replay, over-receipt, or illegal state }, '422': { $ref: '#/components/responses/ValidationError' } }
+      responses: { '200': { description: Receipt recorded or replayed }, '409': { description: 'Conflicting replay, over-receipt, or illegal state' }, '422': { $ref: '#/components/responses/ValidationError' } }
   /api/v1/logistics/asns/{asn_id}/putaway:
     post:
       tags: [logistics]
@@ -13840,6 +13840,7 @@ paths:
       operationId: dispatchLogisticsShipment
       summary: Dispatch one packed carrier and vehicle leg
       security: [{ bearerAuth: [] }]
+      parameters: [{ name: fulfillment_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
       responses: { '201': { description: Shipment dispatched }, '409': { description: Illegal transition } }
   /api/v1/logistics/shipments/{shipment_id}/pod:
     post:
@@ -13847,6 +13848,7 @@ paths:
       operationId: verifyLogisticsPod
       summary: Verify recipient-confirmed immutable evidence and derive calendar-time SLA
       security: [{ bearerAuth: [] }]
+      parameters: [{ name: shipment_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
       responses: { '200': { description: POD verified with MET or BREACHED SLA }, '409': { description: Illegal transition or reused evidence } }
   /api/v1/logistics/shipments/{shipment_id}/settlements:
     post:
@@ -13854,6 +13856,7 @@ paths:
       operationId: settleLogisticsOperationalCost
       summary: Settle one KRW operational transport cost; no finance or GL posting
       security: [{ bearerAuth: [] }]
+      parameters: [{ name: shipment_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
       responses: { '200': { description: Operational cost settled }, '409': { description: Verified POD required } }
   /api/v1/production/plans:
     get:
@@ -13903,7 +13906,7 @@ paths:
       description: Machine-only Basic ingress. The client id is a service-principal UUID and the password is a one-time 32-byte secret. Tenant, branch, principal, and source system identity are derived server-side; the source id/version tuple is immutable and idempotent.
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ProductionSourceIngress'}}}}
       responses:
-        '200': {description: Existing source-version replay, or accepted source fact, content: {application/json: {schema: {type: object, additionalProperties: true}}}}
+        '200': {description: 'Existing source-version replay, or accepted source fact', content: {application/json: {schema: {type: object, additionalProperties: true}}}}
         '409': {$ref: '#/components/responses/Conflict'}
         '422': {$ref: '#/components/responses/ValidationError'}
         '503': {description: Production service-principal HMAC key is not configured.}
@@ -13940,7 +13943,7 @@ paths:
         required: true
         schema: {$ref: '#/components/schemas/Uuid'}
       responses:
-        '200': {description: Plan, first operation, checks, and durable lifecycle lineage, content: {application/json: {schema: {$ref: '#/components/schemas/ProductionPlanDetail'}}}}
+        '200': {description: 'Plan, first operation, checks, and durable lifecycle lineage', content: {application/json: {schema: {$ref: '#/components/schemas/ProductionPlanDetail'}}}}
         '404': {$ref: '#/components/responses/NotFound'}
   /api/v1/production/plans/{plan_id}/release:
     post:
@@ -13972,7 +13975,7 @@ paths:
         schema: {$ref: '#/components/schemas/Uuid'}
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/RecordProductionOperation'}}}}
       responses:
-        '200': {description: Output, scrap, downtime, and quality evidence recorded idempotently, content: {application/json: {schema: {$ref: '#/components/schemas/ProductionOperation'}}}}
+        '200': {description: 'Output, scrap, downtime, and quality evidence recorded idempotently', content: {application/json: {schema: {$ref: '#/components/schemas/ProductionOperation'}}}}
         '409': {$ref: '#/components/responses/Conflict'}
   /api/v1/consulting/engagements:
     get:

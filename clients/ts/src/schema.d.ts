@@ -7206,6 +7206,287 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/facilities/cases": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["listFacilitiesCases"];
+        put?: never;
+        post: operations["createDueFacilitiesCase"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/facilities/cases/{case_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["getFacilitiesCase"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/facilities/cases/{case_id}/triage": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["triageFacilitiesCase"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/facilities/cases/{case_id}/assign": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["assignFacilitiesCase"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/facilities/cases/{case_id}/start": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["startFacilitiesCase"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/facilities/cases/{case_id}/submit": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["submitFacilitiesExecution"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/facilities/cases/{case_id}/acceptance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["decideFacilitiesAcceptance"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/facilities/cases/{case_id}/observations": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["recordFacilitiesObservation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/logistics/asns": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Create a pilot ASN for one branch warehouse */
+        post: operations["createLogisticsAsn"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/logistics/asns/{asn_id}/receipts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Record an idempotent full or partial receipt; over-receipt is rejected */
+        post: operations["receiveLogisticsAsn"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/logistics/asns/{asn_id}/putaway": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Put received stock away into the pilot warehouse */
+        post: operations["putawayLogisticsAsn"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/logistics/fulfillments": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Atomically reserve available pilot stock; never oversells */
+        post: operations["releaseLogisticsFulfillment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/logistics/fulfillments/{fulfillment_id}/pick": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Pick reserved stock, recording explicit short-pick when applicable */
+        post: operations["pickLogisticsFulfillment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/logistics/fulfillments/{fulfillment_id}/pack": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Pack a picked or short-picked fulfillment */
+        post: operations["packLogisticsFulfillment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/logistics/fulfillments/{fulfillment_id}/dispatch": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Dispatch one packed carrier and vehicle leg */
+        post: operations["dispatchLogisticsShipment"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/logistics/shipments/{shipment_id}/pod": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Verify recipient-confirmed immutable evidence and derive calendar-time SLA */
+        post: operations["verifyLogisticsPod"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/logistics/shipments/{shipment_id}/settlements": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Settle one KRW operational transport cost; no finance or GL posting */
+        post: operations["settleLogisticsOperationalCost"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/production/plans": {
         parameters: {
             query?: never;
@@ -7232,6 +7513,72 @@ export interface paths {
         get: operations["listProductionCapacitySlots"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/production/source-ingress": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description Machine-only Basic ingress. The client id is a service-principal UUID and the password is a one-time 32-byte secret. Tenant, branch, principal, and source system identity are derived server-side; the source id/version tuple is immutable and idempotent. */
+        post: operations["ingestProductionSource"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/production/source-systems": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** @description RoleManage-only registration of a tenant-scoped non-human source principal. Registration, rotation, and disable actions are audited server-side. */
+        post: operations["registerProductionSourceSystem"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/production/source-systems/{source_system_id}/rotate": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["rotateProductionSourceSystem"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/production/source-systems/{source_system_id}/disable": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["disableProductionSourceSystem"];
         delete?: never;
         options?: never;
         head?: never;
@@ -13725,6 +14072,50 @@ export interface components {
             /** Format: int64 */
             offset: number;
         };
+        FacilitiesDueCaseRequest: {
+            obligationId: components["schemas"]["Uuid"];
+            idempotencyKey: string;
+        };
+        FacilitiesTriageRequest: {
+            /** Format: date-time */
+            scheduledFor: string;
+        };
+        FacilitiesAssignRequest: {
+            assigneeId: components["schemas"]["Uuid"];
+        };
+        FacilitiesSubmitRequest: {
+            safetyChecklistEvidenceId: components["schemas"]["Uuid"];
+            serviceReportEvidenceId: components["schemas"]["Uuid"];
+            photoEvidenceId?: components["schemas"]["Uuid"];
+        };
+        FacilitiesAcceptanceRequest: {
+            /** @enum {string} */
+            decision: "ACCEPTED" | "REJECTED";
+            reason?: string;
+        };
+        FacilitiesObservationRequest: {
+            preKwh?: string;
+            postKwh?: string;
+            /** Format: date-time */
+            observedAt: string;
+            /** Format: int64 */
+            costKrw?: number;
+        };
+        FacilitiesCase: {
+            id: components["schemas"]["Uuid"];
+            /** @enum {string} */
+            status: "DUE" | "TRIAGED" | "SCHEDULED" | "ASSIGNED" | "IN_PROGRESS" | "SUBMITTED" | "REWORK_REQUIRED" | "AWAITING_ACCEPTANCE" | "CLOSED";
+            assigneeId?: components["schemas"]["Uuid"] | null;
+            /** Format: date-time */
+            responseDueAt: string;
+            /** Format: date-time */
+            completionDueAt: string;
+            /** Format: date-time */
+            acceptanceDueAt: string;
+            energyDeltaKwh?: string | null;
+            /** Format: int64 */
+            totalCostKrw: number;
+        };
         ProductionPlan: {
             id: components["schemas"]["Uuid"];
             branch_id: components["schemas"]["Uuid"];
@@ -13740,6 +14131,8 @@ export interface components {
             created_at: string;
             /** Format: date-time */
             due_at: string;
+            /** @description Immutable server-computed digest required in the matching release approval kind. */
+            plan_digest: string;
         };
         ProductionCapacitySlot: {
             id: components["schemas"]["Uuid"];
@@ -13795,13 +14188,57 @@ export interface components {
             quantity: number;
             /** Format: date-time */
             due_at: string;
-            approval_ref: components["schemas"]["Uuid"];
             ontology_type_id: components["schemas"]["Uuid"];
             idempotency_key: string;
         };
         ReleaseProductionPlan: {
             expected_version: number;
+            /** @description Approved production_plan_release:v{expected_version} decision bound to this persisted plan. It is consumed exactly once by the current approver. */
+            approval_ref: components["schemas"]["Uuid"];
             idempotency_key: string;
+        };
+        ProductionSourceIngress: components["schemas"]["ProductionDemandIngress"] | components["schemas"]["ProductionCapacityIngress"] | components["schemas"]["ProductionMaterialIngress"];
+        RegisterProductionSourceSystem: {
+            branch_id: components["schemas"]["Uuid"];
+            principal_id: components["schemas"]["Uuid"];
+            source_system: string;
+            credential: string;
+        };
+        ProductionDemandIngress: {
+            /** @enum {string} */
+            kind: "demand";
+            id: components["schemas"]["Uuid"];
+            inquiry_id: components["schemas"]["Uuid"];
+            product_code: string;
+            /** Format: int64 */
+            quantity: number;
+            /** Format: date-time */
+            due_at: string;
+            source_id: string;
+            source_version: string;
+        };
+        ProductionCapacityIngress: {
+            /** @enum {string} */
+            kind: "capacity";
+            id: components["schemas"]["Uuid"];
+            site_id: components["schemas"]["Uuid"];
+            /** Format: date */
+            capacity_date: string;
+            /** Format: int64 */
+            available_quantity: number;
+            source_id: string;
+            source_version: string;
+        };
+        ProductionMaterialIngress: {
+            /** @enum {string} */
+            kind: "material";
+            material_item_id: components["schemas"]["Uuid"];
+            /** Format: int64 */
+            quantity_on_hand_milli: number;
+            /** Format: int64 */
+            safety_stock_milli: number;
+            source_id: string;
+            source_version: string;
         };
         RecordProductionOperation: {
             expected_version: number;
@@ -26302,6 +26739,541 @@ export interface operations {
             422: components["responses"]["ValidationError"];
         };
     };
+    listFacilitiesCases: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cases */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FacilitiesCase"][];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+        };
+    };
+    createDueFacilitiesCase: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FacilitiesDueCaseRequest"];
+            };
+        };
+        responses: {
+            /** @description Idempotent case */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FacilitiesCase"];
+                };
+            };
+            /** @description Idempotency payload mismatch */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    getFacilitiesCase: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                case_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Case including derived SLA and energy delta */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FacilitiesCase"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    triageFacilitiesCase: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                case_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FacilitiesTriageRequest"];
+            };
+        };
+        responses: {
+            /** @description Scheduled case */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Illegal transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    assignFacilitiesCase: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                case_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FacilitiesAssignRequest"];
+            };
+        };
+        responses: {
+            /** @description Assigned case */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Illegal transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    startFacilitiesCase: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                case_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Safety-acknowledged execution started */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Forbidden"];
+            /** @description Illegal transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    submitFacilitiesExecution: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                case_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FacilitiesSubmitRequest"];
+            };
+        };
+        responses: {
+            /** @description Awaiting customer acceptance */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Illegal transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Required evidence is not confirmed */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    decideFacilitiesAcceptance: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                case_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FacilitiesAcceptanceRequest"];
+            };
+        };
+        responses: {
+            /** @description CLOSED or REWORK_REQUIRED */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Illegal transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    recordFacilitiesObservation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                case_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["FacilitiesObservationRequest"];
+            };
+        };
+        responses: {
+            /** @description Case with derived energy/cost readback */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    createLogisticsAsn: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    branchId: components["schemas"]["Uuid"];
+                    warehouseCode: string;
+                    externalReference: string;
+                    sku: string;
+                    expectedQuantity: number;
+                };
+            };
+        };
+        responses: {
+            /** @description ASN created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    receiveLogisticsAsn: {
+        parameters: {
+            query?: never;
+            header: {
+                "Idempotency-Key": string;
+            };
+            path: {
+                asn_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    branchId: components["schemas"]["Uuid"];
+                    receivedQuantity: number;
+                };
+            };
+        };
+        responses: {
+            /** @description Receipt recorded or replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Conflicting replay, over-receipt, or illegal state */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    putawayLogisticsAsn: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                asn_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    branchId: components["schemas"]["Uuid"];
+                };
+            };
+        };
+        responses: {
+            /** @description Stock available for fulfillment */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Illegal state */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    releaseLogisticsFulfillment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    branchId: components["schemas"]["Uuid"];
+                    warehouseCode: string;
+                    sku: string;
+                    requestedQuantity: number;
+                    /** Format: date-time */
+                    dueAt: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Fulfillment released */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Insufficient available stock */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    pickLogisticsFulfillment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fulfillment_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Pick outcome */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Illegal state */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    packLogisticsFulfillment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fulfillment_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Fulfillment packed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Illegal state */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    dispatchLogisticsShipment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                fulfillment_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Shipment dispatched */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Illegal transition */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    verifyLogisticsPod: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                shipment_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description POD verified with MET or BREACHED SLA */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Illegal transition or reused evidence */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    settleLogisticsOperationalCost: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                shipment_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Operational cost settled */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Verified POD required */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     listProductionPlans: {
         parameters: {
             query: {
@@ -26386,6 +27358,109 @@ export interface operations {
             };
         };
     };
+    ingestProductionSource: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ProductionSourceIngress"];
+            };
+        };
+        responses: {
+            /** @description Existing source-version replay, or accepted source fact */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        [key: string]: unknown;
+                    };
+                };
+            };
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["ValidationError"];
+            /** @description Production service-principal HMAC key is not configured. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    registerProductionSourceSystem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RegisterProductionSourceSystem"];
+            };
+        };
+        responses: {
+            /** @description Registered source system */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    rotateProductionSourceSystem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                source_system_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Source credential generation rotated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    disableProductionSourceSystem: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                source_system_id: components["schemas"]["Uuid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Source system disabled */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["Conflict"];
+        };
+    };
     getProductionPlan: {
         parameters: {
             query?: never;
@@ -26397,7 +27472,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description Plan */
+            /** @description Plan, first operation, checks, and durable lifecycle lineage */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -26452,7 +27527,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Output */
+            /** @description Output, scrap, downtime, and quality evidence recorded idempotently */
             200: {
                 headers: {
                     [name: string]: unknown;

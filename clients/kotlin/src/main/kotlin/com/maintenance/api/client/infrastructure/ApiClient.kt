@@ -365,6 +365,14 @@ open class ApiClient(val baseUrl: String, val client: Call.Factory = defaultClie
 
     protected fun <T> updateAuthParams(requestConfig: RequestConfig<T>) {
         if (requestConfig.headers[AUTHORIZATION].isNullOrEmpty()) {
+            val (user, passw) = userCredentialsProvider()
+            user?.let { user ->
+                passw?.let { passw ->
+                    requestConfig.headers[AUTHORIZATION] = okhttp3.Credentials.basic(user, passw)
+                }
+            }
+        }
+        if (requestConfig.headers[AUTHORIZATION].isNullOrEmpty()) {
             accessTokenProvider()?.let { token ->
                 requestConfig.headers[AUTHORIZATION] = "Bearer $token"
             }
