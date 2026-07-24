@@ -121,6 +121,20 @@ jobs:
       - name: Foundation gate contract
         run: npm run check:foundation-gates
 
+      - name: Fetch protected-parent checker authority
+        run: git fetch --no-tags --depth=1 origin "${{ github.event.pull_request.base.sha || github.event.before }}"
+
+      - name: Architecture boundary admission (protected-parent runner, advisory)
+        env:
+          PROTECTED_BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          test -n "$PROTECTED_BASE" && test "$PROTECTED_BASE" != "0000000000000000000000000000000000000000"
+          mkdir -p /tmp/architecture-authority
+          git show "$PROTECTED_BASE:scripts/architecture/check-boundaries.mjs" > /tmp/architecture-authority/check-boundaries.mjs
+          git show "$PROTECTED_BASE:scripts/architecture/check-boundaries.test.mjs" > /tmp/architecture-authority/check-boundaries.test.mjs
+          node --test /tmp/architecture-authority/check-boundaries.test.mjs
+          node /tmp/architecture-authority/check-boundaries.mjs --root "$GITHUB_WORKSPACE" --protected-base-sha "$PROTECTED_BASE"
+
       - name: CI preflight contract tests
         run: node --test scripts/check-ci-preflight.test.mjs
 
