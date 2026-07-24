@@ -27,8 +27,11 @@ import java.io.IOException
 import okhttp3.Call
 import okhttp3.HttpUrl
 
+import com.maintenance.api.client.model.DispatchCandidatePage
+import com.maintenance.api.client.model.DispatchQueuePage
 import com.maintenance.api.client.model.ErrorBody
 import com.maintenance.api.client.model.ForceAssignP1DispatchRequest
+import com.maintenance.api.client.model.P1DispatchResponsePage
 import com.maintenance.api.client.model.P1DispatchSummary
 import com.maintenance.api.client.model.RespondP1DispatchRequest
 
@@ -203,6 +206,242 @@ open class P1DispatchesApi(basePath: kotlin.String = defaultBasePath, client: Ca
         return RequestConfig(
             method = RequestMethod.GET,
             path = "/api/v1/p1-dispatches/{dispatchId}".replace("{"+"dispatchId"+"}", encodeURIComponent(dispatchId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/console/dispatch/queue
+     * List the bounded operational dispatch queue
+     *
+     * @param status Comma-separated DispatchQueueStatus values. (optional)
+     * @param limit  (optional, default to 50)
+     * @param after Opaque cursor returned by a previous page. (optional)
+     * @return DispatchQueuePage
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listConsoleDispatchQueue(status: kotlin.String? = null, limit: kotlin.Int? = 50, after: kotlin.String? = null) : DispatchQueuePage = withContext(Dispatchers.IO) {
+        val localVarResponse = listConsoleDispatchQueueWithHttpInfo(status = status, limit = limit, after = after)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as DispatchQueuePage
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/console/dispatch/queue
+     * List the bounded operational dispatch queue
+     *
+     * @param status Comma-separated DispatchQueueStatus values. (optional)
+     * @param limit  (optional, default to 50)
+     * @param after Opaque cursor returned by a previous page. (optional)
+     * @return ApiResponse<DispatchQueuePage?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listConsoleDispatchQueueWithHttpInfo(status: kotlin.String?, limit: kotlin.Int?, after: kotlin.String?) : ApiResponse<DispatchQueuePage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listConsoleDispatchQueueRequestConfig(status = status, limit = limit, after = after)
+
+        return@withContext request<Unit, DispatchQueuePage>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listConsoleDispatchQueue
+     *
+     * @param status Comma-separated DispatchQueueStatus values. (optional)
+     * @param limit  (optional, default to 50)
+     * @param after Opaque cursor returned by a previous page. (optional)
+     * @return RequestConfig
+     */
+    fun listConsoleDispatchQueueRequestConfig(status: kotlin.String?, limit: kotlin.Int?, after: kotlin.String?) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf<kotlin.String, kotlin.collections.List<kotlin.String>>()
+            .apply {
+                if (status != null) {
+                    put("status", listOf(status.toString()))
+                }
+                if (limit != null) {
+                    put("limit", listOf(limit.toString()))
+                }
+                if (after != null) {
+                    put("after", listOf(after.toString()))
+                }
+            }
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/console/dispatch/queue",
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/p1-dispatches/{dispatchId}/candidates
+     * List manager-authorized ranked dispatch candidates
+     *
+     * @param dispatchId
+     * @return DispatchCandidatePage
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listP1DispatchCandidates(dispatchId: java.util.UUID) : DispatchCandidatePage = withContext(Dispatchers.IO) {
+        val localVarResponse = listP1DispatchCandidatesWithHttpInfo(dispatchId = dispatchId)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as DispatchCandidatePage
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/p1-dispatches/{dispatchId}/candidates
+     * List manager-authorized ranked dispatch candidates
+     *
+     * @param dispatchId
+     * @return ApiResponse<DispatchCandidatePage?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listP1DispatchCandidatesWithHttpInfo(dispatchId: java.util.UUID) : ApiResponse<DispatchCandidatePage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listP1DispatchCandidatesRequestConfig(dispatchId = dispatchId)
+
+        return@withContext request<Unit, DispatchCandidatePage>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listP1DispatchCandidates
+     *
+     * @param dispatchId
+     * @return RequestConfig
+     */
+    fun listP1DispatchCandidatesRequestConfig(dispatchId: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/p1-dispatches/{dispatchId}/candidates".replace("{"+"dispatchId"+"}", encodeURIComponent(dispatchId.toString())),
+            query = localVariableQuery,
+            headers = localVariableHeaders,
+            requiresAuthentication = true,
+            body = localVariableBody
+        )
+    }
+
+    /**
+     * GET /api/v1/p1-dispatches/{dispatchId}/responses
+     * List authorized P1 dispatch responses
+     *
+     * @param dispatchId
+     * @return P1DispatchResponsePage
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     * @throws UnsupportedOperationException If the API returns an informational or redirection response
+     * @throws ClientException If the API returns a client error response
+     * @throws ServerException If the API returns a server error response
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class, UnsupportedOperationException::class, ClientException::class, ServerException::class)
+    suspend fun listP1DispatchResponses(dispatchId: java.util.UUID) : P1DispatchResponsePage = withContext(Dispatchers.IO) {
+        val localVarResponse = listP1DispatchResponsesWithHttpInfo(dispatchId = dispatchId)
+
+        return@withContext when (localVarResponse.responseType) {
+            ResponseType.Success -> (localVarResponse as Success<*>).data as P1DispatchResponsePage
+            ResponseType.Informational -> throw UnsupportedOperationException("Client does not support Informational responses.")
+            ResponseType.Redirection -> throw UnsupportedOperationException("Client does not support Redirection responses.")
+            ResponseType.ClientError -> {
+                val localVarError = localVarResponse as ClientError<*>
+                throw ClientException("Client error : ${localVarError.statusCode} ${localVarError.message.orEmpty()}", localVarError.statusCode, localVarResponse)
+            }
+            ResponseType.ServerError -> {
+                val localVarError = localVarResponse as ServerError<*>
+                throw ServerException("Server error : ${localVarError.statusCode} ${localVarError.message.orEmpty()} ${localVarError.body}", localVarError.statusCode, localVarResponse)
+            }
+        }
+    }
+
+    /**
+     * GET /api/v1/p1-dispatches/{dispatchId}/responses
+     * List authorized P1 dispatch responses
+     *
+     * @param dispatchId
+     * @return ApiResponse<P1DispatchResponsePage?>
+     * @throws IllegalStateException If the request is not correctly configured
+     * @throws IOException Rethrows the OkHttp execute method exception
+     */
+    @Suppress("UNCHECKED_CAST")
+    @Throws(IllegalStateException::class, IOException::class)
+    suspend fun listP1DispatchResponsesWithHttpInfo(dispatchId: java.util.UUID) : ApiResponse<P1DispatchResponsePage?> = withContext(Dispatchers.IO) {
+        val localVariableConfig = listP1DispatchResponsesRequestConfig(dispatchId = dispatchId)
+
+        return@withContext request<Unit, P1DispatchResponsePage>(
+            localVariableConfig
+        )
+    }
+
+    /**
+     * To obtain the request config of the operation listP1DispatchResponses
+     *
+     * @param dispatchId
+     * @return RequestConfig
+     */
+    fun listP1DispatchResponsesRequestConfig(dispatchId: java.util.UUID) : RequestConfig<Unit> {
+        val localVariableBody = null
+        val localVariableQuery: MultiValueMap = mutableMapOf()
+        val localVariableHeaders: MutableMap<String, String> = mutableMapOf()
+        localVariableHeaders["Accept"] = "application/json"
+
+        return RequestConfig(
+            method = RequestMethod.GET,
+            path = "/api/v1/p1-dispatches/{dispatchId}/responses".replace("{"+"dispatchId"+"}", encodeURIComponent(dispatchId.toString())),
             query = localVariableQuery,
             headers = localVariableHeaders,
             requiresAuthentication = true,

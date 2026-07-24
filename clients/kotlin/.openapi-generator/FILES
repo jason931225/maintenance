@@ -331,8 +331,15 @@ src/main/kotlin/com/maintenance/api/client/model/DeviceLoginStartResponse.kt
 src/main/kotlin/com/maintenance/api/client/model/DevicePlatform.kt
 src/main/kotlin/com/maintenance/api/client/model/DeviceRegistrationRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/DeviceRegistrationResponse.kt
+src/main/kotlin/com/maintenance/api/client/model/DispatchCandidatePage.kt
+src/main/kotlin/com/maintenance/api/client/model/DispatchCandidateSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/DispatchEquipment3rCaseRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/DispatchLogisticsShipmentRequest.kt
+src/main/kotlin/com/maintenance/api/client/model/DispatchQueueDispatch.kt
+src/main/kotlin/com/maintenance/api/client/model/DispatchQueueItem.kt
+src/main/kotlin/com/maintenance/api/client/model/DispatchQueuePage.kt
+src/main/kotlin/com/maintenance/api/client/model/DispatchQueueStats.kt
+src/main/kotlin/com/maintenance/api/client/model/DispatchQueueStatus.kt
 src/main/kotlin/com/maintenance/api/client/model/DispatchResponseKind.kt
 src/main/kotlin/com/maintenance/api/client/model/DispatchStatus.kt
 src/main/kotlin/com/maintenance/api/client/model/DocumentVersion.kt
@@ -634,6 +641,8 @@ src/main/kotlin/com/maintenance/api/client/model/OwnAttendanceWeek52Response.kt
 src/main/kotlin/com/maintenance/api/client/model/OwnershipTransfer.kt
 src/main/kotlin/com/maintenance/api/client/model/OwnershipTransferPage.kt
 src/main/kotlin/com/maintenance/api/client/model/OwnershipTransferStep.kt
+src/main/kotlin/com/maintenance/api/client/model/P1DispatchResponsePage.kt
+src/main/kotlin/com/maintenance/api/client/model/P1DispatchResponseSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/P1DispatchSummary.kt
 src/main/kotlin/com/maintenance/api/client/model/PackLogisticsFulfillmentRequest.kt
 src/main/kotlin/com/maintenance/api/client/model/PasskeyLoginFinishRequest.kt

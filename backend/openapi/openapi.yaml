@@ -5587,7 +5587,53 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '404':
           $ref: '#/components/responses/NotFound'
+  /api/v1/console/dispatch/queue:
+    get:
+      tags: [p1-dispatches]
+      operationId: listConsoleDispatchQueue
+      summary: List the bounded operational dispatch queue
+      security: [{ bearerAuth: [] }]
+      parameters:
+      - name: status
+        in: query
+        schema: { type: string }
+        description: Comma-separated DispatchQueueStatus values.
+      - name: limit
+        in: query
+        schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      - name: after
+        in: query
+        schema: { type: string }
+        description: Opaque cursor returned by a previous page.
+      responses:
+        '200': { description: Dispatch queue page., content: { application/json: { schema: { $ref: '#/components/schemas/DispatchQueuePage' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+  /api/v1/p1-dispatches/{dispatchId}/candidates:
+    get:
+      tags: [p1-dispatches]
+      operationId: listP1DispatchCandidates
+      summary: List manager-authorized ranked dispatch candidates
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/DispatchId' }]
+      responses:
+        '200': { description: Dispatch candidate page., content: { application/json: { schema: { $ref: '#/components/schemas/DispatchCandidatePage' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
   /api/v1/p1-dispatches/{dispatchId}/responses:
+    get:
+      tags: [p1-dispatches]
+      operationId: listP1DispatchResponses
+      summary: List authorized P1 dispatch responses
+      security: [{ bearerAuth: [] }]
+      parameters: [{ $ref: '#/components/parameters/DispatchId' }]
+      responses:
+        '200': { description: Dispatch response page., content: { application/json: { schema: { $ref: '#/components/schemas/P1DispatchResponsePage' } } } }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
     post:
       tags:
         - p1-dispatches
@@ -25749,6 +25795,85 @@ components:
       properties:
         mechanic_id:
           $ref: '#/components/schemas/Uuid'
+    DispatchQueueStatus:
+      type: string
+      enum: [RECEIVED, UNASSIGNED, ASSIGNED, IN_PROGRESS, PART_WAITING, DELAYED]
+    DispatchQueueDispatch:
+      type: object
+      required: [id, status, accept_window_ends_at, target_count, accepted_count, declined_count, manual_call_required]
+      properties:
+        id: { $ref: '#/components/schemas/Uuid' }
+        status: { $ref: '#/components/schemas/DispatchStatus' }
+        accept_window_ends_at: { $ref: '#/components/schemas/Timestamp' }
+        target_count: { type: integer, format: int64 }
+        accepted_count: { type: integer, format: int64 }
+        declined_count: { type: integer, format: int64 }
+        manual_call_required: { type: boolean }
+    DispatchQueueItem:
+      type: object
+      required: [work_order_id, request_no, branch_id, status, priority, symptom, equipment_id, customer_id, site_id, updated_at]
+      properties:
+        work_order_id: { $ref: '#/components/schemas/Uuid' }
+        request_no: { type: string }
+        branch_id: { $ref: '#/components/schemas/Uuid' }
+        status: { $ref: '#/components/schemas/WorkOrderStatus' }
+        priority: { $ref: '#/components/schemas/PriorityLevel' }
+        symptom: { type: string }
+        equipment_id: { $ref: '#/components/schemas/Uuid' }
+        customer_id: { $ref: '#/components/schemas/Uuid' }
+        site_id: { $ref: '#/components/schemas/Uuid' }
+        target_due_at: { $ref: '#/components/schemas/Timestamp' }
+        assigned_mechanic_id: { $ref: '#/components/schemas/Uuid' }
+        dispatch: { $ref: '#/components/schemas/DispatchQueueDispatch' }
+        updated_at: { $ref: '#/components/schemas/Timestamp' }
+    DispatchQueueStats:
+      type: object
+      required: [unassigned_count, sla_due_count]
+      properties:
+        unassigned_count: { type: integer, format: int64 }
+        sla_due_count: { type: integer, format: int64 }
+    DispatchQueuePage:
+      type: object
+      required: [items, stats]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/DispatchQueueItem' } }
+        next_after: { type: string }
+        stats: { $ref: '#/components/schemas/DispatchQueueStats' }
+    DispatchCandidateSummary:
+      type: object
+      required: [mechanic_id, score_milli, gps_ranked, workload, score_reason]
+      properties:
+        mechanic_id: { $ref: '#/components/schemas/Uuid' }
+        score_milli: { type: integer, format: int64 }
+        gps_ranked: { type: boolean }
+        distance_meters: { type: integer, format: int64 }
+        location_recorded_at: { $ref: '#/components/schemas/Timestamp' }
+        workload: { type: object, additionalProperties: true }
+        score_reason: { type: string }
+        response: { $ref: '#/components/schemas/DispatchResponseKind' }
+        responded_at: { $ref: '#/components/schemas/Timestamp' }
+    DispatchCandidatePage:
+      type: object
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/DispatchCandidateSummary' } }
+    P1DispatchResponseSummary:
+      type: object
+      required: [dispatch_id, user_id, response, responded_at, gps_ranked]
+      properties:
+        dispatch_id: { $ref: '#/components/schemas/Uuid' }
+        user_id: { $ref: '#/components/schemas/Uuid' }
+        response: { $ref: '#/components/schemas/DispatchResponseKind' }
+        responded_at: { $ref: '#/components/schemas/Timestamp' }
+        score_milli: { type: integer, format: int64 }
+        gps_ranked: { type: boolean }
+        distance_meters: { type: integer, format: int64 }
+        score_reason: { type: string }
+    P1DispatchResponsePage:
+      type: object
+      required: [items]
+      properties:
+        items: { type: array, items: { $ref: '#/components/schemas/P1DispatchResponseSummary' } }
     P1DispatchSummary:
       type: object
       required:

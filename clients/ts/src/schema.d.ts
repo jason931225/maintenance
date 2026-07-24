@@ -3271,6 +3271,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/console/dispatch/queue": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List the bounded operational dispatch queue */
+        get: operations["listConsoleDispatchQueue"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/p1-dispatches/{dispatchId}/candidates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List manager-authorized ranked dispatch candidates */
+        get: operations["listP1DispatchCandidates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/p1-dispatches/{dispatchId}/responses": {
         parameters: {
             query?: never;
@@ -3278,7 +3312,8 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** List authorized P1 dispatch responses */
+        get: operations["listP1DispatchResponses"];
         put?: never;
         /** Accept or decline a P1 dispatch broadcast */
         post: operations["respondP1Dispatch"];
@@ -12975,6 +13010,79 @@ export interface components {
         ForceAssignP1DispatchRequest: {
             mechanic_id: components["schemas"]["Uuid"];
         };
+        /** @enum {string} */
+        DispatchQueueStatus: "RECEIVED" | "UNASSIGNED" | "ASSIGNED" | "IN_PROGRESS" | "PART_WAITING" | "DELAYED";
+        DispatchQueueDispatch: {
+            id: components["schemas"]["Uuid"];
+            status: components["schemas"]["DispatchStatus"];
+            accept_window_ends_at: components["schemas"]["Timestamp"];
+            /** Format: int64 */
+            target_count: number;
+            /** Format: int64 */
+            accepted_count: number;
+            /** Format: int64 */
+            declined_count: number;
+            manual_call_required: boolean;
+        };
+        DispatchQueueItem: {
+            work_order_id: components["schemas"]["Uuid"];
+            request_no: string;
+            branch_id: components["schemas"]["Uuid"];
+            status: components["schemas"]["WorkOrderStatus"];
+            priority: components["schemas"]["PriorityLevel"];
+            symptom: string;
+            equipment_id: components["schemas"]["Uuid"];
+            customer_id: components["schemas"]["Uuid"];
+            site_id: components["schemas"]["Uuid"];
+            target_due_at?: components["schemas"]["Timestamp"];
+            assigned_mechanic_id?: components["schemas"]["Uuid"];
+            dispatch?: components["schemas"]["DispatchQueueDispatch"];
+            updated_at: components["schemas"]["Timestamp"];
+        };
+        DispatchQueueStats: {
+            /** Format: int64 */
+            unassigned_count: number;
+            /** Format: int64 */
+            sla_due_count: number;
+        };
+        DispatchQueuePage: {
+            items: components["schemas"]["DispatchQueueItem"][];
+            next_after?: string;
+            stats: components["schemas"]["DispatchQueueStats"];
+        };
+        DispatchCandidateSummary: {
+            mechanic_id: components["schemas"]["Uuid"];
+            /** Format: int64 */
+            score_milli: number;
+            gps_ranked: boolean;
+            /** Format: int64 */
+            distance_meters?: number;
+            location_recorded_at?: components["schemas"]["Timestamp"];
+            workload: {
+                [key: string]: unknown;
+            };
+            score_reason: string;
+            response?: components["schemas"]["DispatchResponseKind"];
+            responded_at?: components["schemas"]["Timestamp"];
+        };
+        DispatchCandidatePage: {
+            items: components["schemas"]["DispatchCandidateSummary"][];
+        };
+        P1DispatchResponseSummary: {
+            dispatch_id: components["schemas"]["Uuid"];
+            user_id: components["schemas"]["Uuid"];
+            response: components["schemas"]["DispatchResponseKind"];
+            responded_at: components["schemas"]["Timestamp"];
+            /** Format: int64 */
+            score_milli?: number;
+            gps_ranked: boolean;
+            /** Format: int64 */
+            distance_meters?: number;
+            score_reason?: string;
+        };
+        P1DispatchResponsePage: {
+            items: components["schemas"]["P1DispatchResponseSummary"][];
+        };
         P1DispatchSummary: {
             id: components["schemas"]["Uuid"];
             work_order_id: components["schemas"]["Uuid"];
@@ -20520,6 +20628,85 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["P1DispatchSummary"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listConsoleDispatchQueue: {
+        parameters: {
+            query?: {
+                /** @description Comma-separated DispatchQueueStatus values. */
+                status?: string;
+                limit?: number;
+                /** @description Opaque cursor returned by a previous page. */
+                after?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Dispatch queue page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DispatchQueuePage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["ValidationError"];
+        };
+    };
+    listP1DispatchCandidates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dispatchId: components["parameters"]["DispatchId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Dispatch candidate page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DispatchCandidatePage"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listP1DispatchResponses: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                dispatchId: components["parameters"]["DispatchId"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Dispatch response page. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["P1DispatchResponsePage"];
                 };
             };
             401: components["responses"]["Unauthorized"];
