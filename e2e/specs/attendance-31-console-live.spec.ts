@@ -18,7 +18,7 @@ import {
  *
  * This runs exclusively in the explicit dev-auth Playwright project. It neither
  * mounts a fixture transport nor substitutes API responses: the browser uses
- * `/console/attendance`, a real dev-auth session, the generated-client-backed
+ * `/attendance`, a real dev-auth session, the generated-client-backed
  * HTTP surface, and PostgreSQL. The narrowly scoped SQL below creates only the
  * prerequisite business facts that a fresh local dev database cannot obtain by
  * clicking the console (an OPEN exception and a 52-hour weekly history), never
@@ -40,6 +40,9 @@ const SEED_ACTOR_ID = "00000000-0000-0000-0000-00000000d001";
 const DATABASE_URL =
   process.env.MNT_DEV_DATABASE_URL ??
   "postgres://mnt_rt:mnt-dev-runtime-change-me@127.0.0.1:55432/mnt_dev";
+const OWNER_DATABASE_URL =
+  process.env.MNT_DEV_DATABASE_OWNER_URL ??
+  "postgres://mnt_app:mnt-dev-owner-change-me@127.0.0.1:55432/mnt_dev";
 
 const runId = randomUUID();
 const blockedEmployeeId = randomUUID();
@@ -55,6 +58,7 @@ const leaveDeciderId = randomUUID();
 const memberUserId = randomUUID();
 const memberEmployeeId = randomUUID();
 const memberExceptionId = randomUUID();
+const memberOrgId = randomUUID();
 const blockedEmployeeName = `E2E 근태 결원 ${runId.slice(0, 8)}`;
 const riskEmployeeName = `E2E 주52시간 ${runId.slice(0, 8)}`;
 const eligibleCandidateName = `E2E 후보 가능 ${runId.slice(0, 8)}`;
@@ -70,7 +74,9 @@ const memberEmployeeName = `E2E 본인 근태 ${runId.slice(0, 8)}`;
 const memberExceptionCode = `AT-E2E-MEMBER-${runId.slice(0, 8).toUpperCase()}`;
 const memberExceptionDetail = `e2e 본인 지각 확인 ${runId}`;
 const memberEvidenceName = `e2e 출입기록 ${runId}.pdf`;
-const memberPhone = `dev-auth:${ORG_ID}:MEMBER`;
+const memberOrgSlug = `e2e-member-${runId.replaceAll("-", "").slice(0, 16)}`;
+const memberOrgName = `E2E 본인 근태 ${runId.slice(0, 8)}`;
+const memberPhone = `dev-auth:${memberOrgId}:MEMBER`;
 
 const SEOUL_DATE = new Intl.DateTimeFormat("en-CA", {
   timeZone: "Asia/Seoul",
@@ -127,6 +133,14 @@ function execSql(sql: string): string {
   return execFileSync(
     "psql",
     [DATABASE_URL, "-v", "ON_ERROR_STOP=1", "-At", "-c", sql],
+    { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
+  ).trim();
+}
+
+function execOwnerSql(sql: string): string {
+  return execFileSync(
+    "psql",
+    [OWNER_DATABASE_URL, "-v", "ON_ERROR_STOP=1", "-At", "-c", sql],
     { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] },
   ).trim();
 }
@@ -258,9 +272,19 @@ function seedAttendanceStory(): void {
 
 function seedMemberSelfServiceStory(): void {
   assertDevOnlyEnvironment();
+  // Organizations are privileged provisioning data, so create this isolated
+  // active tenant through the owner connection before using the runtime role
+  // for the actual member facts under its tenant GUC.
+  execOwnerSql(`
+    BEGIN;
+    SET LOCAL app.current_org = ${sqlLiteral(memberOrgId)};
+    INSERT INTO organizations (id, slug, name, status)
+    VALUES (${sqlLiteral(memberOrgId)}, ${sqlLiteral(memberOrgSlug)}, ${sqlLiteral(memberOrgName)}, 'ACTIVE');
+    COMMIT;
+  `);
   execSql(`
     BEGIN;
-    SET LOCAL app.current_org = ${sqlLiteral(ORG_ID)};
+    SET LOCAL app.current_org = ${sqlLiteral(memberOrgId)};
     -- The MEMBER dev principal is identified by the deterministic phone the
     -- local dev-auth provisioner upserts. Preserve that row's employee link,
     -- while deliberately leaving both home_branch_id and user_branches empty:
@@ -269,27 +293,20 @@ function seedMemberSelfServiceStory(): void {
       id, org_id, company, name, source_filename, source_sheet, source_row,
       source_key, employment_status, org_unit, home_branch_id
     ) VALUES (
-      ${sqlLiteral(memberEmployeeId)}, ${sqlLiteral(ORG_ID)}, 'E2E', ${sqlLiteral(memberEmployeeName)},
+      ${sqlLiteral(memberEmployeeId)}, ${sqlLiteral(memberOrgId)}, 'E2E', ${sqlLiteral(memberEmployeeName)},
       'attendance-member-live-e2e', 'attendance', 99, ${sqlLiteral(`attendance-member-live-e2e-${runId}`)},
       'ACTIVE', 'E2E 본인 근태', NULL
     );
     INSERT INTO users (id, display_name, phone, roles, is_active, org_id, employee_id)
     VALUES (
       ${sqlLiteral(memberUserId)}, ${sqlLiteral(memberEmployeeName)}, ${sqlLiteral(memberPhone)},
-      ARRAY['MEMBER'], true, ${sqlLiteral(ORG_ID)}, ${sqlLiteral(memberEmployeeId)}
-    )
-    ON CONFLICT (phone) WHERE phone IS NOT NULL
-    DO UPDATE SET display_name = EXCLUDED.display_name,
-                  roles = EXCLUDED.roles,
-                  is_active = true,
-                  employee_id = EXCLUDED.employee_id;
-    DELETE FROM user_branches
-      WHERE user_id = (SELECT id FROM users WHERE phone = ${sqlLiteral(memberPhone)});
+      ARRAY['MEMBER'], true, ${sqlLiteral(memberOrgId)}, ${sqlLiteral(memberEmployeeId)}
+    );
     INSERT INTO attendance_exceptions (
       id, org_id, code, kind, status, employee_id, branch_id, work_date,
       detail, evidence, links, idempotency_key, request_fingerprint, created_by
     ) VALUES (
-      ${sqlLiteral(memberExceptionId)}, ${sqlLiteral(ORG_ID)}, ${sqlLiteral(memberExceptionCode)}, 'LATE', 'OPEN',
+      ${sqlLiteral(memberExceptionId)}, ${sqlLiteral(memberOrgId)}, ${sqlLiteral(memberExceptionCode)}, 'LATE', 'OPEN',
       ${sqlLiteral(memberEmployeeId)}, NULL, ${sqlLiteral(todayValue)}::date,
       ${sqlLiteral(memberExceptionDetail)}, ${sqlLiteral(JSON.stringify([{ name: memberEvidenceName, size: "24KB" }]))}::jsonb, '[]'::jsonb,
       ${sqlLiteral(`attendance-member-live-e2e-${runId}`)}, repeat('f', 64),
@@ -301,6 +318,10 @@ function seedMemberSelfServiceStory(): void {
 
 function scalar(sql: string): string {
   return execSql(`BEGIN; SET LOCAL app.current_org = ${sqlLiteral(ORG_ID)}; ${sql}; COMMIT;`);
+}
+
+function memberScalar(sql: string): string {
+  return execSql(`BEGIN; SET LOCAL app.current_org = ${sqlLiteral(memberOrgId)}; ${sql}; COMMIT;`);
 }
 
 async function loginAs(page: Page, role: DevRole): Promise<void> {
@@ -317,7 +338,7 @@ async function loginAsMemberWithoutBranch(page: Page): Promise<void> {
   await page.getByRole("button", { name: /역할 전환 로그인/ }).click();
   await page.getByRole("combobox").selectOption({ label: "일반 멤버" });
   await page.getByRole("button", { name: "고급 설정" }).click();
-  await page.getByLabel("조직 ID").fill(ORG_ID);
+  await page.getByLabel("조직 ID").fill(memberOrgId);
   await page.getByLabel("지점 ID (쉼표로 구분)").fill("");
   await expect(
     page.getByText("지점 ID를 비워두면 조직 전체 범위로 로그인합니다."),
@@ -576,12 +597,12 @@ test.describe("ATTENDANCE-31 live MEMBER self-service story", () => {
     });
     await loginAsMemberWithoutBranch(page);
     expect(
-      scalar(
+      memberScalar(
         `SELECT employee_id::text FROM users WHERE phone = ${sqlLiteral(memberPhone)}`,
       ),
     ).toBe(memberEmployeeId);
     expect(
-      scalar(
+      memberScalar(
         `SELECT count(*) FROM user_branches WHERE user_id = (SELECT id FROM users WHERE phone = ${sqlLiteral(memberPhone)})`,
       ),
     ).toBe("0");
@@ -635,11 +656,21 @@ test.describe("ATTENDANCE-31 live MEMBER self-service story", () => {
     // self-service read. A document reload must render the strict unavailable
     // Week52 envelope rather than retaining the prior projection.
     expect(
-      scalar(
+      memberScalar(
         `UPDATE users SET employee_id = NULL WHERE phone = ${sqlLiteral(memberPhone)} RETURNING id::text`,
       ),
     ).toMatch(/^[0-9a-f-]{36}$/i);
+    const unlinkedWeek52Response = page.waitForResponse(
+      (response) =>
+        response.request().method() === "GET" &&
+        new URL(response.url()).pathname === "/api/v1/attendance/me/week52",
+    );
     await page.reload();
+    const week52Response = await unlinkedWeek52Response;
+    expect(week52Response.status()).toBe(200);
+    const unlinkedWeek52 = await week52Response.json();
+    expect(unlinkedWeek52).toEqual({ status: "not_available" });
+    expect(unlinkedWeek52).not.toHaveProperty("projection");
     await expect(
       page.getByText("현재 주간 근태 집계가 연결되지 않았습니다."),
     ).toBeVisible({ timeout: 15_000 });
