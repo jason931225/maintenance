@@ -11,6 +11,7 @@ scratch="$(mktemp -d "${TMPDIR:-/tmp}/mnt-buck-preflight-test.XXXXXX")"
 trap 'rm -rf "${scratch}"' EXIT
 mkdir -p "${scratch}/bin" "${scratch}/archive"
 log="${scratch}/calls.log"
+snapshot="${scratch}/archive"
 
 cat >"${scratch}/buck" <<'BUCK'
 #!/usr/bin/env bash
@@ -33,6 +34,7 @@ if [[ "$1" == "-" ]]; then
   exec "${REAL_PYTHON3}" "$@"
 fi
 if [[ "$1" == */validate_generated_faces.py ]]; then
+  printf 'VALIDATE_GENERATED_FACES=%s\n' "$*" >>"${HARNESS_LOG}"
   echo 'generated-face-registry: PASS'
   exit 0
 fi
@@ -74,6 +76,15 @@ grep -Fq 'BUCK_ISOLATION_DIR=preflight-lock uquery ' "${log}"
 grep -Fq 'SNAPSHOT_NODE_DEPS=' "${log}"
 grep -Fq 'GENERATED_FACE_GATES=' "${log}"
 grep -Fq -- '--tier cheap' "${log}"
+grep -Fq "VALIDATE_GENERATED_FACES=${snapshot}/tools/buck/validate_generated_faces.py ${snapshot}/tools/buck/generated_face_registry.json" "${log}"
+grep -Fq -- "--registry ${snapshot}/tools/buck/generated_face_registry.json" "${log}"
+
+# The runner is the sole writer dispatcher. Preflight must never invoke a
+# generator after snapshot verification, which would mutate the caller tree.
+if grep -Eq '^tools/buck/generated-face-[a-z-]+\.sh$' "${harness}"; then
+  echo "preflight must not invoke generated-face writers outside the snapshot gate" >&2
+  exit 1
+fi
 
 # Full candidate closure is separately callable and never treats the expensive
 # registry faces as an implicit omission.
