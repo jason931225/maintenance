@@ -24,6 +24,9 @@ pub const LOGISTICS_ROUTE_PATHS: &[&str] = &[
     "/api/v1/logistics/fulfillments",
     "/api/v1/logistics/fulfillments/{fulfillment_id}/pick",
     "/api/v1/logistics/fulfillments/{fulfillment_id}/pack",
+    "/api/v1/logistics/fulfillments/{fulfillment_id}/dispatch",
+    "/api/v1/logistics/shipments/{shipment_id}/pod",
+    "/api/v1/logistics/shipments/{shipment_id}/settlements",
 ];
 #[derive(Clone)]
 pub struct LogisticsRestState {
@@ -51,6 +54,15 @@ pub fn router(state: LogisticsRestState) -> Router {
         .route(
             "/api/v1/logistics/fulfillments/{fulfillment_id}/pack",
             post(pack),
+        )
+        .route(
+            "/api/v1/logistics/fulfillments/{fulfillment_id}/dispatch",
+            post(dispatch),
+        )
+        .route("/api/v1/logistics/shipments/{shipment_id}/pod", post(pod))
+        .route(
+            "/api/v1/logistics/shipments/{shipment_id}/settlements",
+            post(settle),
         )
         .with_state(state);
     mnt_platform_request_context::with_request_context(r, verifier, pool)
@@ -114,7 +126,14 @@ async fn receive(
     let fingerprint = json!({"asnId":id,"receivedQuantity":b.received_quantity});
     Ok(Json(
         s.store
-            .receive(p.user_id, id, b.received_quantity, key, &fingerprint)
+            .receive(
+                p.user_id,
+                id,
+                BranchId::from_uuid(b.branch_id),
+                b.received_quantity,
+                key,
+                &fingerprint,
+            )
             .await
             .map_err(RestError::store)?,
     ))
@@ -138,7 +157,7 @@ async fn putaway(
     )?;
     Ok(Json(
         s.store
-            .putaway(p.user_id, id)
+            .putaway(p.user_id, id, BranchId::from_uuid(b.branch_id))
             .await
             .map_err(RestError::store)?,
     ))
@@ -200,7 +219,13 @@ async fn pick(
     )?;
     Ok(Json(
         s.store
-            .pick_pack(p.user_id, id, Some(b.picked_quantity), false)
+            .pick_pack(
+                p.user_id,
+                id,
+                BranchId::from_uuid(b.branch_id),
+                Some(b.picked_quantity),
+                false,
+            )
             .await
             .map_err(RestError::store)?,
     ))
@@ -219,7 +244,95 @@ async fn pack(
     )?;
     Ok(Json(
         s.store
-            .pick_pack(p.user_id, id, None, true)
+            .pick_pack(p.user_id, id, BranchId::from_uuid(b.branch_id), None, true)
+            .await
+            .map_err(RestError::store)?,
+    ))
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct DispatchBody {
+    branch_id: Uuid,
+    carrier_name: String,
+    vehicle_reference: String,
+}
+async fn dispatch(
+    State(s): State<LogisticsRestState>,
+    h: HeaderMap,
+    Path(id): Path<Uuid>,
+    Json(b): Json<DispatchBody>,
+) -> Result<(StatusCode, Json<Value>), RestError> {
+    let p = principal(&s, &h).await?;
+    let branch = BranchId::from_uuid(b.branch_id);
+    allow(&p, Feature::LogisticsDispatch, branch)?;
+    Ok((
+        StatusCode::CREATED,
+        Json(
+            s.store
+                .dispatch(p.user_id, id, branch, b.carrier_name, b.vehicle_reference)
+                .await
+                .map_err(RestError::store)?,
+        ),
+    ))
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct PodBody {
+    branch_id: Uuid,
+    recipient_name: String,
+    evidence_reference: String,
+    confirmed_at: OffsetDateTime,
+}
+async fn pod(
+    State(s): State<LogisticsRestState>,
+    h: HeaderMap,
+    Path(id): Path<Uuid>,
+    Json(b): Json<PodBody>,
+) -> Result<Json<Value>, RestError> {
+    let p = principal(&s, &h).await?;
+    let branch = BranchId::from_uuid(b.branch_id);
+    allow(&p, Feature::LogisticsPod, branch)?;
+    Ok(Json(
+        s.store
+            .pod(
+                p.user_id,
+                id,
+                branch,
+                b.recipient_name,
+                b.evidence_reference,
+                b.confirmed_at,
+            )
+            .await
+            .map_err(RestError::store)?,
+    ))
+}
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct SettleBody {
+    branch_id: Uuid,
+    currency_code: String,
+    amount_minor: i64,
+    settled_at: OffsetDateTime,
+}
+async fn settle(
+    State(s): State<LogisticsRestState>,
+    h: HeaderMap,
+    Path(id): Path<Uuid>,
+    Json(b): Json<SettleBody>,
+) -> Result<Json<Value>, RestError> {
+    let p = principal(&s, &h).await?;
+    let branch = BranchId::from_uuid(b.branch_id);
+    allow(&p, Feature::LogisticsSettle, branch)?;
+    Ok(Json(
+        s.store
+            .settle(
+                p.user_id,
+                id,
+                branch,
+                b.amount_minor,
+                b.currency_code,
+                b.settled_at,
+            )
             .await
             .map_err(RestError::store)?,
     ))

@@ -13696,6 +13696,27 @@ paths:
       security: [{ bearerAuth: [] }]
       parameters: [{ name: fulfillment_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
       responses: { '200': { description: Fulfillment packed }, '409': { description: Illegal state } }
+  /api/v1/logistics/fulfillments/{fulfillment_id}/dispatch:
+    post:
+      tags: [logistics]
+      operationId: dispatchLogisticsShipment
+      summary: Dispatch one packed carrier and vehicle leg
+      security: [{ bearerAuth: [] }]
+      responses: { '201': { description: Shipment dispatched }, '409': { description: Illegal transition } }
+  /api/v1/logistics/shipments/{shipment_id}/pod:
+    post:
+      tags: [logistics]
+      operationId: verifyLogisticsPod
+      summary: Verify recipient-confirmed immutable evidence and derive calendar-time SLA
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: POD verified with MET or BREACHED SLA }, '409': { description: Illegal transition or reused evidence } }
+  /api/v1/logistics/shipments/{shipment_id}/settlements:
+    post:
+      tags: [logistics]
+      operationId: settleLogisticsOperationalCost
+      summary: Settle one KRW operational transport cost; no finance or GL posting
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { description: Operational cost settled }, '409': { description: Verified POD required } }
 components:
   securitySchemes:
     bearerAuth:

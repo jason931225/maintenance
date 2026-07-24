@@ -52,7 +52,7 @@ CREATE TABLE logistics_pod_evidence (
 );
 CREATE TABLE logistics_operational_cost_settlements (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(), org_id UUID NOT NULL REFERENCES organizations(id) ON DELETE RESTRICT,
-    branch_id UUID NOT NULL, shipment_id UUID NOT NULL, currency_code TEXT NOT NULL CHECK (currency_code ~ '^[A-Z]{3}$'), amount_minor BIGINT NOT NULL CHECK (amount_minor >= 0),
+    branch_id UUID NOT NULL, shipment_id UUID NOT NULL, currency_code TEXT NOT NULL CHECK (currency_code = 'KRW'), amount_minor BIGINT NOT NULL CHECK (amount_minor >= 0),
     settled_at TIMESTAMPTZ NOT NULL, UNIQUE (id, org_id), UNIQUE (org_id, shipment_id), FOREIGN KEY (branch_id, org_id) REFERENCES branches(id, org_id), FOREIGN KEY (shipment_id, org_id) REFERENCES logistics_shipments(id, org_id)
 );
 CREATE TABLE logistics_history (
