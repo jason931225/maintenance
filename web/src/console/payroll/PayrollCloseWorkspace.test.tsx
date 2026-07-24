@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -82,7 +84,7 @@ describe("PayrollCloseWorkspace", () => {
     ).toBe("2026년 6월 검토 대기 상세 열기");
   });
 
-  it("loads an audited run list and opens its real readiness lines with keyboard", async () => {
+  it("loads an audited run list and opens its real readiness lines with a native button", async () => {
     const get = vi.fn((path: string) =>
       path === "/api/v1/payroll/runs"
         ? Promise.resolve(
@@ -93,10 +95,10 @@ describe("PayrollCloseWorkspace", () => {
     const user = userEvent.setup();
     renderWorkspace(apiFor(get));
 
-    const row = await screen.findByRole("button", {
+    const action = await screen.findByRole("button", {
       name: /2026년 6월 정기 지급.*검토 대기/i,
     });
-    row.focus();
+    action.focus();
     await user.keyboard("{Enter}");
 
     expect(
@@ -113,6 +115,47 @@ describe("PayrollCloseWorkspace", () => {
     );
   });
 
+  it("loads console tokens before payroll styles for a direct payroll route", async () => {
+    const tokens = readFileSync(
+      join(process.cwd(), "src/console/tokens.css"),
+      "utf8",
+    );
+    const payrollStyles = readFileSync(
+      join(process.cwd(), "src/console/payroll/PayrollCloseWorkspace.css"),
+      "utf8",
+    );
+    const component = readFileSync(
+      join(process.cwd(), "src/console/payroll/PayrollCloseWorkspace.tsx"),
+      "utf8",
+    );
+    expect(component.indexOf('import "../tokens.css";')).toBeLessThan(
+      component.indexOf('import "./PayrollCloseWorkspace.css";'),
+    );
+
+    const style = document.createElement("style");
+    style.textContent = `${tokens}\n${payrollStyles}`;
+    document.head.append(style);
+    try {
+      const get = vi.fn(() =>
+        Promise.resolve(
+          response({ items: [], total: 0, limit: 50, offset: 0 }),
+        ),
+      );
+      const { container } = renderWorkspace(apiFor(get));
+
+      await screen.findByText("현재 조회 가능한 급여 회차가 없습니다.");
+      const workspace = container.querySelector(".payroll-close");
+      if (!workspace) throw new Error("Payroll close workspace did not render");
+      expect(workspace).toHaveClass("console");
+      expect(
+        getComputedStyle(workspace).getPropertyValue("--sp-4").trim(),
+      ).toBe("10px");
+      expect(getComputedStyle(workspace).gap).toBe("var(--sp-4)");
+    } finally {
+      style.remove();
+    }
+  });
+
   it("keeps payroll-owned presentation semantics while supporting space-key activation", async () => {
     const get = vi.fn((path: string) =>
       Promise.resolve(
@@ -124,17 +167,19 @@ describe("PayrollCloseWorkspace", () => {
     const user = userEvent.setup();
     renderWorkspace(apiFor(get));
 
-    const row = await screen.findByRole("button", {
+    const action = await screen.findByRole("button", {
       name: /2026년 6월 정기 지급.*검토 대기/i,
     });
-    expect(row).toHaveClass("payroll-close__row");
-    expect(row.closest("table")).toHaveClass("payroll-close__table");
+    expect(action).toHaveClass("payroll-close__row-action");
+    expect(action.closest("table")).toHaveClass("payroll-close__table");
+    expect(action.closest("tr")).not.toHaveAttribute("role");
+    expect(action.closest("tr")).not.toHaveAttribute("tabindex");
     expect(screen.getByText("검토 대기")).toHaveClass(
       "payroll-close__status",
       "payroll-close__status--warn",
     );
 
-    row.focus();
+    action.focus();
     await user.keyboard(" ");
     expect(
       await screen.findByRole("heading", { name: "급여 회차 상세" }),

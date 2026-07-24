@@ -55,8 +55,7 @@
 .payroll-close__button:hover {
   background: var(--muted);
 }
-.payroll-close__button:focus-visible,
-.payroll-close__row:focus-visible {
+.payroll-close__button:focus-visible {
   outline: 2px solid var(--teal);
   outline-offset: -2px;
 }
@@ -90,11 +89,23 @@
 .payroll-close__table tbody tr:last-child td {
   border-bottom: 0;
 }
-.payroll-close__row {
-  cursor: pointer;
-}
 .payroll-close__row:hover {
   background: var(--muted);
+}
+.payroll-close__row-action {
+  display: block;
+  width: 100%;
+  min-height: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  text-align: start;
+}
+.payroll-close__row-label,
+.payroll-close__row-action .payroll-close__meta {
+  display: block;
 }
 .payroll-close__status {
   display: inline-flex;

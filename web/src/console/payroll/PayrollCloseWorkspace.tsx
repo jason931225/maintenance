@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { KeyboardEvent } from "react";
 import type { components } from "@maintenance/api-client-ts";
 import type { ConsoleApiClient } from "../../api/client";
 import { ko } from "../../i18n/ko";
+import "../tokens.css";
 import "./PayrollCloseWorkspace.css";
 
 type Run = components["schemas"]["PayrollRunSummary"];
@@ -266,18 +266,8 @@ export function PayrollCloseWorkspace({
       cancelDetail();
     };
   }, [api, authorityKey, cancelDetail, loadRuns]);
-  const activateRow = (
-    event: KeyboardEvent<HTMLTableRowElement>,
-    action: () => void,
-  ) => {
-    if (event.key === "Enter" || event.key === " ") {
-      event.preventDefault();
-      action();
-    }
-  };
-
   return (
-    <div className="payroll-close">
+    <div className="console payroll-close">
       <section className="payroll-close__card">
         <div className="payroll-close__header">
           <div>
@@ -332,25 +322,24 @@ export function PayrollCloseWorkspace({
                 </thead>
                 <tbody>
                   {runs.map((run) => (
-                    <tr
-                      key={run.id}
-                      className="payroll-close__row"
-                      role="button"
-                      tabIndex={0}
-                      aria-label={copy.list.detailAria(
-                        run.source_label,
-                        copy.statuses[run.status],
-                      )}
-                      onClick={() => void loadDetail(run)}
-                      onKeyDown={(event) => {
-                        activateRow(event, () => void loadDetail(run));
-                      }}
-                    >
+                    <tr key={run.id} className="payroll-close__row">
                       <td>
-                        <strong>{run.source_label}</strong>
-                        <p className="payroll-close__meta">
-                          {run.period_start} ~ {run.period_end}
-                        </p>
+                        <button
+                          className="payroll-close__button payroll-close__row-action"
+                          type="button"
+                          aria-label={copy.list.detailAria(
+                            run.source_label,
+                            copy.statuses[run.status],
+                          )}
+                          onClick={() => void loadDetail(run)}
+                        >
+                          <span className="payroll-close__row-label">
+                            {run.source_label}
+                          </span>
+                          <span className="payroll-close__meta">
+                            {run.period_start} ~ {run.period_end}
+                          </span>
+                        </button>
                       </td>
                       <td>
                         <span
