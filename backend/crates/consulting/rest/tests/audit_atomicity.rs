@@ -5,6 +5,7 @@ use axum::http::{Request, StatusCode, header};
 use mnt_consulting_rest::{CONSULTING_ENGAGEMENTS_PATH, ConsultingRestState, router};
 use mnt_kernel_core::{BranchId, OrgId, UserId};
 use mnt_platform_auth::{AccessTokenInput, JwtIssuer, JwtSettings, JwtVerifier};
+use mnt_platform_request_context::TrustedClientIp;
 use mnt_platform_test_support::runtime_role_pool;
 use p256::ecdsa::SigningKey;
 use p256::elliptic_curve::rand_core::OsRng;
@@ -171,22 +172,21 @@ async fn send_create(
     body: Value,
     metadata: RequestMetadata,
 ) -> (StatusCode, Value) {
-    let response = service
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri(CONSULTING_ENGAGEMENTS_PATH)
-                .header(header::AUTHORIZATION, format!("Bearer {token}"))
-                .header(header::CONTENT_TYPE, "application/json")
-                .header("traceparent", metadata.traceparent)
-                .header("x-forwarded-for", metadata.ip)
-                .header(header::USER_AGENT, metadata.user_agent)
-                .header("x-device-id", metadata.device)
-                .body(Body::from(body.to_string()))
-                .unwrap(),
-        )
-        .await
+    let mut request = Request::builder()
+        .method("POST")
+        .uri(CONSULTING_ENGAGEMENTS_PATH)
+        .header(header::AUTHORIZATION, format!("Bearer {token}"))
+        .header(header::CONTENT_TYPE, "application/json")
+        .header("traceparent", metadata.traceparent)
+        .header("x-forwarded-for", "198.51.100.250")
+        .header(header::USER_AGENT, metadata.user_agent)
+        .header("x-device-id", metadata.device)
+        .body(Body::from(body.to_string()))
         .unwrap();
+    request.extensions_mut().insert(TrustedClientIp::new(
+        metadata.ip.parse().expect("trusted client IP"),
+    ));
+    let response = service.oneshot(request).await.unwrap();
     let status = response.status();
     let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
     (
