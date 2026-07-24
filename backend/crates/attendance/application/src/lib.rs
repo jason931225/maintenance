@@ -94,6 +94,9 @@ pub struct CancelSubstitution {
 pub struct AmendClose {
     pub close_id: Uuid,
     pub reason: String,
+    pub detail: String,
+    pub reference: Option<String>,
+    pub idempotency_key: String,
 }
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AcknowledgeWeek52 {

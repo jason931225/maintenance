@@ -664,7 +664,7 @@ async fn cancel_substitution(
 }
 
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(deny_unknown_fields)]
 struct CloseBody {
     month: String,
     branch_scope: Option<Uuid>,
@@ -694,7 +694,7 @@ async fn close_preflight(
     ))
 }
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(deny_unknown_fields)]
 struct CloseListQuery {
     branch_id: Option<Uuid>,
 }
@@ -713,9 +713,12 @@ async fn list_closes(
         .map_err(RestError::store)
 }
 #[derive(Deserialize)]
-#[serde(rename_all = "camelCase", deny_unknown_fields)]
+#[serde(deny_unknown_fields)]
 struct AmendCloseBody {
     reason: String,
+    detail: String,
+    #[serde(default)]
+    r#ref: Option<String>,
 }
 async fn amend_close(
     State(state): State<AttendanceRestState>,
@@ -740,6 +743,9 @@ async fn amend_close(
             AmendClose {
                 close_id,
                 reason: body.reason,
+                detail: body.detail,
+                reference: body.r#ref,
+                idempotency_key: idempotency(&headers)?,
             },
         )
         .await

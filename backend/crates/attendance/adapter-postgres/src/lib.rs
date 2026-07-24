@@ -296,12 +296,11 @@ impl PgAttendanceStore {
             close_month_lock(tx, caller.org_id, month).await?;
             let checks = close_checks(tx, month, close.branch_scope).await?;
             if !checks.ready() { return Err(AttendanceStoreError::CloseBlocked); }
-            let checks_json = json!([
-                {"key":"open_exceptions","ok":checks.open_exceptions == 0,"note":checks.open_exceptions},
-                {"key":"pending_leave","ok":true,"warn":checks.pending_leave > 0,"note":checks.pending_leave},
-                {"key":"not_already_closed","ok":!checks.already_closed}
-            ]);
-            let scope = close.branch_scope.map_or_else(|| "org".to_owned(), |id| id.to_string());
+            let checks_json = json!({
+                "open_exceptions": checks.open_exceptions,
+                "pending_leave": checks.pending_leave,
+                "already_closed": checks.already_closed
+            });
             // A branch close is an attendance evidence snapshot only. It must
             // never acquire or create the organization-wide payroll period lock.
             // Organization-wide closes reuse or create that lock atomically.
@@ -320,16 +319,16 @@ impl PgAttendanceStore {
                         if overlaps != 0 { return Err(AttendanceStoreError::Conflict); }
                         let id = sqlx::query_scalar(
                             "INSERT INTO period_locks (org_id,domain,period_start,period_end,reason,locked_by) VALUES ($1,'payroll',$2,$3,$4,$5) RETURNING id",
-                        ).bind(caller.org_id).bind(month).bind(last).bind(format!("attendance close {} ({scope})", close.month)).bind(caller.user_id).fetch_one(tx.as_mut()).await?;
+                        ).bind(caller.org_id).bind(month).bind(last).bind(format!("attendance close {}", close.month)).bind(caller.user_id).fetch_one(tx.as_mut()).await?;
                         (Some(id), true)
                     }
                 }
             };
             let inserted = sqlx::query(
-                "INSERT INTO attendance_month_closes (id,org_id,month,branch_scope,checks,attested_by,period_lock_id) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (org_id,month,branch_scope) DO NOTHING",
-            ).bind(id).bind(caller.org_id).bind(month).bind(&scope).bind(&checks_json).bind(caller.user_id).bind(lock_id).execute(tx.as_mut()).await?;
+                "INSERT INTO attendance_month_closes (id,org_id,month,branch_id,checks,attested_by,period_lock_id) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (org_id,month,branch_id) DO NOTHING",
+            ).bind(id).bind(caller.org_id).bind(month).bind(close.branch_scope).bind(&checks_json).bind(caller.user_id).bind(lock_id).execute(tx.as_mut()).await?;
             if inserted.rows_affected() != 1 { return Err(AttendanceStoreError::Conflict); }
-            let view = json!({"id":id,"month":close.month,"branchScope":scope,"status":"CLOSED","checks":checks_json,"periodLockId":lock_id});
+            let view = json!({"id":id,"month":close.month,"branch_scope":close.branch_scope,"status":"CLOSED","checks":checks_json,"period_lock_id":lock_id});
             let mut audits = vec![event(&caller,"attendance.close.confirm","attendance_month_close",id,close.branch_scope,Some(json!({"periodLockId":lock_id})))?];
             if created_period_lock {
                 audits.push(event(&caller,"period_lock.create","period_lock",lock_id.expect("created lock id"),None,Some(json!({"domain":"payroll","periodStart":month,"periodEnd":last})))?);
@@ -346,8 +345,7 @@ impl PgAttendanceStore {
         app::ensure_scope(caller, branch_id)?;
         let org = OrgId::from_uuid(caller.org_id);
         with_org_conn::<_, _, AttendanceStoreError>(&self.pool, org, move |tx| Box::pin(async move {
-            let scope = branch_id.map_or_else(|| "org".to_owned(), |id| id.to_string());
-            let rows = sqlx::query("SELECT id,month,branch_scope,checks,attested_by,period_lock_id FROM attendance_month_closes WHERE branch_scope=$1 ORDER BY month DESC").bind(scope).fetch_all(tx.as_mut()).await?;
+            let rows = sqlx::query("SELECT id,month,branch_id,checks,attested_by,attested_at,period_lock_id,closed_at FROM attendance_month_closes WHERE branch_id IS NOT DISTINCT FROM $1 ORDER BY month DESC").bind(branch_id).fetch_all(tx.as_mut()).await?;
             rows.iter().map(close_json).collect::<Result<Vec<_>, _>>()
         })).await
     }
@@ -362,23 +360,11 @@ impl PgAttendanceStore {
             OrgId::from_uuid(org_id),
             move |tx| {
                 Box::pin(async move {
-                    let scope: Option<String> = sqlx::query_scalar(
-                        "SELECT branch_scope FROM attendance_month_closes WHERE id=$1",
-                    )
-                    .bind(close_id)
-                    .fetch_optional(tx.as_mut())
-                    .await?;
-                    scope
-                        .map(|value| {
-                            if value == "org" {
-                                Ok(None)
-                            } else {
-                                Uuid::parse_str(&value)
-                                    .map(Some)
-                                    .map_err(|_| AttendanceStoreError::Conflict)
-                            }
-                        })
-                        .transpose()
+                    sqlx::query_scalar("SELECT branch_id FROM attendance_month_closes WHERE id=$1")
+                        .bind(close_id)
+                        .fetch_optional(tx.as_mut())
+                        .await
+                        .map_err(AttendanceStoreError::from)
                 })
             },
         )
@@ -391,14 +377,20 @@ impl PgAttendanceStore {
         command: AmendClose,
     ) -> Result<Value, AttendanceStoreError> {
         let reason = app::validate_text(&command.reason, "reason", 2000)?;
+        let detail = app::validate_text(&command.detail, "detail", 4000)?;
+        let reference = app::normalize_optional_text(command.reference, "ref", 240)?;
+        let key = app::validate_idempotency_key(&command.idempotency_key)?;
         let org = OrgId::from_uuid(caller.org_id);
         let caller = caller.clone();
         with_audits::<_, _, AttendanceStoreError>(&self.pool, org, move |tx| Box::pin(async move {
-            let branch_scope: String = sqlx::query_scalar("SELECT branch_scope FROM attendance_month_closes WHERE id=$1 FOR UPDATE").bind(command.close_id).fetch_optional(tx.as_mut()).await?.ok_or(AttendanceStoreError::NotFound)?;
-            let branch = if branch_scope == "org" { None } else { Some(Uuid::parse_str(&branch_scope).map_err(|_| AttendanceStoreError::Conflict)?) };
+            idempotency_lock(tx, caller.org_id, &key).await?;
+            let branch: Option<Uuid> = sqlx::query_scalar("SELECT branch_id FROM attendance_month_closes WHERE id=$1 FOR UPDATE").bind(command.close_id).fetch_optional(tx.as_mut()).await?.ok_or(AttendanceStoreError::NotFound)?;
             app::ensure_scope(&caller, branch)?;
+            let fingerprint_value = fingerprint(&json!({"close_id":command.close_id,"reason":reason,"detail":detail,"ref":reference}));
+            let existing: Option<(Uuid, String)> = sqlx::query_as("SELECT id,request_fingerprint FROM attendance_close_amendments WHERE org_id=$1 AND idempotency_key=$2").bind(caller.org_id).bind(&key).fetch_optional(tx.as_mut()).await?;
+            if let Some((id, stored)) = existing { if stored == fingerprint_value { return Ok((json!({"id":id,"close_id":command.close_id,"reason":reason,"detail":detail,"ref":reference}), Vec::new())); } return Err(AttendanceStoreError::Conflict); }
             let amendment_id = Uuid::new_v4();
-            sqlx::query("INSERT INTO attendance_close_amendments (id,org_id,close_id,reason,amended_by) VALUES ($1,$2,$3,$4,$5)").bind(amendment_id).bind(caller.org_id).bind(command.close_id).bind(&reason).bind(caller.user_id).execute(tx.as_mut()).await?;
+            sqlx::query("INSERT INTO attendance_close_amendments (id,org_id,close_id,reason,detail,ref,idempotency_key,request_fingerprint,actor_user_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)").bind(amendment_id).bind(caller.org_id).bind(command.close_id).bind(&reason).bind(&detail).bind(&reference).bind(&key).bind(&fingerprint_value).bind(caller.user_id).execute(tx.as_mut()).await?;
             Ok((json!({"id":amendment_id,"closeId":command.close_id,"reason":reason,"status":"AMENDED"}), vec![event(&caller,"attendance.close.amend","attendance_month_close",command.close_id,branch,Some(json!({"amendmentId":amendment_id})))?]))
         })).await
     }
@@ -738,12 +730,11 @@ async fn close_checks(
     let next = month_after(month);
     let open:i64=sqlx::query_scalar("SELECT count(*) FROM attendance_exceptions WHERE status='OPEN' AND work_date >= $1 AND work_date < $2 AND ($3::uuid IS NULL OR branch_id=$3)").bind(month).bind(next).bind(branch).fetch_one(tx.as_mut()).await?;
     let pending:i64=sqlx::query_scalar("SELECT count(*) FROM leave_requests WHERE status IN ('pending','PENDING') AND start_date < $2 AND end_date >= $1 AND ($3::uuid IS NULL OR branch_id=$3)").bind(month).bind(next).bind(branch).fetch_one(tx.as_mut()).await?;
-    let scope = branch.map_or_else(|| "org".to_owned(), |id| id.to_string());
     let closed: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM attendance_month_closes WHERE month=$1 AND branch_scope=$2)",
+        "SELECT EXISTS(SELECT 1 FROM attendance_month_closes WHERE month=$1 AND branch_id IS NOT DISTINCT FROM $2)",
     )
     .bind(month)
-    .bind(scope)
+    .bind(branch)
     .fetch_one(tx.as_mut())
     .await?;
     Ok(CloseChecks {
@@ -843,7 +834,7 @@ fn substitution_read(
 }
 fn close_json(r: &sqlx::postgres::PgRow) -> Result<Value, AttendanceStoreError> {
     Ok(
-        json!({"id":r.try_get::<Uuid,_>("id")?,"month":r.try_get::<Date,_>("month")?.to_string(),"branchScope":r.try_get::<String,_>("branch_scope")?,"checks":r.try_get::<Value,_>("checks")?,"attestedBy":r.try_get::<Uuid,_>("attested_by")?,"periodLockId":r.try_get::<Option<Uuid>,_>("period_lock_id")?}),
+        json!({"id":r.try_get::<Uuid,_>("id")?,"month":r.try_get::<Date,_>("month")?.to_string(),"branch_id":r.try_get::<Option<Uuid>,_>("branch_id")?,"checks":r.try_get::<Value,_>("checks")?,"attested_by":r.try_get::<Uuid,_>("attested_by")?,"attested_at":r.try_get::<OffsetDateTime,_>("attested_at")?.to_string(),"period_lock_id":r.try_get::<Option<Uuid>,_>("period_lock_id")?,"closed_at":r.try_get::<OffsetDateTime,_>("closed_at")?.to_string()}),
     )
 }
 
