@@ -15,7 +15,8 @@ use mnt_attendance_application::{
     AcknowledgeWeek52, AmendClose, AssignSubstitute, AttendanceEvidence, AttendanceExceptionRead,
     AttendanceSubstitutionRead, CallerScope, CancelSubstitution, CloseMonth, ClosePreflightRead,
     ListExceptions, ListSubstitutions, MonthCloseRead, RaiseException, ResolveException,
-    Week52Read, validate_week52_start, week52_tone,
+    SubstitutionCandidateQuery, SubstitutionCandidateRead, Week52Read, validate_week52_start,
+    week52_tone,
 };
 use mnt_attendance_domain::{
     AttendanceDateRange, ExceptionKind, ResolutionAction, SubstitutionWindow,
@@ -34,6 +35,8 @@ pub const ATTENDANCE_EXCEPTION_DETAIL_PATH: &str = "/api/v1/attendance/exception
 pub const ATTENDANCE_EXCEPTION_RESOLVE_PATH: &str =
     "/api/v1/attendance/exceptions/{exception_id}/resolve";
 pub const ATTENDANCE_SUBSTITUTIONS_PATH: &str = "/api/v1/attendance/substitutions";
+pub const ATTENDANCE_SUBSTITUTION_CANDIDATES_PATH: &str =
+    "/api/v1/attendance/substitution-candidates";
 pub const ATTENDANCE_SUBSTITUTION_CANCEL_PATH: &str =
     "/api/v1/attendance/substitutions/{substitution_id}/cancel";
 pub const ATTENDANCE_CLOSES_PATH: &str = "/api/v1/attendance/closes";
@@ -46,6 +49,7 @@ pub const ATTENDANCE_ROUTE_PATHS: &[&str] = &[
     ATTENDANCE_EXCEPTION_DETAIL_PATH,
     ATTENDANCE_EXCEPTION_RESOLVE_PATH,
     ATTENDANCE_SUBSTITUTIONS_PATH,
+    ATTENDANCE_SUBSTITUTION_CANDIDATES_PATH,
     ATTENDANCE_SUBSTITUTION_CANCEL_PATH,
     ATTENDANCE_CLOSES_PATH,
     ATTENDANCE_CLOSE_PREFLIGHT_PATH,
@@ -58,8 +62,9 @@ const EXCEPTION_MANAGE: Feature = Feature::AttendanceExceptionManage;
 const SUBSTITUTION_MANAGE: Feature = Feature::AttendanceSubstitutionManage;
 const CLOSE: Feature = Feature::PeriodLockManage;
 const ATTENDANCE_REST_READS_TOTAL: &str = "attendance_rest_reads_total";
-const ATTENDANCE_READ_SURFACES: [&str; 5] = [
+const ATTENDANCE_READ_SURFACES: [&str; 6] = [
     "substitutions",
+    "substitution_candidates",
     "exceptions",
     "exception_detail",
     "closes",
@@ -115,6 +120,10 @@ pub fn router(state: AttendanceRestState) -> Router {
         .route(
             ATTENDANCE_SUBSTITUTIONS_PATH,
             get(list_substitutions).post(assign_substitute),
+        )
+        .route(
+            ATTENDANCE_SUBSTITUTION_CANDIDATES_PATH,
+            get(list_substitution_candidates),
         )
         .route(ATTENDANCE_CLOSE_PREFLIGHT_PATH, post(close_preflight))
         .route(
@@ -266,6 +275,19 @@ struct ListQuery {
     limit: Option<i64>,
     offset: Option<i64>,
 }
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SubstitutionCandidateListQuery {
+    branch_id: Uuid,
+    covered_employee_id: Uuid,
+    cover_date: String,
+    from_minutes: i32,
+    to_minutes: i32,
+    search: Option<String>,
+    limit: Option<i64>,
+    offset: Option<i64>,
+}
 fn list_range(q: &ListQuery) -> Result<AttendanceDateRange, RestError> {
     let selectors = usize::from(q.month.is_some())
         + usize::from(q.work_date.is_some())
@@ -382,6 +404,82 @@ async fn list_substitutions(
         .map_err(RestError::store)?;
     Ok(Json(SubstitutionPageDto {
         items: page.items.into_iter().map(SubstitutionDto::from).collect(),
+        total: page.total,
+        limit: page.limit,
+        offset: page.offset,
+    }))
+}
+
+#[derive(Serialize)]
+struct SubstitutionCandidateDto {
+    employee_id: String,
+    employee_name: String,
+    branch_id: String,
+}
+
+impl From<SubstitutionCandidateRead> for SubstitutionCandidateDto {
+    fn from(value: SubstitutionCandidateRead) -> Self {
+        Self {
+            employee_id: value.employee_id.to_string(),
+            employee_name: value.employee_name,
+            branch_id: value.branch_id.to_string(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct SubstitutionCandidatePageDto {
+    items: Vec<SubstitutionCandidateDto>,
+    total: i64,
+    limit: i64,
+    offset: i64,
+}
+
+async fn list_substitution_candidates(
+    State(state): State<AttendanceRestState>,
+    headers: HeaderMap,
+    AttendanceQuery(q): AttendanceQuery<SubstitutionCandidateListQuery>,
+) -> Result<Json<SubstitutionCandidatePageDto>, RestError> {
+    let p = principal(&state, &headers).await?;
+    require_for_branch(&p, SUBSTITUTION_MANAGE, Some(q.branch_id))?;
+    let query = SubstitutionCandidateQuery::new(
+        q.branch_id,
+        q.covered_employee_id,
+        SubstitutionWindow::new(
+            parse_date(&q.cover_date, "cover_date")?,
+            q.from_minutes,
+            q.to_minutes,
+        )
+        .map_err(|error| {
+            RestError::new(
+                StatusCode::UNPROCESSABLE_ENTITY,
+                "validation",
+                error.to_string(),
+            )
+        })?,
+        q.search,
+        q.limit,
+        q.offset,
+    )
+    .map_err(|error| {
+        RestError::new(
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "validation",
+            error.to_string(),
+        )
+    })?;
+    record_read("substitution_candidates");
+    let page = state
+        .store
+        .list_substitution_candidates(&scope(&p), query)
+        .await
+        .map_err(RestError::store)?;
+    Ok(Json(SubstitutionCandidatePageDto {
+        items: page
+            .items
+            .into_iter()
+            .map(SubstitutionCandidateDto::from)
+            .collect(),
         total: page.total,
         limit: page.limit,
         offset: page.offset,
@@ -654,10 +752,7 @@ struct AssignBody {
     covered_employee_id: Uuid,
     reason_kind: String,
     reason_detail: Option<String>,
-    worker_employee_id: Option<Uuid>,
-    worker_name: String,
-    worker_type: String,
-    worker_rate: Option<String>,
+    worker_employee_id: Uuid,
     exception_id: Option<Uuid>,
 }
 async fn assign_substitute(
@@ -686,10 +781,12 @@ async fn assign_substitute(
         covered_employee_id: body.covered_employee_id,
         reason_kind: body.reason_kind,
         reason_detail: body.reason_detail,
-        worker_employee_id: body.worker_employee_id,
-        worker_name: body.worker_name,
-        worker_type: body.worker_type,
-        worker_rate: body.worker_rate,
+        worker_employee_id: Some(body.worker_employee_id),
+        // The store replaces these implementation-only fields from canonical
+        // HR data before persistence; the public request cannot supply them.
+        worker_name: String::new(),
+        worker_type: String::new(),
+        worker_rate: None,
         exception_id: body.exception_id,
         idempotency_key: idempotency(&headers)?,
     };
@@ -1265,6 +1362,8 @@ impl IntoResponse for RestError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mnt_kernel_core::{OrgId, UserId};
+    use mnt_platform_authz::Role;
     use std::{
         collections::BTreeSet,
         future::Future,
@@ -1303,6 +1402,7 @@ mod tests {
         "exceptions list",
         "exceptions raise",
         "substitutions assign",
+        "substitution candidates",
         "close preflight",
         "close confirm",
         "week52",
@@ -1361,6 +1461,9 @@ mod tests {
     #[test]
     fn every_query_endpoint_maps_unknown_parameters_to_the_stable_error() {
         assert_invalid_query::<ListQuery>("/api/v1/attendance/substitutions?unexpected=true");
+        assert_invalid_query::<SubstitutionCandidateListQuery>(
+            "/api/v1/attendance/substitution-candidates?unexpected=true",
+        );
         assert_invalid_query::<ListQuery>("/api/v1/attendance/exceptions?unexpected=true");
         assert_invalid_query::<CloseListQuery>("/api/v1/attendance/closes?unexpected=true");
         assert_invalid_query::<Week52Query>("/api/v1/attendance/week52?unexpected=true");
@@ -1372,6 +1475,7 @@ mod tests {
             ATTENDANCE_READ_SURFACES,
             [
                 "substitutions",
+                "substitution_candidates",
                 "exceptions",
                 "exception_detail",
                 "closes",
@@ -1389,13 +1493,14 @@ mod tests {
     }
 
     #[test]
-    fn private_rest_surface_exposes_all_thirteen_canonical_operations() {
+    fn private_rest_surface_exposes_all_fourteen_canonical_operations() {
         assert_eq!(
             ATTENDANCE_ROUTE_PATHS.len(),
-            10,
+            11,
             "some paths host two method-specific operations"
         );
         assert!(ATTENDANCE_ROUTE_PATHS.contains(&ATTENDANCE_EXCEPTION_DETAIL_PATH));
+        assert!(ATTENDANCE_ROUTE_PATHS.contains(&ATTENDANCE_SUBSTITUTION_CANDIDATES_PATH));
         assert!(ATTENDANCE_ROUTE_PATHS.contains(&ATTENDANCE_SUBSTITUTION_CANCEL_PATH));
         assert!(ATTENDANCE_ROUTE_PATHS.contains(&ATTENDANCE_CLOSE_AMEND_PATH));
         assert!(ATTENDANCE_ROUTE_PATHS.contains(&ATTENDANCE_WEEK52_ACK_PATH));
@@ -1412,7 +1517,85 @@ mod tests {
             !ATTENDANCE_ROUTE_PATHS.contains(&"/api/v1/attendance/week52/ack"),
             "the legacy singular acknowledgement route must not remain mounted"
         );
-        assert_eq!(BRANCH_BOUND_ENDPOINT_FAMILIES.len(), 13);
+        assert_eq!(BRANCH_BOUND_ENDPOINT_FAMILIES.len(), 14);
+    }
+
+    #[test]
+    fn candidate_query_requires_every_strict_selector() {
+        let branch = Uuid::new_v4();
+        let covered = Uuid::new_v4();
+        let query = format!(
+            "/api/v1/attendance/substitution-candidates?branch_id={branch}&covered_employee_id={covered}&cover_date=2026-07-24&from_minutes=480&to_minutes=960"
+        );
+        let (mut parts, _) = axum::http::Request::builder()
+            .uri(&query)
+            .body(())
+            .unwrap()
+            .into_parts();
+        let parsed = run_ready(
+            AttendanceQuery::<SubstitutionCandidateListQuery>::from_request_parts(&mut parts, &()),
+        )
+        .expect("complete candidate query is valid")
+        .0;
+        assert_eq!(parsed.branch_id, branch);
+        assert_eq!(parsed.covered_employee_id, covered);
+
+        assert_invalid_query::<SubstitutionCandidateListQuery>(
+            "/api/v1/attendance/substitution-candidates?covered_employee_id=00000000-0000-0000-0000-000000000001&cover_date=2026-07-24&from_minutes=480&to_minutes=960",
+        );
+    }
+
+    #[test]
+    fn candidate_lookup_uses_substitution_manage_at_the_explicit_branch() {
+        let allowed = BranchId::new();
+        let principal = Principal::new(
+            UserId::new(),
+            OrgId::knl(),
+            BTreeSet::from([Role::Admin]),
+            BranchScope::single(allowed),
+        );
+        assert!(
+            require_for_branch(&principal, SUBSTITUTION_MANAGE, Some(*allowed.as_uuid())).is_ok()
+        );
+        assert_eq!(
+            require_for_branch(&principal, SUBSTITUTION_MANAGE, Some(Uuid::new_v4()),)
+                .unwrap_err()
+                .status,
+            StatusCode::FORBIDDEN
+        );
+    }
+
+    #[test]
+    fn candidate_dto_serializes_the_stable_public_fields() {
+        let candidate = SubstitutionCandidateDto::from(SubstitutionCandidateRead {
+            employee_id: Uuid::nil(),
+            employee_name: "Ada Kim".to_owned(),
+            branch_id: Uuid::from_u128(1),
+        });
+        assert_eq!(
+            serde_json::to_value(candidate).unwrap(),
+            json!({
+                "employee_id": Uuid::nil().to_string(),
+                "employee_name": "Ada Kim",
+                "branch_id": Uuid::from_u128(1).to_string(),
+            })
+        );
+    }
+
+    #[test]
+    fn assignment_body_rejects_client_owned_worker_snapshots() {
+        let body = json!({
+            "site": "Main",
+            "role": "Guard",
+            "cover_date": "2026-07-24",
+            "from_minutes": 480,
+            "to_minutes": 960,
+            "covered_employee_id": Uuid::new_v4(),
+            "reason_kind": "LEAVE",
+            "worker_employee_id": Uuid::new_v4(),
+            "worker_name": "client cannot choose this"
+        });
+        assert!(serde_json::from_value::<AssignBody>(body).is_err());
     }
 
     #[test]
