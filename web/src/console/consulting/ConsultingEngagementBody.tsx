@@ -45,7 +45,7 @@ const C = {
   needsDiagnostic: "발견을 기록하려면 먼저 진단이 필요합니다.",
   needsFinding: "이니셔티브를 제안하려면 먼저 근거 연결 발견이 필요합니다.",
   needsInitiative: "구현 전환은 실제 KPI 이니셔티브가 필요합니다.",
-  needsObservation: "지속 또는 시정 전환은 실제 효익 관측이 필요합니다.",
+  needsObservation: "측정, 지속 또는 시정 전환은 실제 효익 관측이 필요합니다.",
   needsApproval: "승인 전환은 별도 승인자가 발급한 미사용 승인 ID가 필요합니다.",
   saved: "기록이 저장되었습니다. 서버 이력과 상세를 다시 읽었습니다.",
 } as const;
@@ -56,7 +56,9 @@ const field: CSSProperties = { display: "grid", gap: "var(--sp-1)", minWidth: 0 
 const input: CSSProperties = { minHeight: 40, border: "var(--border-hairline)", borderRadius: "var(--radius-sm)", padding: "0 var(--sp-2)", background: "var(--canvas)", color: "var(--ink)", font: "inherit" };
 
 function message(error: unknown): string {
-  if (typeof error === "object" && error !== null && "message" in error && typeof error.message === "string") return error.message;
+  if (typeof error !== "object" || error === null) return T.requestFailed;
+  if ("message" in error && typeof error.message === "string") return error.message;
+  if ("error" in error && typeof error.error === "object" && error.error !== null && "message" in error.error && typeof error.error.message === "string") return error.error.message;
   return T.requestFailed;
 }
 function statusLabel(status: Engagement["status"]): string { return T.status[status]; }
@@ -124,6 +126,7 @@ export function ConsultingEngagementBody() {
     if (!detailResult?.data) { setError(message(detailResult?.error)); return; }
     if (!historyResult?.data) { setError(T.historyFailed); return; }
     setError(undefined);
+    setData(previous => previous ? { ...previous, items: previous.items.map(item => item.id === id ? detailResult.data : item) } : previous);
     setSelected(detailResult.data);
     setHistory(historyResult.data);
   }, [authority, current]);
@@ -177,6 +180,7 @@ export function ConsultingEngagementBody() {
   }, [authority, observationEvidenceId, observationNote, observedAt, run, selected]);
   const transition = useCallback((toStatus: TransitionStatus) => {
     if (!selected || !isNonEmpty(reason)) return;
+    if (toStatus === "MEASURED" && selected.observations.length === 0) { setError(C.needsObservation); return; }
     void run(request => authority.POST("/api/v1/consulting/engagements/{engagement_id}/transition", { params: { path: { engagement_id: selected.id } }, body: { toStatus, expectedVersion: selected.version, reason: reason.trim(), ...(toStatus === "APPROVED" && isNonEmpty(approvalId) ? { approvalId: approvalId.trim() } : {}) }, signal: request.controller.signal }));
   }, [approvalId, authority, reason, run, selected]);
 
@@ -204,8 +208,8 @@ export function ConsultingEngagementBody() {
           {selected.status === "DRAFT" && selected.diagnostics.length === 0 ? <p>{C.needsDiagnostic}</p> : null}
           {selected.status === "DRAFT" && selected.diagnostics.length > 0 && selected.findings.length === 0 ? <p>{C.needsFinding}</p> : null}
           {selected.status === "APPROVED" && selected.initiatives.length === 0 ? <p>{C.needsInitiative}</p> : null}
-          {selected.status === "MEASURED" && selected.observations.length === 0 ? <p>{C.needsObservation}</p> : null}
-          {transitions.length > 0 ? <form onSubmit={event => { event.preventDefault(); transition(transitions[0]); }} style={panel}><label style={field}>{C.reason}<input aria-label={C.reason} style={input} value={reason} onChange={event => setReason(event.target.value)} required /></label>{selected.status === "PROPOSED" ? <><p>{C.needsApproval}</p><label style={field}>{C.approval}<input aria-label={C.approval} style={input} value={approvalId} onChange={event => setApprovalId(event.target.value)} required /></label></> : null}<div style={{ display: "flex", gap: "var(--sp-2)", flexWrap: "wrap" }}>{transitions.map(toStatus => <button key={toStatus} type={transitions.length === 1 ? "submit" : "button"} onClick={transitions.length === 1 ? undefined : () => transition(toStatus)} style={button} disabled={busy || !isNonEmpty(reason) || (toStatus === "APPROVED" && !isNonEmpty(approvalId)) || (toStatus === "IMPLEMENTED" && selected.initiatives.length === 0) || ((toStatus === "SUSTAINED" || toStatus === "CORRECTIVE") && selected.observations.length === 0)}>{transitionLabel(toStatus)}</button>)}</div></form> : null}
+          {(selected.status === "IMPLEMENTED" || selected.status === "MEASURED") && selected.observations.length === 0 ? <p>{C.needsObservation}</p> : null}
+          {transitions.length > 0 ? <form onSubmit={event => { event.preventDefault(); transition(transitions[0]); }} style={panel}><label style={field}>{C.reason}<input aria-label={C.reason} style={input} value={reason} onChange={event => setReason(event.target.value)} required /></label>{selected.status === "PROPOSED" ? <><p>{C.needsApproval}</p><label style={field}>{C.approval}<input aria-label={C.approval} style={input} value={approvalId} onChange={event => setApprovalId(event.target.value)} required /></label></> : null}<div style={{ display: "flex", gap: "var(--sp-2)", flexWrap: "wrap" }}>{transitions.map(toStatus => <button key={toStatus} type={transitions.length === 1 ? "submit" : "button"} onClick={transitions.length === 1 ? undefined : () => transition(toStatus)} style={button} disabled={busy || !isNonEmpty(reason) || (toStatus === "APPROVED" && !isNonEmpty(approvalId)) || (toStatus === "IMPLEMENTED" && selected.initiatives.length === 0) || ((toStatus === "MEASURED" || toStatus === "SUSTAINED" || toStatus === "CORRECTIVE") && selected.observations.length === 0)}>{transitionLabel(toStatus)}</button>)}</div></form> : null}
         </section>
         <section><h3>{T.history}</h3>{history.length === 0 ? <p>{T.historyEmpty}</p> : <ol>{history.map(item => <li key={item.id}>{eventLabel(item.event_type)} · v{item.version}</li>)}</ol>}</section>
       </article> : <div style={panel}>{T.select}</div>}</div>
