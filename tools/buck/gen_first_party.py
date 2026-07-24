@@ -855,6 +855,25 @@ INTEGRATION_TEST_FEATURES = {
     "mnt-app": {
         "tests/dev_auth_persona_guard_feature.rs": ("dev-auth",),
     },
+    "mnt-platform-auth-rest": {
+        "tests/dev_auth_session.rs": ("dev-auth",),
+    },
+}
+
+# Cargo feature unification does not cross Buck targets.  These reviewed
+# variants preserve the production libraries while making the local dev-auth
+# graph explicit for the app feature integration test and auth-rest session
+# test.
+FEATURE_LIBRARY_VARIANTS = {
+    "mnt-platform-auth-rest": {"dev-auth": {"deps": {}}},
+    "mnt-app": {
+        "dev-auth": {
+            "deps": {
+                "//backend/crates/platform/auth-rest:mnt-platform-auth-rest":
+                    "//backend/crates/platform/auth-rest:mnt-platform-auth-rest-dev-auth",
+            },
+        },
+    },
 }
 
 
@@ -877,6 +896,18 @@ def validate_inline_test_variants(metadata):
 
 def integration_test_features(package_name, test_file):
     return INTEGRATION_TEST_FEATURES.get(package_name, {}).get(test_file, ())
+
+
+def integration_test_library_target(package_name, test_file, default_target):
+    features = integration_test_features(package_name, test_file)
+    if features == ("dev-auth",):
+        return default_target + "-dev-auth"
+    return default_target
+
+
+def variant_deps(package_name, feature, deps):
+    replacements = FEATURE_LIBRARY_VARIANTS[package_name][feature]["deps"]
+    return [replacements.get(dep, dep) for dep in deps]
 
 
 def resource_requirement(package_name, test_type, test_file=None):
@@ -1217,11 +1248,25 @@ def emit(d, name, deps, named, dev_deps, dev_named):
         out += _block("rust_library", name + "-lib", globstr(lib_pats, exclude=["src/main.rs"]),
                       ident, deps, named, env, package=package,
                       crate_root=package + "/src/lib.rs", external=lib_external)
+        for feature in FEATURE_LIBRARY_VARIANTS.get(name, {}):
+            out.append("")
+            out += _block("rust_library", name + "-lib-" + feature,
+                          globstr(lib_pats, exclude=["src/main.rs"]), ident,
+                          variant_deps(name, feature, deps), named, env,
+                          package=package, crate_root=package + "/src/lib.rs",
+                          external=lib_external, features=[feature])
         out.append("")
         out += _block("rust_binary", name, listsrcs(["src/main.rs"]), ident,
                       sorted(deps + [":" + name + "-lib"]), {},
                       base_env(package), package=package,
                       crate_root=package + "/src/main.rs")
+        for feature in FEATURE_LIBRARY_VARIANTS.get(name, {}):
+            out.append("")
+            out += _block("rust_binary", name + "-" + feature,
+                          listsrcs(["src/main.rs"]), ident,
+                          sorted(variant_deps(name, feature, deps) + [":" + name + "-lib-" + feature]), {},
+                          base_env(package), package=package,
+                          crate_root=package + "/src/main.rs", features=[feature])
         lib_target, unit_root, unit_excl = ":" + name + "-lib", "src/lib.rs", ["src/main.rs"]
     elif has_main:
         out += _block("rust_binary", name, globstr(lib_pats), ident, deps, named, env,
@@ -1232,6 +1277,12 @@ def emit(d, name, deps, named, dev_deps, dev_named):
         out += _block("rust_library", name, globstr(lib_pats), ident, deps, named, env,
                       package=package, crate_root=package + "/src/lib.rs",
                       external=lib_external)
+        for feature in FEATURE_LIBRARY_VARIANTS.get(name, {}):
+            out.append("")
+            out += _block("rust_library", name + "-" + feature, globstr(lib_pats), ident,
+                          variant_deps(name, feature, deps), named, env,
+                          package=package, crate_root=package + "/src/lib.rs",
+                          external=lib_external, features=[feature])
         lib_target, unit_root, unit_excl = ":" + name, "src/lib.rs", None
 
     test_deps = sorted(set(deps + dev_deps))
@@ -1302,9 +1353,13 @@ def emit(d, name, deps, named, dev_deps, dev_named):
             )
             features = integration_test_features(name, tf)
             out.append("")
+            test_lib_target = integration_test_library_target(name, tf, lib_target)
+            featured_test_deps = test_deps
+            if features == ("dev-auth",):
+                featured_test_deps = variant_deps(name, "dev-auth", test_deps)
             out += _block("rust_test", "{}-itest-{}".format(name, stem),
                           srcs_expr, stem,
-                          sorted(set(test_deps + [lib_target])), test_named, itest_env,
+                          sorted(set(featured_test_deps + [test_lib_target])), test_named, itest_env,
                           package=package, crate_root=package + "/" + tf,
                           external=external, labels=labels, features=features)
 

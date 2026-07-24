@@ -177,6 +177,20 @@ class FirstPartyBuckGeneratorTests(unittest.TestCase):
             ),
         )
 
+    def test_dev_auth_feature_variants_propagate_through_app_and_auth_rest(self) -> None:
+        self.assertEqual(
+            ":mnt-app-lib-dev-auth",
+            GENERATOR.integration_test_library_target(
+                "mnt-app", "tests/dev_auth_persona_guard_feature.rs", ":mnt-app-lib"
+            ),
+        )
+        self.assertEqual(
+            ":mnt-platform-auth-rest-dev-auth",
+            GENERATOR.integration_test_library_target(
+                "mnt-platform-auth-rest", "tests/dev_auth_session.rs", ":mnt-platform-auth-rest"
+            ),
+        )
+
     def test_inline_test_variants_reject_missing_manifest_features(self) -> None:
         with self.assertRaisesRegex(ValueError, "feature is absent"):
             GENERATOR.validate_inline_test_variants(

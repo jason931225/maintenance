@@ -41,6 +41,40 @@ rust_library(
     ],
 )
 
+rust_library(
+    name = "mnt-platform-auth-rest-dev-auth",
+    mapped_srcs = repo_mapped_srcs("backend/crates/platform/auth-rest", glob(["src/**/*.rs"]), external = {
+        "//backend/crates/platform/db/migrations:tree": "backend/crates/platform/db/migrations",
+    }),
+    crate = "mnt_platform_auth_rest",
+    edition = "2024",
+    crate_root = "backend/crates/platform/auth-rest/src/lib.rs",
+    visibility = ["PUBLIC"],
+    env = {"CARGO_MANIFEST_DIR": "backend/crates/platform/auth-rest", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
+    features = ["dev-auth"],
+    deps = [
+        "//backend/crates/kernel/core:mnt-kernel-core",
+        "//backend/crates/platform/auth:mnt-platform-auth",
+        "//backend/crates/platform/authz:mnt-platform-authz",
+        "//backend/crates/platform/db:mnt-platform-db",
+        "//backend/crates/platform/email:mnt-platform-email",
+        "//backend/crates/platform/group:mnt-platform-group",
+        "//backend/crates/platform/provisioning:mnt-platform-provisioning",
+        "//backend/crates/platform/request-context:mnt-platform-request-context",
+        "//third-party/rust:axum",
+        "//third-party/rust:http",
+        "//third-party/rust:serde",
+        "//third-party/rust:serde_json",
+        "//third-party/rust:sha2",
+        "//third-party/rust:sqlx",
+        "//third-party/rust:thiserror",
+        "//third-party/rust:time",
+        "//third-party/rust:tracing",
+        "//third-party/rust:url",
+        "//third-party/rust:uuid",
+    ],
+)
+
 rust_test(
     name = "mnt-platform-auth-rest-unit",
     mapped_srcs = repo_mapped_srcs("backend/crates/platform/auth-rest", glob(["src/**/*.rs"]), external = {
@@ -125,6 +159,7 @@ rust_test(
     visibility = ["PUBLIC"],
     env = {"CARGO_MANIFEST_DIR": "backend/crates/platform/auth-rest", "SQLX_OFFLINE": "true", "SQLX_OFFLINE_DIR": "$(location //backend:sqlx-offline)"},
     labels = ["owner.backend.crates.platform.auth-rest", "domain.platform", "test.integration", "resource.postgres", "needs-postgres"],
+    features = ["dev-auth"],
     deps = [
         "//backend/crates/kernel/core:mnt-kernel-core",
         "//backend/crates/platform/auth:mnt-platform-auth",
@@ -148,7 +183,7 @@ rust_test(
         "//third-party/rust:tracing",
         "//third-party/rust:url",
         "//third-party/rust:uuid",
-        ":mnt-platform-auth-rest",
+        ":mnt-platform-auth-rest-dev-auth",
     ],
 )
 
