@@ -7604,6 +7604,74 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorBody'
+  /api/v1/me/workbench:
+    get:
+      tags:
+        - me
+      operationId: getMyWorkbench
+      summary: Read the authenticated principal's bounded operations workbench
+      description: >-
+        Composes the native action-inbox, owner-scoped todo, and collaboration
+        calendar reads under one captured request instant. Each source remains
+        independently authorized and may return a redacted denied or unavailable
+        envelope; the aggregate never owns mutations or duplicates source data.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: from
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/Timestamp'
+      - name: to
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/Timestamp'
+      - name: branch_id
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      - name: action_limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 50
+      - name: todo_limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 50
+      - name: calendar_limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 50
+      responses:
+        '200':
+          description: Workbench source snapshots at one request ceiling.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MyWorkbenchResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /api/v1/me/workspace:
     get:
       tags:
@@ -10524,6 +10592,60 @@ paths:
           $ref: '#/components/responses/Conflict'
         '422':
           $ref: '#/components/responses/ValidationError'
+  /api/v1/workflow-runs/for-object:
+    get:
+      tags:
+        - workflow-studio
+      operationId: listWorkflowRunsForObject
+      summary: List visible workflow runs for one authorized object
+      description: >-
+        Read-only exact-pair bridge for work_order and support_ticket subjects.
+        The server authorizes the native subject first, then returns only workflow
+        runs visible to the same principal. Unknown or invisible cursors fail with
+        the same validation code and do not disclose foreign rows.
+      security:
+      - bearerAuth: []
+      parameters:
+      - name: object_type
+        in: query
+        required: true
+        schema:
+          $ref: '#/components/schemas/WorkflowObjectKind'
+      - name: object_id
+        in: query
+        required: true
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      - name: limit
+        in: query
+        required: false
+        schema:
+          type: integer
+          minimum: 1
+          maximum: 100
+          default: 25
+      - name: before
+        in: query
+        required: false
+        schema:
+          $ref: '#/components/schemas/Uuid'
+      responses:
+        '200':
+          description: Visible workflow runs bound to the exact subject pair.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkflowRunsForObjectResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/ValidationError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
   /api/v1/workflow-runs/{run_id}/post-finalization-rejection:
     post:
       tags:
@@ -13800,7 +13922,7 @@ paths:
       security: [{ bearerAuth: [] }]
       parameters: [{ name: asn_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }, { name: Idempotency-Key, in: header, required: true, schema: { type: string, minLength: 16, maxLength: 200 } }]
       requestBody: { required: true, content: { application/json: { schema: { type: object, required: [branchId, receivedQuantity], properties: { branchId: { $ref: '#/components/schemas/Uuid' }, receivedQuantity: { type: integer, minimum: 1 } } } } } }
-      responses: { '200': { description: Receipt recorded or replayed }, '409': { description: Conflicting replay, over-receipt, or illegal state }, '422': { $ref: '#/components/responses/ValidationError' } }
+      responses: { '200': { description: Receipt recorded or replayed }, '409': { description: "Conflicting replay, over-receipt, or illegal state" }, '422': { $ref: '#/components/responses/ValidationError' } }
   /api/v1/logistics/asns/{asn_id}/putaway:
     post:
       tags: [logistics]
@@ -13840,6 +13962,7 @@ paths:
       operationId: dispatchLogisticsShipment
       summary: Dispatch one packed carrier and vehicle leg
       security: [{ bearerAuth: [] }]
+      parameters: [{ name: fulfillment_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
       responses: { '201': { description: Shipment dispatched }, '409': { description: Illegal transition } }
   /api/v1/logistics/shipments/{shipment_id}/pod:
     post:
@@ -13847,6 +13970,7 @@ paths:
       operationId: verifyLogisticsPod
       summary: Verify recipient-confirmed immutable evidence and derive calendar-time SLA
       security: [{ bearerAuth: [] }]
+      parameters: [{ name: shipment_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
       responses: { '200': { description: POD verified with MET or BREACHED SLA }, '409': { description: Illegal transition or reused evidence } }
   /api/v1/logistics/shipments/{shipment_id}/settlements:
     post:
@@ -13854,6 +13978,7 @@ paths:
       operationId: settleLogisticsOperationalCost
       summary: Settle one KRW operational transport cost; no finance or GL posting
       security: [{ bearerAuth: [] }]
+      parameters: [{ name: shipment_id, in: path, required: true, schema: { $ref: '#/components/schemas/Uuid' } }]
       responses: { '200': { description: Operational cost settled }, '409': { description: Verified POD required } }
   /api/v1/production/plans:
     get:
@@ -13903,7 +14028,7 @@ paths:
       description: Machine-only Basic ingress. The client id is a service-principal UUID and the password is a one-time 32-byte secret. Tenant, branch, principal, and source system identity are derived server-side; the source id/version tuple is immutable and idempotent.
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/ProductionSourceIngress'}}}}
       responses:
-        '200': {description: Existing source-version replay, or accepted source fact, content: {application/json: {schema: {type: object, additionalProperties: true}}}}
+        '200': {description: "Existing source-version replay, or accepted source fact", content: {application/json: {schema: {type: object, additionalProperties: true}}}}
         '409': {$ref: '#/components/responses/Conflict'}
         '422': {$ref: '#/components/responses/ValidationError'}
         '503': {description: Production service-principal HMAC key is not configured.}
@@ -13940,7 +14065,7 @@ paths:
         required: true
         schema: {$ref: '#/components/schemas/Uuid'}
       responses:
-        '200': {description: Plan, first operation, checks, and durable lifecycle lineage, content: {application/json: {schema: {$ref: '#/components/schemas/ProductionPlanDetail'}}}}
+        '200': {description: "Plan, first operation, checks, and durable lifecycle lineage", content: {application/json: {schema: {$ref: '#/components/schemas/ProductionPlanDetail'}}}}
         '404': {$ref: '#/components/responses/NotFound'}
   /api/v1/production/plans/{plan_id}/release:
     post:
@@ -13972,7 +14097,7 @@ paths:
         schema: {$ref: '#/components/schemas/Uuid'}
       requestBody: {required: true, content: {application/json: {schema: {$ref: '#/components/schemas/RecordProductionOperation'}}}}
       responses:
-        '200': {description: Output, scrap, downtime, and quality evidence recorded idempotently, content: {application/json: {schema: {$ref: '#/components/schemas/ProductionOperation'}}}}
+        '200': {description: "Output, scrap, downtime, and quality evidence recorded idempotently", content: {application/json: {schema: {$ref: '#/components/schemas/ProductionOperation'}}}}
         '409': {$ref: '#/components/responses/Conflict'}
   /api/v1/consulting/engagements:
     get:
@@ -22926,6 +23051,405 @@ components:
           - string
           - 'null'
           description: Opaque cursor for the next immutable-keyset page, or null when exhausted.
+    WorkbenchUrgency:
+      type: string
+      enum:
+      - now
+      - today
+      - wait
+    WorkbenchSourceRef:
+      type: object
+      additionalProperties: false
+      required:
+      - kind
+      - id
+      properties:
+        kind:
+          type: string
+        id:
+          $ref: '#/components/schemas/Uuid'
+    WorkbenchTarget:
+      type: object
+      additionalProperties: false
+      description: Server-issued bounded module target; never an arbitrary URL.
+      required:
+      - module
+      - id
+      properties:
+        module:
+          type: string
+        id:
+          type: string
+    WorkbenchActionInboxItem:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - urgency
+      - title
+      - source
+      - target
+      properties:
+        id:
+          type: string
+        urgency:
+          $ref: '#/components/schemas/WorkbenchUrgency'
+        title:
+          type: string
+        due_at:
+          $ref: '#/components/schemas/Timestamp'
+        source:
+          $ref: '#/components/schemas/WorkbenchSourceRef'
+        target:
+          $ref: '#/components/schemas/WorkbenchTarget'
+    WorkbenchTodoItem:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - text
+      - done
+      - source_order
+      - target
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        text:
+          type: string
+        done:
+          type: boolean
+        source_order:
+          type: integer
+          format: int64
+          minimum: 0
+        target:
+          $ref: '#/components/schemas/WorkbenchTarget'
+    WorkbenchCalendarItem:
+      type: object
+      additionalProperties: false
+      required:
+      - id
+      - title
+      - starts_at
+      - ends_at
+      - target
+      properties:
+        id:
+          $ref: '#/components/schemas/Uuid'
+        title:
+          type: string
+        starts_at:
+          $ref: '#/components/schemas/Timestamp'
+        ends_at:
+          $ref: '#/components/schemas/Timestamp'
+        target:
+          $ref: '#/components/schemas/WorkbenchTarget'
+    WorkbenchScopeAll:
+      type: object
+      additionalProperties: false
+      required:
+      - kind
+      properties:
+        kind:
+          type: string
+          enum:
+          - all
+        selected_branch_id:
+          $ref: '#/components/schemas/Uuid'
+    WorkbenchScopeBranches:
+      type: object
+      additionalProperties: false
+      required:
+      - kind
+      - branch_ids
+      properties:
+        kind:
+          type: string
+          enum:
+          - branches
+        branch_ids:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: '#/components/schemas/Uuid'
+        selected_branch_id:
+          $ref: '#/components/schemas/Uuid'
+    WorkbenchEffectiveScope:
+      oneOf:
+      - $ref: '#/components/schemas/WorkbenchScopeAll'
+      - $ref: '#/components/schemas/WorkbenchScopeBranches'
+      discriminator:
+        propertyName: kind
+        mapping:
+          all: '#/components/schemas/WorkbenchScopeAll'
+          branches: '#/components/schemas/WorkbenchScopeBranches'
+    WorkbenchRange:
+      type: object
+      additionalProperties: false
+      required:
+      - from
+      - to
+      properties:
+        from:
+          $ref: '#/components/schemas/Timestamp'
+        to:
+          $ref: '#/components/schemas/Timestamp'
+    WorkbenchDeniedSourceEnvelope:
+      type: object
+      additionalProperties: false
+      required:
+      - status
+      - code
+      properties:
+        status:
+          type: string
+          enum:
+          - denied
+        code:
+          type: string
+    WorkbenchUnavailableSourceEnvelope:
+      type: object
+      additionalProperties: false
+      required:
+      - status
+      - code
+      properties:
+        status:
+          type: string
+          enum:
+          - unavailable
+        code:
+          type: string
+    WorkbenchActionSourceOk:
+      type: object
+      description: >-
+        Exact, complete action-inbox snapshot admitted at the request ceiling.
+        The server follows the public immutable cursor contract in pages of at
+        most 200 items and fails this source closed rather than returning a
+        priority-ranked prefix when the exact set exceeds its 1000-item budget,
+        drifts, repeats a cursor, or repeats an item id.
+      additionalProperties: false
+      required:
+      - status
+      - as_of
+      - items
+      - total
+      - truncated
+      properties:
+        status:
+          type: string
+          enum:
+          - ok
+        as_of:
+          $ref: '#/components/schemas/Timestamp'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkbenchActionInboxItem'
+        total:
+          type: integer
+          minimum: 0
+        truncated:
+          type: boolean
+    WorkbenchTodoSourceOk:
+      type: object
+      additionalProperties: false
+      required:
+      - status
+      - as_of
+      - items
+      - total
+      - truncated
+      properties:
+        status:
+          type: string
+          enum:
+          - ok
+        as_of:
+          $ref: '#/components/schemas/Timestamp'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkbenchTodoItem'
+        total:
+          type: integer
+          minimum: 0
+        truncated:
+          type: boolean
+    WorkbenchCalendarSourceOk:
+      type: object
+      additionalProperties: false
+      required:
+      - status
+      - as_of
+      - items
+      - total
+      - truncated
+      properties:
+        status:
+          type: string
+          enum:
+          - ok
+        as_of:
+          $ref: '#/components/schemas/Timestamp'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkbenchCalendarItem'
+        total:
+          type: integer
+          minimum: 0
+        truncated:
+          type: boolean
+    WorkbenchActionSourceEnvelope:
+      oneOf:
+      - $ref: '#/components/schemas/WorkbenchActionSourceOk'
+      - $ref: '#/components/schemas/WorkbenchDeniedSourceEnvelope'
+      - $ref: '#/components/schemas/WorkbenchUnavailableSourceEnvelope'
+      discriminator:
+        propertyName: status
+        mapping:
+          ok: '#/components/schemas/WorkbenchActionSourceOk'
+          denied: '#/components/schemas/WorkbenchDeniedSourceEnvelope'
+          unavailable: '#/components/schemas/WorkbenchUnavailableSourceEnvelope'
+    WorkbenchTodoSourceEnvelope:
+      oneOf:
+      - $ref: '#/components/schemas/WorkbenchTodoSourceOk'
+      - $ref: '#/components/schemas/WorkbenchDeniedSourceEnvelope'
+      - $ref: '#/components/schemas/WorkbenchUnavailableSourceEnvelope'
+      discriminator:
+        propertyName: status
+        mapping:
+          ok: '#/components/schemas/WorkbenchTodoSourceOk'
+          denied: '#/components/schemas/WorkbenchDeniedSourceEnvelope'
+          unavailable: '#/components/schemas/WorkbenchUnavailableSourceEnvelope'
+    WorkbenchCalendarSourceEnvelope:
+      oneOf:
+      - $ref: '#/components/schemas/WorkbenchCalendarSourceOk'
+      - $ref: '#/components/schemas/WorkbenchDeniedSourceEnvelope'
+      - $ref: '#/components/schemas/WorkbenchUnavailableSourceEnvelope'
+      discriminator:
+        propertyName: status
+        mapping:
+          ok: '#/components/schemas/WorkbenchCalendarSourceOk'
+          denied: '#/components/schemas/WorkbenchDeniedSourceEnvelope'
+          unavailable: '#/components/schemas/WorkbenchUnavailableSourceEnvelope'
+    MyWorkbenchResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - as_of
+      - timezone
+      - range
+      - scope
+      - partial
+      - action_inbox
+      - todos
+      - calendar
+      properties:
+        as_of:
+          $ref: '#/components/schemas/Timestamp'
+        timezone:
+          type: string
+          enum:
+          - Asia/Seoul
+        range:
+          $ref: '#/components/schemas/WorkbenchRange'
+        scope:
+          $ref: '#/components/schemas/WorkbenchEffectiveScope'
+        partial:
+          type: boolean
+        action_inbox:
+          $ref: '#/components/schemas/WorkbenchActionSourceEnvelope'
+        todos:
+          $ref: '#/components/schemas/WorkbenchTodoSourceEnvelope'
+        calendar:
+          $ref: '#/components/schemas/WorkbenchCalendarSourceEnvelope'
+    WorkflowObjectKind:
+      type: string
+      enum:
+      - work_order
+      - support_ticket
+    WorkflowObjectSubject:
+      type: object
+      additionalProperties: false
+      required:
+      - object_type
+      - object_id
+      properties:
+        object_type:
+          $ref: '#/components/schemas/WorkflowObjectKind'
+        object_id:
+          $ref: '#/components/schemas/Uuid'
+    WorkflowRunDetailTarget:
+      type: object
+      additionalProperties: false
+      required:
+      - kind
+      - run_id
+      properties:
+        kind:
+          type: string
+          enum:
+          - workflow_run_detail
+        run_id:
+          $ref: '#/components/schemas/Uuid'
+    WorkflowRunForObjectSummary:
+      type: object
+      additionalProperties: false
+      required:
+      - run_id
+      - definition_id
+      - definition_version
+      - status
+      - trigger_type
+      - object_type
+      - object_id
+      - started_at
+      - updated_at
+      - detail_target
+      properties:
+        run_id:
+          $ref: '#/components/schemas/Uuid'
+        definition_id:
+          $ref: '#/components/schemas/Uuid'
+        definition_version:
+          type: integer
+          format: int32
+        status:
+          type: string
+        trigger_type:
+          type: string
+        object_type:
+          $ref: '#/components/schemas/WorkflowObjectKind'
+        object_id:
+          $ref: '#/components/schemas/Uuid'
+        started_at:
+          $ref: '#/components/schemas/Timestamp'
+        updated_at:
+          $ref: '#/components/schemas/Timestamp'
+        completed_at:
+          $ref: '#/components/schemas/Timestamp'
+        detail_target:
+          $ref: '#/components/schemas/WorkflowRunDetailTarget'
+    WorkflowRunsForObjectResponse:
+      type: object
+      additionalProperties: false
+      required:
+      - subject
+      - as_of
+      - items
+      properties:
+        subject:
+          $ref: '#/components/schemas/WorkflowObjectSubject'
+        as_of:
+          $ref: '#/components/schemas/Timestamp'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/WorkflowRunForObjectSummary'
+        next_before:
+          $ref: '#/components/schemas/Uuid'
     EquipmentStatus:
       type: string
       enum:

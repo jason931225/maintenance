@@ -7,7 +7,7 @@
 //! never another user's row.
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used, clippy::panic))]
 
-use mnt_kernel_core::{ErrorKind, KernelError, TodoId, UserId};
+use mnt_kernel_core::{ErrorKind, KernelError, Timestamp, TodoId, UserId};
 use mnt_platform_db::{DbError, with_audit, with_org_conn};
 use mnt_platform_request_context::current_org;
 use mnt_todos_application::{
@@ -55,6 +55,16 @@ impl From<PgTodoError> for KernelError {
 #[derive(Debug, Clone)]
 pub struct PgTodoStore {
     pool: PgPool,
+}
+
+/// Owner-authorized, request-ceiling-bounded todo page used by read
+/// compositions such as the console workbench. This is deliberately an
+/// adapter-owned projection rather than a second todo store or policy layer.
+#[derive(Debug, Clone)]
+pub struct TodoSnapshotPage {
+    pub items: Vec<TodoSummary>,
+    pub total: usize,
+    pub as_of: Timestamp,
 }
 
 impl PgTodoStore {
@@ -148,6 +158,67 @@ impl PgTodoStore {
             .map(summary_from_row)
             .collect::<Result<Vec<_>, _>>()?;
         Ok(TodoPage { items })
+    }
+
+    /// List the authenticated owner's todos at or before one aggregate request
+    /// ceiling. Rows updated after the ceiling are omitted because the current
+    /// table is not temporal and cannot truthfully reconstruct their older
+    /// version. The window count is evaluated under the same owner predicate,
+    /// tenant RLS transaction, and ceiling as the returned page.
+    pub async fn list_snapshot(
+        &self,
+        owner: UserId,
+        include_done: bool,
+        limit: i64,
+        as_of: Timestamp,
+    ) -> Result<TodoSnapshotPage, PgTodoError> {
+        let limit = limit.clamp(1, 200);
+        let owner_uuid = *owner.as_uuid();
+        let org = current_org().map_err(KernelError::from)?;
+
+        let rows = with_org_conn::<_, _, PgTodoError>(&self.pool, org, move |tx| {
+            Box::pin(async move {
+                Ok(sqlx::query(
+                    r#"
+                    SELECT id, owner_user_id, body, scopes, links, done,
+                           created_at, updated_at, done_at,
+                           COUNT(*) OVER() AS snapshot_total
+                    FROM todos
+                    WHERE owner_user_id = $1
+                      AND (done = false OR $2)
+                      AND created_at <= $3
+                      AND updated_at <= $3
+                    ORDER BY done ASC, created_at DESC, id DESC
+                    LIMIT $4
+                    "#,
+                )
+                .bind(owner_uuid)
+                .bind(include_done)
+                .bind(as_of)
+                .bind(limit)
+                .fetch_all(tx.as_mut())
+                .await?)
+            })
+        })
+        .await?;
+
+        let total = rows
+            .first()
+            .map(|row| row.try_get::<i64, _>("snapshot_total"))
+            .transpose()?
+            .unwrap_or(0);
+        let total = usize::try_from(total).map_err(|_| {
+            KernelError::internal("todo snapshot count exceeded the supported range")
+        })?;
+        let items = rows
+            .iter()
+            .map(summary_from_row)
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(TodoSnapshotPage {
+            items,
+            total,
+            as_of,
+        })
     }
 
     /// Set one of the caller's todos done/undone (audited as `todo.done` /

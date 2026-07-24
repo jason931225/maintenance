@@ -12,8 +12,8 @@ use mnt_dispatch_domain::{
     GeoPoint, P1Dispatch, TechnicianLoad, score_candidate,
 };
 use mnt_kernel_core::{
-    AuditAction, AuditEvent, BranchId, ErrorKind, KernelError, OrgId, P1DispatchAlertId,
-    P1DispatchId, TraceContext, UserId, WorkOrderId,
+    AuditAction, AuditEvent, BranchId, BranchScope, ErrorKind, KernelError, OrgId,
+    P1DispatchAlertId, P1DispatchId, TraceContext, UserId, WorkOrderId,
 };
 use mnt_platform_db::{DbError, insert_audit_event, with_audit, with_audits, with_org_conn};
 use mnt_platform_request_context::current_org;
@@ -528,12 +528,13 @@ impl PgDispatchStore {
     }
 
     /// Bounded global-order page for the unified action inbox. The predicate is
-    /// the same person-scoped pending-offer predicate as
+    /// the same person- and branch-scoped pending-offer predicate as
     /// [`Self::list_my_pending_offers`], with immutable keyset and `as_of`
     /// admission constraints added.
     pub async fn list_my_pending_offers_action_page(
         &self,
         user: UserId,
+        branch_scope: &BranchScope,
         now: OffsetDateTime,
         as_of: OffsetDateTime,
         after: Option<(OffsetDateTime, String)>,
@@ -542,6 +543,16 @@ impl PgDispatchStore {
         let limit = limit.clamp(1, 200);
         let org = current_org().map_err(KernelError::from)?;
         let user_uuid = *user.as_uuid();
+        let (all_branches, branch_ids) = match branch_scope {
+            BranchScope::All => (true, Vec::new()),
+            BranchScope::Branches(branches) => (
+                false,
+                branches
+                    .iter()
+                    .map(|branch| *branch.as_uuid())
+                    .collect::<Vec<_>>(),
+            ),
+        };
         let (after_created_at, after_id) = after.map_or((None, None), |(created_at, id)| {
             (Some(created_at), Some(id))
         });
@@ -553,12 +564,15 @@ impl PgDispatchStore {
                        AND t.user_id = $1 AND t.target_role = 'TECHNICIAN' \
                      WHERE d.status = 'BROADCASTING' AND d.accept_window_ends_at > $2 \
                        AND d.created_at <= $3 \
+                       AND ($4::boolean OR d.branch_id = ANY($5::uuid[])) \
                        AND NOT EXISTS (SELECT 1 FROM p1_dispatch_responses r \
                          WHERE r.dispatch_id = d.id AND r.user_id = $1)",
                 )
                 .bind(user_uuid)
                 .bind(now)
                 .bind(as_of)
+                .bind(all_branches)
+                .bind(&branch_ids)
                 .fetch_one(tx.as_mut())
                 .await?;
                 let rows = sqlx::query(
@@ -570,16 +584,19 @@ impl PgDispatchStore {
                      JOIN work_orders w ON w.id = d.work_order_id \
                      WHERE d.status = 'BROADCASTING' AND d.accept_window_ends_at > $2 \
                        AND d.created_at <= $3 \
+                       AND ($4::boolean OR d.branch_id = ANY($5::uuid[])) \
                        AND NOT EXISTS (SELECT 1 FROM p1_dispatch_responses r \
                          WHERE r.dispatch_id = d.id AND r.user_id = $1) \
-                       AND ($5::text IS NULL OR d.created_at > $4 \
-                         OR (d.created_at = $4 AND ('dispatch:' || d.id::text) > $5)) \
+                       AND ($7::text IS NULL OR d.created_at > $6 \
+                         OR (d.created_at = $6 AND ('dispatch:' || d.id::text) > $7)) \
                      ORDER BY d.created_at ASC, ('dispatch:' || d.id::text) ASC \
-                     LIMIT $6",
+                     LIMIT $8",
                 )
                 .bind(user_uuid)
                 .bind(now)
                 .bind(as_of)
+                .bind(all_branches)
+                .bind(branch_ids)
                 .bind(after_created_at)
                 .bind(after_id.as_deref())
                 .bind(limit.clamp(1, 200) + 1)
