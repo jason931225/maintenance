@@ -51,6 +51,7 @@ describe("clean architecture boundary gate", () => {
     const contract = { protectedParentCommit: "61b79707ecf1e27994a09ab73b1eb22509fc81c8" };
     assert.equal(validateCiBaseline(".", "HEAD", contract)[0].detail, "baseline-must-be-full-immutable-sha");
     assert.equal(validateCiBaseline(".", "0000000000000000000000000000000000000000", contract)[0].detail, "baseline-does-not-match-protected-contract");
+    assert.deepEqual(validateCiBaseline(process.cwd(), "61b79707ecf1e27994a09ab73b1eb22509fc81c8", contract), []);
     const invalid = validateLedger({ exceptions: [{ id: "same", owner: "", target: "", expiresOn: "2000-01-01", milestone: "ARCH-2026-Q3" }, { id: "same", owner: "a", target: "b", expiresOn: "2026-10-22", milestone: "ARCH-2026-Q3" }] }, "2026-07-23");
     assert.ok(invalid.some((item) => item.detail.startsWith("duplicate-or-missing-id")));
     assert.ok(invalid.some((item) => item.detail.startsWith("missing-owner")));
