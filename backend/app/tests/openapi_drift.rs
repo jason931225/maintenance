@@ -738,14 +738,31 @@ fn operation_section<'a>(yaml: &'a str, path: &str, operation: &str) -> &'a str 
     section
 }
 
+fn bounded_section<'a>(source: &'a str, start: &str, end: &str) -> &'a str {
+    let start = source
+        .find(start)
+        .unwrap_or_else(|| panic!("missing start {start}"));
+    let after_start = start + source[start..].find('\n').unwrap_or(0) + 1;
+    let end = source[after_start..]
+        .find(end)
+        .map(|offset| after_start + offset)
+        .unwrap_or(source.len());
+    &source[start..end]
+}
+
 #[test]
 fn dispatch_queue_parameter_and_error_faces_preserve_wire_contract() {
     const TS: &str = include_str!("../../clients/ts/src/schema.d.ts");
     const KOTLIN: &str = include_str!(
         "../../clients/kotlin/src/main/kotlin/com/maintenance/api/client/api/P1DispatchesApi.kt"
     );
+    const KOTLIN_ENUM: &str = include_str!(
+        "../../clients/kotlin/src/main/kotlin/com/maintenance/api/client/model/DispatchQueueStatus.kt"
+    );
     const SWIFT: &str =
         include_str!("../../clients/swift/Sources/MaintenanceAPIClient/Generated/Client.swift");
+    const SWIFT_TYPES: &str =
+        include_str!("../../clients/swift/Sources/MaintenanceAPIClient/Generated/Types.swift");
     let queue = operation_section(
         OPENAPI_YAML,
         "/api/v1/console/dispatch/queue",
@@ -762,14 +779,36 @@ fn dispatch_queue_parameter_and_error_faces_preserve_wire_contract() {
             "queue OpenAPI contract lacks {required}"
         );
     }
-    let enum_start = OPENAPI_YAML
-        .find("    DispatchQueueStatus:\n")
-        .expect("DispatchQueueStatus schema");
-    let enum_end = OPENAPI_YAML[enum_start..]
-        .find("    DispatchQueueDispatch:\n")
-        .map(|offset| enum_start + offset)
-        .expect("next schema");
-    let status_enum = &OPENAPI_YAML[enum_start..enum_end];
+    let openapi_enum = bounded_section(
+        OPENAPI_YAML,
+        "    DispatchQueueStatus:\n",
+        "    DispatchQueueDispatch:\n",
+    );
+    let ts_op = bounded_section(
+        TS,
+        "    listConsoleDispatchQueue: {",
+        "    listP1DispatchCandidates: {",
+    );
+    let kotlin_op = bounded_section(
+        KOTLIN,
+        "    fun listConsoleDispatchQueueRequestConfig",
+        "    /**\n     * GET /api/v1/p1-dispatches/{dispatchId}/candidates",
+    );
+    let swift_op = bounded_section(
+        SWIFT,
+        "    public func listConsoleDispatchQueue",
+        "    /// List manager-authorized ranked dispatch candidates",
+    );
+    let ts_enum = bounded_section(
+        TS,
+        "        DispatchQueueStatus: ",
+        "        DispatchQueueStats: ",
+    );
+    let swift_enum = bounded_section(
+        SWIFT_TYPES,
+        "        public enum DispatchQueueStatus",
+        "        public struct DispatchQueueStats",
+    );
     for wire in [
         "RECEIVED",
         "UNASSIGNED",
@@ -779,33 +818,54 @@ fn dispatch_queue_parameter_and_error_faces_preserve_wire_contract() {
         "DELAYED",
     ] {
         assert!(
-            status_enum.contains(wire),
-            "DispatchQueueStatus lacks {wire}"
+            openapi_enum.contains(wire),
+            "OpenAPI DispatchQueueStatus lacks {wire}"
+        );
+        assert!(
+            ts_enum.contains(wire),
+            "TS DispatchQueueStatus lacks {wire}"
+        );
+        assert!(
+            KOTLIN_ENUM.contains(wire),
+            "Kotlin DispatchQueueStatus lacks {wire}"
+        );
+        assert!(
+            swift_enum.contains(wire),
+            "Swift DispatchQueueStatus lacks {wire}"
         );
     }
-    let ts_op = &TS[TS
-        .find("listConsoleDispatchQueue: {")
-        .expect("TS queue operation")..];
     assert!(
         ts_op.contains("status?: components[\"schemas\"][\"DispatchQueueStatus\"][]")
             && ts_op.contains("400: components[\"responses\"][\"BadRequest\"]")
     );
-    let kotlin_op = &KOTLIN[KOTLIN
-        .find("fun listConsoleDispatchQueueRequestConfig")
-        .expect("Kotlin queue operation")..];
     assert!(
         kotlin_op.contains("kotlin.collections.List<DispatchQueueStatus>")
             && kotlin_op.contains("toMultiValue(status.toList(), \"csv\")")
             && kotlin_op.contains("Accept\"] = \"application/json\"")
     );
-    let swift_op = &SWIFT[SWIFT
-        .find("public func listConsoleDispatchQueue")
-        .expect("Swift queue operation")..];
     assert!(
         swift_op.contains("style: .form,")
             && swift_op.contains("explode: false,")
             && swift_op.contains("name: \"status\"")
             && swift_op.contains("case 400:")
             && swift_op.contains("\"application/json\"")
+    );
+}
+
+#[test]
+fn bounded_generated_sections_reject_later_operation_or_enum_text() {
+    let operation = bounded_section("target\nnext target", "target", "next");
+    assert!(
+        !operation.contains("next target"),
+        "later operation text must not satisfy target assertions"
+    );
+    let status = bounded_section(
+        "DispatchQueueStatus\nRECEIVED\nOtherStatus\nDELAYED",
+        "DispatchQueueStatus",
+        "OtherStatus",
+    );
+    assert!(
+        status.contains("RECEIVED") && !status.contains("DELAYED"),
+        "later enum text must not satisfy target assertions"
     );
 }
