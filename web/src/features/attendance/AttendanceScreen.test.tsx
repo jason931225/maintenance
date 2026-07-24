@@ -956,7 +956,7 @@ describe("AttendanceScreen", () => {
     const api = transport();
     renderScreen(api, reader);
     const board = await screen.findByRole("region", { name: text.board.title });
-    expect(within(board).getByText("김성호")).toBeVisible();
+    expect(await within(board).findByText("김성호")).toBeVisible();
     expect(screen.queryByRole("button", { name: text.board.assignSub })).toBeNull();
     expect(screen.queryByRole("button", { name: text.w52.adjust })).toBeNull();
     expect(screen.queryByRole("button", { name: new RegExp(text.closePanel.blockedSuffix) })).toBeNull();
