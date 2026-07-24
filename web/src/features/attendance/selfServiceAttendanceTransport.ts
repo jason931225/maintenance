@@ -12,12 +12,16 @@ import {
 
 const NO_STORE = { "Cache-Control": "no-store" } as const;
 
-type GeneratedExceptionPage = components["schemas"]["OwnAttendanceExceptionPage"];
 type GeneratedWeek52 = components["schemas"]["OwnAttendanceWeek52Response"];
 
 function serverMessage(error: unknown): string | undefined {
   if (!error || typeof error !== "object") return undefined;
   const candidate = error as Record<string, unknown>;
+  const nested = candidate.error;
+  if (nested && typeof nested === "object") {
+    const message = (nested as Record<string, unknown>).message;
+    if (typeof message === "string" && message.trim()) return message;
+  }
   for (const key of ["message", "detail", "error"]) {
     if (typeof candidate[key] === "string" && candidate[key].trim()) return candidate[key];
   }
@@ -52,7 +56,7 @@ export function createSelfServiceAttendanceTransport(api: ConsoleApiClient): Sel
         signal,
       });
       if (!data) throw requestError(response.status, error);
-      return data as GeneratedExceptionPage;
+      return data;
     },
 
     async getOwnWeek52(weekStart: string, signal?: AbortSignal): Promise<OwnAttendanceWeek52> {

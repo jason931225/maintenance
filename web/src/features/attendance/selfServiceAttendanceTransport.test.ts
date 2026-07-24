@@ -69,7 +69,13 @@ describe("createSelfServiceAttendanceTransport", () => {
     { status: "not_available", projection: available.projection },
     { status: "mystery", projection: available.projection },
     { status: "available", projection: { ...available.projection, tone: "MYSTERY" } },
+    { status: "available", projection: null },
+    { status: "available", projection: { ...available.projection, week_start: "2026-02-30" } },
+    { status: "available", projection: { ...available.projection, week_start: "2026-07-21" } },
+    { status: "available", projection: { ...available.projection, acknowledged_at: "2026-02-30T09:00:00Z" } },
+    { status: "available", projection: { ...available.projection, acknowledged_at: "2026-07-20 09:00:00Z" } },
     { status: "available", projection: { ...available.projection, current_hours: -1 } },
+    { status: "available", projection: { ...available.projection, projected_hours: Number.POSITIVE_INFINITY } },
     { status: "available", projection: { ...available.projection, projected_hours: Number.NaN } },
   ])("fails closed with 502 for malformed Week52 %#", async (malformed) => {
     const GET = vi.fn().mockResolvedValue(result(malformed));
@@ -79,13 +85,19 @@ describe("createSelfServiceAttendanceTransport", () => {
   });
 
   it.each([
-    [401, { message: "token expired" }],
-    [422, { detail: "week_start must be Monday" }],
-    [403, { error: "forbidden" }],
-  ])("preserves generated server status and message for %i", async (status, error) => {
+    ["week52", 401, { error: { code: "UNAUTHENTICATED", message: "token expired" } }, "token expired"],
+    ["week52", 422, { detail: "week_start must be Monday" }, "week_start must be Monday"],
+    ["exceptions", 401, { message: "token expired" }, "token expired"],
+    ["exceptions", 422, { error: { code: "INVALID_MONTH", message: "month is invalid" } }, "month is invalid"],
+    ["exceptions", 403, { error: "forbidden" }, "forbidden"],
+  ] as const)("preserves generated server status and message for %s %i", async (endpoint, status, error, message) => {
     const GET = vi.fn().mockResolvedValue(result(undefined, status, error));
-    await expect(createSelfServiceAttendanceTransport(client(GET)).getOwnWeek52("2026-07-20")).rejects.toMatchObject({
-      name: "SelfServiceAttendanceTransportError", status, message: Object.values(error)[0],
+    const transport = createSelfServiceAttendanceTransport(client(GET));
+    const pending = endpoint === "week52"
+      ? transport.getOwnWeek52("2026-07-20")
+      : transport.listOwnExceptions({ month: "2026-07", status: "OPEN", limit: 50, offset: 0 });
+    await expect(pending).rejects.toMatchObject({
+      name: "SelfServiceAttendanceTransportError", status, message,
     });
   });
 });
