@@ -31,13 +31,13 @@ use mnt_identity_adapter_postgres::{PgOrgError, PgOrgStore};
 use mnt_identity_application::{
     ActivateUserCommand, CreateBranchCommand, CreatePolicyAssignmentPreviewReceiptCommand,
     CreatePolicyRoleCommand, CreateRegionCommand, CreateUserCommand, DeactivateBranchCommand,
-    DeactivateRegionCommand, DeactivateUserCommand, PolicyAuditEventSummary,
+    DeactivateRegionCommand, DeactivateUserCommand, DirectoryListQuery, PolicyAuditEventSummary,
     PolicyRoleAssignmentSummary, PolicyRoleCondition, PolicyRolePermission, PolicyRoleSummary,
     PolicyVersionSummary, ReplacePolicyRoleAssignmentsCommand, UpdateBranchCommand,
     UpdatePolicyRoleCommand, UpdatePolicyRoleStatusCommand, UpdateRegionCommand,
     UpdateSelfProfileCommand, UpdateUserCommand, UserListQuery, UserSummary,
 };
-use mnt_identity_domain::Team;
+use mnt_identity_domain::{Team, normalize_directory_search};
 use mnt_kernel_core::{
     AuditAction, AuditEvent, BranchId, BranchScope, ErrorKind, KernelError, OrgId, RegionId,
     TraceContext, UserId,
@@ -62,6 +62,9 @@ use uuid::Uuid;
 // ---------------------------------------------------------------------------
 
 pub const USERS_PATH: &str = "/api/v1/users";
+/// Tenant people directory. Its router registration is intentionally private to
+/// the identity service until app-router and OpenAPI consolidation lands.
+pub const DIRECTORY_PEOPLE_PATH: &str = "/api/v1/directory/people";
 pub const USERS_ME_PATH: &str = "/api/v1/users/me";
 pub const CONSOLE_ROLLOUT_PATH: &str = "/api/v1/console/rollout";
 pub const CONSOLE_ROLLOUT_OPT_IN_PATH: &str = "/api/v1/console/rollout/opt-in";
@@ -224,6 +227,7 @@ pub fn router(state: IdentityRestState) -> Router {
         .route(ME_WORKSPACE_PATH, get(get_workspace).put(put_workspace))
         .route(ME_AUTHZ_PATH, get(get_me_authz))
         .route(USERS_PATH, get(list_users).post(create_user))
+        .route(DIRECTORY_PEOPLE_PATH, get(list_directory_people))
         .route(USER_PATH_TEMPLATE, get(get_user).patch(update_user))
         .route(USER_DEACTIVATE_PATH_TEMPLATE, post(deactivate_user))
         .route(USER_ACTIVATE_PATH_TEMPLATE, post(activate_user))
@@ -365,6 +369,60 @@ struct ListUsersRequest {
     limit: Option<i64>,
     /// Zero-based row offset for offset pagination. Optional, defaults to 0.
     offset: Option<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DirectoryListRequest {
+    #[serde(default)]
+    search: Option<String>,
+    #[serde(default)]
+    team: Option<String>,
+    #[serde(default)]
+    branch_id: Option<String>,
+    #[serde(default)]
+    include_inactive: bool,
+    limit: Option<i64>,
+    offset: Option<i64>,
+}
+
+impl DirectoryListRequest {
+    fn into_query(self) -> Result<DirectoryListQuery, RestError> {
+        let team = self.team.as_deref().map(parse_directory_team).transpose()?;
+        let branch_id = self
+            .branch_id
+            .as_deref()
+            .map(|value| {
+                Uuid::parse_str(value)
+                    .map(BranchId::from_uuid)
+                    .map_err(|_| RestError::validation("branch_id must be a UUID"))
+            })
+            .transpose()?;
+        if self.limit.is_some_and(|limit| limit <= 0) {
+            return Err(RestError::validation("limit must be positive"));
+        }
+        if self.offset.is_some_and(|offset| offset < 0) {
+            return Err(RestError::validation("offset must be non-negative"));
+        }
+        Ok(DirectoryListQuery {
+            search: normalize_directory_search(self.search.as_deref())
+                .map_err(RestError::from_kernel)?,
+            team,
+            branch_id,
+            include_inactive: self.include_inactive,
+            limit: self.limit,
+            offset: self.offset,
+        })
+    }
+}
+
+fn parse_directory_team(value: &str) -> Result<Team, RestError> {
+    match value {
+        "MAINTENANCE" => Ok(Team::Maintenance),
+        "PREVENTION" => Ok(Team::Prevention),
+        "MANAGEMENT" => Ok(Team::Management),
+        "RECEPTION" => Ok(Team::Reception),
+        _ => Err(RestError::validation("team is invalid")),
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -2818,6 +2876,21 @@ async fn list_users(
     Ok(Json(page))
 }
 
+async fn list_directory_people(
+    State(state): State<IdentityRestState>,
+    headers: HeaderMap,
+    Query(request): Query<DirectoryListRequest>,
+) -> Result<impl IntoResponse, RestError> {
+    let principal = principal_from_headers(&state, &headers).await?;
+    let scope = directory_read_scope(&principal)?;
+    let page = state
+        .store
+        .list_directory_people(&scope, request.into_query()?)
+        .await
+        .map_err(RestError::from_store)?;
+    Ok(Json(page))
+}
+
 async fn get_user(
     State(state): State<IdentityRestState>,
     headers: HeaderMap,
@@ -3968,6 +4041,91 @@ async fn delete_passkey(
 fn authorize_org_manage(principal: &Principal, feature: Feature) -> Result<(), RestError> {
     let branch = representative_branch(&principal.branch_scope)?;
     authorize(principal, Action::new(feature), branch).map_err(RestError::from_kernel)
+}
+
+/// Resolve the exact effective scope for a people-directory read. Built-in
+/// grants hold across the caller's live membership scope; custom PBAC grants
+/// contribute only their already-resolved scope, re-intersected here with live
+/// membership as a defense-in-depth boundary. No allow produces no results.
+fn directory_read_scope(principal: &Principal) -> Result<BranchScope, RestError> {
+    let mut effective = BranchScope::Branches(BTreeSet::new());
+    let role_allows = principal.roles.iter().any(|role| {
+        permission_for(*role, Feature::EmployeeDirectoryRead) == PermissionLevel::Allow
+    });
+    if role_allows {
+        effective = branch_scope_union(&effective, &principal.branch_scope);
+    }
+    for grant in principal.effective_feature_grants.iter().filter(|grant| {
+        grant.feature == Feature::EmployeeDirectoryRead
+            && grant.permission == PermissionLevel::Allow
+    }) {
+        let grant_scope = principal.branch_scope.intersect(&grant.branch_scope);
+        effective = branch_scope_union(&effective, &grant_scope);
+    }
+    match &effective {
+        BranchScope::All => Ok(effective),
+        BranchScope::Branches(branches) if !branches.is_empty() => Ok(effective),
+        BranchScope::Branches(_) => Err(RestError::forbidden("people directory access is denied")),
+    }
+}
+
+#[cfg(test)]
+mod directory_query_tests {
+    use super::*;
+
+    #[test]
+    fn directory_scope_intersects_custom_grants_with_live_membership() {
+        let member_branch = BranchId::new();
+        let granted_branch = BranchId::new();
+        let outside_branch = BranchId::new();
+        let principal = Principal::new(
+            UserId::new(),
+            OrgId::knl(),
+            BTreeSet::new(),
+            BranchScope::Branches(BTreeSet::from([member_branch, granted_branch])),
+        )
+        .with_effective_feature_grants(vec![
+            mnt_platform_authz::EffectiveFeatureGrant::new(
+                Feature::EmployeeDirectoryRead,
+                PermissionLevel::Allow,
+                BranchScope::Branches(BTreeSet::from([granted_branch, outside_branch])),
+            ),
+        ]);
+
+        assert_eq!(
+            directory_read_scope(&principal).unwrap(),
+            BranchScope::Branches(BTreeSet::from([granted_branch]))
+        );
+    }
+
+    #[test]
+    fn directory_request_rejects_malformed_filters() {
+        let invalid_team = DirectoryListRequest {
+            search: None,
+            team: Some("unknown".to_owned()),
+            branch_id: None,
+            include_inactive: false,
+            limit: None,
+            offset: None,
+        };
+        assert_eq!(
+            invalid_team.into_query().unwrap_err().status,
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
+
+        let invalid_offset = DirectoryListRequest {
+            search: None,
+            team: None,
+            branch_id: None,
+            include_inactive: false,
+            limit: Some(10),
+            offset: Some(-1),
+        };
+        assert_eq!(
+            invalid_offset.into_query().unwrap_err().status,
+            StatusCode::UNPROCESSABLE_ENTITY
+        );
+    }
 }
 
 /// Per-tenant DARK switch for the Cedar/PBAC role_manage shadow lane

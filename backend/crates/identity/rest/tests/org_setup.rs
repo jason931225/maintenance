@@ -349,6 +349,177 @@ async fn admin_creates_region_branch_and_user_then_lists_and_reads(pool: PgPool)
 }
 
 #[sqlx::test(migrations = "../../platform/db/migrations")]
+async fn people_directory_filters_scope_orders_and_counts_truthfully(pool: PgPool) {
+    let harness = Harness::new(pool.clone()).await;
+    let visible_branch = seed_branch(&pool).await;
+    let hidden_branch = seed_branch(&pool).await;
+    let admin = seed_user(&pool, "Directory Admin", &["ADMIN"], Some(visible_branch)).await;
+    let first = seed_user_with_team(
+        &pool,
+        "ALPHA",
+        &["MECHANIC"],
+        Some(visible_branch),
+        Some("정비"),
+    )
+    .await;
+    let employee_id = seed_employee_link(&pool, first, "EMP-ALPHA", "Alpha Employee").await;
+    let _second = seed_user_with_team(
+        &pool,
+        "alpha",
+        &["MECHANIC"],
+        Some(visible_branch),
+        Some("정비"),
+    )
+    .await;
+    let inactive = seed_user_with_team(
+        &pool,
+        "alpha inactive",
+        &["MECHANIC"],
+        Some(visible_branch),
+        Some("정비"),
+    )
+    .await;
+    seed_user_active(&pool, inactive, false).await;
+    let shared = seed_user_with_team(
+        &pool,
+        "beta shared",
+        &["MECHANIC"],
+        Some(visible_branch),
+        Some("정비"),
+    )
+    .await;
+    seed_user_branch(&pool, shared, hidden_branch).await;
+    let _hidden = seed_user_with_team(
+        &pool,
+        "alpha hidden",
+        &["MECHANIC"],
+        Some(hidden_branch),
+        Some("정비"),
+    )
+    .await;
+    let same_name_a = seed_user_with_team(
+        &pool,
+        "same name",
+        &["MECHANIC"],
+        Some(visible_branch),
+        Some("정비"),
+    )
+    .await;
+    let same_name_b = seed_user_with_team(
+        &pool,
+        "same name",
+        &["MECHANIC"],
+        Some(visible_branch),
+        Some("정비"),
+    )
+    .await;
+    let token = harness.token(admin, &["ADMIN"], vec![visible_branch]);
+
+    let (status, page) = send(
+        &harness,
+        "GET",
+        "/api/v1/directory/people?search=%20ALPHA%20&team=MAINTENANCE&limit=10",
+        &token,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{page:?}");
+    assert_eq!(page["total"], 2, "inactive and hidden users are omitted");
+    let names: Vec<&str> = page["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| item["display_name"].as_str().unwrap())
+        .collect();
+    assert_eq!(names, ["ALPHA", "alpha"]);
+    let linked = page["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["id"] == first.to_string())
+        .unwrap();
+    assert_eq!(linked["employee_id"], employee_id.to_string());
+    assert_eq!(linked["employee_link_status"], "LINKED");
+    assert_eq!(linked["employee_name"], "Alpha Employee");
+
+    let (status, second_page) = send(
+        &harness,
+        "GET",
+        "/api/v1/directory/people?search=alpha&team=MAINTENANCE&limit=1&offset=1",
+        &token,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{second_page:?}");
+    assert_eq!(second_page["total"], 2);
+    assert_eq!(second_page["limit"], 1);
+    assert_eq!(second_page["offset"], 1);
+    assert_eq!(second_page["items"].as_array().unwrap().len(), 1);
+
+    let (status, same_names) = send(
+        &harness,
+        "GET",
+        "/api/v1/directory/people?search=same%20name&team=MAINTENANCE",
+        &token,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{same_names:?}");
+    let returned_ids: Vec<String> = same_names["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| item["id"].as_str().unwrap().to_owned())
+        .collect();
+    let mut expected_ids = vec![same_name_a.to_string(), same_name_b.to_string()];
+    expected_ids.sort();
+    assert_eq!(
+        returned_ids, expected_ids,
+        "same-name rows use id as a tie-breaker"
+    );
+
+    let (status, scoped) = send(
+        &harness,
+        "GET",
+        &format!("/api/v1/directory/people?branch_id={visible_branch}&team=MAINTENANCE"),
+        &token,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{scoped:?}");
+    let shared_row = scoped["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["id"] == shared.to_string())
+        .unwrap();
+    assert_eq!(
+        shared_row["branch_ids"],
+        json!([visible_branch.to_string()])
+    );
+
+    let (status, including_inactive) = send(
+        &harness,
+        "GET",
+        "/api/v1/directory/people?search=alpha&team=MAINTENANCE&include_inactive=true",
+        &token,
+        None,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{including_inactive:?}");
+    assert_eq!(including_inactive["total"], 3);
+
+    for invalid in [
+        "/api/v1/directory/people?team=UNKNOWN",
+        "/api/v1/directory/people?branch_id=not-a-uuid",
+        "/api/v1/directory/people?offset=-1",
+    ] {
+        let (status, body) = send(&harness, "GET", invalid, &token, None).await;
+        assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{body:?}");
+    }
+}
+
+#[sqlx::test(migrations = "../../platform/db/migrations")]
 async fn non_super_admin_cannot_create_elevated_user(pool: PgPool) {
     let harness = Harness::new(pool.clone()).await;
     let admin_branch = seed_branch(&pool).await;
@@ -3015,6 +3186,78 @@ async fn seed_user_branch(pool: &PgPool, user_id: UserId, branch_id: BranchId) {
     })
     .await
     .unwrap();
+}
+
+async fn seed_user_active(pool: &PgPool, user_id: UserId, is_active: bool) {
+    let event = AuditEvent::new(
+        None,
+        AuditAction::new("test.seed_user_active").unwrap(),
+        "user",
+        user_id.to_string(),
+        TraceContext::generate(),
+        OffsetDateTime::now_utc(),
+    )
+    .with_org(OrgId::knl());
+    with_audit(pool, event, |tx| {
+        Box::pin(async move {
+            sqlx::query("UPDATE users SET is_active = $1 WHERE id = $2")
+                .bind(is_active)
+                .bind(*user_id.as_uuid())
+                .execute(tx.as_mut())
+                .await
+                .map_err(DbError::Sqlx)?;
+            Ok::<(), DbError>(())
+        })
+    })
+    .await
+    .unwrap();
+}
+
+async fn seed_employee_link(
+    pool: &PgPool,
+    user_id: UserId,
+    number: &str,
+    name: &str,
+) -> uuid::Uuid {
+    let employee_id = uuid::Uuid::new_v4();
+    let number = number.to_owned();
+    let name = name.to_owned();
+    let event = AuditEvent::new(
+        None,
+        AuditAction::new("test.seed_employee_link").unwrap(),
+        "employee",
+        employee_id.to_string(),
+        TraceContext::generate(),
+        OffsetDateTime::now_utc(),
+    )
+    .with_org(OrgId::knl());
+    with_audit(pool, event, |tx| {
+        Box::pin(async move {
+            sqlx::query(
+                "INSERT INTO employees \
+                 (id, org_id, company, name, employee_number, source_filename, source_sheet, source_row, source_key) \
+                 VALUES ($1, $2, 'Test Company', $3, $4, 'test.csv', 'employees', 1, $5)",
+            )
+            .bind(employee_id)
+            .bind(*OrgId::knl().as_uuid())
+            .bind(name)
+            .bind(&number)
+            .bind(format!("test:{number}"))
+            .execute(tx.as_mut())
+            .await
+            .map_err(DbError::Sqlx)?;
+            sqlx::query("UPDATE users SET employee_id = $1 WHERE id = $2")
+                .bind(employee_id)
+                .bind(*user_id.as_uuid())
+                .execute(tx.as_mut())
+                .await
+                .map_err(DbError::Sqlx)?;
+            Ok::<(), DbError>(())
+        })
+    })
+    .await
+    .unwrap();
+    employee_id
 }
 
 async fn seed_policy_role(
