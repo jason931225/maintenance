@@ -645,8 +645,12 @@ function InventoryOperations({
   const [memo, setMemo] = useState("");
   const loadEpoch = useRef(0);
   const mutationEpoch = useRef(0);
+  const countSelectionEpoch = useRef(0);
   const readController = useRef<AbortController | null>(null);
   const receiptAttempt = useRef<{ payload: string; key: string } | null>(null);
+  const approvalAttempt = useRef<{ payload: string; key: string } | null>(
+    null,
+  );
 
   async function load() {
     readController.current?.abort();
@@ -709,6 +713,7 @@ function InventoryOperations({
       controller.abort();
       loadEpoch.current += 1;
       mutationEpoch.current += 1;
+      countSelectionEpoch.current += 1;
       if (readController.current === controller) {
         readController.current = null;
       }
@@ -754,6 +759,7 @@ function InventoryOperations({
 
   async function openCount() {
     const generation = mutationEpoch.current;
+    countSelectionEpoch.current += 1;
     setBusy(true);
     try {
       const next = await openCycleCount(
@@ -785,9 +791,10 @@ function InventoryOperations({
       return;
     }
     const snapshot = count.lines.find((entry) => entry.item_id === item.id);
+    const systemQuantity =
+      snapshot?.system_quantity_milli ?? item.quantity_on_hand_milli;
     if (
-      snapshot &&
-      milli !== snapshot.system_quantity_milli &&
+      milli !== systemQuantity &&
       reason.length === 0
     ) {
       setMessage("시스템 수량과 다른 실사는 차이 사유가 필요합니다.");
@@ -823,6 +830,24 @@ function InventoryOperations({
   ) {
     if (!count) return;
     const generation = mutationEpoch.current;
+    const approvalPayload =
+      action === "approve"
+        ? JSON.stringify([
+            count.count.id,
+            count.count.version,
+            "APPROVE",
+            memo.trim(),
+          ])
+        : null;
+    if (
+      approvalPayload &&
+      approvalAttempt.current?.payload !== approvalPayload
+    ) {
+      approvalAttempt.current = {
+        payload: approvalPayload,
+        key: crypto.randomUUID(),
+      };
+    }
     setBusy(true);
     try {
       const next =
@@ -843,9 +868,18 @@ function InventoryOperations({
                 decision: action === "approve" ? "APPROVE" : "REJECT",
                 memo: memo.trim() || undefined,
                 idempotency_key:
-                  action === "approve" ? crypto.randomUUID() : undefined,
+                  action === "approve"
+                    ? approvalAttempt.current?.key
+                    : undefined,
               });
       if (generation !== mutationEpoch.current) return;
+      countSelectionEpoch.current += 1;
+      if (
+        approvalPayload &&
+        approvalAttempt.current?.payload === approvalPayload
+      ) {
+        approvalAttempt.current = null;
+      }
       setCount(next);
       await load();
     } catch (error) {
@@ -863,13 +897,20 @@ function InventoryOperations({
 
   async function selectCount(countId: string) {
     const generation = mutationEpoch.current;
+    const selection = ++countSelectionEpoch.current;
     try {
       const detail = await getCycleCount(api, countId);
-      if (generation === mutationEpoch.current) {
+      if (
+        generation === mutationEpoch.current &&
+        selection === countSelectionEpoch.current
+      ) {
         setCount(detail);
       }
     } catch {
-      if (generation === mutationEpoch.current) {
+      if (
+        generation === mutationEpoch.current &&
+        selection === countSelectionEpoch.current
+      ) {
         setMessage("실사 상세를 불러오지 못했습니다.");
       }
     }

@@ -9,6 +9,7 @@ import {
   listOpenWorkOrders,
   listInventoryMovements,
   getInventoryMrp,
+  getCycleCount,
   openCycleCount,
   submitCycleCount,
   milliUnits,
@@ -179,6 +180,53 @@ describe("inventoryApi", () => {
           quantity_consumed_milli: 1,
           idempotency_key: "request-1",
         },
+      ),
+    ).rejects.toBeInstanceOf(InventoryApiContractError);
+  });
+
+  it("rejects an unrecognized cycle-count variance reason", async () => {
+    const count = {
+      id: "cc-1",
+      ccCode: "CC-1",
+      branchId: "branch-1",
+      stockLocation: { id: "loc", label: "A-01" },
+      status: "DRAFT",
+      version: 1,
+      openedBy: "user-1",
+      submittedBy: null,
+      decidedBy: null,
+      decisionMemo: null,
+      lineCount: 1,
+      varianceLineCount: 1,
+      createdAt: "2026-07-24T00:00:00Z",
+      updatedAt: "2026-07-24T00:00:00Z",
+    };
+    const malformedLine = {
+      id: "line-1",
+      itemId: item.id,
+      ivCode: item.iv_code,
+      displayName: item.display_name,
+      unitCode: item.unit_code,
+      systemQuantityMilli: 1_000,
+      countedQuantityMilli: 0,
+      varianceMilli: -1_000,
+      reason: "UNRECOGNIZED",
+      note: null,
+      recordedBy: "user-1",
+      recordedAt: "2026-07-24T00:01:00Z",
+    };
+
+    await expect(
+      getCycleCount(
+        {
+          GET: () =>
+            response({
+              count,
+              lines: [malformedLine],
+              appliedMovementIds: [],
+            }),
+        } as never,
+        count.id,
       ),
     ).rejects.toBeInstanceOf(InventoryApiContractError);
   });

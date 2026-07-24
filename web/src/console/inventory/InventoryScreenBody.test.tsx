@@ -96,6 +96,33 @@ const cycleCount = {
   updatedAt: "2026-07-24T00:00:00Z",
 };
 const cycleDetail = { count: cycleCount, lines: [], appliedMovementIds: [] };
+const secondCycleCount = {
+  ...cycleCount,
+  id: "cc-2",
+  ccCode: "CC-2",
+};
+const submittedCycleCount = {
+  ...cycleCount,
+  status: "SUBMITTED",
+  version: 2,
+  submittedBy: "user-1",
+  lineCount: 1,
+};
+const submittedCycleDetail = {
+  count: submittedCycleCount,
+  lines: [],
+  appliedMovementIds: [],
+};
+const approvedCycleDetail = {
+  count: {
+    ...submittedCycleCount,
+    status: "APPROVED",
+    version: 3,
+    decidedBy: "reviewer-1",
+  },
+  lines: [],
+  appliedMovementIds: ["movement-approval-1"],
+};
 
 function operationalGet(path: string, options?: { params?: { path?: { item_id?: string } } }) {
   if (path === "/api/v1/inventory/items") return { data: { items: [item, secondItem], total: 2, limit: 100, offset: 0 }, response: new Response() };
@@ -496,15 +523,24 @@ describe("InventoryScreenBody", () => {
     expect(screen.queryByText("입고가 저장되지 않았습니다")).toBeNull();
   });
 
-  it("submits a rendered zero physical count without an invented variance reason", async () => {
-    const POST = vi.fn()
-      .mockResolvedValueOnce({ data: cycleDetail, response: new Response() })
-      .mockResolvedValueOnce({ data: cycleDetail, response: new Response() });
+  it("requires a reason for the first physical-count variance before submitting it", async () => {
+    const POST = vi
+      .fn()
+      .mockResolvedValue({ data: cycleDetail, response: new Response() });
     renderScreen(vi.fn(operationalGet), POST);
     await userEvent.click(await screen.findByRole("button", { name: "IV-031 상세 열기" }));
     await userEvent.click(screen.getByRole("button", { name: "이 위치 실사 개설" }));
     expect(await screen.findByText("CC-1 · DRAFT · 버전 1")).toBeVisible();
     await userEvent.type(screen.getByLabelText("실사 수량 (EA)"), "0");
+    await userEvent.click(screen.getByRole("button", { name: "실사 라인 저장" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "시스템 수량과 다른 실사는 차이 사유가 필요합니다.",
+    );
+    expect(POST).toHaveBeenCalledTimes(1);
+    await userEvent.selectOptions(
+      screen.getByLabelText("차이 사유 (차이가 있을 때 필수)"),
+      "DAMAGE",
+    );
     await userEvent.click(screen.getByRole("button", { name: "실사 라인 저장" }));
     await waitFor(() => {
       expect(POST).toHaveBeenCalledTimes(2);
@@ -514,8 +550,125 @@ describe("InventoryScreenBody", () => {
       expectedVersion: 1,
       itemId: item.id,
       countedQuantityMilli: 0,
+      reason: "DAMAGE",
     });
-    expect(lineBody.reason).toBeUndefined();
+  });
+
+  it("reuses one approval idempotency key after a lost response", async () => {
+    const GET = vi.fn(
+      (
+        path: string,
+        options?: {
+          params?: { path?: { item_id?: string; count_id?: string } };
+        },
+      ) => {
+        if (path === "/api/v1/inventory/cycle-counts") {
+          return {
+            data: {
+              items: [submittedCycleCount],
+              total: 1,
+              limit: 50,
+              offset: 0,
+            },
+            response: new Response(),
+          };
+        }
+        if (path === "/api/v1/inventory/cycle-counts/{count_id}") {
+          return { data: submittedCycleDetail, response: new Response() };
+        }
+        return operationalGet(path, options);
+      },
+    );
+    const POST = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("lost response"))
+      .mockResolvedValueOnce({
+        data: approvedCycleDetail,
+        response: new Response(),
+      });
+    renderScreen(GET, POST);
+    await userEvent.click(
+      await screen.findByRole("button", { name: "IV-031 상세 열기" }),
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: "CC-1 · SUBMITTED" }),
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: "별도 검토자 승인" }),
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "동시 변경 또는 정책 검증으로 전환이 거부되었습니다.",
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "별도 검토자 승인" }),
+    );
+    await waitFor(() => {
+      expect(POST).toHaveBeenCalledTimes(2);
+    });
+    expect(requestBody(POST, 0).idempotencyKey).toBe(
+      requestBody(POST, 1).idempotencyKey,
+    );
+  });
+
+  it("keeps the latest cycle-count selection when details resolve out of order", async () => {
+    const detailResolvers = new Map<string, (value: unknown) => void>();
+    const GET = vi.fn(
+      (
+        path: string,
+        options?: {
+          params?: { path?: { item_id?: string; count_id?: string } };
+        },
+      ) => {
+        if (path === "/api/v1/inventory/cycle-counts") {
+          return {
+            data: {
+              items: [cycleCount, secondCycleCount],
+              total: 2,
+              limit: 50,
+              offset: 0,
+            },
+            response: new Response(),
+          };
+        }
+        if (path === "/api/v1/inventory/cycle-counts/{count_id}") {
+          const countId = options?.params?.path?.count_id;
+          return new Promise((resolve) => {
+            if (countId) detailResolvers.set(countId, resolve);
+          });
+        }
+        return operationalGet(path, options);
+      },
+    );
+    renderScreen(GET);
+    await userEvent.click(
+      await screen.findByRole("button", { name: "IV-031 상세 열기" }),
+    );
+    await userEvent.click(
+      await screen.findByRole("button", { name: "CC-1 · DRAFT" }),
+    );
+    await userEvent.click(
+      screen.getByRole("button", { name: "CC-2 · DRAFT" }),
+    );
+    await waitFor(() => {
+      expect(detailResolvers.size).toBe(2);
+    });
+    detailResolvers.get("cc-2")?.({
+      data: {
+        count: secondCycleCount,
+        lines: [],
+        appliedMovementIds: [],
+      },
+      response: new Response(),
+    });
+    expect(await screen.findByText("CC-2 · DRAFT · 버전 1")).toBeVisible();
+    detailResolvers.get("cc-1")?.({
+      data: cycleDetail,
+      response: new Response(),
+    });
+    await waitFor(() => {
+      expect(screen.getByText("CC-2 · DRAFT · 버전 1")).toBeVisible();
+    });
+    expect(screen.queryByText("CC-1 · DRAFT · 버전 1")).toBeNull();
   });
 
   it("does not let deferred movement MRP or cycle-list reads overwrite the new selection", async () => {

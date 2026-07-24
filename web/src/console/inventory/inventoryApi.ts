@@ -106,8 +106,21 @@ function isCycleCountDto(value: unknown): value is CycleCountDto {
   return isRecord(value) && isString(value.id) && isString(value.ccCode) && isString(value.branchId) && isRecord(value.stockLocation) && isString(value.stockLocation.id) && isString(value.stockLocation.label) && ["DRAFT", "SUBMITTED", "APPROVED", "REJECTED", "CANCELLED"].includes(String(value.status)) && isNumber(value.version) && isString(value.openedBy) && isOptionalString(value.submittedBy) && isOptionalString(value.decidedBy) && isOptionalString(value.decisionMemo) && isNumber(value.lineCount) && isNumber(value.varianceLineCount) && isString(value.createdAt) && isString(value.updatedAt);
 }
 
+function isCycleCountReason(
+  value: unknown,
+): value is CycleCountLineDto["reason"] {
+  return (
+    value == null ||
+    value === "DAMAGE" ||
+    value === "LOSS" ||
+    value === "MISCOUNT" ||
+    value === "FOUND" ||
+    value === "OTHER"
+  );
+}
+
 function isCycleCountLineDto(value: unknown): value is CycleCountLineDto {
-  return isRecord(value) && isString(value.id) && isString(value.itemId) && isString(value.ivCode) && isString(value.displayName) && isString(value.unitCode) && isNumber(value.systemQuantityMilli) && isNumber(value.countedQuantityMilli) && isNumber(value.varianceMilli) && isOptionalString(value.reason) && isOptionalString(value.note) && isString(value.recordedBy) && isString(value.recordedAt);
+  return isRecord(value) && isString(value.id) && isString(value.itemId) && isString(value.ivCode) && isString(value.displayName) && isString(value.unitCode) && isNumber(value.systemQuantityMilli) && isNumber(value.countedQuantityMilli) && isNumber(value.varianceMilli) && isCycleCountReason(value.reason) && isOptionalString(value.note) && isString(value.recordedBy) && isString(value.recordedAt);
 }
 
 function isCycleDetailDto(value: unknown): value is CycleCountDetailDto {
